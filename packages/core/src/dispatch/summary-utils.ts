@@ -12,6 +12,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { buildSummaryPrompt } from '../prompt-templates.js'
 import type { ExecutionSummary } from '../types.js'
+import type { TaskResult } from './types.js'
 
 // ============================================================================
 // Executive Summary Parsing (from agent output text)
@@ -190,6 +191,274 @@ const SUMMARY_TIMEOUT_MS = 15_000
  * @param apiKey - Anthropic API key (falls back to ANTHROPIC_API_KEY env var)
  * @returns ExecutionSummary object, or null on failure
  */
+// ============================================================================
+// PR Summary Fallback Chain
+// ============================================================================
+
+/**
+ * Source of the PR summary in the fallback chain.
+ * - 'structured': From TaskResult.summary.executiveSummary
+ * - 'parsed': From parsing the "## Executive Summary" block in execution output
+ * - 'server_generated': From server-side Anthropic API call
+ * - 'git_diff': From git diff + commit log
+ * - 'task_description': Fallback to raw task description
+ */
+export type PrSummarySource = 'structured' | 'parsed' | 'server_generated' | 'git_diff' | 'task_description'
+
+/**
+ * Result of the PR summary fallback chain.
+ */
+export interface PrSummaryResult {
+  /** The generated summary text */
+  summary: string
+  /** Which layer of the fallback chain produced the summary */
+  source: PrSummarySource
+}
+
+/**
+ * Input for the PR summary fallback chain.
+ */
+export interface PrSummaryFallbackInput {
+  /** Task result from execution (may contain structured summary) */
+  taskResult: TaskResult
+  /** Task title for context */
+  taskTitle: string
+  /** Task description as final fallback */
+  taskDescription: string
+  /** Full execution output text for parsing executive summary */
+  executionOutput?: string
+  /** File changes for server-side summary generation */
+  fileChanges?: Array<{ path: string; action: string }>
+  /** Worktree path for git diff summary */
+  worktreePath?: string
+  /** Anthropic API key (optional, uses env var as fallback) */
+  apiKey?: string
+  /** Optional function to generate git diff summary (for server-side use) */
+  generateGitDiffSummary?: (worktreePath: string) => string | null
+}
+
+/**
+ * Run the PR summary fallback chain.
+ *
+ * This function implements a 5-layer fallback chain for generating PR body summaries:
+ *
+ * 1. **Structured summary**: Use TaskResult.summary.executiveSummary if available
+ *    (the structured JSON summary from the execution result)
+ *
+ * 2. **Parsed in-stream**: Parse the "## Executive Summary" block from execution output
+ *    using regex (no API call required)
+ *
+ * 3. **Server-generated**: Call the Anthropic API (claude-3-haiku) to generate a summary
+ *    from the execution output, task context, and file changes
+ *
+ * 4. **Git diff**: Generate a summary from git diff --stat and commit log
+ *    (requires worktree path and server-side execution)
+ *
+ * 5. **Task description**: Fall back to the raw task description
+ *    (always succeeds as the final fallback)
+ *
+ * Each layer is tried in order. If a layer returns a valid summary, it's returned
+ * immediately. Otherwise, the next layer is tried.
+ *
+ * @param input - Input containing task result, output, and context
+ * @returns PrSummaryResult with summary text and source layer
+ *
+ * @example
+ * ```ts
+ * const result = await runPrSummaryFallbackChain({
+ *   taskResult: executionResult,
+ *   taskTitle: 'Implement login feature',
+ *   taskDescription: 'Add OAuth2 login with Google and GitHub providers',
+ *   executionOutput: agentOutput,
+ *   fileChanges: [{ path: 'src/auth.ts', action: 'modify' }],
+ *   worktreePath: '/path/to/worktree',
+ * })
+ * console.log(`Summary (from ${result.source}): ${result.summary}`)
+ * ```
+ */
+export async function runPrSummaryFallbackChain(input: PrSummaryFallbackInput): Promise<PrSummaryResult> {
+  const {
+    taskResult,
+    taskTitle,
+    taskDescription,
+    executionOutput,
+    fileChanges,
+    worktreePath,
+    apiKey,
+    generateGitDiffSummary: gitDiffFn,
+  } = input
+
+  // ========================================================================
+  // Layer 1: Structured summary from TaskResult.summary.executiveSummary
+  // ========================================================================
+  // Check if the execution result includes a structured summary with executiveSummary
+  // This is the highest quality source - a pre-generated executive summary
+  if (taskResult.summary?.executiveSummary) {
+    const executiveSummary = taskResult.summary.executiveSummary.trim()
+    if (executiveSummary.length > 0) {
+      return {
+        summary: executiveSummary,
+        source: 'structured',
+      }
+    }
+  }
+
+  // Also check for workCompleted + keyFindings as a secondary structured source
+  if (taskResult.summary?.workCompleted) {
+    const { workCompleted, keyFindings, followUps, status } = taskResult.summary
+    const summaryParts: string[] = [workCompleted]
+
+    if (keyFindings && keyFindings.length > 0) {
+      summaryParts.push('\n\n**Key changes:**')
+      for (const finding of keyFindings) {
+        summaryParts.push(`- ${finding}`)
+      }
+    }
+
+    if (followUps && followUps.length > 0) {
+      summaryParts.push('\n\n**Follow-ups:**')
+      for (const followUp of followUps) {
+        summaryParts.push(`- ${followUp}`)
+      }
+    }
+
+    if (status && status !== 'success') {
+      summaryParts.push(`\n\n**Status:** ${status}`)
+    }
+
+    const structured = summaryParts.join('\n').trim()
+    if (structured.length > 0) {
+      return {
+        summary: structured,
+        source: 'structured',
+      }
+    }
+  }
+
+  // ========================================================================
+  // Layer 2: Parse in-stream executive summary from execution output
+  // ========================================================================
+  // Parse the "## Executive Summary" block that agents emit at the end of output
+  if (executionOutput) {
+    const parsed = parseExecutiveSummaryFromOutput(executionOutput)
+    if (parsed) {
+      const { status, workCompleted, keyFindings, followUps } = parsed
+      const summaryParts: string[] = [workCompleted]
+
+      if (keyFindings.length > 0) {
+        summaryParts.push('\n\n**Key changes:**')
+        for (const finding of keyFindings) {
+          summaryParts.push(`- ${finding}`)
+        }
+      }
+
+      if (followUps.length > 0) {
+        summaryParts.push('\n\n**Follow-ups:**')
+        for (const followUp of followUps) {
+          summaryParts.push(`- ${followUp}`)
+        }
+      }
+
+      if (status !== 'success') {
+        summaryParts.push(`\n\n**Status:** ${status}`)
+      }
+
+      const parsedSummary = summaryParts.join('\n').trim()
+      if (parsedSummary.length > 0) {
+        return {
+          summary: parsedSummary,
+          source: 'parsed',
+        }
+      }
+    }
+  }
+
+  // ========================================================================
+  // Layer 3: Server-side summary generation via Anthropic API
+  // ========================================================================
+  // Call claude-3-haiku to generate a summary from the execution context
+  if (executionOutput) {
+    const serverSummary = await generateServerSideSummary(
+      {
+        taskTitle,
+        taskDescription,
+        executionOutput,
+        fileChanges: fileChanges ?? [],
+        status: taskResult.status === 'success' ? 'success' : 'failure',
+      },
+      apiKey,
+    )
+
+    if (serverSummary) {
+      // Prefer executiveSummary if present, otherwise build from structured fields
+      if (serverSummary.executiveSummary) {
+        return {
+          summary: serverSummary.executiveSummary,
+          source: 'server_generated',
+        }
+      }
+
+      // Build summary from structured fields
+      const summaryParts: string[] = [serverSummary.workCompleted]
+
+      if (serverSummary.keyFindings.length > 0) {
+        summaryParts.push('\n\n**Key changes:**')
+        for (const finding of serverSummary.keyFindings) {
+          summaryParts.push(`- ${finding}`)
+        }
+      }
+
+      if (serverSummary.followUps.length > 0) {
+        summaryParts.push('\n\n**Follow-ups:**')
+        for (const followUp of serverSummary.followUps) {
+          summaryParts.push(`- ${followUp}`)
+        }
+      }
+
+      if (serverSummary.status !== 'success') {
+        summaryParts.push(`\n\n**Status:** ${serverSummary.status}`)
+      }
+
+      const generated = summaryParts.join('\n').trim()
+      if (generated.length > 0) {
+        return {
+          summary: generated,
+          source: 'server_generated',
+        }
+      }
+    }
+  }
+
+  // ========================================================================
+  // Layer 4: Git diff + commit log summary
+  // ========================================================================
+  // Generate a summary from git diff --stat and recent commits
+  // This requires a worktree path and the generateGitDiffSummary function
+  // (which uses child_process and is server-side only)
+  if (worktreePath && gitDiffFn) {
+    const gitSummary = gitDiffFn(worktreePath)
+    if (gitSummary) {
+      return {
+        summary: gitSummary,
+        source: 'git_diff',
+      }
+    }
+  }
+
+  // ========================================================================
+  // Layer 5: Fall back to raw task description
+  // ========================================================================
+  // This is the final fallback - always succeeds
+  return {
+    summary: `**${taskTitle}**\n\n${taskDescription}`,
+    source: 'task_description',
+  }
+}
+
+// ============================================================================
+// Server-Side Summary Generation
+// ============================================================================
+
 export async function generateServerSideSummary(
   input: SummaryInput,
   apiKey?: string,
