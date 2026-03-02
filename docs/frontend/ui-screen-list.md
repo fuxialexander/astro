@@ -202,7 +202,7 @@ Team invitation acceptance:
 ### 7.2 Task-Level Chat
 **Component:** Within task detail
 
-- Chat history persisted per task (IndexedDB-backed)
+- Chat history persisted per task (API-backed)
 - Questions about tasks and reviewing execution
 
 ---

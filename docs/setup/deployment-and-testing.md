@@ -9,7 +9,7 @@ This document covers how to test Astro in both Local Mode and Server Mode, and h
 Local mode is the simplest — everything runs on your machine, no accounts needed.
 
 ```bash
-# Start in local mode (IndexedDB only)
+# Start in local mode (PGlite)
 npm run dev:local
 # or equivalently:
 ASTRO_LOCAL_MODE=true npm run dev
@@ -19,7 +19,7 @@ ASTRO_LOCAL_MODE=true npm run dev
 - Open http://localhost:5173 — should load with "Local Mode" badge in sidebar
 - No login screen — you go straight to the app
 - Create a project, add tasks, verify they persist across page refresh
-- Check browser DevTools > Application > IndexedDB — you should see `keyval-store` with data
+- Create a project, add tasks, verify they persist across page refresh
 - Activities should appear in the activity dialog
 - Settings changes (model, default provider) should persist across refresh
 
@@ -86,7 +86,7 @@ npm run dev
   - Or use the passkey registration flow in the app
 - After login: create projects, tasks, activities
 - Open Supabase Studio > Table Editor — verify data appears in Postgres tables
-- Clear IndexedDB in browser DevTools — refresh — data should reload from API
+- Refresh the page — data should reload from API
 - Settings changes should persist in `user_profiles.settings`
 - Sidebar config should persist in `user_profiles.sidebar_config`
 
@@ -200,8 +200,8 @@ If you have `your-domain.com` or want a custom domain:
 8. Refresh the page — everything should persist
 9. Open an incognito window — login again
    → Projects, settings, sidebar config should all sync
-10. Clear IndexedDB in original window → refresh
-    → Data reloads from Supabase
+10. Hard refresh in original window
+    → Data reloads from API
 ```
 
 ### Multi-User Test

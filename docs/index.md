@@ -7,6 +7,7 @@ Welcome to the Astro documentation. Documents are organized into design docs (th
 - **New to Astro?** Start with [Developer Setup](./setup/developer-setup.md)
 - **Setting up local development?** See [Local Mode](./setup/local-mode.md)
 - **Understanding the architecture?** Read [Design Docs](./design/README.md)
+- **Working with the API?** See [API Surface & Roadmap](./api.md) (inventory of all 201 endpoints, conventions, multi-platform roadmap)
 
 ## Design Documents (Canonical Reference)
 
@@ -34,6 +35,8 @@ The design docs in `docs/design/` are the authoritative reference for the system
 
 ### Backend
 
+- [API Surface & Roadmap](./api.md) - Endpoint inventory, conventions, multi-platform roadmap
+- [WebSocket Roadmap](./websocket.md) - Backend ↔ frontend WebSocket plan for mobile support
 - [API Reference](./backend/api-reference.md) - API endpoint documentation
 - [Database Schema](./backend/database-schema.md) - Drizzle schema, tables, relationships (includes Teams schema)
 - [RLS Policies](./backend/rls-policies.md) - Row-level security policies
@@ -67,7 +70,7 @@ The design docs in `docs/design/` are the authoritative reference for the system
 ### Setup & Deployment
 
 - [Developer Setup](./setup/developer-setup.md) - Getting started guide
-- [Local Mode](./setup/local-mode.md) - IndexedDB-only single-user mode
+- [Local Mode](./setup/local-mode.md) - PGlite single-user mode
 - [Server Mode](./setup/server-mode.md) - Supabase multi-user mode
 - [Environment Variables](./setup/environment-variables.md) - Complete env var reference
 - [Fly Deployment](./setup/fly-deployment.md) - Fly.io deployment guide

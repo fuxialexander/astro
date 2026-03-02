@@ -379,7 +379,7 @@ These are auto-fetched in the background on page load via `useFileTreeRefresh` h
 | Skills | Zustand memory (from API) | Zustand memory (from API) |
 | Machine registry | In-memory + Postgres | In-memory + Postgres |
 | Agent runner config | `~/.config/astro-agent/` | `~/.config/astro-agent/` |
-| Git worktrees | `~/.astro/worktrees/` | `~/.astro/worktrees/` |
+| Git worktrees | `{projectDir}/.astro/worktrees/` | `{projectDir}/.astro/worktrees/` |
 
 ---
 
@@ -871,3 +871,11 @@ See `WORKSPACE_V2.md` for the complete design, including data model changes, API
 | `PACKAGE_ARCHITECTURE.md` | Monorepo package extraction: `@astro/core`, `@astroanywhere/cli`, dependency graph |
 | `CLI_PACKAGE.md` | CLI package design: TUI (Ink), commands, Zustand stores |
 | `WORKSPACE_V2.md` | Workspace model: `.astro/` agent dir, worktrees, delivery modes, directory detection |
+
+---
+
+## Reflection: Potential Issues & Improvements
+
+1. **Worktree path table (section 4.5)** previously referenced `~/.astro/worktrees/` (global path) instead of the per-project `{projectDir}/.astro/worktrees/` path specified in WORKSPACE_V2.md. Fixed 2026-03-01.
+2. **Store count drift** -- the store count (currently 29) tends to become stale as new stores are added. Consider generating this number from the codebase rather than hardcoding it.
+3. **Table count drift** -- similarly, the table count (currently 38) should be verified against `packages/core/src/db/schema.ts` whenever schema changes occur.

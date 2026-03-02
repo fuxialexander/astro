@@ -1,14 +1,14 @@
 # State Management
 
-Zustand stores and IndexedDB persistence.
+Zustand stores and API persistence.
 
 ## Store Overview
 
-All stores live in `src/stores/` and use Zustand 5. Most persist to IndexedDB via `idb-keyval` for offline resilience.
+All stores live in `src/stores/` and use Zustand 5. Stores persist via `dataClient` which calls `/api/data/*` endpoints backed by Drizzle ORM (PGlite in local mode, Postgres in server mode).
 
 ### Core Data
 
-- `project-store.ts` - Projects CRUD, IndexedDB + API persistence
+- `project-store.ts` - Projects CRUD, API persistence
 - `plan-store.ts` - Plan nodes/edges per project, bulk updates, graph layout
 - `initiative-store.ts` - Initiatives/projects grouping
 - `session-store.ts` - Unified session data: plan chat, task chat, steer messages, execution sessions
@@ -53,9 +53,9 @@ All stores live in `src/stores/` and use Zustand 5. Most persist to IndexedDB vi
 
 ## Persistence
 
-- IndexedDB via `idb-keyval`
-- Automatic cache on state changes
-- Cache invalidation on login/sync
+- `dataClient` calls `/api/data/*` endpoints (Drizzle ORM → PGlite or Postgres)
+- Stores load from backend on mount via `DataLoader` component (`dataClient.load()` → `GET /api/data/*`)
+- State changes persisted via `dataClient` → `POST /api/data/*`
 
 ## Related Documentation
 - [Real-time Sync](./realtime-sync.md)
