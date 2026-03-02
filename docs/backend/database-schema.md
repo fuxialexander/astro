@@ -1,6 +1,6 @@
 # Database Schema
 
-Complete reference for Astro's Drizzle/PostgreSQL schema. All tables are defined in `server/lib/db/schema.ts`.
+Complete reference for Astro's Drizzle/PostgreSQL schema. All tables are defined in `packages/core/src/db/schema.ts` (the source of truth; `server/lib/db/schema.ts` re-exports for backward compatibility).
 
 ## Core Data Model
 

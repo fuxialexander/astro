@@ -52,7 +52,7 @@ Plugin Registration
     │       │           ├── nodeMetadataFields → PlanNode.metadata
     │       │           └── skills → skill-store
     │       │
-    │       └── Persisted to IndexedDB (key: "astro-plugins")
+    │       └── Persisted via dataClient → /api/data/*
     │
     └── Backend: skill-manager.loadSkills()
             │
@@ -149,12 +149,12 @@ interface PluginContext {
   }
   config: Record<string, unknown>          // Current plugin config
   updateConfig: (config) => void           // Persist config changes
-  storage: PluginStorage                   // Namespaced IndexedDB
+  storage: PluginStorage                   // Namespaced plugin storage
   onEvent: (handler) => () => void         // Event bus subscription
 }
 ```
 
-**Namespaced storage**: Each plugin gets isolated IndexedDB keys prefixed with `plugin-{id}-`. For example, plugin `"my-plugin"` calling `storage.set("data", value)` stores under `plugin-my-plugin-data`.
+**Namespaced storage**: Each plugin gets isolated storage keys prefixed with `plugin-{id}-`. For example, plugin `"my-plugin"` calling `storage.set("data", value)` stores under `plugin-my-plugin-data`.
 
 ---
 
@@ -373,7 +373,7 @@ The `skill-store` (Zustand) manages skills on the frontend:
 - `updateSkillConfig(name, config)` — Per-skill configuration
 - `getSkillPromptInjection()` — Formatted XML for prompt injection
 
-Persisted to IndexedDB under key `astro-skills`.
+Persisted via `dataClient` → `/api/data/*`.
 
 ---
 
@@ -486,7 +486,7 @@ The server provides a share API for link-based sharing (requires Supabase):
 
 ## Plugin Lifecycle
 
-1. **Registration**: `plugin-store.registerPlugin(manifest, config)` persists manifest and config to IndexedDB
+1. **Registration**: `plugin-store.registerPlugin(manifest, config)` persists manifest and config via the data layer
 2. **Loading**: `PluginLoader` component runs in the React tree after `DataLoader`
 3. **Activation**: Calls `plugin.activate(context)` with a `PluginContext` providing stores, storage, and event subscription
 4. **Contribution Collection**: Returned `PluginContributions` are stored in the plugin entry
@@ -498,10 +498,10 @@ The server provides a share API for link-based sharing (requires Supabase):
 
 ## Persistence
 
-| Data | IndexedDB Key | Contents |
-|------|--------------|----------|
-| Plugin registry | `astro-plugins` | Array of `PluginPersistData` (manifest, enabled, config) |
-| Skill registry | `astro-skills` | Array of `OpenClawSkill` objects |
+| Data | Storage | Contents |
+|------|---------|----------|
+| Plugin registry | `dataClient` → `/api/data/*` | Array of `PluginPersistData` (manifest, enabled, config) |
+| Skill registry | `dataClient` → `/api/data/*` | Array of `OpenClawSkill` objects |
 | Plugin storage | `plugin-{id}-{key}` | Per-plugin namespaced data |
 
 Runtime-only data (plugin instances, contributions, error messages) is NOT persisted.

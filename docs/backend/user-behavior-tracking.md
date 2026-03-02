@@ -63,7 +63,7 @@ await createActivityEvent({
 Activity events are automatically:
 1. Written to `activity_events` table
 2. Broadcast via SSE to connected clients
-3. Cached in IndexedDB for offline access
+3. Available via API for frontend display
 
 ## Observation Events
 

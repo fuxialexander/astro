@@ -1,6 +1,6 @@
 # Current Conflicts: Design Docs vs. Code/Technical Docs
 
-This document tracks discrepancies between design documents (in `docs/design/`), technical documentation, CLAUDE.md, and the actual codebase. Last updated: 2026-03-01.
+This document tracks discrepancies between design documents (in `docs/design/`), technical documentation, CLAUDE.md, and the actual codebase. Last updated: 2026-03-01 (documentation audit pass).
 
 ---
 
@@ -181,6 +181,35 @@ Addressed documentation gaps around the page-refresh recovery system:
 
 ---
 
+## Documentation Audit Pass (2026-03-01)
+
+An audit of `docs/` found that the 2026-02-27 major documentation refresh brought design docs up to date, but several technical docs still contained stale IndexedDB references and outdated paths. The following fixes were applied:
+
+### Technical Doc Fixes (IndexedDB removal)
+
+| # | File | Issue | Fix |
+|---|------|-------|-----|
+| 22 | `docs/setup/local-mode.md` | Entire file described "IndexedDB-only" mode | Rewritten for PGlite-based local mode |
+| 23 | `docs/frontend/state-management.md` | Line 1 said "IndexedDB persistence", persistence section described `idb-keyval` | Updated to describe `dataClient` → `/api/data/*` → Drizzle ORM |
+| 24 | `docs/features/realtime-sync.md` | Data flow diagram showed "IndexedDB Cache", had "IndexedDB-Only Mode" section | Removed IndexedDB from diagram, renamed section to "Local Mode" |
+| 25 | `docs/features/activity-feed.md` | Design decisions referenced IndexedDB persistence and `idb-keyval` | Updated to describe API persistence via `dataClient` |
+| 26 | `docs/backend/database-schema.md` | Line 3 said source is `server/lib/db/schema.ts` | Corrected to `packages/core/src/db/schema.ts` |
+| 27 | `docs/index.md` | Line 69 said "IndexedDB-only single-user mode" | Changed to "PGlite single-user mode" |
+
+### Design Doc Fixes
+
+| # | File | Issue | Fix |
+|---|------|-------|-----|
+| 28 | `docs/design/ARCHITECTURE.md` | Section 4.5 referenced global `~/.astro/worktrees/` | Fixed to `{projectDir}/.astro/worktrees/` (per WORKSPACE_V2.md, CURRENT_CONFLICT_VIEW #13) |
+| 29 | `docs/design/TAURI_APP.md` | Missing "PROPOSED" status banner | Added "PROPOSED -- Not yet implemented" banner |
+| 30 | `docs/design/WORKSPACE_V2.md` | Status banner said "PARTIALLY IMPLEMENTED" but didn't reflect worktree location implementation | Updated to note per-project worktree location is implemented |
+
+### Backups
+
+Before editing design docs, backups were created: `bak_ARCHITECTURE.md`, `bak_TAURI_APP.md`, `bak_WORKSPACE_V2.md`, `bak_CURRENT_CONFLICT_VIEW.md`.
+
+---
+
 ## Summary
 
 | Category | Count |
@@ -190,7 +219,17 @@ Addressed documentation gaps around the page-refresh recovery system:
 | Execution unification conflicts (resolved) | 3 (#14, #15, #16) |
 | Other issues (resolved) | 2 (#17, #18) |
 | Refresh robustness documentation (resolved) | 3 (#19, #20, #21) |
+| Documentation audit pass (resolved) | 9 (#22-#30 — IndexedDB refs, stale paths, missing banners) |
 | Other issues (open) | 1 (#6 — production domain references) |
 | Aspirational docs (low implementation) | 4 (AGENT_PERFORMANCE, ATTENTION_TRIAGE, COST_TRACKING, CROSS_PROJECT_REFERENCES) |
 | **Total open** | **1** |
-| **Total resolved** | **20** |
+| **Total resolved** | **29** |
+
+---
+
+## Reflection: Documentation Health & Improvements
+
+1. **IndexedDB references persist in technical docs long after removal from code.** Design docs were updated promptly (2026-02-27 refresh), but technical docs lagged. Consider adding a grep check for "IndexedDB" to CI to catch regressions.
+2. **Schema source-of-truth path** (`packages/core/src/db/schema.ts`) was incorrect in `database-schema.md`. This is a common issue when packages are extracted -- all references to the old path need updating.
+3. **Design doc status banners** are inconsistent. TAURI_APP.md was missing one while all other aspirational docs had them. A checklist for new design docs would help.
+4. **Only 1 open issue remains** (#6 production domain references). The documentation is in good health overall after the 2026-02-27 refresh and this 2026-03-01 audit pass.
