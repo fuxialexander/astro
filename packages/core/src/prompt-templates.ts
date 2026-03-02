@@ -168,6 +168,7 @@ export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoCont
   let githubSection = ""
   if (githubContext?.hasRepo && githubContext.owner && githubContext.repo) {
     // Sanitize GitHub context values to prevent prompt injection
+    // eslint-disable-next-line no-control-regex
     const sanitize = (s: string) => s.replace(/[`\n\r\t]/g, '').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200)
     const ghOwner = sanitize(githubContext.owner)
     const ghRepo = sanitize(githubContext.repo)
@@ -747,6 +748,7 @@ export function buildInteractivePlanPrompt(
   let githubSection = ""
   if (options?.githubContext?.hasRepo && options.githubContext.owner && options.githubContext.repo) {
     // Sanitize GitHub context values to prevent prompt injection
+    // eslint-disable-next-line no-control-regex
     const sanitize = (s: string) => s.replace(/[`\n\r\t]/g, '').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200)
     const ghOwner = sanitize(options.githubContext.owner)
     const ghRepo = sanitize(options.githubContext.repo)
