@@ -164,6 +164,40 @@ export async function getPullRequest(
 }
 
 /**
+ * Update a pull request's body/description.
+ * Uses PATCH /repos/{owner}/{repo}/pulls/{prNumber} endpoint.
+ */
+export async function updatePullRequestBody(
+  token: string,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  body: string
+): Promise<{ success: boolean; error?: string }> {
+  const response = await fetch(
+    `${GITHUB_API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `token ${token}`,
+        'Accept': 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ body }),
+    }
+  )
+
+  const data = (await response.json()) as GitHubApiResponse
+  if (!response.ok) {
+    const errorMsg = data.message || 'Unknown error'
+    console.error(`[github-api] updatePullRequestBody failed: ${errorMsg}`)
+    return { success: false, error: errorMsg }
+  }
+
+  return { success: true }
+}
+
+/**
  * Enable auto-merge on a pull request via GitHub's GraphQL API.
  * This requires the repo to have merge queue or auto-merge enabled in branch protection.
  */
