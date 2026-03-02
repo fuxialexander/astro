@@ -1,0 +1,180 @@
+{"_scenario":"happy_path","_description":"Complete successful session: analyze codebase, create file, run build"}
+{"type":"session.start","session_id":"sess-happy-001","model":"claude-sonnet-4-20250514","timestamp":"2026-03-01T10:00:00.000Z"}
+{"type":"message.start","timestamp":"2026-03-01T10:00:00.100Z"}
+{"type":"content.text","text":"I'll analyze the project structure and create a new utility module.","timestamp":"2026-03-01T10:00:00.200Z"}
+{"type":"content.text","text":" Let me start by examining the existing files.","timestamp":"2026-03-01T10:00:00.300Z"}
+{"type":"content.text","text":"\n\nFirst, I'll list the directory contents.","timestamp":"2026-03-01T10:00:00.400Z"}
+{"type":"tool_use.start","tool_name":"bash","tool_input":{"command":"ls -la src/"},"timestamp":"2026-03-01T10:00:01.000Z"}
+{"type":"tool_use.end","tool_name":"bash","result":"total 32\ndrwxr-xr-x  6 user staff  192 Mar  1 10:00 .\n-rw-r--r--  1 user staff 1234 Mar  1 10:00 index.ts\n-rw-r--r--  1 user staff  567 Mar  1 10:00 utils.ts\n-rw-r--r--  1 user staff  890 Mar  1 10:00 types.ts\ndrwxr-xr-x  3 user staff   96 Mar  1 10:00 lib","success":true,"timestamp":"2026-03-01T10:00:02.000Z"}
+{"type":"content.text","text":"I can see the project has index.ts, utils.ts, and types.ts. Let me read utils.ts to understand the existing patterns.","timestamp":"2026-03-01T10:00:02.100Z"}
+{"type":"tool_use.start","tool_name":"read_file","tool_input":{"path":"src/utils.ts"},"timestamp":"2026-03-01T10:00:03.000Z"}
+{"type":"tool_use.end","tool_name":"read_file","result":"export function formatDate(d: Date): string {\n  return d.toISOString().split('T')[0];\n}\n\nexport function cn(...classes: string[]): string {\n  return classes.filter(Boolean).join(' ');\n}","success":true,"timestamp":"2026-03-01T10:00:03.500Z"}
+{"type":"content.text","text":"Now I'll create a new string utilities module following the same patterns.","timestamp":"2026-03-01T10:00:03.600Z"}
+{"type":"tool_use.start","tool_name":"write_file","tool_input":{"path":"src/lib/string-utils.ts","content":"/**\n * String utility functions\n */\n\nexport function capitalize(s: string): string {\n  return s.charAt(0).toUpperCase() + s.slice(1);\n}\n\nexport function truncate(s: string, maxLen: number): string {\n  if (s.length <= maxLen) return s;\n  return s.slice(0, maxLen - 3) + '...';\n}\n\nexport function slugify(s: string): string {\n  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');\n}\n"},"timestamp":"2026-03-01T10:00:04.000Z"}
+{"type":"tool_use.end","tool_name":"write_file","result":"File written: src/lib/string-utils.ts","success":true,"timestamp":"2026-03-01T10:00:04.200Z"}
+{"type":"file.change","path":"src/lib/string-utils.ts","action":"created","lines_added":17,"timestamp":"2026-03-01T10:00:04.300Z"}
+{"type":"content.text","text":"Let me update the barrel export to include the new module.","timestamp":"2026-03-01T10:00:04.400Z"}
+{"type":"tool_use.start","tool_name":"edit_file","tool_input":{"path":"src/index.ts","old_string":"export * from './utils';","new_string":"export * from './utils';\nexport * from './lib/string-utils';"},"timestamp":"2026-03-01T10:00:05.000Z"}
+{"type":"tool_use.end","tool_name":"edit_file","result":"File edited: src/index.ts","success":true,"timestamp":"2026-03-01T10:00:05.200Z"}
+{"type":"file.change","path":"src/index.ts","action":"modified","lines_added":1,"lines_removed":0,"timestamp":"2026-03-01T10:00:05.300Z"}
+{"type":"content.text","text":"Now let me verify the build passes.","timestamp":"2026-03-01T10:00:05.400Z"}
+{"type":"tool_use.start","tool_name":"bash","tool_input":{"command":"npm run build"},"timestamp":"2026-03-01T10:00:06.000Z"}
+{"type":"tool_use.end","tool_name":"bash","result":"tsc --noEmit && vite build\n\nvite v5.0.0 building for production...\n✓ 42 modules transformed.\ndist/index.js   12.34 kB │ gzip: 4.56 kB\n✓ built in 1.23s","success":true,"timestamp":"2026-03-01T10:00:08.000Z"}
+{"type":"content.text","text":"Build passed successfully. The new string utilities module has been created with capitalize, truncate, and slugify functions.","timestamp":"2026-03-01T10:00:08.100Z"}
+{"type":"message.end","timestamp":"2026-03-01T10:00:08.200Z"}
+{"type":"session.end","cost":0.0523,"input_tokens":3200,"output_tokens":1450,"turns":1,"model":"claude-sonnet-4-20250514","duration_ms":8200,"timestamp":"2026-03-01T10:00:08.200Z"}
+
+{"_scenario":"tool_failure","_description":"Tool fails (test failure), agent diagnoses and fixes the issue"}
+{"type":"session.start","session_id":"sess-fail-002","model":"claude-sonnet-4-20250514","timestamp":"2026-03-01T11:00:00.000Z"}
+{"type":"message.start","timestamp":"2026-03-01T11:00:00.100Z"}
+{"type":"content.text","text":"I'll run the test suite to verify the code changes.","timestamp":"2026-03-01T11:00:00.200Z"}
+{"type":"tool_use.start","tool_name":"bash","tool_input":{"command":"npm test"},"timestamp":"2026-03-01T11:00:01.000Z"}
+{"type":"tool_use.end","tool_name":"bash","result":"FAIL src/lib/string-utils.test.ts\n  ● truncate › should handle empty string\n    Expected: \"\"\n    Received: \"...\"\n\n  ● slugify › should handle consecutive special chars\n    Expected: \"hello-world\"\n    Received: \"hello--world\"\n\nTests: 2 failed, 5 passed, 7 total","success":false,"timestamp":"2026-03-01T11:00:04.000Z"}
+{"type":"content.text","text":"Two tests are failing. Let me fix both issues:\n\n1. `truncate` doesn't handle empty strings correctly\n2. `slugify` creates double hyphens from consecutive special characters","timestamp":"2026-03-01T11:00:04.100Z"}
+{"type":"tool_use.start","tool_name":"edit_file","tool_input":{"path":"src/lib/string-utils.ts","old_string":"export function truncate(s: string, maxLen: number): string {\n  if (s.length <= maxLen) return s;\n  return s.slice(0, maxLen - 3) + '...';","new_string":"export function truncate(s: string, maxLen: number): string {\n  if (!s || s.length <= maxLen) return s;\n  return s.slice(0, Math.max(0, maxLen - 3)) + '...';"},"timestamp":"2026-03-01T11:00:05.000Z"}
+{"type":"tool_use.end","tool_name":"edit_file","result":"File edited: src/lib/string-utils.ts","success":true,"timestamp":"2026-03-01T11:00:05.200Z"}
+{"type":"file.change","path":"src/lib/string-utils.ts","action":"modified","lines_added":2,"lines_removed":2,"timestamp":"2026-03-01T11:00:05.300Z"}
+{"type":"tool_use.start","tool_name":"edit_file","tool_input":{"path":"src/lib/string-utils.ts","old_string":"export function slugify(s: string): string {\n  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');","new_string":"export function slugify(s: string): string {\n  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/(^-|-$)/g, '');"},"timestamp":"2026-03-01T11:00:06.000Z"}
+{"type":"tool_use.end","tool_name":"edit_file","result":"File edited: src/lib/string-utils.ts","success":true,"timestamp":"2026-03-01T11:00:06.200Z"}
+{"type":"file.change","path":"src/lib/string-utils.ts","action":"modified","lines_added":1,"lines_removed":1,"timestamp":"2026-03-01T11:00:06.300Z"}
+{"type":"content.text","text":"Now let me re-run the tests to verify the fixes.","timestamp":"2026-03-01T11:00:06.400Z"}
+{"type":"tool_use.start","tool_name":"bash","tool_input":{"command":"npm test"},"timestamp":"2026-03-01T11:00:07.000Z"}
+{"type":"tool_use.end","tool_name":"bash","result":"PASS src/lib/string-utils.test.ts\n  capitalize\n    ✓ should capitalize first letter (2ms)\n    ✓ should handle empty string (1ms)\n  truncate\n    ✓ should truncate long strings (1ms)\n    ✓ should handle empty string (1ms)\n    ✓ should not truncate short strings (1ms)\n  slugify\n    ✓ should create URL-safe slugs (1ms)\n    ✓ should handle consecutive special chars (1ms)\n\nTests: 7 passed, 7 total\nTime: 0.456s","success":true,"timestamp":"2026-03-01T11:00:09.000Z"}
+{"type":"content.text","text":"All 7 tests pass now. Both bugs have been fixed.","timestamp":"2026-03-01T11:00:09.100Z"}
+{"type":"message.end","timestamp":"2026-03-01T11:00:09.200Z"}
+{"type":"session.end","cost":0.0847,"input_tokens":5100,"output_tokens":2300,"turns":1,"model":"claude-sonnet-4-20250514","duration_ms":9200,"timestamp":"2026-03-01T11:00:09.200Z"}
+
+{"_scenario":"multi_turn","_description":"Multi-turn session: analyze, plan, implement across two message cycles"}
+{"type":"session.start","session_id":"sess-multi-003","model":"gpt-4o","timestamp":"2026-03-01T12:00:00.000Z"}
+{"type":"message.start","timestamp":"2026-03-01T12:00:00.100Z"}
+{"type":"content.text","text":"Let me analyze the authentication module first.","timestamp":"2026-03-01T12:00:00.200Z"}
+{"type":"tool_use.start","tool_name":"read_file","tool_input":{"path":"src/auth/middleware.ts"},"timestamp":"2026-03-01T12:00:01.000Z"}
+{"type":"tool_use.end","tool_name":"read_file","result":"import { verify } from 'jsonwebtoken';\n\nexport function authMiddleware(req, res, next) {\n  const token = req.headers.authorization?.split(' ')[1];\n  if (!token) return res.status(401).json({ error: 'No token' });\n  try {\n    req.user = verify(token, process.env.JWT_SECRET);\n    next();\n  } catch {\n    res.status(401).json({ error: 'Invalid token' });\n  }\n}","success":true,"timestamp":"2026-03-01T12:00:01.500Z"}
+{"type":"tool_use.start","tool_name":"read_file","tool_input":{"path":"src/auth/types.ts"},"timestamp":"2026-03-01T12:00:02.000Z"}
+{"type":"tool_use.end","tool_name":"read_file","result":"export interface User {\n  id: string;\n  email: string;\n  role: 'admin' | 'user';\n}","success":true,"timestamp":"2026-03-01T12:00:02.500Z"}
+{"type":"content.text","text":"I see the auth module uses JWT tokens. The middleware extracts the token from the Authorization header and verifies it. I'll add rate limiting and improved error messages.","timestamp":"2026-03-01T12:00:02.600Z"}
+{"type":"message.end","timestamp":"2026-03-01T12:00:02.700Z"}
+{"type":"message.start","timestamp":"2026-03-01T12:00:02.800Z"}
+{"type":"content.text","text":"Now implementing the rate limiter.","timestamp":"2026-03-01T12:00:02.900Z"}
+{"type":"tool_use.start","tool_name":"write_file","tool_input":{"path":"src/auth/rate-limiter.ts","content":"const attempts = new Map<string, { count: number; resetAt: number }>();\n\nexport function checkRateLimit(key: string, max = 10, windowMs = 60000): boolean {\n  const now = Date.now();\n  const entry = attempts.get(key);\n  if (!entry || now > entry.resetAt) {\n    attempts.set(key, { count: 1, resetAt: now + windowMs });\n    return true;\n  }\n  if (entry.count >= max) return false;\n  entry.count++;\n  return true;\n}\n"},"timestamp":"2026-03-01T12:00:03.000Z"}
+{"type":"tool_use.end","tool_name":"write_file","result":"File written: src/auth/rate-limiter.ts","success":true,"timestamp":"2026-03-01T12:00:03.200Z"}
+{"type":"file.change","path":"src/auth/rate-limiter.ts","action":"created","lines_added":14,"timestamp":"2026-03-01T12:00:03.300Z"}
+{"type":"tool_use.start","tool_name":"bash","tool_input":{"command":"npx tsc --noEmit"},"timestamp":"2026-03-01T12:00:04.000Z"}
+{"type":"tool_use.end","tool_name":"bash","result":"","success":true,"timestamp":"2026-03-01T12:00:05.000Z"}
+{"type":"content.text","text":"Rate limiter created and TypeScript compilation passes. The module uses an in-memory Map with automatic window expiration.","timestamp":"2026-03-01T12:00:05.100Z"}
+{"type":"message.end","timestamp":"2026-03-01T12:00:05.200Z"}
+{"type":"session.end","cost":0.0312,"input_tokens":2800,"output_tokens":950,"turns":2,"model":"gpt-4o","duration_ms":5200,"timestamp":"2026-03-01T12:00:05.200Z"}
+
+{"_scenario":"malformed_json","_description":"Lines with malformed JSON, non-JSON text, and edge cases"}
+this is plain text, not JSON at all
+{"type":"session.start","session_id":"sess-malformed-004","model":"claude-sonnet-4-20250514"}
+{invalid json without closing brace
+{"type":"content.text","text":"This is a valid event between malformed ones."}
+[1, 2, 3]
+{"type": "content.text", "text":
+{"incomplete":"object","missing":"type field"}
+{}
+{"type":"unknown.future.event","data":{"foo":"bar"},"version":2}
+{"type":"tool_use.start","tool_name":"bash","tool_input":{"command":"echo hello"}}
+null
+{"type":"session.end","cost":0.001,"input_tokens":100,"output_tokens":50,"turns":1}
+
+{"_scenario":"incomplete_fields","_description":"Events with missing or empty fields to test graceful handling"}
+{"type":"session.start"}
+{"type":"session.start","session_id":""}
+{"type":"content.text"}
+{"type":"content.text","text":""}
+{"type":"content.text","text":null}
+{"type":"tool_use.start"}
+{"type":"tool_use.start","tool_name":"","tool_input":{}}
+{"type":"tool_use.end"}
+{"type":"tool_use.end","tool_name":"bash","result":null,"success":true}
+{"type":"tool_use.end","tool_name":"bash","result":"output","success":null}
+{"type":"file.change"}
+{"type":"file.change","action":"modified"}
+{"type":"file.change","path":"","action":"created"}
+{"type":"file.change","path":"test.ts"}
+{"type":"file.change","path":"test.ts","action":"invalid_action","lines_added":-1}
+{"type":"session.end"}
+{"type":"message.start","extra_field":"ignored","nested":{"deep":true}}
+{"type":"message.end","turn_number":5,"duration_ms":1200}
+
+{"_scenario":"large_output","_description":"Tool with large output and many text chunks (streaming simulation)"}
+{"type":"session.start","session_id":"sess-large-005","model":"claude-sonnet-4-20250514","timestamp":"2026-03-01T13:00:00.000Z"}
+{"type":"message.start","timestamp":"2026-03-01T13:00:00.100Z"}
+{"type":"content.text","text":"I","timestamp":"2026-03-01T13:00:00.200Z"}
+{"type":"content.text","text":"'ll","timestamp":"2026-03-01T13:00:00.210Z"}
+{"type":"content.text","text":" search","timestamp":"2026-03-01T13:00:00.220Z"}
+{"type":"content.text","text":" through","timestamp":"2026-03-01T13:00:00.230Z"}
+{"type":"content.text","text":" the","timestamp":"2026-03-01T13:00:00.240Z"}
+{"type":"content.text","text":" entire","timestamp":"2026-03-01T13:00:00.250Z"}
+{"type":"content.text","text":" codebase.","timestamp":"2026-03-01T13:00:00.260Z"}
+{"type":"tool_use.start","tool_name":"bash","tool_input":{"command":"find . -name '*.ts' -exec wc -l {} + | sort -rn | head -20"},"timestamp":"2026-03-01T13:00:01.000Z"}
+{"type":"tool_use.end","tool_name":"bash","result":"  15234 total\n   2345 ./src/components/plan-graph.tsx\n   1892 ./src/stores/plan-store.ts\n   1567 ./server/routes/api.ts\n   1234 ./src/components/activity-feed.tsx\n   1100 ./packages/core/src/db/schema.ts\n    987 ./src/lib/data-client.ts\n    876 ./server/lib/dispatch/engine.ts\n    765 ./src/hooks/use-execution.ts\n    654 ./tests/dispatch-engine.test.ts\n    543 ./src/components/ui/dialog.tsx\n    432 ./src/types/plan.ts\n    321 ./server/middleware/auth.ts\n    298 ./src/pages/project.tsx\n    276 ./src/stores/settings-store.ts\n    254 ./packages/core/src/dispatch/types.ts\n    231 ./src/components/task-node.tsx\n    198 ./tests/plan-store.test.ts\n    176 ./src/lib/utils.ts\n    154 ./server/lib/events/sse.ts","success":true,"timestamp":"2026-03-01T13:00:03.000Z"}
+{"type":"content.text","text":"The codebase has 15,234 lines of TypeScript across all files. The largest files are the plan graph component (2,345 lines) and the plan store (1,892 lines). Let me analyze the test coverage.","timestamp":"2026-03-01T13:00:03.100Z"}
+{"type":"tool_use.start","tool_name":"bash","tool_input":{"command":"npx vitest run --reporter=verbose 2>&1 | tail -30"},"timestamp":"2026-03-01T13:00:04.000Z"}
+{"type":"tool_use.end","tool_name":"bash","result":"  ✓ tests/plan-store.test.ts (12 tests) 234ms\n  ✓ tests/dispatch-engine.test.ts (8 tests) 156ms\n  ✓ tests/sse-parser.test.ts (15 tests) 89ms\n  ✓ tests/activity-blocks.test.ts (10 tests) 67ms\n  ✗ tests/auth-middleware.test.ts (3 tests) 45ms\n    × should reject expired tokens\n  ✓ tests/data-routes.test.ts (6 tests) 123ms\n  ✓ tests/settings-store.test.ts (4 tests) 34ms\n\n Test Files  6 passed | 1 failed | 7 total\n Tests       57 passed | 1 failed | 58 total\n Duration    748ms","success":false,"timestamp":"2026-03-01T13:00:06.000Z"}
+{"type":"content.text","text":"There's one failing test in auth middleware. Overall coverage is good with 57/58 tests passing.","timestamp":"2026-03-01T13:00:06.100Z"}
+{"type":"message.end","timestamp":"2026-03-01T13:00:06.200Z"}
+{"type":"session.end","cost":0.0234,"input_tokens":4500,"output_tokens":890,"turns":1,"model":"claude-sonnet-4-20250514","duration_ms":6200,"timestamp":"2026-03-01T13:00:06.200Z"}
+
+{"_scenario":"multiple_file_changes","_description":"Session with many file changes to test artifact deduplication"}
+{"type":"session.start","session_id":"sess-files-006","model":"claude-sonnet-4-20250514","timestamp":"2026-03-01T14:00:00.000Z"}
+{"type":"message.start","timestamp":"2026-03-01T14:00:00.100Z"}
+{"type":"content.text","text":"Refactoring the module structure. Creating new files and updating imports.","timestamp":"2026-03-01T14:00:00.200Z"}
+{"type":"tool_use.start","tool_name":"write_file","tool_input":{"path":"src/utils/format.ts","content":"export function formatCurrency(n: number): string { return `$${n.toFixed(2)}`; }"},"timestamp":"2026-03-01T14:00:01.000Z"}
+{"type":"tool_use.end","tool_name":"write_file","result":"File written","success":true,"timestamp":"2026-03-01T14:00:01.200Z"}
+{"type":"file.change","path":"src/utils/format.ts","action":"created","lines_added":1,"timestamp":"2026-03-01T14:00:01.300Z"}
+{"type":"tool_use.start","tool_name":"write_file","tool_input":{"path":"src/utils/validate.ts","content":"export function isEmail(s: string): boolean { return /^[^@]+@[^@]+$/.test(s); }"},"timestamp":"2026-03-01T14:00:02.000Z"}
+{"type":"tool_use.end","tool_name":"write_file","result":"File written","success":true,"timestamp":"2026-03-01T14:00:02.200Z"}
+{"type":"file.change","path":"src/utils/validate.ts","action":"created","lines_added":1,"timestamp":"2026-03-01T14:00:02.300Z"}
+{"type":"tool_use.start","tool_name":"edit_file","tool_input":{"path":"src/utils/format.ts","old_string":"export function formatCurrency","new_string":"/** Format as USD */\nexport function formatCurrency"},"timestamp":"2026-03-01T14:00:03.000Z"}
+{"type":"tool_use.end","tool_name":"edit_file","result":"File edited","success":true,"timestamp":"2026-03-01T14:00:03.200Z"}
+{"type":"file.change","path":"src/utils/format.ts","action":"modified","lines_added":1,"lines_removed":0,"timestamp":"2026-03-01T14:00:03.300Z"}
+{"type":"tool_use.start","tool_name":"bash","tool_input":{"command":"rm src/old-utils.ts"},"timestamp":"2026-03-01T14:00:04.000Z"}
+{"type":"tool_use.end","tool_name":"bash","result":"","success":true,"timestamp":"2026-03-01T14:00:04.200Z"}
+{"type":"file.change","path":"src/old-utils.ts","action":"deleted","lines_removed":45,"timestamp":"2026-03-01T14:00:04.300Z"}
+{"type":"content.text","text":"Refactoring complete. Created format.ts and validate.ts, removed old-utils.ts.","timestamp":"2026-03-01T14:00:04.400Z"}
+{"type":"message.end","timestamp":"2026-03-01T14:00:04.500Z"}
+{"type":"session.end","cost":0.0189,"input_tokens":1800,"output_tokens":670,"turns":1,"model":"claude-sonnet-4-20250514","duration_ms":4500,"timestamp":"2026-03-01T14:00:04.500Z"}
+
+{"_scenario":"error_session","_description":"Session that encounters a fatal error and ends abruptly"}
+{"type":"session.start","session_id":"sess-error-007","model":"claude-sonnet-4-20250514","timestamp":"2026-03-01T15:00:00.000Z"}
+{"type":"message.start","timestamp":"2026-03-01T15:00:00.100Z"}
+{"type":"content.text","text":"Let me deploy the application.","timestamp":"2026-03-01T15:00:00.200Z"}
+{"type":"tool_use.start","tool_name":"bash","tool_input":{"command":"npm run deploy"},"timestamp":"2026-03-01T15:00:01.000Z"}
+{"type":"tool_use.end","tool_name":"bash","result":"Error: ECONNREFUSED - Could not connect to deployment server at https://deploy.example.com","success":false,"timestamp":"2026-03-01T15:00:05.000Z"}
+{"type":"content.text","text":"The deployment server is unreachable. Let me check the network.","timestamp":"2026-03-01T15:00:05.100Z"}
+{"type":"tool_use.start","tool_name":"bash","tool_input":{"command":"curl -s -o /dev/null -w '%{http_code}' https://deploy.example.com/health"},"timestamp":"2026-03-01T15:00:06.000Z"}
+{"type":"tool_use.end","tool_name":"bash","result":"000","success":false,"timestamp":"2026-03-01T15:00:11.000Z"}
+
+{"_scenario":"minimal_session","_description":"Minimal valid session with just start, one text event, and end"}
+{"type":"session.start","session_id":"sess-minimal-008","model":"claude-sonnet-4-20250514"}
+{"type":"message.start"}
+{"type":"content.text","text":"Task completed — no changes needed."}
+{"type":"message.end"}
+{"type":"session.end","cost":0.0015,"input_tokens":200,"output_tokens":25,"turns":1,"model":"claude-sonnet-4-20250514","duration_ms":800}
+
+{"_scenario":"no_cost_session","_description":"Session that completes without cost metrics (e.g., local/free model)"}
+{"type":"session.start","session_id":"sess-nocost-009","model":"local-llama-3.1-70b"}
+{"type":"message.start"}
+{"type":"content.text","text":"Analyzing the configuration file."}
+{"type":"tool_use.start","tool_name":"read_file","tool_input":{"path":"config.yaml"}}
+{"type":"tool_use.end","tool_name":"read_file","result":"port: 3001\nhost: localhost\ndebug: false","success":true}
+{"type":"content.text","text":"Configuration looks correct. Port 3001, localhost, debug disabled."}
+{"type":"message.end"}
+{"type":"session.end","input_tokens":350,"output_tokens":120,"turns":1,"model":"local-llama-3.1-70b","duration_ms":2100}
+
+{"_scenario":"unicode_and_special_chars","_description":"Events with unicode, special characters, and escaped content"}
+{"type":"session.start","session_id":"sess-unicode-010","model":"claude-sonnet-4-20250514"}
+{"type":"message.start"}
+{"type":"content.text","text":"Analyzing the internationalization module \u2014 checking for CJK support \ud83c\udf0d"}
+{"type":"content.text","text":"\u65e5\u672c\u8a9e\u306e\u30c6\u30b9\u30c8 - Testing Japanese text handling"}
+{"type":"tool_use.start","tool_name":"bash","tool_input":{"command":"echo '\u4f60\u597d\u4e16\u754c' | wc -c"}}
+{"type":"tool_use.end","tool_name":"bash","result":"13","success":true}
+{"type":"content.text","text":"Special chars test: tabs\there, newlines\\n, quotes\"inside\", backslashes\\\\path"}
+{"type":"tool_use.start","tool_name":"write_file","tool_input":{"path":"src/i18n/messages.json","content":"{\"greeting\":\"\u00a1Hola mundo!\",\"farewell\":\"\u3055\u3088\u3046\u306a\u3089\",\"arrow\":\"\u2192\"}"}}
+{"type":"tool_use.end","tool_name":"write_file","result":"File written: src/i18n/messages.json","success":true}
+{"type":"file.change","path":"src/i18n/messages.json","action":"created","lines_added":1}
+{"type":"message.end"}
+{"type":"session.end","cost":0.0078,"input_tokens":800,"output_tokens":350,"turns":1,"model":"claude-sonnet-4-20250514","duration_ms":3400}
