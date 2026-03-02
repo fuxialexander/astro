@@ -36,3 +36,10 @@ export type {
   DispatchPayloadOptions,
   DispatchTaskPayload,
 } from './payload.js'
+
+// Summary utilities
+export {
+  parseExecutiveSummaryFromOutput,
+  hasExecutiveSummary,
+} from './summary-utils.js'
+export type { ExecutiveSummaryParsed } from './summary-utils.js'
