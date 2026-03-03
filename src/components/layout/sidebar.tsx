@@ -94,6 +94,19 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const executions = useExecutionStore((s) => s.executions)
   const agentSessions = useAgentStore((s) => s.sessions)
 
+  // Navigate to generation activity view if plan is actively generating, otherwise list view
+  const navigateToProject = useCallback((projectId: string) => {
+    const session = agentSessions.get(projectId)
+    const planExec = executions.get(`plan-${projectId}`)
+    const isGenerating = session?.status === "active" || session?.status === "generated" || planExec?.status === "running" || planExec?.status === "pending"
+    const project = projects.find(p => p.id === projectId)
+    if (isGenerating || project?.projectType === "plan") {
+      navigate(`/plan?projectId=${projectId}`)
+    } else {
+      navigate(`/project/${projectId}/list`)
+    }
+  }, [agentSessions, executions, projects, navigate])
+
   // O(1) lookup map for plan nodes by ID
   const planNodesById = useMemo(() => {
     const map = new Map<string, (typeof planNodes)[number]>()
@@ -561,7 +574,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <button
-                            onClick={() => navigate(`/project/${project.id}/list`)}
+                            onClick={() => navigateToProject(project.id)}
                             className={cn(
                               "flex items-center justify-center h-9 w-9 rounded-lg transition-colors relative",
                               isActive ? "bg-accent" : "hover:bg-muted/50"
@@ -608,7 +621,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                           e.stopPropagation()
                           setRenamingProjectId(project.id)
                         }}
-                        onClick={() => navigate(`/project/${project.id}/list`)}
+                        onClick={() => navigateToProject(project.id)}
                         className={cn(
                           "flex-1 text-sm truncate cursor-pointer",
                           isActive
