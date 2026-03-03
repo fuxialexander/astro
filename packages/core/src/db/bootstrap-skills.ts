@@ -102,8 +102,9 @@ export async function bootstrapBuiltinSkills(builtinSkills: BuiltinSkillDefiniti
           // Compare all frontmatter fields to avoid unnecessary writes.
           // Note: `config` is intentionally excluded — builtin skills use frontmatter
           // fields only; the config JSONB column is reserved for user/ClawHub skills.
-          const tagsMatch = JSON.stringify(existing.tags ?? []) === JSON.stringify(skill.tags ?? [])
-          const toolsMatch = JSON.stringify(existing.allowedTools ?? []) === JSON.stringify(skill.allowedTools ?? [])
+          // Sort arrays before comparing to avoid false positives from order differences
+          const tagsMatch = JSON.stringify([...(existing.tags ?? [])].sort()) === JSON.stringify([...(skill.tags ?? [])].sort())
+          const toolsMatch = JSON.stringify([...(existing.allowedTools ?? [])].sort()) === JSON.stringify([...(skill.allowedTools ?? [])].sort())
           const isUnchanged =
             existing.version === skill.version &&
             existing.description === skill.description &&
@@ -160,23 +161,9 @@ export async function bootstrapBuiltinSkills(builtinSkills: BuiltinSkillDefiniti
 }
 
 
-/**
- * Load all enabled skills from DB into the in-memory skill-manager.
- * Called after bootstrap and after API mutations to keep the
- * in-memory registry (used for prompt injection) in sync with DB.
- */
-export async function syncSkillsFromDb(
-  skillManager: { loadSkills: (skills: Array<{
-    name: string; description: string; instructions: string;
-    source: string; enabled: boolean;
-    config?: Record<string, unknown>;
-    userInvocable?: boolean; disableModelInvocation?: boolean;
-    teamId?: string | null;
-  }>) => void }
-): Promise<void> {
-  const rows = await db.select().from(skills).where(eq(skills.enabled, true))
-  // rows inherits `any[]` from the dual-driver db proxy — annotate explicitly
-  const mapped = rows.map((s: { name: string; description: string; instructions: string; source: string | null; enabled: boolean; config: Record<string, unknown> | null; teamId: string | null }) => ({
+/** Map a DB skill row to the shape expected by SkillManager */
+function mapSkillRow(s: { name: string; description: string; instructions: string; source: string | null; enabled: boolean; config: Record<string, unknown> | null; teamId: string | null }) {
+  return {
     name: s.name,
     description: s.description,
     instructions: s.instructions,
@@ -186,6 +173,62 @@ export async function syncSkillsFromDb(
     userInvocable: (s.config?.userInvocable as boolean | undefined),
     disableModelInvocation: (s.config?.disableModelInvocation as boolean | undefined),
     teamId: s.teamId,
-  }))
+  }
+}
+
+/** Skill manager interface for sync functions */
+interface SyncableSkillManager {
+  loadSkills: (skills: Array<ReturnType<typeof mapSkillRow>>) => void
+  addSkill?: (skill: ReturnType<typeof mapSkillRow>) => void
+  removeSkill?: (name: string, teamId?: string | null) => boolean
+}
+
+/**
+ * Load all enabled skills from DB into the in-memory skill-manager.
+ * Called after bootstrap to do a full initial load.
+ */
+export async function syncSkillsFromDb(
+  skillManager: SyncableSkillManager
+): Promise<void> {
+  const rows = await db.select().from(skills).where(eq(skills.enabled, true))
+  // rows inherits `any[]` from the dual-driver db proxy — annotate explicitly
+  const mapped = (rows as Array<{ name: string; description: string; instructions: string; source: string | null; enabled: boolean; config: Record<string, unknown> | null; teamId: string | null }>).map(mapSkillRow)
   skillManager.loadSkills(mapped)
+}
+
+/**
+ * Incrementally sync a single skill by ID after an API mutation.
+ * Avoids the O(N) full DB reload of syncSkillsFromDb.
+ * Falls back to full sync if the manager doesn't support incremental ops.
+ */
+export async function syncSkillById(
+  skillManager: SyncableSkillManager,
+  skillId: string,
+): Promise<void> {
+  if (!skillManager.addSkill || !skillManager.removeSkill) {
+    // Fallback to full sync for managers without incremental support
+    return syncSkillsFromDb(skillManager)
+  }
+
+  const [row] = await db.select().from(skills).where(
+    and(eq(skills.id, skillId), eq(skills.enabled, true))
+  )
+
+  if (row) {
+    skillManager.addSkill(mapSkillRow(row as { name: string; description: string; instructions: string; source: string | null; enabled: boolean; config: Record<string, unknown> | null; teamId: string | null }))
+  } else {
+    // Skill was deleted or disabled — need to remove from cache.
+    // Fetch the skill regardless of enabled status to get its name/teamId for removal.
+    const [deleted] = await db.select().from(skills).where(eq(skills.id, skillId))
+    if (deleted) {
+      skillManager.removeSkill(
+        (deleted as { name: string; teamId: string | null }).name,
+        (deleted as { teamId: string | null }).teamId,
+      )
+    }
+    // If not found at all, it was hard-deleted — do a full sync to clean up
+    if (!deleted) {
+      return syncSkillsFromDb(skillManager)
+    }
+  }
 }

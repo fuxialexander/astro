@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import type { OpenClawSkill } from "@/types/skill"
+import { buildSkillPromptInjection } from "@astro/core/skill-injector"
 import { dataClient } from "@/lib/data-client"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -288,20 +289,6 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
 
   getSkillPromptInjection: () => {
     const eligible = get().getEligibleSkills()
-    if (eligible.length === 0) return ""
-
-    // Escape XML special characters in attributes to prevent injection
-    const esc = (t: string) => t
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&apos;')
-
-    const skillEntries = eligible
-      .map(
-        (s) =>
-          `  <skill name="${esc(s.name)}" description="${esc(s.description)}">\n${s.instructions.replace(/<\/skill>/gi, '&lt;/skill&gt;')}\n  </skill>`
-      )
-      .join("\n")
-
-    return `<skills>\n${skillEntries}\n</skills>`
+    return buildSkillPromptInjection(eligible)
   },
 }))

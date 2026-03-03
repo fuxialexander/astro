@@ -10,7 +10,7 @@
 import { Hono } from 'hono'
 import { eq, and, or, isNull } from 'drizzle-orm'
 import { db } from '../lib/db/index.js'
-import { syncSkillsFromDb } from '../lib/db/bootstrap-skills.js'
+import { syncSkillById } from '../lib/db/bootstrap-skills.js'
 import { skillManager } from '../lib/skill-manager.js'
 import { skills } from '../lib/db/schema.js'
 import { errorMessage } from '../lib/error-utils.js'
@@ -230,14 +230,11 @@ skillsRoute.post('/', async (c) => {
 
     const [created] = await db.select().from(skills).where(eq(skills.id, skillId))
 
-    // Sync in-memory skill-manager for prompt injection (best-effort).
-    // Note: Each mutation triggers a full DB reload (O(N) where N = enabled skills).
-    // Tested and acceptable up to ~500 skills. For higher scale or bulk operations,
-    // consider incremental sync (add/remove single skill) or a debounced batch endpoint.
+    // Incrementally sync this skill into the in-memory cache (O(1) instead of O(N)).
     // If sync fails, the DB write (source of truth) already succeeded — prompt
     // injection will catch up on the next successful sync or server restart.
     let syncWarning: string | null = null
-    try { await syncSkillsFromDb(skillManager) } catch (syncErr) {
+    try { await syncSkillById(skillManager, skillId) } catch (syncErr) {
       syncWarning = 'Skill saved but prompt injection cache update failed. Changes will take effect on next sync or server restart.'
       console.error('[skills] POST / sync warning:', syncErr)
     }
@@ -355,7 +352,7 @@ skillsRoute.put('/:id', async (c) => {
 
     // Sync in-memory skill-manager for prompt injection (best-effort)
     let syncWarning: string | null = null
-    try { await syncSkillsFromDb(skillManager) } catch (syncErr) {
+    try { await syncSkillById(skillManager, id) } catch (syncErr) {
       syncWarning = 'Skill updated but prompt injection cache update failed. Changes will take effect on next sync or server restart.'
       console.error('[skills] PUT /:id sync warning:', syncErr)
     }
@@ -400,7 +397,7 @@ skillsRoute.delete('/:id', async (c) => {
 
     // Sync in-memory skill-manager for prompt injection (best-effort)
     let syncWarning: string | null = null
-    try { await syncSkillsFromDb(skillManager) } catch (syncErr) {
+    try { await syncSkillById(skillManager, id) } catch (syncErr) {
       syncWarning = 'Skill deleted but prompt injection cache update failed. Changes will take effect on next sync or server restart.'
       console.error('[skills] DELETE /:id sync warning:', syncErr)
     }
@@ -446,7 +443,7 @@ skillsRoute.put('/:id/toggle', async (c) => {
 
     // Sync in-memory skill-manager for prompt injection (best-effort)
     let syncWarning: string | null = null
-    try { await syncSkillsFromDb(skillManager) } catch (syncErr) {
+    try { await syncSkillById(skillManager, id) } catch (syncErr) {
       syncWarning = 'Skill toggled but prompt injection cache update failed. Changes will take effect on next sync or server restart.'
       console.error('[skills] PUT /:id/toggle sync warning:', syncErr)
     }
