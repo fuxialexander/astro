@@ -31,16 +31,20 @@ import { OnboardingHint } from "@/components/onboarding-hint"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
 import { deriveAvailableProviders, isProviderAvailable, PROVIDER_NAMES } from "@/components/execution/provider-utils"
-import type { GitHubRepo, TaskAttachment } from "@/types"
+import type { GitHubRepo, TaskAttachment, Project } from "@/types"
 
-/** Parse a GitHub URL to extract owner and repo name */
+/** Parse a GitHub URL to extract owner and repo name.
+ * Validates against GitHub's naming constraints:
+ * - Usernames: alphanumeric + hyphens, max 39 chars, no leading/trailing hyphens
+ * - Repo names: alphanumeric + hyphens + underscores + dots, max 100 chars
+ */
 function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
-  // Match https://github.com/owner/repo, git@github.com:owner/repo, or owner/repo
-  const httpsMatch = url.match(/github\.com[/:]([^/\s]+)\/([^/\s.]+?)(?:\.git)?(?:[/#?]|$)/)
-  if (httpsMatch) return { owner: httpsMatch[1], repo: httpsMatch[2] }
+  // Match https://github.com/owner/repo, git@github.com:owner/repo
+  const ghMatch = url.match(/github\.com[/:]([a-zA-Z0-9][a-zA-Z0-9-]{0,38})\/([a-zA-Z0-9._-]{1,100}?)(?:\.git)?(?:[/#?]|$)/)
+  if (ghMatch) return { owner: ghMatch[1], repo: ghMatch[2] }
 
-  // Match bare "owner/repo" format
-  const bareMatch = url.match(/^([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)$/)
+  // Match bare "owner/repo" format with GitHub naming constraints
+  const bareMatch = url.match(/^([a-zA-Z0-9][a-zA-Z0-9-]{0,38})\/([a-zA-Z0-9._-]{1,100})$/)
   if (bareMatch) return { owner: bareMatch[1], repo: bareMatch[2] }
 
   return null
@@ -380,6 +384,8 @@ export function ProjectNewPlan() {
   }, [])
 
   // Handle paste in goal textarea (image paste support)
+  // Converts pasted images to persistent base64 data URLs (not blob URLs which
+  // are session-scoped and would break after page refresh or serialization).
   const handleGoalPaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const files = e.clipboardData?.files
     if (!files || files.length === 0) return
@@ -391,17 +397,21 @@ export function ProjectNewPlan() {
     e.preventDefault() // Prevent pasting file name as text
 
     for (const file of imageFiles) {
-      const url = URL.createObjectURL(file)
-      const attachment: TaskAttachment = {
-        id: crypto.randomUUID(),
-        name: file.name || `pasted-image-${Date.now()}.png`,
-        url,
-        mimeType: file.type || 'image/png',
-        size: file.size,
-        uploadedAt: new Date(),
-        thumbnailUrl: url,
+      const reader = new FileReader()
+      reader.onload = () => {
+        const dataUrl = reader.result as string
+        const attachment: TaskAttachment = {
+          id: crypto.randomUUID(),
+          name: file.name || `pasted-image-${Date.now()}.png`,
+          url: dataUrl,
+          mimeType: file.type || 'image/png',
+          size: file.size,
+          uploadedAt: new Date(),
+          thumbnailUrl: dataUrl,
+        }
+        setAttachments((prev) => [...prev, attachment])
       }
-      setAttachments((prev) => [...prev, attachment])
+      reader.readAsDataURL(file)
     }
 
     // Auto-expand context section to show pasted images
@@ -468,17 +478,15 @@ export function ProjectNewPlan() {
         projectId = result.projectId
       }
 
-      // Update project with GitHub owner/repo and attachments if set
-      const projectUpdates: Record<string, unknown> = {}
+      // Update project with GitHub owner/repo if set.
+      // Note: `repository` is already passed via startPlanSession options above,
+      // so we only set the GitHub-specific owner/repo fields here to avoid
+      // redundant updates.
       if (githubOwner && githubRepo) {
-        projectUpdates.githubOwner = githubOwner
-        projectUpdates.githubRepo = githubRepo
-        projectUpdates.repository = repoUrl || undefined
-      }
-      if (attachments.length > 0) {
-        projectUpdates.attachments = attachments
-      }
-      if (Object.keys(projectUpdates).length > 0) {
+        const projectUpdates: Partial<Project> = {
+          githubOwner,
+          githubRepo,
+        }
         updateProject(projectId, projectUpdates)
       }
 
