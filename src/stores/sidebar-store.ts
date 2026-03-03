@@ -47,6 +47,7 @@ const defaultItems: SidebarItem[] = [
   { id: "playground", to: "/playground", icon: "FlaskConical", label: "Playground", visible: true, protected: false },
   { id: "projects", to: "/projects", icon: "GitBranch", label: "Projects", visible: true, protected: false },
   { id: "templates", to: "/templates", icon: "LayoutTemplate", label: "Templates", visible: true, protected: false },
+  { id: "community", to: "/community", icon: "Globe", label: "Community", visible: true, protected: false },
   { id: "environments", to: "/environments", icon: "Terminal", label: "Environments", visible: true, protected: true },
   { id: "tasks", to: "/tasks", icon: "CheckSquare", label: "Tasks", visible: false, protected: false },
   { id: "active", to: "/active", icon: "Zap", label: "Active", visible: false, protected: false },
