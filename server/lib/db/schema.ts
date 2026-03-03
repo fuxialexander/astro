@@ -42,4 +42,5 @@ export {
   encryptedApiKeys,
   environmentConfigs,
   streamingEvents,
+  skills,
 } from '../../../packages/core/src/db/schema.js'

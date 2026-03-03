@@ -52,57 +52,7 @@ You will be given:
 5. Push and wait for CI + AI review again
 6. Repeat until the AI reviewer gives a clean approval (no Critical or Important issues)
 
-### Phase 5: Generate PR Summary with Diagrams
-When updating or creating the PR description, include visual diagrams to help reviewers
-quickly understand the scope and architecture of the changes:
-
-1. **Workflow/Data Flow Diagram** — If the PR modifies a pipeline, dispatch flow, event handling,
-   or multi-step process, include a Mermaid diagram showing the workflow:
-   ````markdown
-   ```mermaid
-   flowchart TD
-     A[User Action] --> B[API Route]
-     B --> C{Validation}
-     C -->|Pass| D[Database Write]
-     C -->|Fail| E[400 Error Response]
-     D --> F[SSE Event]
-   ```
-   ````
-
-2. **Architecture/Component Diagram** — If the PR adds or modifies components, services, or
-   modules, include a diagram showing how they relate:
-   ````markdown
-   ```mermaid
-   graph LR
-     subgraph Frontend
-       A[SkillStore] --> B[SkillCard]
-       A --> C[SkillDetailDialog]
-     end
-     subgraph Backend
-       D[/api/skills] --> E[SkillManager]
-       E --> F[(skills table)]
-     end
-     A -->|fetch/mutate| D
-   ```
-   ````
-
-3. **State Transition Diagram** — If the PR involves status changes or state machines:
-   ````markdown
-   ```mermaid
-   stateDiagram-v2
-     [*] --> pending
-     pending --> in_progress: dispatch
-     in_progress --> completed: success
-     in_progress --> failed: error
-     failed --> in_progress: retry
-   ```
-   ````
-
-Choose the diagram type(s) that best represent the changes. Use at most 2 diagrams per PR.
-The diagrams should be concise — focus on the parts that changed, not the entire system.
-Include the diagrams in the PR body under a `## Architecture` or `## Workflow` heading.
-
-### Phase 6: Report
+### Phase 5: Report
 When the AI reviewer approves (verdict is "Approve" without "with changes"):
 - Report the final PR URL and status
 - List what was fixed across iterations

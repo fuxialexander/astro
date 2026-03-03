@@ -27,6 +27,7 @@ import { shareRoute } from './routes/share.js'
 import { connectedAccountsRoute } from './routes/connected-accounts.js'
 import { teamsRoute } from './routes/teams.js'
 import { runMigrations } from './lib/db/migrate.js'
+import { bootstrapBuiltinSkills } from './lib/db/bootstrap-skills.js'
 import { closeDb } from '../packages/core/src/db/index.js'
 import { relayServer } from './lib/relay-server.js'
 import { redisPubSub } from './lib/redis-pubsub.js'
@@ -253,6 +254,13 @@ async function start() {
     } catch (err) {
       console.error('[bootstrap] Local-mode bootstrap failed:', err)
     }
+  }
+
+  // Seed built-in skills (runs in all modes)
+  try {
+    await bootstrapBuiltinSkills()
+  } catch (err) {
+    console.error('[bootstrap] Built-in skills bootstrap failed:', err)
   }
 
   console.log('[backend] initializing server (relay-only mode)...')
