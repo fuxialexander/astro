@@ -99,7 +99,9 @@ export async function bootstrapBuiltinSkills(builtinSkills: BuiltinSkillDefiniti
           .where(and(eq(skills.name, skill.name), eq(skills.source, 'builtin')))
 
         if (existing) {
-          // Compare all fields to avoid unnecessary writes
+          // Compare all frontmatter fields to avoid unnecessary writes.
+          // Note: `config` is intentionally excluded — builtin skills use frontmatter
+          // fields only; the config JSONB column is reserved for user/ClawHub skills.
           const tagsMatch = JSON.stringify(existing.tags ?? []) === JSON.stringify(skill.tags ?? [])
           const toolsMatch = JSON.stringify(existing.allowedTools ?? []) === JSON.stringify(skill.allowedTools ?? [])
           const isUnchanged =

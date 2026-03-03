@@ -624,6 +624,27 @@ describe('team scoping and isolation', () => {
       expect(teamMatch || globalMatch).toBe(true)
     }
   })
+
+  it('allows same skill name across different teams (no collision)', async () => {
+    const sharedName = `shared-name-${crypto.randomUUID().slice(0, 8)}`
+
+    // Team 1 creates skill
+    const res1 = await postJson('/api/skills', { name: sharedName })
+    expect(res1.status).toBe(201)
+
+    // Team 2 creates skill with the same name — should succeed (different team_id)
+    const res2 = await postJsonAs(SECOND_USER_ID, '/api/skills', { name: sharedName })
+    expect(res2.status).toBe(201)
+
+    // Both exist independently
+    const list1 = await request('/api/skills')
+    const data1 = await list1.json() as { skills: Array<{ name: string }> }
+    expect(data1.skills.filter(s => s.name === sharedName)).toHaveLength(1)
+
+    const list2 = await getAs(SECOND_USER_ID, '/api/skills')
+    const data2 = await list2.json() as { skills: Array<{ name: string }> }
+    expect(data2.skills.filter(s => s.name === sharedName)).toHaveLength(1)
+  })
 })
 
 describe('builtin skill protection', () => {

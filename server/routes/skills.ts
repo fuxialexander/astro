@@ -27,12 +27,13 @@ skillsRoute.use('/*', requireAuth)
  * NOTE: This measures JSON.stringify().length (text bytes), while the DB
  * constraint uses pg_column_size() (storage bytes including TOAST headers,
  * alignment padding, and potential compression). These are intentionally
- * different measures — the API limit is set ~5KB below the DB limit as a
- * conservative buffer so that requests always get a clear API-layer error
+ * different measures — the API limit is set 20KB below the DB limit to
+ * account for JSONB storage overhead which varies with content structure.
+ * The wide buffer ensures requests always get a clear API-layer error
  * rather than a cryptic DB constraint violation. The DB constraint (100KB)
  * is the true safety net for direct DB access (Supabase Dashboard, PostgREST).
  */
-const MAX_CONFIG_JSON_SIZE = 95 * 1024
+const MAX_CONFIG_JSON_SIZE = 80 * 1024
 
 /**
  * Validate config JSONB size.
@@ -227,8 +228,9 @@ skillsRoute.post('/', async (c) => {
     const [created] = await db.select().from(skills).where(eq(skills.id, skillId))
 
     // Sync in-memory skill-manager for prompt injection (best-effort).
-    // Note: Each mutation triggers a full DB reload. At current scale (<100 skills)
-    // this is fine. For bulk operations, consider a batch endpoint or debounced sync.
+    // Note: Each mutation triggers a full DB reload (O(N) where N = enabled skills).
+    // Tested and acceptable up to ~500 skills. For higher scale or bulk operations,
+    // consider incremental sync (add/remove single skill) or a debounced batch endpoint.
     // If sync fails, the DB write (source of truth) already succeeded — prompt
     // injection will catch up on the next successful sync or server restart.
     let syncWarning: string | null = null
