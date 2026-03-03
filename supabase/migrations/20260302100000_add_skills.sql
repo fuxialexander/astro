@@ -58,7 +58,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS skills_builtin_name_unique ON skills(name) WHE
 -- which matches the user.id extracted by the auth middleware.
 ALTER TABLE skills ENABLE ROW LEVEL SECURITY;
 
--- Policy: users can view skills they authored or that belong to their team
+-- Policy: users can view skills they authored or that belong to their team.
+-- NOTE: Multi-team users can see skills from ALL their teams via direct DB access
+-- (Supabase Dashboard, PostgREST). The API applies stricter filtering (active team only
+-- via user.teamId). This is accepted as defense-in-depth: RLS prevents unauthorized
+-- access, while API enforces active-team scoping. See docs/design/SKILLS.md.
 CREATE POLICY skills_select_policy ON skills
   FOR SELECT
   USING (

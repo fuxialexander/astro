@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { NavLink, useNavigate, useParams, useLocation } from "react-router"
-import { GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X, FlaskConical, PanelLeftClose, PanelLeft } from "lucide-react"
+import { GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X, FlaskConical, PanelLeftClose, PanelLeft, AlertCircle } from "lucide-react"
 import { getFaIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
@@ -14,6 +14,7 @@ import { useSidebarStore } from "@/stores/sidebar-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useAgentStore } from "@/stores/agent-store"
+import { useRealtimeStore } from "@/stores/realtime-store"
 import { useAutoReveal } from "@/hooks/use-auto-reveal"
 import { isServerMode } from "@/lib/app-mode"
 import { TERMINAL_NODE_STATUSES } from "@/lib/status-config"
@@ -136,6 +137,16 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
 
     return { activeCount: count, projectsWithRunning: running }
   }, [executions, agentSessions, planNodes, planNodesById])
+
+  // Count pending plan approvals for the Plan nav badge
+  const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
+  const pendingPlanApprovals = useMemo(() => {
+    let count = 0
+    for (const approval of dynamicApprovals.values()) {
+      if (approval.taskId.startsWith("plan-")) count++
+    }
+    return count
+  }, [dynamicApprovals])
 
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const longPressTimer = useRef<number | null>(null)
@@ -427,6 +438,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                             {activeCount}
                           </span>
                         )}
+                        {item.id === "plan" && pendingPlanApprovals > 0 && (
+                          <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-warning border-2 border-card" />
+                        )}
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="right">{item.label}</TooltipContent>
@@ -510,6 +524,12 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                           <div className="absolute inset-0 rounded-full border border-info border-t-transparent animate-spin" />
                         </div>
                         {activeCount}
+                      </span>
+                    )}
+                    {item.id === "plan" && pendingPlanApprovals > 0 && (
+                      <span className="flex items-center gap-1.5 rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold text-warning">
+                        <AlertCircle className="h-3 w-3" />
+                        {pendingPlanApprovals}
                       </span>
                     )}
                   </NavLink>

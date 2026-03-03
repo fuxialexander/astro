@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from "react"
 import { Link, useNavigate } from "react-router"
-import { ChevronDown, ChevronRight, Sparkles, Play, Clock, FileText, Cpu, ExternalLink, CheckCircle2, ArrowRight } from "lucide-react"
+import { ChevronDown, ChevronRight, Sparkles, Play, Clock, FileText, Cpu, ExternalLink, CheckCircle2, ArrowRight, AlertCircle } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useExecutionStore } from "@/stores/execution-store"
@@ -53,6 +53,16 @@ function TaskRow({ task, projectId }: { task: ActiveTask; projectId: string }) {
   const progress = stream?.progress ?? 0
   const navigate = useNavigate()
   const markPlanViewed = useAgentStore((s) => s.markPlanViewed)
+  const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
+
+  // Check if this task has pending approval requests
+  const hasPendingApproval = useMemo(() => {
+    if (!task.executionId) return false
+    for (const approval of dynamicApprovals.values()) {
+      if (approval.taskId === task.executionId) return true
+    }
+    return false
+  }, [dynamicApprovals, task.executionId])
 
   const linkTo = task.nodeId.startsWith("plan-") || task.status === "generating"
     ? `/welcome?projectId=${projectId}`
@@ -66,6 +76,36 @@ function TaskRow({ task, projectId }: { task: ActiveTask; projectId: string }) {
     markPlanViewed(projectId)
     navigate(`/project/${projectId}`)
   }, [markPlanViewed, projectId, navigate])
+
+  // For tasks with pending approvals, show a warning card
+  if (hasPendingApproval) {
+    const approvalLink = task.nodeId.startsWith("plan-") || task.status === "generating"
+      ? `/plan?projectId=${projectId}`
+      : task.nodeId.startsWith("playground-")
+        ? `/playground?projectId=${projectId}`
+        : `/project/${projectId}/task/${task.nodeId}`
+
+    return (
+      <Link
+        to={approvalLink}
+        className="flex flex-col gap-2 px-4 py-3 hover:bg-warning/10 transition-colors border-b border-border last:border-b-0 bg-warning/5"
+      >
+        <div className="flex items-center gap-3">
+          <AlertCircle className="h-3.5 w-3.5 text-warning shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-foreground truncate">{task.title}</span>
+              <Badge variant="outline" className="text-[10px] shrink-0 border-warning/50 text-warning">
+                Awaiting your input
+              </Badge>
+            </div>
+          </div>
+          <ElapsedTimer startedAt={task.startedAt} />
+          <ArrowRight className="h-3.5 w-3.5 text-warning shrink-0" />
+        </div>
+      </Link>
+    )
+  }
 
   // For generated plans, show a special "View plan" card
   if (task.status === "generated") {
