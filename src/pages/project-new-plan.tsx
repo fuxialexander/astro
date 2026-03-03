@@ -287,6 +287,11 @@ export function ProjectNewPlan() {
             setActiveProjectId(null)
             setSearchParams({})
           }}
+          onNewPlan={() => {
+            backingRef.current = true
+            setActiveProjectId(null)
+            setSearchParams({})
+          }}
         />
       </div>
     )
