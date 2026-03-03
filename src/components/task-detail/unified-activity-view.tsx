@@ -16,7 +16,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
-import { chatWithTask } from "@/lib/api-client"
+import { chatWithTask, fetchStreamingEventsCatchUp } from "@/lib/api-client"
 import { parseSSEStream } from "@/lib/sse-parser"
 import { cn } from "@/lib/utils"
 import type { PlanNode, TaskExecution, TaskActivityEvent } from "@/types"
@@ -198,75 +198,122 @@ export function UnifiedActivityView({
           })
 
           // Process the SSE stream to update execution state
-          await parseSSEStream(response, {
-            onEvent: ({ event, data }) => {
-              switch (event) {
-                case "text":
-                  useExecutionStore.getState().appendText(nodeId, data)
-                  break
-                case "tool_use":
-                  try {
-                    const parsed = JSON.parse(data)
-                    const traceId = `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
-                    useExecutionStore.getState().addToolTrace(nodeId, {
-                      id: traceId,
-                      toolName: parsed.toolName,
-                      toolInput: parsed.toolInput,
-                      timestamp: new Date(),
-                    })
-                  } catch { /* ignore */ }
-                  break
-                case "tool_result":
-                  try {
-                    const parsed = JSON.parse(data)
-                    useExecutionStore.getState().updateToolTraceResult(
-                      nodeId, parsed.toolName, parsed.result, parsed.success
-                    )
-                  } catch { /* ignore */ }
-                  break
-                case "file_change":
-                  try {
-                    const parsed = JSON.parse(data)
-                    useExecutionStore.getState().addFileChange(nodeId, {
-                      path: parsed.path,
-                      action: parsed.action || "modify",
-                      linesAdded: parsed.linesAdded,
-                      linesRemoved: parsed.linesRemoved,
-                      diff: parsed.diff,
-                      timestamp: new Date(),
-                    })
-                  } catch { /* ignore */ }
-                  break
-                case "result":
-                  try {
-                    const parsed = JSON.parse(data)
-                    useExecutionStore.setState((state) => {
-                      const newExecutions = new Map(state.executions)
-                      const exec = newExecutions.get(nodeId)
-                      if (exec) {
-                        exec.status = (parsed.status === "success" || parsed.status === "completed") ? "success" : "failure"
-                        exec.completedAt = new Date()
-                        if (parsed.sessionId) exec.sessionId = parsed.sessionId
-                      }
-                      return { executions: newExecutions }
-                    })
-                  } catch { /* ignore */ }
-                  break
-                case "error":
-                  try {
-                    const parsed = JSON.parse(data)
-                    console.error("[steer] Resume error:", parsed.error)
-                  } catch { /* ignore */ }
-                  break
-                case "resumed":
-                case "session_init":
-                case "done":
-                case "heartbeat":
-                case "aborted":
-                  break
+          let lastSeq = 0
+          let streamCompleted = false
+
+          // Shared event handler for both live stream and catch-up replay
+          const handleSteerEvent = (event: string, data: string) => {
+            switch (event) {
+              case "text":
+                useExecutionStore.getState().appendText(nodeId, data)
+                break
+              case "tool_use":
+                try {
+                  const parsed = JSON.parse(data)
+                  const traceId = `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
+                  useExecutionStore.getState().addToolTrace(nodeId, {
+                    id: traceId,
+                    toolName: parsed.toolName,
+                    toolInput: parsed.toolInput,
+                    timestamp: new Date(),
+                  })
+                } catch { /* ignore */ }
+                break
+              case "tool_result":
+                try {
+                  const parsed = JSON.parse(data)
+                  useExecutionStore.getState().updateToolTraceResult(
+                    nodeId, parsed.toolName, parsed.result, parsed.success
+                  )
+                } catch { /* ignore */ }
+                break
+              case "file_change":
+                try {
+                  const parsed = JSON.parse(data)
+                  useExecutionStore.getState().addFileChange(nodeId, {
+                    path: parsed.path,
+                    action: parsed.action || "modify",
+                    linesAdded: parsed.linesAdded,
+                    linesRemoved: parsed.linesRemoved,
+                    diff: parsed.diff,
+                    timestamp: new Date(),
+                  })
+                } catch { /* ignore */ }
+                break
+              case "result":
+                streamCompleted = true
+                try {
+                  const parsed = JSON.parse(data)
+                  useExecutionStore.setState((state) => {
+                    const newExecutions = new Map(state.executions)
+                    const exec = newExecutions.get(nodeId)
+                    if (exec) {
+                      exec.status = (parsed.status === "success" || parsed.status === "completed") ? "success" : "failure"
+                      exec.completedAt = new Date()
+                      if (parsed.sessionId) exec.sessionId = parsed.sessionId
+                    }
+                    return { executions: newExecutions }
+                  })
+                } catch { /* ignore */ }
+                break
+              case "error":
+                try {
+                  const parsed = JSON.parse(data)
+                  console.error("[steer] Resume error:", parsed.error)
+                } catch { /* ignore */ }
+                break
+              case "done":
+                streamCompleted = true
+                break
+              case "resumed":
+              case "session_init":
+              case "heartbeat":
+              case "aborted":
+                break
+            }
+          }
+
+          try {
+            await parseSSEStream(response, {
+              onEvent: ({ event, data }) => handleSteerEvent(event, data),
+              onId: (id) => {
+                const seq = parseInt(id, 10)
+                if (!isNaN(seq) && seq > lastSeq) lastSeq = seq
+              },
+            })
+          } catch (streamError) {
+            // Stream completed before the error — ignore trailing network errors
+            if (streamCompleted) return
+
+            // Page-unload guard: don't mark as failed if user is navigating away
+            // — the task is still running server-side, catch-up will reconcile on reload
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+              console.log('[steer] SSE interrupted by page unload, skipping failure marking')
+              return
+            }
+
+            // Attempt catch-up from persisted streaming events
+            if (lastSeq > 0) {
+              console.log(`[steer] Stream error, attempting catch-up from seq ${lastSeq}`)
+              try {
+                const { events } = await fetchStreamingEventsCatchUp([executionId], lastSeq)
+                for (const row of events) {
+                  const d = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+                  handleSteerEvent(row.eventType, d)
+                }
+                if (events.length > 0) {
+                  console.log(`[steer] Caught up ${events.length} events after stream error`)
+                }
+              } catch (catchUpError) {
+                console.warn('[steer] Catch-up failed:', catchUpError)
               }
-            },
-          })
+            }
+
+            // If catch-up didn't yield a terminal event, the stream error is genuine
+            if (!streamCompleted) {
+              console.warn('[steer] Stream error with no catch-up recovery:', streamError)
+            }
+          }
         } else {
           // JSON response — standard ack for active session injection
           updateSteerMessage(executionId, steerIndex, { accepted: true })
@@ -275,6 +322,13 @@ export function UnifiedActivityView({
     } catch (error) {
       clearTimeout(timeoutId)
       setPendingSteerText(null)
+
+      // Page-unload guard: don't mark as failed if user is navigating away
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        console.log('[steer] Fetch interrupted by page unload, skipping failure marking')
+        return
+      }
+
       updateSteerMessage(executionId, steerIndex, {
         accepted: false,
         ackMessage: `Failed: ${error instanceof Error ? error.message : "Network error"}`,
