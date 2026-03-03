@@ -196,7 +196,9 @@ dispatchRoute.post('/task', async (c) => {
   // This only fires when deliveryMode is in the request body. If the client
   // omits deliveryMode (relying on DB resolution), the late check at ~line 405
   // handles it after the project record is fetched.
-  if (deliveryMode === 'direct' && !dryRun && !force) {
+  // Note: serial execution is a SAFETY constraint (prevents file corruption),
+  // not a dependency check — it applies even with force=true.
+  if (deliveryMode === 'direct' && !dryRun) {
     const stats = await dispatchEngine.getStats()
     const activeForProject = stats.activePerProject?.[projectId] ?? 0
     if (activeForProject > 0) {
