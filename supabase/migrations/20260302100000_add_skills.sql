@@ -109,5 +109,32 @@ CREATE POLICY skills_delete_policy ON skills
   );
 
 -- Enforce config JSONB size limit at DB level (defense-in-depth).
--- Matches the 100KB API-layer validation in server/routes/skills.ts.
+-- The API validates at 95KB (JSON text size); the DB constraint uses 100KB on
+-- pg_column_size (which includes storage overhead). The API limit is intentionally
+-- lower so users get a clear error message instead of a cryptic DB violation.
 ALTER TABLE skills ADD CONSTRAINT skills_config_size_limit CHECK (pg_column_size(config) <= 102400);
+
+-- Invariant: builtin skills must have NULL team_id and NULL author_id.
+-- Prevents accidental team assignment or author attribution to system-seeded skills.
+-- Mirrors drizzle/0013_add_builtin_null_ownership_check.sql.
+ALTER TABLE skills ADD CONSTRAINT skills_builtin_null_ownership
+  CHECK (source != 'builtin' OR (team_id IS NULL AND author_id IS NULL));
+
+-- Invariant: source field should not be changed after creation.
+-- Prevents escalation from 'workspace' to 'builtin' via direct DB access.
+-- The API also enforces immutability (server/routes/skills.ts), but this trigger
+-- provides defense-in-depth for direct DB access (Supabase Dashboard, PostgREST).
+CREATE OR REPLACE FUNCTION prevent_skills_source_change()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF OLD.source IS DISTINCT FROM NEW.source THEN
+    RAISE EXCEPTION 'source field is immutable after creation';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER skills_prevent_source_change
+  BEFORE UPDATE ON skills
+  FOR EACH ROW
+  EXECUTE FUNCTION prevent_skills_source_change();

@@ -205,8 +205,7 @@ describe('POST /api/skills', () => {
 
     expect(res.status).toBe(400)
     const body = await res.json() as { error: string }
-    expect(body.error).toContain('config size')
-    expect(body.error).toContain('exceeds maximum')
+    expect(body.error).toContain('Config too large')
   })
 })
 
@@ -426,7 +425,7 @@ describe('PUT /api/skills/:id', () => {
     })
     expect(updateRes.status).toBe(400)
     const body = await updateRes.json() as { error: string }
-    expect(body.error).toContain('config size')
+    expect(body.error).toContain('Config too large')
   })
 
   it('returns 400 when trying to change source (immutable)', async () => {

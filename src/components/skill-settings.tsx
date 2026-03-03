@@ -110,7 +110,7 @@ function SkillCard({ skill }: { skill: SkillRow }) {
                   return
                 }
               }
-              checked ? enableSkill(skill.id) : disableSkill(skill.id)
+              if (checked) { enableSkill(skill.id) } else { disableSkill(skill.id) }
             }}
           />
           {skill.source !== "builtin" && (

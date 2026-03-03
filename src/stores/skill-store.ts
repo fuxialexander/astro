@@ -94,9 +94,13 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
       enabled: skill.enabled,
       config: skill.config,
     }).then((created) => {
-      // Replace the specific temp entry with server response
+      // Replace temp entry with server response and sweep orphaned temp entries
       const current = new Map(get().skills)
       current.delete(tempId)
+      // Clean up any orphaned temp entries from previous failed addSkill() calls
+      for (const key of [...current.keys()]) {
+        if (key.startsWith('temp-')) current.delete(key)
+      }
       current.set(created.id, created)
       set({ skills: current })
     }).catch((err) => {
@@ -276,10 +280,15 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     const eligible = get().getEligibleSkills()
     if (eligible.length === 0) return ""
 
+    // Escape XML special characters in attributes to prevent injection
+    const esc = (t: string) => t
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&apos;')
+
     const skillEntries = eligible
       .map(
         (s) =>
-          `  <skill name="${s.name}" description="${s.description}">\n${s.instructions}\n  </skill>`
+          `  <skill name="${esc(s.name)}" description="${esc(s.description)}">\n${s.instructions.replace(/<\/skill>/gi, '&lt;/skill&gt;')}\n  </skill>`
       )
       .join("\n")
 

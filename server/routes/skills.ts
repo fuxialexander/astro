@@ -21,8 +21,14 @@ const skillsRoute = new Hono()
 // All skills routes require authentication
 skillsRoute.use('/*', requireAuth)
 
-/** Maximum config JSONB size in bytes (100KB) to prevent DoS */
-const MAX_CONFIG_SIZE = 100 * 1024
+/**
+ * Maximum config JSON text size in bytes (95KB) for API-layer validation.
+ * This is intentionally lower than the DB constraint (100KB on pg_column_size)
+ * because pg_column_size includes storage overhead (TOAST headers, alignment).
+ * The conservative API limit ensures requests never hit the DB constraint,
+ * giving users a clear error message instead of a cryptic DB violation.
+ */
+const MAX_CONFIG_JSON_SIZE = 95 * 1024
 
 /**
  * Validate config JSONB size.
@@ -31,8 +37,8 @@ const MAX_CONFIG_SIZE = 100 * 1024
 function validateConfig(config: unknown): string | null {
   if (config === undefined || config === null) return null
   const json = JSON.stringify(config)
-  if (json.length > MAX_CONFIG_SIZE) {
-    return `config size (${json.length} bytes) exceeds maximum allowed (${MAX_CONFIG_SIZE} bytes)`
+  if (json.length > MAX_CONFIG_JSON_SIZE) {
+    return `Config too large (${json.length} bytes). Maximum allowed is ${MAX_CONFIG_JSON_SIZE} bytes. Consider removing unused fields.`
   }
   return null
 }
@@ -175,8 +181,11 @@ skillsRoute.post('/', async (c) => {
       return c.json({ error: 'disableModelInvocation must be a boolean' }, 400)
     }
 
-    // Pack OpenClaw extension fields into config JSONB
-    // (these aren't separate DB columns, but affect runtime behavior)
+    // Pack OpenClaw extension fields into config JSONB.
+    // These are stored inside `config` (not as separate DB columns) to keep the
+    // schema stable. The canonical representation is `config.userInvocable` and
+    // `config.disableModelInvocation`. Top-level body fields are a convenience alias
+    // that OVERRIDES any values inside `body.config` (explicit wins over nested).
     const config = { ...(body.config ?? {}) } as Record<string, unknown>
     if (body.userInvocable !== undefined) config.userInvocable = body.userInvocable
     if (body.disableModelInvocation !== undefined) config.disableModelInvocation = body.disableModelInvocation
@@ -322,21 +331,7 @@ skillsRoute.put('/:id', async (c) => {
     if (patch.config !== undefined) {
       const mergedConfigError = validateConfig(patch.config)
       if (mergedConfigError) {
-        // Compute individual sizes to help diagnose which part caused the overflow
-        const existingConfigSize = JSON.stringify(existing.config ?? {}).length
-        const updateConfigSize = body.config !== undefined ? JSON.stringify(body.config).length : 0
-        const openClawFields: Record<string, unknown> = {}
-        if (body.userInvocable !== undefined) openClawFields.userInvocable = body.userInvocable
-        if (body.disableModelInvocation !== undefined) openClawFields.disableModelInvocation = body.disableModelInvocation
-        const openClawSize = Object.keys(openClawFields).length > 0 ? JSON.stringify(openClawFields).length : 0
-        const mergedSize = JSON.stringify(patch.config).length
-        return c.json({
-          error: `Merged config size (${mergedSize} bytes) exceeds maximum allowed (${MAX_CONFIG_SIZE} bytes). `
-            + `Breakdown: existing config=${existingConfigSize} bytes, `
-            + `update config=${updateConfigSize} bytes, `
-            + `OpenClaw fields=${openClawSize} bytes. `
-            + `Consider removing unused fields from the existing config before updating.`,
-        }, 400)
+        return c.json({ error: mergedConfigError }, 400)
       }
     }
 

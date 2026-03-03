@@ -78,8 +78,10 @@ export class SkillManager {
 
   /**
    * Get skills that pass gating requirements (enabled + not model-invocation-disabled),
-   * scoped to a specific team. If no teamId is provided (e.g., local mode with no auth),
-   * returns all eligible skills.
+   * scoped to a specific team.
+   * - Pass a teamId string to get builtins + that team's skills
+   * - Pass null to get only builtins (safe default for local mode)
+   * - Pass undefined only in tests where all skills are needed
    */
   getEligibleSkills(teamId?: string | null): OpenClawSkill[] {
     const pool = teamId !== undefined ? this.getSkillsForTeam(teamId) : this.getAllSkills()
@@ -88,8 +90,8 @@ export class SkillManager {
 
   /**
    * Build XML prompt injection for eligible skills, scoped to a team.
-   * Pass the requesting user's teamId to ensure team isolation.
-   * In local mode (no auth), pass undefined to include all skills.
+   * Pass the requesting user's teamId to enforce team isolation.
+   * In local mode, callers should pass null (not undefined) to restrict to builtins only.
    */
   getSkillPromptInjection(teamId?: string | null): string {
     return buildSkillPromptInjection(this.getEligibleSkills(teamId))

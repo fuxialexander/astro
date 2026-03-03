@@ -618,9 +618,12 @@ async function dispatchViaRelay(
   // CRITICAL: Must pass user's teamId to enforce team isolation. Without this,
   // workspace skills from other teams could leak into the prompt, exposing
   // proprietary instructions or internal workflows stored in skill config.
-  // requireAuth middleware guarantees `user` is non-null. In local mode,
-  // teamId is undefined → getSkillPromptInjection returns all skills (safe for single-user).
-  const skillsInjection = skillManager.getSkillPromptInjection(user?.teamId) || undefined
+  // requireAuth middleware guarantees `user` is non-null and provides teamId.
+  // In local mode (no auth), teamId is undefined — we pass null to explicitly
+  // request only global/builtin skills, preventing accidental cross-team leakage
+  // if local mode ever supports multiple teams.
+  const effectiveTeamId = user?.teamId ?? null
+  const skillsInjection = skillManager.getSkillPromptInjection(effectiveTeamId) || undefined
 
   if (isInteractivePlan) {
     // Use the dedicated interactive plan prompt as a system prompt.

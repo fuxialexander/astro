@@ -11,7 +11,7 @@
  * - Are identified by name (unique for builtins)
  */
 
-import { eq, and } from 'drizzle-orm'
+import { eq, and, sql } from 'drizzle-orm'
 import { db } from './index.js'
 import { skills } from './schema.js'
 import type { BuiltinSkillDefinition } from '../skills/types.js'
@@ -38,8 +38,20 @@ export async function bootstrapBuiltinSkills(builtinSkills: BuiltinSkillDefiniti
     return
   }
 
-  // Warm up the DB connection to ensure readiness before bootstrap
+  // Warm up the DB connection and verify RLS bypass capability.
+  // Builtin skills have team_id=NULL, but the RLS INSERT policy requires
+  // team_id IS NOT NULL. Bootstrap only works with service_role (bypasses RLS)
+  // or PGlite (RLS not enforced). Log a warning if we detect a restricted role.
   await db.select().from(skills).limit(1)
+  try {
+    const [roleCheck] = await db.select({ role: sql<string>`current_setting('role')` }).from(sql`(SELECT 1) AS _`)
+    const role = roleCheck?.role
+    if (role && !['service_role', 'rds_superuser', 'postgres', 'supabase_admin'].includes(role)) {
+      console.warn(`[bootstrap] WARNING: DB role "${role}" may lack RLS bypass privileges. Builtin skill seeding may fail.`)
+    }
+  } catch {
+    // PGlite may not support current_setting — safe to ignore
+  }
 
   let inserted = 0
   let updated = 0
@@ -58,6 +70,16 @@ export async function bootstrapBuiltinSkills(builtinSkills: BuiltinSkillDefiniti
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await db.transaction(async (tx: any) => {
     for (const skill of builtinSkills) {
+      // Validate required fields — prevents malformed SKILL.md files from creating
+      // invalid DB rows. Shared validation with the API route (server/routes/skills.ts).
+      if (!skill.name || typeof skill.name !== 'string') {
+        console.error(`[bootstrap] Skipping builtin skill with invalid name:`, skill)
+        continue
+      }
+      if (!skill.instructions || typeof skill.instructions !== 'string') {
+        console.error(`[bootstrap] Skipping builtin skill "${skill.name}" — missing instructions`)
+        continue
+      }
       try {
         const [existing] = await tx.select({
           id: skills.id,
