@@ -225,13 +225,36 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         return true
       })
 
-      // Deduplicate nodes by ID (defensive: shouldn't happen but prevents doubled list view)
+      // Deduplicate nodes: by ID first, then collapse truly identical nodes within
+      // the same project. Racing setProjectPlan calls (SSE vs WebSocket) can create
+      // nodes with different UUIDs but identical content. We match on
+      // projectId + type + title + description (first 500 chars) so that legitimately
+      // different tasks with the same title (e.g. "Write tests" for frontend vs backend)
+      // are preserved. Among duplicates, prefer the node with a server-assigned number.
       const seenIds = new Set<string>()
-      const nodes = apiNodes.filter((n) => {
-        if (seenIds.has(n.id)) return false
+      const contentMap = new Map<string, PlanNode>()
+      const keepIds = new Set<string>()
+      for (const n of apiNodes) {
+        if (seenIds.has(n.id)) continue
         seenIds.add(n.id)
-        return true
-      })
+        const contentKey = `${n.projectId}::${n.type}::${n.title ?? ''}::${(n.description ?? '').slice(0, 500)}`
+        const existing = contentMap.get(contentKey)
+        if (existing) {
+          // Duplicate content — keep the node with a server-assigned number (lower wins)
+          const existingNum = existing.number ?? Infinity
+          const currentNum = n.number ?? Infinity
+          if (currentNum < existingNum) {
+            keepIds.delete(existing.id)
+            keepIds.add(n.id)
+            contentMap.set(contentKey, n)
+          }
+          // else: keep existing, skip current
+        } else {
+          contentMap.set(contentKey, n)
+          keepIds.add(n.id)
+        }
+      }
+      const nodes = apiNodes.filter((n) => keepIds.has(n.id))
 
       // Rebuild node.dependencies from edges (source of truth).
       // The server doesn't persist node.dependencies, so after a page refresh
