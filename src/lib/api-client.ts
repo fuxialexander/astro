@@ -428,6 +428,123 @@ export async function ensureBranch(
   }
 }
 
+// ── GitHub PR Details API ─────────────────────────────────────────────
+
+export interface PrDiffStats {
+  additions: number
+  deletions: number
+  changedFiles: number
+}
+
+export interface PrDetails {
+  number: number
+  title: string
+  body: string | null
+  state: string
+  branch: string
+  baseBranch: string
+  htmlUrl: string
+  merged: boolean
+  mergeable: boolean | null
+  mergedAt: string | null
+  closedAt: string | null
+  createdAt: string
+  updatedAt: string
+  user: { login: string; avatarUrl: string }
+  diffStats: PrDiffStats
+  reviewStatus: string
+  requestedReviewers: Array<{ login: string; avatarUrl: string }>
+  labels: Array<{ name: string; color: string }>
+  draft: boolean
+}
+
+export interface PrCheckRun {
+  id: number
+  name: string
+  status: string
+  conclusion: string | null
+  startedAt: string | null
+  completedAt: string | null
+  htmlUrl: string
+  app: { name: string; slug: string } | null
+}
+
+export interface PrChecksResult {
+  headSha: string
+  totalCount: number
+  overallStatus: string
+  checks: PrCheckRun[]
+}
+
+export interface PrReview {
+  id: number
+  user: { login: string; avatarUrl: string }
+  state: string
+  body: string | null
+  submittedAt: string | null
+  htmlUrl: string
+}
+
+export interface PrReviewsResult {
+  reviews: PrReview[]
+  overallReviewStatus: string
+  reviewerCount: number
+}
+
+/**
+ * Fetch full PR details: title, body, branch, diff stats, merge status, review state, reviewers.
+ */
+export async function fetchPrDetails(
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<PrDetails> {
+  const response = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}`), {
+    headers: await authHeaders(),
+  })
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => 'Unknown error')
+    throw new Error(`Failed to fetch PR details: ${response.status} ${errorText}`)
+  }
+  return response.json()
+}
+
+/**
+ * Fetch CI check runs and their statuses for a PR.
+ */
+export async function fetchPrChecks(
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<PrChecksResult> {
+  const response = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}/checks`), {
+    headers: await authHeaders(),
+  })
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => 'Unknown error')
+    throw new Error(`Failed to fetch PR checks: ${response.status} ${errorText}`)
+  }
+  return response.json()
+}
+
+/**
+ * Fetch review decisions for a PR.
+ */
+export async function fetchPrReviews(
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<PrReviewsResult> {
+  const response = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}/reviews`), {
+    headers: await authHeaders(),
+  })
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => 'Unknown error')
+    throw new Error(`Failed to fetch PR reviews: ${response.status} ${errorText}`)
+  }
+  return response.json()
+}
+
 // Provider status types
 export interface ProviderStatusResult {
   total: number
