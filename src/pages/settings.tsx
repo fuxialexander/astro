@@ -1633,20 +1633,27 @@ function EnvironmentsSettingsContent() {
 
     // Set new debounced save timeout (300ms for better UX)
     saveTimeoutRef.current = setTimeout(() => {
-      setCustomModel(tier, provider, model)
-      pendingSaveRef.current = null // Clear pending save after successful save
-      setSaveStatus("saved")
-      addToast({
-        type: "success",
-        title: "Settings saved",
-        description: "Model configuration has been updated",
-        duration: 2000,
-      })
-
-      // Reset to idle after showing "saved" for a moment
-      resetTimeoutRef.current = setTimeout(() => {
+      pendingSaveRef.current = null
+      setCustomModel(tier, provider, model).then(() => {
+        setSaveStatus("saved")
+        addToast({
+          type: "success",
+          title: "Settings saved",
+          description: "Model configuration has been updated",
+          duration: 2000,
+        })
+        resetTimeoutRef.current = setTimeout(() => {
+          setSaveStatus("idle")
+        }, 1500)
+      }).catch(() => {
         setSaveStatus("idle")
-      }, 1500)
+        addToast({
+          type: "error",
+          title: "Failed to save",
+          description: "Model configuration could not be saved. Please try again.",
+          duration: 3000,
+        })
+      })
     }, 300)
   }, [setCustomModel, addToast])
 
