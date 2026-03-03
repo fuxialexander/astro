@@ -38,6 +38,7 @@ import {
   SECOND_USER_ID,
 } from './helpers/test-server.js'
 import { bootstrapBuiltinSkills } from '../packages/core/src/db/bootstrap-skills.js'
+import { loadBuiltinSkillsFromDisk } from '../server/lib/load-builtin-skills.js'
 
 // ═══════════════════════════════════════════════════════════════════════
 // Part 1: Skills API Route Integration Tests
@@ -46,7 +47,8 @@ import { bootstrapBuiltinSkills } from '../packages/core/src/db/bootstrap-skills
 beforeAll(async () => {
   await setupTestServer()
   await bootstrapSecondUser()
-  await bootstrapBuiltinSkills()
+  const builtinSkills = loadBuiltinSkillsFromDisk()
+  await bootstrapBuiltinSkills(builtinSkills)
 }, 30000) // Increase timeout to 30s for server initialization
 
 describe('POST /api/skills', () => {

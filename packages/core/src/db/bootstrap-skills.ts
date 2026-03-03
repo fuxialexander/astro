@@ -14,7 +14,7 @@
 import { eq, and } from 'drizzle-orm'
 import { db } from './index.js'
 import { skills } from './schema.js'
-import { builtinSkills } from '../skills/index.js'
+import type { BuiltinSkillDefinition } from '../skills/types.js'
 
 /**
  * Seed built-in skills into the database.
@@ -22,9 +22,16 @@ import { builtinSkills } from '../skills/index.js'
  * Uses check-then-insert/update pattern since the unique constraint
  * is a partial index (name WHERE source='builtin'), which Drizzle's
  * onConflictDoUpdate cannot target. Wrapped in a transaction.
+ *
+ * @param builtinSkills - Skill definitions loaded from SKILL.md files on disk
  */
-export async function bootstrapBuiltinSkills(): Promise<void> {
+export async function bootstrapBuiltinSkills(builtinSkills: BuiltinSkillDefinition[]): Promise<void> {
   console.log('[bootstrap] Seeding built-in skills...')
+
+  if (builtinSkills.length === 0) {
+    console.log('[bootstrap] No built-in skills to seed')
+    return
+  }
 
   // Warm up the DB connection to ensure readiness before bootstrap
   await db.select().from(skills).limit(1)
@@ -100,15 +107,16 @@ export async function syncSkillsFromDb(
   }>) => void }
 ): Promise<void> {
   const rows = await db.select().from(skills).where(eq(skills.enabled, true))
-  const mapped = rows.map((s) => ({
+  // rows inherits `any[]` from the dual-driver db proxy — annotate explicitly
+  const mapped = rows.map((s: { name: string; description: string; instructions: string; source: string | null; enabled: boolean; config: Record<string, unknown> | null }) => ({
     name: s.name,
     description: s.description,
     instructions: s.instructions,
     source: s.source ?? 'workspace',
     enabled: s.enabled,
     config: (s.config ?? {}) as Record<string, unknown>,
-    userInvocable: ((s.config as Record<string, unknown>)?.userInvocable as boolean | undefined),
-    disableModelInvocation: ((s.config as Record<string, unknown>)?.disableModelInvocation as boolean | undefined),
+    userInvocable: (s.config?.userInvocable as boolean | undefined),
+    disableModelInvocation: (s.config?.disableModelInvocation as boolean | undefined),
   }))
   skillManager.loadSkills(mapped)
 }

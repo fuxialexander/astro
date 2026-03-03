@@ -27,7 +27,6 @@ import { shareRoute } from './routes/share.js'
 import { connectedAccountsRoute } from './routes/connected-accounts.js'
 import { teamsRoute } from './routes/teams.js'
 import { runMigrations } from './lib/db/migrate.js'
-import { bootstrapBuiltinSkills, syncSkillsFromDb } from './lib/db/bootstrap-skills.js'
 import { closeDb } from '../packages/core/src/db/index.js'
 import { relayServer } from './lib/relay-server.js'
 import { redisPubSub } from './lib/redis-pubsub.js'
@@ -256,15 +255,19 @@ async function start() {
     }
   }
 
-  // Seed built-in skills (runs in all modes)
+  // Seed built-in skills from skills/ directory (runs in all modes)
   try {
-    await bootstrapBuiltinSkills()
+    const { loadBuiltinSkillsFromDisk } = await import('./lib/load-builtin-skills.js')
+    const { bootstrapBuiltinSkills } = await import('./lib/db/bootstrap-skills.js')
+    const builtinSkills = loadBuiltinSkillsFromDisk()
+    await bootstrapBuiltinSkills(builtinSkills)
   } catch (err) {
     console.error('[bootstrap] Built-in skills bootstrap failed:', err)
   }
 
   // Load DB skills into in-memory skill-manager for prompt injection
   try {
+    const { syncSkillsFromDb } = await import('./lib/db/bootstrap-skills.js')
     const { skillManager } = await import('./lib/skill-manager.js')
     await syncSkillsFromDb(skillManager)
   } catch (err) {

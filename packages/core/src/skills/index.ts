@@ -1,23 +1,13 @@
 /**
  * Built-in Skills
  *
- * This module exports built-in skill definitions that can be used for seeding
- * the skills database or injecting into agent prompts.
+ * Exports skill types and the SKILL.md parser for built-in skills.
+ * Built-in skill definitions are loaded from skills/ directory at repo root
+ * via the server-side loader (server/lib/load-builtin-skills.ts).
  */
 
 // Types
 export * from './types.js'
 
-// Individual skills
-export { kubernetesWorkflowSkill } from './kubernetes-workflow/index.js'
-export { skypilotWorkflowSkill } from './skypilot-workflow/index.js'
-
-// All built-in skills as an array (useful for seeding)
-import { kubernetesWorkflowSkill } from './kubernetes-workflow/index.js'
-import { skypilotWorkflowSkill } from './skypilot-workflow/index.js'
-import type { BuiltinSkillDefinition } from './types.js'
-
-export const builtinSkills: BuiltinSkillDefinition[] = [
-  kubernetesWorkflowSkill,
-  skypilotWorkflowSkill,
-]
+// Parser for SKILL.md files
+export { parseBuiltinSkillMd } from './builtin-parser.js'
