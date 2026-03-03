@@ -400,7 +400,6 @@ export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }
   const { open, onClose, node, onNodeUpdate, ...rest } = props
   const [isRenaming, setIsRenaming] = useState(false)
   const [editingValue, setEditingValue] = useState<string | null>(null)
-  const updateNode = usePlanStore((s) => s.updateNode)
   const addToast = useToastStore((s) => s.add)
 
   // Reset rename state when node changes
@@ -431,26 +430,37 @@ export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }
   }, [isRenaming, open])
 
   const handleRename = useCallback(async (newTitle: string) => {
-    try {
-      // Optimistically update local state
-      updateNode(node.id, { title: newTitle })
-      onNodeUpdate({ ...node, title: newTitle })
+    // Read fresh node from store to avoid stale closure
+    const nodes = usePlanStore.getState().nodes
+    const freshNode = nodes.find(n => n.id === node.id)
+    if (!freshNode) return
 
+    // Optimistically update local state
+    const nextNodes = nodes.map(n =>
+      n.id === node.id ? { ...n, title: newTitle, updatedAt: new Date() } : n
+    )
+    usePlanStore.setState({ nodes: nextNodes })
+    onNodeUpdate({ ...freshNode, title: newTitle })
+
+    try {
       // Persist to backend
       await dataClient.updateNode(node.id, { title: newTitle })
 
-      // Only close after success
+      // Close input on success
       setIsRenaming(false)
     } catch (err) {
-      // Don't revert - keep the new title and show error
+      // Revert optimistic update
+      usePlanStore.setState({ nodes })
+      onNodeUpdate(freshNode)
+
       addToast({
         type: 'error',
         title: 'Failed to update task title',
         description: err instanceof Error ? err.message : 'An unknown error occurred',
       })
-      // User can manually cancel if they want to discard
+      // Keep input open so user can retry or cancel
     }
-  }, [node.id, node.title, updateNode, onNodeUpdate, addToast])
+  }, [node.id, onNodeUpdate, addToast])
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -494,7 +504,6 @@ export function NodeInspectorSidebar(props: NodeInspectorProps) {
   const { node, onClose, onNodeUpdate, ...rest } = props
   const [isRenaming, setIsRenaming] = useState(false)
   const [editingValue, setEditingValue] = useState<string | null>(null)
-  const updateNode = usePlanStore((s) => s.updateNode)
   const addToast = useToastStore((s) => s.add)
 
   // Reset rename state when node changes
@@ -525,26 +534,37 @@ export function NodeInspectorSidebar(props: NodeInspectorProps) {
   }, [isRenaming])
 
   const handleRename = useCallback(async (newTitle: string) => {
-    try {
-      // Optimistically update local state
-      updateNode(node.id, { title: newTitle })
-      onNodeUpdate({ ...node, title: newTitle })
+    // Read fresh node from store to avoid stale closure
+    const nodes = usePlanStore.getState().nodes
+    const freshNode = nodes.find(n => n.id === node.id)
+    if (!freshNode) return
 
+    // Optimistically update local state
+    const nextNodes = nodes.map(n =>
+      n.id === node.id ? { ...n, title: newTitle, updatedAt: new Date() } : n
+    )
+    usePlanStore.setState({ nodes: nextNodes })
+    onNodeUpdate({ ...freshNode, title: newTitle })
+
+    try {
       // Persist to backend
       await dataClient.updateNode(node.id, { title: newTitle })
 
-      // Only close after success
+      // Close input on success
       setIsRenaming(false)
     } catch (err) {
-      // Don't revert - keep the new title and show error
+      // Revert optimistic update
+      usePlanStore.setState({ nodes })
+      onNodeUpdate(freshNode)
+
       addToast({
         type: 'error',
         title: 'Failed to update task title',
         description: err instanceof Error ? err.message : 'An unknown error occurred',
       })
-      // User can manually cancel if they want to discard
+      // Keep input open so user can retry or cancel
     }
-  }, [node.id, node.title, updateNode, onNodeUpdate, addToast])
+  }, [node.id, onNodeUpdate, addToast])
 
   return (
     <div className="flex flex-col gap-5 border-l bg-card p-5 overflow-auto border-border w-[320px] shrink-0">
