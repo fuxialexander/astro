@@ -99,7 +99,9 @@ export function useConvertToProject() {
       const liveEdges = usePlanStore.getState().edges.filter(isLive)
       const hasEdge = liveEdges.some((e) => e.source === node.id || e.target === node.id)
       if (hasEdge) {
-        throw new Error("Node is no longer isolated — it has dependencies or dependents.")
+        throw new Error(
+          "This node now has dependencies and can't be converted. Another user may have added connections while you were confirming."
+        )
       }
 
       // 1. Gather context
@@ -144,7 +146,7 @@ export function useConvertToProject() {
           addToast({
             type: "warning",
             title: "Could not ensure branch on remote",
-            description: branchResult.error,
+            description: branchResult.error ?? undefined,
           })
         }
       }
@@ -160,7 +162,7 @@ export function useConvertToProject() {
           addToast({
             type: "warning",
             title: `Could not close PR #${node.prNumber}`,
-            description: prResult.error,
+            description: prResult.error ?? undefined,
           })
         }
       }
