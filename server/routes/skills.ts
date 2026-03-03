@@ -196,6 +196,102 @@ skillsRoute.get('/:id', async (c) => {
 })
 
 /**
+ * POST /api/skills/register
+ * Bulk register (upsert) plugin-contributed skills — idempotent.
+ * Used by the frontend plugin loader to sync skills to the server for prompt injection.
+ * Only updates skills with source='plugin'; skips builtins and user-owned skills.
+ */
+skillsRoute.post('/register', async (c) => {
+  try {
+    const user = c.get('user')! as AuthUser
+    const body = await c.req.json()
+
+    if (!body.skills || !Array.isArray(body.skills)) {
+      return c.json({ error: 'skills array is required' }, 400)
+    }
+
+    let registered = 0
+    let updated = 0
+    let skipped = 0
+
+    for (const skill of body.skills as Record<string, unknown>[]) {
+      if (!skill.name || typeof skill.name !== 'string') {
+        skipped++
+        continue
+      }
+
+      const [existing] = await db.select({ id: skills.id, source: skills.source })
+        .from(skills)
+        .where(and(eq(skills.name, skill.name), skillTeamScopeFilter(user)))
+        .limit(1)
+
+      if (existing) {
+        // Only update plugin-source skills; don't override builtins or user customizations
+        if (existing.source === 'plugin') {
+          const config = { ...(skill.config as Record<string, unknown> ?? {}) }
+          if (skill.userInvocable !== undefined) config.userInvocable = skill.userInvocable
+          if (skill.disableModelInvocation !== undefined) config.disableModelInvocation = skill.disableModelInvocation
+          const configErr = validateConfig(config)
+          if (configErr) { skipped++; continue }
+          await db.update(skills).set({
+            description: (skill.description as string) ?? '',
+            instructions: (skill.instructions as string) ?? '',
+            enabled: (skill.enabled as boolean) ?? true,
+            config,
+            updatedAt: new Date(),
+          }).where(eq(skills.id, existing.id))
+          try { await syncSkillById(skillManager, existing.id) } catch { /* best-effort */ }
+          updated++
+        } else {
+          skipped++
+        }
+      } else {
+        const skillId = crypto.randomUUID()
+        const config = { ...(skill.config as Record<string, unknown> ?? {}) }
+        if (skill.userInvocable !== undefined) config.userInvocable = skill.userInvocable
+        if (skill.disableModelInvocation !== undefined) config.disableModelInvocation = skill.disableModelInvocation
+        const configErr = validateConfig(config)
+        if (configErr) { skipped++; continue }
+        try {
+          await db.insert(skills).values({
+            id: skillId,
+            name: skill.name,
+            version: (skill.version as string) ?? '1.0.0',
+            description: (skill.description as string) ?? '',
+            instructions: (skill.instructions as string) ?? '',
+            category: (skill.category as string | null) ?? null,
+            tags: (skill.tags as string[]) ?? [],
+            source: 'plugin',
+            sourceUrl: (skill.sourceUrl as string | null) ?? null,
+            authorId: user.id,
+            enabled: (skill.enabled as boolean) ?? true,
+            allowedTools: (skill.allowedTools as string[]) ?? [],
+            config,
+            teamId: user.teamId ?? null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          try { await syncSkillById(skillManager, skillId) } catch { /* best-effort */ }
+          registered++
+        } catch (insertErr) {
+          // Handle race condition: concurrent register calls may both try to insert
+          if (isUniqueViolation(insertErr)) {
+            updated++ // treat as successful upsert
+          } else {
+            throw insertErr
+          }
+        }
+      }
+    }
+
+    return c.json({ registered, updated, skipped })
+  } catch (e) {
+    console.error('[skills] POST /register error:', e)
+    return c.json({ error: errorMessage(e) }, 500)
+  }
+})
+
+/**
  * Create a new skill
  *
  * POST /api/skills
