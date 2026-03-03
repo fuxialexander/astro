@@ -1402,6 +1402,12 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             return { executions: newExecutions }
           })
         } else {
+          // Don't mark as failure if the page is unloading (refresh/navigate away)
+          // — the task is still running server-side, catch-up will reconcile on reload
+          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+            console.log('[playground] SSE interrupted by page unload, skipping failure marking')
+            return
+          }
           const message = error instanceof Error ? error.message : "Unknown error"
           set((state) => {
             const newExecutions = new Map(state.executions)
