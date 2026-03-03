@@ -225,7 +225,13 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         return true
       })
 
-      const nodes = apiNodes
+      // Deduplicate nodes by ID (defensive: shouldn't happen but prevents doubled list view)
+      const seenIds = new Set<string>()
+      const nodes = apiNodes.filter((n) => {
+        if (seenIds.has(n.id)) return false
+        seenIds.add(n.id)
+        return true
+      })
 
       // Rebuild node.dependencies from edges (source of truth).
       // The server doesn't persist node.dependencies, so after a page refresh
@@ -406,6 +412,17 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
   setProjectPlan: (projectId, newNodes, newEdges) => {
     console.log(`[plan-store] setProjectPlan called: projectId=${projectId}, ${newNodes.length} nodes, ${newEdges.length} edges`)
+    // Guard: if the project already has nodes with the same titles (different UUIDs from a
+    // racing second call, e.g. SSE vs WebSocket), skip to keep the first set's IDs stable.
+    const existingProjectNodes = get().nodes.filter((n) => n.projectId === projectId)
+    if (existingProjectNodes.length > 0 && existingProjectNodes.length === newNodes.length) {
+      const existingTitles = new Set(existingProjectNodes.map((n) => n.title))
+      const allMatch = newNodes.every((n) => existingTitles.has(n.title))
+      if (allMatch) {
+        console.log(`[plan-store] Skipping duplicate setProjectPlan for ${projectId} — same ${newNodes.length} titles already exist`)
+        return
+      }
+    }
     // Numbers are assigned server-side — add optimistically without numbers
     const otherNodes = get().nodes.filter((n) => n.projectId !== projectId)
     const otherEdges = get().edges.filter((e) => {
