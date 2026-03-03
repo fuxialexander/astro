@@ -25,4 +25,4 @@ export { getEligibleSkills, buildSkillPromptInjection } from './skill-injector.j
 export * from './prompt-templates.js'
 
 // Built-in skills
-export * from '../../../skills/index.js'
+export * from './skills/index.js'

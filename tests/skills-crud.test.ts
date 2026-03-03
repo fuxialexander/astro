@@ -505,6 +505,26 @@ describe('builtin skill protection', () => {
     expect(body.error).toContain('builtin')
   })
 
+  it('source is immutable on update (attempts to change source are ignored)', async () => {
+    // Create a workspace skill
+    const createRes = await postJson('/api/skills', {
+      name: 'Source Immutability Test',
+      source: 'workspace',
+    })
+    expect(createRes.status).toBe(201)
+    const created = await createRes.json() as Record<string, unknown>
+    expect(created.source).toBe('workspace')
+
+    // Try to change source to 'clawhub' via PUT
+    const updateRes = await putJson(`/api/skills/${created.id}`, {
+      source: 'clawhub',
+    })
+    expect(updateRes.status).toBe(200)
+    const updated = await updateRes.json() as Record<string, unknown>
+    // Source should still be 'workspace' — immutable after creation
+    expect(updated.source).toBe('workspace')
+  })
+
   it('allows toggling builtin skills (enable/disable without deleting)', async () => {
     // Toggling builtins is intentionally allowed so users can disable
     // a builtin skill from prompt injection without deleting it
