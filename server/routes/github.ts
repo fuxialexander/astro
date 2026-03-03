@@ -525,4 +525,189 @@ app.get('/projects', async (c) => {
   return c.json({ projects: rows });
 });
 
+// ── PR and branch management endpoints ──────────────────────────────
+
+/**
+ * POST /api/github/close-pr
+ * Close a pull request via GitHub API
+ */
+app.post('/close-pr', async (c) => {
+  const userId = (c.get('user') as AuthUser).id;
+
+  const body = await c.req.json();
+  const { owner, repo, prNumber } = body as {
+    owner: string;
+    repo: string;
+    prNumber: number;
+  };
+
+  if (!owner || !repo || typeof prNumber !== 'number' || prNumber <= 0) {
+    return c.json({ error: 'owner, repo, and a positive prNumber are required' }, 400);
+  }
+
+  const connection = await githubStore.getConnection(userId);
+  if (!connection) {
+    return c.json({ error: 'GitHub not connected' }, 401);
+  }
+
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${connection.accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ state: 'closed' }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      return c.json({
+        success: false,
+        error: `GitHub API error ${response.status}: ${errorBody}`,
+      });
+    }
+
+    return c.json({ success: true });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('[github] close-pr error:', msg);
+    return c.json({ success: false, error: msg }, 500);
+  }
+});
+
+/**
+ * POST /api/github/ensure-branch
+ * Create a branch if it doesn't exist
+ */
+app.post('/ensure-branch', async (c) => {
+  const userId = (c.get('user') as AuthUser).id;
+
+  const body = await c.req.json();
+  const { owner, repo, branchName, sourceBranch } = body as {
+    owner: string;
+    repo: string;
+    branchName: string;
+    sourceBranch?: string;
+  };
+
+  if (!owner || !repo || !branchName) {
+    return c.json({ error: 'owner, repo, and branchName are required' }, 400);
+  }
+
+  // Validate branch name contains only safe characters
+  if (!/^[a-zA-Z0-9._\-/]+$/.test(branchName) || branchName.startsWith('-')) {
+    return c.json({ error: 'Invalid branch name' }, 400);
+  }
+
+  const connection = await githubStore.getConnection(userId);
+  if (!connection) {
+    return c.json({ error: 'GitHub not connected' }, 401);
+  }
+
+  const headers = {
+    Authorization: `Bearer ${connection.accessToken}`,
+    Accept: 'application/vnd.github.v3+json',
+    'Content-Type': 'application/json',
+  };
+
+  try {
+    // Check if branch already exists
+    const checkRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/branches/${encodeURIComponent(branchName)}`,
+      { headers }
+    );
+
+    if (checkRes.ok) {
+      return c.json({ success: true, created: false });
+    }
+
+    // Get SHA from source branch (or default branch)
+    const source = sourceBranch || 'main';
+    const sourceRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/branches/${encodeURIComponent(source)}`,
+      { headers }
+    );
+
+    if (!sourceRes.ok) {
+      // Try 'master' if 'main' fails and no explicit source was given
+      if (!sourceBranch) {
+        const masterRes = await fetch(
+          `https://api.github.com/repos/${owner}/${repo}/branches/master`,
+          { headers }
+        );
+        if (!masterRes.ok) {
+          return c.json({
+            success: false,
+            error: `Could not find source branch '${source}' or 'master'`,
+          });
+        }
+        const masterData = await masterRes.json();
+        const sha = masterData.commit.sha;
+
+        const createRes = await fetch(
+          `https://api.github.com/repos/${owner}/${repo}/git/refs`,
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              ref: `refs/heads/${branchName}`,
+              sha,
+            }),
+          }
+        );
+
+        if (!createRes.ok) {
+          const errorBody = await createRes.text();
+          return c.json({
+            success: false,
+            error: `Failed to create branch: ${errorBody}`,
+          });
+        }
+
+        return c.json({ success: true, created: true });
+      }
+
+      return c.json({
+        success: false,
+        error: `Source branch '${source}' not found`,
+      });
+    }
+
+    const sourceData = await sourceRes.json();
+    const sha = sourceData.commit.sha;
+
+    // Create the branch
+    const createRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/git/refs`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          ref: `refs/heads/${branchName}`,
+          sha,
+        }),
+      }
+    );
+
+    if (!createRes.ok) {
+      const errorBody = await createRes.text();
+      return c.json({
+        success: false,
+        error: `Failed to create branch: ${errorBody}`,
+      });
+    }
+
+    return c.json({ success: true, created: true });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('[github] ensure-branch error:', msg);
+    return c.json({ success: false, error: msg }, 500);
+  }
+});
+
 export default app;

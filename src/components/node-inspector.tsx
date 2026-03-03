@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Link } from "react-router"
-import { FileText, XCircle, RotateCcw, X, Plus } from "lucide-react"
+import { FileText, XCircle, RotateCcw, X, Plus, ArrowUpRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -8,6 +8,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { PropertyPicker } from "@/components/property-picker"
 import { LabelPicker } from "@/components/label-picker"
 import { LabelManagerDialog } from "@/components/label-manager-dialog"
+import { ConvertToProjectDialog } from "@/components/convert-to-project-dialog"
 
 import { ExecutionPanel } from "@/components/execution"
 
@@ -110,6 +111,16 @@ export function NodeInspectorContent({
   const [addDepOpen, setAddDepOpen] = useState(false)
   const [addDepSearch, setAddDepSearch] = useState("")
   const [labelManagerOpen, setLabelManagerOpen] = useState(false)
+  const [convertDialogOpen, setConvertDialogOpen] = useState(false)
+
+  // Full project (for convert-to-project: needs githubOwner, githubRepo, etc.)
+  const fullProject = useProjectStore((s) => s.projects.find((p) => p.id === node.projectId))
+
+  // Node is isolated when no live edge touches it
+  const isIsolated = useMemo(() => {
+    const liveEdges = allEdges.filter(isLive)
+    return !liveEdges.some((e) => e.source === node.id || e.target === node.id)
+  }, [allEdges, node.id])
 
   // Get project labels for this node
   const projectForLabels = useProjectStore((s) => s.projects.find((p) => p.id === node.projectId))
@@ -370,6 +381,24 @@ export function NodeInspectorContent({
             <XCircle className="h-4 w-4" />
             Prune Branch
           </button>
+        )}
+
+        {isIsolated && node.status !== "pruned" && (
+          <>
+            <button
+              onClick={() => setConvertDialogOpen(true)}
+              className="flex items-center justify-center gap-2 h-10 rounded-[10px] border border-border bg-transparent text-sm font-medium hover:bg-muted/50 transition-colors"
+            >
+              <ArrowUpRight className="h-4 w-4" />
+              Turn into Project
+            </button>
+            <ConvertToProjectDialog
+              open={convertDialogOpen}
+              onOpenChange={setConvertDialogOpen}
+              node={node}
+              hasGitHub={!!(fullProject?.githubOwner && fullProject?.githubRepo)}
+            />
+          </>
         )}
       </div>
     </>

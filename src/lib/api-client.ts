@@ -337,6 +337,49 @@ export async function suggestLabels(title: string, description: string): Promise
   }
 }
 
+// ── GitHub PR & branch management ───────────────────────────────────
+
+export async function closePr(
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch(apiUrl("/api/github/close-pr"), {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify({ owner, repo, prNumber }),
+    })
+    if (!res.ok) {
+      return { success: false, error: `Server error: ${res.status}` }
+    }
+    return await res.json()
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function ensureBranch(
+  owner: string,
+  repo: string,
+  branchName: string,
+  sourceBranch?: string,
+): Promise<{ success: boolean; created?: boolean; error?: string }> {
+  try {
+    const res = await fetch(apiUrl("/api/github/ensure-branch"), {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify({ owner, repo, branchName, sourceBranch }),
+    })
+    if (!res.ok) {
+      return { success: false, error: `Server error: ${res.status}` }
+    }
+    return await res.json()
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 // Provider status types
 export interface ProviderStatusResult {
   total: number
