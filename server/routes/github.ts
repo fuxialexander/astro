@@ -10,6 +10,7 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js';
 import { db } from '../lib/db/index.js';
 import { projects, planNodes, planEdges } from '../lib/db/schema.js';
 import { eq, and, or, isNotNull, inArray } from 'drizzle-orm';
+import { astroEventTransport } from '../lib/events/astro-event-transport.js';
 
 const app = new Hono();
 
@@ -751,6 +752,102 @@ app.post('/ensure-branch', async (c) => {
     console.error('[github] ensure-branch error:', msg);
     return c.json({ success: false, error: msg }, 500);
   }
+});
+
+// ── PR auto-link endpoints ───────────────────────────────────────────
+
+/**
+ * POST /api/github/pr/link
+ * Manually link a PR to a plan node.
+ * Body: { nodeId, projectId, prNumber, prUrl, branchName? }
+ */
+app.post('/pr/link', async (c) => {
+  const user = c.get('user') as AuthUser;
+
+  const body = await c.req.json();
+  const { nodeId, projectId, prNumber, prUrl, branchName } = body as {
+    nodeId: string;
+    projectId: string;
+    prNumber: number;
+    prUrl: string;
+    branchName?: string;
+  };
+
+  if (!nodeId || !projectId || typeof prNumber !== 'number' || prNumber <= 0 || !prUrl) {
+    return c.json({ error: 'nodeId, projectId, prNumber (positive), and prUrl are required' }, 400);
+  }
+
+  // Verify project belongs to user's team
+  const [project] = await db.select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId)))
+    .limit(1);
+
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
+  }
+
+  // Verify node belongs to the project
+  const [node] = await db.select({ clientId: planNodes.clientId })
+    .from(planNodes)
+    .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+    .limit(1);
+
+  if (!node) {
+    return c.json({ error: 'Plan node not found in this project' }, 404);
+  }
+
+  // Emit pr.linked event (manual source)
+  await astroEventTransport.emitEvent({
+    type: 'pr.linked',
+    nodeId,
+    projectId,
+    prNumber,
+    prUrl,
+    branchName,
+    linkSource: 'manual',
+    timestamp: new Date(),
+  });
+
+  console.log(`[github] Manual PR link: node=${nodeId}, pr=#${prNumber}, user=${user.id}`);
+
+  return c.json({ success: true, nodeId, prNumber, prUrl, linkSource: 'manual' });
+});
+
+/**
+ * GET /api/github/pr/links/:projectId
+ * List all plan nodes in a project that have PR links.
+ */
+app.get('/pr/links/:projectId', async (c) => {
+  const user = c.get('user') as AuthUser;
+  const projectId = c.req.param('projectId');
+
+  // Verify project belongs to user's team
+  const [project] = await db.select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId)))
+    .limit(1);
+
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
+  }
+
+  const linkedNodes = await db.select({
+    clientId: planNodes.clientId,
+    title: planNodes.title,
+    status: planNodes.status,
+    branchName: planNodes.branchName,
+    prUrl: planNodes.prUrl,
+    prNumber: planNodes.prNumber,
+    mergeQueueStatus: planNodes.mergeQueueStatus,
+  })
+    .from(planNodes)
+    .where(and(
+      eq(planNodes.projectId, projectId),
+      or(isNotNull(planNodes.prNumber), isNotNull(planNodes.branchName))
+    ));
+
+  return c.json({ links: linkedNodes });
 });
 
 export default app;

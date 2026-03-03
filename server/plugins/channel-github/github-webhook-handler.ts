@@ -199,10 +199,61 @@ export async function handlePullRequestEvent(
   const prTitle = pr.title as string
   const headRef = (pr.head as Record<string, unknown>)?.ref as string | undefined
 
+  const prBody = (pr.body as string) || ''
+  const prUrl = pr.html_url as string
+
   switch (action) {
-    case 'opened':
-      console.log(`[github-channel] PR #${prNumber} opened in ${repoFullName}: "${prTitle}" → plan task creation for project ${projectId}`)
+    case 'opened': {
+      console.log(`[github-channel] PR #${prNumber} opened in ${repoFullName}: "${prTitle}" → auto-linking for project ${projectId}`)
+
+      // Strategy 1: Match head branch name to node ID (astro/<nodeId> or task-<nodeId>/*)
+      const nodeIdFromBranch = extractNodeIdFromBranch(headRef)
+      if (nodeIdFromBranch) {
+        const [branchNode] = await db.select({ clientId: planNodes.clientId })
+          .from(planNodes)
+          .where(and(eq(planNodes.clientId, nodeIdFromBranch), eq(planNodes.projectId, projectId)))
+          .limit(1)
+
+        if (branchNode) {
+          console.log(`[github-channel] Auto-linking PR #${prNumber} to node '${nodeIdFromBranch}' via branch name`)
+          await astroEventTransport.emitEvent({
+            type: 'pr.linked',
+            nodeId: nodeIdFromBranch,
+            projectId,
+            prNumber,
+            prUrl,
+            branchName: headRef || '',
+            linkSource: 'auto-branch',
+            timestamp: new Date(),
+          })
+          break
+        }
+      }
+
+      // Strategy 2: Match astro-task:{nodeId} in PR body
+      const bodyNodeIds = extractNodeIdsFromBody(prBody)
+      for (const bodyNodeId of bodyNodeIds) {
+        const [bodyNode] = await db.select({ clientId: planNodes.clientId })
+          .from(planNodes)
+          .where(and(eq(planNodes.clientId, bodyNodeId), eq(planNodes.projectId, projectId)))
+          .limit(1)
+
+        if (bodyNode) {
+          console.log(`[github-channel] Auto-linking PR #${prNumber} to node '${bodyNodeId}' via body reference`)
+          await astroEventTransport.emitEvent({
+            type: 'pr.linked',
+            nodeId: bodyNodeId,
+            projectId,
+            prNumber,
+            prUrl,
+            branchName: headRef || '',
+            linkSource: 'auto-body-reference',
+            timestamp: new Date(),
+          })
+        }
+      }
       break
+    }
     case 'closed': {
       const merged = pr.merged as boolean
       const mergedSha = pr.merge_commit_sha as string | undefined
@@ -290,12 +341,38 @@ export async function handleMergeGroupEvent(
 }
 
 /**
- * Extract nodeId from an Astro branch name (astro/<nodeId>).
+ * Extract nodeId from an Astro branch name.
+ * Supports patterns:
+ *   - astro/<nodeId>
+ *   - task-<nodeId>/*
+ *   - astro-task/<nodeId>
  */
 function extractNodeIdFromBranch(branchName?: string): string | undefined {
   if (!branchName) return undefined
-  const match = branchName.match(/^astro\/(.+)$/)
-  return match?.[1]
+
+  // Pattern 1: astro/<nodeId> (primary pattern from agent runner)
+  const astroMatch = branchName.match(/^astro\/(.+)$/)
+  if (astroMatch) return astroMatch[1]
+
+  // Pattern 2: task-<nodeId> or task-<nodeId>/<anything>
+  const taskMatch = branchName.match(/^task-([^/]+)(?:\/.*)?$/)
+  if (taskMatch) return taskMatch[1]
+
+  // Pattern 3: astro-task/<nodeId>
+  const astroTaskMatch = branchName.match(/^astro-task\/(.+)$/)
+  if (astroTaskMatch) return astroTaskMatch[1]
+
+  return undefined
+}
+
+/**
+ * Extract node IDs from PR body using astro-task:{nodeId} references.
+ * Supports multiple references in a single body.
+ */
+function extractNodeIdsFromBody(body: string): string[] {
+  if (!body) return []
+  const matches = body.matchAll(/astro-task:([a-zA-Z0-9_-]+)/g)
+  return [...matches].map((m) => m[1])
 }
 
 /**
@@ -310,6 +387,7 @@ function mapDequeueReason(reason: string): 'conflicts' | 'ci_failure' | 'removed
 
 /**
  * Handle `push` webhook events.
+ * Extracts node ID from branch name patterns and auto-links branch → plan node.
  */
 export async function handlePushEvent(
   payload: Record<string, unknown>,
@@ -329,6 +407,33 @@ export async function handlePushEvent(
   const commitCount = commits?.length ?? 0
 
   console.log(`[github-channel] Push to ${ref} in ${repoFullName}: ${commitCount} commit(s) → auto-verification signal for project ${projectId}`)
+
+  // Extract branch name from refs/heads/<branchName>
+  const branchName = ref.replace('refs/heads/', '')
+  const nodeId = extractNodeIdFromBranch(branchName)
+
+  if (nodeId) {
+    // Check if this node exists and doesn't already have branchName set
+    const [existingNode] = await db.select({
+      clientId: planNodes.clientId,
+      branchName: planNodes.branchName,
+    })
+      .from(planNodes)
+      .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+      .limit(1)
+
+    if (existingNode && !existingNode.branchName) {
+      console.log(`[github-channel] Auto-linking branch '${branchName}' to node '${nodeId}' via push event`)
+      await astroEventTransport.emitEvent({
+        type: 'pr.linked',
+        nodeId,
+        projectId,
+        branchName,
+        linkSource: 'auto-branch',
+        timestamp: new Date(),
+      })
+    }
+  }
 }
 
 /**

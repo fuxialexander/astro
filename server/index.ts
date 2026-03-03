@@ -47,6 +47,7 @@ import { channelNotificationHook } from './lib/events/hooks/channel-notification
 import { githubIssueCloseHook } from './lib/events/hooks/github-issue-close-hook.js'
 import { prBodyUpdateHook } from './lib/events/hooks/pr-body-update-hook.js'
 import { projectCompletionHook } from './lib/events/hooks/project-completion-hook.js'
+import { prAutoLinkHook } from './lib/events/hooks/pr-auto-link-hook.js'
 import { observabilityHook, observationCollector } from './lib/observability/observation-collector.js'
 import { langfuseExportHook } from './lib/observability/langfuse-exporter.js'
 import { observationsRoute } from './routes/observations.js'
@@ -298,6 +299,7 @@ async function start() {
     astroEventTransport.registerHook('project-completion', projectCompletionHook)
     astroEventTransport.registerHook('git-pull', gitPullHook)
     astroEventTransport.registerHook('channel-notification', channelNotificationHook)
+    astroEventTransport.registerHook('pr-auto-link', prAutoLinkHook)
     astroEventTransport.registerHook('observability', observabilityHook)
     observationCollector.start()
     if (langfuseExportHook) {
