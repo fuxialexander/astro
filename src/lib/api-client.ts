@@ -190,6 +190,8 @@ export async function planChatWithAgent(
     onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
     onDone: (sessionId: string) => void
     onError: (error: string) => void
+    /** Called with each SSE seq number — track for disconnect catch-up */
+    onSeq?: (seq: number) => void
   },
   signal?: AbortSignal,
 ): Promise<void> {
@@ -213,6 +215,7 @@ export async function planChatWithAgent(
     onToolResult: callbacks.onToolResult,
     onDone: callbacks.onDone,
     onError: callbacks.onError,
+    onSeq: callbacks.onSeq,
   })
 }
 
@@ -252,6 +255,8 @@ export async function chatWithTask(
     onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
     onDone: (sessionId: string) => void
     onError: (error: string) => void
+    /** Called with each SSE seq number — track for disconnect catch-up */
+    onSeq?: (seq: number) => void
   },
   signal?: AbortSignal,
 ): Promise<void> {
@@ -275,6 +280,7 @@ export async function chatWithTask(
     onToolResult: callbacks.onToolResult,
     onDone: callbacks.onDone,
     onError: callbacks.onError,
+    onSeq: callbacks.onSeq,
   })
 }
 
@@ -582,6 +588,60 @@ export async function fetchStreamingEventsCatchUp(
     throw new Error(`Failed to fetch streaming events catch-up: ${response.status} ${response.statusText} - ${errorText}`)
   }
   return response.json()
+}
+
+/**
+ * Replay caught-up streaming events through chat callbacks.
+ * Used after a network disconnect to reconstruct missed chat events.
+ * Returns whether a `done` event was found (turn completed server-side)
+ * and the highest seq number encountered.
+ */
+export function replayChatCatchUpEvents(
+  events: StreamingEventRow[],
+  callbacks: {
+    onText?: (text: string) => void
+    onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
+    onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
+    onDone?: (sessionId: string) => void
+    onError?: (error: string) => void
+  },
+): { completed: boolean; lastSeq: number } {
+  let completed = false
+  let lastSeq = 0
+  for (const event of events) {
+    const data = event.data as Record<string, unknown>
+    lastSeq = event.seq
+    switch (event.eventType) {
+      case 'text':
+        callbacks.onText?.((data.text as string) || '')
+        break
+      case 'tool_use':
+        callbacks.onToolUse?.({
+          toolName: (data.toolName as string) || '',
+          toolInput: data.toolInput,
+        })
+        break
+      case 'tool_result':
+        callbacks.onToolResult?.({
+          toolName: (data.toolName as string) || '',
+          success: (data.success as boolean) ?? true,
+          result: data.result,
+        })
+        break
+      case 'done':
+        try {
+          callbacks.onDone?.((data.sessionId as string) || '')
+        } catch {
+          callbacks.onDone?.('')
+        }
+        completed = true
+        break
+      case 'error':
+        callbacks.onError?.((data.error as string) || (data.message as string) || '')
+        break
+    }
+  }
+  return { completed, lastSeq }
 }
 
 // ============================================================================

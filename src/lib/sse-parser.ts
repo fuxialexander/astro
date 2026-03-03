@@ -103,6 +103,8 @@ export async function parseChatSSE(
     onPlanResult?: (result: unknown) => void
     onDone?: (sessionId: string) => void
     onError?: (error: string) => void
+    /** Called with the parsed SSE `id:` as a seq number — tracks position for disconnect catch-up */
+    onSeq?: (seq: number) => void
   },
 ): Promise<void> {
   await parseSSEStream(response, {
@@ -145,6 +147,12 @@ export async function parseChatSSE(
           break
       }
     },
+    onId: handlers.onSeq
+      ? (id) => {
+          const n = Number(id)
+          if (Number.isInteger(n)) handlers.onSeq!(n)
+        }
+      : undefined,
   })
 }
 
