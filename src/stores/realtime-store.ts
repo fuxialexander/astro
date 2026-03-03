@@ -931,11 +931,11 @@ function handleRealtimeEvent(
       for (const [nid, exec] of execStore.executions) {
         if (exec.executionId === taskId && nid.startsWith('plan-')) {
           const planProjectId = nid.replace(/^plan-/, '')
-          // Get accumulated stdout from task stream — skipIfExists prevents
-          // race duplication with the SSE path in execution-store
+          // Get accumulated stdout from task stream — use executionId for idempotency
+          // to prevent race duplication with the SSE path in execution-store
           const stream = useRealtimeStore.getState().taskStreams.get(taskId)
           if (stream?.stdout) {
-            const result = applyPlanFromText(planProjectId, stream.stdout, true)
+            const result = applyPlanFromText(planProjectId, stream.stdout, taskId)
             if (result.applied) {
               console.log('[realtime] Plan extracted from live SSE result:', result.nodeCount, 'nodes')
             }

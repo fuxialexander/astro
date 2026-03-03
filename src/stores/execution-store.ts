@@ -1037,8 +1037,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           if (event === "result") {
             try {
               const exec = get().executions.get(nodeId)
-              if (exec?.streamText) {
-                const result = applyPlanFromText(projectId, exec.streamText)
+              if (exec?.streamText && exec.executionId) {
+                const result = applyPlanFromText(projectId, exec.streamText, exec.executionId)
                 if (result.applied) {
                   console.log(`[plan-session] Plan extracted: ${result.nodeCount} nodes`)
                 }
@@ -1258,8 +1258,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           if (event === "result") {
             try {
               const exec = get().executions.get(nodeId)
-              if (exec?.streamText) {
-                const result = applyPlanFromText(projectId, exec.streamText)
+              if (exec?.streamText && exec.executionId) {
+                const result = applyPlanFromText(projectId, exec.streamText, exec.executionId)
                 if (result.applied) {
                   console.log(`[plan-session-forProject] Plan extracted: ${result.nodeCount} nodes`)
                 }

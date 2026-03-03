@@ -3,20 +3,40 @@ import { usePlanStore } from '@/stores/plan-store'
 import { useProjectStore } from '@/stores/project-store'
 
 /**
+ * Module-level Set to track processed executionIds for idempotency.
+ * Prevents race conditions when both SSE and WebSocket paths call this
+ * function simultaneously for the same execution result.
+ */
+const processedExecutionIds = new Set<string>()
+
+/**
  * Extracts plan JSON from text and applies it to the plan store.
  * Returns whether the plan was applied and how many nodes were created.
+ *
+ * @param projectId - The project ID to associate nodes with
+ * @param text - The text containing the plan JSON
+ * @param executionId - Optional execution ID for idempotency (recommended)
+ * @param skipIfExists - Deprecated: use executionId instead for proper idempotency
  */
 export function applyPlanFromText(
   projectId: string,
   text: string,
-  /** When true, skip if the project already has plan nodes (prevents race duplication
-   *  between SSE and WebSocket paths both calling this on the same result event). */
+  executionId?: string,
   skipIfExists = false,
 ): { applied: boolean; nodeCount: number } {
   const planJson = extractPlanJsonFromText(text)
   if (!planJson) return { applied: false, nodeCount: 0 }
 
-  if (skipIfExists) {
+  // Idempotency check: if executionId is provided, use it as the primary check
+  if (executionId) {
+    if (processedExecutionIds.has(executionId)) {
+      console.log(`[plan-extraction] Skipping — executionId ${executionId} already processed`)
+      return { applied: false, nodeCount: 0 }
+    }
+    // Mark as processed immediately to prevent concurrent calls from proceeding
+    processedExecutionIds.add(executionId)
+  } else if (skipIfExists) {
+    // Fallback: non-atomic check for backward compatibility
     const existing = usePlanStore.getState().nodes.filter(n => n.projectId === projectId)
     if (existing.length > 0) {
       console.log(`[plan-extraction] Skipping — project ${projectId} already has ${existing.length} nodes`)

@@ -431,27 +431,48 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
     // Create new nodes (from decomposition)
     // Map AI-generated IDs to proper UUIDs for consistency with manually created tasks.
-    // Deduplicate by title: if a node with the same title already exists, update it
-    // instead of creating a duplicate.
+    // Deduplicate by title + type: if a node with the same title and type already exists,
+    // update it instead of creating a duplicate. This allows multiple tasks with the same
+    // title but different types (e.g., "Review PR" as both task and milestone).
     const idMap = new Map<string, string>() // map AI-generated IDs to real UUIDs
-    const existingByTitle = new Map(
-      planNodes.filter((n) => n.projectId === projectId).map((n) => [n.title.trim().toLowerCase(), n])
-    )
+    const projectNodes = planNodes.filter((n) => n.projectId === projectId)
+
     for (const n of newNodes) {
-      const existing = existingByTitle.get(n.title.trim().toLowerCase())
+      const normalizedTitle = n.title.trim().toLowerCase()
+      const nodeType = (n.type as PlanNode["type"]) ?? "task"
+
+      // Find existing node with same title and type (compound key for more precise matching)
+      let existing = projectNodes.find(
+        (node) => node.title.trim().toLowerCase() === normalizedTitle && node.type === nodeType
+      )
+
+      // Fallback: if no type match, check for same title with description similarity
+      // (AI might reference existing task without specifying type)
+      if (!existing && n.description) {
+        const matches = projectNodes.filter((node) => node.title.trim().toLowerCase() === normalizedTitle)
+        if (matches.length === 1) {
+          // Only one match by title — assume it's the same task
+          existing = matches[0]
+        } else if (matches.length > 1) {
+          // Multiple matches — prefer one with similar description or same status
+          existing = matches.find((m) => m.description === n.description || m.status === "planned")
+        }
+      }
+
       if (existing) {
         // Node already exists — map the AI ID to the existing UUID and update instead
         const realId = existing.id
         affectedNodeIds.push(realId)
         if (n.id) idMap.set(n.id, realId)
         const patch: Partial<PlanNode> = {}
-        if (n.description && n.description !== existing.description) {
+        // Use != null instead of truthy check to allow clearing fields with empty strings
+        if (n.description != null && n.description !== existing.description) {
           patch.description = n.description
-          patch.content = `<p>${escapeHtml(n.description)}</p>`
+          patch.content = n.description ? `<p>${escapeHtml(n.description)}</p>` : ''
         }
-        if (n.priority && n.priority !== existing.priority) patch.priority = n.priority as PlanNode["priority"]
-        if (n.estimate && n.estimate !== existing.estimate) patch.estimate = n.estimate as PlanNode["estimate"]
-        if (n.verification && n.verification !== existing.verification) patch.verification = n.verification as PlanNode["verification"]
+        if (n.priority != null && n.priority !== existing.priority) patch.priority = n.priority as PlanNode["priority"]
+        if (n.estimate != null && n.estimate !== existing.estimate) patch.estimate = n.estimate as PlanNode["estimate"]
+        if (n.verification != null && n.verification !== existing.verification) patch.verification = n.verification as PlanNode["verification"]
         if (Object.keys(patch).length > 0) {
           updateNode(realId, patch)
         }
