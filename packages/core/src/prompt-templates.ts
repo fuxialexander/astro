@@ -1,3 +1,5 @@
+import type { ReplanContext } from './types'
+
 export const PLAN_GRAPH_SCHEMA = {
   type: "object" as const,
   properties: {
@@ -717,6 +719,7 @@ export function buildInteractivePlanPrompt(
     gitState?: GitStateForPrompt
     skillsSummary?: string
     githubContext?: GitHubContextForPrompt
+    replanContext?: ReplanContext
   }
 ): string {
   const visionSection = options?.visionDoc
@@ -797,6 +800,51 @@ You MUST include a final task node titled "Push to GitHub" that:
     }
   }
 
+  // Build replan context section when replanning from a previous plan
+  let replanSection = ""
+  if (options?.replanContext) {
+    const rc = options.replanContext
+    const parts: string[] = []
+
+    if (rc.changeDescription) {
+      parts.push(`### What the User Wants to Change\n${rc.changeDescription}`)
+    }
+
+    if (rc.previousPlanSummary) {
+      parts.push(`### Previous Plan Structure\n${rc.previousPlanSummary}`)
+    }
+
+    if (rc.lessons.length > 0) {
+      const lessonLines = rc.lessons.map((lesson) => {
+        const badge =
+          lesson.status === 'success' ? '✅ success' :
+          lesson.status === 'partial' ? '⚠️ partial' :
+          lesson.status === 'failure' ? '❌ failure' :
+          '⏭️ not_executed'
+        let line = `- **${lesson.taskTitle}** [${badge}]`
+        if (lesson.executionSummary) {
+          line += `\n  ${lesson.executionSummary}`
+        }
+        if (lesson.followUps && lesson.followUps.length > 0) {
+          line += '\n  Follow-ups:'
+          for (const fu of lesson.followUps) {
+            line += `\n    - ${fu}`
+          }
+        }
+        return line
+      })
+      parts.push(`### Execution Results\n${lessonLines.join('\n')}`)
+    }
+
+    parts.push(`### Guidance
+- Preserve patterns and approaches from tasks that succeeded
+- Redesign tasks that failed — do not repeat the same approach
+- Incorporate follow-up items from completed tasks as new tasks or modifications
+- Respect the user's change description above all other signals`)
+
+    replanSection = `\n## Previous Plan — Lessons Learned\n${parts.join('\n\n')}\n`
+  }
+
   const hasCodebase = !!options?.repoContext
 
   return `You are an interactive project planning assistant. Your goal is to help the user create a detailed, actionable project plan through exploration and discussion.
@@ -805,7 +853,7 @@ You MUST include a final task node titled "Push to GitHub" that:
 <user_goal>
 ${description}
 </user_goal>
-${visionSection}${repoSection}${gitStateSection}${skillsSection}${githubSection}
+${visionSection}${replanSection}${repoSection}${gitStateSection}${skillsSection}${githubSection}
 ## Your Approach
 ${hasCodebase ? `
 1. **Quick survey of the codebase** — Get a high-level understanding first. Read READMEs, CLAUDE.md, package.json, and use Glob to see the directory/file tree structure. Do NOT dive into individual source files yet — just get the lay of the land.
