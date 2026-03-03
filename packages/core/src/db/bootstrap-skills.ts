@@ -32,6 +32,7 @@ export async function bootstrapBuiltinSkills(): Promise<void> {
   let inserted = 0
   let updated = 0
 
+  // tx inherits `any` from the dual-driver db proxy (PGlite + postgres-js)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await db.transaction(async (tx: any) => {
     for (const skill of builtinSkills) {

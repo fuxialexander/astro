@@ -266,8 +266,11 @@ skillsRoute.put('/:id', async (c) => {
     if (body.category !== undefined) patch.category = body.category || null
     if (body.tags !== undefined) patch.tags = body.tags
     // source is immutable after creation — reject attempts to change it
-    if (body.source !== undefined && body.source !== existing.source) {
-      return c.json({ error: 'source field is immutable after creation' }, 400)
+    if (body.source !== undefined) {
+      if (body.source !== existing.source) {
+        return c.json({ error: 'source field is immutable after creation' }, 400)
+      }
+      console.warn(`[skills] Client sent source field in PUT request for skill ${id}, ignoring (source is immutable)`)
     }
     if (body.sourceUrl !== undefined) patch.sourceUrl = body.sourceUrl || null
     if (body.enabled !== undefined) patch.enabled = body.enabled
