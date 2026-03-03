@@ -136,7 +136,7 @@ function ChatPanel({ onSkillUpdate }: { onSkillUpdate: (updater: SkillDefinition
   useEffect(() => {
     async function loadSystemPrompt() {
       try {
-        const response = await fetch("/skills/skill-onboarder/SKILL.md")
+        const response = await fetch("/api/skills/files/skill-onboarder/SKILL.md")
         if (response.ok) {
           const content = await response.text()
           // Extract instructions section from SKILL.md
@@ -146,6 +146,8 @@ function ChatPanel({ onSkillUpdate }: { onSkillUpdate: (updater: SkillDefinition
           } else {
             setSystemPrompt(content)
           }
+        } else {
+          console.error("Failed to load skill-onboarder SKILL.md: HTTP", response.status)
         }
       } catch (error) {
         console.error("Failed to load skill-onboarder SKILL.md:", error)
