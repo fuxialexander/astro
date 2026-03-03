@@ -289,6 +289,9 @@ dispatchRoute.post('/task', async (c) => {
 
     if (dbProject) {
       visionDoc ??= dbProject.visionDoc || undefined
+      // Resolution precedence: body > DB > undefined.
+      // This precedence is relied upon by the serial execution checks at ~line 201
+      // (early: body-provided deliveryMode) and ~line 386 (late: DB-resolved deliveryMode).
       deliveryMode ??= (dbProject.deliveryMode as typeof deliveryMode) || undefined
       const source = dbProject.source as { localPath?: string; remoteType?: string; baseBranch?: string } | null
       remoteType ??= (source?.remoteType as typeof remoteType) || undefined
