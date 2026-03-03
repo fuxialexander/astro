@@ -399,13 +399,24 @@ export function NodeInspectorContent({
 export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }) {
   const { open, onClose, node, onNodeUpdate, ...rest } = props
   const [isRenaming, setIsRenaming] = useState(false)
+  const [editingValue, setEditingValue] = useState<string | null>(null)
   const updateNode = usePlanStore((s) => s.updateNode)
   const addToast = useToastStore((s) => s.add)
 
   // Reset rename state when node changes
   useEffect(() => {
     setIsRenaming(false)
+    setEditingValue(null)
   }, [node.id])
+
+  // Lock input value when entering rename mode
+  useEffect(() => {
+    if (isRenaming && editingValue === null) {
+      setEditingValue(node.title)
+    } else if (!isRenaming) {
+      setEditingValue(null)
+    }
+  }, [isRenaming, node.title, editingValue])
 
   // Add keyboard shortcut (F2) for rename
   useEffect(() => {
@@ -424,25 +435,22 @@ export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }
       // Optimistically update local state
       updateNode(node.id, { title: newTitle })
       onNodeUpdate({ ...node, title: newTitle })
-      setIsRenaming(false)
 
       // Persist to backend
       await dataClient.updateNode(node.id, { title: newTitle })
-    } catch (err) {
-      // Revert optimistic update on error
-      updateNode(node.id, { title: node.title })
-      onNodeUpdate(node)
 
+      // Only close after success
+      setIsRenaming(false)
+    } catch (err) {
+      // Don't revert - keep the new title and show error
       addToast({
         type: 'error',
         title: 'Failed to update task title',
         description: err instanceof Error ? err.message : 'An unknown error occurred',
       })
-
-      // Keep the input open so the user can try again
-      setIsRenaming(true)
+      // User can manually cancel if they want to discard
     }
-  }, [node, updateNode, onNodeUpdate, addToast])
+  }, [node.id, node.title, updateNode, onNodeUpdate, addToast])
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -451,7 +459,7 @@ export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }
           <div className="flex items-center justify-between gap-2">
             {isRenaming ? (
               <InlineRenameInput
-                value={node.title}
+                value={editingValue ?? node.title}
                 onSave={handleRename}
                 onCancel={() => setIsRenaming(false)}
                 validate={validateTaskTitle}
@@ -459,7 +467,7 @@ export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }
               />
             ) : (
               <h3
-                className="font-semibold text-base truncate flex-1 pr-8 group/title cursor-default"
+                className="font-semibold text-base truncate flex-1 pr-8 group/title cursor-text"
                 onDoubleClick={() => setIsRenaming(true)}
               >
                 {node.title}
@@ -485,13 +493,24 @@ export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }
 export function NodeInspectorSidebar(props: NodeInspectorProps) {
   const { node, onClose, onNodeUpdate, ...rest } = props
   const [isRenaming, setIsRenaming] = useState(false)
+  const [editingValue, setEditingValue] = useState<string | null>(null)
   const updateNode = usePlanStore((s) => s.updateNode)
   const addToast = useToastStore((s) => s.add)
 
   // Reset rename state when node changes
   useEffect(() => {
     setIsRenaming(false)
+    setEditingValue(null)
   }, [node.id])
+
+  // Lock input value when entering rename mode
+  useEffect(() => {
+    if (isRenaming && editingValue === null) {
+      setEditingValue(node.title)
+    } else if (!isRenaming) {
+      setEditingValue(null)
+    }
+  }, [isRenaming, node.title, editingValue])
 
   // Add keyboard shortcut (F2) for rename
   useEffect(() => {
@@ -510,25 +529,22 @@ export function NodeInspectorSidebar(props: NodeInspectorProps) {
       // Optimistically update local state
       updateNode(node.id, { title: newTitle })
       onNodeUpdate({ ...node, title: newTitle })
-      setIsRenaming(false)
 
       // Persist to backend
       await dataClient.updateNode(node.id, { title: newTitle })
-    } catch (err) {
-      // Revert optimistic update on error
-      updateNode(node.id, { title: node.title })
-      onNodeUpdate(node)
 
+      // Only close after success
+      setIsRenaming(false)
+    } catch (err) {
+      // Don't revert - keep the new title and show error
       addToast({
         type: 'error',
         title: 'Failed to update task title',
         description: err instanceof Error ? err.message : 'An unknown error occurred',
       })
-
-      // Keep the input open so the user can try again
-      setIsRenaming(true)
+      // User can manually cancel if they want to discard
     }
-  }, [node, updateNode, onNodeUpdate, addToast])
+  }, [node.id, node.title, updateNode, onNodeUpdate, addToast])
 
   return (
     <div className="flex flex-col gap-5 border-l bg-card p-5 overflow-auto border-border w-[320px] shrink-0">
@@ -546,7 +562,7 @@ export function NodeInspectorSidebar(props: NodeInspectorProps) {
       <div className="flex flex-col gap-2">
         {isRenaming ? (
           <InlineRenameInput
-            value={node.title}
+            value={editingValue ?? node.title}
             onSave={handleRename}
             onCancel={() => setIsRenaming(false)}
             validate={validateTaskTitle}
@@ -554,7 +570,7 @@ export function NodeInspectorSidebar(props: NodeInspectorProps) {
           />
         ) : (
           <h3
-            className="font-semibold text-xl text-foreground truncate font-serif group/title cursor-default"
+            className="font-semibold text-xl text-foreground truncate font-serif group/title cursor-text"
             onDoubleClick={() => setIsRenaming(true)}
           >
             {node.title}
