@@ -28,6 +28,7 @@ import { useDirectoryDetection } from "@/hooks/use-directory-detection"
 import { useGitHubStore } from "@/stores/github-store"
 import { dataClient } from "@/lib/data-client"
 import { requestNotificationPermission } from "@/lib/notifications"
+import { useToastStore } from "@/stores/toast-store"
 import { OnboardingHint } from "@/components/onboarding-hint"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
@@ -84,6 +85,22 @@ export function ProjectNewPlan() {
   const [visionDoc, setVisionDoc] = useState("")
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
   const modelTier: ModelTier = "large"
+
+  // Reset all form fields to initial state
+  const resetForm = useCallback(() => {
+    setDescription("")
+    setWorkingDir("")
+    setSelectedMachine(null)
+    setSelectedBranch("")
+    setSelectedProvider("")
+    setSelectedModel("")
+    setRepoUrl("")
+    setGithubOwner("")
+    setGithubRepo("")
+    setVisionDoc("")
+    setAttachments([])
+    setContextOpen(false)
+  }, [])
 
   // Git detection (debounced)
   const { detection, isDetecting } = useDirectoryDetection(workingDir, selectedMachine?.machineId)
@@ -227,8 +244,9 @@ export function ProjectNewPlan() {
   useEffect(() => {
     if (!projectIdParam && activeProjectId) {
       setActiveProjectId(null)
+      resetForm()
     }
-  }, [projectIdParam, activeProjectId])
+  }, [projectIdParam, activeProjectId, resetForm])
 
   // Determine machine name for display
   const machineName = (() => {
@@ -410,6 +428,7 @@ export function ProjectNewPlan() {
     // Upload each image to persistent blob storage
     for (const file of imageFiles) {
       const reader = new FileReader()
+      const filename = file.name || `pasted-image-${crypto.randomUUID()}.png`
       reader.onload = async () => {
         try {
           const base64 = (reader.result as string).split(',')[1]
@@ -417,12 +436,12 @@ export function ProjectNewPlan() {
             base64,
             file.type || 'image/png',
             file.size,
-            file.name || `pasted-image-${Date.now()}.png`,
+            filename,
           )
           const persistentUrl = dataClient.getBlobUrl(blobId)
           const attachment: TaskAttachment = {
             id: blobId,
-            name: file.name || `pasted-image-${Date.now()}.png`,
+            name: filename,
             url: persistentUrl,
             mimeType: file.type || 'image/png',
             size: file.size,
@@ -432,6 +451,11 @@ export function ProjectNewPlan() {
           setAttachments((prev) => [...prev, attachment])
         } catch (err) {
           console.error('[plan-session] Failed to upload pasted image:', err)
+          useToastStore.getState().add({
+            type: 'error',
+            title: 'Upload failed',
+            description: 'Could not upload pasted image. Check your connection.',
+          })
         }
       }
       reader.readAsDataURL(file)
@@ -461,12 +485,14 @@ export function ProjectNewPlan() {
 
       if (isRegeneration && existingProject) {
         // Re-generation flow: use existing project, don't create a duplicate
-        // Update project description/name + repository before starting session
-        updateProject(existingProject.id, {
+        // Await backend update before starting session to avoid stale context
+        const regenUpdates = {
           description: description.trim(),
           name: firstLine,
           ...(repoUrl ? { repository: repoUrl } : {}),
-        })
+        }
+        updateProject(existingProject.id, regenUpdates) // optimistic local
+        await dataClient.updateProject(existingProject.id, regenUpdates) // await backend
 
         const result = await startPlanSessionForProject(
           existingProject.id,
@@ -511,7 +537,11 @@ export function ProjectNewPlan() {
         projectUpdates.attachments = attachments
       }
       if (Object.keys(projectUpdates).length > 0) {
-        updateProject(projectId, projectUpdates)
+        updateProject(projectId, projectUpdates) // optimistic local
+        // Persist to backend (non-blocking — these fields don't affect session start)
+        dataClient.updateProject(projectId, projectUpdates).catch((err) => {
+          console.error('[plan-session] Failed to persist GitHub/attachment updates:', err)
+        })
       }
 
       setActiveProjectId(projectId)
@@ -539,11 +569,13 @@ export function ProjectNewPlan() {
             backingRef.current = true
             setActiveProjectId(null)
             setSearchParams({})
+            resetForm()
           }}
           onNewPlan={() => {
             backingRef.current = true
             setActiveProjectId(null)
             setSearchParams({})
+            resetForm()
           }}
         />
       </div>
