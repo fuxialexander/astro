@@ -107,6 +107,17 @@ skillsRoute.post('/', async (c) => {
       return c.json({ error: 'name is required' }, 400)
     }
 
+    const validSources = ['builtin', 'workspace', 'clawhub', 'plugin', 'user']
+    if (body.source && !validSources.includes(body.source)) {
+      return c.json({ error: `Invalid source. Must be one of: ${validSources.join(', ')}` }, 400)
+    }
+    if (body.tags && !Array.isArray(body.tags)) {
+      return c.json({ error: 'tags must be an array' }, 400)
+    }
+    if (body.allowedTools && !Array.isArray(body.allowedTools)) {
+      return c.json({ error: 'allowedTools must be an array' }, 400)
+    }
+
     const now = new Date()
     const skillId = body.id || crypto.randomUUID()
 

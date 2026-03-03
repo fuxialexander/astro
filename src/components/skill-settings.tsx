@@ -46,6 +46,7 @@ const sourceColors: Record<OpenClawSkill["source"], string> = {
   workspace: "bg-success/10 text-success",
   clawhub: "bg-primary/10 text-primary",
   plugin: "bg-warning/10 text-warning",
+  user: "bg-muted/10 text-muted-foreground",
 }
 
 function SkillCard({ skill }: { skill: OpenClawSkill }) {
