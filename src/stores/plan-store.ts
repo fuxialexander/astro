@@ -225,11 +225,18 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         return true
       })
 
-      // Deduplicate nodes by ID (defensive: shouldn't happen but prevents doubled list view)
+      // Deduplicate nodes: by ID first, then by title+projectId to handle
+      // duplicate UUID sets from racing setProjectPlan calls (SSE vs WebSocket).
       const seenIds = new Set<string>()
+      const seenTitles = new Set<string>()
       const nodes = apiNodes.filter((n) => {
         if (seenIds.has(n.id)) return false
         seenIds.add(n.id)
+        // Two racing setProjectPlan calls create nodes with different IDs but same titles.
+        // Keep only the first occurrence per project+title combination.
+        const titleKey = `${n.projectId}::${n.title}`
+        if (seenTitles.has(titleKey)) return false
+        seenTitles.add(titleKey)
         return true
       })
 

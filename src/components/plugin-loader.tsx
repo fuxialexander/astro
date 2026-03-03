@@ -165,11 +165,15 @@ export function PluginLoader({ children }: Props) {
     // Bridge plugin skills to the skill store and sync to the server.
     // Only add skills that don't already exist in the store (loaded from DB by DataLoader).
     // Without this check, every page refresh would try to POST duplicate skills, causing 409s.
+    // IMPORTANT: Wait for skill store to be loaded first — if skills haven't loaded from DB
+    // yet, findByName returns nothing and ALL skills pass the filter, causing duplicate 409s.
     if (contributions.skills && contributions.skills.length > 0) {
-      const { findByName } = useSkillStore.getState()
-      const newSkills = contributions.skills.filter(skill => !findByName(skill.name))
-      for (const skill of newSkills) {
-        addSkill(skill)
+      const { findByName, loaded } = useSkillStore.getState()
+      if (loaded) {
+        const newSkills = contributions.skills.filter(skill => !findByName(skill.name))
+        for (const skill of newSkills) {
+          addSkill(skill)
+        }
       }
       // Sync all plugin skills to server (idempotent endpoint) for prompt injection
       syncSkillsToServer(contributions.skills).catch((err) => {
