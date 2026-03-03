@@ -448,10 +448,12 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
       // Fallback: if no type match, check for same title with description similarity
       // (AI might reference existing task without specifying type)
+      // Only apply single-match fallback when AI didn't explicitly specify a type
       if (!existing) {
         const matches = projectNodes.filter((node) => node.title.trim().toLowerCase() === normalizedTitle)
-        if (matches.length === 1) {
-          // Only one match by title — assume it's the same task
+        const isDefaultType = n.type === undefined || n.type === null
+        if (matches.length === 1 && isDefaultType) {
+          // Only one match by title and AI didn't specify type — assume it's the same task
           existing = matches[0]
         } else if (matches.length > 1 && n.description) {
           // Multiple matches — only match if description is identical to avoid wrong node

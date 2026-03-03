@@ -44,13 +44,11 @@ export function applyPlanFromText(
 
     // Cleanup: remove oldest entries when Set grows beyond max size
     if (processedExecutionIds.size > MAX_PROCESSED_IDS) {
-      const toRemove = processedExecutionIds.size - (MAX_PROCESSED_IDS - CLEANUP_THRESHOLD)
-      const iter = processedExecutionIds.values()
-      for (let i = 0; i < toRemove; i++) {
-        const { value, done } = iter.next()
-        if (!done) processedExecutionIds.delete(value)
-      }
-      console.log(`[plan-extraction] Cleaned up ${toRemove} old executionIds (${processedExecutionIds.size} remaining)`)
+      const entries = Array.from(processedExecutionIds)
+      const toKeep = entries.slice(-(MAX_PROCESSED_IDS - CLEANUP_THRESHOLD))
+      processedExecutionIds.clear()
+      toKeep.forEach(id => processedExecutionIds.add(id))
+      console.log(`[plan-extraction] Cleaned up ${entries.length - toKeep.length} old executionIds (${processedExecutionIds.size} remaining)`)
     }
   } else if (skipIfExists) {
     // Fallback: non-atomic check for backward compatibility
