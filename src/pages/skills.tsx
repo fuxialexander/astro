@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback } from "react"
+import { useNavigate } from "react-router"
 import {
   Wrench,
   ListFilter,
@@ -11,6 +12,12 @@ import {
   ToggleRight,
   ChevronRight,
   Tag,
+  Download,
+  Loader2,
+  AlertCircle,
+  ArrowLeft,
+  Check,
+  Sparkles,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -36,7 +43,10 @@ import {
 } from "@/components/ui/dialog"
 import { useSkillStore, type SkillRow } from "@/stores/skill-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
+import { useToastStore } from "@/stores/toast-store"
 import { cn } from "@/lib/utils"
+import { fetchSkillFromGitHub } from "@/lib/github-skill-import"
+import type { OpenClawSkill } from "@/types/skill"
 
 // --- Source badge styling ---
 const sourceConfig: Record<string, { label: string; className: string }> = {
@@ -282,6 +292,281 @@ function NewSkillDialog({
   )
 }
 
+// --- GitHub Import Dialog ---
+function GitHubImportDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const addSkill = useSkillStore((s) => s.addSkill)
+  const addToast = useToastStore((s) => s.add)
+
+  const [step, setStep] = useState<"input" | "preview">("input")
+  const [url, setUrl] = useState("")
+  const [isValidUrl, setIsValidUrl] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [previewSkill, setPreviewSkill] = useState<OpenClawSkill | null>(null)
+
+  const validateGitHubUrl = useCallback((inputUrl: string) => {
+    // Support multiple GitHub URL patterns:
+    // 1. Full URLs: https://github.com/owner/repo
+    // 2. Tree URLs (subfolders): https://github.com/owner/repo/tree/branch/path
+    // 3. Blob URLs (direct file): https://github.com/owner/repo/blob/branch/path/SKILL.md
+    // 4. Without protocol: github.com/owner/repo/...
+    // 5. Shorthand: owner/repo or owner/repo/path/to/folder
+    const trimmed = inputUrl.trim().replace(/\/+$/, '').replace(/\.git$/, '')
+
+    // Remove protocol and github.com prefix for validation
+    const normalized = trimmed.replace(/^https?:\/\//, '').replace(/^github\.com\//, '')
+
+    // Split and validate minimum owner/repo
+    const parts = normalized.split('/')
+    if (parts.length < 2) return false
+
+    const [owner, repo] = parts
+    if (!owner || !repo) return false
+
+    // Validate owner and repo format (alphanumeric, hyphens, underscores, dots)
+    const validNamePattern = /^[a-zA-Z0-9_.-]+$/
+    if (!validNamePattern.test(owner) || !validNamePattern.test(repo)) return false
+
+    return true
+  }, [])
+
+  const handleUrlBlur = useCallback(() => {
+    const trimmedUrl = url.trim()
+    if (trimmedUrl) {
+      const isValid = validateGitHubUrl(trimmedUrl)
+      setIsValidUrl(isValid)
+      if (!isValid) {
+        setError("Please enter a valid GitHub URL. Examples: owner/repo, owner/repo/skill-folder, or a full GitHub URL")
+      } else {
+        setError("")
+      }
+    }
+  }, [url, validateGitHubUrl])
+
+  const handleUrlChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setUrl(e.target.value)
+    setError("")
+    // Reset validation state when user types
+    if (e.target.value.trim()) {
+      setIsValidUrl(validateGitHubUrl(e.target.value.trim()))
+    } else {
+      setIsValidUrl(false)
+    }
+  }, [validateGitHubUrl])
+
+  const handleFetchSkill = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault()
+      if (!isValidUrl) return
+
+      setIsLoading(true)
+      setError("")
+
+      try {
+        const skill = await fetchSkillFromGitHub(url.trim())
+        setPreviewSkill(skill)
+        setStep("preview")
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to import skill from GitHub")
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [isValidUrl, url],
+  )
+
+  const handleConfirmImport = useCallback(() => {
+    if (!previewSkill) return
+
+    // Add the skill with source: 'workspace' and the original GitHub URL
+    addSkill({
+      ...previewSkill,
+      source: 'workspace',
+      config: {
+        ...previewSkill.config,
+        sourceUrl: url.trim(),
+      },
+    })
+
+    // Show success toast
+    addToast({
+      type: 'success',
+      title: 'Skill imported successfully',
+      description: `${previewSkill.name} has been added to your workspace`,
+    })
+
+    // Close dialog (will trigger handleOpenChange which resets state)
+    onOpenChange(false)
+  }, [previewSkill, addSkill, addToast, url, onOpenChange])
+
+  const handleBack = useCallback(() => {
+    setStep("input")
+    setPreviewSkill(null)
+    setError("")
+  }, [])
+
+  const handleOpenChange = useCallback((newOpen: boolean) => {
+    if (!newOpen) {
+      // Reset form when closing
+      setStep("input")
+      setUrl("")
+      setIsValidUrl(false)
+      setError("")
+      setIsLoading(false)
+      setPreviewSkill(null)
+    }
+    onOpenChange(newOpen)
+  }, [onOpenChange])
+
+  // Truncate instructions to first 500 characters for preview
+  const truncatedInstructions = previewSkill?.instructions
+    ? previewSkill.instructions.slice(0, 500) + (previewSkill.instructions.length > 500 ? '...' : '')
+    : ''
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-[600px]">
+        {step === "input" ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Import from GitHub</DialogTitle>
+              <DialogDescription>
+                Import a skill from a GitHub repository or skill collection. Point to a folder containing a SKILL.md file.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleFetchSkill} className="flex flex-col gap-4 mt-2">
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="github-url" className="text-sm font-medium">
+                  GitHub URL <span className="text-destructive">*</span>
+                </label>
+                <Input
+                  id="github-url"
+                  type="text"
+                  placeholder="owner/repo/skill-folder or paste GitHub URL"
+                  value={url}
+                  onChange={handleUrlChange}
+                  onBlur={handleUrlBlur}
+                  disabled={isLoading}
+                  autoFocus
+                  className={error && url ? "border-destructive" : ""}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Supports: owner/repo, owner/repo/path, or full GitHub URLs including /tree/branch/path links
+                </p>
+              </div>
+
+              {/* Error Display */}
+              {error && (
+                <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-destructive">
+                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <p className="text-xs leading-relaxed">{error}</p>
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => handleOpenChange(false)}
+                  disabled={isLoading}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={!isValidUrl || isLoading}>
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      Fetching...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="h-3.5 w-3.5 mr-1.5" />
+                      Fetch Skill
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </form>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>Preview Skill</DialogTitle>
+              <DialogDescription>
+                Review the skill details before importing to your workspace.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-4 mt-2">
+              {/* Skill Name */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium">Name</label>
+                <div className="text-sm text-foreground">{previewSkill?.name}</div>
+              </div>
+
+              {/* Description */}
+              {previewSkill?.description && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium">Description</label>
+                  <div className="text-sm text-muted-foreground">
+                    {previewSkill.description}
+                  </div>
+                </div>
+              )}
+
+              {/* Category and Tags */}
+              <div className="flex gap-4">
+                {previewSkill?.metadata?.openclaw && (
+                  <div className="flex flex-col gap-1.5 flex-1">
+                    <label className="text-sm font-medium">Category</label>
+                    <div className="text-sm text-muted-foreground">
+                      {/* Extract category from metadata if available */}
+                      General
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Instructions Preview */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium">Instructions Preview</label>
+                <div className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground font-mono max-h-[200px] overflow-y-auto whitespace-pre-wrap">
+                  {truncatedInstructions}
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="flex-row gap-2 justify-between sm:justify-between">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleBack}
+                className="gap-1.5"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back
+              </Button>
+              <Button
+                type="button"
+                onClick={handleConfirmImport}
+                className="gap-1.5"
+              >
+                <Check className="h-3.5 w-3.5" />
+                Confirm Import
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // --- Skill Card (for grid view) ---
 function SkillCard({
   skill,
@@ -351,6 +636,7 @@ function SkillCard({
 
 // --- Main Skills Page ---
 export function Skills() {
+  const navigate = useNavigate()
   const skillsMap = useSkillStore((s) => s.skills)
   const addSkill = useSkillStore((s) => s.addSkill)
   const removeSkill = useSkillStore((s) => s.removeSkill)
@@ -377,6 +663,7 @@ export function Skills() {
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [enabledFilter, setEnabledFilter] = useState("all")
   const [newSkillOpen, setNewSkillOpen] = useState(false)
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
 
   // Convert skills map to array
   const allSkills = useMemo(
@@ -603,6 +890,24 @@ export function Skills() {
         <div className="flex items-center gap-3">
           <Button
             size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => setImportDialogOpen(true)}
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span className="hidden md:inline">Import from GitHub</span>
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => navigate("/skills/new")}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            <span className="hidden md:inline">Create with AI</span>
+          </Button>
+          <Button
+            size="sm"
             className="gap-1.5"
             onClick={() => setNewSkillOpen(true)}
           >
@@ -625,6 +930,12 @@ export function Skills() {
         open={newSkillOpen}
         onOpenChange={setNewSkillOpen}
         onSubmit={handleCreateSkill}
+      />
+
+      {/* GitHub Import Dialog */}
+      <GitHubImportDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
       />
 
       {/* Filter Bar */}

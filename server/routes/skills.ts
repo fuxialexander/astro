@@ -18,7 +18,58 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js'
 
 const skillsRoute = new Hono()
 
-// All skills routes require authentication
+/**
+ * GET /api/skills/files/:skillName/SKILL.md
+ *
+ * Serves SKILL.md files from the skills/ directory.
+ * Used by the skill creation UI to load system prompts (e.g., skill-onboarder).
+ *
+ * Registered BEFORE the requireAuth middleware — these are static repo files
+ * with no user-specific data, so authentication is unnecessary.
+ * Path traversal protection is still enforced.
+ */
+skillsRoute.get('/files/:skillName/SKILL.md', async (c) => {
+  try {
+    const { skillName } = c.req.param()
+
+    // Sanitize skill name to prevent path traversal
+    if (!skillName || skillName.includes('..') || skillName.includes('/') || skillName.includes('\\')) {
+      return c.json({ error: 'Invalid skill name' }, 400)
+    }
+
+    const fs = await import('fs/promises')
+    const path = await import('path')
+    const { fileURLToPath } = await import('url')
+
+    // Get repo root (server/ is one level down from root)
+    const __dirname = path.dirname(fileURLToPath(import.meta.url))
+    const repoRoot = path.resolve(__dirname, '../..')
+    const skillPath = path.join(repoRoot, 'skills', skillName, 'SKILL.md')
+
+    // Verify the resolved path is still within skills/ (extra safety)
+    const skillsDir = path.join(repoRoot, 'skills')
+    if (!skillPath.startsWith(skillsDir)) {
+      return c.json({ error: 'Invalid skill path' }, 400)
+    }
+
+    try {
+      const content = await fs.readFile(skillPath, 'utf-8')
+      return c.text(content, 200, {
+        'Content-Type': 'text/markdown; charset=utf-8',
+      })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return c.json({ error: `Skill ${skillName} not found` }, 404)
+      }
+      throw error
+    }
+  } catch (error) {
+    console.error('Error serving skill file:', error)
+    return c.json({ error: errorMessage(error) }, 500)
+  }
+})
+
+// All remaining skills routes require authentication
 skillsRoute.use('/*', requireAuth)
 
 /**
