@@ -31,6 +31,7 @@ import {
   ChatUserBlock,
   ChatAssistantBlock,
   SummaryCard,
+  GitHubCommentBlock,
 } from "@/components/activity-blocks"
 import { useRestoredExecution } from "@/hooks/use-restored-execution"
 import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
@@ -452,6 +453,8 @@ export function UnifiedActivityView({
               return <ChatUserBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_user' }>} />
             case 'chat_assistant':
               return <ChatAssistantBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_assistant' }>} />
+            case 'github_comment':
+              return <GitHubCommentBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'github_comment' }>} />
             default:
               return null
           }

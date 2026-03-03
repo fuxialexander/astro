@@ -2,7 +2,7 @@
  * GitHub API client for OAuth and repository management
  */
 
-import type { GitHubRepo, GitHubUser, GitHubTokenResponse, GitHubApiRepo } from '../types/github';
+import type { GitHubRepo, GitHubUser, GitHubTokenResponse, GitHubApiRepo, GitHubComment } from '../types/github';
 import { convertToSshUrl } from './git-url-utils.js';
 
 export class GitHubClient {
@@ -384,6 +384,211 @@ export class GitHubClient {
       defaultBranch: data.default_branch,
       updatedAt: data.updated_at,
       pushedAt: data.pushed_at,
+    };
+  }
+
+  /**
+   * Fetch issue comments for a given issue/PR number.
+   * Uses conditional requests (ETag/If-None-Match) for efficient polling.
+   */
+  async getIssueComments(
+    accessToken: string,
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    options: { perPage?: number; etag?: string } = {}
+  ): Promise<{ comments: GitHubComment[]; etag?: string; notModified: boolean }> {
+    const { perPage = 100, etag } = options;
+    const comments: GitHubComment[] = [];
+    let page = 1;
+    let hasMore = true;
+    let responseEtag: string | undefined;
+
+    while (hasMore) {
+      const params = new URLSearchParams({
+        per_page: perPage.toString(),
+        page: page.toString(),
+        sort: 'created',
+        direction: 'asc',
+      });
+
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/vnd.github.v3+json',
+      };
+      if (etag && page === 1) {
+        headers['If-None-Match'] = etag;
+      }
+
+      const response = await fetch(
+        `${this.baseUrl}/repos/${owner}/${repo}/issues/${issueNumber}/comments?${params}`,
+        { headers }
+      );
+
+      if (response.status === 304) {
+        return { comments: [], notModified: true, etag };
+      }
+
+      if (!response.ok) {
+        throw new Error(`GitHub API error: ${response.statusText}`);
+      }
+
+      if (page === 1) {
+        responseEtag = response.headers.get('etag') ?? undefined;
+      }
+
+      const data = await response.json();
+      if (data.length === 0) {
+        hasMore = false;
+      } else {
+        comments.push(
+          ...data.map((c: Record<string, unknown>) => ({
+            id: c.id as number,
+            author: {
+              login: (c.user as Record<string, unknown>)?.login as string ?? 'unknown',
+              avatar: (c.user as Record<string, unknown>)?.avatar_url as string ?? '',
+            },
+            body: (c.body as string) ?? '',
+            createdAt: c.created_at as string,
+            updatedAt: c.updated_at as string,
+            type: 'issue_comment' as const,
+          }))
+        );
+        if (data.length < perPage) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      }
+    }
+
+    return { comments, etag: responseEtag, notModified: false };
+  }
+
+  /**
+   * Fetch PR review comments (inline code comments) for a pull request.
+   * Uses conditional requests (ETag/If-None-Match) for efficient polling.
+   */
+  async getPRReviewComments(
+    accessToken: string,
+    owner: string,
+    repo: string,
+    prNumber: number,
+    options: { perPage?: number; etag?: string } = {}
+  ): Promise<{ comments: GitHubComment[]; etag?: string; notModified: boolean }> {
+    const { perPage = 100, etag } = options;
+    const comments: GitHubComment[] = [];
+    let page = 1;
+    let hasMore = true;
+    let responseEtag: string | undefined;
+
+    while (hasMore) {
+      const params = new URLSearchParams({
+        per_page: perPage.toString(),
+        page: page.toString(),
+        sort: 'created',
+        direction: 'asc',
+      });
+
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/vnd.github.v3+json',
+      };
+      if (etag && page === 1) {
+        headers['If-None-Match'] = etag;
+      }
+
+      const response = await fetch(
+        `${this.baseUrl}/repos/${owner}/${repo}/pulls/${prNumber}/comments?${params}`,
+        { headers }
+      );
+
+      if (response.status === 304) {
+        return { comments: [], notModified: true, etag };
+      }
+
+      if (!response.ok) {
+        throw new Error(`GitHub API error: ${response.statusText}`);
+      }
+
+      if (page === 1) {
+        responseEtag = response.headers.get('etag') ?? undefined;
+      }
+
+      const data = await response.json();
+      if (data.length === 0) {
+        hasMore = false;
+      } else {
+        comments.push(
+          ...data.map((c: Record<string, unknown>) => ({
+            id: c.id as number,
+            author: {
+              login: (c.user as Record<string, unknown>)?.login as string ?? 'unknown',
+              avatar: (c.user as Record<string, unknown>)?.avatar_url as string ?? '',
+            },
+            body: (c.body as string) ?? '',
+            createdAt: c.created_at as string,
+            updatedAt: c.updated_at as string,
+            type: 'review_comment' as const,
+            inReplyTo: (c.in_reply_to_id as number) ?? undefined,
+            path: (c.path as string) ?? undefined,
+            line: (c.line as number) ?? (c.original_line as number) ?? undefined,
+          }))
+        );
+        if (data.length < perPage) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      }
+    }
+
+    return { comments, etag: responseEtag, notModified: false };
+  }
+
+  /**
+   * Fetch all comments (issue + PR review) for an issue/PR number.
+   * Merges both types into a unified list sorted by creation time.
+   */
+  async getAllComments(
+    accessToken: string,
+    owner: string,
+    repo: string,
+    issueOrPrNumber: number,
+    options: { perPage?: number; issueEtag?: string; reviewEtag?: string } = {}
+  ): Promise<{
+    comments: GitHubComment[];
+    issueEtag?: string;
+    reviewEtag?: string;
+    totalCount: number;
+  }> {
+    // Fetch both issue comments and PR review comments in parallel
+    const [issueResult, reviewResult] = await Promise.allSettled([
+      this.getIssueComments(accessToken, owner, repo, issueOrPrNumber, {
+        perPage: options.perPage,
+        etag: options.issueEtag,
+      }),
+      this.getPRReviewComments(accessToken, owner, repo, issueOrPrNumber, {
+        perPage: options.perPage,
+        etag: options.reviewEtag,
+      }),
+    ]);
+
+    const issueComments = issueResult.status === 'fulfilled' && !issueResult.value.notModified
+      ? issueResult.value.comments
+      : [];
+    const reviewComments = reviewResult.status === 'fulfilled' && !reviewResult.value.notModified
+      ? reviewResult.value.comments
+      : [];
+
+    const allComments = [...issueComments, ...reviewComments]
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    return {
+      comments: allComments,
+      issueEtag: issueResult.status === 'fulfilled' ? issueResult.value.etag : undefined,
+      reviewEtag: reviewResult.status === 'fulfilled' ? reviewResult.value.etag : undefined,
+      totalCount: allComments.length,
     };
   }
 }

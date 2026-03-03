@@ -27,6 +27,7 @@ import {
   ErrorBlock,
   ChatUserBlock,
   ChatAssistantBlock,
+  GitHubCommentBlock,
   type DisplayBlock,
 } from "@/components/activity-blocks"
 import { InlineApprovalCard } from "./inline-approval-card"
@@ -387,6 +388,8 @@ export function PlanChatPhase({
       case 'approval_response':
         // Already rendered inline with the request
         return null
+      case 'github_comment':
+        return <GitHubCommentBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'github_comment' }>} />
       default:
         return null
     }

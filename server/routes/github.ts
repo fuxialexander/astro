@@ -560,6 +560,52 @@ app.get('/projects', async (c) => {
   return c.json({ projects: rows });
 });
 
+// ── Comment endpoints ────────────────────────────────────────────────
+
+/**
+ * GET /api/github/comments/:owner/:repo/:number
+ * Fetch all comments (issue + PR review) for a given issue/PR number.
+ * Supports conditional requests via ETag for efficient polling.
+ */
+app.get('/comments/:owner/:repo/:number', async (c) => {
+  const userId = (c.get('user') as AuthUser).id;
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const number = parseInt(c.req.param('number'), 10);
+
+  if (isNaN(number) || number <= 0) {
+    return c.json({ error: 'Invalid issue/PR number' }, 400);
+  }
+
+  const connection = await githubStore.getConnection(userId);
+  if (!connection) {
+    return c.json({ error: 'GitHub not connected' }, 401);
+  }
+
+  try {
+    const issueEtag = c.req.header('X-Issue-ETag') ?? undefined;
+    const reviewEtag = c.req.header('X-Review-ETag') ?? undefined;
+
+    const result = await githubClient.getAllComments(
+      connection.accessToken,
+      owner,
+      repo,
+      number,
+      { issueEtag, reviewEtag }
+    );
+
+    return c.json({
+      comments: result.comments,
+      totalCount: result.totalCount,
+      issueEtag: result.issueEtag,
+      reviewEtag: result.reviewEtag,
+    });
+  } catch (error) {
+    console.error('[github] Comments fetch error:', error);
+    return c.json({ error: 'Failed to fetch comments' }, 500);
+  }
+});
+
 // ── PR and branch management endpoints ──────────────────────────────
 
 /**

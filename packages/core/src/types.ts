@@ -284,6 +284,7 @@ export type TaskActivityEvent =
   | { type: 'approval_request'; requestId: string; question: string; options: string[]; timestamp: Date }
   | { type: 'approval_response'; requestId: string; question: string; answer: string; autoApproved?: boolean; timestamp: Date }
   | { type: 'mutation'; nodeUpdates: Array<{ nodeId: string; [key: string]: unknown }>; edgeOps: Array<{ action: string; source: string; target: string; type?: string }>; newNodes: Array<{ title: string; description: string; type?: string; id?: string }>; timestamp: Date }
+  | { type: 'github_comment'; commentId: number; author: { login: string; avatar: string }; body: string; commentType: 'issue_comment' | 'review_comment'; path?: string; line?: number; url?: string; timestamp: Date }
 
 // Usage metrics from provider execution
 export interface UsageMetrics {

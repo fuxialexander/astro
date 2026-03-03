@@ -117,8 +117,50 @@ export async function handleIssueEvent(
 }
 
 /**
+ * Maximum number of recent comments stored on a plan node's githubComments field.
+ */
+const MAX_STORED_COMMENTS = 50
+
+/**
+ * Append a comment to the plan node's githubComments JSONB field (last N comments).
+ */
+async function appendCommentToNode(
+  projectId: string,
+  issueNumber: number,
+  commentData: {
+    id: number
+    author: { login: string; avatar: string }
+    body: string
+    createdAt: string
+    updatedAt: string
+    type: 'issue_comment' | 'review_comment'
+    inReplyTo?: number
+    path?: string
+    line?: number
+  }
+): Promise<void> {
+  const [node] = await db.select({ id: planNodes.id, githubComments: planNodes.githubComments })
+    .from(planNodes)
+    .where(and(eq(planNodes.projectId, projectId), eq(planNodes.githubIssueNumber, issueNumber)))
+    .limit(1)
+
+  if (!node) return
+
+  const existing = (node.githubComments ?? []) as Array<typeof commentData>
+  // Deduplicate by comment ID
+  const filtered = existing.filter(c => c.id !== commentData.id)
+  const updated = [...filtered, commentData].slice(-MAX_STORED_COMMENTS)
+
+  await db.update(planNodes).set({
+    githubComments: updated,
+    updatedAt: new Date(),
+  }).where(eq(planNodes.id, node.id))
+}
+
+/**
  * Handle `issue_comment` webhook events.
  * Routes @astro mentions to the agent chat and posts the response back.
+ * Stores all new comments on linked plan nodes.
  */
 export async function handleIssueCommentEvent(
   payload: Record<string, unknown>,
@@ -139,13 +181,27 @@ export async function handleIssueCommentEvent(
     ?? await lookupGitHubProject(repoFullName)
   if (!projectId) return
 
-  const commentBody = comment.body as string
-  if (!commentBody || !commentBody.toLowerCase().includes('@astro')) return
-
   const sender = comment.user as Record<string, unknown> | undefined
   const issueNumber = issue.number as number
   const commentId = comment.id as number
+  const commentBody = (comment.body as string) ?? ''
   const [owner, repoName] = repoFullName.split('/')
+
+  // Store comment on the linked plan node
+  await appendCommentToNode(projectId, issueNumber, {
+    id: commentId,
+    author: {
+      login: (sender?.login as string) ?? 'unknown',
+      avatar: (sender?.avatar_url as string) ?? '',
+    },
+    body: commentBody,
+    createdAt: comment.created_at as string,
+    updatedAt: comment.updated_at as string,
+    type: 'issue_comment',
+  })
+
+  // Only route @astro mentions to the channel router
+  if (!commentBody.toLowerCase().includes('@astro')) return
 
   console.log(`[github-channel] @astro mention in issue #${issueNumber} comment by ${sender?.login}`)
 
@@ -175,6 +231,51 @@ export async function handleIssueCommentEvent(
     issueNumber,
     response.text
   )
+}
+
+/**
+ * Handle `pull_request_review_comment` webhook events.
+ * Stores inline review comments on linked plan nodes.
+ */
+export async function handlePRReviewCommentEvent(
+  payload: Record<string, unknown>,
+  config: GitHubChannelConfig
+): Promise<void> {
+  const action = payload.action as string
+  if (action !== 'created') return
+
+  const comment = payload.comment as Record<string, unknown> | undefined
+  const pr = payload.pull_request as Record<string, unknown> | undefined
+  const repo = payload.repository as Record<string, unknown> | undefined
+
+  if (!comment || !pr || !repo) return
+
+  const repoFullName = repo.full_name as string
+  const projectId = config.repoMappings[repoFullName]
+    ?? await lookupGitHubProject(repoFullName)
+  if (!projectId) return
+
+  const sender = comment.user as Record<string, unknown> | undefined
+  const prNumber = pr.number as number
+  const commentId = comment.id as number
+
+  console.log(`[github-channel] PR review comment on PR #${prNumber} by ${sender?.login}`)
+
+  // Store review comment on the linked plan node (PRs share the same issue number space)
+  await appendCommentToNode(projectId, prNumber, {
+    id: commentId,
+    author: {
+      login: (sender?.login as string) ?? 'unknown',
+      avatar: (sender?.avatar_url as string) ?? '',
+    },
+    body: (comment.body as string) ?? '',
+    createdAt: comment.created_at as string,
+    updatedAt: comment.updated_at as string,
+    type: 'review_comment',
+    inReplyTo: (comment.in_reply_to_id as number) ?? undefined,
+    path: (comment.path as string) ?? undefined,
+    line: (comment.line as number) ?? (comment.original_line as number) ?? undefined,
+  })
 }
 
 /**
