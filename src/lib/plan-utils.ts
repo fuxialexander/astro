@@ -1,5 +1,3 @@
-import type { Edge } from "@/types"
-
 /**
  * Check if a node is isolated (has no dependencies or dependents).
  * A node is isolated when no live edge touches it (as source or target).
@@ -11,8 +9,8 @@ import type { Edge } from "@/types"
  */
 export function isNodeIsolated(
   nodeId: string,
-  edges: Edge[],
-  isLive: (edge: Edge) => boolean
+  edges: { source: string; target: string; deletedAt?: Date }[],
+  isLive: (edge: { source: string; target: string; deletedAt?: Date }) => boolean
 ): boolean {
   const liveEdges = edges.filter(isLive)
   return !liveEdges.some((e) => e.source === nodeId || e.target === nodeId)
