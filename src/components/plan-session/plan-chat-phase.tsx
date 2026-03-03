@@ -416,15 +416,17 @@ export function PlanChatPhase({
       >
         {/* Error state */}
         {execution?.status === "failure" && execution.error && (
-          <div className="flex items-center justify-center h-full" role="alert" aria-live="assertive">
+          <div className="flex items-center justify-center h-full" role="alert" aria-live="assertive" aria-describedby="plan-error-title plan-error-message">
             <div className="text-center max-w-md px-4">
               <AlertCircle className="h-8 w-8 text-destructive mx-auto mb-3" aria-label="Error" />
-              <p className="text-sm font-medium text-destructive mb-2">Planning session failed</p>
+              <p id="plan-error-title" className="text-sm font-medium text-destructive mb-2">Planning session failed</p>
               {/* TODO: Replace string matching with typed error codes from backend (e.g., error.code === 'MACHINE_UNAVAILABLE') */}
               {execution.error.toLowerCase().includes("no available machine") ? (
                 <div className="space-y-3">
-                  <p className="text-xs text-muted-foreground">
-                    No machine is connected. Connect an agent runner to start planning.
+                  <p id="plan-error-message" className="text-xs text-muted-foreground">
+                    {machineName
+                      ? `No machine is connected (expected: ${machineName}). Connect an agent runner to start planning.`
+                      : "No machine is connected. Connect an agent runner to start planning."}
                   </p>
                   <div className="flex items-center justify-center gap-2">
                     <Link to="/environments">
@@ -442,8 +444,10 @@ export function PlanChatPhase({
                 </div>
               ) : execution.error.toLowerCase().includes("not found or not authorized") ? (
                 <div className="space-y-3">
-                  <p className="text-xs text-muted-foreground">
-                    The selected machine is no longer available. It may have disconnected.
+                  <p id="plan-error-message" className="text-xs text-muted-foreground">
+                    {machineName
+                      ? `The selected machine "${machineName}" is no longer available. It may have disconnected.`
+                      : "The selected machine is no longer available. It may have disconnected."}
                   </p>
                   <div className="flex items-center justify-center gap-2">
                     <Link to="/environments">
@@ -461,7 +465,7 @@ export function PlanChatPhase({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  <p className="text-xs text-muted-foreground">{execution.error}</p>
+                  <p id="plan-error-message" className="text-xs text-muted-foreground">{execution.error}</p>
                   {onBack && (
                     <Button variant="ghost" size="sm" onClick={onBack}>
                       Go Back
