@@ -19,6 +19,44 @@ const skillsRoute = new Hono()
 // All skills routes require authentication
 skillsRoute.use('/*', requireAuth)
 
+/** Maximum config JSONB size in bytes (100KB) to prevent DoS */
+const MAX_CONFIG_SIZE = 100 * 1024
+
+/**
+ * Validate config JSONB size.
+ * Returns error message if invalid, null if valid.
+ */
+function validateConfig(config: unknown): string | null {
+  if (config === undefined || config === null) return null
+  const json = JSON.stringify(config)
+  if (json.length > MAX_CONFIG_SIZE) {
+    return `config size (${json.length} bytes) exceeds maximum allowed (${MAX_CONFIG_SIZE} bytes)`
+  }
+  return null
+}
+
+/**
+ * Check if an error is a unique constraint violation.
+ * PostgreSQL error code 23505 = unique_violation.
+ * PGlite wraps errors in DrizzleQueryError with a 'cause' property.
+ */
+function isUniqueViolation(e: unknown): boolean {
+  // Check the main error message
+  const msg = errorMessage(e).toLowerCase()
+  if (msg.includes('23505') || msg.includes('unique') || msg.includes('duplicate key')) {
+    return true
+  }
+  // Check for nested cause (PGlite/Drizzle wraps errors)
+  const errObj = e as { cause?: { message?: string } }
+  if (errObj?.cause?.message) {
+    const causeMsg = errObj.cause.message.toLowerCase()
+    if (causeMsg.includes('23505') || causeMsg.includes('unique') || causeMsg.includes('duplicate key')) {
+      return true
+    }
+  }
+  return false
+}
+
 /**
  * Build a team-scoped filter for skills.
  * Matches rows where teamId equals the user's active team,
@@ -121,14 +159,20 @@ skillsRoute.post('/', async (c) => {
       return c.json({ error: 'allowedTools must be an array' }, 400)
     }
 
-    const now = new Date()
-    const skillId = body.id || crypto.randomUUID()
-
     // Pack OpenClaw extension fields into config JSONB
     // (these aren't separate DB columns, but affect runtime behavior)
     const config = { ...(body.config ?? {}) } as Record<string, unknown>
     if (body.userInvocable !== undefined) config.userInvocable = body.userInvocable
     if (body.disableModelInvocation !== undefined) config.disableModelInvocation = body.disableModelInvocation
+
+    // Validate config size
+    const configError = validateConfig(config)
+    if (configError) {
+      return c.json({ error: configError }, 400)
+    }
+
+    const now = new Date()
+    const skillId = body.id || crypto.randomUUID()
 
     const row = {
       id: skillId,
@@ -156,6 +200,9 @@ skillsRoute.post('/', async (c) => {
     return c.json(created, 201)
   } catch (e) {
     console.error('[skills] POST / error:', e)
+    if (isUniqueViolation(e)) {
+      return c.json({ error: 'A skill with this name already exists' }, 409)
+    }
     return c.json({ error: errorMessage(e) }, 500)
   }
 })
@@ -184,6 +231,32 @@ skillsRoute.put('/:id', async (c) => {
     }
 
     const body = await c.req.json()
+
+    // Validate name if provided
+    if (body.name !== undefined) {
+      if (typeof body.name !== 'string' || body.name.trim() === '') {
+        return c.json({ error: 'name must be a non-empty string' }, 400)
+      }
+    }
+
+    // Validate tags if provided
+    if (body.tags !== undefined && !Array.isArray(body.tags)) {
+      return c.json({ error: 'tags must be an array' }, 400)
+    }
+
+    // Validate allowedTools if provided
+    if (body.allowedTools !== undefined && !Array.isArray(body.allowedTools)) {
+      return c.json({ error: 'allowedTools must be an array' }, 400)
+    }
+
+    // Validate config size if provided
+    if (body.config !== undefined) {
+      const configError = validateConfig(body.config)
+      if (configError) {
+        return c.json({ error: configError }, 400)
+      }
+    }
+
     const patch: Record<string, unknown> = { updatedAt: new Date() }
 
     if (body.name !== undefined) patch.name = body.name
@@ -213,6 +286,9 @@ skillsRoute.put('/:id', async (c) => {
     return c.json(updated)
   } catch (e) {
     console.error('[skills] PUT /:id error:', e)
+    if (isUniqueViolation(e)) {
+      return c.json({ error: 'A skill with this name already exists' }, 409)
+    }
     return c.json({ error: errorMessage(e) }, 500)
   }
 })

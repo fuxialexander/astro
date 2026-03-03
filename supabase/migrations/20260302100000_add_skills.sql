@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS skills (
   updated_at timestamp NOT NULL DEFAULT now()
 );
 
+-- Unique constraint: skill names must be unique within a team (or globally for builtins)
+ALTER TABLE skills ADD CONSTRAINT skills_name_team_id_unique UNIQUE (name, team_id);
+
 -- Index for fast lookup by team
 CREATE INDEX IF NOT EXISTS skills_team_id_idx ON skills(team_id);
 
@@ -34,6 +37,9 @@ CREATE INDEX IF NOT EXISTS skills_enabled_idx ON skills(enabled);
 
 -- Composite index for common query: list enabled skills for a team
 CREATE INDEX IF NOT EXISTS skills_team_enabled_idx ON skills(team_id, enabled);
+
+-- Index for bootstrap queries: lookup by name and source
+CREATE INDEX IF NOT EXISTS skills_name_source_idx ON skills(name, source);
 
 -- Enable RLS for team-based access control.
 -- Note: The Hono API server connects with the service_role key, which bypasses RLS.

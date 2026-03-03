@@ -1,4 +1,4 @@
-import { pgTable, text, integer, real, uuid, timestamp, boolean, date, jsonb, primaryKey } from 'drizzle-orm/pg-core'
+import { pgTable, text, integer, real, uuid, timestamp, boolean, date, jsonb, primaryKey, unique } from 'drizzle-orm/pg-core'
 
 // ── Projects ──────────────────────────────────────────────────────────
 export const projects = pgTable('projects', {
@@ -645,4 +645,4 @@ export const skills = pgTable('skills', {
   teamId: uuid('team_id').references(() => teams.id, { onDelete: 'cascade' }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (table) => [unique('skills_name_team_id_unique').on(table.name, table.teamId)])

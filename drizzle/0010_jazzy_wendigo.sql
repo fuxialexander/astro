@@ -17,5 +17,6 @@ CREATE TABLE "skills" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+ALTER TABLE "skills" ADD CONSTRAINT "skills_name_team_id_unique" UNIQUE("name","team_id");--> statement-breakpoint
 ALTER TABLE "skills" ADD CONSTRAINT "skills_author_id_user_profiles_id_fk" FOREIGN KEY ("author_id") REFERENCES "public"."user_profiles"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "skills" ADD CONSTRAINT "skills_team_id_teams_id_fk" FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE cascade ON UPDATE no action;
