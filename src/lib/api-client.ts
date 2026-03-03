@@ -428,6 +428,204 @@ export async function ensureBranch(
   }
 }
 
+// ── PR action types and functions ────────────────────────────────────
+
+export type PrReviewEvent = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'
+export type PrMergeMethod = 'squash' | 'merge' | 'rebase'
+
+export interface PrReviewResult {
+  success: boolean
+  error: string | null
+  errorType?: ApiErrorType
+  review?: {
+    id: number
+    state: string
+    htmlUrl: string
+    submittedAt: string
+  }
+}
+
+export interface PrMergeResult {
+  success: boolean
+  error: string | null
+  errorType?: ApiErrorType
+  merge?: {
+    sha: string
+    message: string
+    merged: boolean
+  }
+}
+
+export interface PrCommentResult {
+  success: boolean
+  error: string | null
+  errorType?: ApiErrorType
+  comment?: {
+    id: number
+    htmlUrl: string
+    createdAt: string
+  }
+}
+
+export interface PrDetails {
+  pr: {
+    number: number
+    title: string
+    state: 'open' | 'closed'
+    merged: boolean
+    mergeable: boolean | null
+    mergeableState: string
+    draft: boolean
+    additions: number
+    deletions: number
+    changedFiles: number
+    headBranch: string
+    baseBranch: string
+    htmlUrl: string
+    user: string
+    createdAt: string
+    updatedAt: string
+  }
+  reviews: Array<{
+    id: number
+    user: string
+    state: string
+    submittedAt: string
+  }>
+  checks: Array<{
+    id: number
+    name: string
+    status: string
+    conclusion: string | null
+  }>
+}
+
+/**
+ * Fetch PR details including status, reviews, and checks.
+ */
+export async function fetchPrDetails(
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<PrDetails> {
+  const res = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}`), {
+    headers: await authHeaders(),
+  })
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}))
+    throw new Error(errorData.error || `Failed to fetch PR details: ${res.status}`)
+  }
+  return res.json()
+}
+
+/**
+ * Submit a PR review (approve, request changes, or comment).
+ * Posts as the authenticated user.
+ */
+export async function submitPrReview(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  event: PrReviewEvent,
+  body?: string,
+): Promise<PrReviewResult> {
+  try {
+    const res = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}/review`), {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify({ event, body }),
+    })
+    if (!res.ok) {
+      return { success: false, error: `Server error: ${res.status}`, errorType: "server" }
+    }
+    const data = await res.json()
+    return {
+      success: data.success,
+      error: data.error ?? null,
+      errorType: data.error ? "github" : undefined,
+      review: data.review,
+    }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+      errorType: "network",
+    }
+  }
+}
+
+/**
+ * Merge a PR with the specified method.
+ * Uses installation token (higher permissions) when available.
+ */
+export async function mergePr(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  mergeMethod: PrMergeMethod = 'squash',
+  commitTitle?: string,
+  commitMessage?: string,
+): Promise<PrMergeResult> {
+  try {
+    const res = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}/merge`), {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify({ mergeMethod, commitTitle, commitMessage }),
+    })
+    if (!res.ok) {
+      return { success: false, error: `Server error: ${res.status}`, errorType: "server" }
+    }
+    const data = await res.json()
+    return {
+      success: data.success,
+      error: data.error ?? null,
+      errorType: data.error ? "github" : undefined,
+      merge: data.merge,
+    }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+      errorType: "network",
+    }
+  }
+}
+
+/**
+ * Post a comment on a PR.
+ * Posts as the authenticated user.
+ */
+export async function commentOnPr(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  body: string,
+): Promise<PrCommentResult> {
+  try {
+    const res = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}/comment`), {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify({ body }),
+    })
+    if (!res.ok) {
+      return { success: false, error: `Server error: ${res.status}`, errorType: "server" }
+    }
+    const data = await res.json()
+    return {
+      success: data.success,
+      error: data.error ?? null,
+      errorType: data.error ? "github" : undefined,
+      comment: data.comment,
+    }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+      errorType: "network",
+    }
+  }
+}
+
 // Provider status types
 export interface ProviderStatusResult {
   total: number
