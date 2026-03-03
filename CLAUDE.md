@@ -244,6 +244,8 @@ Use `Glob` and `Read` to explore the full directory tree as needed.
 
 **Before creating a PR, always run a round of code review using a subagent. Fix any issues and build errors before submitting the PR.**
 
+**After creating a PR, run `/pr-shepherd <PR number>` to review and validate it.** This skill acts as a local GitHub Action — it runs code review (security, data integrity, Astro-specific principles), build, lint, and tests, then auto-fixes Critical and Important issues and pushes until CI passes.
+
 **Lockfile rule:** When changing dependencies in `package.json`, always run `pnpm install` and commit the updated `pnpm-lock.yaml`. The Fly.io deploy uses `--frozen-lockfile` and will fail if specifiers are out of sync.
 
 **Submodule rules for `packages/agent-runner`:**
