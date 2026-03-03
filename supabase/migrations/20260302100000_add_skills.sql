@@ -66,7 +66,7 @@ CREATE POLICY skills_select_policy ON skills
     OR team_id IN (
       SELECT team_id FROM team_members WHERE user_id = auth.uid()
     )
-    OR team_id IS NULL  -- Global/builtin skills visible to all
+    OR (team_id IS NULL AND source = 'builtin')  -- Only global builtins visible to all
   );
 
 -- Policy: users can insert skills for themselves or their team (team_id must be non-null).
@@ -109,9 +109,9 @@ CREATE POLICY skills_delete_policy ON skills
   );
 
 -- Enforce config JSONB size limit at DB level (defense-in-depth).
--- The API validates at 95KB (JSON text size); the DB constraint uses 100KB on
--- pg_column_size (which includes storage overhead). The API limit is intentionally
--- lower so users get a clear error message instead of a cryptic DB violation.
+-- The API validates at 80KB (JSON text size); the DB constraint uses 100KB on
+-- pg_column_size (which includes storage overhead). The 20KB buffer accounts for
+-- JSONB storage overhead so users get a clear API error instead of a cryptic DB violation.
 ALTER TABLE skills ADD CONSTRAINT skills_config_size_limit CHECK (pg_column_size(config) <= 102400);
 
 -- Invariant: builtin skills must have NULL team_id and NULL author_id.

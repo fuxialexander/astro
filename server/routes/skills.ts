@@ -157,6 +157,9 @@ skillsRoute.post('/', async (c) => {
     if (!body.name || typeof body.name !== 'string') {
       return c.json({ error: 'name is required' }, 400)
     }
+    // instructions is not strictly required at creation time (users may add them later),
+    // but skills without instructions won't be eligible for prompt injection.
+    // The SkillManager.loadSkills() filters these out with a warning.
 
     // Block users from impersonating builtin skills via API.
     // Only system bootstrap (via bootstrapBuiltinSkills) can create builtins,
