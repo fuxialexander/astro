@@ -319,11 +319,13 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     [projects]
   )
 
-  // Shared handler for Plan click — resets to fresh input when already on /plan
+  // Shared handler for Plan click — resets to fresh input when already on /plan.
+  // Uses location.state to signal form reset even when URL doesn't change.
   const handlePlanClick = useCallback((e?: React.MouseEvent) => {
+    e?.preventDefault()
     if (location.pathname === "/plan") {
-      e?.preventDefault()
-      navigate("/plan", { replace: true })
+      // Already on /plan — use a unique state key to force reset detection
+      navigate("/plan", { replace: true, state: { resetForm: Date.now() } })
     } else {
       navigate("/plan")
     }

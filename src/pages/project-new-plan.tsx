@@ -248,6 +248,17 @@ export function ProjectNewPlan() {
     }
   }, [projectIdParam, activeProjectId, resetForm])
 
+  // Detect sidebar reset signal via location.state (when already on /plan without query params)
+  const resetSignal = (location.state as { resetForm?: number } | null)?.resetForm
+  useEffect(() => {
+    if (resetSignal) {
+      setActiveProjectId(null)
+      resetForm()
+      // Clear the state so repeat clicks still trigger
+      window.history.replaceState({}, '', location.pathname + location.search)
+    }
+  }, [resetSignal, resetForm, location.pathname, location.search])
+
   // Determine machine name for display
   const machineName = (() => {
     if (!execution?.machineId) return undefined
@@ -301,10 +312,12 @@ export function ProjectNewPlan() {
   }, [fromPlaygroundId, playgroundProject?.defaultMachineId, allMachines])
 
   // Pre-fill from existing project (re-generation flow: project exists with zero nodes)
-  const existingPrefilled = useRef(false)
+  const existingPrefilled = useRef<string | null>(null)
   useEffect(() => {
-    if (!existingProject || !existingProjectHasNoNodes || existingPrefilled.current || fromPlaygroundId) return
-    existingPrefilled.current = true
+    if (!existingProject || !existingProjectHasNoNodes || fromPlaygroundId) return
+    // Skip if we already pre-filled for this specific project
+    if (existingPrefilled.current === existingProject.id) return
+    existingPrefilled.current = existingProject.id
 
     // Pre-fill description from project name/description
     if (existingProject.description) {
@@ -333,15 +346,16 @@ export function ProjectNewPlan() {
   }, [existingProject, existingProjectHasNoNodes, fromPlaygroundId])
 
   // Pre-fill machine for existing project (async — machines load after mount)
-  const existingMachinePrefilled = useRef(false)
+  const existingMachinePrefilled = useRef<string | null>(null)
   useEffect(() => {
-    if (!existingProject?.defaultMachineId || !existingProjectHasNoNodes || existingMachinePrefilled.current || allMachines.length === 0 || fromPlaygroundId) return
+    if (!existingProject?.defaultMachineId || !existingProjectHasNoNodes || allMachines.length === 0 || fromPlaygroundId) return
+    if (existingMachinePrefilled.current === existingProject.id) return
     const match = allMachines.find((m) => m.machineId === existingProject.defaultMachineId)
     if (match) {
-      existingMachinePrefilled.current = true
+      existingMachinePrefilled.current = existingProject.id
       setSelectedMachine(match)
     }
-  }, [existingProject?.defaultMachineId, existingProjectHasNoNodes, allMachines, fromPlaygroundId])
+  }, [existingProject?.id, existingProject?.defaultMachineId, existingProjectHasNoNodes, allMachines, fromPlaygroundId])
 
   // Build visionDoc from playground execution summary
   const playgroundVisionDoc = useMemo(() => {
@@ -525,22 +539,20 @@ export function ProjectNewPlan() {
         projectId = result.projectId
       }
 
-      // Update project with GitHub owner/repo and attachments if set.
-      // Note: `repository` is already passed to startPlanSession options above,
-      // so we only need to set githubOwner/githubRepo here (avoiding redundancy).
-      const projectUpdates: Partial<Pick<typeof allProjects[number], 'githubOwner' | 'githubRepo'>> & { attachments?: TaskAttachment[] } = {}
+      // Update project with GitHub owner/repo metadata if set.
+      // Note: `repository` is already passed to startPlanSession options above.
+      // Attachments are not stored on the project — they're uploaded to blob storage
+      // with persistent URLs that are included in the plan session context.
+      const projectUpdates: Partial<Pick<typeof allProjects[number], 'githubOwner' | 'githubRepo'>> = {}
       if (githubOwner && githubRepo) {
         projectUpdates.githubOwner = githubOwner
         projectUpdates.githubRepo = githubRepo
-      }
-      if (attachments.length > 0) {
-        projectUpdates.attachments = attachments
       }
       if (Object.keys(projectUpdates).length > 0) {
         updateProject(projectId, projectUpdates) // optimistic local
         // Persist to backend (non-blocking — these fields don't affect session start)
         dataClient.updateProject(projectId, projectUpdates).catch((err) => {
-          console.error('[plan-session] Failed to persist GitHub/attachment updates:', err)
+          console.error('[plan-session] Failed to persist GitHub metadata:', err)
         })
       }
 
