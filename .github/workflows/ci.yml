@@ -11,6 +11,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lockfile:
+    name: Lockfile Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@9.15.4 --activate
+
+      - name: Verify lockfile is in sync
+        run: pnpm install --frozen-lockfile
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

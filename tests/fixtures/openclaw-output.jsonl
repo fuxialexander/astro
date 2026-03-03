@@ -1,0 +1,230 @@
+# OpenClaw ACP (Agent Client Protocol) JSONL Test Fixtures
+#
+# FORMAT NOTE: This file uses "JSONL with comments" — lines starting with '#'
+# are documentation comments, not valid JSONL. If loaded programmatically,
+# comment lines should be stripped before JSON parsing. Currently this file
+# serves as reference documentation for test authors; the test suites use
+# inline JSONL strings derived from these scenarios.
+#
+# This file contains realistic JSONL event sequences based on the actual ACP format
+# as defined in OpenClaw's src/acp/runtime/types.ts
+#
+# Event types:
+#   text_delta - Streaming text output (output or thought stream)
+#   status     - Progress/status updates with optional metrics
+#   tool_call  - Tool invocations (in_progress/completed/error)
+#   done       - Session completion with stop reason
+#   error      - Error reporting with code and retry info
+#
+# Tags (AcpSessionUpdateTag):
+#   agent_message_chunk, agent_thought_chunk, tool_call, tool_call_update,
+#   usage_update, available_commands_update, current_mode_update,
+#   config_option_update, session_info_update, plan
+#
+# ==============================================================================
+# SCENARIO 1: Happy Path - Complete session with file analysis and modification
+# ==============================================================================
+
+{"type":"status","text":"Starting session...","tag":"session_info_update"}
+{"type":"text_delta","text":"I'll analyze the codebase","stream":"output","tag":"agent_message_chunk"}
+{"type":"text_delta","text":" structure and make","stream":"output","tag":"agent_message_chunk"}
+{"type":"text_delta","text":" the requested changes.","stream":"output","tag":"agent_message_chunk"}
+{"type":"tool_call","text":"Reading project configuration","toolCallId":"call-001","title":"read_file: package.json","status":"in_progress","tag":"tool_call"}
+{"type":"tool_call","text":"{\"name\":\"astro\",\"version\":\"1.0.0\"}","toolCallId":"call-001","title":"read_file: package.json","status":"completed","tag":"tool_call_update"}
+{"type":"text_delta","text":"\n\nI found the package.json. ","stream":"output","tag":"agent_message_chunk"}
+{"type":"text_delta","text":"Now I'll update the version.","stream":"output","tag":"agent_message_chunk"}
+{"type":"tool_call","text":"Updating version field","toolCallId":"call-002","title":"edit_file: package.json","status":"in_progress","tag":"tool_call"}
+{"type":"tool_call","text":"File updated successfully","toolCallId":"call-002","title":"edit_file: package.json","status":"completed","tag":"tool_call_update"}
+{"type":"status","text":"Processing complete","tag":"usage_update","used":1523,"size":4096}
+{"type":"done","stopReason":"end_turn"}
+
+# ==============================================================================
+# SCENARIO 2: Multi-tool session with bash commands and file operations
+# ==============================================================================
+
+{"type":"status","text":"Initializing agent...","tag":"session_info_update"}
+{"type":"text_delta","text":"Let me check the current directory structure.","stream":"output","tag":"agent_message_chunk"}
+{"type":"tool_call","text":"Listing files in project root","toolCallId":"call-101","title":"bash: ls -la","status":"in_progress","tag":"tool_call"}
+{"type":"tool_call","text":"total 120\ndrwxr-xr-x  15 user staff  480 Mar  2 10:00 .\n-rw-r--r--   1 user staff 1200 Mar  2 09:55 package.json\n-rw-r--r--   1 user staff  850 Mar  2 09:55 tsconfig.json\ndrwxr-xr-x   8 user staff  256 Mar  2 09:55 src","toolCallId":"call-101","title":"bash: ls -la","status":"completed","tag":"tool_call_update"}
+{"type":"text_delta","text":"\n\nI can see the project structure. ","stream":"output","tag":"agent_message_chunk"}
+{"type":"text_delta","text":"Let me examine the src directory.","stream":"output","tag":"agent_message_chunk"}
+{"type":"tool_call","text":"Finding TypeScript files","toolCallId":"call-102","title":"bash: find src -name '*.ts'","status":"in_progress","tag":"tool_call"}
+{"type":"tool_call","text":"src/index.ts\nsrc/lib/utils.ts\nsrc/lib/parser.ts\nsrc/components/Button.tsx","toolCallId":"call-102","title":"bash: find src -name '*.ts'","status":"completed","tag":"tool_call_update"}
+{"type":"tool_call","text":"Reading main entry point","toolCallId":"call-103","title":"read_file: src/index.ts","status":"in_progress","tag":"tool_call"}
+{"type":"tool_call","text":"export * from './lib/utils';\nexport * from './lib/parser';\nexport { Button } from './components/Button';","toolCallId":"call-103","title":"read_file: src/index.ts","status":"completed","tag":"tool_call_update"}
+{"type":"text_delta","text":"\n\nThe codebase has a clean structure with utilities, parser, and components.","stream":"output","tag":"agent_message_chunk"}
+{"type":"status","text":"Analysis complete","tag":"usage_update","used":2847,"size":8192}
+{"type":"done","stopReason":"end_turn"}
+
+# ==============================================================================
+# SCENARIO 3: Tool Failure - Command execution error
+# ==============================================================================
+
+{"type":"status","text":"Starting task...","tag":"session_info_update"}
+{"type":"text_delta","text":"I'll run the tests to verify the changes.","stream":"output","tag":"agent_message_chunk"}
+{"type":"tool_call","text":"Running test suite","toolCallId":"call-201","title":"bash: npm test","status":"in_progress","tag":"tool_call"}
+{"type":"tool_call","text":"npm ERR! code ELIFECYCLE\nnpm ERR! errno 1\nnpm ERR! astro@1.0.0 test: `vitest run`\nnpm ERR! Exit status 1\n\nFAIL  tests/parser.test.ts\n  > Expected 42 but received undefined","toolCallId":"call-201","title":"bash: npm test","status":"error","tag":"tool_call_update"}
+{"type":"text_delta","text":"\n\nThe tests failed. Let me investigate the parser issue.","stream":"output","tag":"agent_message_chunk"}
+{"type":"tool_call","text":"Reading failing test file","toolCallId":"call-202","title":"read_file: tests/parser.test.ts","status":"in_progress","tag":"tool_call"}
+{"type":"tool_call","text":"import { parse } from '../src/lib/parser';\n\ntest('parses number', () => {\n  expect(parse('42')).toBe(42);\n});","toolCallId":"call-202","title":"read_file: tests/parser.test.ts","status":"completed","tag":"tool_call_update"}
+{"type":"text_delta","text":"\n\nI see the issue - the parse function needs to return a number.","stream":"output","tag":"agent_message_chunk"}
+{"type":"status","text":"Investigation complete","tag":"usage_update","used":1890,"size":4096}
+{"type":"done","stopReason":"end_turn"}
+
+# ==============================================================================
+# SCENARIO 4: Error Event - API rate limit
+# ==============================================================================
+
+{"type":"status","text":"Processing request...","tag":"session_info_update"}
+{"type":"text_delta","text":"I'll analyze","stream":"output","tag":"agent_message_chunk"}
+{"type":"error","message":"API rate limit exceeded. Please wait 60 seconds before retrying.","code":"rate_limit","retryable":true}
+
+# ==============================================================================
+# SCENARIO 5: Error Event - Authentication failure (non-retryable)
+# ==============================================================================
+
+{"type":"status","text":"Connecting to service...","tag":"session_info_update"}
+{"type":"error","message":"Invalid API key. Please check your credentials.","code":"auth_error","retryable":false}
+
+# ==============================================================================
+# SCENARIO 6: Error Event - Context overflow
+# ==============================================================================
+
+{"type":"status","text":"Loading context...","tag":"session_info_update"}
+{"type":"text_delta","text":"Analyzing the large codebase","stream":"output","tag":"agent_message_chunk"}
+{"type":"error","message":"Context window exceeded. The conversation is too long. Consider starting a new session.","code":"context_overflow","retryable":false}
+
+# ==============================================================================
+# SCENARIO 7: Thought/Reasoning stream (internal thinking)
+# ==============================================================================
+
+{"type":"status","text":"Agent thinking...","tag":"session_info_update"}
+{"type":"text_delta","text":"Let me think about this problem...","stream":"thought","tag":"agent_thought_chunk"}
+{"type":"text_delta","text":" The user wants to refactor the authentication module.","stream":"thought","tag":"agent_thought_chunk"}
+{"type":"text_delta","text":" I should first understand the current implementation.","stream":"thought","tag":"agent_thought_chunk"}
+{"type":"text_delta","text":"I'll start by reviewing the authentication module.","stream":"output","tag":"agent_message_chunk"}
+{"type":"tool_call","text":"Reading auth module","toolCallId":"call-301","title":"read_file: src/auth/index.ts","status":"in_progress","tag":"tool_call"}
+{"type":"tool_call","text":"export function authenticate(token: string): boolean {\n  return validateToken(token);\n}","toolCallId":"call-301","title":"read_file: src/auth/index.ts","status":"completed","tag":"tool_call_update"}
+{"type":"text_delta","text":"\n\nThe auth module is simple. I can add the requested improvements.","stream":"output","tag":"agent_message_chunk"}
+{"type":"done","stopReason":"end_turn"}
+
+# ==============================================================================
+# SCENARIO 8: Session with status updates and usage metrics
+# ==============================================================================
+
+{"type":"status","text":"Session initialized","tag":"session_info_update"}
+{"type":"status","text":"Model: claude-sonnet-4-20250514","tag":"current_mode_update"}
+{"type":"status","text":"Available commands: /help, /clear, /exit","tag":"available_commands_update"}
+{"type":"text_delta","text":"Hello! How can I help you today?","stream":"output","tag":"agent_message_chunk"}
+{"type":"status","text":"Tokens used: 150 / 8192","tag":"usage_update","used":150,"size":8192}
+{"type":"done","stopReason":"end_turn"}
+
+# ==============================================================================
+# SCENARIO 9: Planning output (plan tag)
+# ==============================================================================
+
+{"type":"status","text":"Generating plan...","tag":"session_info_update"}
+{"type":"text_delta","text":"Here's my plan to implement the feature:\n\n","stream":"output","tag":"plan"}
+{"type":"text_delta","text":"1. Create the new API endpoint\n","stream":"output","tag":"plan"}
+{"type":"text_delta","text":"2. Add input validation\n","stream":"output","tag":"plan"}
+{"type":"text_delta","text":"3. Implement the business logic\n","stream":"output","tag":"plan"}
+{"type":"text_delta","text":"4. Write unit tests\n","stream":"output","tag":"plan"}
+{"type":"text_delta","text":"5. Update documentation","stream":"output","tag":"plan"}
+{"type":"text_delta","text":"\n\nShall I proceed with this plan?","stream":"output","tag":"agent_message_chunk"}
+{"type":"done","stopReason":"end_turn"}
+
+# ==============================================================================
+# SCENARIO 10: Cancelled/Aborted session
+# ==============================================================================
+
+{"type":"status","text":"Starting long operation...","tag":"session_info_update"}
+{"type":"text_delta","text":"I'll begin refactoring the entire codebase","stream":"output","tag":"agent_message_chunk"}
+{"type":"tool_call","text":"Analyzing project structure","toolCallId":"call-401","title":"bash: find . -name '*.ts' | wc -l","status":"in_progress","tag":"tool_call"}
+{"type":"done","stopReason":"cancelled"}
+
+# ==============================================================================
+# SCENARIO 11: Malformed JSON lines (edge cases for parser testing)
+# ==============================================================================
+
+# Incomplete JSON object (missing closing brace)
+{"type":"text_delta","text":"Hello world"
+
+# Truncated in middle of string
+{"type":"tool_call","text":"Reading fi
+
+# Empty line (should be skipped)
+
+# Just whitespace
+
+
+# Invalid JSON - extra comma
+{"type":"status","text":"Processing",}
+
+# Invalid JSON - single quotes instead of double
+{'type':'error','message':'Invalid'}
+
+# Valid JSON but array instead of object
+["text_delta", "hello"]
+
+# Valid JSON object but missing type field
+{"text":"This has no type field","stream":"output"}
+
+# Null value
+null
+
+# Boolean value
+true
+
+# Number value
+42
+
+# ==============================================================================
+# SCENARIO 12: Complete session with file changes and metrics
+# ==============================================================================
+
+{"type":"status","text":"Session started","tag":"session_info_update"}
+{"type":"text_delta","text":"I'll add the new feature you requested.","stream":"output","tag":"agent_message_chunk"}
+{"type":"tool_call","text":"Creating new component","toolCallId":"call-501","title":"write_file: src/components/Modal.tsx","status":"in_progress","tag":"tool_call"}
+{"type":"tool_call","text":"File created successfully (45 lines)","toolCallId":"call-501","title":"write_file: src/components/Modal.tsx","status":"completed","tag":"tool_call_update"}
+{"type":"tool_call","text":"Updating exports","toolCallId":"call-502","title":"edit_file: src/index.ts","status":"in_progress","tag":"tool_call"}
+{"type":"tool_call","text":"Added export for Modal component","toolCallId":"call-502","title":"edit_file: src/index.ts","status":"completed","tag":"tool_call_update"}
+{"type":"tool_call","text":"Running type check","toolCallId":"call-503","title":"bash: npm run build","status":"in_progress","tag":"tool_call"}
+{"type":"tool_call","text":"Build completed successfully\n\n> astro@1.0.0 build\n> tsc && vite build\n\nvite v5.0.0 building for production...\ndist/index.js  2.5 kB","toolCallId":"call-503","title":"bash: npm run build","status":"completed","tag":"tool_call_update"}
+{"type":"text_delta","text":"\n\nThe Modal component has been created and the build passes.","stream":"output","tag":"agent_message_chunk"}
+{"type":"status","text":"Session complete","tag":"usage_update","used":3456,"size":8192}
+{"type":"done","stopReason":"end_turn"}
+
+# ==============================================================================
+# SCENARIO 13: Unicode and special characters in text
+# ==============================================================================
+
+{"type":"status","text":"Processing multilingual content...","tag":"session_info_update"}
+{"type":"text_delta","text":"Here's a summary with special characters:\n","stream":"output","tag":"agent_message_chunk"}
+{"type":"text_delta","text":"- Japanese: \u65e5\u672c\u8a9e\n","stream":"output","tag":"agent_message_chunk"}
+{"type":"text_delta","text":"- Chinese: \u4e2d\u6587\n","stream":"output","tag":"agent_message_chunk"}
+{"type":"text_delta","text":"- Emoji: \u2705 \u274c \ud83d\ude80\n","stream":"output","tag":"agent_message_chunk"}
+{"type":"text_delta","text":"- Math: \u03c0 \u2248 3.14159, \u221e\n","stream":"output","tag":"agent_message_chunk"}
+{"type":"text_delta","text":"- Quotes: \"double\" 'single' \u201csmart\u201d\n","stream":"output","tag":"agent_message_chunk"}
+{"type":"text_delta","text":"- Escapes: \\n \\t \\\\ \\\"","stream":"output","tag":"agent_message_chunk"}
+{"type":"done","stopReason":"end_turn"}
+
+# ==============================================================================
+# SCENARIO 14: Long tool output (truncation testing)
+# ==============================================================================
+
+{"type":"status","text":"Fetching large dataset...","tag":"session_info_update"}
+{"type":"tool_call","text":"Listing all files","toolCallId":"call-601","title":"bash: find . -type f","status":"in_progress","tag":"tool_call"}
+{"type":"tool_call","text":"./package.json\n./tsconfig.json\n./vite.config.ts\n./src/index.ts\n./src/lib/utils.ts\n./src/lib/parser.ts\n./src/lib/validator.ts\n./src/components/Button.tsx\n./src/components/Modal.tsx\n./src/components/Form.tsx\n./src/components/Input.tsx\n./src/components/Select.tsx\n./src/hooks/useAuth.ts\n./src/hooks/useForm.ts\n./src/hooks/useModal.ts\n./tests/parser.test.ts\n./tests/validator.test.ts\n./tests/Button.test.tsx\n./tests/Modal.test.tsx\n./tests/Form.test.tsx\n... (truncated, 150 more files)","toolCallId":"call-601","title":"bash: find . -type f","status":"completed","tag":"tool_call_update"}
+{"type":"text_delta","text":"\n\nFound 170 files in the project.","stream":"output","tag":"agent_message_chunk"}
+{"type":"done","stopReason":"end_turn"}
+
+# ==============================================================================
+# SCENARIO 15: Empty/minimal events (boundary testing)
+# ==============================================================================
+
+{"type":"text_delta","text":"","stream":"output"}
+{"type":"text_delta","text":" ","stream":"output"}
+{"type":"tool_call","text":"","toolCallId":"","title":"","status":""}
+{"type":"status","text":""}
+{"type":"done"}
+{"type":"error","message":""}
