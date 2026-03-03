@@ -36,27 +36,56 @@ import { deriveAvailableProviders, isProviderAvailable, PROVIDER_NAMES } from "@
 import type { GitHubRepo, TaskAttachment } from "@/types"
 
 /**
+ * Result type for parseGitHubUrl — discriminated union for type-safe error handling
+ */
+type ParseGitHubUrlResult =
+  | { ok: true; owner: string; repo: string }
+  | { ok: false; error: string }
+
+/**
  * Parse a GitHub URL to extract owner and repo name.
  * Validates against GitHub's naming constraints:
  * - Owner: alphanumeric or hyphens, max 39 chars, cannot start/end with hyphen
  * - Repo: alphanumeric, hyphens, underscores, dots, max 100 chars
+ *
+ * Returns a result object for type-safe error handling with specific error messages.
  */
-function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
+function parseGitHubUrl(url: string): ParseGitHubUrlResult {
+  if (!url.trim()) {
+    return { ok: false, error: 'URL is empty' }
+  }
+
   // GitHub naming rules
   const ownerPattern = '[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?'
   const repoPattern = '[a-zA-Z0-9_.-]{1,100}'
 
+  // Check if it looks like a GitHub URL but has invalid format
+  const looksLikeGitHub = /github\.com/i.test(url) || /^[^/]+\/[^/]+$/.test(url)
+
   // Match https://github.com/owner/repo, git@github.com:owner/repo
-  const ghUrlRegex = new RegExp(`github\\.com[/:](${ ownerPattern})\\/(${ repoPattern}?)(?:\\.git)?(?:[/#?]|$)`)
+  // Note: repoPattern is required (no ?), ensuring we don't match URLs like github.com/owner/
+  const ghUrlRegex = new RegExp(`github\\.com[/:](${ ownerPattern})\\/(${ repoPattern})(?:\\.git)?(?:[/#?]|$)`)
   const httpsMatch = url.match(ghUrlRegex)
-  if (httpsMatch) return { owner: httpsMatch[1], repo: httpsMatch[2] }
+  if (httpsMatch) return { ok: true, owner: httpsMatch[1], repo: httpsMatch[2] }
 
   // Match bare "owner/repo" format
   const bareRegex = new RegExp(`^(${ownerPattern})\\/(${repoPattern})$`)
   const bareMatch = url.match(bareRegex)
-  if (bareMatch) return { owner: bareMatch[1], repo: bareMatch[2] }
+  if (bareMatch) return { ok: true, owner: bareMatch[1], repo: bareMatch[2] }
 
-  return null
+  // Provide specific error messages based on what went wrong
+  if (looksLikeGitHub) {
+    // Check for common issues
+    if (/github\.com\/[^/]+\/?$/.test(url)) {
+      return { ok: false, error: 'Repository name is required (e.g., github.com/owner/repo)' }
+    }
+    if (/github\.com\/?$/.test(url)) {
+      return { ok: false, error: 'Owner and repository name are required' }
+    }
+    return { ok: false, error: 'Invalid GitHub URL format (expected owner/repo)' }
+  }
+
+  return { ok: false, error: 'Not a recognized GitHub URL or owner/repo format' }
 }
 
 export function ProjectNewPlan() {
@@ -340,6 +369,7 @@ export function ProjectNewPlan() {
       setRepoUrl(existingProject.repository)
       if (existingProject.githubOwner) setGithubOwner(existingProject.githubOwner)
       if (existingProject.githubRepo) setGithubRepo(existingProject.githubRepo)
+      if (existingProject.githubRepoId) setGithubRepoId(existingProject.githubRepoId)
     }
 
     // Pre-fill vision doc and auto-expand context section
@@ -398,15 +428,19 @@ export function ProjectNewPlan() {
   // Handle repo URL text input changes with auto-parsing
   const handleRepoUrlChange = useCallback((value: string) => {
     setRepoUrl(value)
-    const parsed = parseGitHubUrl(value.trim())
-    if (parsed) {
-      setGithubOwner(parsed.owner)
-      setGithubRepo(parsed.repo)
+    const result = parseGitHubUrl(value.trim())
+    if (result.ok) {
+      setGithubOwner(result.owner)
+      setGithubRepo(result.repo)
+      // Note: githubRepoId is not available from URL parsing; it comes from the picker dialog
     } else if (!value.trim()) {
+      // Clear all metadata when input is empty
       setGithubOwner("")
       setGithubRepo("")
       setGithubRepoId(undefined)
     }
+    // When result.ok is false but value is non-empty, we leave owner/repo unchanged
+    // to avoid flickering during typing. The error is available via result.error if needed.
   }, [])
 
   // Handle repo selection from picker dialog
@@ -445,9 +479,23 @@ export function ProjectNewPlan() {
     // Auto-expand context section to show pasted images
     setContextOpen(true)
 
+    // Client-side size limit: 10MB per file to prevent slow uploads and backend quota issues
+    const MAX_IMAGE_SIZE = 10 * 1024 * 1024 // 10MB
+
     // Upload each image to persistent blob storage, tracking pending count
-    setPendingUploads((prev) => prev + imageFiles.length)
     for (const file of imageFiles) {
+      // Check file size before attempting upload
+      if (file.size > MAX_IMAGE_SIZE) {
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(1)
+        useToastStore.getState().add({
+          type: 'error',
+          title: 'Image too large',
+          description: `${file.name || 'Image'} is ${sizeMB}MB (max 10MB)`,
+        })
+        continue // Skip this file but process others
+      }
+
+      setPendingUploads((prev) => prev + 1)
       const reader = new FileReader()
       const filename = file.name || `pasted-image-${crypto.randomUUID()}.png`
       reader.onload = async () => {
@@ -480,6 +528,16 @@ export function ProjectNewPlan() {
         } finally {
           setPendingUploads((prev) => Math.max(0, prev - 1))
         }
+      }
+      // Handle FileReader errors (e.g., file access denied, read failure)
+      reader.onerror = () => {
+        console.error('[plan-session] FileReader error for:', filename)
+        setPendingUploads((prev) => Math.max(0, prev - 1))
+        useToastStore.getState().add({
+          type: 'error',
+          title: 'Read failed',
+          description: `Could not read file: ${filename}`,
+        })
       }
       reader.readAsDataURL(file)
     }
@@ -541,6 +599,7 @@ export function ProjectNewPlan() {
         projectId = result.projectId
       } else {
         // Normal flow: create a new project + plan session
+        // Include GitHub metadata in initial creation to avoid race conditions
         const result = await startPlanSession(
           description.trim(),
           firstLine,
@@ -552,18 +611,13 @@ export function ProjectNewPlan() {
             visionDoc: combinedVisionDoc,
             baseBranch: effectiveBranch || undefined,
             repository: repoUrl || undefined,
+            // Include GitHub metadata atomically in initial project creation
+            ...(githubOwner ? { githubOwner } : {}),
+            ...(githubRepo ? { githubRepo } : {}),
+            ...(githubRepoId ? { githubRepoId } : {}),
           }
         )
         projectId = result.projectId
-      }
-
-      // For new projects: persist GitHub metadata (non-blocking).
-      // For regeneration: already included in regenUpdates above.
-      if (!isRegeneration && Object.keys(githubMetadata).length > 0) {
-        updateProject(projectId, githubMetadata) // optimistic local
-        dataClient.updateProject(projectId, githubMetadata).catch((err) => {
-          console.error('[plan-session] Failed to persist GitHub metadata:', err)
-        })
       }
 
       setActiveProjectId(projectId)

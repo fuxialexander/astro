@@ -220,6 +220,9 @@ interface ExecutionState {
       visionDoc?: string
       repository?: string
       baseBranch?: string
+      githubOwner?: string
+      githubRepo?: string
+      githubRepoId?: number
     }
   ) => Promise<{ projectId: string; nodeId: string }>
   cancelPlanSession: (projectId: string) => Promise<void>
@@ -960,6 +963,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       repository: options?.repository,
       defaultMachineId: options?.targetMachineId,
       projectType: 'plan',
+      // Include GitHub metadata in initial project creation (avoids post-create PATCH race)
+      ...(options?.githubOwner ? { githubOwner: options.githubOwner } : {}),
+      ...(options?.githubRepo ? { githubRepo: options.githubRepo } : {}),
+      ...(options?.githubRepoId ? { githubRepoId: options.githubRepoId } : {}),
       ...(options?.baseBranch ? {
         source: {
           localPath: options?.workingDirectory || '',
