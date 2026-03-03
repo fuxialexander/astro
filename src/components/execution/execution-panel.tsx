@@ -20,6 +20,8 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
+import { useContentSaveStore } from "@/stores/content-save-store"
+import { useToastStore } from "@/stores/toast-store"
 import type { PlanNode, ProviderStatus } from "@/types"
 import { refineContent } from "@/lib/api-client"
 import { marked } from "marked"
@@ -49,6 +51,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   const edges = useMemo(() => rawEdges.filter(isLive), [rawEdges])
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const profile = useUserProfileStore((s) => s.profile)
+  const flushPendingSaves = useContentSaveStore((s) => s.flushPendingSaves)
 
   // Execution state
   const execution = useExecutionStore((s) => s.getExecution(node.id))
@@ -175,6 +178,19 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   const updateNode = usePlanStore((s) => s.updateNode)
 
   const handleExecute = async () => {
+    try {
+      // Flush any pending content saves before execution
+      await flushPendingSaves([node.id])
+    } catch (error) {
+      console.error('Failed to save task content before execution:', error)
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Failed to save changes',
+        description: 'Could not save task content before execution. Please try again.',
+      })
+      return
+    }
+
     // Clean up old server resources (worktree, branch, session) before re-executing
     if (isReexecution) {
       await resetExecution(node.id)

@@ -6,6 +6,7 @@ import { LinkList } from './link-list'
 import { CommentSection } from './comment-section'
 import { usePlanStore } from '@/stores/plan-store'
 import { useUserProfileStore } from '@/stores/user-profile-store'
+import { useContentSaveStore } from '@/stores/content-save-store'
 import { dataClient } from '@/lib/data-client'
 import { fileToBase64 } from '@/lib/html-utils'
 import { cn } from '@/lib/utils'
@@ -24,7 +25,9 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
   const updateNode = usePlanStore((s) => s.updateNode)
   const nodes = usePlanStore((s) => s.nodes)
   const profile = useUserProfileStore((s) => s.profile)
+  const registerPendingSave = useContentSaveStore((s) => s.registerPendingSave)
   const editorRef = useRef<RichTextEditorRef>(null)
+  const mountedRef = useRef(true)
 
   // Initialize with content or fall back to description for backward compat
   const initialContent = node.content || (node.description ? `<p>${node.description}</p>` : '')
@@ -32,6 +35,7 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [activeSection, setActiveSection] = useState<'content' | 'attachments' | 'links'>('content')
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const savingRef = useRef<Promise<void> | null>(null)
 
   // Build mention items from sibling plan nodes + file tree
   const mentionItems = useMemo<MentionSuggestionItem[]>(() => {
@@ -55,18 +59,85 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
     if (html === initialContent) return
 
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(async () => {
-      setSaveStatus('saving')
-      const markdown = editorRef.current?.getMarkdown() || html
-      await updateNode(node.id, { content: html, description: markdown })
-      setSaveStatus('saved')
-      setTimeout(() => setSaveStatus('idle'), 1500)
-    }, 800)
-  }, [node.id, initialContent, updateNode])
 
-  // Cleanup debounce on unmount
+    // Register a flush function that immediately executes the save
+    const flushFn = async () => {
+      // Cancel the debounced timer
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+        debounceRef.current = null
+      }
+
+      // If already saving, wait for that to complete, then proceed with our save
+      // (don't early return — the content may have changed since the last save started)
+      if (savingRef.current) {
+        await savingRef.current
+      }
+
+      try {
+        if (mountedRef.current) setSaveStatus('saving')
+
+        // Get markdown from editor (only if available)
+        // If editor is unavailable (e.g., after unmount), only update content field
+        // to prevent clearing the description (which would cause data loss)
+        const markdown = editorRef.current?.getMarkdown()
+        const updates: Partial<PlanNode> = { content: html }
+        if (markdown !== undefined) {
+          updates.description = markdown
+        } else {
+          console.warn('[content-save] Editor unavailable, saving content only (description preserved)')
+        }
+
+        // Call dataClient.updateNode directly to ensure we await the actual API call
+        // (plan-store.updateNode fires and forgets, which defeats the flush mechanism)
+        const savePromise = dataClient.updateNode(node.id, updates)
+        savingRef.current = savePromise
+
+        await savePromise
+
+        // Also update local store state so the UI reflects the change immediately
+        updateNode(node.id, updates)
+
+        savingRef.current = null
+        // Don't clear pending save here - it may have been overwritten by a newer flush
+        // while this save was in progress. Clearing would lose the newer flush function.
+        if (mountedRef.current) {
+          setSaveStatus('saved')
+          setTimeout(() => {
+            if (mountedRef.current) setSaveStatus('idle')
+          }, 1500)
+        }
+      } catch (error) {
+        savingRef.current = null
+        if (mountedRef.current) setSaveStatus('idle')
+        console.error('Failed to save task content:', error)
+        throw error
+      }
+    }
+
+    registerPendingSave(node.id, flushFn)
+
+    debounceRef.current = setTimeout(async () => {
+      await flushFn()
+      // Debounce completed — content is persisted. Clear the stale flush
+      // function so "Execute All" doesn't re-save old captured html for
+      // every task the user browsed. Only clear if the store still holds
+      // THIS flushFn (a newer edit may have registered a new one mid-save).
+      const current = useContentSaveStore.getState().pendingSaves.get(node.id)
+      if (current?.flush === flushFn) {
+        useContentSaveStore.getState().clearPendingSave(node.id)
+      }
+    }, 800)
+  }, [node.id, initialContent, updateNode, registerPendingSave])
+
+  // Cleanup debounce on unmount and mark component as unmounted
+  // Note: We intentionally DON'T clear the pending save from the store here.
+  // If a user navigates away before the debounce fires, the flush function should
+  // remain available so that execution can still trigger the save. This prevents
+  // data loss when users navigate away quickly after editing.
   useEffect(() => {
     return () => {
+      mountedRef.current = false
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
   }, [])

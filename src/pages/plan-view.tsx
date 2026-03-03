@@ -28,6 +28,7 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore, type DisplaySettings, type ViewKey } from "@/stores/display-settings-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useExecutionStore, getProjectWorkingDir } from "@/stores/execution-store"
+import { useContentSaveStore } from "@/stores/content-save-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useUIStore } from "@/stores/ui-store"
@@ -796,6 +797,7 @@ export function PlanListView({
   const projects = useProjectStore((s) => s.projects)
   const displaySettings = useDisplaySettingsStore((s) => s.get(displayViewKey))
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
+  const flushPendingSaves = useContentSaveStore((s) => s.flushPendingSaves)
   const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
   const [labelManagerOpen, setLabelManagerOpen] = useState(false)
 
@@ -825,6 +827,20 @@ export function PlanListView({
       })
       return
     }
+
+    // Flush any pending content saves before execution
+    try {
+      await flushPendingSaves([node.id])
+    } catch (error) {
+      console.error('Failed to save task content before execution:', error)
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Failed to save changes',
+        description: 'Could not save task content before execution. Please try again.',
+      })
+      return
+    }
+
     const { startExecution } = useExecutionStore.getState()
     await startExecution(node.id, node.projectId)
     addActivity({
@@ -832,7 +848,7 @@ export function PlanListView({
       type: "task.started",
       title: `Executing task: ${node.title}`,
     })
-  }, [project, addActivity])
+  }, [project, addActivity, flushPendingSaves])
 
   const planBatchActions: BatchAction[] = useMemo(() => [
     {
@@ -859,6 +875,23 @@ export function PlanListView({
           })
           return
         }
+
+        // Flush pending saves for all selected tasks before execution
+        try {
+          await flushPendingSaves(ids)
+        } catch (error) {
+          console.error('Failed to save task content before execution:', error)
+          const description = error instanceof Error
+            ? error.message
+            : 'Could not save task content before execution. Please try again.'
+          useToastStore.getState().add({
+            type: 'error',
+            title: 'Failed to save changes',
+            description,
+          })
+          return
+        }
+
         const { startExecution } = useExecutionStore.getState()
         // Execute all selected tasks in parallel
         const executions = ids.map((id) => {
@@ -919,7 +952,7 @@ export function PlanListView({
         }
       },
     },
-  ], [removeNodes, planNodes, addActivity, projectId])
+  ], [removeNodes, planNodes, addActivity, projectId, flushPendingSaves, project])
 
   const allProjectNodes = useMemo(() => {
     // If nodes provided (cross-project mode), use those
