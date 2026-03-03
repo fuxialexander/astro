@@ -14,6 +14,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { useSkillStore, type SkillRow } from "@/stores/skill-store"
 import type { OpenClawSkill } from "@/types/skill"
@@ -41,8 +42,10 @@ export function SkillDetailDialog({
   const updateSkill = useSkillStore((s) => s.updateSkill)
   const removeSkill = useSkillStore((s) => s.removeSkill)
 
-  const [isEditing, setIsEditing] = useState(false)
+  const [isEditingInstructions, setIsEditingInstructions] = useState(false)
   const [editedInstructions, setEditedInstructions] = useState("")
+  const [isEditingConfig, setIsEditingConfig] = useState(false)
+  const [editedConfig, setEditedConfig] = useState("")
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   // Reset state when dialog opens/closes or skill changes
@@ -51,8 +54,10 @@ export function SkillDetailDialog({
   if (resetKey !== prevResetKey) {
     setPrevResetKey(resetKey)
     if (skill && open) {
-      setIsEditing(false)
+      setIsEditingInstructions(false)
       setEditedInstructions(skill.instructions)
+      setIsEditingConfig(false)
+      setEditedConfig(JSON.stringify(skill.config || {}, null, 2))
       setShowDeleteConfirm(false)
     }
   }
@@ -63,19 +68,40 @@ export function SkillDetailDialog({
     toggleSkill(skill.id)
   }
 
-  const handleEdit = () => {
+  const handleEditInstructions = () => {
     setEditedInstructions(skill.instructions)
-    setIsEditing(true)
+    setIsEditingInstructions(true)
   }
 
   const handleSaveInstructions = () => {
     updateSkill(skill.id, { instructions: editedInstructions })
-    setIsEditing(false)
+    setIsEditingInstructions(false)
   }
 
-  const handleCancelEdit = () => {
+  const handleCancelEditInstructions = () => {
     setEditedInstructions(skill.instructions)
-    setIsEditing(false)
+    setIsEditingInstructions(false)
+  }
+
+  const handleEditConfig = () => {
+    setEditedConfig(JSON.stringify(skill.config || {}, null, 2))
+    setIsEditingConfig(true)
+  }
+
+  const handleSaveConfig = () => {
+    try {
+      const parsedConfig = JSON.parse(editedConfig)
+      updateSkill(skill.id, { config: parsedConfig })
+      setIsEditingConfig(false)
+    } catch (err) {
+      // Keep editing mode open if JSON is invalid
+      console.error('Invalid JSON:', err)
+    }
+  }
+
+  const handleCancelEditConfig = () => {
+    setEditedConfig(JSON.stringify(skill.config || {}, null, 2))
+    setIsEditingConfig(false)
   }
 
   const handleDelete = () => {
@@ -105,112 +131,163 @@ export function SkillDetailDialog({
           <DialogDescription>{skill.description}</DialogDescription>
         </DialogHeader>
 
-        {/* Metadata row: source, category, tags */}
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge
-            className={cn(
-              "text-[10px] py-0 h-4 border-0",
-              sourceColors[skill.source]
-            )}
-          >
-            {skill.source}
-          </Badge>
-          {skill.category && (
-            <Badge variant="outline" className="text-[10px] py-0 h-4">
-              {skill.category}
-            </Badge>
-          )}
-          {skill.tags && skill.tags.length > 0 && (
-            <>
-              {skill.tags.map((tag) => (
-                <Badge
-                  key={tag}
-                  variant="secondary"
-                  className="text-[10px] py-0 h-4 gap-1"
-                >
-                  <Tag className="h-2.5 w-2.5" />
-                  {tag}
-                </Badge>
-              ))}
-            </>
-          )}
-          {skill.homepage && (
-            <a
-              href={skill.homepage}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[10px] text-info hover:underline"
-            >
-              <ExternalLink className="h-2.5 w-2.5" />
-              Homepage
-            </a>
-          )}
-        </div>
+        <Tabs defaultValue="overview" className="flex-1 flex flex-col min-h-0">
+          <TabsList className="w-full justify-start">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="instructions">Instructions</TabsTrigger>
+            <TabsTrigger value="configuration">Configuration</TabsTrigger>
+          </TabsList>
 
-        {/* Enable/disable toggle */}
-        <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-          <Label
-            htmlFor="skill-enabled-toggle"
-            className="text-sm font-medium cursor-pointer"
-          >
-            Enabled
-          </Label>
-          <Switch
-            id="skill-enabled-toggle"
-            checked={skill.enabled}
-            onCheckedChange={handleToggle}
-          />
-        </div>
-
-        {/* Instructions section */}
-        <div className="flex flex-col gap-2 flex-1 min-h-0">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">Instructions</span>
-            {!isEditing && skill.source !== "builtin" && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleEdit}
-                className="h-7 gap-1.5 text-xs"
+          <TabsContent value="overview" className="flex-1 flex flex-col gap-4 min-h-0">
+            {/* Metadata row: source, category, tags */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge
+                className={cn(
+                  "text-[10px] py-0 h-4 border-0",
+                  sourceColors[skill.source]
+                )}
               >
-                <Pencil className="h-3 w-3" />
-                Edit
-              </Button>
-            )}
-          </div>
-
-          {isEditing ? (
-            <div className="flex flex-col gap-2 flex-1 min-h-0">
-              <Textarea
-                value={editedInstructions}
-                onChange={(e) => setEditedInstructions(e.target.value)}
-                className="flex-1 min-h-[200px] max-h-[40vh] font-mono text-xs resize-none"
-                placeholder="Enter skill instructions (markdown supported)..."
-              />
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" size="sm" onClick={handleCancelEdit}>
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={handleSaveInstructions}>
-                  Save Instructions
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-md border border-border bg-muted/30 p-4 overflow-y-auto max-h-[40vh]">
-              {skill.instructions ? (
-                <MarkdownRenderer
-                  content={skill.instructions}
-                  className="text-sm"
-                />
-              ) : (
-                <span className="text-sm text-muted-foreground italic">
-                  No instructions provided.
-                </span>
+                {skill.source}
+              </Badge>
+              {skill.category && (
+                <Badge variant="outline" className="text-[10px] py-0 h-4">
+                  {skill.category}
+                </Badge>
+              )}
+              {skill.tags && skill.tags.length > 0 && (
+                <>
+                  {skill.tags.map((tag) => (
+                    <Badge
+                      key={tag}
+                      variant="secondary"
+                      className="text-[10px] py-0 h-4 gap-1"
+                    >
+                      <Tag className="h-2.5 w-2.5" />
+                      {tag}
+                    </Badge>
+                  ))}
+                </>
+              )}
+              {skill.homepage && (
+                <a
+                  href={skill.homepage}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[10px] text-info hover:underline"
+                >
+                  <ExternalLink className="h-2.5 w-2.5" />
+                  Homepage
+                </a>
               )}
             </div>
-          )}
-        </div>
+
+            {/* Enable/disable toggle */}
+            <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+              <Label
+                htmlFor="skill-enabled-toggle"
+                className="text-sm font-medium cursor-pointer"
+              >
+                Enabled
+              </Label>
+              <Switch
+                id="skill-enabled-toggle"
+                checked={skill.enabled}
+                onCheckedChange={handleToggle}
+              />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="instructions" className="flex-1 flex flex-col gap-2 min-h-0">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Instructions</span>
+              {!isEditingInstructions && skill.source !== "builtin" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleEditInstructions}
+                  className="h-7 gap-1.5 text-xs"
+                >
+                  <Pencil className="h-3 w-3" />
+                  Edit
+                </Button>
+              )}
+            </div>
+
+            {isEditingInstructions ? (
+              <div className="flex flex-col gap-2 flex-1 min-h-0">
+                <Textarea
+                  value={editedInstructions}
+                  onChange={(e) => setEditedInstructions(e.target.value)}
+                  className="flex-1 min-h-[200px] max-h-[40vh] font-mono text-xs resize-none"
+                  placeholder="Enter skill instructions (markdown supported)..."
+                />
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" size="sm" onClick={handleCancelEditInstructions}>
+                    Cancel
+                  </Button>
+                  <Button size="sm" onClick={handleSaveInstructions}>
+                    Save Instructions
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-md border border-border bg-muted/30 p-4 overflow-y-auto max-h-[40vh]">
+                {skill.instructions ? (
+                  <MarkdownRenderer
+                    content={skill.instructions}
+                    className="text-sm"
+                  />
+                ) : (
+                  <span className="text-sm text-muted-foreground italic">
+                    No instructions provided.
+                  </span>
+                )}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="configuration" className="flex-1 flex flex-col gap-2 min-h-0">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Configuration</span>
+              {!isEditingConfig && skill.source !== "builtin" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleEditConfig}
+                  className="h-7 gap-1.5 text-xs"
+                >
+                  <Pencil className="h-3 w-3" />
+                  Edit
+                </Button>
+              )}
+            </div>
+
+            {isEditingConfig ? (
+              <div className="flex flex-col gap-2 flex-1 min-h-0">
+                <Textarea
+                  value={editedConfig}
+                  onChange={(e) => setEditedConfig(e.target.value)}
+                  className="flex-1 min-h-[200px] max-h-[40vh] font-mono text-xs resize-none"
+                  placeholder='{"key": "value"}'
+                />
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" size="sm" onClick={handleCancelEditConfig}>
+                    Cancel
+                  </Button>
+                  <Button size="sm" onClick={handleSaveConfig}>
+                    Save Configuration
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-md border border-border bg-muted/30 p-4 overflow-y-auto max-h-[40vh]">
+                <pre className="text-xs font-mono">
+                  {JSON.stringify(skill.config || {}, null, 2)}
+                </pre>
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
 
         {/* Footer with delete confirmation */}
         {showDeleteConfirm ? (
