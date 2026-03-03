@@ -1394,7 +1394,9 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       clearInterval(heartbeat)
       cleanup()
       // Flush any buffered text before disconnect
-      streamingEventLog.flushText(executionId).catch(() => {})
+      streamingEventLog.flushText(executionId).catch((err) => {
+        console.error(`[dispatch] Failed to flush text on disconnect for ${executionId}:`, err)
+      })
       // Task continues running on the agent runner — results arrive via relay → global SSE → realtime-store
     })
 

@@ -520,11 +520,18 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       // afterSeq === 0 means full hydration (page refresh): use hydrated data only if existing is empty
       const isReconnect = afterSeq > 0
 
+      // Hydrate once per execution (avoid calling hydrateStreamingEvents multiple
+      // times which increments a global idCounter, producing mismatched IDs)
+      const hydratedByExecution = new Map<string, ReturnType<typeof hydrateStreamingEvents>>()
+      for (const [execId, execEvents] of byExecution) {
+        hydratedByExecution.set(execId, hydrateStreamingEvents(execEvents))
+      }
+
       set((state) => {
         const streams = new Map(state.taskStreams)
-        for (const [execId, execEvents] of byExecution) {
+        for (const [execId] of byExecution) {
           const existing = streams.get(execId) || createEmptyTaskStream(execId)
-          const hydrated = hydrateStreamingEvents(execEvents)
+          const hydrated = hydratedByExecution.get(execId)!
 
           // Always apply metadata from hydrated events (status, output, error, sessionId, model)
           const metadata: Partial<TaskStream> = {}
@@ -570,8 +577,8 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       // Reconstruct dynamicApprovals from pending approval_request events
       set((state) => {
         const newApprovals = new Map(state.dynamicApprovals)
-        for (const [, execEvents] of byExecution) {
-          const hydrated = hydrateStreamingEvents(execEvents)
+        for (const [execId] of byExecution) {
+          const hydrated = hydratedByExecution.get(execId)!
           for (const approval of hydrated.pendingApprovals) {
             newApprovals.set(approval.requestId, {
               taskId: approval.executionId,
@@ -587,8 +594,8 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       })
 
       // Reconcile plan nodes and execution store with hydrated result data
-      for (const [execId, execEvents] of byExecution) {
-        const hydrated = hydrateStreamingEvents(execEvents)
+      for (const [execId] of byExecution) {
+        const hydrated = hydratedByExecution.get(execId)!
         if (hydrated.status) {
           reconcileResultFromCatchUp(execId, hydrated)
         }
@@ -642,11 +649,12 @@ function reconcileResultFromCatchUp(
   // We need to look at the raw data — but since we already have the result fields
   // on the hydrated object, we can only update what we have.
 
-  // Update execution store
+  // Update execution store (build new Map to maintain Zustand immutability)
   const execStore = useExecutionStore.getState()
+  const newExecutions = new Map(execStore.executions)
   for (const [nid, exec] of execStore.executions) {
     if (exec.executionId === executionId && exec.status !== 'success') {
-      execStore.executions.set(nid, {
+      newExecutions.set(nid, {
         ...exec,
         status: isSuccess ? 'success' : 'failure',
         completedAt: new Date(),
@@ -656,7 +664,7 @@ function reconcileResultFromCatchUp(
         ...(hydrated.prNumber ? { prNumber: hydrated.prNumber } : {}),
         ...(hydrated.deliveryStatus ? { deliveryStatus: hydrated.deliveryStatus as "success" | "failed" | "skipped" } : {}),
       })
-      useExecutionStore.setState({ executions: new Map(execStore.executions) })
+      useExecutionStore.setState({ executions: newExecutions })
       execStore.persist()
       break
     }
@@ -871,10 +879,12 @@ function handleRealtimeEvent(
       )
 
       // Update execution store entry (so UI reflects terminal status after refresh)
+      // Build new Map to maintain Zustand immutability (don't mutate live state)
       const execStore = useExecutionStore.getState()
+      const newExecs = new Map(execStore.executions)
       for (const [nid, exec] of execStore.executions) {
         if (exec.executionId === taskId) {
-          execStore.executions.set(nid, {
+          newExecs.set(nid, {
             ...exec,
             status: isSuccess ? 'success' : 'failure',
             completedAt: new Date(),
@@ -884,8 +894,7 @@ function handleRealtimeEvent(
             ...(data.prNumber ? { prNumber: data.prNumber as number } : {}),
             ...(data.deliveryStatus ? { deliveryStatus: data.deliveryStatus as "success" | "failed" | "skipped" } : {}),
           })
-          // Trigger Zustand re-render by calling set
-          useExecutionStore.setState({ executions: new Map(execStore.executions) })
+          useExecutionStore.setState({ executions: newExecs })
           execStore.persist()
           break
         }
