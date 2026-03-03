@@ -43,7 +43,8 @@ vi.mock('../server/lib/relay-server.js', () => {
   }
 })
 
-import { setupTestServer, postJson } from './helpers/test-server.js'
+import { setupTestServer, postJson, db } from './helpers/test-server.js'
+import { projects } from '../server/lib/db/schema.js'
 
 beforeAll(async () => {
   await setupTestServer()
@@ -60,18 +61,34 @@ afterEach(() => {
 })
 
 describe('Interactive plan dispatch overrides', { timeout: 30_000 }, () => {
-  const baseBody = {
+  let projectId: string
+
+  beforeEach(async () => {
+    // Clean slate
+    await db.delete(projects)
+
+    // Create project for dispatch tests
+    const res = await postJson('/api/data/projects', {
+      name: 'Interactive Plan Test Project',
+      description: 'Testing interactive plan dispatch overrides',
+      source: { localPath: '/tmp/test-interactive-plan' },
+    })
+    const body = await res.json()
+    projectId = body.id
+  })
+
+  const getBaseBody = () => ({
     nodeId: 'plan-test-1',
-    projectId: '00000000-0000-0000-0000-000000000001',
+    projectId,
     title: 'Interactive plan session',
     description: 'Test interactive planning',
     workingDirectory: '/tmp/test-interactive-plan',
-  }
+  })
 
   it('isInteractivePlan overrides deliveryMode and useWorktree', async () => {
     // Post with isInteractivePlan=true and conflicting values that should be overridden
     const res = await postJson('/api/dispatch/task', {
-      ...baseBody,
+      ...getBaseBody(),
       isInteractivePlan: true,
       deliveryMode: 'pr', // Should be overridden to 'direct'
       useWorktree: true, // Should be overridden to false
@@ -96,7 +113,7 @@ describe('Interactive plan dispatch overrides', { timeout: 30_000 }, () => {
     // Post with isInteractivePlan=true without specifying deliveryMode
     // Default is 'pr' (line 847), should be overridden to 'direct'
     const res = await postJson('/api/dispatch/task', {
-      ...baseBody,
+      ...getBaseBody(),
       isInteractivePlan: true,
       dryRun: false,
     })
@@ -113,7 +130,7 @@ describe('Interactive plan dispatch overrides', { timeout: 30_000 }, () => {
   it('non-interactive dispatch respects explicit deliveryMode', async () => {
     // Verify that without isInteractivePlan, deliveryMode is not overridden
     const res = await postJson('/api/dispatch/task', {
-      ...baseBody,
+      ...getBaseBody(),
       isInteractivePlan: false,
       deliveryMode: 'pr',
       dryRun: false,
@@ -130,7 +147,7 @@ describe('Interactive plan dispatch overrides', { timeout: 30_000 }, () => {
   it('validates dryRun still works with isInteractivePlan', async () => {
     // Verify dryRun short-circuits before dispatch
     const res = await postJson('/api/dispatch/task', {
-      ...baseBody,
+      ...getBaseBody(),
       isInteractivePlan: true,
       dryRun: true,
     })
