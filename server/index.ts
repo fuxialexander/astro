@@ -29,6 +29,7 @@ import { templatesRoute } from './routes/templates.js'
 import { shareRoute } from './routes/share.js'
 import { connectedAccountsRoute } from './routes/connected-accounts.js'
 import { teamsRoute } from './routes/teams.js'
+import { communityRoute } from './routes/community.js'
 import { runMigrations } from './lib/db/migrate.js'
 import { closeDb } from '../packages/core/src/db/index.js'
 import { relayServer } from './lib/relay-server.js'
@@ -175,6 +176,7 @@ export function createApp() {
   app.route('/api/templates', templatesRoute)
   app.route('/api/observations', observationsRoute)
   app.route('/api/teams', teamsRoute)
+  app.route('/api/community', communityRoute)
 
   // Auth routes are always mounted (endpoints guard themselves with isLocalMode())
   app.route('/api/auth', authRoute)
