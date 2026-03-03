@@ -58,8 +58,6 @@ export function SkillDetailDialog({
 
   if (!skill) return null
 
-  const emoji = skill.metadata?.openclaw?.emoji || ""
-
   const handleToggle = () => {
     toggleSkill(skill.name)
   }
@@ -90,11 +88,7 @@ export function SkillDetailDialog({
         <DialogHeader>
           <div className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-              {emoji ? (
-                <span className="text-sm">{emoji}</span>
-              ) : (
-                <Zap className="h-4 w-4 text-primary-foreground" />
-              )}
+              <Zap className="h-4 w-4 text-primary-foreground" />
             </div>
             <div className="flex flex-col gap-0.5">
               <DialogTitle className="flex items-center gap-2">

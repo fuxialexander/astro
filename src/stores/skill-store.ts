@@ -106,6 +106,10 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     const existing = skills.get(name)
     if (!existing) return
 
+    // Snapshot for rollback (including original key)
+    const originalSkill = { ...existing }
+    const originalKey = name
+
     // Optimistic: merge updates locally
     const updated: SkillRow = { ...existing, ...updates }
     // If name changed, re-key the map
@@ -129,10 +133,17 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
       set({ skills: current })
     }).catch((err) => {
       console.error('[skill-store] Failed to sync updateSkill:', err)
+      // Revert to original state using the original key
+      const current = new Map(get().skills)
+      if (updates.name && updates.name !== originalKey) {
+        current.delete(updates.name) // Remove the optimistic new key
+      }
+      current.set(originalKey, originalSkill) // Restore with original key
+      set({ skills: current })
       useToastStore.getState().add({
         type: 'error',
         title: 'Failed to update skill',
-        description: 'Changes may be lost on refresh.',
+        description: 'Changes have been reverted.',
       })
     })
   },
