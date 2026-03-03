@@ -186,9 +186,22 @@ app.patch('/projects/:id', async (c) => {
   if (body.source !== undefined) patch.source = body.source
   if (body.deliveryMode !== undefined) patch.deliveryMode = body.deliveryMode
   if (body.projectType !== undefined) patch.projectType = body.projectType
-  if (body.githubOwner !== undefined) patch.githubOwner = body.githubOwner || null
-  if (body.githubRepo !== undefined) patch.githubRepo = body.githubRepo || null
-  if (body.githubRepoId !== undefined) patch.githubRepoId = body.githubRepoId || null
+  // GitHub metadata: validate atomically — if any field is set to a non-empty value,
+  // require owner and repo at minimum. All-null clears metadata entirely.
+  const hasGithubUpdate = body.githubOwner !== undefined || body.githubRepo !== undefined || body.githubRepoId !== undefined
+  if (hasGithubUpdate) {
+    const newOwner = body.githubOwner || null
+    const newRepo = body.githubRepo || null
+    const newRepoId = body.githubRepoId || null
+    // If any field is non-null, require at least owner and repo
+    const hasAnyValue = newOwner || newRepo || newRepoId
+    if (hasAnyValue && (!newOwner || !newRepo)) {
+      return c.json({ error: 'githubOwner and githubRepo are both required when setting GitHub metadata' }, 400)
+    }
+    patch.githubOwner = newOwner
+    patch.githubRepo = newRepo
+    patch.githubRepoId = newRepoId
+  }
   await db.update(projects).set(patch).where(
     and(eq(projects.id, id), teamScopeFilter(projects, user))
   )

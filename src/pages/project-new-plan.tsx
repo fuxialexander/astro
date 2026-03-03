@@ -35,28 +35,44 @@ import { cn } from "@/lib/utils"
 import { deriveAvailableProviders, isProviderAvailable, PROVIDER_NAMES } from "@/components/execution/provider-utils"
 import type { GitHubRepo, TaskAttachment } from "@/types"
 
+/** Result of parsing a GitHub URL */
+type GitHubUrlParseResult =
+  | { ok: true; owner: string; repo: string }
+  | { ok: false; error: string }
+
 /**
  * Parse a GitHub URL to extract owner and repo name.
  * Validates against GitHub's naming constraints:
  * - Owner: alphanumeric or hyphens, max 39 chars, cannot start/end with hyphen
  * - Repo: alphanumeric, hyphens, underscores, dots, max 100 chars
+ *
+ * Returns a result object with either { ok: true, owner, repo } or { ok: false, error }.
  */
-function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
+function parseGitHubUrl(url: string): GitHubUrlParseResult {
+  if (!url.trim()) return { ok: false, error: 'URL is empty' }
+
   // GitHub naming rules
   const ownerPattern = '[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?'
   const repoPattern = '[a-zA-Z0-9_.-]{1,100}'
 
   // Match https://github.com/owner/repo, git@github.com:owner/repo
-  const ghUrlRegex = new RegExp(`github\\.com[/:](${ ownerPattern})\\/(${ repoPattern}?)(?:\\.git)?(?:[/#?]|$)`)
+  // repo is required (no trailing ? on repoPattern group)
+  const ghUrlRegex = new RegExp(`github\\.com[/:](${ ownerPattern})\\/(${repoPattern})(?:\\.git)?(?:[/#?]|$)`)
   const httpsMatch = url.match(ghUrlRegex)
-  if (httpsMatch) return { owner: httpsMatch[1], repo: httpsMatch[2] }
+  if (httpsMatch) return { ok: true, owner: httpsMatch[1], repo: httpsMatch[2] }
+
+  // Check if it looks like a GitHub URL with missing repo name
+  const ownerOnlyRegex = new RegExp(`github\\.com[/:](${ ownerPattern})\\/?$`)
+  if (ownerOnlyRegex.test(url)) {
+    return { ok: false, error: 'Repository name is required' }
+  }
 
   // Match bare "owner/repo" format
   const bareRegex = new RegExp(`^(${ownerPattern})\\/(${repoPattern})$`)
   const bareMatch = url.match(bareRegex)
-  if (bareMatch) return { owner: bareMatch[1], repo: bareMatch[2] }
+  if (bareMatch) return { ok: true, owner: bareMatch[1], repo: bareMatch[2] }
 
-  return null
+  return { ok: false, error: 'Invalid GitHub URL format' }
 }
 
 export function ProjectNewPlan() {
@@ -340,6 +356,7 @@ export function ProjectNewPlan() {
       setRepoUrl(existingProject.repository)
       if (existingProject.githubOwner) setGithubOwner(existingProject.githubOwner)
       if (existingProject.githubRepo) setGithubRepo(existingProject.githubRepo)
+      if (existingProject.githubRepoId) setGithubRepoId(existingProject.githubRepoId)
     }
 
     // Pre-fill vision doc and auto-expand context section
@@ -399,7 +416,7 @@ export function ProjectNewPlan() {
   const handleRepoUrlChange = useCallback((value: string) => {
     setRepoUrl(value)
     const parsed = parseGitHubUrl(value.trim())
-    if (parsed) {
+    if (parsed.ok) {
       setGithubOwner(parsed.owner)
       setGithubRepo(parsed.repo)
     } else if (!value.trim()) {
@@ -448,6 +465,18 @@ export function ProjectNewPlan() {
     // Upload each image to persistent blob storage, tracking pending count
     setPendingUploads((prev) => prev + imageFiles.length)
     for (const file of imageFiles) {
+      // Client-side size limit: reject images larger than 10 MB
+      const MAX_IMAGE_SIZE = 10 * 1024 * 1024 // 10 MB
+      if (file.size > MAX_IMAGE_SIZE) {
+        setPendingUploads((prev) => Math.max(0, prev - 1))
+        useToastStore.getState().add({
+          type: 'error',
+          title: 'Image too large',
+          description: `"${file.name || 'Image'}" exceeds the 10 MB limit. Please resize and try again.`,
+        })
+        continue
+      }
+
       const reader = new FileReader()
       const filename = file.name || `pasted-image-${crypto.randomUUID()}.png`
       reader.onload = async () => {
@@ -480,6 +509,14 @@ export function ProjectNewPlan() {
         } finally {
           setPendingUploads((prev) => Math.max(0, prev - 1))
         }
+      }
+      reader.onerror = () => {
+        setPendingUploads((prev) => Math.max(0, prev - 1))
+        useToastStore.getState().add({
+          type: 'error',
+          title: 'Read failed',
+          description: `Could not read "${filename}". The file may be corrupted.`,
+        })
       }
       reader.readAsDataURL(file)
     }
@@ -541,6 +578,9 @@ export function ProjectNewPlan() {
         projectId = result.projectId
       } else {
         // Normal flow: create a new project + plan session
+        // GitHub metadata is included in the initial creation payload to avoid
+        // a race condition where a non-blocking PATCH could lose metadata on
+        // navigation or request failure.
         const result = await startPlanSession(
           description.trim(),
           firstLine,
@@ -552,18 +592,12 @@ export function ProjectNewPlan() {
             visionDoc: combinedVisionDoc,
             baseBranch: effectiveBranch || undefined,
             repository: repoUrl || undefined,
+            ...(githubOwner ? { githubOwner } : {}),
+            ...(githubRepo ? { githubRepo } : {}),
+            ...(githubRepoId ? { githubRepoId } : {}),
           }
         )
         projectId = result.projectId
-      }
-
-      // For new projects: persist GitHub metadata (non-blocking).
-      // For regeneration: already included in regenUpdates above.
-      if (!isRegeneration && Object.keys(githubMetadata).length > 0) {
-        updateProject(projectId, githubMetadata) // optimistic local
-        dataClient.updateProject(projectId, githubMetadata).catch((err) => {
-          console.error('[plan-session] Failed to persist GitHub metadata:', err)
-        })
       }
 
       setActiveProjectId(projectId)
