@@ -231,6 +231,8 @@ skillsRoute.post('/register', async (c) => {
           const config = { ...(skill.config as Record<string, unknown> ?? {}) }
           if (skill.userInvocable !== undefined) config.userInvocable = skill.userInvocable
           if (skill.disableModelInvocation !== undefined) config.disableModelInvocation = skill.disableModelInvocation
+          const configErr = validateConfig(config)
+          if (configErr) { skipped++; continue }
           await db.update(skills).set({
             description: (skill.description as string) ?? '',
             instructions: (skill.instructions as string) ?? '',
@@ -248,26 +250,37 @@ skillsRoute.post('/register', async (c) => {
         const config = { ...(skill.config as Record<string, unknown> ?? {}) }
         if (skill.userInvocable !== undefined) config.userInvocable = skill.userInvocable
         if (skill.disableModelInvocation !== undefined) config.disableModelInvocation = skill.disableModelInvocation
-        await db.insert(skills).values({
-          id: skillId,
-          name: skill.name,
-          version: (skill.version as string) ?? '1.0.0',
-          description: (skill.description as string) ?? '',
-          instructions: (skill.instructions as string) ?? '',
-          category: (skill.category as string | null) ?? null,
-          tags: (skill.tags as string[]) ?? [],
-          source: 'plugin',
-          sourceUrl: (skill.sourceUrl as string | null) ?? null,
-          authorId: user.id,
-          enabled: (skill.enabled as boolean) ?? true,
-          allowedTools: (skill.allowedTools as string[]) ?? [],
-          config,
-          teamId: user.teamId ?? null,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        })
-        try { await syncSkillById(skillManager, skillId) } catch { /* best-effort */ }
-        registered++
+        const configErr = validateConfig(config)
+        if (configErr) { skipped++; continue }
+        try {
+          await db.insert(skills).values({
+            id: skillId,
+            name: skill.name,
+            version: (skill.version as string) ?? '1.0.0',
+            description: (skill.description as string) ?? '',
+            instructions: (skill.instructions as string) ?? '',
+            category: (skill.category as string | null) ?? null,
+            tags: (skill.tags as string[]) ?? [],
+            source: 'plugin',
+            sourceUrl: (skill.sourceUrl as string | null) ?? null,
+            authorId: user.id,
+            enabled: (skill.enabled as boolean) ?? true,
+            allowedTools: (skill.allowedTools as string[]) ?? [],
+            config,
+            teamId: user.teamId ?? null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          try { await syncSkillById(skillManager, skillId) } catch { /* best-effort */ }
+          registered++
+        } catch (insertErr) {
+          // Handle race condition: concurrent register calls may both try to insert
+          if (isUniqueViolation(insertErr)) {
+            updated++ // treat as successful upsert
+          } else {
+            throw insertErr
+          }
+        }
       }
     }
 
