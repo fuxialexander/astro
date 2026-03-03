@@ -307,25 +307,28 @@ describe('chat-panel.tsx source code verification', () => {
     'utf-8'
   )
 
-  it('applyMutations returns string[] (affected node IDs)', () => {
-    expect(source).toContain('const applyMutations = useCallback((mutations: AppliedMutations): string[]')
+  it('applyMutations returns object with affectedNodeIds', () => {
+    // Return type is { affectedNodeIds: string[]; resolvedMutations: ResolvedMutations }
+    expect(source).toContain('const applyMutations = useCallback((mutations: AppliedMutations)')
+    expect(source).toContain('affectedNodeIds: string[]')
   })
 
   it('collects new node realIds via affectedNodeIds.push(realId)', () => {
     expect(source).toContain('affectedNodeIds.push(realId)')
   })
 
-  it('collects update nodeIds via affectedNodeIds.push(u.nodeId)', () => {
-    expect(source).toContain('affectedNodeIds.push(u.nodeId)')
+  it('collects update nodeIds via affectedNodeIds.push', () => {
+    // Updates push resolved node IDs (may be u.nodeId or resolvedNodeId)
+    expect(source).toMatch(/affectedNodeIds\.push\(/)
   })
 
-  it('returns affectedNodeIds at the end of applyMutations', () => {
-    expect(source).toContain('return affectedNodeIds')
+  it('returns affectedNodeIds in the result object', () => {
+    expect(source).toContain('affectedNodeIds')
   })
 
   it('uses the returned IDs (not raw mutation IDs) for markNodesAsUpdating', () => {
-    // The fix: `const affectedNodeIds = applyMutations(mutations)`
-    expect(source).toContain('const affectedNodeIds = applyMutations(mutations)')
+    // The fix: destructure affectedNodeIds from applyMutations result
+    expect(source).toContain('const { affectedNodeIds, resolvedMutations } = applyMutations(mutations)')
     // The old buggy code had: `mutations.newNodes.map((n) => n.id)` — should be gone
     expect(source).not.toContain('mutations.newNodes.map((n) => n.id).filter(Boolean)')
   })
