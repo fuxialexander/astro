@@ -44,6 +44,8 @@ interface PlanChatPhaseProps {
   workingDirectory?: string
   /** Called when user navigates back to the landing page */
   onBack?: () => void
+  /** Called when user wants to start a new plan session */
+  onNewPlan?: () => void
 }
 
 export function PlanChatPhase({
@@ -52,6 +54,7 @@ export function PlanChatPhase({
   machineName,
   workingDirectory,
   onBack,
+  onNewPlan,
 }: PlanChatPhaseProps) {
   const nodeId = `plan-${projectId}`
   const [input, setInput] = useState("")
@@ -399,6 +402,7 @@ export function PlanChatPhase({
         workingDirectory={workingDirectory}
         onAbort={() => cancelPlanSession(projectId)}
         onBack={onBack}
+        onNewPlan={onNewPlan}
       />
       {isFromPlayground && (
         <div className="px-4 py-1.5 border-b border-border bg-background shrink-0">

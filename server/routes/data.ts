@@ -64,6 +64,16 @@ app.post('/projects', async (c) => {
     return c.json({ error: 'Project name is required and must be non-empty' }, 400)
   }
 
+  // Validate GitHub metadata consistency (same logic as PATCH endpoint)
+  const githubOwner = body.githubOwner || null
+  const githubRepo = body.githubRepo || null
+  const githubRepoId = body.githubRepoId || null
+  const ownerOrRepoCleared = githubOwner === null || githubRepo === null
+  const ownerOrRepoSet = githubOwner !== null || githubRepo !== null
+  if (ownerOrRepoCleared && ownerOrRepoSet) {
+    return c.json({ error: 'GitHub metadata inconsistent: githubOwner and githubRepo must both be set or both be null' }, 400)
+  }
+
   // Generate UUID if not provided
   const projectId = body.id || crypto.randomUUID()
   const teamId = user.teamId || body.teamId || null
@@ -105,22 +115,16 @@ app.post('/projects', async (c) => {
       workingDirectory: body.workingDirectory || null,
       sourceDirectory: body.sourceDirectory || null,
       repository: body.repository || null,
-      githubOwner: body.githubOwner || null,
-      githubRepo: body.githubRepo || null,
-      githubRepoId: body.githubRepoId ?? null,
+      // Use pre-validated GitHub variables (normalized from empty strings to null above)
+      githubOwner,
+      githubRepo,
+      githubRepoId,
       defaultMachineId: body.defaultMachineId || null,
       projectBranch: body.projectBranch || null,
       mergeQueueEnabled: body.mergeQueueEnabled ?? false,
       mergeQueueMergeMethod: body.mergeQueueMergeMethod ?? 'squash',
       source: body.source ?? null,
       deliveryMode: body.deliveryMode ?? null,
-      // GitHub fields use || (not ??) to normalize empty strings to null —
-      // GitHub usernames, repo names, and branch names cannot be empty strings.
-      // githubRepoId uses ?? since 0 could theoretically be a valid numeric ID.
-      githubOwner: body.githubOwner || null,
-      githubRepo: body.githubRepo || null,
-      githubRepoId: body.githubRepoId ?? null,
-      projectBranch: body.projectBranch || null,
       projectType: body.projectType ?? 'default',
       createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
       updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
@@ -201,12 +205,45 @@ app.patch('/projects/:id', async (c) => {
   if (body.mergeQueueMergeMethod !== undefined) patch.mergeQueueMergeMethod = body.mergeQueueMergeMethod || 'squash'
   if (body.source !== undefined) patch.source = body.source
   if (body.deliveryMode !== undefined) patch.deliveryMode = body.deliveryMode
-  // GitHub fields: || normalizes empty strings to null (see POST handler comment)
-  if (body.githubOwner !== undefined) patch.githubOwner = body.githubOwner || null
-  if (body.githubRepo !== undefined) patch.githubRepo = body.githubRepo || null
-  if (body.githubRepoId !== undefined) patch.githubRepoId = body.githubRepoId ?? null
-  if (body.projectBranch !== undefined) patch.projectBranch = body.projectBranch || null
   if (body.projectType !== undefined) patch.projectType = body.projectType
+
+  // GitHub metadata consistency: If any field is being updated, apply atomic all-or-nothing logic
+  // to prevent partial/inconsistent metadata (e.g., owner+repo set but repoId cleared)
+  const githubOwnerProvided = body.githubOwner !== undefined
+  const githubRepoProvided = body.githubRepo !== undefined
+  const githubRepoIdProvided = body.githubRepoId !== undefined
+
+  if (githubOwnerProvided || githubRepoProvided || githubRepoIdProvided) {
+    // Compute final values (treating empty strings as null)
+    const finalOwner = body.githubOwner || null
+    const finalRepo = body.githubRepo || null
+    const finalRepoId = body.githubRepoId || null
+
+    // If clearing one field, clear all for consistency. If setting owner+repo, repoId can be null
+    // (it may be populated later when the repo ID is fetched from GitHub API).
+    // However, if owner or repo is null while the other is non-null, that's inconsistent.
+    const ownerOrRepoCleared = finalOwner === null || finalRepo === null
+    const ownerOrRepoSet = finalOwner !== null || finalRepo !== null
+
+    if (ownerOrRepoCleared && ownerOrRepoSet) {
+      // Inconsistent: one of owner/repo is set while the other is null
+      return c.json({ error: 'GitHub metadata inconsistent: githubOwner and githubRepo must both be set or both be null' }, 400)
+    }
+
+    // Apply all three fields atomically
+    patch.githubOwner = finalOwner
+    patch.githubRepo = finalRepo
+    // When clearing owner/repo, also clear repoId to prevent orphaned data.
+    // When setting owner/repo, only update repoId if explicitly provided.
+    if (finalOwner === null && finalRepo === null) {
+      // Clearing all GitHub metadata
+      patch.githubRepoId = null
+    } else if (githubRepoIdProvided) {
+      // Setting metadata and repoId was explicitly provided
+      patch.githubRepoId = finalRepoId
+    }
+    // Otherwise, preserve existing githubRepoId (e.g., when updating owner/repo without providing repoId)
+  }
   await db.update(projects).set(patch).where(
     and(eq(projects.id, id), teamScopeFilter(projects, user))
   )
