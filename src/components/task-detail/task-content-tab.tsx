@@ -77,22 +77,26 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
       try {
         if (mountedRef.current) setSaveStatus('saving')
 
-        // Get markdown from editor, or use empty string if unavailable
-        // (Never fall back to HTML as it would corrupt the description field)
-        const markdown = editorRef.current?.getMarkdown() ?? ''
-        if (!markdown && !editorRef.current) {
-          console.warn('[content-save] Editor unavailable, saving content only (description will be empty)')
+        // Get markdown from editor (only if available)
+        // If editor is unavailable (e.g., after unmount), only update content field
+        // to prevent clearing the description (which would cause data loss)
+        const markdown = editorRef.current?.getMarkdown()
+        const updates: Partial<PlanNode> = { content: html }
+        if (markdown !== undefined) {
+          updates.description = markdown
+        } else {
+          console.warn('[content-save] Editor unavailable, saving content only (description preserved)')
         }
 
         // Call dataClient.updateNode directly to ensure we await the actual API call
         // (plan-store.updateNode fires and forgets, which defeats the flush mechanism)
-        const savePromise = dataClient.updateNode(node.id, { content: html, description: markdown })
+        const savePromise = dataClient.updateNode(node.id, updates)
         savingRef.current = savePromise
 
         await savePromise
 
         // Also update local store state so the UI reflects the change immediately
-        updateNode(node.id, { content: html, description: markdown })
+        updateNode(node.id, updates)
 
         savingRef.current = null
         // Don't clear pending save here - it may have been overwritten by a newer flush
@@ -129,7 +133,7 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
       mountedRef.current = false
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-  }, [node.id])
+  }, [])
 
   const handleImageUpload = useCallback(async (file: File): Promise<string | null> => {
     try {
