@@ -4,7 +4,7 @@
 
 import { Hono } from 'hono';
 import { randomBytes, randomUUID } from 'crypto';
-import { GitHubClient } from '../lib/github-client';
+import { GitHubClient, resolveGitHubToken } from '../lib/github-client';
 import { githubStore } from '../lib/github-store';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
 import { db } from '../lib/db/index.js';
@@ -452,10 +452,15 @@ app.post('/projects', async (c) => {
     teamId: user.teamId,
   }).returning();
 
-  // Trigger initial issue sync
+  // Trigger initial issue sync — prefer installation token over user OAuth
   let syncStats = { created: 0, updated: 0, total: 0 };
   try {
-    syncStats = await syncIssuesForProject(projectId, owner, repo, connection.accessToken);
+    const tokenResult = await resolveGitHubToken(owner, repo, user.id, user.teamId ?? null);
+    const syncToken = tokenResult?.token ?? connection.accessToken;
+    if (tokenResult) {
+      console.log(`[github] Issue sync using ${tokenResult.type} token (${tokenResult.source}) for ${owner}/${repo}`);
+    }
+    syncStats = await syncIssuesForProject(projectId, owner, repo, syncToken);
   } catch (err) {
     console.error(`[github] Initial issue sync failed for ${owner}/${repo}:`, err);
   }
@@ -492,18 +497,32 @@ app.post('/projects/:projectId/sync-issues', async (c) => {
     return c.json({ error: 'Project is missing GitHub owner/repo configuration' }, 400);
   }
 
-  // Get GitHub connection
-  const connection = await githubStore.getConnection(user.id);
-  if (!connection) {
-    return c.json({ error: 'GitHub not connected' }, 401);
+  // Resolve GitHub token via the unified priority chain (installation → env → OAuth)
+  const tokenResult = await resolveGitHubToken(
+    project.githubOwner,
+    project.githubRepo,
+    user.id,
+    user.teamId ?? null,
+  );
+
+  if (!tokenResult) {
+    // Fall back to checking direct user connection for a clearer error message
+    const connection = await githubStore.getConnection(user.id);
+    if (!connection) {
+      return c.json({ error: 'GitHub not connected. Connect your GitHub account or configure a GitHub App.' }, 401);
+    }
+    // Should not normally reach here since OAuth would be picked up by resolveGitHubToken
+    return c.json({ error: 'No GitHub token available for this repository' }, 401);
   }
+
+  console.log(`[github] Issue sync using ${tokenResult.type} token (${tokenResult.source}) for ${project.githubOwner}/${project.githubRepo}`);
 
   try {
     const stats = await syncIssuesForProject(
       projectId,
       project.githubOwner,
       project.githubRepo,
-      connection.accessToken
+      tokenResult.token,
     );
     return c.json(stats);
   } catch (err) {

@@ -12,6 +12,7 @@ import { db } from '../../db/index.js'
 import { projects, planNodes } from '../../db/schema.js'
 import { eq } from 'drizzle-orm'
 import type { Project, PlanNode } from '../../../../src/types/index.js'
+import { resolveGitHubToken } from '../../github-client.js'
 
 const TERMINAL_STATUSES = new Set(['completed', 'auto_verified', 'pruned'])
 
@@ -167,12 +168,15 @@ function parseSummaryFromOutput(output?: string | null): {
 
 /**
  * Create the final project PR from project branch → base branch.
+ *
+ * @param ghToken - Pre-resolved GitHub API token (use resolveGitHubToken() before calling)
  */
 async function createProjectPr(
   project: Project,
   projectBranch: string,
   baseBranch: string,
   nodes: PlanNode[],
+  ghToken: string,
 ): Promise<{ prUrl?: string; prNumber?: number }> {
   const ghRepo = project.githubOwner && project.githubRepo
     ? `${project.githubOwner}/${project.githubRepo}`
@@ -182,25 +186,6 @@ async function createProjectPr(
     console.log('[project-completion-hook] No GitHub repo configured, skipping final PR')
     return {}
   }
-
-  // Use GitHub API to create the PR (server-side, no gh CLI dependency)
-  // We need a GitHub token — fetch from the project owner's GitHub connection
-  const { githubStore } = await import('../../github-store.js')
-
-  // Get ownerId from the DB project record (not exposed in the Project interface)
-  const [dbProject] = await db.select({ ownerId: projects.ownerId })
-    .from(projects).where(eq(projects.id, project.id)).limit(1)
-  if (!dbProject) {
-    console.warn('[project-completion-hook] Project not found in DB')
-    return {}
-  }
-
-  const ghConnection = await githubStore.getConnection(dbProject.ownerId)
-  if (!ghConnection?.accessToken) {
-    console.warn('[project-completion-hook] No GitHub token available for final PR')
-    return {}
-  }
-  const ghToken = ghConnection.accessToken
 
   const body = buildProjectPrBody(project, nodes)
 
@@ -281,7 +266,46 @@ export const projectCompletionHook: EventHook = async (event: AstroEvent) => {
 
   console.log(`[project-completion-hook] All tasks complete for project ${projectId}, creating final PR: ${projectBranch} → ${baseBranch}`)
 
-  const { prUrl, prNumber } = await createProjectPr(project, projectBranch, baseBranch, nodes)
+  // Resolve GitHub token via the unified priority chain
+  // (DB lookup for ownerId/teamId — not exposed on the Project interface)
+  const [dbProject] = await db
+    .select({ ownerId: projects.ownerId, teamId: projects.teamId })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1)
+
+  if (!dbProject) {
+    console.warn(`[project-completion-hook] Project ${projectId} not found in DB, cannot resolve token`)
+    return
+  }
+
+  const tokenResult = await resolveGitHubToken(
+    project.githubOwner!,
+    project.githubRepo!,
+    dbProject.ownerId,
+    dbProject.teamId,
+  )
+
+  if (!tokenResult) {
+    console.warn(
+      `[project-completion-hook] No GitHub token available for ${project.githubOwner}/${project.githubRepo} ` +
+      `— final PR will not be created. Configure GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY or connect GitHub.`
+    )
+    return
+  }
+
+  console.log(
+    `[project-completion-hook] Using ${tokenResult.type} token (${tokenResult.source}) ` +
+    `for final PR in ${project.githubOwner}/${project.githubRepo}`
+  )
+
+  const { prUrl, prNumber } = await createProjectPr(
+    project,
+    projectBranch,
+    baseBranch,
+    nodes,
+    tokenResult.token,
+  )
 
   if (prUrl) {
     // Persist to project record

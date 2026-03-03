@@ -17,10 +17,11 @@
  * The hook enriches the summary with PR-specific sections:
  * key findings, files changed, test plan, Astro link, related issue.
  *
- * Token priority:
- * 1. GITHUB_TOKEN environment variable
- * 2. Project owner's GitHub connection (OAuth)
- * 3. Team member's GitHub connection (OAuth)
+ * Token resolution is delegated to `resolveGitHubToken()` (see github-client.ts):
+ * 1. GitHub App installation token
+ * 2. GITHUB_TOKEN env var
+ * 3. Project owner's OAuth token
+ * 4. Any team member's OAuth token
  */
 
 import type { AstroEvent, EventHook } from '../types.js'
@@ -28,52 +29,11 @@ import { updatePullRequestBody } from '../../../plugins/channel-github/github-ap
 import { runPrSummaryFallbackChain } from '../../../../packages/core/src/dispatch/summary-utils.js'
 import { generateGitDiffSummary } from '../../../../packages/core/src/dispatch/git-diff-summary.js'
 import { db } from '../../db/index.js'
-import { projects, githubConnections, teamMembers } from '../../db/schema.js'
+import { projects } from '../../db/schema.js'
 import { eq } from 'drizzle-orm'
+import { resolveGitHubToken } from '../../github-client.js'
 
 const LOG_PREFIX = '[pr-body-update-hook]'
-
-// ── Token Resolution ────────────────────────────────────────────────────
-
-/**
- * Resolve a GitHub access token.
- *
- * Priority:
- * 1. GITHUB_TOKEN environment variable
- * 2. Project owner's GitHub connection
- * 3. Any team member's GitHub connection
- */
-async function resolveGitHubToken(
-  ownerId: string,
-  teamId: string | null,
-): Promise<string | null> {
-  // 1. Environment variable (highest priority, used by merge-queue-hook too)
-  const envToken = process.env.GITHUB_TOKEN
-  if (envToken) return envToken
-
-  // 2. Project owner's OAuth token
-  const [ownerConn] = await db
-    .select({ accessToken: githubConnections.accessToken })
-    .from(githubConnections)
-    .where(eq(githubConnections.userId, ownerId))
-    .limit(1)
-
-  if (ownerConn?.accessToken) return ownerConn.accessToken
-
-  // 3. Any team member's OAuth token
-  if (teamId) {
-    const [memberConn] = await db
-      .select({ accessToken: githubConnections.accessToken })
-      .from(githubConnections)
-      .innerJoin(teamMembers, eq(teamMembers.userId, githubConnections.userId))
-      .where(eq(teamMembers.teamId, teamId))
-      .limit(1)
-
-    if (memberConn?.accessToken) return memberConn.accessToken
-  }
-
-  return null
-}
 
 // ── Repository Parsing ──────────────────────────────────────────────────
 
@@ -316,11 +276,13 @@ export const prBodyUpdateHook: EventHook = async (event: AstroEvent) => {
     console.warn(`${LOG_PREFIX} No ownerId found for project ${event.projectId}`)
     return
   }
-  const token = await resolveGitHubToken(ownerId, teamId ?? null)
-  if (!token) {
+  const tokenResult = await resolveGitHubToken(owner, repo, ownerId, teamId ?? null)
+  if (!tokenResult) {
     console.warn(`${LOG_PREFIX} No GitHub token available for project ${event.projectId}`)
     return
   }
+  console.log(`${LOG_PREFIX} Using ${tokenResult.type} token (${tokenResult.source}) for PR #${prNumber}`)
+  const token = tokenResult.token
 
   // ── Step 3: Build PR body via fallback chain ──────────────────────
   const prBody = await buildPrBody(event)

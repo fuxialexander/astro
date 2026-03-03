@@ -2,8 +2,221 @@
  * GitHub API client for OAuth and repository management
  */
 
+import { createSign } from 'node:crypto';
 import type { GitHubRepo, GitHubUser, GitHubTokenResponse, GitHubApiRepo } from '../types/github';
 import { convertToSshUrl } from './git-url-utils.js';
+import { db } from './db/index.js';
+import { githubConnections, teamMembers } from './db/schema.js';
+import { eq } from 'drizzle-orm';
+
+// ── Token Resolution Types ──────────────────────────────────────────────────
+
+export type GitHubTokenType = 'installation' | 'oauth' | 'env';
+
+export interface GitHubTokenResult {
+  token: string;
+  type: GitHubTokenType;
+  /** Human-readable description of where the token came from, for logging */
+  source: string;
+}
+
+// ── GitHub App JWT ──────────────────────────────────────────────────────────
+
+/**
+ * Encode a buffer as URL-safe base64 (base64url) without padding.
+ */
+function toBase64Url(input: Buffer | string): string {
+  const buf = typeof input === 'string' ? Buffer.from(input) : input;
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+/**
+ * Create a signed JWT for GitHub App authentication using RS256.
+ *
+ * The JWT is valid for 10 minutes and is back-dated by 60 seconds to
+ * account for clock skew between the server and GitHub.
+ */
+function createGitHubAppJwt(appId: string, privateKey: string): string {
+  const now = Math.floor(Date.now() / 1000);
+  const header = toBase64Url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const payload = toBase64Url(
+    JSON.stringify({
+      iat: now - 60,  // issued 60 s ago to account for clock skew
+      exp: now + 600, // expires in 10 minutes (GitHub's max)
+      iss: appId,
+    })
+  );
+
+  const sign = createSign('RSA-SHA256');
+  sign.update(`${header}.${payload}`);
+  const signatureB64 = sign.sign(privateKey, 'base64');
+  // Convert standard base64 → base64url
+  const signature = signatureB64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+
+  return `${header}.${payload}.${signature}`;
+}
+
+// ── Installation Token ──────────────────────────────────────────────────────
+
+/**
+ * Get a GitHub App installation access token for a specific repository.
+ *
+ * Requires GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY environment variables.
+ * Returns null if the app is not configured or not installed on the repo.
+ */
+async function getInstallationTokenForRepo(owner: string, repo: string): Promise<string | null> {
+  const appId = process.env.GITHUB_APP_ID;
+  // Support \n-escaped newlines that are common in env vars stored as single-line strings
+  const privateKey = process.env.GITHUB_APP_PRIVATE_KEY?.replace(/\\n/g, '\n');
+
+  if (!appId || !privateKey) return null;
+
+  try {
+    const jwt = createGitHubAppJwt(appId, privateKey);
+
+    // Look up which installation covers this repo
+    const installRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/installation`,
+      {
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      }
+    );
+
+    if (!installRes.ok) {
+      // 404 means the app is not installed on this repo — not an error, just no coverage
+      if (installRes.status !== 404) {
+        console.warn(
+          `[github-token] Installation lookup failed for ${owner}/${repo}: HTTP ${installRes.status}`
+        );
+      }
+      return null;
+    }
+
+    const install = await installRes.json() as { id: number };
+    const installationId = install.id;
+
+    // Exchange the installation ID for a short-lived access token
+    const tokenRes = await fetch(
+      `https://api.github.com/app/installations/${installationId}/access_tokens`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      }
+    );
+
+    if (!tokenRes.ok) {
+      console.warn(
+        `[github-token] Failed to create installation token for ${owner}/${repo}: HTTP ${tokenRes.status}`
+      );
+      return null;
+    }
+
+    const tokenData = await tokenRes.json() as { token: string };
+    return tokenData.token;
+  } catch (err) {
+    console.warn(
+      `[github-token] Error obtaining installation token for ${owner}/${repo}:`,
+      err instanceof Error ? err.message : String(err)
+    );
+    return null;
+  }
+}
+
+// ── Unified Token Resolver ──────────────────────────────────────────────────
+
+/**
+ * Resolve a GitHub API token using the unified priority chain:
+ *
+ * 1. **GitHub App installation token** — generated dynamically from the app's
+ *    private key (GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY). Preferred because
+ *    it is scoped to the specific repo and has no expiry concerns.
+ *
+ * 2. **GITHUB_TOKEN env var** — a pre-configured token (e.g. a GitHub Actions
+ *    installation token or admin PAT). Used for CI/CD compatibility.
+ *
+ * 3. **Project owner's OAuth token** — the token stored for the user who owns
+ *    the project, fetched from the `githubConnections` table.
+ *
+ * 4. **Any team member's OAuth token** — last resort; useful when the project
+ *    owner has not connected GitHub but a team member has.
+ *
+ * @param owner  - Repository owner (org or user login)
+ * @param repo   - Repository name
+ * @param userId - Project owner's user ID; enables OAuth fallback (tier 3)
+ * @param teamId - Project's team ID; enables team-member fallback (tier 4)
+ * @returns Token result with type + human-readable source, or null if unavailable
+ */
+export async function resolveGitHubToken(
+  owner: string,
+  repo: string,
+  userId?: string,
+  teamId?: string | null,
+): Promise<GitHubTokenResult | null> {
+  // ── Tier 1: GitHub App installation token ──────────────────────────
+  const installToken = await getInstallationTokenForRepo(owner, repo);
+  if (installToken) {
+    console.log(`[github-token] tier=installation repo=${owner}/${repo}`);
+    return {
+      token: installToken,
+      type: 'installation',
+      source: `GitHub App installation for ${owner}`,
+    };
+  }
+
+  // ── Tier 2: GITHUB_TOKEN env var ──────────────────────────────────
+  const envToken = process.env.GITHUB_TOKEN;
+  if (envToken) {
+    console.log(`[github-token] tier=env repo=${owner}/${repo}`);
+    return { token: envToken, type: 'env', source: 'GITHUB_TOKEN env var' };
+  }
+
+  // ── Tier 3: Project owner's OAuth token ───────────────────────────
+  if (userId) {
+    const [ownerConn] = await db
+      .select({ accessToken: githubConnections.accessToken })
+      .from(githubConnections)
+      .where(eq(githubConnections.userId, userId))
+      .limit(1);
+
+    if (ownerConn?.accessToken) {
+      console.log(`[github-token] tier=owner-oauth repo=${owner}/${repo} userId=${userId}`);
+      return {
+        token: ownerConn.accessToken,
+        type: 'oauth',
+        source: `owner OAuth (userId=${userId})`,
+      };
+    }
+  }
+
+  // ── Tier 4: Any team member's OAuth token ─────────────────────────
+  if (teamId) {
+    const [memberConn] = await db
+      .select({ accessToken: githubConnections.accessToken })
+      .from(githubConnections)
+      .innerJoin(teamMembers, eq(teamMembers.userId, githubConnections.userId))
+      .where(eq(teamMembers.teamId, teamId))
+      .limit(1);
+
+    if (memberConn?.accessToken) {
+      console.log(`[github-token] tier=team-oauth repo=${owner}/${repo} teamId=${teamId}`);
+      return {
+        token: memberConn.accessToken,
+        type: 'oauth',
+        source: `team member OAuth (teamId=${teamId})`,
+      };
+    }
+  }
+
+  return null;
+}
 
 export class GitHubClient {
   private readonly baseUrl = 'https://api.github.com';

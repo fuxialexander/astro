@@ -6,17 +6,26 @@
  *
  * This ensures bidirectional sync: completing a task in Astro
  * also marks the linked GitHub issue as closed.
+ *
+ * Token resolution is delegated to `resolveGitHubToken()` (see github-client.ts):
+ * 1. GitHub App installation token
+ * 2. GITHUB_TOKEN env var
+ * 3. Project owner's OAuth token
+ * 4. Any team member's OAuth token
  */
 
 import type { AstroEvent, EventHook } from '../types.js'
 import { db } from '../../db/index.js'
-import { planNodes, projects, githubConnections, teamMembers } from '../../db/schema.js'
+import { planNodes, projects } from '../../db/schema.js'
 import { eq } from 'drizzle-orm'
+import { resolveGitHubToken } from '../../github-client.js'
 
 const GITHUB_API_BASE = 'https://api.github.com'
 
+const LOG_PREFIX = '[github-issue-close-hook]'
+
 /**
- * Close a GitHub issue via the API.
+ * Close a GitHub issue by setting its state to 'closed'.
  */
 async function closeGitHubIssue(
   accessToken: string,
@@ -56,48 +65,6 @@ async function closeGitHubIssue(
   }
 }
 
-/**
- * Find a GitHub access token for the project.
- *
- * Priority:
- * 1. Project owner's GitHub connection
- * 2. Any team member's GitHub connection (if team-scoped project)
- */
-async function findAccessToken(
-  ownerId: string,
-  teamId: string | null,
-): Promise<string | null> {
-  // Try project owner first
-  const [ownerConn] = await db
-    .select({ accessToken: githubConnections.accessToken })
-    .from(githubConnections)
-    .where(eq(githubConnections.userId, ownerId))
-    .limit(1)
-
-  if (ownerConn?.accessToken) {
-    return ownerConn.accessToken
-  }
-
-  // Fall back to any team member with a GitHub connection
-  if (teamId) {
-    const [memberConn] = await db
-      .select({ accessToken: githubConnections.accessToken })
-      .from(githubConnections)
-      .innerJoin(
-        teamMembers,
-        eq(teamMembers.userId, githubConnections.userId),
-      )
-      .where(eq(teamMembers.teamId, teamId))
-      .limit(1)
-
-    if (memberConn?.accessToken) {
-      return memberConn.accessToken
-    }
-  }
-
-  return null
-}
-
 export const githubIssueCloseHook: EventHook = async (event: AstroEvent) => {
   if (event.type !== 'task.completed') return
 
@@ -132,44 +99,52 @@ export const githubIssueCloseHook: EventHook = async (event: AstroEvent) => {
     .limit(1)
 
   if (!project) {
-    console.warn(`[github-issue-close-hook] Project not found: ${dbNode.projectId}`)
+    console.warn(`${LOG_PREFIX} Project not found: ${dbNode.projectId}`)
     return
   }
 
   // Only process GitHub-linked projects
   if (project.projectType !== 'github') return
   if (!project.githubOwner || !project.githubRepo) {
-    console.warn(`[github-issue-close-hook] Project ${dbNode.projectId} missing GitHub owner/repo`)
+    console.warn(`${LOG_PREFIX} Project ${dbNode.projectId} missing GitHub owner/repo`)
     return
   }
 
-  // Find an access token
-  const accessToken = await findAccessToken(project.ownerId, project.teamId)
-  if (!accessToken) {
+  const { githubOwner: owner, githubRepo: repo } = project
+
+  // Resolve GitHub token via the unified priority chain
+  const tokenResult = await resolveGitHubToken(owner, repo, project.ownerId, project.teamId)
+  if (!tokenResult) {
     console.warn(
-      `[github-issue-close-hook] No GitHub connection found for project ${dbNode.projectId} ` +
-      `(owner: ${project.ownerId}, team: ${project.teamId})`
+      `${LOG_PREFIX} No GitHub token available for project ${dbNode.projectId} ` +
+      `(owner: ${project.ownerId}, team: ${project.teamId ?? 'none'}) — ` +
+      `issue #${dbNode.githubIssueNumber} will not be auto-closed`
     )
     return
   }
 
+  console.log(
+    `${LOG_PREFIX} Closing issue #${dbNode.githubIssueNumber} for ${owner}/${repo} ` +
+    `using ${tokenResult.type} token (${tokenResult.source})`
+  )
+
   // Close the issue
   const closeResult = await closeGitHubIssue(
-    accessToken,
-    project.githubOwner,
-    project.githubRepo,
+    tokenResult.token,
+    owner,
+    repo,
     dbNode.githubIssueNumber,
   )
 
   if (closeResult.success) {
     console.log(
-      `[github-issue-close-hook] Closed GitHub issue #${dbNode.githubIssueNumber} ` +
-      `for ${project.githubOwner}/${project.githubRepo}`
+      `${LOG_PREFIX} Closed GitHub issue #${dbNode.githubIssueNumber} ` +
+      `for ${owner}/${repo}`
     )
   } else {
     console.error(
-      `[github-issue-close-hook] Failed to close GitHub issue #${dbNode.githubIssueNumber} ` +
-      `for ${project.githubOwner}/${project.githubRepo}: ${closeResult.error}`
+      `${LOG_PREFIX} Failed to close GitHub issue #${dbNode.githubIssueNumber} ` +
+      `for ${owner}/${repo}: ${closeResult.error}`
     )
   }
 }

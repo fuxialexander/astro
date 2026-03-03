@@ -8,28 +8,47 @@ import type { TaskCompletedEvent } from '../../types.js'
 import type { PlanNode } from '../../../../../src/types/index.js'
 import type { TaskResult } from '../../../dispatch/types.js'
 
+// Mock the DB module to avoid needing a running database
+vi.mock('../../../db/index.js', () => ({
+  db: {
+    select: vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn().mockResolvedValue([{ ownerId: 'owner-1', teamId: 'team-1' }]),
+        }),
+      }),
+    }),
+  },
+}))
+
+// Mock the github-client to control token resolution without hitting real APIs
+vi.mock('../../../github-client.js', () => ({
+  resolveGitHubToken: vi.fn(),
+}))
+
+// Import the mock after vi.mock calls so we can control it
+import { resolveGitHubToken } from '../../../github-client.js'
+
 describe('Merge Queue Hook', () => {
   let originalFetch: typeof global.fetch
-  let originalGithubToken: string | undefined
 
   beforeEach(() => {
     originalFetch = global.fetch
-    originalGithubToken = process.env.GITHUB_TOKEN
 
     // Mock fetch
     global.fetch = vi.fn()
 
-    // Set mock GitHub token
-    process.env.GITHUB_TOKEN = 'test-token'
+    // Default: resolveGitHubToken returns a test token (simulates GITHUB_TOKEN or installation token)
+    vi.mocked(resolveGitHubToken).mockResolvedValue({
+      token: 'test-token',
+      type: 'env',
+      source: 'GITHUB_TOKEN env var',
+    })
   })
 
   afterEach(() => {
     global.fetch = originalFetch
-    if (originalGithubToken) {
-      process.env.GITHUB_TOKEN = originalGithubToken
-    } else {
-      delete process.env.GITHUB_TOKEN
-    }
+    vi.clearAllMocks()
   })
 
   const createMockEvent = (overrides: Partial<TaskCompletedEvent> = {}): TaskCompletedEvent => {
@@ -140,8 +159,9 @@ describe('Merge Queue Hook', () => {
     expect(global.fetch).not.toHaveBeenCalled()
   })
 
-  it('should skip if GITHUB_TOKEN is not set', async () => {
-    delete process.env.GITHUB_TOKEN
+  it('should skip if no GitHub token is available', async () => {
+    // Simulate resolveGitHubToken returning null (no token of any kind)
+    vi.mocked(resolveGitHubToken).mockResolvedValue(null)
 
     const event = createMockEvent()
 
@@ -218,6 +238,37 @@ describe('Merge Queue Hook', () => {
       expect.objectContaining({
         method: 'POST',
         body: expect.stringContaining('enablePullRequestAutoMerge'),
+      })
+    )
+  })
+
+  it('should use installation token when available (higher priority than env)', async () => {
+    // Simulate resolveGitHubToken returning an installation token
+    vi.mocked(resolveGitHubToken).mockResolvedValue({
+      token: 'ghs_installation_token',
+      type: 'installation',
+      source: 'GitHub App installation for owner',
+    })
+
+    const labelResponse = { ok: true, json: async () => ([]) }
+    const prResponse = { ok: true, json: async () => ({ node_id: 'PR_abc123', number: 42 }) }
+    const graphqlResponse = { ok: true, json: async () => ({ data: { enablePullRequestAutoMerge: {} } }) }
+
+    ;(global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(labelResponse)
+      .mockResolvedValueOnce(prResponse)
+      .mockResolvedValueOnce(graphqlResponse)
+
+    const event = createMockEvent()
+    await mergeQueueHook(event)
+
+    // Verify the installation token was used in the API call
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://api.github.com/repos/owner/repo/issues/42/labels',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'token ghs_installation_token',
+        }),
       })
     )
   })
