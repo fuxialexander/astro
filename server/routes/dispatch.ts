@@ -995,7 +995,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     useWorktree,
     images,
     skipSafetyCheck: (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && approvedSafetyDirs.has(workingDirectory)),
-    ...(isInteractivePlan ? { type: 'plan' as const } : {}),
+    ...(isInteractivePlan ? { type: 'plan' as const, useWorktree: false, deliveryMode: 'direct' as const } : {}),
     ...(relaySystemPrompt ? { systemPrompt: relaySystemPrompt } : {}),
     ...(astroBaseUrl && { astroBaseUrl }),
     ...(githubIssueUrl && { githubIssueUrl }),
