@@ -790,3 +790,104 @@ export const customTemplates = pgTable('custom_templates', {
   index('custom_templates_enabled_idx').on(table.enabled),
   unique('custom_templates_name_author_id_unique').on(table.name, table.authorId),
 ])
+
+// ── Community Marketplace: Shared Plans ──────────────────────────
+// User-published plans that can be shared, starred, forked, and commented on.
+// See docs/planning/08-COMMUNITY-MARKETPLACE.md for full specification.
+export const sharedPlans = pgTable('shared_plans', {
+  id: uuid('id').primaryKey().defaultRandom(),
+
+  // Identity
+  title: text('title').notNull(),
+  description: text('description'),
+  authorId: uuid('author_id').references(() => userProfiles.id, { onDelete: 'set null' }),
+  authorName: text('author_name'),
+  isAnonymous: boolean('is_anonymous').notNull().default(false),
+
+  // Content (the actual plan)
+  visionDoc: text('vision_doc'),
+  planData: jsonb('plan_data').$type<{
+    nodes: Array<Record<string, unknown>>
+    edges: Array<Record<string, unknown>>
+  }>().notNull(),
+  templateId: text('template_id'),
+  templateParameters: jsonb('template_parameters'),
+
+  // Customization guide
+  customizationNotes: text('customization_notes'),
+  customizableFields: jsonb('customizable_fields').$type<Array<{
+    nodeId: string
+    field: string
+    description: string
+  }>>(),
+
+  // Execution evidence
+  executionSummary: jsonb('execution_summary').$type<{
+    totalTasks?: number
+    completed?: number
+    failed?: number
+    totalCost?: number
+    totalTokens?: number
+  }>(),
+  executionResults: text('execution_results'),
+
+  // Metadata
+  category: text('category'),
+  tags: text('tags').array().notNull().default([]),
+  version: integer('version').notNull().default(1),
+
+  // Community metrics
+  starsCount: integer('stars_count').notNull().default(0),
+  forksCount: integer('forks_count').notNull().default(0),
+  commentsCount: integer('comments_count').notNull().default(0),
+
+  // Visibility
+  visibility: text('visibility').notNull().default('public'), // 'public' | 'team' | 'unlisted'
+  teamId: uuid('team_id').references(() => teams.id, { onDelete: 'set null' }),
+
+  // Timestamps
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at'),
+}, (table) => [
+  index('shared_plans_category_idx').on(table.category),
+  index('shared_plans_stars_count_idx').on(table.starsCount.desc()),
+  index('shared_plans_created_at_idx').on(table.createdAt.desc()),
+  index('shared_plans_author_id_idx').on(table.authorId),
+])
+
+// ── Shared Plan Stars ─────────────────────────────────────────────
+// User stars (upvotes) for shared plans.
+export const sharedPlanStars = pgTable('shared_plan_stars', {
+  userId: uuid('user_id').notNull().references(() => userProfiles.id, { onDelete: 'cascade' }),
+  planId: uuid('plan_id').notNull().references(() => sharedPlans.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.userId, table.planId] }),
+}))
+
+// ── Shared Plan Forks ─────────────────────────────────────────────
+// Tracks when users fork (copy) shared plans to their local projects.
+export const sharedPlanForks = pgTable('shared_plan_forks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  sourcePlanId: uuid('source_plan_id').notNull().references(() => sharedPlans.id, { onDelete: 'cascade' }),
+  forkedBy: uuid('forked_by').notNull().references(() => userProfiles.id, { onDelete: 'cascade' }),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+// ── Shared Plan Comments ──────────────────────────────────────────
+// Comments and replies on shared plans.
+export const sharedPlanComments = pgTable('shared_plan_comments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  planId: uuid('plan_id').notNull().references(() => sharedPlans.id, { onDelete: 'cascade' }),
+  authorId: uuid('author_id').references(() => userProfiles.id, { onDelete: 'set null' }),
+  authorName: text('author_name').notNull(),
+  content: text('content').notNull(),
+  parentCommentId: uuid('parent_comment_id'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at'),
+}, (table) => [
+  index('shared_plan_comments_plan_id_idx').on(table.planId),
+])
