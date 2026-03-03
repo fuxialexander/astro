@@ -413,7 +413,13 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
-                        onClick={() => navigate(item.to)}
+                        onClick={() => {
+                          if (item.id === "plan" && location.pathname === "/plan") {
+                            navigate("/plan", { replace: true })
+                          } else {
+                            navigate(item.to)
+                          }
+                        }}
                         className={cn(
                           "flex items-center justify-center h-9 w-9 rounded-lg transition-colors relative",
                           isItemActive
@@ -475,6 +481,10 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   <NavLink
                     to={item.to}
                     end
+                    onClick={item.id === "plan" && location.pathname === "/plan" ? (e: React.MouseEvent) => {
+                      e.preventDefault()
+                      navigate("/plan", { replace: true })
+                    } : undefined}
                     className={({ isActive }) =>
                       cn(
                         "flex items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium transition-colors",

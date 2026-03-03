@@ -155,6 +155,13 @@ export function ProjectNewPlan() {
     }
   }, [projectIdParam, activeProjectId])
 
+  // When projectId param is removed from URL (e.g., sidebar Plan click), reset to input phase
+  useEffect(() => {
+    if (!projectIdParam && activeProjectId) {
+      setActiveProjectId(null)
+    }
+  }, [projectIdParam, activeProjectId])
+
   // Determine machine name for display
   const machineName = (() => {
     if (!execution?.machineId) return undefined
