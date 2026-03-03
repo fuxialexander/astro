@@ -26,7 +26,7 @@ import {
   type UseCaseTemplateSummary,
   type UseCaseParameter,
   type ResolvedParameters,
-} from '@astro/core/templates'
+} from '../../packages/core/src/templates/index.js'
 
 // ============================================================================
 // Parameter Validation
