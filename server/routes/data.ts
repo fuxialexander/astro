@@ -109,6 +109,10 @@ app.post('/projects', async (c) => {
       mergeQueueMergeMethod: body.mergeQueueMergeMethod ?? 'squash',
       source: body.source ?? null,
       deliveryMode: body.deliveryMode ?? null,
+      githubOwner: body.githubOwner ?? null,
+      githubRepo: body.githubRepo ?? null,
+      githubRepoId: body.githubRepoId ?? null,
+      projectBranch: body.projectBranch ?? null,
       projectType: body.projectType ?? 'default',
       createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
       updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
@@ -185,6 +189,10 @@ app.patch('/projects/:id', async (c) => {
   if (body.mergeQueueMergeMethod !== undefined) patch.mergeQueueMergeMethod = body.mergeQueueMergeMethod || 'squash'
   if (body.source !== undefined) patch.source = body.source
   if (body.deliveryMode !== undefined) patch.deliveryMode = body.deliveryMode
+  if (body.githubOwner !== undefined) patch.githubOwner = body.githubOwner || null
+  if (body.githubRepo !== undefined) patch.githubRepo = body.githubRepo || null
+  if (body.githubRepoId !== undefined) patch.githubRepoId = body.githubRepoId ?? null
+  if (body.projectBranch !== undefined) patch.projectBranch = body.projectBranch || null
   if (body.projectType !== undefined) patch.projectType = body.projectType
   await db.update(projects).set(patch).where(
     and(eq(projects.id, id), teamScopeFilter(projects, user))
