@@ -186,6 +186,9 @@ app.patch('/projects/:id', async (c) => {
   if (body.source !== undefined) patch.source = body.source
   if (body.deliveryMode !== undefined) patch.deliveryMode = body.deliveryMode
   if (body.projectType !== undefined) patch.projectType = body.projectType
+  if (body.githubOwner !== undefined) patch.githubOwner = body.githubOwner || null
+  if (body.githubRepo !== undefined) patch.githubRepo = body.githubRepo || null
+  if (body.githubRepoId !== undefined) patch.githubRepoId = body.githubRepoId || null
   await db.update(projects).set(patch).where(
     and(eq(projects.id, id), teamScopeFilter(projects, user))
   )
