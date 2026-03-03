@@ -1,6 +1,7 @@
 import { create } from "zustand"
 import { escapeHtml } from "@/lib/html-utils"
-import { generatePlan } from "@/lib/api-client"
+import { generatePlan, fetchStreamingEventsCatchUp } from "@/lib/api-client"
+import { applyPlanFromText, extractPlanJsonFromText } from "@/lib/plan-extraction"
 import { usePlanStore } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
@@ -26,6 +27,8 @@ export interface GenerationSession {
   error: string | null
   startedAt: number
   completedAt: number | null
+  streamId?: string          // Stable ID for streaming event persistence & catch-up
+  lastSeq: number            // Last seen event seq for catch-up offset
   executionId?: string        // For interactive plan sessions
   isInteractive?: boolean     // True for interactive plan sessions
   pendingApprovals?: number   // Count of unanswered approval requests
@@ -61,27 +64,33 @@ interface AgentState {
   abort: (projectId: string) => void
   dismissSession: (projectId: string) => void
   markPlanViewed: (projectId: string) => void
+  catchUpGeneration: (projectId: string) => Promise<void>
   startInteractiveSession: (projectId: string, projectName: string, executionId: string) => void
   updateInteractiveSession: (projectId: string, updates: Partial<Pick<GenerationSession, 'streamText' | 'status' | 'error' | 'pendingApprovals'>>) => void
 }
 
 const abortControllers = new Map<string, AbortController>()
 
-// localStorage key for persisting "generated" sessions across page refresh
-const GENERATED_SESSIONS_KEY = "astro:generated-sessions"
+// localStorage key for persisting sessions across page refresh
+const PERSISTED_SESSIONS_KEY = "astro:generated-sessions"
 
-function persistGeneratedSessions(sessions: Map<string, GenerationSession>): void {
+/**
+ * Persist sessions that need to survive page refresh:
+ * - "generated" sessions (plan received, awaiting user acknowledgment)
+ * - sessions with a streamId that are still "active" or "error" (for catch-up on reload)
+ */
+function persistSessions(sessions: Map<string, GenerationSession>): void {
   try {
-    const generated: Record<string, GenerationSession> = {}
+    const toSave: Record<string, GenerationSession> = {}
     for (const [projectId, session] of sessions) {
-      if (session.status === "generated") {
-        generated[projectId] = session
+      if (session.status === "generated" || (session.streamId && session.status !== "completed")) {
+        toSave[projectId] = session
       }
     }
-    if (Object.keys(generated).length > 0) {
-      localStorage.setItem(GENERATED_SESSIONS_KEY, JSON.stringify(generated))
+    if (Object.keys(toSave).length > 0) {
+      localStorage.setItem(PERSISTED_SESSIONS_KEY, JSON.stringify(toSave))
     } else {
-      localStorage.removeItem(GENERATED_SESSIONS_KEY)
+      localStorage.removeItem(PERSISTED_SESSIONS_KEY)
     }
   } catch {
     // localStorage may be unavailable
@@ -96,19 +105,29 @@ function isValidSession(v: unknown): v is GenerationSession {
     typeof s.startedAt === "number"
 }
 
-function restoreGeneratedSessions(): Map<string, GenerationSession> {
+function restorePersistedSessions(): Map<string, GenerationSession> {
   const sessions = new Map<string, GenerationSession>()
   try {
-    const raw = localStorage.getItem(GENERATED_SESSIONS_KEY)
+    const raw = localStorage.getItem(PERSISTED_SESSIONS_KEY)
     if (raw) {
       const now = Date.now()
       const parsed = JSON.parse(raw) as Record<string, unknown>
       for (const [projectId, value] of Object.entries(parsed)) {
         if (!isValidSession(value)) continue
-        // Only restore "generated" sessions that haven't expired (7-day TTL)
+        // Ensure lastSeq is present (backward compat with old sessions)
+        if (typeof value.lastSeq !== "number") {
+          value.lastSeq = 0
+        }
         if (value.status === "generated") {
+          // Only restore "generated" sessions that haven't expired (7-day TTL)
           const age = value.completedAt ? now - value.completedAt : 0
           if (age <= GENERATED_SESSION_TTL_MS) {
+            sessions.set(projectId, value)
+          }
+        } else if (value.streamId) {
+          // Restore sessions with streamId for catch-up (max 1 day old)
+          const age = now - value.startedAt
+          if (age <= 24 * 60 * 60_000) {
             sessions.set(projectId, value)
           }
         }
@@ -188,13 +207,127 @@ function startCleanupTimer(get: () => AgentState, set: (fn: (s: AgentState) => P
   }, CLEANUP_INTERVAL_MS)
 }
 
+/**
+ * Perform catch-up for a generation session by fetching missed streaming events
+ * from the backend. Rebuilds streamText from text events and attempts plan extraction.
+ */
+async function performGenerationCatchUp(
+  projectId: string,
+  streamId: string,
+  get: () => AgentState,
+  set: (fn: (s: AgentState) => Partial<AgentState>) => void,
+): Promise<void> {
+  const session = get().sessions.get(projectId)
+  if (!session) return
+
+  console.log(`[plan-gen] Attempting catch-up for ${projectId} (streamId=${streamId}, lastSeq=${session.lastSeq})`)
+
+  try {
+    const { events, lastSeq } = await fetchStreamingEventsCatchUp([streamId], session.lastSeq)
+
+    if (events.length === 0) {
+      console.log(`[plan-gen] No catch-up events for ${projectId}`)
+      return
+    }
+
+    console.log(`[plan-gen] Caught up ${events.length} events for ${projectId} (lastSeq: ${session.lastSeq} → ${lastSeq})`)
+
+    // Rebuild streamText from text events
+    let rebuiltText = ''
+    let hasPlanResult = false
+    let planResultData: unknown = null
+    let hasResultOrDone = false
+
+    for (const event of events) {
+      if (event.eventType === 'text') {
+        // Text events are stored as { text: "..." } by streamingEventLog.flushText
+        const data = event.data as Record<string, unknown>
+        const textContent = typeof data === 'string' ? data : (data?.text as string | undefined)
+        if (typeof textContent === 'string') {
+          rebuiltText += textContent
+        }
+      } else if (event.eventType === 'plan_result') {
+        hasPlanResult = true
+        planResultData = event.data
+      } else if (event.eventType === 'result' || event.eventType === 'done') {
+        hasResultOrDone = true
+      }
+    }
+
+    // Update session with rebuilt text and new lastSeq
+    const updatedStreamText = rebuiltText || session.streamText
+    set((s) => ({
+      sessions: updateSession(s.sessions, projectId, {
+        streamText: updatedStreamText,
+        lastSeq,
+      }),
+    }))
+
+    // If we got an explicit plan_result event from the backend, apply it directly
+    if (hasPlanResult && planResultData) {
+      const result = applyPlanFromText(
+        projectId,
+        JSON.stringify(planResultData),
+        `catchup-${streamId}`,
+      )
+      if (result.applied) {
+        console.log(`[plan-gen] Catch-up applied plan_result for ${projectId}: ${result.nodeCount} nodes`)
+        set((s) => ({
+          sessions: updateSession(s.sessions, projectId, {
+            status: 'generated',
+            phase: 'idle',
+            completedAt: Date.now(),
+          }),
+        }))
+        persistSessions(get().sessions)
+        return
+      }
+    }
+
+    // Try to extract plan from rebuilt text (mirrors backend's extractPlanJson)
+    if (updatedStreamText) {
+      const extracted = extractPlanJsonFromText(updatedStreamText)
+      if (extracted && extracted.nodes?.length > 0) {
+        console.log(`[plan-gen] Catch-up extracted plan from text for ${projectId}: ${extracted.nodes.length} nodes`)
+        const result = applyPlanFromText(projectId, updatedStreamText, `catchup-text-${streamId}`)
+        if (result.applied) {
+          set((s) => ({
+            sessions: updateSession(s.sessions, projectId, {
+              status: 'generated',
+              phase: 'idle',
+              completedAt: Date.now(),
+            }),
+          }))
+          persistSessions(get().sessions)
+          return
+        }
+      }
+    }
+
+    // Backend completed but no plan was found
+    if (hasResultOrDone && !hasPlanResult) {
+      console.warn(`[plan-gen] Backend completed but no plan found in catch-up for ${projectId}`)
+      set((s) => ({
+        sessions: updateSession(s.sessions, projectId, {
+          status: 'error',
+          error: 'Plan generation completed on the server but no valid plan was found. Try regenerating.',
+          completedAt: Date.now(),
+        }),
+      }))
+      persistSessions(get().sessions)
+    }
+  } catch (err) {
+    console.warn(`[plan-gen] Catch-up failed for ${projectId}:`, err)
+  }
+}
+
 export const useAgentStore = create<AgentState>((set, get) => ({
   sessions: new Map(),
   loaded: false,
 
   load: async () => {
-    // Restore "generated" sessions from localStorage so they survive page refresh
-    const restored = restoreGeneratedSessions()
+    // Restore persisted sessions from localStorage so they survive page refresh
+    const restored = restorePersistedSessions()
     if (restored.size > 0) {
       set((s) => {
         const sessions = new Map(s.sessions)
@@ -206,12 +339,23 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         }
         return { sessions }
       })
-      console.log(`[agent-store] Restored ${restored.size} generated session(s) from localStorage`)
+      console.log(`[agent-store] Restored ${restored.size} session(s) from localStorage`)
     }
     set({ loaded: true })
 
     // Start cleanup timer
     startCleanupTimer(get, set)
+
+    // Trigger catch-up for sessions with streamId but no plan_result
+    // (e.g., page was refreshed while generation was in progress)
+    for (const [projectId, session] of restored) {
+      if (session.streamId && session.status !== "generated") {
+        console.log(`[agent-store] Triggering mount catch-up for ${projectId} (status=${session.status})`)
+        performGenerationCatchUp(projectId, session.streamId, get, set).catch((err) => {
+          console.warn(`[agent-store] Mount catch-up failed for ${projectId}:`, err)
+        })
+      }
+    }
   },
 
   setGenerationPhase: (projectId, phase) => {
@@ -230,6 +374,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           error: null,
           startedAt: Date.now(),
           completedAt: null,
+          lastSeq: 0,
         })
       } else {
         sessions = updateSession(s.sessions, projectId, { phase })
@@ -248,6 +393,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
     console.log(`[plan-gen] Starting generation for project "${projectName}" (${projectId})`)
 
+    // Stable streamId for event persistence — no timestamp so catch-up can find events
+    const streamId = `gen-${projectId}`
+
     const controller = new AbortController()
     abortControllers.set(projectId, controller)
 
@@ -263,7 +411,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         error: null,
         startedAt: Date.now(),
         completedAt: null,
+        streamId,
+        lastSeq: 0,
       })
+      // Persist immediately so catch-up can work if page refreshes during generation
+      persistSessions(sessions)
       return { sessions }
     })
 
@@ -271,11 +423,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     const effectiveModel = getModelForProvider(defaultProvider || undefined)
 
     try {
+      let receivedDone = false
+      let receivedPlanResult = false
+
       await generatePlan(
         {
           description,
           visionDoc,
           projectId,
+          streamId,
           model: effectiveModel,
           providerId: defaultProvider || undefined,
           workingDirectory: repoContext?.workingDirectory,
@@ -296,7 +452,19 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               return { sessions }
             })
           },
+          onSessionInit: (data) => {
+            console.log(`[plan-gen] session_init for ${projectId}: persistId=${data.persistId}`)
+          },
+          onId: (id) => {
+            const seq = parseInt(id, 10)
+            if (!isNaN(seq)) {
+              set((s) => ({
+                sessions: updateSession(s.sessions, projectId, { lastSeq: seq }),
+              }))
+            }
+          },
           onPlanResult: (result) => {
+            receivedPlanResult = true
             console.log(`[plan-gen] Plan result received for ${projectId}: ${result.nodes.length} nodes, ${result.edges.length} edges`)
 
             // Map AI-generated short IDs (n1, n2, etc.) to proper UUIDs for consistency
@@ -423,6 +591,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             })
           },
           onDone: () => {
+            receivedDone = true
             console.log(`[plan-gen] Generation completed for ${projectId}`)
             set((s) => {
               const session = s.sessions.get(projectId)
@@ -434,13 +603,20 @@ export const useAgentStore = create<AgentState>((set, get) => ({
                 completedAt: Date.now(),
               })
               // Persist "generated" sessions to localStorage for page refresh survival
-              persistGeneratedSessions(sessions)
+              persistSessions(sessions)
               return { sessions }
             })
           },
         },
         controller.signal,
       )
+
+      // If stream ended without 'done' and we didn't get a plan_result,
+      // the SSE connection likely dropped — try catch-up from the backend
+      if (!receivedDone && !receivedPlanResult) {
+        console.log(`[plan-gen] Stream ended without done/plan_result for ${projectId}, attempting catch-up`)
+        await performGenerationCatchUp(projectId, streamId, get, set)
+      }
     } catch (e: unknown) {
       if (e instanceof Error && e.name === "AbortError") {
         console.log(`[plan-gen] Generation aborted for ${projectId}`)
@@ -450,6 +626,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         set((s) => {
           const sessions = updateSession(s.sessions, projectId, { error: msg, status: "error", completedAt: Date.now() })
           return { sessions }
+        })
+
+        // Attempt catch-up on error — the backend may have completed despite the client error
+        await performGenerationCatchUp(projectId, streamId, get, set).catch((catchUpErr) => {
+          console.warn(`[plan-gen] Catch-up also failed for ${projectId}:`, catchUpErr)
         })
       }
     } finally {
@@ -464,7 +645,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             completedAt: Date.now(),
           })
           // Persist "generated" sessions to localStorage for page refresh survival
-          persistGeneratedSessions(sessions)
+          persistSessions(sessions)
           return { sessions }
         }
         return s
@@ -480,6 +661,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set((s) => {
       const next = new Map(s.sessions)
       next.delete(projectId)
+      persistSessions(next)
       return { sessions: next }
     })
   },
@@ -488,7 +670,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set((s) => {
       const sessions = new Map(s.sessions)
       sessions.delete(projectId)
-      persistGeneratedSessions(sessions)
+      persistSessions(sessions)
       return { sessions }
     })
   },
@@ -499,6 +681,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     if (session?.status === "generated") {
       get().dismissSession(projectId)
     }
+  },
+
+  catchUpGeneration: async (projectId) => {
+    const session = get().sessions.get(projectId)
+    if (!session?.streamId) {
+      console.warn(`[plan-gen] Cannot catch up for ${projectId}: no streamId`)
+      return
+    }
+    await performGenerationCatchUp(projectId, session.streamId, get, set)
   },
 
   startInteractiveSession: (projectId, projectName, executionId) => {
@@ -513,6 +704,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         error: null,
         startedAt: Date.now(),
         completedAt: null,
+        lastSeq: 0,
         executionId,
         isInteractive: true,
         pendingApprovals: 0,

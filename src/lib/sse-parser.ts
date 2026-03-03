@@ -99,13 +99,16 @@ export async function parseChatSSE(
     onText?: (text: string) => void
     onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
     onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
-    onSessionInit?: (data: { sessionId: string; model?: string }) => void
+    onSessionInit?: (data: { sessionId: string; model?: string; persistId?: string }) => void
     onPlanResult?: (result: unknown) => void
     onDone?: (sessionId: string) => void
     onError?: (error: string) => void
+    /** Called whenever an SSE `id:` field is received — useful for tracking last seq */
+    onId?: (id: string) => void
   },
 ): Promise<void> {
   await parseSSEStream(response, {
+    onId: handlers.onId,
     onEvent: ({ event, data }) => {
       switch (event) {
         case "text":
