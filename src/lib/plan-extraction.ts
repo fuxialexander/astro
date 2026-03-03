@@ -9,9 +9,20 @@ import { useProjectStore } from '@/stores/project-store'
 export function applyPlanFromText(
   projectId: string,
   text: string,
+  /** When true, skip if the project already has plan nodes (prevents race duplication
+   *  between SSE and WebSocket paths both calling this on the same result event). */
+  skipIfExists = false,
 ): { applied: boolean; nodeCount: number } {
   const planJson = extractPlanJsonFromText(text)
   if (!planJson) return { applied: false, nodeCount: 0 }
+
+  if (skipIfExists) {
+    const existing = usePlanStore.getState().nodes.filter(n => n.projectId === projectId)
+    if (existing.length > 0) {
+      console.log(`[plan-extraction] Skipping — project ${projectId} already has ${existing.length} nodes`)
+      return { applied: false, nodeCount: 0 }
+    }
+  }
 
   // Map AI-generated short IDs (n1, n2, etc.) to proper UUIDs for consistency
   // with manually created tasks which use crypto.randomUUID()
