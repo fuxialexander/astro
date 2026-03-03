@@ -204,6 +204,7 @@ function mapChatEntry(entry: { session: Record<string, unknown>; messages: Recor
 
 function mapSkillRow(row: Record<string, unknown>): SkillRow {
   const r = snakeToCamel(row)
+  const config = (r.config && typeof r.config === 'object' ? r.config : {}) as Record<string, unknown>
   return {
     id: String(r.id ?? ''),
     name: String(r.name ?? ''),
@@ -211,9 +212,11 @@ function mapSkillRow(row: Record<string, unknown>): SkillRow {
     instructions: String(r.instructions ?? ''),
     source: (typeof r.source === 'string' ? r.source : 'builtin') as SkillRow['source'],
     enabled: typeof r.enabled === 'boolean' ? r.enabled : true,
-    userInvocable: typeof r.userInvocable === 'boolean' ? r.userInvocable : true,
+    // OpenClaw extension fields — stored in config JSONB, extracted here
+    userInvocable: typeof config.userInvocable === 'boolean' ? config.userInvocable : true,
+    disableModelInvocation: typeof config.disableModelInvocation === 'boolean' ? config.disableModelInvocation : false,
     pluginId: typeof r.pluginId === 'string' ? r.pluginId : undefined,
-    config: (r.config && typeof r.config === 'object' ? r.config : undefined) as Record<string, unknown> | undefined,
+    config,
     version: typeof r.version === 'string' ? r.version : '1.0.0',
     category: typeof r.category === 'string' ? r.category : undefined,
     tags: Array.isArray(r.tags) ? r.tags : [],
