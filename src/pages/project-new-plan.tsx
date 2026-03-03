@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useSearchParams, useLocation } from "react-router"
-import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, AlertCircle, Info, Monitor, Bot, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip } from "lucide-react"
+import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, AlertCircle, Info, Monitor, Bot, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
@@ -18,8 +18,10 @@ import { useMachinesStore } from "@/stores/machines-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSettingsStore, resolveModel, type ModelTier } from "@/stores/settings-store"
 import { useClaudeSessionsStore } from "@/stores/claude-sessions-store"
+import { useTemplateStore } from "@/stores/template-store"
 import { PlanChatPhase } from "@/components/plan-session/plan-chat-phase"
 import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
+import { TemplatePickerDialog } from "@/components/templates/template-picker-dialog"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { BranchSelector } from "@/components/branch-selector"
 import { AttachmentList } from "@/components/task-detail/attachment-list"
@@ -32,6 +34,7 @@ import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
 import { deriveAvailableProviders, isProviderAvailable, PROVIDER_NAMES } from "@/components/execution/provider-utils"
 import type { TaskAttachment } from "@/types"
+import type { LaunchTemplateResult } from "@/lib/api-client"
 
 export function ProjectNewPlan() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -51,6 +54,8 @@ export function ProjectNewPlan() {
   const [selectedProvider, setSelectedProvider] = useState("")
   const [selectedModel, setSelectedModel] = useState("")
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false)
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
+  const [templateLaunching, setTemplateLaunching] = useState(false)
   const [contextOpen, setContextOpen] = useState(false)
   const [visionDoc, setVisionDoc] = useState("")
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
@@ -132,6 +137,10 @@ export function ProjectNewPlan() {
   // Sessions store (Claude Code sessions from connected machines)
   const loadSessions = useClaudeSessionsStore((s) => s.loadSessions)
 
+  // Template store
+  const templatesLoaded = useTemplateStore((s) => s.loaded)
+  const loadTemplates = useTemplateStore((s) => s.load)
+
   // View a past plan session — always open in chat phase
   const viewSession = useCallback((projectId: string) => {
     setActiveProjectId(projectId)
@@ -168,6 +177,11 @@ export function ProjectNewPlan() {
     requestNotificationPermission()
     loadSessions()
   }, [loadSessions])
+
+  // Load templates for template picker
+  useEffect(() => {
+    if (!templatesLoaded) loadTemplates()
+  }, [templatesLoaded, loadTemplates])
 
 
   // Reset provider/model when machine changes and current provider isn't available
@@ -430,6 +444,60 @@ export function ProjectNewPlan() {
   // Whether we're re-generating for an existing project (pre-fill mode)
   const isRegeneration = !!(existingProject && existingProjectHasNoNodes && !fromPlaygroundId)
 
+  // Handle template launch - starts plan generation SSE for the created project
+  const handleTemplateLaunch = useCallback(async (result: LaunchTemplateResult) => {
+    setTemplateLaunching(true)
+    setTemplatePickerOpen(false)
+
+    try {
+      const { project, planGenerationRequest } = result
+
+      // Add the created project to the store (it's already in DB, but not in local state)
+      useProjectStore.getState().addProject({
+        id: project.id,
+        name: project.name,
+        description: project.description as string || "",
+        visionDoc: planGenerationRequest.visionDoc || "",
+        status: "active",
+        projectType: "plan",
+        workingDirectory: planGenerationRequest.workingDirectory || undefined,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+
+      // Start plan generation SSE using the existing project
+      await startPlanSessionForProject(
+        project.id,
+        planGenerationRequest.description,
+        {
+          targetMachineId: planGenerationRequest.targetMachineId,
+          workingDirectory: planGenerationRequest.workingDirectory,
+          model: planGenerationRequest.model,
+          visionDoc: planGenerationRequest.visionDoc,
+        }
+      )
+
+      // Navigate to the chat phase
+      setActiveProjectId(project.id)
+      setSearchParams({ projectId: project.id })
+
+      useToastStore.getState().add({
+        type: "success",
+        title: "Project created from template",
+        description: `Starting plan generation for "${project.name}"...`,
+      })
+    } catch (error) {
+      console.error("[plan-session] Failed to start plan from template:", error)
+      useToastStore.getState().add({
+        type: "error",
+        title: "Template launch failed",
+        description: error instanceof Error ? error.message : "Failed to start plan generation",
+      })
+    } finally {
+      setTemplateLaunching(false)
+    }
+  }, [startPlanSessionForProject, setSearchParams])
+
   async function handleSubmit() {
     if (!description.trim() || isSubmitting || pendingUploads > 0) return
     setIsSubmitting(true)
@@ -589,21 +657,36 @@ export function ProjectNewPlan() {
               className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
             />
 
-            {/* OR divider + resume button */}
+            {/* OR divider + options */}
             <div className="px-4 pb-3">
               <div className="flex items-center gap-3 mb-2.5">
                 <div className="flex-1 h-px bg-border" />
                 <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">or</span>
                 <div className="flex-1 h-px bg-border" />
               </div>
-              <button
-                type="button"
-                onClick={() => setSessionPickerOpen(true)}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
-              >
-                <Layers className="h-3.5 w-3.5" />
-                Resume a previous session
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTemplatePickerOpen(true)}
+                  disabled={templateLaunching}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {templateLaunching ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <LayoutTemplate className="h-3.5 w-3.5" />
+                  )}
+                  {templateLaunching ? "Starting..." : "Start from Template"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSessionPickerOpen(true)}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                >
+                  <Layers className="h-3.5 w-3.5" />
+                  Resume Session
+                </button>
+              </div>
             </div>
           </div>
 
@@ -910,6 +993,13 @@ export function ProjectNewPlan() {
           }}
           planSessions={planHistory}
           onSelectPlanSession={viewSession}
+        />
+
+        {/* Template picker dialog */}
+        <TemplatePickerDialog
+          open={templatePickerOpen}
+          onOpenChange={setTemplatePickerOpen}
+          onLaunchSuccess={handleTemplateLaunch}
         />
       </div>
     </div>

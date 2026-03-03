@@ -27,10 +27,17 @@ import {
   FolderOpen,
 } from "lucide-react"
 import type { UseCaseTemplateSummary } from "@astro/core/templates"
+import type { LaunchTemplateResult } from "@/lib/api-client"
 
 interface TemplatePickerDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /**
+   * Optional callback when template launch succeeds.
+   * If provided, navigation will not be performed automatically.
+   * Use this when you want to handle the launch result (e.g., start SSE plan generation).
+   */
+  onLaunchSuccess?: (result: LaunchTemplateResult) => void
 }
 
 type WizardStep = "browse" | "configure" | "preview" | "launch"
@@ -60,7 +67,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
  * - Auto-preview when parameters change
  * - Launch → navigate to project plan view
  */
-export function TemplatePickerDialog({ open, onOpenChange }: TemplatePickerDialogProps) {
+export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess }: TemplatePickerDialogProps) {
   const navigate = useNavigate()
 
   // Template store state
@@ -183,15 +190,20 @@ export function TemplatePickerDialog({ open, onOpenChange }: TemplatePickerDialo
         // Close dialog
         onOpenChange(false)
 
-        // Navigate to the project plan view
-        navigate(`/projects/${result.project.id}/plan`)
+        // If a callback is provided, call it instead of navigating
+        if (onLaunchSuccess) {
+          onLaunchSuccess(result)
+        } else {
+          // Default behavior: navigate to the project plan view
+          navigate(`/projects/${result.project.id}/plan`)
 
-        // Show success toast
-        useToastStore.getState().add({
-          type: "success",
-          title: "Project created",
-          description: `Navigating to "${result.project.name}" plan...`,
-        })
+          // Show success toast
+          useToastStore.getState().add({
+            type: "success",
+            title: "Project created",
+            description: `Navigating to "${result.project.name}" plan...`,
+          })
+        }
       }
     } catch (error) {
       // Error is already handled in the store
@@ -205,6 +217,7 @@ export function TemplatePickerDialog({ open, onOpenChange }: TemplatePickerDialo
     workingDirectory,
     launchTemplate,
     onOpenChange,
+    onLaunchSuccess,
     navigate,
   ])
 
