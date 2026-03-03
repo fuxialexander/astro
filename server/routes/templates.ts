@@ -9,8 +9,8 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import crypto from 'crypto'
 import { db } from '../lib/db/index.js'
-import { projects } from '../lib/db/schema.js'
-import { eq } from 'drizzle-orm'
+import { projects, customTemplates } from '../lib/db/schema.js'
+import { eq, and } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import {
   // Built-in templates
@@ -399,21 +399,52 @@ templatesRoute.use('/*', requireAuth)
  * - enabled: Filter by enabled status (default: true)
  */
 templatesRoute.get('/', async (c) => {
+  const user = c.get('user')! as AuthUser
   const category = c.req.query('category')
   const enabledParam = c.req.query('enabled')
   const enabled = enabledParam === undefined ? true : enabledParam === 'true'
 
   let templates: UseCaseTemplate[]
 
+  // Get built-in templates
   if (category) {
     templates = getTemplatesByCategory(category)
   } else {
     templates = [...BUILTIN_TEMPLATES]
   }
 
-  // Filter by enabled status
+  // Filter built-in templates by enabled status
   if (enabled !== undefined) {
     templates = templates.filter(t => t.enabled === enabled)
+  }
+
+  // Fetch custom templates from database
+  try {
+    const customTemplateRows = await db.select().from(customTemplates).where(
+      and(
+        user.teamId ? eq(customTemplates.teamId, user.teamId) : eq(customTemplates.ownerId, user.id),
+        enabled !== undefined ? eq(customTemplates.enabled, enabled) : undefined
+      )
+    )
+
+    // Convert custom templates to UseCaseTemplate format
+    const customTemplateObjects = customTemplateRows.map((row): UseCaseTemplate => ({
+      ...(row.templateData as unknown as UseCaseTemplate),
+      id: row.id,
+      source: 'custom' as const,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    }))
+
+    // Filter by category if specified
+    if (category) {
+      templates = [...templates, ...customTemplateObjects.filter(t => t.category === category)]
+    } else {
+      templates = [...templates, ...customTemplateObjects]
+    }
+  } catch (error) {
+    console.error('[templates] Failed to fetch custom templates:', error)
+    // Continue with just built-in templates
   }
 
   // Convert to summaries
@@ -458,12 +489,38 @@ templatesRoute.get('/categories', async (c) => {
  * Returns the complete template definition for rendering the parameter form.
  */
 templatesRoute.get('/:id', async (c) => {
+  const user = c.get('user')! as AuthUser
   const templateId = c.req.param('id')
 
   // Decode URL-encoded template IDs (e.g., "astro%2Fweb-app" -> "astro/web-app")
   const decodedId = decodeURIComponent(templateId)
 
-  const template = getTemplateById(decodedId)
+  // First check if it's a built-in template
+  let template = getTemplateById(decodedId)
+
+  // If not found in built-in, check custom templates
+  if (!template) {
+    try {
+      const [customTemplate] = await db.select().from(customTemplates).where(
+        and(
+          eq(customTemplates.id, decodedId),
+          user.teamId ? eq(customTemplates.teamId, user.teamId) : eq(customTemplates.ownerId, user.id)
+        )
+      )
+
+      if (customTemplate) {
+        template = {
+          ...(customTemplate.templateData as unknown as UseCaseTemplate),
+          id: customTemplate.id,
+          source: 'custom' as const,
+          createdAt: customTemplate.createdAt,
+          updatedAt: customTemplate.updatedAt,
+        }
+      }
+    } catch (error) {
+      console.error('[templates] Failed to fetch custom template:', error)
+    }
+  }
 
   if (!template) {
     return c.json({ error: 'Template not found', templateId: decodedId }, 404)
@@ -728,6 +785,89 @@ templatesRoute.post('/:id/preview', async (c) => {
     executionConfig: template.execution,
     parallelizationConfig: template.parallelization,
   })
+})
+
+/**
+ * POST /api/templates
+ *
+ * Save a custom template to the database.
+ * Custom templates are user-created templates based on existing projects.
+ */
+templatesRoute.post('/', async (c) => {
+  const user = c.get('user')! as AuthUser
+
+  let body: Record<string, unknown>
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400)
+  }
+
+  // Validate required fields
+  const { name, description, category, tags, icon, version, enabled, requiredParameters, optionalParameters, prompts, nodes, planHints } = body
+
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
+    return c.json({ error: 'Template name is required' }, 400)
+  }
+
+  if (!description || typeof description !== 'string' || description.trim().length === 0) {
+    return c.json({ error: 'Template description is required' }, 400)
+  }
+
+  if (!category || typeof category !== 'string') {
+    return c.json({ error: 'Template category is required' }, 400)
+  }
+
+  // Build the template data structure
+  const templateData = {
+    name: name.trim(),
+    description: description.trim(),
+    category,
+    icon: icon || '📋',
+    tags: Array.isArray(tags) ? tags : [],
+    version: version || '1.0.0',
+    source: 'custom' as const,
+    enabled: enabled !== false,
+    requiredParameters: requiredParameters || [],
+    optionalParameters: optionalParameters || [],
+    prompts: prompts || { planGeneration: '' },
+    planHints: planHints || {},
+    nodes: nodes || [],
+  }
+
+  try {
+    // Save to database
+    const [savedTemplate] = await db.insert(customTemplates).values({
+      name: templateData.name,
+      description: templateData.description,
+      category: templateData.category,
+      icon: templateData.icon,
+      tags: templateData.tags,
+      version: templateData.version,
+      enabled: templateData.enabled,
+      templateData: templateData,
+      ownerId: user.id,
+      teamId: user.teamId || null,
+    }).returning()
+
+    return c.json({
+      success: true,
+      template: {
+        id: savedTemplate.id,
+        name: savedTemplate.name,
+        description: savedTemplate.description,
+        category: savedTemplate.category,
+        icon: savedTemplate.icon,
+        tags: savedTemplate.tags,
+        version: savedTemplate.version,
+        source: 'custom' as const,
+        createdAt: savedTemplate.createdAt,
+      },
+    }, 201)
+  } catch (error) {
+    console.error('[templates] Failed to save custom template:', error)
+    return c.json({ error: 'Failed to save template', message: error instanceof Error ? error.message : 'Unknown error' }, 500)
+  }
 })
 
 // ============================================================================

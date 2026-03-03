@@ -659,3 +659,25 @@ export const skills = pgTable('skills', {
   uniqueIndex('skills_builtin_name_unique').on(table.name).where(sql`${table.source} = 'builtin'`),
   check('skills_builtin_null_ownership', sql`${table.source} != 'builtin' OR (${table.teamId} IS NULL AND ${table.authorId} IS NULL)`),
 ])
+
+// ── Custom Templates ──────────────────────────────────────────────────
+export const customTemplates = pgTable('custom_templates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  description: text('description').notNull(),
+  category: text('category').notNull(), // UseCaseCategory
+  icon: text('icon').default('📋'),
+  tags: text('tags').array().notNull().default([]),
+  version: text('version').notNull().default('1.0.0'),
+  enabled: boolean('enabled').notNull().default(true),
+  templateData: jsonb('template_data').notNull(), // Full template definition
+  ownerId: uuid('owner_id').notNull(),
+  teamId: uuid('team_id').references(() => teams.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('custom_templates_owner_id_idx').on(table.ownerId),
+  index('custom_templates_team_id_idx').on(table.teamId),
+  index('custom_templates_category_idx').on(table.category),
+  index('custom_templates_enabled_idx').on(table.enabled),
+])

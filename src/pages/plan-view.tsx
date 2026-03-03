@@ -1,8 +1,9 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, Sparkles } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, Sparkles, FileStack } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
+import { SaveAsTemplateDialog } from "@/components/templates/save-as-template-dialog"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { TaskRow } from "@/components/task-row"
 import { Badge } from "@/components/ui/badge"
@@ -1460,6 +1461,7 @@ export function PlanView() {
   }, [planNodes, handleNodeSelect])
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
   const [visionOpen, setVisionOpen] = useState(false)
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
   const chatPanelPosition = useUIStore((s) => s.chatPanelPosition)
   const isRightChat = chatPanelPosition === "right"
@@ -1618,6 +1620,22 @@ export function PlanView() {
               activeViewAs: viewMode,
               onViewAsChange: (v) => navigate(`/project/${project.id}/${v}`),
             }} />
+            {/* Desktop overflow menu */}
+            {planNodes.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
+                    <MoreVertical className="h-4 w-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={() => setSaveTemplateOpen(true)}>
+                    <FileStack className="h-3.5 w-3.5 mr-2" />
+                    Save as Template
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         )}
 
@@ -1642,6 +1660,13 @@ export function PlanView() {
               <Pencil className="h-3.5 w-3.5 mr-2" />
               Rename
             </DropdownMenuItem>
+            {/* Save as Template */}
+            {activeTab === "plan" && planNodes.length > 0 && (
+              <DropdownMenuItem onClick={() => setSaveTemplateOpen(true)}>
+                <FileStack className="h-3.5 w-3.5 mr-2" />
+                Save as Template
+              </DropdownMenuItem>
+            )}
             {/* Display settings on mobile */}
             {activeTab === "plan" && (
               <>
@@ -1713,6 +1738,9 @@ export function PlanView() {
 
       {/* Vision Document Dialog */}
       <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />
+
+      {/* Save as Template Dialog */}
+      <SaveAsTemplateDialog open={saveTemplateOpen} onOpenChange={setSaveTemplateOpen} project={project} />
     </div>
   )
 }
