@@ -94,12 +94,9 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
       enabled: skill.enabled,
       config: skill.config,
     }).then((created) => {
-      // Replace temp entry with server response
+      // Replace the specific temp entry with server response
       const current = new Map(get().skills)
-      // Clean up all temp- prefixed optimistic entries for safety
-      for (const key of current.keys()) {
-        if (key.startsWith('temp-')) current.delete(key)
-      }
+      current.delete(tempId)
       current.set(created.id, created)
       set({ skills: current })
     }).catch((err) => {

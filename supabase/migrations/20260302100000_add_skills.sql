@@ -107,3 +107,7 @@ CREATE POLICY skills_delete_policy ON skills
       )
     )
   );
+
+-- Enforce config JSONB size limit at DB level (defense-in-depth).
+-- Matches the 100KB API-layer validation in server/routes/skills.ts.
+ALTER TABLE skills ADD CONSTRAINT skills_config_size_limit CHECK (pg_column_size(config) <= 102400);
