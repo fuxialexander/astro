@@ -38,6 +38,12 @@ app.post('/plans', async (c) => {
     return c.json({ error: 'planData must contain nodes and edges arrays' }, 400)
   }
 
+  // Validate visibility enum
+  const validVisibilities = ['public', 'team', 'unlisted']
+  if (body.visibility && !validVisibilities.includes(body.visibility)) {
+    return c.json({ error: `visibility must be one of: ${validVisibilities.join(', ')}` }, 400)
+  }
+
   // Sanitize plan data - remove execution-specific fields and sensitive data
   const sanitizedNodes = body.planData.nodes.map((node: Record<string, unknown>) => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -224,6 +230,114 @@ app.get('/plans', async (c) => {
   })
 })
 
+// ── GET /api/community/plans/trending ─────────────────────────────────
+// Get trending plans based on recent activity
+// Score formula: stars_7d * 2 + forks_7d * 3 + log(total_stars + 1)
+// NOTE: Must be registered BEFORE /plans/:id to avoid route shadowing
+app.get('/plans/trending', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const sevenDaysAgo = new Date()
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+
+  // Build visibility conditions
+  const visibilityConditions = or(
+    eq(sharedPlans.visibility, 'public'),
+    and(eq(sharedPlans.visibility, 'team'), eq(sharedPlans.teamId, user.teamId)),
+    and(eq(sharedPlans.visibility, 'unlisted'), eq(sharedPlans.authorId, user.id))
+  )!
+
+  // Query trending plans with weighted score
+  const trendingPlans = await db.select({
+    id: sharedPlans.id,
+    title: sharedPlans.title,
+    description: sharedPlans.description,
+    authorId: sharedPlans.authorId,
+    authorName: sharedPlans.authorName,
+    isAnonymous: sharedPlans.isAnonymous,
+    category: sharedPlans.category,
+    tags: sharedPlans.tags,
+    starsCount: sharedPlans.starsCount,
+    forksCount: sharedPlans.forksCount,
+    commentsCount: sharedPlans.commentsCount,
+    visibility: sharedPlans.visibility,
+    createdAt: sharedPlans.createdAt,
+    updatedAt: sharedPlans.updatedAt,
+    // Include author info
+    authorEmail: userProfiles.email,
+    authorAvatarUrl: userProfiles.avatarUrl,
+    // Calculate stars in last 7 days
+    stars7d: sql<number>`(
+      SELECT COUNT(*)::int
+      FROM ${sharedPlanStars}
+      WHERE ${sharedPlanStars.planId} = ${sharedPlans.id}
+        AND ${sharedPlanStars.createdAt} >= ${sevenDaysAgo}
+    )`,
+    // Calculate forks in last 7 days
+    forks7d: sql<number>`(
+      SELECT COUNT(*)::int
+      FROM ${sharedPlanForks}
+      WHERE ${sharedPlanForks.sourcePlanId} = ${sharedPlans.id}
+        AND ${sharedPlanForks.createdAt} >= ${sevenDaysAgo}
+    )`,
+    // Calculate trending score: stars_7d * 2 + forks_7d * 3 + log(total_stars + 1)
+    trendingScore: sql<number>`(
+      (
+        SELECT COUNT(*)::int
+        FROM ${sharedPlanStars}
+        WHERE ${sharedPlanStars.planId} = ${sharedPlans.id}
+          AND ${sharedPlanStars.createdAt} >= ${sevenDaysAgo}
+      ) * 2
+      + (
+        SELECT COUNT(*)::int
+        FROM ${sharedPlanForks}
+        WHERE ${sharedPlanForks.sourcePlanId} = ${sharedPlans.id}
+          AND ${sharedPlanForks.createdAt} >= ${sevenDaysAgo}
+      ) * 3
+      + LN(${sharedPlans.starsCount} + 1)
+    )`,
+  })
+    .from(sharedPlans)
+    .leftJoin(userProfiles, eq(sharedPlans.authorId, userProfiles.id))
+    .where(and(
+      isNull(sharedPlans.deletedAt),
+      visibilityConditions
+    ))
+    .orderBy(sql`trending_score DESC`)
+    .limit(20)
+
+  return c.json({ plans: trendingPlans })
+})
+
+// ── GET /api/community/plans/categories ───────────────────────────────
+// Get distinct categories with counts
+// NOTE: Must be registered BEFORE /plans/:id to avoid route shadowing
+app.get('/plans/categories', async (c) => {
+  const user = c.get('user')! as AuthUser
+
+  // Build visibility conditions
+  const visibilityConditions = or(
+    eq(sharedPlans.visibility, 'public'),
+    and(eq(sharedPlans.visibility, 'team'), eq(sharedPlans.teamId, user.teamId)),
+    and(eq(sharedPlans.visibility, 'unlisted'), eq(sharedPlans.authorId, user.id))
+  )!
+
+  // Query distinct categories with counts
+  const categories = await db.select({
+    category: sharedPlans.category,
+    count: sql<number>`COUNT(*)::int`,
+  })
+    .from(sharedPlans)
+    .where(and(
+      isNull(sharedPlans.deletedAt),
+      visibilityConditions,
+      sql`${sharedPlans.category} IS NOT NULL`
+    ))
+    .groupBy(sharedPlans.category)
+    .orderBy(sql`count DESC`)
+
+  return c.json({ categories })
+})
+
 // ── GET /api/community/plans/:id ──────────────────────────────────────
 // Get full plan details with author info
 app.get('/plans/:id', async (c) => {
@@ -311,6 +425,12 @@ app.put('/plans/:id', async (c) => {
 
   if (existing.authorId !== user.id) {
     return c.json({ error: 'Only the author can update this plan' }, 403)
+  }
+
+  // Validate visibility enum if provided
+  const validVisibilities = ['public', 'team', 'unlisted']
+  if (body.visibility !== undefined && !validVisibilities.includes(body.visibility)) {
+    return c.json({ error: `visibility must be one of: ${validVisibilities.join(', ')}` }, 400)
   }
 
   // Build update object - only allow updating certain fields
@@ -474,64 +594,67 @@ app.post('/plans/:id/fork', async (c) => {
   }
 
   try {
-    // Insert project
-    await db.insert(projects).values(projectData)
+    // Use transaction to ensure all-or-nothing fork operation
+    await db.transaction(async (tx) => {
+      // Insert project
+      await tx.insert(projects).values(projectData)
 
-    // Insert nodes with remapped IDs
-    if (remappedNodes.length > 0) {
-      const nodeInserts = remappedNodes.map((node: Record<string, unknown>) => ({
-        id: crypto.randomUUID(), // DB primary key
+      // Insert nodes with remapped IDs
+      if (remappedNodes.length > 0) {
+        const nodeInserts = remappedNodes.map((node: Record<string, unknown>) => ({
+          id: crypto.randomUUID(), // DB primary key
+          projectId,
+          clientId: node.id as string, // The remapped UUID used in the graph
+          number: node.number as number | null,
+          type: (node.type as string) || 'task',
+          title: (node.title as string) || '',
+          description: (node.description as string) || '',
+          status: 'planned' as const,
+          priority: (node.priority as string) || null,
+          assignee: (node.assignee as string) || null,
+          prompt: (node.prompt as string) || null,
+          startDate: (node.startDate as string) || null,
+          endDate: (node.endDate as string) || null,
+          dueDate: (node.dueDate as string) || null,
+          estimate: (node.estimate as string) || null,
+          milestoneId: (node.milestoneId as string) || null,
+          position: (node.position as { x: number; y: number }) || { x: 0, y: 0 },
+          createdAt: now,
+          updatedAt: now,
+        }))
+        await tx.insert(planNodes).values(nodeInserts)
+      }
+
+      // Insert edges with remapped IDs
+      if (remappedEdges.length > 0) {
+        const edgeInserts = remappedEdges.map((edge: Record<string, unknown>) => ({
+          id: crypto.randomUUID(),
+          projectId,
+          clientId: edge.id as string,
+          source: edge.source as string,
+          target: edge.target as string,
+          type: (edge.type as string) || 'default',
+          animated: (edge.animated as boolean) || false,
+          label: (edge.label as string) || null,
+          createdAt: now,
+          updatedAt: now,
+        }))
+        await tx.insert(planEdges).values(edgeInserts)
+      }
+
+      // Record fork in shared_plan_forks table
+      await tx.insert(sharedPlanForks).values({
+        sourcePlanId: result.id,
+        forkedBy: user.id,
         projectId,
-        clientId: node.id as string, // The remapped UUID used in the graph
-        number: node.number as number | null,
-        type: (node.type as string) || 'task',
-        title: (node.title as string) || '',
-        description: (node.description as string) || '',
-        status: 'planned' as const,
-        priority: (node.priority as string) || null,
-        assignee: (node.assignee as string) || null,
-        prompt: (node.prompt as string) || null,
-        startDate: (node.startDate as string) || null,
-        endDate: (node.endDate as string) || null,
-        dueDate: (node.dueDate as string) || null,
-        estimate: (node.estimate as string) || null,
-        milestoneId: (node.milestoneId as string) || null,
-        position: (node.position as { x: number; y: number }) || { x: 0, y: 0 },
         createdAt: now,
-        updatedAt: now,
-      }))
-      await db.insert(planNodes).values(nodeInserts)
-    }
+      })
 
-    // Insert edges with remapped IDs
-    if (remappedEdges.length > 0) {
-      const edgeInserts = remappedEdges.map((edge: Record<string, unknown>) => ({
-        id: crypto.randomUUID(),
-        projectId,
-        clientId: edge.id as string,
-        source: edge.source as string,
-        target: edge.target as string,
-        type: (edge.type as string) || 'default',
-        animated: (edge.animated as boolean) || false,
-        label: (edge.label as string) || null,
-        createdAt: now,
-        updatedAt: now,
-      }))
-      await db.insert(planEdges).values(edgeInserts)
-    }
-
-    // Record fork in shared_plan_forks table
-    await db.insert(sharedPlanForks).values({
-      sourcePlanId: result.id,
-      forkedBy: user.id,
-      projectId,
-      createdAt: now,
+      // Atomically increment forksCount
+      await tx.update(sharedPlans)
+        .set({ forksCount: sql`${sharedPlans.forksCount} + 1` })
+        .where(eq(sharedPlans.id, result.id))
     })
-
-    // Atomically increment forksCount
-    await db.update(sharedPlans)
-      .set({ forksCount: sql`${sharedPlans.forksCount} + 1` })
-      .where(eq(sharedPlans.id, result.id))
 
     return c.json({
       projectId,
@@ -1011,112 +1134,6 @@ app.delete('/comments/:id', async (c) => {
     .where(eq(sharedPlans.id, existing.planId))
 
   return c.json({ success: true })
-})
-
-// ── GET /api/community/plans/trending ─────────────────────────────────
-// Get trending plans based on recent activity
-// Score formula: stars_7d * 2 + forks_7d * 3 + log(total_stars + 1)
-app.get('/plans/trending', async (c) => {
-  const user = c.get('user')! as AuthUser
-  const sevenDaysAgo = new Date()
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-
-  // Build visibility conditions
-  const visibilityConditions = or(
-    eq(sharedPlans.visibility, 'public'),
-    and(eq(sharedPlans.visibility, 'team'), eq(sharedPlans.teamId, user.teamId)),
-    and(eq(sharedPlans.visibility, 'unlisted'), eq(sharedPlans.authorId, user.id))
-  )!
-
-  // Query trending plans with weighted score
-  const trendingPlans = await db.select({
-    id: sharedPlans.id,
-    title: sharedPlans.title,
-    description: sharedPlans.description,
-    authorId: sharedPlans.authorId,
-    authorName: sharedPlans.authorName,
-    isAnonymous: sharedPlans.isAnonymous,
-    category: sharedPlans.category,
-    tags: sharedPlans.tags,
-    starsCount: sharedPlans.starsCount,
-    forksCount: sharedPlans.forksCount,
-    commentsCount: sharedPlans.commentsCount,
-    visibility: sharedPlans.visibility,
-    createdAt: sharedPlans.createdAt,
-    updatedAt: sharedPlans.updatedAt,
-    // Include author info
-    authorEmail: userProfiles.email,
-    authorAvatarUrl: userProfiles.avatarUrl,
-    // Calculate stars in last 7 days
-    stars7d: sql<number>`(
-      SELECT COUNT(*)::int
-      FROM ${sharedPlanStars}
-      WHERE ${sharedPlanStars.planId} = ${sharedPlans.id}
-        AND ${sharedPlanStars.createdAt} >= ${sevenDaysAgo}
-    )`,
-    // Calculate forks in last 7 days
-    forks7d: sql<number>`(
-      SELECT COUNT(*)::int
-      FROM ${sharedPlanForks}
-      WHERE ${sharedPlanForks.sourcePlanId} = ${sharedPlans.id}
-        AND ${sharedPlanForks.createdAt} >= ${sevenDaysAgo}
-    )`,
-    // Calculate trending score: stars_7d * 2 + forks_7d * 3 + log(total_stars + 1)
-    trendingScore: sql<number>`(
-      (
-        SELECT COUNT(*)::int
-        FROM ${sharedPlanStars}
-        WHERE ${sharedPlanStars.planId} = ${sharedPlans.id}
-          AND ${sharedPlanStars.createdAt} >= ${sevenDaysAgo}
-      ) * 2
-      + (
-        SELECT COUNT(*)::int
-        FROM ${sharedPlanForks}
-        WHERE ${sharedPlanForks.sourcePlanId} = ${sharedPlans.id}
-          AND ${sharedPlanForks.createdAt} >= ${sevenDaysAgo}
-      ) * 3
-      + LN(${sharedPlans.starsCount} + 1)
-    )`,
-  })
-    .from(sharedPlans)
-    .leftJoin(userProfiles, eq(sharedPlans.authorId, userProfiles.id))
-    .where(and(
-      isNull(sharedPlans.deletedAt),
-      visibilityConditions
-    ))
-    .orderBy(sql`trending_score DESC`)
-    .limit(20)
-
-  return c.json({ plans: trendingPlans })
-})
-
-// ── GET /api/community/plans/categories ───────────────────────────────
-// Get distinct categories with counts
-app.get('/plans/categories', async (c) => {
-  const user = c.get('user')! as AuthUser
-
-  // Build visibility conditions
-  const visibilityConditions = or(
-    eq(sharedPlans.visibility, 'public'),
-    and(eq(sharedPlans.visibility, 'team'), eq(sharedPlans.teamId, user.teamId)),
-    and(eq(sharedPlans.visibility, 'unlisted'), eq(sharedPlans.authorId, user.id))
-  )!
-
-  // Query distinct categories with counts
-  const categories = await db.select({
-    category: sharedPlans.category,
-    count: sql<number>`COUNT(*)::int`,
-  })
-    .from(sharedPlans)
-    .where(and(
-      isNull(sharedPlans.deletedAt),
-      visibilityConditions,
-      sql`${sharedPlans.category} IS NOT NULL`
-    ))
-    .groupBy(sharedPlans.category)
-    .orderBy(sql`count DESC`)
-
-  return c.json({ categories })
 })
 
 export { app as communityRoute }

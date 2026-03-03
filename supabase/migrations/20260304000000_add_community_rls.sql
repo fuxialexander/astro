@@ -25,9 +25,10 @@ CREATE POLICY shared_plans_insert ON shared_plans
     OR (is_anonymous = false AND author_id = auth.uid())
   );
 
--- Users can update their own plans
+-- Users can update their own plans (WITH CHECK prevents ownership transfer)
 CREATE POLICY shared_plans_update ON shared_plans
-  FOR UPDATE USING (author_id = auth.uid());
+  FOR UPDATE USING (author_id = auth.uid())
+  WITH CHECK (author_id = auth.uid());
 
 -- Users can delete their own plans (soft delete via deletedAt)
 CREATE POLICY shared_plans_delete ON shared_plans
@@ -101,9 +102,10 @@ CREATE POLICY shared_plan_comments_select ON shared_plan_comments
 CREATE POLICY shared_plan_comments_insert ON shared_plan_comments
   FOR INSERT WITH CHECK (author_id = auth.uid());
 
--- Users can update their own comments
+-- Users can update their own comments (WITH CHECK prevents ownership transfer)
 CREATE POLICY shared_plan_comments_update ON shared_plan_comments
-  FOR UPDATE USING (author_id = auth.uid());
+  FOR UPDATE USING (author_id = auth.uid())
+  WITH CHECK (author_id = auth.uid());
 
 -- Users can delete their own comments (soft delete via deletedAt)
 CREATE POLICY shared_plan_comments_delete ON shared_plan_comments

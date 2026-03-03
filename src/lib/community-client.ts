@@ -424,19 +424,19 @@ export async function deleteComment(id: string): Promise<{ success: boolean }> {
 
 /**
  * Get trending plans (most starred in last 7 days).
- * GET /api/community/trending
+ * GET /api/community/plans/trending
  */
 export async function getTrending(): Promise<SharedPlanSummary[]> {
-  const response = await json<{ plans: Record<string, unknown>[] }>(`/api/community/trending`)
+  const response = await json<{ plans: Record<string, unknown>[] }>(`/api/community/plans/trending`)
   return response.plans.map(mapSharedPlanSummary)
 }
 
 /**
  * Get available categories with plan counts.
- * GET /api/community/categories
+ * GET /api/community/plans/categories
  */
 export async function getCategories(): Promise<Category[]> {
-  const response = await json<{ categories: Category[] }>(`/api/community/categories`)
+  const response = await json<{ categories: Category[] }>(`/api/community/plans/categories`)
   return response.categories
 }
 
