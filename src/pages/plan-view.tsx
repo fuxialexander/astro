@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, FileText } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, FileText, Globe } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { ReplanDialog } from "@/components/replan-dialog"
@@ -26,6 +26,7 @@ import { validateProjectName } from "@/lib/project-validation"
 import { OverviewTab } from "@/pages/project-overview"
 import { UseTemplateSheet } from "@/components/templates/use-template-sheet"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
+import { PublishDialog } from "@/components/community/publish-dialog"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
@@ -41,6 +42,7 @@ import { statusLabels, statusBadgeVariants, statusBarColors, statusProgressColor
 import { formatDueDateShort, formatDuration } from "@/lib/date-utils"
 import { assignDefaultDates } from "@/lib/timeline-utils"
 import { remoteTypeLabel } from "@/lib/project-source"
+import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
 import { splitTitleDescription } from "@/lib/text-utils"
 import { topologicalSortNodes } from "@/lib/graph-sort-utils"
@@ -1445,6 +1447,8 @@ export function PlanView() {
   const updateProject = useProjectStore((s) => s.updateProject)
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
+  const rawPlanEdges = usePlanStore((s) => s.edges)
+  const planEdges = useMemo(() => rawPlanEdges.filter(isLive), [rawPlanEdges])
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
 
 
@@ -1468,6 +1472,7 @@ export function PlanView() {
   const [visionOpen, setVisionOpen] = useState(false)
   const [replanOpen, setReplanOpen] = useState(false)
   const [useTemplateOpen, setUseTemplateOpen] = useState(false)
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
   const chatPanelPosition = useUIStore((s) => s.chatPanelPosition)
   const isRightChat = chatPanelPosition === "right"
@@ -1641,7 +1646,7 @@ export function PlanView() {
 
         <div className="flex-1 min-w-0" />
 
-        {/* View mode toggle + Use Template - right-aligned, only visible when Plan is active */}
+        {/* View mode toggle + Use Template + Publish - right-aligned, only visible when Plan is active */}
         {activeTab === "plan" && (
           <div className="hidden md:flex items-center gap-2 shrink-0">
             <Button
@@ -1653,6 +1658,17 @@ export function PlanView() {
               <FileText className="h-3.5 w-3.5 mr-1.5" />
               Use Template
             </Button>
+            {isServerMode() && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPublishDialogOpen(true)}
+                className="text-xs"
+              >
+                <Globe className="h-3.5 w-3.5 mr-1.5" />
+                Publish to Community
+              </Button>
+            )}
             <DisplayPopover config={{
               ...(viewMode === "list" ? planListDisplayConfig
                 : viewMode === "timeline" ? planTimelineDisplayConfig
@@ -1802,6 +1818,15 @@ export function PlanView() {
         open={useTemplateOpen}
         onOpenChange={setUseTemplateOpen}
         projectId={project.id}
+      />
+
+      {/* Publish to Community Dialog */}
+      <PublishDialog
+        open={publishDialogOpen}
+        onOpenChange={setPublishDialogOpen}
+        project={project}
+        nodes={planNodes}
+        edges={planEdges}
       />
     </div>
   )
