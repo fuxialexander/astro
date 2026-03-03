@@ -797,6 +797,7 @@ export function PlanListView({
   const projects = useProjectStore((s) => s.projects)
   const displaySettings = useDisplaySettingsStore((s) => s.get(displayViewKey))
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
+  const flushPendingSaves = useContentSaveStore((s) => s.flushPendingSaves)
   const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
   const [labelManagerOpen, setLabelManagerOpen] = useState(false)
 
@@ -1402,7 +1403,6 @@ export function PlanView() {
   const updateProject = useProjectStore((s) => s.updateProject)
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
-  const flushPendingSaves = useContentSaveStore((s) => s.flushPendingSaves)
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
 
 

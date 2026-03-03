@@ -77,7 +77,8 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
       // Execute the save immediately
       setSaveStatus('saving')
       const markdown = editorRef.current?.getMarkdown() || html
-      const savePromise = updateNode(node.id, { content: html, description: markdown })
+      // updateNode returns void, so wrap it in a Promise for proper async handling
+      const savePromise = Promise.resolve(updateNode(node.id, { content: html, description: markdown }))
       savingRef.current = savePromise
 
       await savePromise
