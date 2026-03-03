@@ -80,10 +80,12 @@ export function ProjectNewPlan() {
   const [repoUrl, setRepoUrl] = useState("")
   const [githubOwner, setGithubOwner] = useState("")
   const [githubRepo, setGithubRepo] = useState("")
+  const [githubRepoId, setGithubRepoId] = useState<number | undefined>()
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
   const [contextOpen, setContextOpen] = useState(false)
   const [visionDoc, setVisionDoc] = useState("")
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
+  const [pendingUploads, setPendingUploads] = useState(0)
   const modelTier: ModelTier = "large"
 
   // Reset all form fields to initial state
@@ -97,8 +99,10 @@ export function ProjectNewPlan() {
     setRepoUrl("")
     setGithubOwner("")
     setGithubRepo("")
+    setGithubRepoId(undefined)
     setVisionDoc("")
     setAttachments([])
+    setPendingUploads(0)
     setContextOpen(false)
   }, [])
 
@@ -401,6 +405,7 @@ export function ProjectNewPlan() {
     } else if (!value.trim()) {
       setGithubOwner("")
       setGithubRepo("")
+      setGithubRepoId(undefined)
     }
   }, [])
 
@@ -409,6 +414,7 @@ export function ProjectNewPlan() {
     setRepoUrl(repo.htmlUrl)
     setGithubOwner(repo.owner.login)
     setGithubRepo(repo.name)
+    setGithubRepoId(repo.id) // Stable GitHub identifier (immune to renames)
     // If repo provides a default branch and no branch is currently selected, use it
     if (repo.defaultBranch && !selectedBranch) {
       setSelectedBranch(repo.defaultBranch)
@@ -439,7 +445,8 @@ export function ProjectNewPlan() {
     // Auto-expand context section to show pasted images
     setContextOpen(true)
 
-    // Upload each image to persistent blob storage
+    // Upload each image to persistent blob storage, tracking pending count
+    setPendingUploads((prev) => prev + imageFiles.length)
     for (const file of imageFiles) {
       const reader = new FileReader()
       const filename = file.name || `pasted-image-${crypto.randomUUID()}.png`
@@ -470,6 +477,8 @@ export function ProjectNewPlan() {
             title: 'Upload failed',
             description: 'Could not upload pasted image. Check your connection.',
           })
+        } finally {
+          setPendingUploads((prev) => Math.max(0, prev - 1))
         }
       }
       reader.readAsDataURL(file)
@@ -482,7 +491,7 @@ export function ProjectNewPlan() {
   const isRegeneration = !!(existingProject && existingProjectHasNoNodes && !fromPlaygroundId)
 
   async function handleSubmit() {
-    if (!description.trim() || isSubmitting) return
+    if (!description.trim() || isSubmitting || pendingUploads > 0) return
     setIsSubmitting(true)
 
     try {
@@ -490,12 +499,20 @@ export function ProjectNewPlan() {
       // Use first line of description as project name (truncated)
       const firstLine = description.trim().split('\n')[0].slice(0, 80)
 
-      // Combine user-provided vision doc with playground context
-      const combinedVisionDoc = [playgroundVisionDoc, visionDoc.trim()]
+      // Combine user-provided vision doc with playground context and attachment refs
+      const attachmentSection = attachments.length > 0
+        ? `## Attached Files\n${attachments.map((a) => `- [${a.name}](${a.url}) (${a.mimeType})`).join('\n')}`
+        : ''
+      const combinedVisionDoc = [playgroundVisionDoc, visionDoc.trim(), attachmentSection]
         .filter(Boolean)
         .join('\n\n') || undefined
 
       let projectId: string
+
+      // Build GitHub metadata to include in project updates
+      const githubMetadata = (githubOwner && githubRepo)
+        ? { githubOwner, githubRepo, ...(githubRepoId ? { githubRepoId } : {}) }
+        : {}
 
       if (isRegeneration && existingProject) {
         // Re-generation flow: use existing project, don't create a duplicate
@@ -504,6 +521,7 @@ export function ProjectNewPlan() {
           description: description.trim(),
           name: firstLine,
           ...(repoUrl ? { repository: repoUrl } : {}),
+          ...githubMetadata,
         }
         updateProject(existingProject.id, regenUpdates) // optimistic local
         await dataClient.updateProject(existingProject.id, regenUpdates) // await backend
@@ -539,19 +557,11 @@ export function ProjectNewPlan() {
         projectId = result.projectId
       }
 
-      // Update project with GitHub owner/repo metadata if set.
-      // Note: `repository` is already passed to startPlanSession options above.
-      // Attachments are not stored on the project — they're uploaded to blob storage
-      // with persistent URLs that are included in the plan session context.
-      const projectUpdates: Partial<Pick<typeof allProjects[number], 'githubOwner' | 'githubRepo'>> = {}
-      if (githubOwner && githubRepo) {
-        projectUpdates.githubOwner = githubOwner
-        projectUpdates.githubRepo = githubRepo
-      }
-      if (Object.keys(projectUpdates).length > 0) {
-        updateProject(projectId, projectUpdates) // optimistic local
-        // Persist to backend (non-blocking — these fields don't affect session start)
-        dataClient.updateProject(projectId, projectUpdates).catch((err) => {
+      // For new projects: persist GitHub metadata (non-blocking).
+      // For regeneration: already included in regenUpdates above.
+      if (!isRegeneration && Object.keys(githubMetadata).length > 0) {
+        updateProject(projectId, githubMetadata) // optimistic local
+        dataClient.updateProject(projectId, githubMetadata).catch((err) => {
           console.error('[plan-session] Failed to persist GitHub metadata:', err)
         })
       }
@@ -921,15 +931,17 @@ export function ProjectNewPlan() {
             </p>
             <Button
               onClick={handleSubmit}
-              disabled={!description.trim() || isSubmitting}
+              disabled={!description.trim() || isSubmitting || pendingUploads > 0}
               className="gap-2"
             >
               {isSubmitting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
+              ) : pendingUploads > 0 ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Sparkles className="h-4 w-4" />
               )}
-              {isSubmitting ? "Starting..." : isRegeneration ? "Regenerate Plan" : "Start Planning"}
+              {isSubmitting ? "Starting..." : pendingUploads > 0 ? "Uploading images..." : isRegeneration ? "Regenerate Plan" : "Start Planning"}
             </Button>
           </div>
         </div>
