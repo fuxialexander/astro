@@ -3,15 +3,61 @@ import { usePlanStore } from '@/stores/plan-store'
 import { useProjectStore } from '@/stores/project-store'
 
 /**
+ * Module-level Set to track processed executionIds for idempotency.
+ * Prevents race conditions when both SSE and WebSocket paths call this
+ * function simultaneously for the same execution result.
+ *
+ * Max size is capped at 1000 entries to prevent unbounded memory growth
+ * in long-running tabs. When the limit is reached, the oldest 100 entries
+ * are removed (approximated via Set iteration order).
+ */
+const processedExecutionIds = new Set<string>()
+const MAX_PROCESSED_IDS = 1000
+const CLEANUP_THRESHOLD = 100
+
+/**
  * Extracts plan JSON from text and applies it to the plan store.
  * Returns whether the plan was applied and how many nodes were created.
+ *
+ * @param projectId - The project ID to associate nodes with
+ * @param text - The text containing the plan JSON
+ * @param executionId - Optional execution ID for idempotency (recommended)
+ * @param skipIfExists - Deprecated: use executionId instead for proper idempotency
  */
 export function applyPlanFromText(
   projectId: string,
   text: string,
+  executionId?: string,
+  skipIfExists = false,
 ): { applied: boolean; nodeCount: number } {
   const planJson = extractPlanJsonFromText(text)
   if (!planJson) return { applied: false, nodeCount: 0 }
+
+  // Idempotency check: if executionId is provided, use it as the primary check
+  if (executionId) {
+    if (processedExecutionIds.has(executionId)) {
+      console.log(`[plan-extraction] Skipping — executionId ${executionId} already processed`)
+      return { applied: false, nodeCount: 0 }
+    }
+    // Mark as processed immediately to prevent concurrent calls from proceeding
+    processedExecutionIds.add(executionId)
+
+    // Cleanup: remove oldest entries when Set grows beyond max size
+    if (processedExecutionIds.size > MAX_PROCESSED_IDS) {
+      const entries = Array.from(processedExecutionIds)
+      const toKeep = entries.slice(-(MAX_PROCESSED_IDS - CLEANUP_THRESHOLD))
+      processedExecutionIds.clear()
+      toKeep.forEach(id => processedExecutionIds.add(id))
+      console.log(`[plan-extraction] Cleaned up ${entries.length - toKeep.length} old executionIds (${processedExecutionIds.size} remaining)`)
+    }
+  } else if (skipIfExists) {
+    // Fallback: non-atomic check for backward compatibility
+    const existing = usePlanStore.getState().nodes.filter(n => n.projectId === projectId)
+    if (existing.length > 0) {
+      console.log(`[plan-extraction] Skipping — project ${projectId} already has ${existing.length} nodes`)
+      return { applied: false, nodeCount: 0 }
+    }
+  }
 
   // Map AI-generated short IDs (n1, n2, etc.) to proper UUIDs for consistency
   // with manually created tasks which use crypto.randomUUID()

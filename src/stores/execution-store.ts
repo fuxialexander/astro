@@ -1038,9 +1038,13 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             try {
               const exec = get().executions.get(nodeId)
               if (exec?.streamText) {
-                const result = applyPlanFromText(projectId, exec.streamText)
-                if (result.applied) {
-                  console.log(`[plan-session] Plan extracted: ${result.nodeCount} nodes`)
+                if (!exec.executionId) {
+                  console.warn(`[plan-session] Skipping plan extraction — executionId missing for node ${nodeId}`)
+                } else {
+                  const result = applyPlanFromText(projectId, exec.streamText, exec.executionId)
+                  if (result.applied) {
+                    console.log(`[plan-session] Plan extracted: ${result.nodeCount} nodes`)
+                  }
                 }
               }
             } catch (e) {
@@ -1259,9 +1263,13 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             try {
               const exec = get().executions.get(nodeId)
               if (exec?.streamText) {
-                const result = applyPlanFromText(projectId, exec.streamText)
-                if (result.applied) {
-                  console.log(`[plan-session-forProject] Plan extracted: ${result.nodeCount} nodes`)
+                if (!exec.executionId) {
+                  console.warn(`[plan-session-forProject] Skipping plan extraction — executionId missing for node ${nodeId}`)
+                } else {
+                  const result = applyPlanFromText(projectId, exec.streamText, exec.executionId)
+                  if (result.applied) {
+                    console.log(`[plan-session-forProject] Plan extracted: ${result.nodeCount} nodes`)
+                  }
                 }
               }
             } catch (e) {
