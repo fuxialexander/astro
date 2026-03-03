@@ -109,6 +109,9 @@ app.post('/projects', async (c) => {
       mergeQueueMergeMethod: body.mergeQueueMergeMethod ?? 'squash',
       source: body.source ?? null,
       deliveryMode: body.deliveryMode ?? null,
+      // GitHub fields use || (not ??) to normalize empty strings to null —
+      // GitHub usernames, repo names, and branch names cannot be empty strings.
+      // githubRepoId uses ?? since 0 could theoretically be a valid numeric ID.
       githubOwner: body.githubOwner || null,
       githubRepo: body.githubRepo || null,
       githubRepoId: body.githubRepoId ?? null,
@@ -189,6 +192,7 @@ app.patch('/projects/:id', async (c) => {
   if (body.mergeQueueMergeMethod !== undefined) patch.mergeQueueMergeMethod = body.mergeQueueMergeMethod || 'squash'
   if (body.source !== undefined) patch.source = body.source
   if (body.deliveryMode !== undefined) patch.deliveryMode = body.deliveryMode
+  // GitHub fields: || normalizes empty strings to null (see POST handler comment)
   if (body.githubOwner !== undefined) patch.githubOwner = body.githubOwner || null
   if (body.githubRepo !== undefined) patch.githubRepo = body.githubRepo || null
   if (body.githubRepoId !== undefined) patch.githubRepoId = body.githubRepoId ?? null
