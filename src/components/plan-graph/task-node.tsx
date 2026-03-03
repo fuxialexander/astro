@@ -46,6 +46,7 @@ type TaskNodeData = Node<{
   onDecompose?: (nodeId: string) => void
   onToggleSelect?: (nodeId: string) => void
   governedCount?: number
+  readOnly?: boolean
 }>
 
 export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeData>) {
@@ -97,7 +98,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
   const priorityDotColor = data.priority === "urgent" ? "bg-error" : "bg-warning"
 
   // Selection state
-  const showCheckbox = hovered || data.selectionActive
+  const showCheckbox = !data.readOnly && (hovered || data.selectionActive)
   const isChecked = data.checked ?? false
 
   const handleCheckboxClick = useCallback((e: React.MouseEvent) => {
@@ -135,18 +136,22 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
-        <Handle
-          type="target"
-          position={Position.Top}
-          className={cn(
-            "!border-none !rounded-full transition-all duration-150",
-            hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
-          )}
-        />
-        {hovered && (
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
-            <Plus className="h-3 w-3 text-primary-foreground" />
-          </div>
+        {!data.readOnly && (
+          <>
+            <Handle
+              type="target"
+              position={Position.Top}
+              className={cn(
+                "!border-none !rounded-full transition-all duration-150",
+                hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
+              )}
+            />
+            {hovered && (
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+                <Plus className="h-3 w-3 text-primary-foreground" />
+              </div>
+            )}
+          </>
         )}
 
         {showTooltip && (
@@ -201,18 +206,22 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
           </span>
         )}
 
-        <Handle
-          type="source"
-          position={Position.Bottom}
-          className={cn(
-            "!border-none !rounded-full transition-all duration-150",
-            hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
-          )}
-        />
-        {hovered && (
-          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
-            <Plus className="h-3 w-3 text-primary-foreground" />
-          </div>
+        {!data.readOnly && (
+          <>
+            <Handle
+              type="source"
+              position={Position.Bottom}
+              className={cn(
+                "!border-none !rounded-full transition-all duration-150",
+                hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
+              )}
+            />
+            {hovered && (
+              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+                <Plus className="h-3 w-3 text-primary-foreground" />
+              </div>
+            )}
+          </>
         )}
       </div>
     )
@@ -237,22 +246,26 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
       onMouseLeave={() => setHovered(false)}
     >
       {/* Target handle - grows into draggable '+' button on hover for adding parent nodes */}
-      <Handle
-        type="target"
-        position={Position.Top}
-        className={cn(
-          "!border-none !rounded-full transition-all duration-150",
-          hovered && data.status !== "pruned"
-            ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair"
-            : "!w-2 !h-2 !bg-border"
-        )}
-      />
+      {!data.readOnly && (
+        <>
+          <Handle
+            type="target"
+            position={Position.Top}
+            className={cn(
+              "!border-none !rounded-full transition-all duration-150",
+              hovered && data.status !== "pruned"
+                ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair"
+                : "!w-2 !h-2 !bg-border"
+            )}
+          />
 
-      {/* Plus icon overlaid on target handle (top) */}
-      {hovered && data.status !== "pruned" && (
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
-          <Plus className="h-3 w-3 text-primary-foreground" />
-        </div>
+          {/* Plus icon overlaid on target handle (top) */}
+          {hovered && data.status !== "pruned" && (
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+              <Plus className="h-3 w-3 text-primary-foreground" />
+            </div>
+          )}
+        </>
       )}
 
       {/* Hover tooltip showing full title + description */}
@@ -366,7 +379,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
       )}
 
       {/* Decompose button — visible on hover for tasks */}
-      {hovered && isTask && data.status !== "pruned" && data.onDecompose && (
+      {!data.readOnly && hovered && isTask && data.status !== "pruned" && data.onDecompose && (
         <button
           type="button"
           title="Decompose into sub-tasks"
@@ -381,22 +394,26 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
       )}
 
       {/* Source handle - grows into draggable '+' button on hover */}
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        className={cn(
-          "!border-none !rounded-full transition-all duration-150",
-          hovered && data.status !== "pruned"
-            ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair"
-            : "!w-2 !h-2 !bg-border"
-        )}
-      />
+      {!data.readOnly && (
+        <>
+          <Handle
+            type="source"
+            position={Position.Bottom}
+            className={cn(
+              "!border-none !rounded-full transition-all duration-150",
+              hovered && data.status !== "pruned"
+                ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair"
+                : "!w-2 !h-2 !bg-border"
+            )}
+          />
 
-      {/* Plus icon overlaid on source handle */}
-      {hovered && data.status !== "pruned" && (
-        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
-          <Plus className="h-3 w-3 text-primary-foreground" />
-        </div>
+          {/* Plus icon overlaid on source handle */}
+          {hovered && data.status !== "pruned" && (
+            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+              <Plus className="h-3 w-3 text-primary-foreground" />
+            </div>
+          )}
+        </>
       )}
     </div>
   )
