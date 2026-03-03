@@ -26,6 +26,7 @@ export default defineConfig({
       '@astro/core/git-url-utils': path.resolve(__dirname, './packages/core/src/git-url-utils.ts'),
       '@astro/core/skill-injector': path.resolve(__dirname, './packages/core/src/skill-injector.ts'),
       '@astro/core/skill-parser': path.resolve(__dirname, './packages/core/src/skill-parser.ts'),
+      '@astro/core/templates': path.resolve(__dirname, './packages/core/src/templates/index.ts'),
       '@astro/core': path.resolve(__dirname, './packages/core/src/index.ts'),
     },
   },
