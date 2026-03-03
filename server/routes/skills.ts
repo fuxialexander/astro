@@ -65,7 +65,7 @@ function isUniqueViolation(e: unknown): boolean {
 function skillTeamScopeFilter(user: AuthUser) {
   return or(
     eq(skills.teamId, user.teamId),
-    isNull(skills.teamId)
+    and(isNull(skills.teamId), eq(skills.source, 'builtin'))
   )!
 }
 

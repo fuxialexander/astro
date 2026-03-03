@@ -23,6 +23,10 @@ CREATE TABLE IF NOT EXISTS skills (
 -- Unique constraint: skill names must be unique within a team (or globally for builtins)
 ALTER TABLE skills ADD CONSTRAINT skills_name_team_id_unique UNIQUE (name, team_id);
 
+-- CHECK constraint: enforce valid source values
+ALTER TABLE skills ADD CONSTRAINT skills_source_check
+  CHECK (source IN ('builtin', 'workspace', 'clawhub', 'plugin', 'user'));
+
 -- Index for fast lookup by team
 CREATE INDEX IF NOT EXISTS skills_team_id_idx ON skills(team_id);
 
@@ -78,22 +82,26 @@ CREATE POLICY skills_insert_policy ON skills
     )
   );
 
--- Policy: users can update their own skills or team skills they admin
+-- Policy: users can update their own skills or team skills they admin (not builtins)
 CREATE POLICY skills_update_policy ON skills
   FOR UPDATE
   USING (
-    author_id = auth.uid()
-    OR team_id IN (
-      SELECT team_id FROM team_members WHERE user_id = auth.uid() AND role IN ('owner', 'admin')
+    source != 'builtin' AND (
+      author_id = auth.uid()
+      OR team_id IN (
+        SELECT team_id FROM team_members WHERE user_id = auth.uid() AND role IN ('owner', 'admin')
+      )
     )
   );
 
--- Policy: users can delete their own skills or team skills they admin
+-- Policy: users can delete their own skills or team skills they admin (not builtins)
 CREATE POLICY skills_delete_policy ON skills
   FOR DELETE
   USING (
-    author_id = auth.uid()
-    OR team_id IN (
-      SELECT team_id FROM team_members WHERE user_id = auth.uid() AND role IN ('owner', 'admin')
+    source != 'builtin' AND (
+      author_id = auth.uid()
+      OR team_id IN (
+        SELECT team_id FROM team_members WHERE user_id = auth.uid() AND role IN ('owner', 'admin')
+      )
     )
   );

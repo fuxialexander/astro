@@ -11,6 +11,7 @@
  * - Are identified by name (unique for builtins)
  */
 
+import { eq, and } from 'drizzle-orm'
 import { db } from './index.js'
 import { skills } from './schema.js'
 import { builtinSkills } from '../skills/index.js'
@@ -18,8 +19,9 @@ import { builtinSkills } from '../skills/index.js'
 /**
  * Seed built-in skills into the database.
  *
- * Uses onConflictDoUpdate to handle concurrent startup race conditions.
- * Wrapped in a transaction for consistency.
+ * Uses check-then-insert/update pattern since the unique constraint
+ * is a partial index (name WHERE source='builtin'), which Drizzle's
+ * onConflictDoUpdate cannot target. Wrapped in a transaction.
  */
 export async function bootstrapBuiltinSkills(): Promise<void> {
   console.log('[bootstrap] Seeding built-in skills...')
@@ -34,23 +36,13 @@ export async function bootstrapBuiltinSkills(): Promise<void> {
   await db.transaction(async (tx: any) => {
     for (const skill of builtinSkills) {
       try {
-        const result = await tx.insert(skills).values({
-          name: skill.name,
-          version: skill.version,
-          description: skill.description,
-          instructions: skill.instructions,
-          category: skill.category,
-          tags: skill.tags,
-          source: 'builtin',
-          sourceUrl: null,
-          authorId: null,
-          teamId: null,
-          enabled: true,
-          allowedTools: skill.allowedTools,
-          config: {},
-        }).onConflictDoUpdate({
-          target: skills.id,
-          set: {
+        const [existing] = await tx.select({ id: skills.id, version: skills.version })
+          .from(skills)
+          .where(and(eq(skills.name, skill.name), eq(skills.source, 'builtin')))
+
+        if (existing) {
+          // Update if version or content changed
+          await tx.update(skills).set({
             version: skill.version,
             description: skill.description,
             instructions: skill.instructions,
@@ -58,20 +50,27 @@ export async function bootstrapBuiltinSkills(): Promise<void> {
             tags: skill.tags,
             allowedTools: skill.allowedTools,
             updatedAt: new Date(),
-          },
-        }).returning()
-
-        if (result.length > 0) {
-          // Check if this was an insert or update by comparing timestamps
-          const row = result[0]
-          const timeDiff = Math.abs(new Date(row.createdAt).getTime() - new Date(row.updatedAt).getTime())
-          if (timeDiff < 1000) {
-            console.log(`[bootstrap] Inserted builtin skill: ${skill.name}`)
-            inserted++
-          } else {
-            console.log(`[bootstrap] Updated builtin skill: ${skill.name}`)
-            updated++
-          }
+          }).where(eq(skills.id, existing.id))
+          console.log(`[bootstrap] Updated builtin skill: ${skill.name}`)
+          updated++
+        } else {
+          await tx.insert(skills).values({
+            name: skill.name,
+            version: skill.version,
+            description: skill.description,
+            instructions: skill.instructions,
+            category: skill.category,
+            tags: skill.tags,
+            source: 'builtin',
+            sourceUrl: null,
+            authorId: null,
+            teamId: null,
+            enabled: true,
+            allowedTools: skill.allowedTools,
+            config: {},
+          })
+          console.log(`[bootstrap] Inserted builtin skill: ${skill.name}`)
+          inserted++
         }
       } catch (e) {
         console.error(`[bootstrap] Failed to seed builtin skill: ${skill.name}`, e)
