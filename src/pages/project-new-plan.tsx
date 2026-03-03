@@ -26,6 +26,7 @@ import { GitHubRepoPickerDialog } from "@/components/github-repo-picker-dialog"
 import { AttachmentList } from "@/components/task-detail/attachment-list"
 import { useDirectoryDetection } from "@/hooks/use-directory-detection"
 import { useGitHubStore } from "@/stores/github-store"
+import { dataClient } from "@/lib/data-client"
 import { requestNotificationPermission } from "@/lib/notifications"
 import { OnboardingHint } from "@/components/onboarding-hint"
 import { isServerMode } from "@/lib/app-mode"
@@ -33,14 +34,25 @@ import { cn } from "@/lib/utils"
 import { deriveAvailableProviders, isProviderAvailable, PROVIDER_NAMES } from "@/components/execution/provider-utils"
 import type { GitHubRepo, TaskAttachment } from "@/types"
 
-/** Parse a GitHub URL to extract owner and repo name */
+/**
+ * Parse a GitHub URL to extract owner and repo name.
+ * Validates against GitHub's naming constraints:
+ * - Owner: alphanumeric or hyphens, max 39 chars, cannot start/end with hyphen
+ * - Repo: alphanumeric, hyphens, underscores, dots, max 100 chars
+ */
 function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
-  // Match https://github.com/owner/repo, git@github.com:owner/repo, or owner/repo
-  const httpsMatch = url.match(/github\.com[/:]([^/\s]+)\/([^/\s.]+?)(?:\.git)?(?:[/#?]|$)/)
+  // GitHub naming rules
+  const ownerPattern = '[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?'
+  const repoPattern = '[a-zA-Z0-9_.-]{1,100}'
+
+  // Match https://github.com/owner/repo, git@github.com:owner/repo
+  const ghUrlRegex = new RegExp(`github\\.com[/:](${ ownerPattern})\\/(${ repoPattern}?)(?:\\.git)?(?:[/#?]|$)`)
+  const httpsMatch = url.match(ghUrlRegex)
   if (httpsMatch) return { owner: httpsMatch[1], repo: httpsMatch[2] }
 
   // Match bare "owner/repo" format
-  const bareMatch = url.match(/^([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)$/)
+  const bareRegex = new RegExp(`^(${ownerPattern})\\/(${repoPattern})$`)
+  const bareMatch = url.match(bareRegex)
   if (bareMatch) return { owner: bareMatch[1], repo: bareMatch[2] }
 
   return null
@@ -108,7 +120,8 @@ export function ProjectNewPlan() {
   )
   const existingProjectHasNoNodes = useMemo(() => {
     if (!existingProject) return false
-    return planNodes.filter((n) => n.projectId === existingProject.id && isLive(n)).length === 0
+    // Use .some() for early exit instead of .filter().length for O(1) best-case
+    return !planNodes.some((n) => n.projectId === existingProject.id && isLive(n))
   }, [existingProject, planNodes])
 
   // Playground context: read project and execution data
@@ -380,6 +393,7 @@ export function ProjectNewPlan() {
   }, [])
 
   // Handle paste in goal textarea (image paste support)
+  // Uploads pasted images to persistent blob storage so URLs survive page refresh.
   const handleGoalPaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const files = e.clipboardData?.files
     if (!files || files.length === 0) return
@@ -390,22 +404,38 @@ export function ProjectNewPlan() {
 
     e.preventDefault() // Prevent pasting file name as text
 
-    for (const file of imageFiles) {
-      const url = URL.createObjectURL(file)
-      const attachment: TaskAttachment = {
-        id: crypto.randomUUID(),
-        name: file.name || `pasted-image-${Date.now()}.png`,
-        url,
-        mimeType: file.type || 'image/png',
-        size: file.size,
-        uploadedAt: new Date(),
-        thumbnailUrl: url,
-      }
-      setAttachments((prev) => [...prev, attachment])
-    }
-
     // Auto-expand context section to show pasted images
     setContextOpen(true)
+
+    // Upload each image to persistent blob storage
+    for (const file of imageFiles) {
+      const reader = new FileReader()
+      reader.onload = async () => {
+        try {
+          const base64 = (reader.result as string).split(',')[1]
+          const blobId = await dataClient.uploadBlob(
+            base64,
+            file.type || 'image/png',
+            file.size,
+            file.name || `pasted-image-${Date.now()}.png`,
+          )
+          const persistentUrl = dataClient.getBlobUrl(blobId)
+          const attachment: TaskAttachment = {
+            id: blobId,
+            name: file.name || `pasted-image-${Date.now()}.png`,
+            url: persistentUrl,
+            mimeType: file.type || 'image/png',
+            size: file.size,
+            uploadedAt: new Date(),
+            thumbnailUrl: persistentUrl,
+          }
+          setAttachments((prev) => [...prev, attachment])
+        } catch (err) {
+          console.error('[plan-session] Failed to upload pasted image:', err)
+        }
+      }
+      reader.readAsDataURL(file)
+    }
   }, [])
 
   const customModelMap = useSettingsStore((s) => s.customModelMap)
@@ -431,10 +461,11 @@ export function ProjectNewPlan() {
 
       if (isRegeneration && existingProject) {
         // Re-generation flow: use existing project, don't create a duplicate
-        // Update project description/name before starting session
+        // Update project description/name + repository before starting session
         updateProject(existingProject.id, {
           description: description.trim(),
           name: firstLine,
+          ...(repoUrl ? { repository: repoUrl } : {}),
         })
 
         const result = await startPlanSessionForProject(
@@ -468,12 +499,13 @@ export function ProjectNewPlan() {
         projectId = result.projectId
       }
 
-      // Update project with GitHub owner/repo and attachments if set
-      const projectUpdates: Record<string, unknown> = {}
+      // Update project with GitHub owner/repo and attachments if set.
+      // Note: `repository` is already passed to startPlanSession options above,
+      // so we only need to set githubOwner/githubRepo here (avoiding redundancy).
+      const projectUpdates: Partial<Pick<typeof allProjects[number], 'githubOwner' | 'githubRepo'>> & { attachments?: TaskAttachment[] } = {}
       if (githubOwner && githubRepo) {
         projectUpdates.githubOwner = githubOwner
         projectUpdates.githubRepo = githubRepo
-        projectUpdates.repository = repoUrl || undefined
       }
       if (attachments.length > 0) {
         projectUpdates.attachments = attachments
