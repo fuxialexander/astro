@@ -210,10 +210,14 @@ skillsRoute.post('/', async (c) => {
 
     const [created] = await db.select().from(skills).where(eq(skills.id, skillId))
 
-    // Sync in-memory skill-manager for prompt injection.
+    // Sync in-memory skill-manager for prompt injection (best-effort).
     // Note: Each mutation triggers a full DB reload. At current scale (<100 skills)
     // this is fine. For bulk operations, consider a batch endpoint or debounced sync.
-    await syncSkillsFromDb(skillManager)
+    // If sync fails, the DB write (source of truth) already succeeded — prompt
+    // injection will catch up on the next successful sync or server restart.
+    try { await syncSkillsFromDb(skillManager) } catch (syncErr) {
+      console.error('[skills] POST / sync warning: in-memory cache may be stale:', syncErr)
+    }
 
     return c.json(created, 201)
   } catch (e) {
@@ -337,8 +341,10 @@ skillsRoute.put('/:id', async (c) => {
 
     const [updated] = await db.select().from(skills).where(eq(skills.id, id))
 
-    // Sync in-memory skill-manager for prompt injection
-    await syncSkillsFromDb(skillManager)
+    // Sync in-memory skill-manager for prompt injection (best-effort)
+    try { await syncSkillsFromDb(skillManager) } catch (syncErr) {
+      console.error('[skills] PUT /:id sync warning: in-memory cache may be stale:', syncErr)
+    }
 
     return c.json(updated)
   } catch (e) {
@@ -375,8 +381,10 @@ skillsRoute.delete('/:id', async (c) => {
 
     await db.delete(skills).where(eq(skills.id, id))
 
-    // Sync in-memory skill-manager for prompt injection
-    await syncSkillsFromDb(skillManager)
+    // Sync in-memory skill-manager for prompt injection (best-effort)
+    try { await syncSkillsFromDb(skillManager) } catch (syncErr) {
+      console.error('[skills] DELETE /:id sync warning: in-memory cache may be stale:', syncErr)
+    }
 
     return c.json({ ok: true, id })
   } catch (e) {
@@ -417,8 +425,10 @@ skillsRoute.put('/:id/toggle', async (c) => {
 
     const [updated] = await db.select().from(skills).where(eq(skills.id, id))
 
-    // Sync in-memory skill-manager for prompt injection
-    await syncSkillsFromDb(skillManager)
+    // Sync in-memory skill-manager for prompt injection (best-effort)
+    try { await syncSkillsFromDb(skillManager) } catch (syncErr) {
+      console.error('[skills] PUT /:id/toggle sync warning: in-memory cache may be stale:', syncErr)
+    }
 
     return c.json(updated)
   } catch (e) {
