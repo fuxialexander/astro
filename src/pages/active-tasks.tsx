@@ -1,10 +1,8 @@
-import { useEffect, useMemo, useState, useCallback } from "react"
-import { Link, useNavigate } from "react-router"
-import { ChevronDown, ChevronRight, Sparkles, Play, Clock, FileText, Cpu, ExternalLink, CheckCircle2, ArrowRight, AlertCircle } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { Link } from "react-router"
+import { ChevronDown, ChevronRight, Sparkles, Play, Clock, FileText, Cpu, ExternalLink, AlertCircle, ArrowRight } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { useExecutionStore } from "@/stores/execution-store"
-import { useAgentStore } from "@/stores/agent-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
@@ -14,9 +12,8 @@ interface ActiveTask {
   nodeId: string
   projectId: string
   title: string
-  status: "running" | "pending" | "generating" | "generated"
+  status: "running" | "pending" | "generating"
   startedAt?: Date
-  completedAt?: number
   executionId?: string
   nodeType?: string
   nodeStatus?: string
@@ -51,8 +48,6 @@ function TaskRow({ task, projectId }: { task: ActiveTask; projectId: string }) {
   const execution = useExecutionStore((s) => s.executions.get(task.nodeId))
   const stream = task.executionId ? useRealtimeStore.getState().taskStreams.get(task.executionId) : undefined
   const progress = stream?.progress ?? 0
-  const navigate = useNavigate()
-  const markPlanViewed = useAgentStore((s) => s.markPlanViewed)
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
 
   // Check if this task has pending approval requests
@@ -69,13 +64,6 @@ function TaskRow({ task, projectId }: { task: ActiveTask; projectId: string }) {
     : task.nodeId.startsWith("playground-")
       ? `/playground?projectId=${projectId}`
       : `/project/${projectId}/task/${task.nodeId}`
-
-  const handleViewPlan = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    markPlanViewed(projectId)
-    navigate(`/project/${projectId}`)
-  }, [markPlanViewed, projectId, navigate])
 
   // For tasks with pending approvals, show a warning card
   if (hasPendingApproval) {
@@ -104,29 +92,6 @@ function TaskRow({ task, projectId }: { task: ActiveTask; projectId: string }) {
           <ArrowRight className="h-3.5 w-3.5 text-warning shrink-0" />
         </div>
       </Link>
-    )
-  }
-
-  // For generated plans, show a special "View plan" card
-  if (task.status === "generated") {
-    return (
-      <div className="flex flex-col gap-2 px-4 py-3 border-b border-border last:border-b-0 bg-success/5">
-        <div className="flex items-center gap-3">
-          <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0" />
-          <div className="flex-1 min-w-0">
-            <span className="text-sm text-foreground truncate">Plan generated</span>
-          </div>
-          <Button
-            size="sm"
-            variant="default"
-            className="h-7 px-3 text-xs gap-1.5"
-            onClick={handleViewPlan}
-          >
-            View plan
-            <ArrowRight className="h-3 w-3" />
-          </Button>
-        </div>
-      </div>
     )
   }
 
@@ -264,12 +229,11 @@ function ProjectGroup({
 
 export function ActiveTasks() {
   const executions = useExecutionStore((s) => s.executions)
-  const sessions = useAgentStore((s) => s.sessions)
   const projects = useProjectStore((s) => s.projects)
   const rawNodes = usePlanStore((s) => s.nodes)
   const nodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
 
-  // Build active task list from executions + generation sessions
+  // Build active task list from executions
   const { groupedTasks, totalCount } = useMemo(() => {
     const taskMap = new Map<string, ActiveTask[]>()
 
@@ -315,39 +279,6 @@ export function ActiveTasks() {
       taskMap.set(projectId, list)
     }
 
-    // Active and generated plan generation sessions
-    for (const [projectId, session] of sessions) {
-      if (session.status !== "active" && session.status !== "generated") continue
-
-      if (session.status === "generated") {
-        // Show generated plans with "View plan" button
-        const proj = projects.find((p) => p.id === projectId)
-        const task: ActiveTask = {
-          nodeId: `gen-${projectId}`,
-          projectId,
-          title: proj?.name || session.projectName || "Plan generated",
-          status: "generated",
-          startedAt: new Date(session.startedAt),
-          completedAt: session.completedAt ?? undefined,
-        }
-        const list = taskMap.get(projectId) || []
-        list.push(task)
-        taskMap.set(projectId, list)
-      } else {
-        // Active generation in progress
-        const task: ActiveTask = {
-          nodeId: `gen-${projectId}`,
-          projectId,
-          title: session.phase === "repo_setup" ? "Setting up repository..." : "Generating plan...",
-          status: "generating",
-          startedAt: new Date(session.startedAt),
-        }
-        const list = taskMap.get(projectId) || []
-        list.push(task)
-        taskMap.set(projectId, list)
-      }
-    }
-
     // Also check for nodes with in_progress/dispatched status that might not have execution entries
     for (const node of nodes) {
       if (node.status !== "in_progress" && node.status !== "dispatched") continue
@@ -369,7 +300,7 @@ export function ActiveTasks() {
     for (const tasks of taskMap.values()) count += tasks.length
 
     return { groupedTasks: taskMap, totalCount: count }
-  }, [executions, sessions, nodes, projects])
+  }, [executions, nodes, projects])
 
   // Sort projects: those with more active tasks first
   const sortedProjects = useMemo(() => {

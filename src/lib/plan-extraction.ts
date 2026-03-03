@@ -1,6 +1,11 @@
 import type { PlanNode, PlanEdge } from '@/types'
 import { usePlanStore } from '@/stores/plan-store'
 import { useProjectStore } from '@/stores/project-store'
+import { extractPlanJsonFromText, type PlanJsonResult } from '@astro/core'
+
+// Re-export for backward compatibility
+export { extractPlanJsonFromText } from '@astro/core'
+export type { PlanJsonResult } from '@astro/core'
 
 /**
  * Module-level Set to track processed executionIds for idempotency.
@@ -23,14 +28,16 @@ const CLEANUP_THRESHOLD = 100
  * @param text - The text containing the plan JSON
  * @param executionId - Optional execution ID for idempotency (recommended)
  * @param skipIfExists - Deprecated: use executionId instead for proper idempotency
+ * @param preExtracted - Optional pre-extracted plan JSON (skips extraction from text)
  */
 export function applyPlanFromText(
   projectId: string,
   text: string,
   executionId?: string,
   skipIfExists = false,
+  preExtracted?: PlanJsonResult,
 ): { applied: boolean; nodeCount: number } {
-  const planJson = extractPlanJsonFromText(text)
+  const planJson = preExtracted || extractPlanJsonFromText(text)
   if (!planJson) return { applied: false, nodeCount: 0 }
 
   // Idempotency check: if executionId is provided, use it as the primary check
@@ -111,84 +118,4 @@ export function applyPlanFromText(
   }
 
   return { applied: true, nodeCount: nodes.length }
-}
-
-/**
- * Extracts plan JSON (with nodes/edges) from streaming text output.
- * Tries ALL code-fenced JSON blocks (last match first, since the plan is
- * typically the final output), then falls back to raw JSON detection
- * searching backwards from the end of the text.
- */
-export function extractPlanJsonFromText(text: string): { projectName?: string; nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] } | null {
-  // Collect ALL ```json code fences
-  const fenceRegex = /```json\s*\n([\s\S]*?)\n```/g
-  const fences: { content: string; index: number }[] = []
-  let match: RegExpExecArray | null
-  while ((match = fenceRegex.exec(text)) !== null) {
-    fences.push({ content: match[1], index: match.index! })
-  }
-
-  console.log(`[plan-extraction] Found ${fences.length} json code fences in text of length ${text.length}`)
-
-  // Try fences in reverse order (last fence first — plan is typically the last output)
-  for (let i = fences.length - 1; i >= 0; i--) {
-    try {
-      const parsed = JSON.parse(fences[i].content)
-      if (parsed.nodes && Array.isArray(parsed.nodes)) {
-        console.log(`[plan-extraction] Matched code fence #${i} (of ${fences.length}): ${parsed.nodes.length} nodes`)
-        return parsed
-      }
-    } catch {
-      // Try next fence
-    }
-  }
-
-  // Fallback: find raw JSON with "nodes" array by searching backwards from end of text.
-  // Look for the LAST occurrence of "projectName" to find the plan JSON.
-  const lastProjectNameIdx = text.lastIndexOf('"projectName"')
-  if (lastProjectNameIdx === -1) {
-    console.log(`[plan-extraction] No "projectName" found in text`)
-    return null
-  }
-
-  // Walk backwards from "projectName" to find the opening brace
-  let openBraceIdx = -1
-  for (let i = lastProjectNameIdx - 1; i >= 0; i--) {
-    if (text[i] === '{') {
-      openBraceIdx = i
-      break
-    }
-  }
-
-  if (openBraceIdx === -1) {
-    console.log(`[plan-extraction] No opening brace before "projectName"`)
-    return null
-  }
-
-  // Brace-balance forward from the opening brace to find the complete JSON object
-  let depth = 0
-  let endIdx = openBraceIdx
-  for (let i = openBraceIdx; i < text.length; i++) {
-    if (text[i] === '{') depth++
-    else if (text[i] === '}') {
-      depth--
-      if (depth === 0) {
-        endIdx = i + 1
-        break
-      }
-    }
-  }
-
-  try {
-    const parsed = JSON.parse(text.slice(openBraceIdx, endIdx))
-    if (parsed.nodes && Array.isArray(parsed.nodes)) {
-      console.log(`[plan-extraction] Matched raw JSON (last "projectName"): ${parsed.nodes.length} nodes`)
-      return parsed
-    }
-  } catch (e) {
-    console.log(`[plan-extraction] Raw JSON parse failed:`, e)
-  }
-
-  console.log(`[plan-extraction] No plan JSON found in text of length ${text.length}`)
-  return null
 }

@@ -28,6 +28,8 @@ import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch } from '../lib/prompt-templates.js'
 import { skillManager } from '../lib/skill-manager.js'
+import { extractPlanJsonFromText } from '@astro/core'
+import { retryPlanExtractionWithHaiku } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup)
@@ -1065,6 +1067,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     let lastActivity = Date.now()
     let resultSent = false
     let waitingForApproval = false
+    let accumulatedText = ''
     const ACTIVITY_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000 // 5 days
 
     const onResult = async (msg: import('../types/relay.js').TaskResultMessage) => {
@@ -1103,6 +1106,23 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         deliveryError: msg.result.deliveryError,
         summary: msg.result.summary,
       }
+      // Server-side plan extraction for interactive plan sessions
+      if (isInteractivePlan) {
+        try {
+          const textForExtraction = accumulatedText || msg.result.output || ''
+          let planJson = extractPlanJsonFromText(textForExtraction)
+          if (!planJson) {
+            planJson = await retryPlanExtractionWithHaiku(textForExtraction, process.env.ANTHROPIC_API_KEY).catch(() => null)
+          }
+          if (planJson) {
+            const planSeq = await streamingEventLog.append(executionId, 'plan_result', planJson)
+            stream.writeSSE({ id: String(planSeq), event: 'plan_result', data: JSON.stringify(planJson) }).catch(() => { alive = false })
+          }
+        } catch (e) {
+          console.error('[dispatch] Server-side plan extraction failed:', e)
+        }
+      }
+
       // Persist result event (also flushes any pending text)
       const seq = await streamingEventLog.append(executionId, 'result', resultData)
 
@@ -1207,6 +1227,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       waitingForApproval = false
       // Buffer text for batch persistence (flushed when next structural event arrives)
       streamingEventLog.appendText(executionId, msg.text)
+      if (isInteractivePlan) accumulatedText += msg.text
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
       executionEventBus.emit('task:stdout', { output: { taskId: executionId, data: msg.text, stream: 'stdout', timestamp: new Date() } })
     }

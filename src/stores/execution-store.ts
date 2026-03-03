@@ -1038,13 +1038,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             try {
               const exec = get().executions.get(nodeId)
               if (exec?.streamText) {
-                if (!exec.executionId) {
-                  console.warn(`[plan-session] Skipping plan extraction — executionId missing for node ${nodeId}`)
-                } else {
-                  const result = applyPlanFromText(projectId, exec.streamText, exec.executionId)
-                  if (result.applied) {
-                    console.log(`[plan-session] Plan extracted: ${result.nodeCount} nodes`)
-                  }
+                const result = applyPlanFromText(projectId, exec.streamText, exec.executionId || undefined)
+                if (result.applied) {
+                  console.log(`[plan-session] Plan extracted: ${result.nodeCount} nodes`)
                 }
               }
             } catch (e) {
@@ -2145,6 +2141,20 @@ function handleSSEEvent(
       } catch {
         // Ignore parse errors
       }
+      break
+    }
+
+    case "plan_result": {
+      try {
+        const parsed = JSON.parse(data)
+        if (parsed.nodes && Array.isArray(parsed.nodes)) {
+          const planProjectId = nodeId.startsWith('plan-') ? nodeId.slice(5) : null
+          if (planProjectId) {
+            const exec = get().executions.get(nodeId)
+            applyPlanFromText(planProjectId, '', exec?.executionId, false, parsed)
+          }
+        }
+      } catch { /* fallback extraction on result event will handle it */ }
       break
     }
 

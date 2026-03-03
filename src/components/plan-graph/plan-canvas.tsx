@@ -15,7 +15,6 @@ import "@xyflow/react/dist/style.css"
 import { LayoutGrid, Trash2, Play, X, CheckSquare, Square, PlayCircle, Plus, Minus, Maximize, ListPlus, Server, FolderOpen, AlertTriangle } from "lucide-react"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useActivityStore } from "@/stores/activity-store"
-import { useAgentStore } from "@/stores/agent-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useExecutionStore, canExecuteNode, getProjectWorkingDir } from "@/stores/execution-store"
 import { useToastStore } from "@/stores/toast-store"
@@ -92,7 +91,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
   const loadMachines = useExecutionStore((s) => s.loadMachines)
   const flushPendingSaves = useContentSaveStore((s) => s.flushPendingSaves)
-  const isProjectGenerating = useAgentStore((s) => s.sessions.get(projectId)?.status === 'active')
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const updateProject = useProjectStore((s) => s.updateProject)
   const graphDisplaySettings = useDisplaySettingsStore((s) => s.get("plan-graph"))
@@ -564,7 +562,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   }, [handleReorganize])
 
   // Show empty state when no nodes and not currently generating
-  if (projectNodes.length === 0 && !isProjectGenerating) {
+  if (projectNodes.length === 0) {
     return (
       <div ref={canvasRef} className="h-full w-full bg-background flex items-center justify-center p-8 relative">
         <div className="flex w-full max-w-[600px] flex-col gap-6">

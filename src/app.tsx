@@ -6,7 +6,6 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { AppLayout } from "@/components/layout/app-layout"
 import { MobileLayout } from "@/components/layout/mobile-layout"
 import { CommandPalette } from "@/components/command-palette"
-import { GenerationToasts } from "@/components/generation-toasts"
 import { AuthGuard } from "@/components/auth-guard"
 import { Dashboard } from "@/pages/dashboard"
 import { Projects } from "@/pages/projects"
@@ -25,7 +24,6 @@ import { useUsageStore } from "@/stores/usage-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
 import { useExecutionStore } from "@/stores/execution-store"
-import { useAgentStore } from "@/stores/agent-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useAuthStore } from "@/stores/auth-store"
 import { useSidebarStore } from "@/stores/sidebar-store"
@@ -97,7 +95,6 @@ function resetAllStores() {
   useSessionStore.setState({ sessions: new Map(), loaded: false })
   useInitiativeStore.setState({ initiatives: [], loaded: false })
   useExecutionStore.setState({ executions: new Map(), pendingApprovals: new Map(), batchExecutions: new Map(), loaded: false })
-  useAgentStore.setState({ loaded: false })
   useActivityStore.setState({ activities: [], loaded: false })
   useSidebarStore.setState({ loaded: false })
   usePluginStore.setState({ loaded: false })
@@ -122,7 +119,6 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const loadSessions = useSessionStore((s) => s.load)
   const loadInitiatives = useInitiativeStore((s) => s.load)
   const loadExecutions = useExecutionStore((s) => s.load)
-  const loadAgent = useAgentStore((s) => s.load)
   const loadActivities = useActivityStore((s) => s.loadActivities)
   const loadSidebar = useSidebarStore((s) => s.load)
   const loadPlugins = usePluginStore((s) => s.load)
@@ -143,7 +139,6 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const sessionsLoaded = useSessionStore((s) => s.loaded)
   const initiativesLoaded = useInitiativeStore((s) => s.loaded)
   const executionsLoaded = useExecutionStore((s) => s.loaded)
-  const agentLoaded = useAgentStore((s) => s.loaded)
   const activitiesLoaded = useActivityStore((s) => s.loaded)
   const sidebarLoaded = useSidebarStore((s) => s.loaded)
   const pluginsLoaded = usePluginStore((s) => s.loaded)
@@ -185,7 +180,6 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     if (!sessionsLoaded) loadSessions()
     if (!initiativesLoaded) loadInitiatives()
     if (!executionsLoaded) loadExecutions()
-    if (!agentLoaded) loadAgent()
     if (!activitiesLoaded) loadActivities()
     if (!sidebarLoaded) loadSidebar()
     if (!pluginsLoaded) loadPlugins()
@@ -232,7 +226,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   // Critical stores: must load before rendering (navigation + core data)
   const criticalLoaded = teamsLoaded && projectsLoaded && planLoaded && userProfileLoaded && sidebarLoaded
   // Non-critical stores load in background — page renders without them
-  const allLoaded = criticalLoaded && settingsLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded && initiativesLoaded && executionsLoaded && agentLoaded && activitiesLoaded && pluginsLoaded && skillsLoaded
+  const allLoaded = criticalLoaded && settingsLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded && initiativesLoaded && executionsLoaded && activitiesLoaded && pluginsLoaded && skillsLoaded
 
   // Only block page render on critical stores
   if (shouldLoadData && !criticalLoaded) {
@@ -307,7 +301,6 @@ export default function App() {
           <DataLoader>
             <PluginLoader>
             <CommandPalette />
-            <GenerationToasts />
             <Routes>
               {/* Root: landing if unauthenticated, dashboard if authenticated */}
               <Route index element={<RootRedirect />} />

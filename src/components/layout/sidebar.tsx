@@ -13,7 +13,6 @@ import { useUIStore } from "@/stores/ui-store"
 import { useSidebarStore } from "@/stores/sidebar-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useExecutionStore } from "@/stores/execution-store"
-import { useAgentStore } from "@/stores/agent-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useAutoReveal } from "@/hooks/use-auto-reveal"
 import { isServerMode } from "@/lib/app-mode"
@@ -93,19 +92,17 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
 
   // Active task tracking for sidebar indicators
   const executions = useExecutionStore((s) => s.executions)
-  const agentSessions = useAgentStore((s) => s.sessions)
 
   // Navigate to generation activity view if plan is actively generating, otherwise list view
   const navigateToProject = useCallback((projectId: string) => {
-    const session = agentSessions.get(projectId)
     const planExec = executions.get(`plan-${projectId}`)
-    const isGenerating = session?.status === "active" || session?.status === "generated" || planExec?.status === "running" || planExec?.status === "pending"
+    const isGenerating = planExec?.status === "running" || planExec?.status === "pending"
     if (isGenerating) {
       navigate(`/plan?projectId=${projectId}`)
     } else {
       navigate(`/project/${projectId}/list`)
     }
-  }, [agentSessions, executions, navigate])
+  }, [executions, navigate])
 
   // O(1) lookup map for plan nodes by ID
   const planNodesById = useMemo(() => {
@@ -131,14 +128,6 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
       }
     }
 
-    // Count active and generated plan generations
-    for (const [projectId, session] of agentSessions) {
-      if (session.status === "active" || session.status === "generated") {
-        count++
-        running.add(projectId)
-      }
-    }
-
     // Also check node statuses for running tasks not in execution store
     for (const node of planNodes) {
       if ((node.status === "in_progress" || node.status === "dispatched") && !executions.has(node.id)) {
@@ -148,7 +137,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     }
 
     return { activeCount: count, projectsWithRunning: running }
-  }, [executions, agentSessions, planNodes, planNodesById])
+  }, [executions, planNodes, planNodesById])
 
   // Count pending plan approvals for the Plan nav badge
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)

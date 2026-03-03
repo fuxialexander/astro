@@ -1,4 +1,3 @@
-import type { PlanNode, PlanEdge } from "@/types"
 import { getAccessToken } from "@/lib/supabase-client"
 import { parseChatSSE, parseExecutionSSE } from "@/lib/sse-parser"
 import { apiUrl } from "@/lib/api-url"
@@ -32,34 +31,6 @@ async function authHeaders(): Promise<Record<string, string>> {
   return headers
 }
 
-interface PlanGraphResult {
-  projectName: string
-  nodes: Array<{
-    id: string
-    type: PlanNode["type"]
-    title: string
-    description: string
-    status: PlanNode["status"]
-    parentId: string | null
-    dependencies: string[]
-    verification: PlanNode["verification"]
-    position: { x: number; y: number }
-    startDate?: string
-    endDate?: string
-    priority?: string
-    estimate?: string
-    dueDate?: string
-    milestoneId?: string
-    labelIds?: string[]
-  }>
-  edges: Array<{
-    id: string
-    source: string
-    target: string
-    type: PlanEdge["type"]
-  }>
-}
-
 /**
  * Fetch available slash commands from a connected machine.
  */
@@ -77,57 +48,6 @@ export async function fetchSlashCommands(
   } catch {
     return []
   }
-}
-
-export async function generatePlan(
-  params: { description: string; visionDoc?: string; projectId: string; model?: string; providerId?: string; workingDirectory?: string; fileTree?: string[]; keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }; targetMachineId?: string; gitState?: { currentBranch: string; targetBranch: string; isDirty: boolean; dirtyDetails?: { staged: number; unstaged: number; untracked: number } } },
-  callbacks: {
-    onText: (text: string) => void
-    onPlanResult: (result: PlanGraphResult) => void
-    onError: (error: string) => void
-    onDone: () => void
-  },
-  signal?: AbortSignal,
-): Promise<void> {
-  console.log(`[plan-gen] POST /api/agent/generate-plan projectId=${params.projectId}`)
-
-  const res = await fetch(apiUrl("/api/agent/generate-plan"), {
-    method: "POST",
-    headers: await authHeaders(),
-    body: JSON.stringify(params),
-    signal,
-  })
-
-  if (!res.ok) {
-    let errorMsg = `Server error: ${res.status}`
-    try {
-      const body = await res.json()
-      if (body.error) errorMsg += ` – ${body.error}`
-      if (body.details) console.error(`[plan-gen] Validation details:`, body.details)
-    } catch { /* non-JSON response */ }
-    console.error(`[plan-gen] ${errorMsg}`)
-    callbacks.onError(errorMsg)
-    return
-  }
-
-  console.log(`[plan-gen] SSE stream opened for projectId=${params.projectId}`)
-
-  await parseChatSSE(res, {
-    onText: callbacks.onText,
-    onPlanResult: (result) => {
-      const planResult = result as PlanGraphResult
-      console.log(`[plan-gen] plan_result received: ${planResult.nodes.length} nodes, ${planResult.edges.length} edges`)
-      callbacks.onPlanResult(planResult)
-    },
-    onError: (error) => {
-      console.error(`[plan-gen] SSE error:`, error)
-      callbacks.onError(error)
-    },
-    onDone: () => {
-      console.log(`[plan-gen] SSE stream done for projectId=${params.projectId}`)
-      callbacks.onDone()
-    },
-  })
 }
 
 export interface ChatPlanNodeContext {
