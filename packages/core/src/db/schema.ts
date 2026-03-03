@@ -655,6 +655,7 @@ export const skills = pgTable('skills', {
   index('skills_enabled_idx').on(table.enabled),
   index('skills_team_enabled_idx').on(table.teamId, table.enabled),
   index('skills_name_source_idx').on(table.name, table.source),
+  // Partial unique index — PGlite-compatible (PGlite supports WHERE clauses on unique indexes)
   uniqueIndex('skills_builtin_name_unique').on(table.name).where(sql`${table.source} = 'builtin'`),
   check('skills_builtin_null_ownership', sql`${table.source} != 'builtin' OR (${table.teamId} IS NULL AND ${table.authorId} IS NULL)`),
 ])

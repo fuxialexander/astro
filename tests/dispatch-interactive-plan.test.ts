@@ -70,7 +70,7 @@ vi.mock('../server/lib/machine-registry.js', async (importOriginal) => {
 })
 
 import { setupTestServer, postJson, db } from './helpers/test-server.js'
-import { projects } from '../server/lib/db/schema.js'
+import { projects, skills } from '../server/lib/db/schema.js'
 
 beforeAll(async () => {
   await setupTestServer()
@@ -185,5 +185,45 @@ describe('Interactive plan dispatch overrides', { timeout: 30_000 }, () => {
 
     // relayServer.dispatchTask should NOT be called with dryRun
     expect(mockDispatchTask).not.toHaveBeenCalled()
+  })
+
+  it('dispatched task includes skill prompt injection in relay payload', async () => {
+    // Seed a test skill directly into DB and sync the skill-manager
+    await db.insert(skills).values({
+      name: 'test-dispatch-skill',
+      version: '1.0.0',
+      description: 'Test skill for dispatch injection',
+      instructions: 'UNIQUE_SKILL_MARKER: Use this test workflow',
+      source: 'builtin',
+      enabled: true,
+      allowedTools: ['Bash'],
+      tags: ['test'],
+    })
+
+    // Sync the in-memory skill-manager so dispatch picks up the skill
+    const { syncSkillsFromDb } = await import('../server/lib/db/bootstrap-skills.js')
+    const { skillManager } = await import('../server/lib/skill-manager.js')
+    await syncSkillsFromDb(skillManager)
+
+    const res = await postJson('/api/dispatch/task', {
+      ...getBaseBody(),
+      isInteractivePlan: false,
+      deliveryMode: 'direct',
+      dryRun: false,
+    })
+
+    expect(res.status).toBe(200)
+    expect(mockDispatchTask).toHaveBeenCalledTimes(1)
+
+    const taskPayload = mockDispatchTask.mock.calls[0][0]
+    // Skills are injected into the relay `prompt` field (assembled from promptParts)
+    // for regular task dispatch, not in `systemPrompt` (which is only set for interactive plans)
+    expect(taskPayload.prompt).toContain('UNIQUE_SKILL_MARKER')
+    expect(taskPayload.prompt).toContain('test-dispatch-skill')
+
+    // Clean up test skill
+    const { eq } = await import('drizzle-orm')
+    await db.delete(skills).where(eq(skills.name, 'test-dispatch-skill'))
+    await syncSkillsFromDb(skillManager)
   })
 })

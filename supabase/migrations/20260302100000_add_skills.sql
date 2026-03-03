@@ -82,11 +82,12 @@ CREATE POLICY skills_insert_policy ON skills
     )
   );
 
--- Policy: users can update their own skills or team skills they admin (not builtins)
+-- Policy: users can update their own skills or team skills they admin (not builtins).
+-- Defense-in-depth: team_id IS NOT NULL prevents modification even if source check is bypassed.
 CREATE POLICY skills_update_policy ON skills
   FOR UPDATE
   USING (
-    source != 'builtin' AND (
+    source != 'builtin' AND team_id IS NOT NULL AND (
       author_id = auth.uid()
       OR team_id IN (
         SELECT team_id FROM team_members WHERE user_id = auth.uid() AND role IN ('owner', 'admin')
@@ -94,11 +95,12 @@ CREATE POLICY skills_update_policy ON skills
     )
   );
 
--- Policy: users can delete their own skills or team skills they admin (not builtins)
+-- Policy: users can delete their own skills or team skills they admin (not builtins).
+-- Defense-in-depth: team_id IS NOT NULL prevents deletion even if source check is bypassed.
 CREATE POLICY skills_delete_policy ON skills
   FOR DELETE
   USING (
-    source != 'builtin' AND (
+    source != 'builtin' AND team_id IS NOT NULL AND (
       author_id = auth.uid()
       OR team_id IN (
         SELECT team_id FROM team_members WHERE user_id = auth.uid() AND role IN ('owner', 'admin')

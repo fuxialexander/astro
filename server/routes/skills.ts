@@ -202,7 +202,9 @@ skillsRoute.post('/', async (c) => {
 
     const [created] = await db.select().from(skills).where(eq(skills.id, skillId))
 
-    // Sync in-memory skill-manager for prompt injection
+    // Sync in-memory skill-manager for prompt injection.
+    // Note: Each mutation triggers a full DB reload. At current scale (<100 skills)
+    // this is fine. For bulk operations, consider a batch endpoint or debounced sync.
     await syncSkillsFromDb(skillManager)
 
     return c.json(created, 201)
@@ -310,7 +312,8 @@ skillsRoute.put('/:id', async (c) => {
           error: `Merged config size (${mergedSize} bytes) exceeds maximum allowed (${MAX_CONFIG_SIZE} bytes). `
             + `Breakdown: existing config=${existingConfigSize} bytes, `
             + `update config=${updateConfigSize} bytes, `
-            + `OpenClaw fields=${openClawSize} bytes`,
+            + `OpenClaw fields=${openClawSize} bytes. `
+            + `Consider removing unused fields from the existing config before updating.`,
         }, 400)
       }
     }
