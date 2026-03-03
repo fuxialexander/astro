@@ -238,6 +238,8 @@ Use `Glob` and `Read` to explore the full directory tree as needed.
 - **Cross-check with design docs** — Before adding new technical docs, check `docs/design/` for existing coverage and `docs/design/CURRENT_CONFLICT_VIEW.md` for known discrepancies.
 
 ### Pull Requests
+**Before creating a PR, always run all CI checks locally (lint, build, tests) and fix any failures. This means running `npm run lint`, `npm run build`, and `npm test` — all must pass. The only CI job that cannot be run locally is the AI code review agent; everything else must be green before opening a PR.**
+
 **Before creating a PR, always run a round of code review using a subagent. Fix any issues and build errors before submitting the PR.**
 
 **Lockfile rule:** When changing dependencies in `package.json`, always run `pnpm install` and commit the updated `pnpm-lock.yaml`. The Fly.io deploy uses `--frozen-lockfile` and will fail if specifiers are out of sync.
