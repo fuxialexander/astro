@@ -180,6 +180,8 @@ interface PlanState {
   markNodesAsUpdating: (nodeIds: string[]) => void
   /** Reset a node for re-execution: close PR, delete branch, clean worktree, reset status */
   resetNode: (nodeId: string, projectId: string) => Promise<{ success: boolean; errors?: string[] }>
+  /** Soft-delete all live nodes and edges for a project (for replan). Returns archived node IDs. */
+  archiveProjectForReplan: (projectId: string) => string[]
 }
 
 // Empty seed data — new users start with no plans and create via /projects/new
@@ -566,5 +568,41 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       set({ nodes: nextNodes })
     }
     return result
+  },
+
+  archiveProjectForReplan: (projectId) => {
+    const now = new Date()
+    const actionId = crypto.randomUUID()
+
+    const projectNodeIds = get()
+      .nodes.filter((n) => n.projectId === projectId && isLive(n))
+      .map((n) => n.id)
+    const nodeIdSet = new Set(projectNodeIds)
+
+    const nextNodes = get().nodes.map((n) =>
+      nodeIdSet.has(n.id)
+        ? { ...n, deletedAt: now, deletionActionId: actionId, updatedAt: now }
+        : n,
+    )
+    const nextEdges = get().edges.map((e) =>
+      isLive(e) && (nodeIdSet.has(e.source) || nodeIdSet.has(e.target))
+        ? { ...e, deletedAt: now, deletionActionId: actionId }
+        : e,
+    )
+    set({ nodes: nextNodes, edges: nextEdges })
+
+    // Persist asynchronously
+    for (const id of projectNodeIds) {
+      dataClient
+        .updateNode(id, { deletedAt: now, deletionActionId: actionId })
+        .catch((err) => {
+          console.error(
+            "[plan-store] Failed to archive node for replan:",
+            err,
+          )
+        })
+    }
+
+    return projectNodeIds
   },
 }))
