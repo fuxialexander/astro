@@ -14,7 +14,9 @@
 import { db } from './index.js'
 import { skills } from './schema.js'
 import { eq, and } from 'drizzle-orm'
-import { builtinSkills } from '../../../../skills/index.js'
+// Skills live at repo root (skills/) — path alias configured in packages/core/tsconfig.json.
+// At runtime (tsx), this resolves via relative path; tsc uses the @skills alias for type checking.
+import { builtinSkills } from '../../../../skills/index.js' // @skills
 
 /**
  * Check if any builtin skill field has changed compared to the DB row.

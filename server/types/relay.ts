@@ -919,7 +919,12 @@ export interface RelayServerConfig {
 export const DEFAULT_RELAY_CONFIG: RelayServerConfig = {
   port: 3002,
   heartbeatIntervalMs: 30000,  // 30 seconds
-  heartbeatTimeoutMs: 180000,  // 6 missed heartbeats
+  // 180s (6 missed heartbeats) tolerance for machine disconnection detection
+  // Rationale: With unlimited maxTurns for execution tasks, agents may run for
+  // extended periods. Longer heartbeat timeout prevents false disconnections
+  // from network hiccups or temporary load, at the cost of slower failure
+  // detection when machines genuinely disconnect.
+  heartbeatTimeoutMs: 180000,
   disconnectGracePeriodMs: 180000,  // 180 seconds grace period before failing tasks
   maxConnectionsPerMachine: 1,
   rateLimit: {

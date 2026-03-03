@@ -561,7 +561,7 @@ interface ProviderAdapter {
 │  │ workingDir =     │     │                          │  │
 │  │ WORKTREE PATH    │     │ query({                  │  │
 │  └─────────────────┘     │   prompt,                │  │
-│                           │   maxTurns: 10-100,     │  │
+│                           │   maxTurns: 10 | ∞,     │  │
 │                           │   model: claude-opus-4,  │  │
 │                           │   tools: [MCP tools],   │  │
 │  ┌─────────────────┐     │   options: { cwd }      │  │

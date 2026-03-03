@@ -60,7 +60,7 @@ export function SkillDetailDialog({
   if (!skill) return null
 
   const handleToggle = () => {
-    toggleSkill(skill.name)
+    toggleSkill(skill.id)
   }
 
   const handleEdit = () => {
@@ -69,7 +69,7 @@ export function SkillDetailDialog({
   }
 
   const handleSaveInstructions = () => {
-    updateSkill(skill.name, { instructions: editedInstructions })
+    updateSkill(skill.id, { instructions: editedInstructions })
     setIsEditing(false)
   }
 
@@ -79,7 +79,7 @@ export function SkillDetailDialog({
   }
 
   const handleDelete = () => {
-    removeSkill(skill.name)
+    removeSkill(skill.id)
     onOpenChange(false)
   }
 

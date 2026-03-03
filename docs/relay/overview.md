@@ -47,7 +47,7 @@ The relay server enables multi-environment task dispatch by:
 The core WebSocket server that handles:
 - Connection authentication (JWT validation)
 - Message routing between platform and agent runners
-- Heartbeat mechanism (30s ping, 90s timeout)
+- Heartbeat mechanism (30s ping, 180s timeout)
 - Rate limiting per machine
 - Task dispatch and cancellation
 
@@ -200,7 +200,7 @@ POST /api/relay/dispatch
 ```typescript
 {
   heartbeatIntervalMs: 30000,   // Ping every 30 seconds
-  heartbeatTimeoutMs: 90000,    // Disconnect after 3 missed pings
+  heartbeatTimeoutMs: 180000,   // Disconnect after 6 missed pings
   maxConnectionsPerMachine: 1,  // One connection per machine ID
   rateLimit: {
     windowMs: 60000,            // 1 minute window

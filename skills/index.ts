@@ -3,6 +3,11 @@
  *
  * This module exports built-in skill definitions that can be used for seeding
  * the skills database or injecting into agent prompts.
+ *
+ * Note: `astro-plan-bridge/` is intentionally NOT included in `builtinSkills`.
+ * It's a SKILL.md-format definition that requires per-user configuration
+ * (ASTRO_SERVER_URL, ASTRO_AUTH_TOKEN) and is installed via the "Paste SKILL.md"
+ * flow in the skill settings UI, not auto-seeded on server startup.
  */
 
 // Types

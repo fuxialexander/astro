@@ -19,6 +19,7 @@ export interface SkillRow extends OpenClawSkill {
 }
 
 interface SkillStore {
+  /** Skills keyed by `id` (UUID) — consistent with the API and DB primary key. */
   skills: Map<string, SkillRow>
   loaded: boolean
   loading: boolean
@@ -27,19 +28,21 @@ interface SkillStore {
   // Lifecycle
   load: () => Promise<void>
   addSkill: (skill: OpenClawSkill) => void
-  updateSkill: (name: string, updates: Partial<OpenClawSkill>) => void
-  removeSkill: (name: string) => void
-  toggleSkill: (name: string) => void
+  updateSkill: (id: string, updates: Partial<OpenClawSkill>) => void
+  removeSkill: (id: string) => void
+  toggleSkill: (id: string) => void
 
   /** @deprecated Use toggleSkill instead */
-  enableSkill: (name: string) => void
+  enableSkill: (id: string) => void
   /** @deprecated Use toggleSkill instead */
-  disableSkill: (name: string) => void
-  updateSkillConfig: (name: string, config: Record<string, unknown>) => void
+  disableSkill: (id: string) => void
+  updateSkillConfig: (id: string, config: Record<string, unknown>) => void
 
   // Accessors
   getEligibleSkills: () => OpenClawSkill[]
   getSkillPromptInjection: () => string
+  /** Look up a skill by name. Useful for plugin bridge (which knows name, not id). */
+  findByName: (name: string) => SkillRow | undefined
 }
 
 export const useSkillStore = create<SkillStore>((set, get) => ({
@@ -54,15 +57,22 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
       const rows = await dataClient.listSkills()
       const skills = new Map<string, SkillRow>()
       for (const row of rows) {
-        skills.set(row.name, row)
+        skills.set(row.id, row)
       }
       set({ skills, loaded: true, loading: false })
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to load skills'
       // Server may not be ready yet — mark loaded so app doesn't block
       set({
         loaded: true,
         loading: false,
-        error: err instanceof Error ? err.message : 'Failed to load skills',
+        error: errorMsg,
+      })
+      // Surface the error to the user via toast notification
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Failed to load skills',
+        description: errorMsg,
       })
     }
   },
@@ -72,7 +82,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     const skills = new Map(get().skills)
     const tempId = crypto.randomUUID()
     const row: SkillRow = { ...skill, id: tempId }
-    skills.set(skill.name, row)
+    skills.set(tempId, row)
     set({ skills })
 
     // Sync to backend
@@ -85,15 +95,17 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
       enabled: skill.enabled,
       config: skill.config,
     }).then((created) => {
-      // Merge server response (may have different id or additional fields)
+      // Replace the temp entry with the server response
       const current = new Map(get().skills)
-      if (current.has(skill.name)) {
-        current.set(skill.name, created)
-        set({ skills: current })
-      }
+      current.delete(tempId)
+      current.set(created.id, created)
+      set({ skills: current })
     }).catch((err) => {
       console.error('[skill-store] Failed to sync addSkill:', err)
-      set({ error: err instanceof Error ? err.message : 'Failed to save skill' })
+      // Revert optimistic add
+      const current = new Map(get().skills)
+      current.delete(tempId)
+      set({ skills: current, error: err instanceof Error ? err.message : 'Failed to save skill' })
       useToastStore.getState().add({
         type: 'error',
         title: 'Failed to save skill',
@@ -102,44 +114,29 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     })
   },
 
-  updateSkill: (name, updates) => {
+  updateSkill: (id, updates) => {
     const skills = new Map(get().skills)
-    const existing = skills.get(name)
+    const existing = skills.get(id)
     if (!existing) return
 
-    // Snapshot for rollback (including original key)
+    // Snapshot for rollback
     const originalSkill = { ...existing }
-    const originalKey = name
 
     // Optimistic: merge updates locally
     const updated: SkillRow = { ...existing, ...updates }
-    // If name changed, re-key the map
-    if (updates.name && updates.name !== name) {
-      skills.delete(name)
-      skills.set(updates.name, updated)
-    } else {
-      skills.set(name, updated)
-    }
+    skills.set(id, updated)
     set({ skills })
 
     // Sync to backend using the DB id
-    dataClient.updateSkill(existing.id, updates).then((serverRow) => {
+    dataClient.updateSkill(id, updates).then((serverRow) => {
       const current = new Map(get().skills)
-      const key = serverRow.name
-      current.set(key, serverRow)
-      // Clean up old key if name changed
-      if (updates.name && updates.name !== name) {
-        current.delete(name)
-      }
+      current.set(id, serverRow)
       set({ skills: current })
     }).catch((err) => {
       console.error('[skill-store] Failed to sync updateSkill:', err)
-      // Revert to original state using the original key
+      // Revert to original state
       const current = new Map(get().skills)
-      if (updates.name && updates.name !== originalKey) {
-        current.delete(updates.name) // Remove the optimistic new key
-      }
-      current.set(originalKey, originalSkill) // Restore with original key
+      current.set(id, originalSkill)
       set({ skills: current, error: err instanceof Error ? err.message : 'Failed to update skill' })
       useToastStore.getState().add({
         type: 'error',
@@ -149,21 +146,21 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     })
   },
 
-  removeSkill: (name) => {
+  removeSkill: (id) => {
     const skills = new Map(get().skills)
-    const existing = skills.get(name)
+    const existing = skills.get(id)
     if (!existing) return
 
     // Optimistic: remove locally
-    skills.delete(name)
+    skills.delete(id)
     set({ skills })
 
     // Sync to backend
-    dataClient.deleteSkill(existing.id).catch((err) => {
+    dataClient.deleteSkill(id).catch((err) => {
       console.error('[skill-store] Failed to sync removeSkill:', err)
       // Revert on failure
       const current = new Map(get().skills)
-      current.set(name, existing)
+      current.set(id, existing)
       set({ skills: current, error: err instanceof Error ? err.message : 'Failed to remove skill' })
       useToastStore.getState().add({
         type: 'error',
@@ -173,86 +170,86 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     })
   },
 
-  toggleSkill: (name) => {
+  toggleSkill: (id) => {
     const skills = new Map(get().skills)
-    const existing = skills.get(name)
+    const existing = skills.get(id)
     if (!existing) return
 
     // Optimistic: toggle locally
     const toggled: SkillRow = { ...existing, enabled: !existing.enabled }
-    skills.set(name, toggled)
+    skills.set(id, toggled)
     set({ skills })
 
     // Sync to backend
-    dataClient.toggleSkill(existing.id).then((serverRow) => {
+    dataClient.toggleSkill(id).then((serverRow) => {
       const current = new Map(get().skills)
-      current.set(name, serverRow)
+      current.set(id, serverRow)
       set({ skills: current })
     }).catch((err) => {
       console.error('[skill-store] Failed to sync toggleSkill:', err)
       // Revert on failure
       const current = new Map(get().skills)
-      current.set(name, existing)
+      current.set(id, existing)
       set({ skills: current, error: err instanceof Error ? err.message : 'Failed to toggle skill' })
     })
   },
 
-  enableSkill: (name) => {
+  enableSkill: (id) => {
     const skills = new Map(get().skills)
-    const existing = skills.get(name)
+    const existing = skills.get(id)
     if (!existing || existing.enabled) return
 
     // Optimistic: enable locally
-    skills.set(name, { ...existing, enabled: true })
+    skills.set(id, { ...existing, enabled: true })
     set({ skills })
 
     // Sync via toggle if currently disabled
-    dataClient.toggleSkill(existing.id).then((serverRow) => {
+    dataClient.toggleSkill(id).then((serverRow) => {
       const current = new Map(get().skills)
-      current.set(name, serverRow)
+      current.set(id, serverRow)
       set({ skills: current })
     }).catch((err) => {
       console.error('[skill-store] Failed to sync enableSkill:', err)
       const current = new Map(get().skills)
-      current.set(name, existing)
+      current.set(id, existing)
       set({ skills: current })
     })
   },
 
-  disableSkill: (name) => {
+  disableSkill: (id) => {
     const skills = new Map(get().skills)
-    const existing = skills.get(name)
+    const existing = skills.get(id)
     if (!existing || !existing.enabled) return
 
     // Optimistic: disable locally
-    skills.set(name, { ...existing, enabled: false })
+    skills.set(id, { ...existing, enabled: false })
     set({ skills })
 
     // Sync via toggle if currently enabled
-    dataClient.toggleSkill(existing.id).then((serverRow) => {
+    dataClient.toggleSkill(id).then((serverRow) => {
       const current = new Map(get().skills)
-      current.set(name, serverRow)
+      current.set(id, serverRow)
       set({ skills: current })
     }).catch((err) => {
       console.error('[skill-store] Failed to sync disableSkill:', err)
       const current = new Map(get().skills)
-      current.set(name, existing)
+      current.set(id, existing)
       set({ skills: current })
     })
   },
 
-  updateSkillConfig: (name, config) => {
+  updateSkillConfig: (id, config) => {
     const skills = new Map(get().skills)
-    const existing = skills.get(name)
+    const existing = skills.get(id)
     if (!existing) return
 
     // Optimistic: update config locally
     const updated: SkillRow = { ...existing, config }
-    skills.set(name, updated)
+    skills.set(id, updated)
     set({ skills })
 
     // Sync to backend
-    dataClient.updateSkill(existing.id, { config } as Partial<SkillRow>).catch((err) => {
+    dataClient.updateSkill(id, { config } as Partial<SkillRow>).catch((err) => {
       console.error('[skill-store] Failed to sync updateSkillConfig:', err)
     })
   },
@@ -279,5 +276,12 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
       .join("\n")
 
     return `<skills>\n${skillEntries}\n</skills>`
+  },
+
+  findByName: (name: string) => {
+    for (const [, skill] of get().skills) {
+      if (skill.name === name) return skill
+    }
+    return undefined
   },
 }))
