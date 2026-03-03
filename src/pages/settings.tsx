@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { Link } from "react-router"
 import {
   ChevronLeft,
@@ -39,6 +39,7 @@ import { useMachinesStore } from "@/stores/machines-store"
 import { useGitHubStore } from "@/stores/github-store"
 import { useApiKeysStore } from "@/stores/api-keys-store"
 import { useSettingsStore, defaultModelTierMap, type ModelTier } from "@/stores/settings-store"
+import { useToastStore } from "@/stores/toast-store"
 import { getSupabase } from "@/lib/supabase-client"
 import { apiUrl } from "@/lib/api-url"
 import { isServerMode } from "@/lib/app-mode"
@@ -1565,6 +1566,7 @@ const tierOptions = [
 function EnvironmentsSettingsContent() {
   const { profile, setDefaultMachineId } = useUserProfileStore()
   const { modelTier, setModelTier, defaultProvider: settingsProvider, setDefaultProvider: setSettingsProvider, customModelMap, setCustomModel, getEffectiveTierMap } = useSettingsStore()
+  const addToast = useToastStore((s) => s.add)
 
   const execMachines = useExecutionStore((s) => s.machines)
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
@@ -1573,10 +1575,22 @@ function EnvironmentsSettingsContent() {
   const providersLoaded = useExecutionStore((s) => s.providersLoaded)
   const loadProviders = useExecutionStore((s) => s.loadProviders)
 
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
   useEffect(() => {
     if (!machinesLoaded) loadMachines()
     if (!providersLoaded) loadProviders()
   }, [machinesLoaded, loadMachines, providersLoaded, loadProviders])
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+    }
+  }, [])
 
   const onlineMachines = execMachines.filter((m) => m.status !== "offline")
   const availableProviders = providers.filter((p) => p.available)
@@ -1589,6 +1603,33 @@ function EnvironmentsSettingsContent() {
   }
   const providerIds = Array.from(allProviderIds)
   const builtinProviders = new Set(Object.keys(defaultModelTierMap.large))
+
+  // Debounced save function for model mapping
+  const debouncedSetCustomModel = useCallback((tier: ModelTier, provider: string, model: string) => {
+    setSaveStatus("saving")
+
+    // Clear existing timeout
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+    }
+
+    // Set new timeout
+    saveTimeoutRef.current = setTimeout(() => {
+      setCustomModel(tier, provider, model)
+      setSaveStatus("saved")
+      addToast({
+        type: "success",
+        title: "Settings saved",
+        description: "Model configuration has been updated",
+        duration: 2000,
+      })
+
+      // Reset to idle after showing "saved" for a moment
+      setTimeout(() => {
+        setSaveStatus("idle")
+      }, 1500)
+    }, 500)
+  }, [setCustomModel, addToast])
 
   return (
     <div className="flex flex-col gap-8">
@@ -1642,6 +1683,15 @@ function EnvironmentsSettingsContent() {
             />
           </SettingsRow>
         </div>
+        <div className="rounded-lg bg-muted/30 border border-border/50 p-3">
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            <span className="font-semibold text-foreground">Provider types:</span>
+            <br />
+            • <span className="font-medium">claude-sdk</span> - Claude Code/API models (Opus, Sonnet, Haiku)
+            <br />
+            • <span className="font-medium">codex</span> - OpenAI Codex models for code generation
+          </p>
+        </div>
       </section>
 
       {/* Default Model Size */}
@@ -1660,6 +1710,17 @@ function EnvironmentsSettingsContent() {
             />
           </SettingsRow>
         </div>
+        <div className="rounded-lg bg-muted/30 border border-border/50 p-3">
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            <span className="font-semibold text-foreground">When each tier is used:</span>
+            <br />
+            • <span className="font-medium">Large</span> - Complex reasoning, plan generation, strategic decisions
+            <br />
+            • <span className="font-medium">Medium</span> - Standard tasks, code implementation, general operations
+            <br />
+            • <span className="font-medium">Small</span> - Simple tasks, quick responses, cost-sensitive operations
+          </p>
+        </div>
       </section>
 
       {/* Editable Model Mapping */}
@@ -1669,6 +1730,22 @@ function EnvironmentsSettingsContent() {
             <h2 className="text-sm font-semibold">Model Mapping</h2>
             <p className="text-[11px] text-muted-foreground mt-0.5">Customize which model ID is used for each tier and provider</p>
           </div>
+          {saveStatus !== "idle" && (
+            <div className="flex items-center gap-1.5">
+              {saveStatus === "saving" && (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Saving...</span>
+                </>
+              )}
+              {saveStatus === "saved" && (
+                <>
+                  <Check className="h-3 w-3 text-success" />
+                  <span className="text-xs text-success">Saved</span>
+                </>
+              )}
+            </div>
+          )}
         </div>
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="overflow-x-auto">
@@ -1701,8 +1778,9 @@ function EnvironmentsSettingsContent() {
                           <input
                             type="text"
                             value={customVal ?? defaultVal}
-                            onChange={(e) => setCustomModel(tier, pid, e.target.value)}
+                            onChange={(e) => debouncedSetCustomModel(tier, pid, e.target.value)}
                             placeholder={defaultVal || "model-id"}
+                            title={defaultVal ? `Default: ${defaultVal}` : undefined}
                             className={cn(
                               "w-full h-7 rounded border px-2 text-xs font-mono bg-background",
                               "focus:outline-none focus:ring-1 focus:ring-ring",
