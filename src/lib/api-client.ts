@@ -1,6 +1,6 @@
 import type { PlanNode, PlanEdge } from "@/types"
 import { getAccessToken } from "@/lib/supabase-client"
-import { parseChatSSE, parseExecutionSSE } from "@/lib/sse-parser"
+import { parseChatSSE } from "@/lib/sse-parser"
 import { apiUrl } from "@/lib/api-url"
 
 /**
@@ -462,71 +462,6 @@ export async function redetectProviders(): Promise<ProviderStatusResult> {
     throw new Error(`Failed to detect providers: ${response.status}`)
   }
   return response.json()
-}
-
-// Dispatch types
-export interface DispatchParams {
-  nodeId: string
-  projectId: string
-  taskTitle: string
-  taskDescription: string
-  taskType?: string
-  visionDoc?: string
-  dependencyOutputs?: string
-  workingDirectory?: string
-  model?: string
-  providerId?: string
-  maxTurns?: number
-}
-
-export interface DispatchCallbacks {
-  onInit?: (data: { executionId: string; nodeId: string; providerId: string; providerName: string }) => void
-  onText?: (text: string) => void
-  onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
-  onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
-  onFileChange?: (data: { path: string; action: string; diff?: string }) => void
-  onProgress?: (data: { message: string; percentage?: number }) => void
-  onResult?: (data: {
-    executionId: string
-    nodeId: string
-    status: string
-    output: string
-    metrics?: Record<string, unknown>
-  }) => void
-  onError?: (error: string) => void
-  onDone?: (data: { executionId: string; nodeId: string; sessionId?: string }) => void
-}
-
-export async function dispatchTask(
-  params: DispatchParams,
-  callbacks: DispatchCallbacks,
-  signal?: AbortSignal
-): Promise<void> {
-  const response = await fetch(apiUrl("/api/agent/dispatch"), {
-    method: "POST",
-    headers: await authHeaders(),
-    body: JSON.stringify(params),
-    signal,
-  })
-
-  if (!response.ok) {
-    let errorMsg = `Server error: ${response.status}`
-    try { const b = await response.json(); if (b.error) errorMsg += ` – ${b.error}` } catch { /* non-JSON */ }
-    callbacks.onError?.(errorMsg)
-    return
-  }
-
-  await parseExecutionSSE(response, {
-    onInit: callbacks.onInit,
-    onText: callbacks.onText,
-    onToolUse: callbacks.onToolUse,
-    onToolResult: callbacks.onToolResult,
-    onFileChange: callbacks.onFileChange,
-    onProgress: callbacks.onProgress,
-    onResult: callbacks.onResult,
-    onError: callbacks.onError,
-    onDone: callbacks.onDone,
-  })
 }
 
 /**
