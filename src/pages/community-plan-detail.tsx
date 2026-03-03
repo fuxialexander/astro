@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react"
 import { useParams, useNavigate, Link } from "react-router"
-import { ArrowLeft, Star, GitFork, Download, Calendar, User, Tag, Layers, FileText, MessageSquare } from "lucide-react"
+import { ArrowLeft, Star, GitFork, Download, Calendar, User, Tag, Layers, FileText, MessageSquare, Edit2, Trash2 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { formatDistanceToNow } from "date-fns"
 import { useCommunityStore } from "@/stores/community-store"
+import { useAuthStore } from "@/stores/auth-store"
+import { editComment, deleteComment } from "@/lib/community-client"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,30 +16,128 @@ import { cn } from "@/lib/utils"
 
 interface CommentItemProps {
   id: string
+  authorId: string | null
   authorName: string
   content: string
   createdAt: Date
   parentCommentId: string | null
   onReply: (commentId: string) => void
+  onUpdate: () => void
 }
 
-function CommentItem({ authorName, content, createdAt, onReply, id }: CommentItemProps) {
+function CommentItem({ authorName, authorId, content, createdAt, onReply, id, onUpdate }: CommentItemProps) {
+  const currentUserId = useAuthStore((s) => s.user?.id)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editContent, setEditContent] = useState(content)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+
+  const isOwnComment = currentUserId && authorId === currentUserId
+
+  const handleSaveEdit = async () => {
+    if (!editContent.trim()) return
+    setIsSaving(true)
+    try {
+      await editComment(id, editContent.trim())
+      setIsEditing(false)
+      onUpdate()
+    } catch (err) {
+      console.error("Failed to edit comment:", err)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!confirm("Are you sure you want to delete this comment?")) return
+    setIsDeleting(true)
+    try {
+      await deleteComment(id)
+      onUpdate()
+    } catch (err) {
+      console.error("Failed to delete comment:", err)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-2 py-3">
       <div className="flex items-center gap-2">
+        {/* Avatar placeholder */}
+        <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+          <User className="h-4 w-4 text-muted-foreground" />
+        </div>
         <span className="text-sm font-medium text-foreground">{authorName}</span>
         <span className="text-xs text-muted-foreground">
           {formatDistanceToNow(createdAt, { addSuffix: true })}
         </span>
       </div>
-      <p className="text-sm text-muted-foreground leading-relaxed">{content}</p>
-      <button
-        type="button"
-        onClick={() => onReply(id)}
-        className="text-xs font-medium text-primary hover:underline self-start"
-      >
-        Reply
-      </button>
+
+      {/* Content */}
+      {isEditing ? (
+        <div className="space-y-2 ml-10">
+          <textarea
+            value={editContent}
+            onChange={(e) => setEditContent(e.target.value)}
+            className="min-h-[80px] w-full rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          />
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={handleSaveEdit} disabled={!editContent.trim() || isSaving}>
+              {isSaving ? "Saving..." : "Save"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setIsEditing(false)
+                setEditContent(content)
+              }}
+              disabled={isSaving}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="ml-10 prose prose-sm max-w-none dark:prose-invert">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        </div>
+      )}
+
+      {/* Actions */}
+      {!isEditing && (
+        <div className="ml-10 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => onReply(id)}
+            className="text-xs font-medium text-primary hover:underline"
+          >
+            Reply
+          </button>
+          {isOwnComment && (
+            <>
+              <button
+                type="button"
+                onClick={() => setIsEditing(true)}
+                className="text-xs font-medium text-muted-foreground hover:text-foreground flex items-center gap-1"
+              >
+                <Edit2 className="h-3 w-3" />
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="text-xs font-medium text-muted-foreground hover:text-destructive flex items-center gap-1"
+              >
+                <Trash2 className="h-3 w-3" />
+                {isDeleting ? "Deleting..." : "Delete"}
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -103,6 +203,12 @@ export function CommunityPlanDetail() {
       setReplyingTo(null)
     } catch (err) {
       console.error("Failed to add comment:", err)
+    }
+  }
+
+  const handleRefreshComments = () => {
+    if (id) {
+      fetchComments(id)
     }
   }
 
@@ -425,6 +531,7 @@ export function CommunityPlanDetail() {
                                 setReplyingTo(id)
                                 setCommentContent("")
                               }}
+                              onUpdate={handleRefreshComments}
                             />
                             {/* Replies */}
                             {repliesByParent[comment.id] && (
@@ -437,6 +544,7 @@ export function CommunityPlanDetail() {
                                       setReplyingTo(id)
                                       setCommentContent("")
                                     }}
+                                    onUpdate={handleRefreshComments}
                                   />
                                 ))}
                               </div>
