@@ -28,6 +28,7 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
   const registerPendingSave = useContentSaveStore((s) => s.registerPendingSave)
   const clearPendingSave = useContentSaveStore((s) => s.clearPendingSave)
   const editorRef = useRef<RichTextEditorRef>(null)
+  const mountedRef = useRef(true)
 
   // Initialize with content or fall back to description for backward compat
   const initialContent = node.content || (node.description ? `<p>${node.description}</p>` : '')
@@ -68,25 +69,40 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
         debounceRef.current = null
       }
 
-      // If already saving, wait for that to complete
+      // If already saving, wait for that to complete, then proceed with our save
+      // (don't early return — the content may have changed since the last save started)
       if (savingRef.current) {
         await savingRef.current
-        return
       }
 
-      // Execute the save immediately
-      setSaveStatus('saving')
-      const markdown = editorRef.current?.getMarkdown() || html
-      // updateNode returns void, so wrap it in a Promise for proper async handling
-      const savePromise = Promise.resolve(updateNode(node.id, { content: html, description: markdown }))
-      savingRef.current = savePromise
+      try {
+        if (mountedRef.current) setSaveStatus('saving')
+        const markdown = editorRef.current?.getMarkdown() || html
+        // Call dataClient.updateNode directly to ensure we await the actual API call
+        // (plan-store.updateNode fires and forgets, which defeats the flush mechanism)
+        const savePromise = dataClient.updateNode(node.id, { content: html, description: markdown })
+        savingRef.current = savePromise
 
-      await savePromise
+        await savePromise
 
-      savingRef.current = null
-      clearPendingSave(node.id)
-      setSaveStatus('saved')
-      setTimeout(() => setSaveStatus('idle'), 1500)
+        // Also update local store state so the UI reflects the change immediately
+        updateNode(node.id, { content: html, description: markdown })
+
+        savingRef.current = null
+        clearPendingSave(node.id)
+        if (mountedRef.current) {
+          setSaveStatus('saved')
+          setTimeout(() => {
+            if (mountedRef.current) setSaveStatus('idle')
+          }, 1500)
+        }
+      } catch (error) {
+        savingRef.current = null
+        clearPendingSave(node.id)
+        if (mountedRef.current) setSaveStatus('idle')
+        console.error('Failed to save task content:', error)
+        // Note: Could show toast here, but error is logged and execution will fail gracefully
+      }
     }
 
     registerPendingSave(node.id, flushFn)
@@ -96,13 +112,17 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
     }, 800)
   }, [node.id, initialContent, updateNode, registerPendingSave, clearPendingSave])
 
-  // Cleanup debounce and pending save on unmount
+  // Cleanup debounce on unmount and mark component as unmounted
+  // Note: We intentionally DON'T clear the pending save from the store here.
+  // If a user navigates away before the debounce fires, the flush function should
+  // remain available so that execution can still trigger the save. This prevents
+  // data loss when users navigate away quickly after editing.
   useEffect(() => {
     return () => {
+      mountedRef.current = false
       if (debounceRef.current) clearTimeout(debounceRef.current)
-      clearPendingSave(node.id)
     }
-  }, [node.id, clearPendingSave])
+  }, [node.id])
 
   const handleImageUpload = useCallback(async (file: File): Promise<string | null> => {
     try {

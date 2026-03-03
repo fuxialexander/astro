@@ -829,7 +829,17 @@ export function PlanListView({
     }
 
     // Flush any pending content saves before execution
-    await flushPendingSaves([node.id])
+    try {
+      await flushPendingSaves([node.id])
+    } catch (error) {
+      console.error('Failed to save task content before execution:', error)
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Failed to save changes',
+        description: 'Could not save task content before execution. Please try again.',
+      })
+      return
+    }
 
     const { startExecution } = useExecutionStore.getState()
     await startExecution(node.id, node.projectId)
@@ -867,7 +877,17 @@ export function PlanListView({
         }
 
         // Flush pending saves for all selected tasks before execution
-        await flushPendingSaves(ids)
+        try {
+          await flushPendingSaves(ids)
+        } catch (error) {
+          console.error('Failed to save task content before execution:', error)
+          useToastStore.getState().add({
+            type: 'error',
+            title: 'Failed to save changes',
+            description: 'Could not save task content before execution. Please try again.',
+          })
+          return
+        }
 
         const { startExecution } = useExecutionStore.getState()
         // Execute all selected tasks in parallel

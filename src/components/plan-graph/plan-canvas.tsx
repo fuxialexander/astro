@@ -303,7 +303,17 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
 
     // Flush pending saves for all nodes to execute
     const nodeIds = nodesToExecute.map((n) => n.id)
-    await flushPendingSaves(nodeIds)
+    try {
+      await flushPendingSaves(nodeIds)
+    } catch (error) {
+      console.error('Failed to save task content before execution:', error)
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Failed to save changes',
+        description: 'Could not save task content before execution. Please try again.',
+      })
+      return
+    }
 
     for (const node of nodesToExecute) {
       startExecution(node.id, projectId)
@@ -333,7 +343,17 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
 
     // Flush pending saves for all project nodes before batch execution
     const nodeIds = projectNodes.map((n) => n.id)
-    await flushPendingSaves(nodeIds)
+    try {
+      await flushPendingSaves(nodeIds)
+    } catch (error) {
+      console.error('Failed to save task content before execution:', error)
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Failed to save changes',
+        description: 'Could not save task content before execution. Please try again.',
+      })
+      return
+    }
 
     executeAllProject(projectId)
   }, [executeAllProject, projectId, project, resolvedMachineId, projectNodes, flushPendingSaves])

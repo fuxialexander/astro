@@ -49,6 +49,16 @@ export const useContentSaveStore = create<ContentSaveStore>((set, get) => ({
     }
 
     // Wait for all flushes to complete
-    await Promise.all(flushPromises)
+    // Catch errors from individual flushes to prevent blocking execution
+    // (errors are logged in the flush functions themselves)
+    const results = await Promise.allSettled(flushPromises)
+
+    // Check if any flushes failed and throw a consolidated error
+    const failures = results.filter((r) => r.status === 'rejected')
+    if (failures.length > 0) {
+      const errors = failures.map((f) => (f as PromiseRejectedResult).reason)
+      console.error('[content-save-store] Some content saves failed:', errors)
+      throw new Error(`Failed to save content for ${failures.length} task(s)`)
+    }
   },
 }))
