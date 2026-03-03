@@ -23,7 +23,7 @@ vi.mock('../server/lib/relay-server.js', () => {
   const createMockRelayServer = () => {
     const listeners = new Map<string, Set<Function>>()
     return {
-      dispatchTask: mockDispatchTask,
+      dispatchTask: (...args: any[]) => mockDispatchTask(...args),
       on: vi.fn((event: string, handler: Function) => {
         if (!listeners.has(event)) listeners.set(event, new Set())
         listeners.get(event)!.add(handler)
