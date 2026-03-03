@@ -85,9 +85,8 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     skills.set(tempId, row)
     set({ skills })
 
-    // Sync to backend
+    // Sync to backend — don't send temp ID; server generates a real UUID
     dataClient.createSkill({
-      id: tempId,
       name: skill.name,
       description: skill.description,
       instructions: skill.instructions,
