@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
+import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSettingsStore, resolveModel, type ModelTier } from "@/stores/settings-store"
@@ -88,6 +89,7 @@ export function ProjectNewPlan() {
 
   // Stores
   const startPlanSession = useExecutionStore((s) => s.startPlanSession)
+  const startPlanSessionForProject = useExecutionStore((s) => s.startPlanSessionForProject)
   const allExecutions = useExecutionStore((s) => s.executions)
   const execution = useExecutionStore((s) =>
     activeProjectId ? s.executions.get(`plan-${activeProjectId}`) : undefined
@@ -98,6 +100,16 @@ export function ProjectNewPlan() {
   const project = useProjectStore((s) =>
     activeProjectId ? s.projects.find((p) => p.id === activeProjectId) : undefined
   )
+
+  // Detect existing project with zero plan nodes (for re-generation pre-fill)
+  const planNodes = usePlanStore((s) => s.nodes)
+  const existingProject = useProjectStore((s) =>
+    projectIdParam ? s.projects.find((p) => p.id === projectIdParam) : undefined
+  )
+  const existingProjectHasNoNodes = useMemo(() => {
+    if (!existingProject) return false
+    return planNodes.filter((n) => n.projectId === existingProject.id && isLive(n)).length === 0
+  }, [existingProject, planNodes])
 
   // Playground context: read project and execution data
   const playgroundProject = useProjectStore((s) =>
@@ -257,6 +269,49 @@ export function ProjectNewPlan() {
     }
   }, [fromPlaygroundId, playgroundProject?.defaultMachineId, allMachines])
 
+  // Pre-fill from existing project (re-generation flow: project exists with zero nodes)
+  const existingPrefilled = useRef(false)
+  useEffect(() => {
+    if (!existingProject || !existingProjectHasNoNodes || existingPrefilled.current || fromPlaygroundId) return
+    existingPrefilled.current = true
+
+    // Pre-fill description from project name/description
+    if (existingProject.description) {
+      setDescription(existingProject.description)
+    } else if (existingProject.name) {
+      setDescription(existingProject.name)
+    }
+
+    // Pre-fill working directory
+    if (existingProject.workingDirectory) {
+      setWorkingDir(existingProject.workingDirectory)
+    }
+
+    // Pre-fill repository info
+    if (existingProject.repository) {
+      setRepoUrl(existingProject.repository)
+      if (existingProject.githubOwner) setGithubOwner(existingProject.githubOwner)
+      if (existingProject.githubRepo) setGithubRepo(existingProject.githubRepo)
+    }
+
+    // Pre-fill vision doc and auto-expand context section
+    if (existingProject.visionDoc) {
+      setVisionDoc(existingProject.visionDoc)
+      setContextOpen(true)
+    }
+  }, [existingProject, existingProjectHasNoNodes, fromPlaygroundId])
+
+  // Pre-fill machine for existing project (async — machines load after mount)
+  const existingMachinePrefilled = useRef(false)
+  useEffect(() => {
+    if (!existingProject?.defaultMachineId || !existingProjectHasNoNodes || existingMachinePrefilled.current || allMachines.length === 0 || fromPlaygroundId) return
+    const match = allMachines.find((m) => m.machineId === existingProject.defaultMachineId)
+    if (match) {
+      existingMachinePrefilled.current = true
+      setSelectedMachine(match)
+    }
+  }, [existingProject?.defaultMachineId, existingProjectHasNoNodes, allMachines, fromPlaygroundId])
+
   // Build visionDoc from playground execution summary
   const playgroundVisionDoc = useMemo(() => {
     if (!fromPlaygroundId || !playgroundProject) return undefined
@@ -355,6 +410,9 @@ export function ProjectNewPlan() {
 
   const customModelMap = useSettingsStore((s) => s.customModelMap)
 
+  // Whether we're re-generating for an existing project (pre-fill mode)
+  const isRegeneration = !!(existingProject && existingProjectHasNoNodes && !fromPlaygroundId)
+
   async function handleSubmit() {
     if (!description.trim() || isSubmitting) return
     setIsSubmitting(true)
@@ -369,19 +427,46 @@ export function ProjectNewPlan() {
         .filter(Boolean)
         .join('\n\n') || undefined
 
-      const { projectId } = await startPlanSession(
-        description.trim(),
-        firstLine,
-        {
-          targetMachineId: selectedMachine?.machineId,
-          workingDirectory: workingDir || undefined,
-          preferredProvider: selectedProvider || undefined,
-          model: effectiveModel,
-          visionDoc: combinedVisionDoc,
-          baseBranch: effectiveBranch || undefined,
-          repository: repoUrl || undefined,
-        }
-      )
+      let projectId: string
+
+      if (isRegeneration && existingProject) {
+        // Re-generation flow: use existing project, don't create a duplicate
+        // Update project description/name before starting session
+        updateProject(existingProject.id, {
+          description: description.trim(),
+          name: firstLine,
+        })
+
+        const result = await startPlanSessionForProject(
+          existingProject.id,
+          description.trim(),
+          {
+            targetMachineId: selectedMachine?.machineId,
+            workingDirectory: workingDir || undefined,
+            preferredProvider: selectedProvider || undefined,
+            model: effectiveModel,
+            visionDoc: combinedVisionDoc,
+            baseBranch: effectiveBranch || undefined,
+          }
+        )
+        projectId = result.projectId
+      } else {
+        // Normal flow: create a new project + plan session
+        const result = await startPlanSession(
+          description.trim(),
+          firstLine,
+          {
+            targetMachineId: selectedMachine?.machineId,
+            workingDirectory: workingDir || undefined,
+            preferredProvider: selectedProvider || undefined,
+            model: effectiveModel,
+            visionDoc: combinedVisionDoc,
+            baseBranch: effectiveBranch || undefined,
+            repository: repoUrl || undefined,
+          }
+        )
+        projectId = result.projectId
+      }
 
       // Update project with GitHub owner/repo and attachments if set
       const projectUpdates: Record<string, unknown> = {}
@@ -407,7 +492,10 @@ export function ProjectNewPlan() {
   }
 
   // ─── Chat Phase ─────────────────────────────────────────────────
-  if (activeProjectId && (execution || project)) {
+  // Skip chat phase for existing projects with no plan nodes and no execution (re-generation pre-fill).
+  // Once the user submits, execution becomes truthy and we enter chat phase normally.
+  const showInputForRegeneration = existingProjectHasNoNodes && !execution && !fromPlaygroundId
+  if (activeProjectId && (execution || project) && !showInputForRegeneration) {
     return (
       <div className="h-full">
         <PlanChatPhase
@@ -435,9 +523,13 @@ export function ProjectNewPlan() {
     <div className="flex flex-col items-center justify-start min-h-full p-4 md:p-6 overflow-auto">
       <div className="w-full max-w-2xl">
         <div className="text-center mb-8 mt-4 md:mt-8">
-          <h1 className="text-xl md:text-2xl font-bold font-sans mb-2">Plan</h1>
+          <h1 className="text-xl md:text-2xl font-bold font-sans mb-2">
+            {isRegeneration ? "Regenerate Plan" : "Plan"}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Describe your goal in detail. Agent will build a plan with you collaboratively.
+            {isRegeneration
+              ? "Review and update your goal, then generate a fresh plan."
+              : "Describe your goal in detail. Agent will build a plan with you collaboratively."}
           </p>
         </div>
 
@@ -761,7 +853,7 @@ export function ProjectNewPlan() {
               ) : (
                 <Sparkles className="h-4 w-4" />
               )}
-              {isSubmitting ? "Starting..." : "Start Planning"}
+              {isSubmitting ? "Starting..." : isRegeneration ? "Regenerate Plan" : "Start Planning"}
             </Button>
           </div>
         </div>

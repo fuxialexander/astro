@@ -1,4 +1,5 @@
 import { useMemo, useCallback, useState, useRef, useEffect } from "react"
+import { useNavigate } from "react-router"
 import { stripHtml } from "@/lib/html-utils"
 import {
   ReactFlow,
@@ -12,7 +13,7 @@ import {
   type Connection,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
-import { LayoutGrid, Trash2, Play, X, CheckSquare, Square, PlayCircle, Plus, Minus, Maximize, ListPlus, Server, FolderOpen, AlertTriangle } from "lucide-react"
+import { LayoutGrid, Trash2, Play, X, CheckSquare, Square, PlayCircle, Plus, Minus, Maximize, ListPlus, Server, FolderOpen, AlertTriangle, Sparkles } from "lucide-react"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useAgentStore } from "@/stores/agent-store"
@@ -75,6 +76,7 @@ interface AddChildState {
 }
 
 function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanvasProps) {
+  const navigate = useNavigate()
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const rawPlanEdges = usePlanStore((s) => s.edges)
@@ -536,6 +538,26 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     return (
       <div ref={canvasRef} className="h-full w-full bg-background flex items-center justify-center p-8 relative">
         <div className="flex w-full max-w-[600px] flex-col gap-6">
+          {/* Generate with AI */}
+          <button
+            type="button"
+            onClick={() => navigate(`/plan?projectId=${projectId}`)}
+            className={cn(
+              "flex flex-col gap-3 rounded-xl border p-5 text-left transition-all",
+              "border-primary/30 bg-primary/5 hover:bg-primary/10 hover:border-primary/50"
+            )}
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                <Sparkles className="h-5 w-5 text-primary" />
+              </div>
+              <div className="flex-1">
+                <div className="text-base font-semibold text-primary">Generate with AI</div>
+                <div className="text-xs text-muted-foreground mt-0.5">Describe your goal and let AI create a plan</div>
+              </div>
+            </div>
+          </button>
+
           {/* Manual task creation */}
           <div className="flex flex-col gap-3">
             {!addChildState ? (
