@@ -144,6 +144,7 @@ dispatchRoute.post('/task', async (c) => {
     body = dispatchTaskSchema.parse(rawBody)
   } catch (err) {
     if (err instanceof z.ZodError) {
+      console.error('[dispatch] Zod validation failed:', JSON.stringify(err.issues))
       return c.json({ success: false, error: 'Invalid input', details: err.issues }, 400)
     }
     return c.json({ success: false, error: 'Invalid JSON' }, 400)

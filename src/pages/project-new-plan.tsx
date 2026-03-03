@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useSearchParams, useLocation } from "react-router"
-import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, AlertCircle, Info, Monitor, Bot, Clock, X, FileCode2, Layers, Github, Link, ChevronDown, ChevronRight, FileText, Paperclip } from "lucide-react"
+import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, AlertCircle, Info, Monitor, Bot, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
@@ -22,10 +22,8 @@ import { PlanChatPhase } from "@/components/plan-session/plan-chat-phase"
 import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { BranchSelector } from "@/components/branch-selector"
-import { GitHubRepoPickerDialog } from "@/components/github-repo-picker-dialog"
 import { AttachmentList } from "@/components/task-detail/attachment-list"
 import { useDirectoryDetection } from "@/hooks/use-directory-detection"
-import { useGitHubStore } from "@/stores/github-store"
 import { dataClient } from "@/lib/data-client"
 import { requestNotificationPermission } from "@/lib/notifications"
 import { useToastStore } from "@/stores/toast-store"
@@ -33,60 +31,7 @@ import { OnboardingHint } from "@/components/onboarding-hint"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
 import { deriveAvailableProviders, isProviderAvailable, PROVIDER_NAMES } from "@/components/execution/provider-utils"
-import type { GitHubRepo, TaskAttachment } from "@/types"
-
-/**
- * Result type for parseGitHubUrl — discriminated union for type-safe error handling
- */
-type ParseGitHubUrlResult =
-  | { ok: true; owner: string; repo: string }
-  | { ok: false; error: string }
-
-/**
- * Parse a GitHub URL to extract owner and repo name.
- * Validates against GitHub's naming constraints:
- * - Owner: alphanumeric or hyphens, max 39 chars, cannot start/end with hyphen
- * - Repo: alphanumeric, hyphens, underscores, dots, max 100 chars
- *
- * Returns a result object for type-safe error handling with specific error messages.
- */
-function parseGitHubUrl(url: string): ParseGitHubUrlResult {
-  if (!url.trim()) {
-    return { ok: false, error: 'URL is empty' }
-  }
-
-  // GitHub naming rules
-  const ownerPattern = '[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?'
-  const repoPattern = '[a-zA-Z0-9_.-]{1,100}'
-
-  // Check if it looks like a GitHub URL but has invalid format
-  const looksLikeGitHub = /github\.com/i.test(url) || /^[^/]+\/[^/]+$/.test(url)
-
-  // Match https://github.com/owner/repo, git@github.com:owner/repo
-  // Note: repoPattern is required (no ?), ensuring we don't match URLs like github.com/owner/
-  const ghUrlRegex = new RegExp(`github\\.com[/:](${ ownerPattern})\\/(${ repoPattern})(?:\\.git)?(?:[/#?]|$)`)
-  const httpsMatch = url.match(ghUrlRegex)
-  if (httpsMatch) return { ok: true, owner: httpsMatch[1], repo: httpsMatch[2] }
-
-  // Match bare "owner/repo" format
-  const bareRegex = new RegExp(`^(${ownerPattern})\\/(${repoPattern})$`)
-  const bareMatch = url.match(bareRegex)
-  if (bareMatch) return { ok: true, owner: bareMatch[1], repo: bareMatch[2] }
-
-  // Provide specific error messages based on what went wrong
-  if (looksLikeGitHub) {
-    // Check for common issues
-    if (/github\.com\/[^/]+\/?$/.test(url)) {
-      return { ok: false, error: 'Repository name is required (e.g., github.com/owner/repo)' }
-    }
-    if (/github\.com\/?$/.test(url)) {
-      return { ok: false, error: 'Owner and repository name are required' }
-    }
-    return { ok: false, error: 'Invalid GitHub URL format (expected owner/repo)' }
-  }
-
-  return { ok: false, error: 'Not a recognized GitHub URL or owner/repo format' }
-}
+import type { TaskAttachment } from "@/types"
 
 export function ProjectNewPlan() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -106,11 +51,6 @@ export function ProjectNewPlan() {
   const [selectedProvider, setSelectedProvider] = useState("")
   const [selectedModel, setSelectedModel] = useState("")
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false)
-  const [repoUrl, setRepoUrl] = useState("")
-  const [githubOwner, setGithubOwner] = useState("")
-  const [githubRepo, setGithubRepo] = useState("")
-  const [githubRepoId, setGithubRepoId] = useState<number | undefined>()
-  const [repoPickerOpen, setRepoPickerOpen] = useState(false)
   const [contextOpen, setContextOpen] = useState(false)
   const [visionDoc, setVisionDoc] = useState("")
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
@@ -125,10 +65,6 @@ export function ProjectNewPlan() {
     setSelectedBranch("")
     setSelectedProvider("")
     setSelectedModel("")
-    setRepoUrl("")
-    setGithubOwner("")
-    setGithubRepo("")
-    setGithubRepoId(undefined)
     setVisionDoc("")
     setAttachments([])
     setPendingUploads(0)
@@ -143,11 +79,6 @@ export function ProjectNewPlan() {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(projectIdParam)
 
 
-  // GitHub connection
-  const githubConnected = useGitHubStore((s) => s.connected)
-  const githubRepos = useGitHubStore((s) => s.repos)
-  const fetchGitHubStatus = useGitHubStore((s) => s.fetchStatus)
-  const fetchGitHubRepos = useGitHubStore((s) => s.fetchRepos)
 
   // Stores
   const startPlanSession = useExecutionStore((s) => s.startPlanSession)
@@ -238,17 +169,6 @@ export function ProjectNewPlan() {
     loadSessions()
   }, [loadSessions])
 
-  // Fetch GitHub status on mount (if in server mode)
-  useEffect(() => {
-    if (isServerMode()) {
-      fetchGitHubStatus().then(() => {
-        // If connected, pre-fetch repos for the picker
-        if (useGitHubStore.getState().connected && useGitHubStore.getState().repos.length === 0) {
-          fetchGitHubRepos()
-        }
-      })
-    }
-  }, [fetchGitHubStatus, fetchGitHubRepos])
 
   // Reset provider/model when machine changes and current provider isn't available
   useEffect(() => {
@@ -364,14 +284,6 @@ export function ProjectNewPlan() {
       setWorkingDir(existingProject.workingDirectory)
     }
 
-    // Pre-fill repository info
-    if (existingProject.repository) {
-      setRepoUrl(existingProject.repository)
-      if (existingProject.githubOwner) setGithubOwner(existingProject.githubOwner)
-      if (existingProject.githubRepo) setGithubRepo(existingProject.githubRepo)
-      if (existingProject.githubRepoId) setGithubRepoId(existingProject.githubRepoId)
-    }
-
     // Pre-fill vision doc and auto-expand context section
     if (existingProject.visionDoc) {
       setVisionDoc(existingProject.visionDoc)
@@ -424,36 +336,6 @@ export function ProjectNewPlan() {
     // "From Playground" badge detection in PlanChatPhase works reliably
     return sections.join('\n')
   }, [fromPlaygroundId, playgroundProject, playgroundExecution])
-
-  // Handle repo URL text input changes with auto-parsing
-  const handleRepoUrlChange = useCallback((value: string) => {
-    setRepoUrl(value)
-    const result = parseGitHubUrl(value.trim())
-    if (result.ok) {
-      setGithubOwner(result.owner)
-      setGithubRepo(result.repo)
-      // Note: githubRepoId is not available from URL parsing; it comes from the picker dialog
-    } else if (!value.trim()) {
-      // Clear all metadata when input is empty
-      setGithubOwner("")
-      setGithubRepo("")
-      setGithubRepoId(undefined)
-    }
-    // When result.ok is false but value is non-empty, we leave owner/repo unchanged
-    // to avoid flickering during typing. The error is available via result.error if needed.
-  }, [])
-
-  // Handle repo selection from picker dialog
-  const handleRepoSelect = useCallback((repo: GitHubRepo) => {
-    setRepoUrl(repo.htmlUrl)
-    setGithubOwner(repo.owner.login)
-    setGithubRepo(repo.name)
-    setGithubRepoId(repo.id) // Stable GitHub identifier (immune to renames)
-    // If repo provides a default branch and no branch is currently selected, use it
-    if (repo.defaultBranch && !selectedBranch) {
-      setSelectedBranch(repo.defaultBranch)
-    }
-  }, [selectedBranch])
 
   // Attachment handlers
   const handleAddAttachment = useCallback((attachment: TaskAttachment) => {
@@ -567,19 +449,12 @@ export function ProjectNewPlan() {
 
       let projectId: string
 
-      // Build GitHub metadata to include in project updates
-      const githubMetadata = (githubOwner && githubRepo)
-        ? { githubOwner, githubRepo, ...(githubRepoId ? { githubRepoId } : {}) }
-        : {}
-
       if (isRegeneration && existingProject) {
         // Re-generation flow: use existing project, don't create a duplicate
         // Await backend update before starting session to avoid stale context
         const regenUpdates = {
           description: description.trim(),
           name: firstLine,
-          ...(repoUrl ? { repository: repoUrl } : {}),
-          ...githubMetadata,
         }
         updateProject(existingProject.id, regenUpdates) // optimistic local
         await dataClient.updateProject(existingProject.id, regenUpdates) // await backend
@@ -599,7 +474,6 @@ export function ProjectNewPlan() {
         projectId = result.projectId
       } else {
         // Normal flow: create a new project + plan session
-        // Include GitHub metadata in initial creation to avoid race conditions
         const result = await startPlanSession(
           description.trim(),
           firstLine,
@@ -610,11 +484,6 @@ export function ProjectNewPlan() {
             model: effectiveModel,
             visionDoc: combinedVisionDoc,
             baseBranch: effectiveBranch || undefined,
-            repository: repoUrl || undefined,
-            // Include GitHub metadata atomically in initial project creation
-            ...(githubOwner ? { githubOwner } : {}),
-            ...(githubRepo ? { githubRepo } : {}),
-            ...(githubRepoId ? { githubRepoId } : {}),
           }
         )
         projectId = result.projectId
@@ -845,69 +714,6 @@ export function ProjectNewPlan() {
             </div>
           )}
 
-          {/* Repository (GitHub URL) — shown when a machine is selected */}
-          {selectedMachine && (
-            <div className="animate-reveal flex flex-col gap-2">
-              <span className="text-xs text-muted-foreground">Repository (optional):</span>
-              <div className="flex items-center gap-2">
-                {githubConnected && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // Ensure repos are loaded before opening picker
-                      if (githubRepos.length === 0) fetchGitHubRepos()
-                      setRepoPickerOpen(true)
-                    }}
-                    title="Browse GitHub repositories"
-                    className="shrink-0 rounded-md border border-border p-1.5 hover:bg-muted transition-colors cursor-pointer text-muted-foreground hover:text-foreground"
-                  >
-                    <Github className="h-4 w-4" />
-                  </button>
-                )}
-                <input
-                  type="text"
-                  value={repoUrl}
-                  onChange={(e) => handleRepoUrlChange(e.target.value)}
-                  placeholder="https://github.com/owner/repo"
-                  className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-                {repoUrl && (
-                  <button
-                    type="button"
-                    onClick={() => { setRepoUrl(""); setGithubOwner(""); setGithubRepo(""); setGithubRepoId(undefined) }}
-                    className="shrink-0 rounded-md p-1.5 hover:bg-muted transition-colors cursor-pointer text-muted-foreground hover:text-foreground"
-                    title="Clear repository"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-
-              {/* Parsed owner/repo feedback */}
-              {githubOwner && githubRepo && (
-                <div className="flex items-center gap-2 text-xs text-info">
-                  <Github className="h-3 w-3" />
-                  {githubOwner}/{githubRepo}
-                </div>
-              )}
-              {repoUrl && !githubOwner && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Info className="h-3 w-3" />
-                  Enter a GitHub URL (e.g. https://github.com/owner/repo) or owner/repo
-                </div>
-              )}
-
-              {/* Connection hint: Local path → GitHub repo */}
-              {workingDir && githubOwner && githubRepo && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 rounded-md px-2.5 py-1.5">
-                  <Link className="h-3 w-3 shrink-0" />
-                  <span className="truncate font-mono">{workingDir}</span>
-                  <span className="shrink-0">&rarr;</span>
-                  <span className="truncate font-mono">{githubOwner}/{githubRepo}</span>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Add Context — collapsible section */}
           <div className="flex flex-col">
@@ -1076,13 +882,6 @@ export function ProjectNewPlan() {
             onSelect={(path) => setWorkingDir(path)}
           />
         )}
-
-        {/* GitHub repo picker dialog (onSelect mode) */}
-        <GitHubRepoPickerDialog
-          open={repoPickerOpen}
-          onOpenChange={setRepoPickerOpen}
-          onSelect={handleRepoSelect}
-        />
 
         {/* Session picker dialog */}
         <SessionPickerDialog
