@@ -29,9 +29,10 @@ with a single local pass that's faster and can auto-fix what it finds.
 
 ## Input
 
-The user provides either:
-- A PR number or URL (e.g., `#398` or `https://github.com/fuxialexander/astro/pull/398`)
-- "my changes" / "local diff" to review uncommitted or staged changes
+`$ARGUMENTS` — a PR number, URL, or "my changes":
+- `/pr-shepherd 398` or `/pr-shepherd #398`
+- `/pr-shepherd https://github.com/fuxialexander/astro/pull/398`
+- `/pr-shepherd my changes` to review uncommitted or staged changes
 
 ## Phase 0: Setup — Workspace Isolation
 
