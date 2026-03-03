@@ -14,6 +14,8 @@ import {
   Download,
   Loader2,
   AlertCircle,
+  ArrowLeft,
+  Check,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -39,7 +41,10 @@ import {
 } from "@/components/ui/dialog"
 import { useSkillStore, type SkillRow } from "@/stores/skill-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
+import { useToastStore } from "@/stores/toast-store"
 import { cn } from "@/lib/utils"
+import { fetchSkillFromGitHub } from "@/lib/github-skill-import"
+import type { OpenClawSkill } from "@/types/skill"
 
 // --- Source badge styling ---
 const sourceConfig: Record<string, { label: string; className: string }> = {
@@ -293,10 +298,15 @@ function GitHubImportDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const addSkill = useSkillStore((s) => s.addSkill)
+  const addToast = useToastStore((s) => s.add)
+
+  const [step, setStep] = useState<"input" | "preview">("input")
   const [url, setUrl] = useState("")
   const [isValidUrl, setIsValidUrl] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
+  const [previewSkill, setPreviewSkill] = useState<OpenClawSkill | null>(null)
 
   const validateGitHubUrl = useCallback((inputUrl: string) => {
     // GitHub URL patterns: https://github.com/user/repo or https://github.com/user/repo.git
@@ -328,7 +338,7 @@ function GitHubImportDialog({
     }
   }, [validateGitHubUrl])
 
-  const handleImport = useCallback(
+  const handleFetchSkill = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault()
       if (!isValidUrl) return
@@ -337,92 +347,197 @@ function GitHubImportDialog({
       setError("")
 
       try {
-        // TODO: Implement the actual import logic
-        // This will be handled in a future task
-        await new Promise((resolve) => setTimeout(resolve, 1500)) // Simulate API call
-
-        // Placeholder: Show error for now since import logic isn't implemented
-        setError("Import functionality will be implemented in a future update")
+        const skill = await fetchSkillFromGitHub(url.trim())
+        setPreviewSkill(skill)
+        setStep("preview")
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to import skill from GitHub")
       } finally {
         setIsLoading(false)
       }
     },
-    [isValidUrl],
+    [isValidUrl, url],
   )
+
+  const handleConfirmImport = useCallback(() => {
+    if (!previewSkill) return
+
+    // Add the skill with source: 'workspace' and the original GitHub URL
+    addSkill({
+      ...previewSkill,
+      source: 'workspace',
+      config: {
+        ...previewSkill.config,
+        sourceUrl: url.trim(),
+      },
+    })
+
+    // Show success toast
+    addToast({
+      type: 'success',
+      title: 'Skill imported successfully',
+      description: `${previewSkill.name} has been added to your workspace`,
+    })
+
+    // Close dialog (will trigger handleOpenChange which resets state)
+    onOpenChange(false)
+  }, [previewSkill, addSkill, addToast, url, onOpenChange])
+
+  const handleBack = useCallback(() => {
+    setStep("input")
+    setPreviewSkill(null)
+    setError("")
+  }, [])
 
   const handleOpenChange = useCallback((newOpen: boolean) => {
     if (!newOpen) {
       // Reset form when closing
+      setStep("input")
       setUrl("")
       setIsValidUrl(false)
       setError("")
       setIsLoading(false)
+      setPreviewSkill(null)
     }
     onOpenChange(newOpen)
   }, [onOpenChange])
 
+  // Truncate instructions to first 500 characters for preview
+  const truncatedInstructions = previewSkill?.instructions
+    ? previewSkill.instructions.slice(0, 500) + (previewSkill.instructions.length > 500 ? '...' : '')
+    : ''
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle>Import from GitHub</DialogTitle>
-          <DialogDescription>
-            Import a skill from a GitHub repository. The repository should contain
-            a skill definition file.
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleImport} className="flex flex-col gap-4 mt-2">
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="github-url" className="text-sm font-medium">
-              GitHub Repository URL <span className="text-destructive">*</span>
-            </label>
-            <Input
-              id="github-url"
-              type="url"
-              placeholder="https://github.com/user/repo"
-              value={url}
-              onChange={handleUrlChange}
-              onBlur={handleUrlBlur}
-              disabled={isLoading}
-              autoFocus
-              className={error && url ? "border-destructive" : ""}
-            />
-          </div>
+      <DialogContent className="sm:max-w-[600px]">
+        {step === "input" ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Import from GitHub</DialogTitle>
+              <DialogDescription>
+                Import a skill from a GitHub repository. The repository should contain
+                a SKILL.md file following the OpenClaw format.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleFetchSkill} className="flex flex-col gap-4 mt-2">
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="github-url" className="text-sm font-medium">
+                  GitHub Repository URL <span className="text-destructive">*</span>
+                </label>
+                <Input
+                  id="github-url"
+                  type="url"
+                  placeholder="https://github.com/user/repo"
+                  value={url}
+                  onChange={handleUrlChange}
+                  onBlur={handleUrlBlur}
+                  disabled={isLoading}
+                  autoFocus
+                  className={error && url ? "border-destructive" : ""}
+                />
+              </div>
 
-          {/* Error Display */}
-          {error && (
-            <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-destructive">
-              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-              <p className="text-xs leading-relaxed">{error}</p>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => handleOpenChange(false)}
-              disabled={isLoading}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={!isValidUrl || isLoading}>
-              {isLoading ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                  Importing...
-                </>
-              ) : (
-                <>
-                  <Download className="h-3.5 w-3.5 mr-1.5" />
-                  Import
-                </>
+              {/* Error Display */}
+              {error && (
+                <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-destructive">
+                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <p className="text-xs leading-relaxed">{error}</p>
+                </div>
               )}
-            </Button>
-          </DialogFooter>
-        </form>
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => handleOpenChange(false)}
+                  disabled={isLoading}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={!isValidUrl || isLoading}>
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      Fetching...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="h-3.5 w-3.5 mr-1.5" />
+                      Fetch Skill
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </form>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>Preview Skill</DialogTitle>
+              <DialogDescription>
+                Review the skill details before importing to your workspace.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-4 mt-2">
+              {/* Skill Name */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium">Name</label>
+                <div className="text-sm text-foreground">{previewSkill?.name}</div>
+              </div>
+
+              {/* Description */}
+              {previewSkill?.description && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium">Description</label>
+                  <div className="text-sm text-muted-foreground">
+                    {previewSkill.description}
+                  </div>
+                </div>
+              )}
+
+              {/* Category and Tags */}
+              <div className="flex gap-4">
+                {previewSkill?.metadata?.openclaw && (
+                  <div className="flex flex-col gap-1.5 flex-1">
+                    <label className="text-sm font-medium">Category</label>
+                    <div className="text-sm text-muted-foreground">
+                      {/* Extract category from metadata if available */}
+                      General
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Instructions Preview */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium">Instructions Preview</label>
+                <div className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground font-mono max-h-[200px] overflow-y-auto whitespace-pre-wrap">
+                  {truncatedInstructions}
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="flex-row gap-2 justify-between sm:justify-between">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleBack}
+                className="gap-1.5"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back
+              </Button>
+              <Button
+                type="button"
+                onClick={handleConfirmImport}
+                className="gap-1.5"
+              >
+                <Check className="h-3.5 w-3.5" />
+                Confirm Import
+              </Button>
+            </DialogFooter>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   )
