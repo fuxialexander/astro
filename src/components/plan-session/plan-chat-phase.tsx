@@ -416,10 +416,11 @@ export function PlanChatPhase({
       >
         {/* Error state */}
         {execution?.status === "failure" && execution.error && (
-          <div className="flex items-center justify-center h-full">
+          <div className="flex items-center justify-center h-full" role="alert" aria-live="assertive">
             <div className="text-center max-w-md px-4">
-              <AlertCircle className="h-8 w-8 text-destructive mx-auto mb-3" />
+              <AlertCircle className="h-8 w-8 text-destructive mx-auto mb-3" aria-label="Error" />
               <p className="text-sm font-medium text-destructive mb-2">Planning session failed</p>
+              {/* TODO: Replace string matching with typed error codes from backend (e.g., error.code === 'MACHINE_UNAVAILABLE') */}
               {execution.error.toLowerCase().includes("no available machine") ? (
                 <div className="space-y-3">
                   <p className="text-xs text-muted-foreground">
