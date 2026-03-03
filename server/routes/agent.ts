@@ -44,6 +44,7 @@ const generatePlanSchema = z.object({
   description: z.string().min(1).max(50000),
   visionDoc: z.string().max(100000).optional(),
   projectId: z.string().min(1).max(100),
+  streamId: z.string().max(200).optional(),
   model: z.string().max(100).optional(),
   providerId: z.string().max(100).optional(),
   workingDirectory: z.string().max(1000).refine(
@@ -445,6 +446,8 @@ agentRoute.post('/generate-plan', async (c) => {
 
   const { description, visionDoc, projectId, model, workingDirectory, fileTree, keyFiles, targetMachineId, streamId, gitState } = body
   const taskId = `gen-${projectId}-${Date.now()}`
+  // persistId: stable identifier for streaming event persistence.
+  // Frontend supplies a stable streamId (no timestamp) so events survive reconnect/refresh.
   const persistId = streamId || taskId
 
   // Verify project ownership
@@ -532,6 +535,7 @@ agentRoute.post('/generate-plan', async (c) => {
         const parsed = extractPlanJson(assistantText)
         if (parsed) {
           planResultSent = true
+          await streamingEventLog.append(persistId, 'plan_result', parsed)
           stream.writeSSE({
             event: 'plan_result',
             data: JSON.stringify(parsed),
@@ -544,6 +548,7 @@ agentRoute.post('/generate-plan', async (c) => {
         const parsed = extractPlanJson(msg.result.output)
         if (parsed) {
           planResultSent = true
+          await streamingEventLog.append(persistId, 'plan_result', parsed)
           stream.writeSSE({
             event: 'plan_result',
             data: JSON.stringify(parsed),

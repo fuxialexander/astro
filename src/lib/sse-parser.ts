@@ -105,9 +105,20 @@ export async function parseChatSSE(
     onError?: (error: string) => void
     /** Called when an SSE event carries a numeric `id:` field (seq number). */
     onSeq?: (seq: number) => void
+    /** Called when an SSE `id:` field is received — tracks last seq for reconnection */
+    onId?: (id: string) => void
   },
 ): Promise<void> {
   await parseSSEStream(response, {
+    onId: (handlers.onId || handlers.onSeq)
+      ? (id: string) => {
+          handlers.onId?.(id)
+          if (handlers.onSeq) {
+            const seq = Number(id)
+            if (!isNaN(seq)) handlers.onSeq!(seq)
+          }
+        }
+      : undefined,
     onEvent: ({ event, data }) => {
       switch (event) {
         case "text":
@@ -147,12 +158,6 @@ export async function parseChatSSE(
           break
       }
     },
-    onId: handlers.onSeq
-      ? (id) => {
-          const seq = Number(id)
-          if (!isNaN(seq)) handlers.onSeq!(seq)
-        }
-      : undefined,
   })
 }
 

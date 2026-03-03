@@ -86,6 +86,8 @@ export async function generatePlan(
     onPlanResult: (result: PlanGraphResult) => void
     onError: (error: string) => void
     onDone: () => void
+    /** Called when an SSE `id:` field is received — tracks last seq for reconnection */
+    onId?: (id: string) => void
   },
   signal?: AbortSignal,
 ): Promise<void> {
@@ -114,6 +116,7 @@ export async function generatePlan(
 
   await parseChatSSE(res, {
     onText: callbacks.onText,
+    onId: callbacks.onId,
     onPlanResult: (result) => {
       const planResult = result as PlanGraphResult
       console.log(`[plan-gen] plan_result received: ${planResult.nodes.length} nodes, ${planResult.edges.length} edges`)
