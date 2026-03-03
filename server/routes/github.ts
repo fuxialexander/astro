@@ -541,7 +541,9 @@ app.post('/close-pr', async (c) => {
     prNumber: number;
   };
 
-  if (!owner || !repo || typeof prNumber !== 'number' || prNumber <= 0) {
+  if (typeof owner !== 'string' || !owner.trim() ||
+      typeof repo !== 'string' || !repo.trim() ||
+      typeof prNumber !== 'number' || prNumber <= 0) {
     return c.json({ success: false, error: 'owner, repo, and a positive prNumber are required' }, 400);
   }
 
@@ -605,6 +607,7 @@ async function resolveBranchSha(
     const data = await sourceRes.json();
     // Validate GitHub API response structure
     if (!data?.commit?.sha || typeof data.commit.sha !== 'string') {
+      console.error('[github] Invalid API response structure:', JSON.stringify(data).slice(0, 500));
       return { sha: null, error: 'Invalid GitHub API response structure' };
     }
     return { sha: data.commit.sha };
@@ -620,6 +623,7 @@ async function resolveBranchSha(
       const data = await masterRes.json();
       // Validate GitHub API response structure
       if (!data?.commit?.sha || typeof data.commit.sha !== 'string') {
+        console.error('[github] Invalid API response structure:', JSON.stringify(data).slice(0, 500));
         return { sha: null, error: 'Invalid GitHub API response structure' };
       }
       return { sha: data.commit.sha };
@@ -645,7 +649,9 @@ app.post('/ensure-branch', async (c) => {
     sourceBranch?: string;
   };
 
-  if (!owner || !repo || !branchName) {
+  if (typeof owner !== 'string' || !owner.trim() ||
+      typeof repo !== 'string' || !repo.trim() ||
+      typeof branchName !== 'string' || !branchName.trim()) {
     return c.json({ success: false, error: 'owner, repo, and branchName are required' }, 400);
   }
 

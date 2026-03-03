@@ -70,11 +70,19 @@ function buildEnrichedDescription(
   }
 
   if (node.executionOutput) {
-    parts.push(`\n## Previous Execution Output\n${node.executionOutput}`)
+    // Truncate execution output to prevent token limit issues
+    const truncated = node.executionOutput.length > 4000
+      ? `${node.executionOutput.slice(0, 2000)}\n\n... [truncated ${node.executionOutput.length - 4000} characters] ...\n\n${node.executionOutput.slice(-2000)}`
+      : node.executionOutput
+    parts.push(`\n## Previous Execution Output\n${truncated}`)
   }
 
   if (node.executionError) {
-    parts.push(`\n## Previous Execution Error\n${node.executionError}`)
+    // Truncate execution error to prevent token limit issues
+    const truncated = node.executionError.length > 4000
+      ? `${node.executionError.slice(0, 2000)}\n\n... [truncated ${node.executionError.length - 4000} characters] ...\n\n${node.executionError.slice(-2000)}`
+      : node.executionError
+    parts.push(`\n## Previous Execution Error\n${truncated}`)
   }
 
   if (comments.length > 0) {
@@ -257,10 +265,12 @@ export function useConvertToProject() {
       setError(message)
 
       // Cleanup: Remove orphaned project if we created it but later steps failed
+      let cleanupFailed = false
       if (createdProjectId) {
         try {
           deleteProject(createdProjectId)
         } catch (cleanupErr) {
+          cleanupFailed = true
           console.error("Failed to clean up orphaned project:", cleanupErr)
         }
       }
@@ -268,7 +278,9 @@ export function useConvertToProject() {
       addToast({
         type: "error",
         title: "Failed to convert node to project",
-        description: message,
+        description: cleanupFailed
+          ? `${message}. An incomplete project may remain in your project list.`
+          : message,
       })
       return false
     } finally {
