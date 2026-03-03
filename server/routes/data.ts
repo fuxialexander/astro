@@ -205,11 +205,6 @@ app.patch('/projects/:id', async (c) => {
   if (body.mergeQueueMergeMethod !== undefined) patch.mergeQueueMergeMethod = body.mergeQueueMergeMethod || 'squash'
   if (body.source !== undefined) patch.source = body.source
   if (body.deliveryMode !== undefined) patch.deliveryMode = body.deliveryMode
-  // GitHub fields: || normalizes empty strings to null (see POST handler comment)
-  if (body.githubOwner !== undefined) patch.githubOwner = body.githubOwner || null
-  if (body.githubRepo !== undefined) patch.githubRepo = body.githubRepo || null
-  if (body.githubRepoId !== undefined) patch.githubRepoId = body.githubRepoId ?? null
-  if (body.projectBranch !== undefined) patch.projectBranch = body.projectBranch || null
   if (body.projectType !== undefined) patch.projectType = body.projectType
 
   // GitHub metadata consistency: If any field is being updated, apply atomic all-or-nothing logic

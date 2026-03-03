@@ -874,7 +874,7 @@ export function ProjectNewPlan() {
                 {repoUrl && (
                   <button
                     type="button"
-                    onClick={() => { setRepoUrl(""); setGithubOwner(""); setGithubRepo("") }}
+                    onClick={() => { setRepoUrl(""); setGithubOwner(""); setGithubRepo(""); setGithubRepoId(undefined) }}
                     className="shrink-0 rounded-md p-1.5 hover:bg-muted transition-colors cursor-pointer text-muted-foreground hover:text-foreground"
                     title="Clear repository"
                   >
