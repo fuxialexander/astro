@@ -1,37 +1,61 @@
 /**
  * Skill Manager (Server-side, In-Memory Registry)
  *
- * Manages an in-memory registry of skills. Skills are populated from:
- * - Relay messages (agent runner reports machine-local skills)
- * - API calls (frontend sends skills discovered via Tauri or relay)
- * - Programmatic registration (server plugins contribute skills)
+ * Manages an in-memory registry of skills used for prompt injection.
+ * The registry is synced from the DB on startup and after each API mutation
+ * via syncSkillsFromDb() in bootstrap-skills.ts.
  *
- * NO filesystem access. Parsing logic lives in src/lib/skill-parser.ts.
- * Prompt injection logic lives in server/lib/skill-injector.ts.
+ * IMPORTANT: Skills are team-scoped. Prompt injection methods require a teamId
+ * parameter to ensure workspace skills from Team A are never leaked to Team B.
+ * Built-in skills (teamId=null) are visible to all teams.
+ *
+ * Skills are keyed by a composite `${teamId||'global'}::${name}` to prevent
+ * cross-team name collisions. Two teams can each have a skill named "docker-compose"
+ * without overwriting each other in the Map.
+ *
+ * Prompt injection logic lives in packages/core/src/skill-injector.ts.
+ * DB persistence lives in server/routes/skills.ts (Drizzle ORM).
  */
 
 import type { OpenClawSkill } from '../../src/types/skill.js'
 import { buildSkillPromptInjection, getEligibleSkills } from './skill-injector.js'
 
+/** Build a composite key for the skills Map to prevent cross-team name collisions. */
+function skillKey(skill: { name: string; teamId?: string | null }): string {
+  return `${skill.teamId || 'global'}::${skill.name}`
+}
+
 export class SkillManager {
   private skills = new Map<string, OpenClawSkill>()
 
   /**
-   * Add a skill programmatically (e.g., from a plugin or relay message)
+   * Add a skill programmatically (e.g., from a plugin or relay message).
+   * Rejects skills missing required fields to prevent invalid prompt injection.
    */
   addSkill(skill: OpenClawSkill): void {
-    this.skills.set(skill.name, skill)
+    if (!skill.name || !skill.instructions) {
+      console.warn('[skill-manager] Rejecting invalid skill (missing name or instructions):', skill.name || '<unnamed>')
+      return
+    }
+    this.skills.set(skillKey(skill), skill)
   }
 
   /**
-   * Bulk-load skills (replaces current set)
+   * Bulk-load skills (replaces current set).
+   * Skills with missing required fields are skipped with a warning.
    */
   loadSkills(skills: OpenClawSkill[]): void {
     this.skills.clear()
+    let skipped = 0
     for (const skill of skills) {
-      this.skills.set(skill.name, skill)
+      if (!skill.name || !skill.instructions) {
+        console.warn('[skill-manager] Skipping invalid skill (missing name or instructions):', skill.name || '<unnamed>')
+        skipped++
+        continue
+      }
+      this.skills.set(skillKey(skill), skill)
     }
-    console.log(`[skill-manager] Loaded ${this.skills.size} skills`)
+    console.log(`[skill-manager] Loaded ${this.skills.size} skills${skipped > 0 ? ` (${skipped} skipped due to missing fields)` : ''}`)
   }
 
   /**
@@ -42,31 +66,52 @@ export class SkillManager {
   }
 
   /**
-   * Get skills that pass gating requirements (enabled + not model-invocation-disabled)
+   * Get skills visible to a specific team.
+   * Returns builtins (teamId=null) + team-owned skills.
+   * Prevents cross-team data leakage of workspace skills.
    */
-  getEligibleSkills(): OpenClawSkill[] {
-    return getEligibleSkills(this.getAllSkills())
+  getSkillsForTeam(teamId: string | null | undefined): OpenClawSkill[] {
+    return this.getAllSkills().filter(s =>
+      s.teamId == null || s.teamId === teamId
+    )
   }
 
   /**
-   * Build XML prompt injection for eligible skills
+   * Get skills that pass gating requirements (enabled + not model-invocation-disabled),
+   * scoped to a specific team.
+   * - Pass a teamId string to get builtins + that team's skills
+   * - Pass null to get only builtins (safe default for local mode)
+   * - Pass undefined only in tests where all skills are needed
    */
-  getSkillPromptInjection(): string {
-    return buildSkillPromptInjection(this.getAllSkills())
+  getEligibleSkills(teamId?: string | null): OpenClawSkill[] {
+    const pool = teamId !== undefined ? this.getSkillsForTeam(teamId) : this.getAllSkills()
+    return getEligibleSkills(pool)
   }
 
   /**
-   * Remove a skill by name
+   * Build XML prompt injection for eligible skills, scoped to a team.
+   * Pass the requesting user's teamId to enforce team isolation.
+   * In local mode, callers should pass null (not undefined) to restrict to builtins only.
    */
-  removeSkill(name: string): boolean {
-    return this.skills.delete(name)
+  getSkillPromptInjection(teamId?: string | null): string {
+    return buildSkillPromptInjection(this.getEligibleSkills(teamId))
   }
 
   /**
-   * Update a skill's configuration
+   * Remove a skill by name and optional teamId.
+   * Without teamId, removes the global/builtin skill with that name.
    */
-  updateSkillConfig(name: string, config: Record<string, unknown>): boolean {
-    const skill = this.skills.get(name)
+  removeSkill(name: string, teamId?: string | null): boolean {
+    return this.skills.delete(`${teamId || 'global'}::${name}`)
+  }
+
+  /**
+   * Update a skill's configuration by name and optional teamId.
+   * Without teamId, updates the global/builtin skill with that name.
+   */
+  updateSkillConfig(name: string, config: Record<string, unknown>, teamId?: string | null): boolean {
+    const key = `${teamId || 'global'}::${name}`
+    const skill = this.skills.get(key)
     if (!skill) return false
     skill.config = { ...skill.config, ...config }
     return true

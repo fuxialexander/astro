@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from "lucide-react"
+import type { SkillRow } from "@/stores/skill-store"
 import type { OpenClawSkill } from "@/types/skill"
 
 function Toggle({
@@ -46,9 +47,10 @@ const sourceColors: Record<OpenClawSkill["source"], string> = {
   workspace: "bg-success/10 text-success",
   clawhub: "bg-primary/10 text-primary",
   plugin: "bg-warning/10 text-warning",
+  user: "bg-muted/10 text-muted-foreground",
 }
 
-function SkillCard({ skill }: { skill: OpenClawSkill }) {
+function SkillCard({ skill }: { skill: SkillRow }) {
   const enableSkill = useSkillStore((s) => s.enableSkill)
   const disableSkill = useSkillStore((s) => s.disableSkill)
   const removeSkill = useSkillStore((s) => s.removeSkill)
@@ -59,7 +61,7 @@ function SkillCard({ skill }: { skill: OpenClawSkill }) {
   )
 
   const handleApiKeySave = () => {
-    updateSkillConfig(skill.name, { ...skill.config, apiKey })
+    updateSkillConfig(skill.id, { ...skill.config, apiKey })
   }
 
   const emoji = skill.metadata?.openclaw?.emoji || ""
@@ -101,15 +103,21 @@ function SkillCard({ skill }: { skill: OpenClawSkill }) {
         <div className="flex items-center gap-2 shrink-0 ml-4">
           <Toggle
             checked={skill.enabled}
-            onChange={(checked) =>
-              checked ? enableSkill(skill.name) : disableSkill(skill.name)
-            }
+            onChange={(checked) => {
+              if (skill.source === "builtin") {
+                const action = checked ? "enable" : "disable"
+                if (!window.confirm(`Are you sure you want to ${action} the built-in skill "${skill.name}"? This may affect default agent behavior.`)) {
+                  return
+                }
+              }
+              if (checked) { enableSkill(skill.id) } else { disableSkill(skill.id) }
+            }}
           />
           {skill.source !== "builtin" && (
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => removeSkill(skill.name)}
+              onClick={() => removeSkill(skill.id)}
               className="text-destructive hover:text-destructive h-8 w-8 p-0"
             >
               <Trash2 className="h-4 w-4" />
