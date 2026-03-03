@@ -14,6 +14,7 @@ import {
   type ParameterValidationError,
   type PreviewTemplateResult,
   type LaunchTemplateParams,
+  type LaunchTemplateResult,
 } from "@/lib/api-client"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -54,7 +55,7 @@ interface TemplateStore {
   previewTemplate: () => Promise<void>
 
   // Launch
-  launchTemplate: (projectName: string, workDir?: string) => Promise<void>
+  launchTemplate: (projectName: string, workDir?: string) => Promise<LaunchTemplateResult | undefined>
 }
 
 export const useTemplateStore = create<TemplateStore>((set, get) => ({
@@ -301,6 +302,7 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
    * Creates a new project and returns the launch result.
    * @param projectName - Name for the new project
    * @param workDir - Optional working directory override
+   * @returns The launch result with project details, or undefined on error
    */
   launchTemplate: async (projectName: string, workDir?: string) => {
     const { selectedTemplate, parameterValues } = get()
@@ -310,7 +312,7 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
         title: 'No template selected',
         description: 'Please select a template first',
       })
-      return
+      return undefined
     }
 
     set({ isLoading: true, error: null })
@@ -332,6 +334,8 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
 
       // Reset state after successful launch
       get().reset()
+
+      return result
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Launch failed'
       set({ isLoading: false, error: errorMsg })
@@ -340,6 +344,7 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
         title: 'Launch failed',
         description: errorMsg,
       })
+      return undefined
     }
   },
 }))
