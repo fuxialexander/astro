@@ -168,17 +168,32 @@ export function PluginLoader({ children }: Props) {
     // IMPORTANT: Wait for skill store to be loaded first — if skills haven't loaded from DB
     // yet, findByName returns nothing and ALL skills pass the filter, causing duplicate 409s.
     if (contributions.skills && contributions.skills.length > 0) {
-      const { findByName, loaded } = useSkillStore.getState()
-      if (loaded) {
-        const newSkills = contributions.skills.filter(skill => !findByName(skill.name))
+      const processSkills = () => {
+        const { findByName } = useSkillStore.getState()
+        const newSkills = contributions.skills!.filter(skill => !findByName(skill.name))
         for (const skill of newSkills) {
           addSkill(skill)
         }
+        // Sync all plugin skills to server (idempotent endpoint) for prompt injection.
+        // Done inside the loaded gate so client and server state stay consistent.
+        syncSkillsToServer(contributions.skills!).catch((err) => {
+          console.warn(`[PluginLoader] Failed to sync skills for plugin "${pluginId}":`, err)
+        })
       }
-      // Sync all plugin skills to server (idempotent endpoint) for prompt injection
-      syncSkillsToServer(contributions.skills).catch((err) => {
-        console.warn(`[PluginLoader] Failed to sync skills for plugin "${pluginId}":`, err)
-      })
+
+      const { loaded } = useSkillStore.getState()
+      if (loaded) {
+        processSkills()
+      } else {
+        // Skills arrived before store loaded from DB. Subscribe and process once ready.
+        // The subscription auto-cleans up after firing.
+        const unsub = useSkillStore.subscribe((state) => {
+          if (state.loaded) {
+            unsub()
+            processSkills()
+          }
+        })
+      }
     }
   }
 
