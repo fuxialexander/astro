@@ -59,6 +59,7 @@ import { Skills } from "@/pages/skills"
 import { SkillNew } from "@/pages/skill-new"
 import { Templates } from "@/pages/templates"
 import { Community } from "@/pages/community"
+import { CommunityPlanDetail } from "@/pages/community-plan-detail"
 
 /**
  * ResponsiveLayout switches between desktop (sidebar) and mobile (bottom tab bar) layouts.
@@ -346,6 +347,7 @@ export default function App() {
                 <Route path="skills/new" element={<SkillNew />} />
                 <Route path="templates" element={<Templates />} />
                 <Route path="community" element={<Community />} />
+                <Route path="community/plans/:id" element={<CommunityPlanDetail />} />
                 <Route path="share/:id" element={<ShareImport />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="plugins/*" element={<PluginRoutes />} />

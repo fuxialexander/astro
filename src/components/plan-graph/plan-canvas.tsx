@@ -61,6 +61,7 @@ interface PlanCanvasProps {
   projectId: string
   onNodeSelect?: (node: PlanNode | null) => void
   onDecomposeNode?: (nodeId: string) => void
+  readOnly?: boolean
 }
 
 interface AddChildState {
@@ -76,7 +77,7 @@ interface AddChildState {
   isUpwardDrag?: boolean
 }
 
-function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanvasProps) {
+function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }: PlanCanvasProps) {
   const navigate = useNavigate()
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
@@ -389,12 +390,13 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
           highlightBy,
           checked: checkedIds.has(n.id),
           selectionActive: selectionActive,
-          onDecompose: onDecomposeNode,
-          onToggleSelect: handleToggleSelect,
+          onDecompose: readOnly ? undefined : onDecomposeNode,
+          onToggleSelect: readOnly ? undefined : handleToggleSelect,
+          readOnly,
         },
         selected: n.id === selectedId,
       })),
-    [projectNodes, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy]
+    [projectNodes, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy, readOnly]
   )
 
   const rfEdges: Edge[] = useMemo(
@@ -415,7 +417,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
           source: e.source,
           target: e.target,
           type: "deletable",
-          data: { onDelete: handleEdgeDelete },
+          data: { onDelete: readOnly ? undefined : handleEdgeDelete, readOnly },
           style: {
             stroke: edgeColor,
             strokeWidth: 2.5,
@@ -424,7 +426,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
           animated: e.type === "branch",
         }
       }),
-    [projectEdges, projectNodes, handleEdgeDelete]
+    [projectEdges, projectNodes, handleEdgeDelete, readOnly]
   )
 
   // Connection handlers for mindmap-like drag interactions
@@ -664,9 +666,9 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
         edgeTypes={edgeTypes}
         onNodeClick={handleNodeClick}
         onPaneClick={handlePaneClick}
-        onConnect={onConnect}
-        onConnectStart={onConnectStart}
-        onConnectEnd={onConnectEnd}
+        onConnect={readOnly ? undefined : onConnect}
+        onConnectStart={readOnly ? undefined : onConnectStart}
+        onConnectEnd={readOnly ? undefined : onConnectEnd}
         connectionLineType={ConnectionLineType.SmoothStep}
         connectionLineStyle={{
           stroke: "var(--primary)",
@@ -743,7 +745,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
         </div>
 
         {/* Execute All button + machine / work directory — bottom-right */}
-        {!selectionActive && projectNodes.length > 0 && (
+        {!readOnly && !selectionActive && projectNodes.length > 0 && (
           <div className="react-flow__panel absolute bottom-3 right-3 z-10 flex flex-col items-end gap-1.5">
             {isBatchActive ? (
               <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-lg">
@@ -828,7 +830,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
       </ReactFlow>
 
       {/* Bulk actions toolbar — appears when nodes are selected */}
-      {selectionActive && (
+      {!readOnly && selectionActive && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 shadow-lg">
           <span className="text-xs font-medium text-muted-foreground mr-1">
             {checkedIds.size} selected
@@ -882,7 +884,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
       )}
 
       {/* Floating creation form when adding node from graph */}
-      {addChildState && (
+      {!readOnly && addChildState && (
         <div
           className="absolute z-50"
           style={{
