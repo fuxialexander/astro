@@ -1,6 +1,9 @@
 import { useEffect, useState, useCallback } from "react"
-import { Search, ChevronLeft, ChevronRight } from "lucide-react"
+import { Search, ChevronLeft, ChevronRight, Globe, FileText, Edit2, Trash2, Star, GitFork } from "lucide-react"
+import { formatDistanceToNow } from "date-fns"
 import { useCommunityStore } from "@/stores/community-store"
+import { updatePublishedPlan, deletePublishedPlan } from "@/lib/community-client"
+import type { SharedPlanSummary } from "@/lib/community-client"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import {
@@ -13,7 +16,11 @@ import {
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
 import { PlanCard } from "@/components/community/plan-card"
-import { Globe } from "lucide-react"
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
 
 // Category options
 const CATEGORIES = [
@@ -35,6 +42,99 @@ const SORT_OPTIONS = [
   { value: "forks", label: "Most Forked" },
 ]
 
+/** MyPlanCard - displays a user's published plan with Edit and Unpublish actions */
+interface MyPlanCardProps {
+  plan: SharedPlanSummary
+  onEdit: (plan: SharedPlanSummary) => void
+  onUnpublish: () => void
+}
+
+function MyPlanCard({ plan, onEdit, onUnpublish }: MyPlanCardProps) {
+  const [isUnpublishing, setIsUnpublishing] = useState(false)
+
+  const handleUnpublish = async () => {
+    if (!confirm("Are you sure you want to unpublish this plan? This action cannot be undone.")) return
+    setIsUnpublishing(true)
+    try {
+      await deletePublishedPlan(plan.id)
+      onUnpublish()
+    } catch (err) {
+      console.error("Failed to unpublish plan:", err)
+    } finally {
+      setIsUnpublishing(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="text-lg line-clamp-1">{plan.title}</CardTitle>
+          {plan.category && (
+            <Badge variant="secondary" className="shrink-0">
+              {plan.category}
+            </Badge>
+          )}
+        </div>
+        <CardDescription className="line-clamp-2">
+          {plan.description || "No description provided"}
+        </CardDescription>
+      </CardHeader>
+
+      <CardContent>
+        {/* Tags */}
+        {plan.tags && plan.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {plan.tags.map((tag) => (
+              <Badge key={tag} variant="outline" className="text-xs">
+                {tag}
+              </Badge>
+            ))}
+          </div>
+        )}
+
+        {/* Stats */}
+        <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
+          <div className="flex items-center gap-1.5">
+            <Star className="h-4 w-4" />
+            <span>{plan.starsCount}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <GitFork className="h-4 w-4" />
+            <span>{plan.forksCount}</span>
+          </div>
+          <div className="ml-auto text-xs">
+            {formatDistanceToNow(new Date(plan.createdAt), { addSuffix: true })}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onEdit(plan)}
+            className="flex-1 gap-2"
+          >
+            <Edit2 className="h-4 w-4" />
+            Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleUnpublish}
+            disabled={isUnpublishing}
+            className="flex-1 gap-2 hover:bg-destructive hover:text-destructive-foreground"
+          >
+            <Trash2 className="h-4 w-4" />
+            {isUnpublishing ? "Unpublishing..." : "Unpublish"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 /**
  * Community Page
  *
@@ -49,20 +149,32 @@ const SORT_OPTIONS = [
 export function Community() {
   const {
     plans,
+    myPlans,
     isLoading,
     filters,
     pagination,
     setFilters,
     fetchPlans,
+    fetchMyPlans,
   } = useCommunityStore()
 
   const [searchInput, setSearchInput] = useState(filters.search || "")
   const [searchDebounceTimer, setSearchDebounceTimer] = useState<NodeJS.Timeout | null>(null)
+  const [activeTab, setActiveTab] = useState<"browse" | "my-plans">("browse")
 
-  // Fetch initial plans on mount
+  // Edit dialog state
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [editingPlan, setEditingPlan] = useState<SharedPlanSummary | null>(null)
+  const [editDescription, setEditDescription] = useState("")
+  const [editTags, setEditTags] = useState("")
+  const [editVisibility, setEditVisibility] = useState<"public" | "team" | "unlisted">("public")
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
+
+  // Fetch initial plans and my plans on mount
   useEffect(() => {
     fetchPlans()
-  }, [fetchPlans])
+    fetchMyPlans()
+  }, [fetchPlans, fetchMyPlans])
 
   // Debounced search handler
   const handleSearchChange = useCallback(
@@ -161,6 +273,39 @@ export function Community() {
     return pages
   }
 
+  // Edit plan handlers
+  const handleEditPlan = (plan: SharedPlanSummary) => {
+    setEditingPlan(plan)
+    setEditDescription(plan.description || "")
+    setEditTags(plan.tags.join(", "))
+    setEditVisibility(plan.visibility)
+    setEditDialogOpen(true)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingPlan) return
+    setIsSavingEdit(true)
+    try {
+      await updatePublishedPlan(editingPlan.id, {
+        description: editDescription.trim() || undefined,
+        tags: editTags.split(",").map((t) => t.trim()).filter(Boolean),
+        visibility: editVisibility,
+      })
+      setEditDialogOpen(false)
+      // Refresh my plans
+      await fetchMyPlans()
+    } catch (err) {
+      console.error("Failed to update plan:", err)
+    } finally {
+      setIsSavingEdit(false)
+    }
+  }
+
+  const handleUnpublish = async () => {
+    // Refresh my plans after unpublish
+    await fetchMyPlans()
+  }
+
   return (
     <div className="flex flex-1 flex-col min-w-0 h-full">
       {/* Header */}
@@ -171,39 +316,54 @@ export function Community() {
       {/* Content */}
       <div className="flex-1 overflow-auto p-6">
         <div className="max-w-7xl mx-auto space-y-6">
-          {/* Search and Sort Controls */}
-          <div className="flex flex-col sm:flex-row gap-4">
-            {/* Search Input */}
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search plans..."
-                value={searchInput}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                className="pl-9"
-              />
-            </div>
+          {/* Top-level tabs: Browse and My Plans */}
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "browse" | "my-plans")}>
+            <TabsList className="mb-6">
+              <TabsTrigger value="browse" className="gap-2">
+                <Globe className="h-4 w-4" />
+                Browse Community
+              </TabsTrigger>
+              <TabsTrigger value="my-plans" className="gap-2">
+                <FileText className="h-4 w-4" />
+                My Plans
+              </TabsTrigger>
+            </TabsList>
 
-            {/* Sort Dropdown */}
-            <Select value={filters.sort} onValueChange={handleSortChange}>
-              <SelectTrigger className="w-full sm:w-48">
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                {SORT_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+            {/* Browse Tab */}
+            <TabsContent value="browse" className="space-y-6">
+              {/* Search and Sort Controls */}
+              <div className="flex flex-col sm:flex-row gap-4">
+                {/* Search Input */}
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search plans..."
+                    value={searchInput}
+                    onChange={(e) => handleSearchChange(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
 
-          {/* Category Tabs */}
-          <Tabs
-            value={filters.category || ""}
-            onValueChange={handleCategoryChange}
-          >
+                {/* Sort Dropdown */}
+                <Select value={filters.sort} onValueChange={handleSortChange}>
+                  <SelectTrigger className="w-full sm:w-48">
+                    <SelectValue placeholder="Sort by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SORT_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Category Tabs */}
+              <Tabs
+                value={filters.category || ""}
+                onValueChange={handleCategoryChange}
+              >
             <TabsList className="w-full justify-start overflow-x-auto">
               {CATEGORIES.map((category) => (
                 <TabsTrigger key={category.value} value={category.value}>
@@ -294,8 +454,101 @@ export function Community() {
               </TabsContent>
             ))}
           </Tabs>
+            </TabsContent>
+
+            {/* My Plans Tab */}
+            <TabsContent value="my-plans">
+              {/* Loading State */}
+              {isLoading && (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-muted-foreground">Loading your plans...</div>
+                </div>
+              )}
+
+              {/* Empty State */}
+              {!isLoading && myPlans.length === 0 && (
+                <EmptyState
+                  icon={FileText}
+                  title="No published plans"
+                  description="You haven't published any plans to the community yet. Share your work to get feedback and help others!"
+                />
+              )}
+
+              {/* My Plans Grid */}
+              {!isLoading && myPlans.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {myPlans.map((plan) => (
+                    <MyPlanCard
+                      key={plan.id}
+                      plan={plan}
+                      onEdit={handleEditPlan}
+                      onUnpublish={handleUnpublish}
+                    />
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
+
+      {/* Edit Plan Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Plan</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Description */}
+            <div className="space-y-2">
+              <Label htmlFor="edit-description">Description</Label>
+              <Textarea
+                id="edit-description"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                placeholder="Describe your plan..."
+                rows={4}
+              />
+            </div>
+
+            {/* Tags */}
+            <div className="space-y-2">
+              <Label htmlFor="edit-tags">Tags (comma-separated)</Label>
+              <Input
+                id="edit-tags"
+                value={editTags}
+                onChange={(e) => setEditTags(e.target.value)}
+                placeholder="e.g., react, typescript, api"
+              />
+            </div>
+
+            {/* Visibility */}
+            <div className="space-y-2">
+              <Label htmlFor="edit-visibility">Visibility</Label>
+              <Select value={editVisibility} onValueChange={(v) => setEditVisibility(v as "public" | "team" | "unlisted")}>
+                <SelectTrigger id="edit-visibility">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="public">Public</SelectItem>
+                  <SelectItem value="team">Team Only</SelectItem>
+                  <SelectItem value="unlisted">Unlisted</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)} disabled={isSavingEdit}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveEdit} disabled={isSavingEdit}>
+              {isSavingEdit ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
