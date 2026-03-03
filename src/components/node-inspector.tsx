@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Link } from "react-router"
-import { FileText, XCircle, RotateCcw, X, Plus } from "lucide-react"
+import { FileText, XCircle, RotateCcw, X, Plus, Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { InlineRenameInput } from "@/components/inline-rename-input"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { PropertyPicker } from "@/components/property-picker"
 import { LabelPicker } from "@/components/label-picker"
@@ -380,16 +381,40 @@ export function NodeInspectorContent({
  * Mobile: floating card dialog wrapping NodeInspectorContent.
  */
 export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }) {
-  const { open, onClose, node, ...rest } = props
+  const { open, onClose, node, onNodeUpdate, ...rest } = props
+  const [isRenaming, setIsRenaming] = useState(false)
+  const updateNode = usePlanStore((s) => s.updateNode)
+
+  const handleRename = useCallback((newTitle: string) => {
+    updateNode(node.id, { title: newTitle })
+    onNodeUpdate({ ...node, title: newTitle })
+    setIsRenaming(false)
+  }, [node, updateNode, onNodeUpdate])
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="fixed inset-3 left-auto right-3 top-3 bottom-3 w-[calc(100%-1.5rem)] max-w-sm translate-x-0 translate-y-0 rounded-2xl bg-card/90 backdrop-blur-md shadow-2xl border-border/40 p-0 overflow-hidden">
         <div className="flex flex-col gap-5 p-4 overflow-auto h-full">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="font-semibold text-base truncate flex-1 pr-8">{node.title}</h3>
+            {isRenaming ? (
+              <InlineRenameInput
+                value={node.title}
+                onSave={handleRename}
+                onCancel={() => setIsRenaming(false)}
+                className="text-base font-semibold"
+              />
+            ) : (
+              <h3
+                className="font-semibold text-base truncate flex-1 pr-8 group/title cursor-default"
+                onDoubleClick={() => setIsRenaming(true)}
+              >
+                {node.title}
+                <Pencil className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/title:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsRenaming(true) }} />
+              </h3>
+            )}
           </div>
           <Separator />
-          <NodeInspectorContent node={node} onClose={onClose} {...rest} />
+          <NodeInspectorContent node={node} onClose={onClose} onNodeUpdate={onNodeUpdate} {...rest} />
         </div>
       </DialogContent>
     </Dialog>
@@ -400,7 +425,16 @@ export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }
  * Desktop: right sidebar wrapping NodeInspectorContent.
  */
 export function NodeInspectorSidebar(props: NodeInspectorProps) {
-  const { node, onClose, ...rest } = props
+  const { node, onClose, onNodeUpdate, ...rest } = props
+  const [isRenaming, setIsRenaming] = useState(false)
+  const updateNode = usePlanStore((s) => s.updateNode)
+
+  const handleRename = useCallback((newTitle: string) => {
+    updateNode(node.id, { title: newTitle })
+    onNodeUpdate({ ...node, title: newTitle })
+    setIsRenaming(false)
+  }, [node, updateNode, onNodeUpdate])
+
   return (
     <div className="flex flex-col gap-5 border-l bg-card p-5 overflow-auto border-border w-[320px] shrink-0">
       <div className="flex items-center justify-between gap-2">
@@ -415,9 +449,22 @@ export function NodeInspectorSidebar(props: NodeInspectorProps) {
         </Button>
       </div>
       <div className="flex flex-col gap-2">
-        <h3 className="font-semibold text-xl text-foreground truncate font-serif">
-          {node.title}
-        </h3>
+        {isRenaming ? (
+          <InlineRenameInput
+            value={node.title}
+            onSave={handleRename}
+            onCancel={() => setIsRenaming(false)}
+            className="text-xl font-semibold font-serif"
+          />
+        ) : (
+          <h3
+            className="font-semibold text-xl text-foreground truncate font-serif group/title cursor-default"
+            onDoubleClick={() => setIsRenaming(true)}
+          >
+            {node.title}
+            <Pencil className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/title:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsRenaming(true) }} />
+          </h3>
+        )}
         {node.executionId && (
           <div className="flex items-center gap-2 text-xs">
             <div className="h-2 w-2 rounded-full bg-muted" />
@@ -426,7 +473,7 @@ export function NodeInspectorSidebar(props: NodeInspectorProps) {
         )}
       </div>
       <Separator />
-      <NodeInspectorContent node={node} onClose={onClose} {...rest} />
+      <NodeInspectorContent node={node} onClose={onClose} onNodeUpdate={onNodeUpdate} {...rest} />
     </div>
   )
 }
