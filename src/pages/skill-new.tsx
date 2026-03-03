@@ -15,6 +15,7 @@ import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { planChatWithAgent } from "@/lib/api-client"
+import { getAccessToken } from "@/lib/supabase-client"
 import { cn } from "@/lib/utils"
 
 export function SkillNew() {
@@ -136,7 +137,10 @@ function ChatPanel({ onSkillUpdate }: { onSkillUpdate: (updater: SkillDefinition
   useEffect(() => {
     async function loadSystemPrompt() {
       try {
-        const response = await fetch("/api/skills/files/skill-onboarder/SKILL.md")
+        const headers: Record<string, string> = {}
+        const token = await getAccessToken()
+        if (token) headers["Authorization"] = `Bearer ${token}`
+        const response = await fetch("/api/skills/files/skill-onboarder/SKILL.md", { headers })
         if (response.ok) {
           const content = await response.text()
           // Extract instructions section from SKILL.md
