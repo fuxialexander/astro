@@ -29,6 +29,10 @@ export interface GenerationSession {
   executionId?: string        // For interactive plan sessions
   isInteractive?: boolean     // True for interactive plan sessions
   pendingApprovals?: number   // Count of unanswered approval requests
+  /** Per-turn stable ID used as persistId for chat SSE event storage */
+  streamId?: string
+  /** Last seen sequence number for targeted catch-up queries (initially 0) */
+  lastSeq?: number
 }
 
 interface RepoKeyFiles {
@@ -62,7 +66,7 @@ interface AgentState {
   dismissSession: (projectId: string) => void
   markPlanViewed: (projectId: string) => void
   startInteractiveSession: (projectId: string, projectName: string, executionId: string) => void
-  updateInteractiveSession: (projectId: string, updates: Partial<Pick<GenerationSession, 'streamText' | 'status' | 'error' | 'pendingApprovals'>>) => void
+  updateInteractiveSession: (projectId: string, updates: Partial<Pick<GenerationSession, 'streamText' | 'status' | 'error' | 'pendingApprovals' | 'streamId' | 'lastSeq'>>) => void
 }
 
 const abortControllers = new Map<string, AbortController>()
@@ -516,6 +520,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         executionId,
         isInteractive: true,
         pendingApprovals: 0,
+        streamId: `plan-chat-${projectId}-${Date.now()}`,
+        lastSeq: 0,
       })
       return { sessions }
     })

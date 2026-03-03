@@ -16,6 +16,7 @@ import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { usePlanStore } from "@/stores/plan-store"
+import { useAgentStore } from "@/stores/agent-store"
 import { planChatWithAgent, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import {
   groupActivityEvents,
@@ -237,6 +238,10 @@ export function PlanChatPhase({
 
     const sid = chatSession.id
 
+    // Generate a stable per-turn streamId for event persistence and catch-up
+    const turnStreamId = `plan-chat-${projectId}-${Date.now()}`
+    useAgentStore.getState().updateInteractiveSession(projectId, { streamId: turnStreamId, lastSeq: 0 })
+
     // Add user message as activity event for display
     pushChatEvent({ type: 'chat_user', message: text, timestamp: new Date() })
 
@@ -257,7 +262,7 @@ export function PlanChatPhase({
         {
           message: text,
           sessionId: chatSession.providerSessionId,
-          streamId: executionId || undefined,
+          streamId: turnStreamId,
           projectId,
           visionDoc: project?.visionDoc,
           model,
