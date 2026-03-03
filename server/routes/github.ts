@@ -349,7 +349,7 @@ async function syncIssuesForProject(
         if (edgesToResurrect.length > 0) {
           console.log(`[github] Resurrecting ${edgesToResurrect.length} edges for node ${existing.id}`);
           await db.update(planEdges)
-            .set({ deletedAt: null, deletionActionId: null, updatedAt: new Date() })
+            .set({ deletedAt: null, deletionActionId: null })
             .where(and(
               eq(planEdges.projectId, projectId),
               inArray(planEdges.id, edgesToResurrect.map(e => e.id))
