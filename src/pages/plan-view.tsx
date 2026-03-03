@@ -1,8 +1,11 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
+import { ReplanDialog } from "@/components/replan-dialog"
+import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { TaskRow } from "@/components/task-row"
 import { Badge } from "@/components/ui/badge"
@@ -1414,6 +1417,7 @@ export function PlanView() {
   }, [planNodes, handleNodeSelect])
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
   const [visionOpen, setVisionOpen] = useState(false)
+  const [replanOpen, setReplanOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
   const chatPanelPosition = useUIStore((s) => s.chatPanelPosition)
   const isRightChat = chatPanelPosition === "right"
@@ -1472,6 +1476,11 @@ export function PlanView() {
 
   // Auto-fetch file tree in the background when stale or missing
   useFileTreeRefresh(project)
+
+  // Replan gate logic
+  const isGitHubProject = !!(project?.githubOwner && project?.githubRepo) || project?.source?.remoteType === 'github'
+  const liveNodes = useMemo(() => planNodes.filter(n => n.projectId === id), [planNodes, id])
+  const canReplan = liveNodes.length > 0 && !isGitHubProject
 
   if (!project) {
     return (
@@ -1572,6 +1581,16 @@ export function PlanView() {
               activeViewAs: viewMode,
               onViewAsChange: (v) => navigate(`/project/${project.id}/${v}`),
             }} />
+            {canReplan && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" onClick={() => setReplanOpen(true)}>
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Regenerate Plan</TooltipContent>
+              </Tooltip>
+            )}
           </div>
         )}
 
@@ -1611,6 +1630,15 @@ export function PlanView() {
                     onViewAsChange: (v) => navigate(`/project/${project.id}/${v}`),
                   }} />
                 </div>
+              </>
+            )}
+            {canReplan && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setReplanOpen(true)}>
+                  <RefreshCw className="h-3.5 w-3.5 mr-2" />
+                  Regenerate Plan
+                </DropdownMenuItem>
               </>
             )}
           </DropdownMenuContent>
@@ -1667,6 +1695,9 @@ export function PlanView() {
 
       {/* Vision Document Dialog */}
       <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />
+
+      {/* Replan Dialog */}
+      <ReplanDialog open={replanOpen} onOpenChange={setReplanOpen} project={project} />
     </div>
   )
 }
