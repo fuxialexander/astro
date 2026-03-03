@@ -76,6 +76,28 @@ export interface RepoContextForPrompt {
   fileTreeSummary?: string
 }
 
+/**
+ * Configuration for input-based parallelization in plan generation.
+ *
+ * When a template has inputParallelization configured and the user provides
+ * multiple values for the trigger parameter, this interface carries the
+ * parsed input values to the plan generation prompt.
+ */
+export interface InputParallelizationContext {
+  /** Whether parallelization is active for this plan generation */
+  enabled: boolean
+  /** The split input values (e.g., ["arxiv.org/1", "arxiv.org/2", "arxiv.org/3"]) */
+  inputValues: string[]
+  /** Format string for branch labels */
+  branchLabelFormat: string
+  /** Merge strategy for outputs */
+  mergeStrategy: 'concatenate' | 'aggregate' | 'individual' | 'merge-directories'
+  /** Whether to add a final merge task */
+  addMergeTask: boolean
+  /** Description for the merge task */
+  mergeTaskDescription?: string
+}
+
 export interface GitStateForPrompt {
   currentBranch: string
   targetBranch: string
@@ -120,7 +142,7 @@ export function sanitizeGitBranch(s: string): string {
  * user content from instructions, the AI may still be influenced by adversarial inputs.
  * Always validate AI outputs (e.g., ensure valid JSON schema, check for malicious commands).
  */
-export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoContextForPrompt, gitState?: GitStateForPrompt, skillsSummary?: string, githubContext?: GitHubContextForPrompt): string {
+export function buildPlanSystemPrompt(visionDoc?: string, repoContext?: RepoContextForPrompt, gitState?: GitStateForPrompt, skillsSummary?: string, githubContext?: GitHubContextForPrompt, inputParallelization?: InputParallelizationContext): string {
   // SECURITY: Wrap user-provided content in clear delimiters to reduce prompt injection risk
   const visionSection = visionDoc
     ? `\n\n## Project Vision Document\n<user_vision>\n${visionDoc}\n</user_vision>\n`
@@ -207,6 +229,69 @@ You MUST include a final task node titled "Push to GitHub" that:
     }
   }
 
+  // Build input parallelization section
+  let parallelBranchSection = ""
+  if (inputParallelization?.enabled && inputParallelization.inputValues.length > 1) {
+    const inputCount = inputParallelization.inputValues.length
+    const inputList = inputParallelization.inputValues
+      .map((val, i) => `  ${i + 1}. ${val.length > 80 ? val.substring(0, 77) + '...' : val}`)
+      .join('\n')
+
+    parallelBranchSection = `
+
+## Input Parallelization (IMPORTANT)
+
+You are generating a plan with **${inputCount} parallel input branches**. Each input should be processed independently with its own parallel branch in the plan graph.
+
+### Inputs to Process
+${inputList}
+
+### Parallel Branch Structure Requirements
+
+1. **Fan-Out Pattern**: Create a common starting milestone (e.g., "Setup Complete"), then create ${inputCount} parallel task branches — one for each input. Each branch should be independent and can execute concurrently.
+
+2. **Branch Naming**: Label each branch clearly using the pattern: "${inputParallelization.branchLabelFormat}"
+   - Available placeholders: {{index}} (1-based), {{value}} (input value), {{total}} (${inputCount}), {{shortValue}} (truncated)
+
+3. **Branch Tasks**: Each branch should contain:
+   - Tasks specific to processing that input
+   - Clear dependencies within the branch
+   - No cross-dependencies between parallel branches (they must be independent)
+
+4. **Graph Layout for Parallel Branches**:
+   - Position parallel branches side-by-side horizontally
+   - Use x-offset of 260 between parallel branches
+   - First branch at x=40, second at x=300, third at x=560, etc.
+   - All branches start at the same y-level after the common starting milestone
+
+5. **Edge Types**:
+   - Use "dependency" edges for sequential tasks within a branch
+   - Use "branch" edges from the common starting milestone to each parallel branch's first task
+
+${inputParallelization.mergeStrategy !== 'individual' && inputParallelization.addMergeTask ? `6. **Merge Task**: After all parallel branches, add a final milestone that depends on ALL branch completion tasks. This merge task will ${inputParallelization.mergeStrategy === 'concatenate' ? 'concatenate all outputs into a single result' : inputParallelization.mergeStrategy === 'aggregate' ? 'aggregate all outputs into a collection' : 'merge outputs into a combined directory structure'}.
+   - Description: "${inputParallelization.mergeTaskDescription || 'Merge results from all parallel branches'}"` : '6. **No Merge Task**: Each branch produces independent output. No final merge is needed.'}
+
+### Example Parallel Plan Structure
+
+For ${inputCount} inputs, your plan should look like:
+
+\`\`\`
+                    [n1: Setup/Initialization Milestone]
+                              |
+                              +------------+------------+
+                              |            |            |
+                        [Branch 1]   [Branch 2]   [Branch 3]
+                         (x=40)      (x=300)       (x=560)
+                              |            |            |
+                        [tasks...]  [tasks...]  [tasks...]
+                              |            |            |
+                              +------------+------------+
+                              |
+${inputParallelization.addMergeTask ? '                    [Final Merge Milestone]' : '                    (no merge needed)'}
+\`\`\`
+`
+  }
+
   const hasRepo = repoSection.length > 0
 
   const outputInstructions = hasRepo
@@ -221,7 +306,7 @@ You decompose the project into a directed acyclic graph of tasks and milestones.
 You decompose the project into a directed acyclic graph of tasks and milestones.`
 
   return `${outputInstructions}
-${visionSection}${repoSection}${gitStateSection}${skillsSection}${githubSection}
+${visionSection}${repoSection}${gitStateSection}${skillsSection}${githubSection}${parallelBranchSection}
 ## Node rules
 - Each node has a unique id: "n1", "n2", etc.
 - type: "milestone" for checkpoints, "task" for work items, "decision" for human-judgment points.
