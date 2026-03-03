@@ -27,7 +27,7 @@ import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface DisplayBlock {
-  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation'
+  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status'
   events: TaskActivityEvent[]
 }
 
@@ -156,6 +156,11 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
         flushText()
         flushTools()
         blocks.push({ type: 'mutation', events: [event] })
+        break
+      case 'pr_status':
+        flushText()
+        flushTools()
+        blocks.push({ type: 'pr_status', events: [event] })
         break
     }
   }
