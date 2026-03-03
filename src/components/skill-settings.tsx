@@ -103,9 +103,15 @@ function SkillCard({ skill }: { skill: SkillRow }) {
         <div className="flex items-center gap-2 shrink-0 ml-4">
           <Toggle
             checked={skill.enabled}
-            onChange={(checked) =>
+            onChange={(checked) => {
+              if (skill.source === "builtin") {
+                const action = checked ? "enable" : "disable"
+                if (!window.confirm(`Are you sure you want to ${action} the built-in skill "${skill.name}"? This may affect default agent behavior.`)) {
+                  return
+                }
+              }
               checked ? enableSkill(skill.id) : disableSkill(skill.id)
-            }
+            }}
           />
           {skill.source !== "builtin" && (
             <Button

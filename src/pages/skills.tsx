@@ -354,7 +354,18 @@ export function Skills() {
   const skillsMap = useSkillStore((s) => s.skills)
   const addSkill = useSkillStore((s) => s.addSkill)
   const removeSkill = useSkillStore((s) => s.removeSkill)
-  const toggleSkill = useSkillStore((s) => s.toggleSkill)
+  const rawToggleSkill = useSkillStore((s) => s.toggleSkill)
+
+  const toggleSkill = useCallback((id: string) => {
+    const skill = skillsMap.get(id)
+    if (skill?.source === 'builtin') {
+      const action = skill.enabled ? 'disable' : 'enable'
+      if (!window.confirm(`Are you sure you want to ${action} the built-in skill "${skill.name}"? This may affect default agent behavior.`)) {
+        return
+      }
+    }
+    rawToggleSkill(id)
+  }, [skillsMap, rawToggleSkill])
   const displaySettings = useDisplaySettingsStore((s) =>
     s.get("skills" as never),
   )

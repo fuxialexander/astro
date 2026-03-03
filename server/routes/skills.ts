@@ -149,8 +149,11 @@ skillsRoute.post('/', async (c) => {
       return c.json({ error: 'Cannot create skills with source=builtin. Only system-seeded skills can use this source.' }, 403)
     }
     const validSources = ['workspace', 'clawhub', 'plugin', 'user']
-    if (body.source && !validSources.includes(body.source)) {
-      return c.json({ error: `Invalid source. Must be one of: ${validSources.join(', ')}` }, 400)
+    // Normalize null/empty to default; reject invalid non-empty values
+    if (body.source !== undefined && body.source !== null && body.source !== '') {
+      if (!validSources.includes(body.source)) {
+        return c.json({ error: `Invalid source. Must be one of: ${validSources.join(', ')}` }, 400)
+      }
     }
     if (body.tags && !Array.isArray(body.tags)) {
       return c.json({ error: 'tags must be an array' }, 400)
@@ -182,7 +185,7 @@ skillsRoute.post('/', async (c) => {
       instructions: body.instructions ?? '',
       category: body.category ?? null,
       tags: body.tags ?? [],
-      source: body.source ?? 'workspace',
+      source: body.source || 'workspace',
       sourceUrl: body.sourceUrl ?? null,
       authorId: user.id,
       enabled: body.enabled ?? true,
@@ -283,6 +286,15 @@ skillsRoute.put('/:id', async (c) => {
       if (body.userInvocable !== undefined) mergedConfig.userInvocable = body.userInvocable
       if (body.disableModelInvocation !== undefined) mergedConfig.disableModelInvocation = body.disableModelInvocation
       patch.config = mergedConfig
+    }
+
+    // Validate final merged config size (body.config was checked above,
+    // but merging with existing config + OpenClaw fields could exceed the limit)
+    if (patch.config !== undefined) {
+      const mergedConfigError = validateConfig(patch.config)
+      if (mergedConfigError) {
+        return c.json({ error: mergedConfigError }, 400)
+      }
     }
 
     await db.update(skills).set(patch).where(eq(skills.id, id))
