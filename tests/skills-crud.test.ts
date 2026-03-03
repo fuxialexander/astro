@@ -494,6 +494,21 @@ describe('builtin skill protection', () => {
     const body = await res.json() as { error: string }
     expect(body.error).toContain('builtin')
   })
+
+  it('allows toggling builtin skills (enable/disable without deleting)', async () => {
+    // Toggling builtins is intentionally allowed so users can disable
+    // a builtin skill from prompt injection without deleting it
+    const toggleRes = await putJson(`/api/skills/${builtinSkillId}/toggle`, {})
+    expect(toggleRes.status).toBe(200)
+    const toggled = await toggleRes.json() as Record<string, unknown>
+    expect(toggled.enabled).toBe(false)
+
+    // Toggle back
+    const toggleBackRes = await putJson(`/api/skills/${builtinSkillId}/toggle`, {})
+    expect(toggleBackRes.status).toBe(200)
+    const toggledBack = await toggleBackRes.json() as Record<string, unknown>
+    expect(toggledBack.enabled).toBe(true)
+  })
 })
 
 // ═══════════════════════════════════════════════════════════════════════
