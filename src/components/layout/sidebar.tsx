@@ -105,7 +105,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     } else {
       navigate(`/project/${projectId}/list`)
     }
-  }, [agentSessions, executions, projects, navigate])
+  }, [agentSessions, executions, navigate])
 
   // O(1) lookup map for plan nodes by ID
   const planNodesById = useMemo(() => {
