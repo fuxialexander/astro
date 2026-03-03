@@ -41,16 +41,21 @@ export async function bootstrapBuiltinSkills(builtinSkills: BuiltinSkillDefiniti
   // Warm up the DB connection and verify RLS bypass capability.
   // Builtin skills have team_id=NULL, but the RLS INSERT policy requires
   // team_id IS NOT NULL. Bootstrap only works with service_role (bypasses RLS)
-  // or PGlite (RLS not enforced). Log a warning if we detect a restricted role.
+  // or PGlite (RLS not enforced). Fail-fast if we detect a restricted role.
   await db.select().from(skills).limit(1)
   try {
     const [roleCheck] = await db.select({ role: sql<string>`current_setting('role')` }).from(sql`(SELECT 1) AS _`)
     const role = roleCheck?.role
-    if (role && !['service_role', 'rds_superuser', 'postgres', 'supabase_admin'].includes(role)) {
-      console.warn(`[bootstrap] WARNING: DB role "${role}" may lack RLS bypass privileges. Builtin skill seeding may fail.`)
+    if (role && !['service_role', 'rds_superuser', 'postgres', 'supabase_admin', 'none'].includes(role)) {
+      throw new Error(
+        `[bootstrap] DB role "${role}" lacks RLS bypass privileges required to seed builtin skills (team_id=NULL). `
+        + `Connect with service_role or add an RLS policy exception for builtin skills.`
+      )
     }
-  } catch {
-    // PGlite may not support current_setting — safe to ignore
+  } catch (e) {
+    // Re-throw bootstrap errors; only swallow PGlite current_setting failures
+    if (e instanceof Error && e.message.includes('[bootstrap]')) throw e
+    // PGlite may not support current_setting on some versions — safe to ignore (no RLS enforced)
   }
 
   let inserted = 0

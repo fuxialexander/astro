@@ -23,10 +23,14 @@ skillsRoute.use('/*', requireAuth)
 
 /**
  * Maximum config JSON text size in bytes (95KB) for API-layer validation.
- * This is intentionally lower than the DB constraint (100KB on pg_column_size)
- * because pg_column_size includes storage overhead (TOAST headers, alignment).
- * The conservative API limit ensures requests never hit the DB constraint,
- * giving users a clear error message instead of a cryptic DB violation.
+ *
+ * NOTE: This measures JSON.stringify().length (text bytes), while the DB
+ * constraint uses pg_column_size() (storage bytes including TOAST headers,
+ * alignment padding, and potential compression). These are intentionally
+ * different measures — the API limit is set ~5KB below the DB limit as a
+ * conservative buffer so that requests always get a clear API-layer error
+ * rather than a cryptic DB constraint violation. The DB constraint (100KB)
+ * is the true safety net for direct DB access (Supabase Dashboard, PostgREST).
  */
 const MAX_CONFIG_JSON_SIZE = 95 * 1024
 
@@ -227,10 +231,15 @@ skillsRoute.post('/', async (c) => {
     // this is fine. For bulk operations, consider a batch endpoint or debounced sync.
     // If sync fails, the DB write (source of truth) already succeeded — prompt
     // injection will catch up on the next successful sync or server restart.
+    let syncWarning: string | null = null
     try { await syncSkillsFromDb(skillManager) } catch (syncErr) {
-      console.error('[skills] POST / sync warning: in-memory cache may be stale:', syncErr)
+      syncWarning = 'Skill saved but prompt injection cache update failed. Changes will take effect on next sync or server restart.'
+      console.error('[skills] POST / sync warning:', syncErr)
     }
 
+    if (syncWarning) {
+      return c.json({ ...created, _warning: syncWarning }, 201)
+    }
     return c.json(created, 201)
   } catch (e) {
     console.error('[skills] POST / error:', e)
@@ -340,10 +349,15 @@ skillsRoute.put('/:id', async (c) => {
     const [updated] = await db.select().from(skills).where(eq(skills.id, id))
 
     // Sync in-memory skill-manager for prompt injection (best-effort)
+    let syncWarning: string | null = null
     try { await syncSkillsFromDb(skillManager) } catch (syncErr) {
-      console.error('[skills] PUT /:id sync warning: in-memory cache may be stale:', syncErr)
+      syncWarning = 'Skill updated but prompt injection cache update failed. Changes will take effect on next sync or server restart.'
+      console.error('[skills] PUT /:id sync warning:', syncErr)
     }
 
+    if (syncWarning) {
+      return c.json({ ...updated, _warning: syncWarning })
+    }
     return c.json(updated)
   } catch (e) {
     console.error('[skills] PUT /:id error:', e)
@@ -380,11 +394,13 @@ skillsRoute.delete('/:id', async (c) => {
     await db.delete(skills).where(eq(skills.id, id))
 
     // Sync in-memory skill-manager for prompt injection (best-effort)
+    let syncWarning: string | null = null
     try { await syncSkillsFromDb(skillManager) } catch (syncErr) {
-      console.error('[skills] DELETE /:id sync warning: in-memory cache may be stale:', syncErr)
+      syncWarning = 'Skill deleted but prompt injection cache update failed. Changes will take effect on next sync or server restart.'
+      console.error('[skills] DELETE /:id sync warning:', syncErr)
     }
 
-    return c.json({ ok: true, id })
+    return c.json({ ok: true, id, ...(syncWarning ? { _warning: syncWarning } : {}) })
   } catch (e) {
     console.error('[skills] DELETE /:id error:', e)
     return c.json({ error: errorMessage(e) }, 500)
@@ -424,10 +440,15 @@ skillsRoute.put('/:id/toggle', async (c) => {
     const [updated] = await db.select().from(skills).where(eq(skills.id, id))
 
     // Sync in-memory skill-manager for prompt injection (best-effort)
+    let syncWarning: string | null = null
     try { await syncSkillsFromDb(skillManager) } catch (syncErr) {
-      console.error('[skills] PUT /:id/toggle sync warning: in-memory cache may be stale:', syncErr)
+      syncWarning = 'Skill toggled but prompt injection cache update failed. Changes will take effect on next sync or server restart.'
+      console.error('[skills] PUT /:id/toggle sync warning:', syncErr)
     }
 
+    if (syncWarning) {
+      return c.json({ ...updated, _warning: syncWarning })
+    }
     return c.json(updated)
   } catch (e) {
     console.error('[skills] PUT /:id/toggle error:', e)
