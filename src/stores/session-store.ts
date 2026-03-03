@@ -144,8 +144,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const sessions = new Map(get().sessions)
     sessions.set(id, session)
     set({ sessions })
-    // Fire-and-forget API call
-    dataClient.createSession(session).catch(() => {})
+    // Fire-and-forget API call — log failures so FK violations are visible
+    dataClient.createSession(session).catch((err) => {
+      console.error('[session-store] Failed to persist session:', session.id, err)
+    })
     return session
   },
 
