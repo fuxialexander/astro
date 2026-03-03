@@ -41,23 +41,23 @@ The Skills system implementation (consolidated across PRs #441-#455) is function
 
 #### 🔄 Deferred (Future Work)
 
-**3. Allowed-tools Not Enforced During Execution** (Priority: High) → [Issue #465](https://github.com/fuxialexander/astro/issues/465)
+**3. Allowed-tools Not Enforced During Execution** (Priority: High) → [Issue #461](https://github.com/fuxialexander/astro/issues/461)
 - **Issue**: Skills have `allowedTools` field but it's not enforced at runtime
 - **Current**: Tools are set based on workspace/MCP config, not skill constraints
 - **Requires**: Architectural change to pass skill context through dispatch chain
 - **Location**: `packages/agent-runner/src/providers/claude-sdk-adapter.ts:366-375`
 
-**4. AI Creation Flow Architecture** (Priority: Medium) → [Issue #467](https://github.com/fuxialexander/astro/issues/467)
+**4. AI Creation Flow Architecture** (Priority: Medium) → [Issue #462](https://github.com/fuxialexander/astro/issues/462)
 - **Issue**: Uses `planChatWithAgent()` with synthetic `projectId: "skill-onboarder"`
 - **Current**: Works but is architecturally inconsistent
 - **Improvement**: Create dedicated `/api/skills/generate` endpoint
 - **Location**: `src/pages/skill-new.tsx:229-259`
 
-**5. No Skill Versioning** (Priority: Medium) → [Issue #468](https://github.com/fuxialexander/astro/issues/468)
+**5. No Skill Versioning** (Priority: Medium) → [Issue #463](https://github.com/fuxialexander/astro/issues/463)
 - **Issue**: GitHub imports are snapshots, no update mechanism
 - **Missing**: Check for upstream changes, pull updates, version diffs, conflict resolution
 
-**6. Skills Live Only in DB / Claude Code Integration** (Priority: Medium)
+**6. Skills Live Only in DB / Claude Code Integration** (Priority: Medium) → [Issue #466](https://github.com/fuxialexander/astro/issues/466)
 - **Issue**: No file-based representation for version control
 - **Missing**: Export as SKILL.md, import from local files, git history
 - **Current**: DB-only storage means no local editing or version control
@@ -76,7 +76,7 @@ The Skills system implementation (consolidated across PRs #441-#455) is function
 - **scripts/ directory**: Bundled executables
 - **Future Task**: Design runtime support for these features
 
-## Anthropic Built-in Skills Integration → [Issue #469](https://github.com/fuxialexander/astro/issues/469)
+## Anthropic Built-in Skills Integration → [Issue #464](https://github.com/fuxialexander/astro/issues/464)
 
 **Recommendation:** Curated marketplace approach
 
@@ -136,14 +136,14 @@ npm test -- --run github
 4. **Ready to merge**
 
 ### Short-term (Next Sprint)
-1. ✅ [#465](https://github.com/fuxialexander/astro/issues/465) - Runtime enforcement of allowed-tools for skills
-2. ✅ [#467](https://github.com/fuxialexander/astro/issues/467) - Refactor AI creation flow to use dedicated endpoint
-3. Add skill export/import as SKILL.md files (included in #468)
+1. ✅ [#461](https://github.com/fuxialexander/astro/issues/461) - Runtime enforcement of allowed-tools for skills
+2. ✅ [#462](https://github.com/fuxialexander/astro/issues/462) - Refactor AI creation flow to use dedicated endpoint
+3. ✅ [#466](https://github.com/fuxialexander/astro/issues/466) - Add skill export/import as SKILL.md files
 
 ### Medium-term (Q2 2026)
-1. ✅ [#468](https://github.com/fuxialexander/astro/issues/468) - Implement skill versioning and updates
-2. ✅ [#469](https://github.com/fuxialexander/astro/issues/469) - Add Anthropic skills catalog (Tier 1 & 2)
-3. Sync skills to `.claude/skills/` for Claude Code integration
+1. ✅ [#463](https://github.com/fuxialexander/astro/issues/463) - Implement skill versioning and updates
+2. ✅ [#464](https://github.com/fuxialexander/astro/issues/464) - Add Anthropic skills catalog (Tier 1 & 2)
+3. ✅ [#466](https://github.com/fuxialexander/astro/issues/466) - Sync skills to `.claude/skills/` for Claude Code integration
 
 ### Long-term (Q3+ 2026)
 1. Progressive disclosure system
