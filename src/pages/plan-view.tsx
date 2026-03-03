@@ -28,6 +28,7 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore, type DisplaySettings, type ViewKey } from "@/stores/display-settings-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useExecutionStore, getProjectWorkingDir } from "@/stores/execution-store"
+import { useContentSaveStore } from "@/stores/content-save-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useUIStore } from "@/stores/ui-store"
@@ -825,6 +826,10 @@ export function PlanListView({
       })
       return
     }
+
+    // Flush any pending content saves before execution
+    await flushPendingSaves([node.id])
+
     const { startExecution } = useExecutionStore.getState()
     await startExecution(node.id, node.projectId)
     addActivity({
@@ -832,7 +837,7 @@ export function PlanListView({
       type: "task.started",
       title: `Executing task: ${node.title}`,
     })
-  }, [project, addActivity])
+  }, [project, addActivity, flushPendingSaves])
 
   const planBatchActions: BatchAction[] = useMemo(() => [
     {
@@ -859,6 +864,10 @@ export function PlanListView({
           })
           return
         }
+
+        // Flush pending saves for all selected tasks before execution
+        await flushPendingSaves(ids)
+
         const { startExecution } = useExecutionStore.getState()
         // Execute all selected tasks in parallel
         const executions = ids.map((id) => {
@@ -919,7 +928,7 @@ export function PlanListView({
         }
       },
     },
-  ], [removeNodes, planNodes, addActivity, projectId])
+  ], [removeNodes, planNodes, addActivity, projectId, flushPendingSaves, project])
 
   const allProjectNodes = useMemo(() => {
     // If nodes provided (cross-project mode), use those
@@ -1393,6 +1402,7 @@ export function PlanView() {
   const updateProject = useProjectStore((s) => s.updateProject)
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
+  const flushPendingSaves = useContentSaveStore((s) => s.flushPendingSaves)
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
 
 

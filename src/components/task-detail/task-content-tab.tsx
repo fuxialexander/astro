@@ -6,6 +6,7 @@ import { LinkList } from './link-list'
 import { CommentSection } from './comment-section'
 import { usePlanStore } from '@/stores/plan-store'
 import { useUserProfileStore } from '@/stores/user-profile-store'
+import { useContentSaveStore } from '@/stores/content-save-store'
 import { dataClient } from '@/lib/data-client'
 import { fileToBase64 } from '@/lib/html-utils'
 import { cn } from '@/lib/utils'
@@ -24,6 +25,8 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
   const updateNode = usePlanStore((s) => s.updateNode)
   const nodes = usePlanStore((s) => s.nodes)
   const profile = useUserProfileStore((s) => s.profile)
+  const registerPendingSave = useContentSaveStore((s) => s.registerPendingSave)
+  const clearPendingSave = useContentSaveStore((s) => s.clearPendingSave)
   const editorRef = useRef<RichTextEditorRef>(null)
 
   // Initialize with content or fall back to description for backward compat
@@ -32,6 +35,7 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [activeSection, setActiveSection] = useState<'content' | 'attachments' | 'links'>('content')
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const savingRef = useRef<Promise<void> | null>(null)
 
   // Build mention items from sibling plan nodes + file tree
   const mentionItems = useMemo<MentionSuggestionItem[]>(() => {
@@ -55,21 +59,49 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
     if (html === initialContent) return
 
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(async () => {
+
+    // Register a flush function that immediately executes the save
+    const flushFn = async () => {
+      // Cancel the debounced timer
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+        debounceRef.current = null
+      }
+
+      // If already saving, wait for that to complete
+      if (savingRef.current) {
+        await savingRef.current
+        return
+      }
+
+      // Execute the save immediately
       setSaveStatus('saving')
       const markdown = editorRef.current?.getMarkdown() || html
-      await updateNode(node.id, { content: html, description: markdown })
+      const savePromise = updateNode(node.id, { content: html, description: markdown })
+      savingRef.current = savePromise
+
+      await savePromise
+
+      savingRef.current = null
+      clearPendingSave(node.id)
       setSaveStatus('saved')
       setTimeout(() => setSaveStatus('idle'), 1500)
-    }, 800)
-  }, [node.id, initialContent, updateNode])
+    }
 
-  // Cleanup debounce on unmount
+    registerPendingSave(node.id, flushFn)
+
+    debounceRef.current = setTimeout(async () => {
+      await flushFn()
+    }, 800)
+  }, [node.id, initialContent, updateNode, registerPendingSave, clearPendingSave])
+
+  // Cleanup debounce and pending save on unmount
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
+      clearPendingSave(node.id)
     }
-  }, [])
+  }, [node.id, clearPendingSave])
 
   const handleImageUpload = useCallback(async (file: File): Promise<string | null> => {
     try {
