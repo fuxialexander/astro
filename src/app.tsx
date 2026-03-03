@@ -32,6 +32,7 @@ import { useSidebarStore } from "@/stores/sidebar-store"
 import { isLocalMode } from "@/lib/app-mode"
 import { usePluginStore } from "@/stores/plugin-store"
 import { useSkillStore } from "@/stores/skill-store"
+import { useTemplateStore } from "@/stores/template-store"
 import { useTeamStore } from "@/stores/team-store"
 import { setActiveTeamId } from "@/lib/data-client"
 import { setActiveTeamId as setApiActiveTeamId } from "@/lib/api-client"
@@ -102,6 +103,7 @@ function resetAllStores() {
   useSidebarStore.setState({ loaded: false })
   usePluginStore.setState({ loaded: false })
   useSkillStore.setState({ loaded: false })
+  useTemplateStore.setState({ templates: [], categories: [], loaded: false })
   // Reset external integration stores
   useGitHubStore.setState({ connected: false, user: null, connectedAt: null, repos: [], selectedRepoIds: [], lastSyncedAt: null })
   useConnectedAccountsStore.setState({ accounts: [], loaded: false })
@@ -127,6 +129,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const loadSidebar = useSidebarStore((s) => s.load)
   const loadPlugins = usePluginStore((s) => s.load)
   const loadSkills = useSkillStore((s) => s.load)
+  const loadTemplates = useTemplateStore((s) => s.load)
   const connectRealtime = useRealtimeStore((s) => s.connect)
   const disconnectRealtime = useRealtimeStore((s) => s.disconnect)
   const fetchGitHubStatus = useGitHubStore((s) => s.fetchStatus)
@@ -148,6 +151,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const sidebarLoaded = useSidebarStore((s) => s.loaded)
   const pluginsLoaded = usePluginStore((s) => s.loaded)
   const skillsLoaded = useSkillStore((s) => s.loaded)
+  const templatesLoaded = useTemplateStore((s) => s.loaded)
 
   // Only load data if authenticated or in local mode
   const shouldLoadData = isLocalMode() || !!(authInitialized && session)
@@ -190,6 +194,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     if (!sidebarLoaded) loadSidebar()
     if (!pluginsLoaded) loadPlugins()
     if (!skillsLoaded) loadSkills()
+    if (!templatesLoaded) loadTemplates()
 
     connectRealtime()
 
@@ -232,7 +237,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   // Critical stores: must load before rendering (navigation + core data)
   const criticalLoaded = teamsLoaded && projectsLoaded && planLoaded && userProfileLoaded && sidebarLoaded
   // Non-critical stores load in background — page renders without them
-  const allLoaded = criticalLoaded && settingsLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded && initiativesLoaded && executionsLoaded && agentLoaded && activitiesLoaded && pluginsLoaded && skillsLoaded
+  const allLoaded = criticalLoaded && settingsLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded && initiativesLoaded && executionsLoaded && agentLoaded && activitiesLoaded && pluginsLoaded && skillsLoaded && templatesLoaded
 
   // Only block page render on critical stores
   if (shouldLoadData && !criticalLoaded) {
