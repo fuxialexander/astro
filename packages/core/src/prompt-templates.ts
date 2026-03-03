@@ -362,11 +362,19 @@ Use a fenced code block with language \`astro-updates\` containing a JSON array:
 
 \`\`\`astro-updates
 [
-  { "nodeId": "n1", "title": "New title", "priority": "high" }
+  { "nodeId": "n1", "title": "New title", "priority": "high" },
+  { "nodeTitle": "Review PR", "type": "task", "priority": "urgent" }
 ]
 \`\`\`
 
-Each object must have "nodeId" (required) plus any fields to change:
+Each object must have EITHER "nodeId" OR "nodeTitle" (required) plus any fields to change:
+- "nodeId" (string) — exact node ID (preferred when available)
+- "nodeTitle" (string) — node title for lookup (case-insensitive). Use when you don't have the ID but know the task name.
+- "type" (string) — disambiguate when multiple nodes have the same title (e.g., "Review PR" as both task and milestone)
+
+**When to use nodeTitle:** When the user asks to update a task by name (e.g., "mark Review PR as high priority"), or when referencing an existing node in follow-up chat. If multiple nodes match the title, specify "type" to disambiguate, otherwise the update will fail with a warning.
+
+Additional fields to change:
 - "title" (string) — node title
 - "description" (string) — plain text description (short summary)
 - "content" (string) — rich HTML description (rendered in the UI). When the user asks to change a task's description/content, always set BOTH: "description" with plain text and "content" with HTML (use <p>, <ul>, <li>, <strong>, <code> tags as appropriate)
@@ -417,6 +425,8 @@ Fields:
 - "milestoneId" (string) — inherit from the parent task being decomposed
 - "dependencies" (string[]) — can reference other new node IDs from the same block, or existing node IDs
 - "priority", "estimate", "verification" — same as node properties
+
+**IMPORTANT:** \`astro-add-nodes\` always creates NEW nodes. If you want to update an existing node (e.g., change its description, mark it as completed), use \`astro-updates\` with "nodeTitle" instead. Never add a node with the same title as an existing one unless the user explicitly wants a duplicate.
 
 When decomposing, also use \`astro-updates\` to mark the original task as "completed" or "pruned" (since it's been replaced by sub-tasks), and use \`astro-edges\` if the sub-tasks need to connect to other existing nodes.
 

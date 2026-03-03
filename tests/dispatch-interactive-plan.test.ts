@@ -11,27 +11,46 @@
  * correctly by mocking relayServer.dispatchTask and inspecting the payload.
  */
 
-// Mock relay server BEFORE imports to capture dispatch calls
+// Mock relay server and machine registry BEFORE imports to capture dispatch calls
 import { vi, describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest'
 
 // Create mock dispatchTask function
 const mockDispatchTask = vi.fn()
 
+// Mock the machine registry so dispatch finds a machine without a real agent runner
+vi.mock('../server/lib/machine-registry.js', () => ({
+  machineRegistry: {
+    findBestMachine: () => ({
+      machineId: 'test-machine-001',
+      connectionStatus: 'connected',
+      providers: [{ type: 'claude-code', status: 'available', currentTasks: 0, maxConcurrentTasks: 1 }],
+      load: { cpuPercent: 0, activeTasks: 0 },
+    }),
+    get: (id: string) => ({
+      machineId: id,
+      connectionStatus: 'connected',
+      providers: [{ type: 'claude-code', status: 'available', currentTasks: 0, maxConcurrentTasks: 1 }],
+      load: { cpuPercent: 0, activeTasks: 0 },
+    }),
+  },
+}))
+
 // Mock the relay server module
 vi.mock('../server/lib/relay-server.js', () => {
   // Create a minimal EventEmitter-like object
+  type Listener = (...args: unknown[]) => void
   const createMockRelayServer = () => {
-    const listeners = new Map<string, Set<Function>>()
+    const listeners = new Map<string, Set<Listener>>()
     return {
-      dispatchTask: (...args: any[]) => mockDispatchTask(...args),
-      on: vi.fn((event: string, handler: Function) => {
+      dispatchTask: (...args: unknown[]) => mockDispatchTask(...args),
+      on: vi.fn((event: string, handler: Listener) => {
         if (!listeners.has(event)) listeners.set(event, new Set())
         listeners.get(event)!.add(handler)
       }),
-      off: vi.fn((event: string, handler: Function) => {
+      off: vi.fn((event: string, handler: Listener) => {
         listeners.get(event)?.delete(handler)
       }),
-      emit: vi.fn((event: string, ...args: any[]) => {
+      emit: vi.fn((event: string, ...args: unknown[]) => {
         const handlers = listeners.get(event)
         if (handlers) handlers.forEach(h => h(...args))
       }),
@@ -40,6 +59,27 @@ vi.mock('../server/lib/relay-server.js', () => {
 
   return {
     relayServer: createMockRelayServer(),
+  }
+})
+
+// Mock the machine registry to return a fake machine so dispatch doesn't 400
+vi.mock('../server/lib/machine-registry.js', () => {
+  const fakeMachine = {
+    machineId: 'test-machine-001',
+    connectionStatus: 'connected',
+    providers: [{ type: 'claude-code', status: 'available', currentTasks: 0, maxConcurrentTasks: 1 }],
+    load: { cpuPercent: 0, activeTasks: 0 },
+    userId: '00000000-0000-0000-0000-000000000001',
+  }
+
+  return {
+    machineRegistry: {
+      findBestMachine: vi.fn(() => fakeMachine),
+      get: vi.fn(() => fakeMachine),
+      register: vi.fn(),
+      unregister: vi.fn(),
+      getAll: vi.fn(() => [fakeMachine]),
+    },
   }
 })
 
