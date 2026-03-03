@@ -147,6 +147,9 @@ skillsRoute.post('/', async (c) => {
       return c.json({ error: 'name is required' }, 400)
     }
 
+    // Block users from impersonating builtin skills via API.
+    // Only system bootstrap (via bootstrapBuiltinSkills) can create builtins,
+    // which bypasses this endpoint and writes to DB directly.
     if (body.source === 'builtin') {
       return c.json({ error: 'Cannot create skills with source=builtin. Only system-seeded skills can use this source.' }, 403)
     }

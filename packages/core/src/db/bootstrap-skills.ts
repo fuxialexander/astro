@@ -23,6 +23,11 @@ import type { BuiltinSkillDefinition } from '../skills/types.js'
  * is a partial index (name WHERE source='builtin'), which Drizzle's
  * onConflictDoUpdate cannot target. Wrapped in a transaction.
  *
+ * NOTE: Builtin skills have team_id=NULL, but the RLS INSERT policy requires
+ * team_id IS NOT NULL. This works because the Hono API server connects with
+ * the service_role key, which bypasses RLS. If the DB connection changes to
+ * use a non-privileged role, this function will fail to seed builtins.
+ *
  * @param builtinSkills - Skill definitions loaded from SKILL.md files on disk
  */
 export async function bootstrapBuiltinSkills(builtinSkills: BuiltinSkillDefinition[]): Promise<void> {
@@ -137,6 +142,7 @@ export async function syncSkillsFromDb(
     source: string; enabled: boolean;
     config?: Record<string, unknown>;
     userInvocable?: boolean; disableModelInvocation?: boolean;
+    teamId?: string | null;
   }>) => void }
 ): Promise<void> {
   const rows = await db.select().from(skills).where(eq(skills.enabled, true))
