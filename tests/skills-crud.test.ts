@@ -7,7 +7,8 @@
  *   - Validation (missing name, etc.)
  *   - Team scoping and cross-team isolation
  *   - 404 for nonexistent skills
- *   - 409 for duplicate ID/name conflicts
+ *   - 409 for duplicate name conflicts
+ *   - Server always generates UUIDs (ignores client-sent IDs)
  *   - Config size limits
  *   - PUT validation (empty name, non-array tags/allowedTools)
  *   - Source immutability
@@ -153,23 +154,21 @@ describe('POST /api/skills', () => {
     expect(skill.teamId).toBe(LOCAL_TEAM_ID)
   })
 
-  it('returns 409 on duplicate id', async () => {
-    const id = crypto.randomUUID()
+  it('ignores client-sent id and generates server-side UUID', async () => {
+    const clientId = crypto.randomUUID()
 
-    const res1 = await postJson('/api/skills', {
-      id,
-      name: 'Original Name',
+    const res = await postJson('/api/skills', {
+      id: clientId,
+      name: 'Server UUID Test',
       description: 'v1',
     })
-    expect(res1.status).toBe(201)
+    expect(res.status).toBe(201)
 
-    // Second POST with same ID should fail with 409 (conflict)
-    const res2 = await postJson('/api/skills', {
-      id,
-      name: 'Updated Name',
-      description: 'v2',
-    })
-    expect(res2.status).toBe(409)
+    const skill = await res.json() as Record<string, unknown>
+    // Server should generate its own UUID, not use the client-sent one
+    expect(skill.id).not.toBe(clientId)
+    expect(typeof skill.id).toBe('string')
+    expect((skill.id as string).length).toBe(36) // UUID format
   })
 
   it('returns 409 on duplicate name within same team', async () => {
@@ -277,9 +276,10 @@ describe('GET /api/skills/:id', () => {
 
 describe('PUT /api/skills/:id', () => {
   it('updates skill fields', async () => {
+    const uniqueSuffix = crypto.randomUUID().slice(0, 8)
     // Create a skill
     const createRes = await postJson('/api/skills', {
-      name: 'Update Test',
+      name: `Update Test ${uniqueSuffix}`,
       description: 'Original description',
       enabled: true,
     })
@@ -287,7 +287,7 @@ describe('PUT /api/skills/:id', () => {
 
     // Update it
     const updateRes = await putJson(`/api/skills/${created.id}`, {
-      name: 'Updated Name',
+      name: `Updated Name ${uniqueSuffix}`,
       description: 'Updated description',
       version: '3.0.0',
       category: 'research',
@@ -296,7 +296,7 @@ describe('PUT /api/skills/:id', () => {
 
     expect(updateRes.status).toBe(200)
     const updated = await updateRes.json() as Record<string, unknown>
-    expect(updated.name).toBe('Updated Name')
+    expect(updated.name).toBe(`Updated Name ${uniqueSuffix}`)
     expect(updated.description).toBe('Updated description')
     expect(updated.version).toBe('3.0.0')
     expect(updated.category).toBe('research')
@@ -1022,6 +1022,16 @@ describe('skill store', () => {
       expect(mockDataClient.updateSkill).not.toHaveBeenCalled()
     })
 
+    it('no-ops on temp-prefixed IDs (skill still saving)', () => {
+      const existing = makeSkillRow({ id: 'temp-abc123', name: 'pending-skill' })
+      useSkillStore.setState({
+        skills: new Map([['temp-abc123', existing as unknown as SkillRow]]),
+      })
+
+      useSkillStore.getState().updateSkill('temp-abc123', { description: 'Changed' })
+      expect(mockDataClient.updateSkill).not.toHaveBeenCalled()
+    })
+
     it('calls dataClient.updateSkill for backend sync', () => {
       const existing = makeSkillRow({ id: 'skill-id', name: 'to-sync' })
       useSkillStore.setState({
@@ -1088,6 +1098,18 @@ describe('skill store', () => {
       useSkillStore.getState().removeSkill('nonexistent')
       expect(mockDataClient.deleteSkill).not.toHaveBeenCalled()
     })
+
+    it('no-ops on temp-prefixed IDs (skill still saving)', () => {
+      const existing = makeSkillRow({ id: 'temp-abc123', name: 'pending-skill' })
+      useSkillStore.setState({
+        skills: new Map([['temp-abc123', existing as unknown as SkillRow]]),
+      })
+
+      useSkillStore.getState().removeSkill('temp-abc123')
+      expect(mockDataClient.deleteSkill).not.toHaveBeenCalled()
+      // Skill should remain in local state (not optimistically removed)
+      expect(useSkillStore.getState().skills.has('temp-abc123')).toBe(true)
+    })
   })
 
   describe('toggleSkill', () => {
@@ -1151,6 +1173,18 @@ describe('skill store', () => {
     it('no-ops when skill does not exist', () => {
       useSkillStore.getState().toggleSkill('nonexistent')
       expect(mockDataClient.toggleSkill).not.toHaveBeenCalled()
+    })
+
+    it('no-ops on temp-prefixed IDs (skill still saving)', () => {
+      const existing = makeSkillRow({ id: 'temp-abc123', name: 'pending-skill', enabled: true })
+      useSkillStore.setState({
+        skills: new Map([['temp-abc123', existing as unknown as SkillRow]]),
+      })
+
+      useSkillStore.getState().toggleSkill('temp-abc123')
+      expect(mockDataClient.toggleSkill).not.toHaveBeenCalled()
+      // Enabled state should not change
+      expect(useSkillStore.getState().skills.get('temp-abc123')?.enabled).toBe(true)
     })
   })
 

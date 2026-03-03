@@ -205,7 +205,9 @@ skillsRoute.post('/', async (c) => {
     }
 
     const now = new Date()
-    const skillId = body.id || crypto.randomUUID()
+    // Always generate a server-side UUID — never trust client-sent IDs
+    // (client may send temp-{uuid} prefixed strings that aren't valid Postgres UUIDs)
+    const skillId = crypto.randomUUID()
 
     const row = {
       id: skillId,
