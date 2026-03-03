@@ -239,6 +239,10 @@ skillsRoute.put('/:id/toggle', async (c) => {
       return c.json({ error: 'Skill not found' }, 404)
     }
 
+    // Note: toggling builtin skills is intentionally allowed.
+    // Users may want to disable a builtin skill from prompt injection
+    // without deleting it. This differs from PUT/DELETE which block builtins.
+
     const newEnabled = !existing.enabled
 
     await db.update(skills).set({
