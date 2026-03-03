@@ -11,6 +11,9 @@ import {
   ToggleRight,
   ChevronRight,
   Tag,
+  Download,
+  Loader2,
+  AlertCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -282,6 +285,149 @@ function NewSkillDialog({
   )
 }
 
+// --- GitHub Import Dialog ---
+function GitHubImportDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const [url, setUrl] = useState("")
+  const [isValidUrl, setIsValidUrl] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState("")
+
+  const validateGitHubUrl = useCallback((inputUrl: string) => {
+    // GitHub URL patterns: https://github.com/user/repo or https://github.com/user/repo.git
+    const pattern = /^https:\/\/github\.com\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+(\.git)?$/
+    return pattern.test(inputUrl.trim())
+  }, [])
+
+  const handleUrlBlur = useCallback(() => {
+    const trimmedUrl = url.trim()
+    if (trimmedUrl) {
+      const isValid = validateGitHubUrl(trimmedUrl)
+      setIsValidUrl(isValid)
+      if (!isValid) {
+        setError("Please enter a valid GitHub repository URL (e.g., https://github.com/user/repo)")
+      } else {
+        setError("")
+      }
+    }
+  }, [url, validateGitHubUrl])
+
+  const handleUrlChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setUrl(e.target.value)
+    setError("")
+    // Reset validation state when user types
+    if (e.target.value.trim()) {
+      setIsValidUrl(validateGitHubUrl(e.target.value.trim()))
+    } else {
+      setIsValidUrl(false)
+    }
+  }, [validateGitHubUrl])
+
+  const handleImport = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault()
+      if (!isValidUrl) return
+
+      setIsLoading(true)
+      setError("")
+
+      try {
+        // TODO: Implement the actual import logic
+        // This will be handled in a future task
+        await new Promise((resolve) => setTimeout(resolve, 1500)) // Simulate API call
+
+        // Placeholder: Show error for now since import logic isn't implemented
+        setError("Import functionality will be implemented in a future update")
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to import skill from GitHub")
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [isValidUrl],
+  )
+
+  const handleOpenChange = useCallback((newOpen: boolean) => {
+    if (!newOpen) {
+      // Reset form when closing
+      setUrl("")
+      setIsValidUrl(false)
+      setError("")
+      setIsLoading(false)
+    }
+    onOpenChange(newOpen)
+  }, [onOpenChange])
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-[500px]">
+        <DialogHeader>
+          <DialogTitle>Import from GitHub</DialogTitle>
+          <DialogDescription>
+            Import a skill from a GitHub repository. The repository should contain
+            a skill definition file.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleImport} className="flex flex-col gap-4 mt-2">
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="github-url" className="text-sm font-medium">
+              GitHub Repository URL <span className="text-destructive">*</span>
+            </label>
+            <Input
+              id="github-url"
+              type="url"
+              placeholder="https://github.com/user/repo"
+              value={url}
+              onChange={handleUrlChange}
+              onBlur={handleUrlBlur}
+              disabled={isLoading}
+              autoFocus
+              className={error && url ? "border-destructive" : ""}
+            />
+          </div>
+
+          {/* Error Display */}
+          {error && (
+            <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-destructive">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <p className="text-xs leading-relaxed">{error}</p>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => handleOpenChange(false)}
+              disabled={isLoading}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!isValidUrl || isLoading}>
+              {isLoading ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  Importing...
+                </>
+              ) : (
+                <>
+                  <Download className="h-3.5 w-3.5 mr-1.5" />
+                  Import
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // --- Skill Card (for grid view) ---
 function SkillCard({
   skill,
@@ -377,6 +523,7 @@ export function Skills() {
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [enabledFilter, setEnabledFilter] = useState("all")
   const [newSkillOpen, setNewSkillOpen] = useState(false)
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
 
   // Convert skills map to array
   const allSkills = useMemo(
@@ -603,6 +750,15 @@ export function Skills() {
         <div className="flex items-center gap-3">
           <Button
             size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => setImportDialogOpen(true)}
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span className="hidden md:inline">Import from GitHub</span>
+          </Button>
+          <Button
+            size="sm"
             className="gap-1.5"
             onClick={() => setNewSkillOpen(true)}
           >
@@ -625,6 +781,12 @@ export function Skills() {
         open={newSkillOpen}
         onOpenChange={setNewSkillOpen}
         onSubmit={handleCreateSkill}
+      />
+
+      {/* GitHub Import Dialog */}
+      <GitHubImportDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
       />
 
       {/* Filter Bar */}
