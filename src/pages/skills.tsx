@@ -59,7 +59,7 @@ const sourceConfig: Record<string, { label: string; className: string }> = {
 
 // --- Display config for skills list ---
 const skillsDisplayConfig: DisplayPopoverConfig = {
-  viewKey: "skills" as never,
+  viewKey: "skills",
   groupByOptions: [
     { value: "none", label: "No grouping" },
     { value: "source", label: "Source" },
@@ -653,7 +653,7 @@ export function Skills() {
     rawToggleSkill(id)
   }, [skillsMap, rawToggleSkill])
   const displaySettings = useDisplaySettingsStore((s) =>
-    s.get("skills" as never),
+    s.get("skills"),
   )
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
 
