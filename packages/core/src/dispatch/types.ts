@@ -184,6 +184,12 @@ export interface DependencyOutput {
   truncated: boolean
   /** Status of the dependency */
   status: PlanNode['status']
+  /** PR URL created by this task (if any) */
+  prUrl?: string
+  /** PR number created by this task (if any) */
+  prNumber?: number
+  /** Branch name used by this task (if any) */
+  branchName?: string
 }
 
 /**

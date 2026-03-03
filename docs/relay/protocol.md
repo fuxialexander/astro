@@ -361,7 +361,7 @@ New task to execute.
 | `dependencies` | string[] | No | Task IDs that must complete first |
 | `metadata` | Record | No | Arbitrary key-value metadata |
 | `prompt` | string | No | Pre-built prompt (bypasses automatic prompt construction) |
-| `maxTurns` | number | No | Override agent runner's default maxTurns |
+| `maxTurns` | number | No | Override agent runner's default maxTurns (text-only: 10, execution: unlimited) |
 | `outputFormat` | object | No | Force structured JSON output matching a schema |
 | `systemPrompt` | string | No | System-level instruction for the AI session |
 | `messages` | ConversationMessage[] | No | Multi-turn conversation history for chat tasks |
@@ -642,7 +642,10 @@ t=30.5s: Machine → heartbeat.pong
 t=60s:  Relay → heartbeat.ping
 t=60.5s: Machine → heartbeat.pong
 t=90s:  Relay → heartbeat.ping
-t=120s: No pong → Relay marks machine disconnected
+t=120s: Relay → heartbeat.ping
+t=150s: Relay → heartbeat.ping
+t=180s: Relay → heartbeat.ping
+t=240s: No pong for 180s → Relay marks machine disconnected
 ```
 
 ## Rate Limiting

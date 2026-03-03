@@ -26,7 +26,7 @@ import { projects, planNodes, planNodeDependencies, blobs, environmentConfigs, u
 import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
-import { buildInteractivePlanPrompt } from '../lib/prompt-templates.js'
+import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch } from '../lib/prompt-templates.js'
 import { skillManager } from '../lib/skill-manager.js'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 
@@ -81,7 +81,10 @@ const dispatchTaskSchema = z.object({
   preferredProvider: z.string().max(100).optional(),
   targetMachineId: z.string().max(100).optional(),
   model: z.string().max(100).optional(),
-  maxTurns: z.number().int().min(1).max(200).optional(),
+  maxTurns: z.number().int().min(1).refine(
+    (value) => Number.isSafeInteger(value),
+    { message: 'maxTurns must be a safe integer' }
+  ).optional(),
   workingDirectory: z.string().max(1000).refine(
     (path) => !path.includes('..'),
     { message: 'Path traversal not allowed' }
@@ -189,6 +192,7 @@ dispatchRoute.post('/task', async (c) => {
   let githubIssueNumber: number | undefined
   let baseBranch: string | undefined
   let nodeNumber: number | null | undefined
+  let githubContext: import('../lib/prompt-templates.js').GitHubContextForPrompt | undefined
 
   // ── Early serial execution check for 'direct' delivery mode ──────
   // Fail-fast optimization: if the client explicitly sends deliveryMode='direct',
@@ -270,6 +274,9 @@ dispatchRoute.post('/task', async (c) => {
           status: planNodes.status,
           type: planNodes.type,
           projectId: planNodes.projectId,
+          prUrl: planNodes.prUrl,
+          prNumber: planNodes.prNumber,
+          branchName: planNodes.branchName,
         }).from(planNodes)
           .where(eq(planNodes.projectId, projectId))
 
@@ -280,6 +287,9 @@ dispatchRoute.post('/task', async (c) => {
               nodeId: depNode.clientId,
               title: depNode.title,
               output: depNode.executionOutput,
+              ...(depNode.prUrl && { prUrl: depNode.prUrl }),
+              ...(depNode.prNumber && { prNumber: depNode.prNumber }),
+              ...(depNode.branchName && { branchName: depNode.branchName }),
             })
           } else if (depNode && (depNode.status === 'completed' || depNode.status === 'auto_verified')) {
             // Milestones and tasks without output but with completed status
@@ -288,6 +298,9 @@ dispatchRoute.post('/task', async (c) => {
               nodeId: depNode.clientId,
               title: depNode.title,
               output: `[${depNode.type || 'node'} ${depNode.status}]`,
+              ...(depNode.prUrl && { prUrl: depNode.prUrl }),
+              ...(depNode.prNumber && { prNumber: depNode.prNumber }),
+              ...(depNode.branchName && { branchName: depNode.branchName }),
             })
           }
         }
@@ -304,6 +317,16 @@ dispatchRoute.post('/task', async (c) => {
       const source = dbProject.source as { localPath?: string; remoteType?: string; baseBranch?: string } | null
       remoteType ??= (source?.remoteType as typeof remoteType) || undefined
       baseBranch = source?.baseBranch || undefined
+
+      // Build GitHub context for plan prompts
+      if (dbProject.githubOwner?.trim() && dbProject.githubRepo?.trim()) {
+        githubContext = {
+          hasRepo: true,
+          owner: dbProject.githubOwner.trim(),
+          repo: dbProject.githubRepo.trim(),
+          baseBranch: baseBranch?.trim() || 'main',
+        }
+      }
 
       // Resolve working directory from project
       if (!workingDirectory) {
@@ -446,6 +469,7 @@ dispatchRoute.post('/task', async (c) => {
     acceptanceCriteria,
     githubIssueUrl,
     githubIssueNumber,
+    githubContext,
     resumeSessionId,
     forkSession,
     dispatchSignature,
@@ -489,6 +513,7 @@ async function dispatchViaRelay(
     acceptanceCriteria?: Array<{ id: string; description: string; type: string; command?: string; autoVerifiable: boolean }>
     githubIssueUrl?: string
     githubIssueNumber?: number
+    githubContext?: import('../lib/prompt-templates.js').GitHubContextForPrompt
     resumeSessionId?: string
     forkSession?: boolean
     dispatchSignature?: string
@@ -529,6 +554,7 @@ async function dispatchViaRelay(
     acceptanceCriteria,
     githubIssueUrl,
     githubIssueNumber,
+    githubContext,
     resumeSessionId,
     forkSession,
     dispatchSignature,
@@ -585,6 +611,9 @@ async function dispatchViaRelay(
   let relaySystemPrompt: string | undefined
   const promptParts: string[] = []
 
+  // Detect "Push to GitHub" task node — these get special dispatch instructions
+  const isPushToGithub = !isInteractivePlan && /push\s+to\s+github|publish\s+to\s+github/i.test(title)
+
   // Get available skills for prompt injection
   const skillsInjection = skillManager.getSkillPromptInjection() || undefined
 
@@ -594,20 +623,132 @@ async function dispatchViaRelay(
     relaySystemPrompt = buildInteractivePlanPrompt(description, {
       visionDoc: visionDoc || undefined,
       skillsSummary: skillsInjection,
+      githubContext,
     })
     // The user prompt is just the description
     promptParts.push(description)
   } else {
+
     if (visionDoc) {
       promptParts.push(`## Project Vision\n\n${visionDoc}`)
     }
 
     if (dependencyOutputs.length > 0) {
       const depsSection = dependencyOutputs
-        .map((d) => `### ${d.title}\n\n${d.output}`)
+        .map((d) => {
+          const safeTitle = d.title.replace(/[\r\n]/g, ' ').slice(0, 200)
+          const prInfo = d.prUrl ? `\n**PR:** [#${d.prNumber || '?'}](${d.prUrl})` : ''
+          const branchInfo = d.branchName ? `\n**Branch:** \`${d.branchName}\`` : ''
+          return `### ${safeTitle}${prInfo}${branchInfo}\n\n${d.output}`
+        })
         .join('\n\n---\n\n')
       promptParts.push(`## Previous Task Outputs\n\n${depsSection}`)
     }
+
+    // Push to GitHub nodes get special instructions — override delivery mode and workspace section
+    if (isPushToGithub && githubContext?.hasRepo) {
+      const projectBranchName = `astro/${shortProjectId}`
+      const targetBranch = sanitizeGitBranch(baseBranch || githubContext.baseBranch || 'main')
+      const ghOwner = sanitizeGitHubName(githubContext.owner || '')
+      const ghRepo = sanitizeGitHubName(githubContext.repo || '')
+
+      if (!ghOwner || !ghRepo) {
+        return c.json(
+          { success: false, error: 'Invalid GitHub repository configuration: owner or repo name contains only invalid characters' },
+          400
+        )
+      }
+
+      // Build explicit sub-PR listing from dependency outputs
+      const subPrs = dependencyOutputs
+        .filter(d => d.prUrl && d.prNumber)
+        .map(d => {
+          const sanitizedTitle = d.title.replace(/[\r\n]/g, ' ').slice(0, 200)
+          return `- **${sanitizedTitle}**: [PR #${d.prNumber}](${d.prUrl})`
+        })
+      const subPrSection = subPrs.length > 0
+        ? `\n### Sub-PRs merged into \`${projectBranchName}\`\n\nThese task PRs have already been merged into the project branch:\n${subPrs.join('\n')}\n\nUse these PR links in the final PR body to give reviewers context on what changed.`
+        : `\n### Sub-PRs\n\nNo per-task PR links found in dependency outputs. You can discover them by running:\n\`\`\`bash\ngh pr list --base '${projectBranchName}' --state merged --json number,title,url\n\`\`\`\nInclude any found PRs in the final PR body.`
+
+      promptParts.push(`## Push to GitHub — Open Final Project PR
+
+You are opening the FINAL pull request for this project on \`${ghOwner}/${ghRepo}\`.
+This merges **all** completed task work from the project branch \`${projectBranchName}\` into \`${targetBranch}\`.
+
+### Branch model
+
+- **Project branch:** \`${projectBranchName}\` — this is the accumulative branch where all task PRs have been merged.
+- **Target branch:** \`${targetBranch}\` — the final PR merges the project branch here.
+- Each task created its own branch (e.g. \`${projectBranchName}-n1\`, \`${projectBranchName}-n2\`) and merged into \`${projectBranchName}\` via sub-PRs.
+- Your job is to push \`${projectBranchName}\` → \`${targetBranch}\` as a single final PR.
+${subPrSection}
+
+### Step-by-step
+
+1. **Discover sub-PRs** (if not all listed above)
+   \`\`\`bash
+   gh pr list --base '${projectBranchName}' --state merged --json number,title,url
+   \`\`\`
+   Collect all sub-PRs merged into the project branch. These are the per-task PRs.
+
+2. **Check for an existing final PR**
+   \`\`\`bash
+   gh pr list --head '${projectBranchName}' --base '${targetBranch}' --json number,state
+   \`\`\`
+   - If an **open** PR exists → update its body/title instead of creating a new one.
+   - If a **closed/merged** PR exists → create a new one.
+
+3. **Create the PR** (when no open PR exists)
+   - Head: \`${projectBranchName}\`
+   - Base: \`${targetBranch}\`
+   - Title: \`[Astro] <project name>\`
+   - Body: comprehensive summary of every completed task, referencing the sub-PRs above with links.
+   \`\`\`bash
+   gh pr create --base '${targetBranch}' --head '${projectBranchName}' --title "..." --body "..."
+   \`\`\`
+
+4. **Wait for CI checks**
+   \`\`\`bash
+   gh pr checks <PR_NUMBER> --watch
+   \`\`\`
+   If all checks pass → report success and finish.
+
+5. **Fix failures & retry** (up to 3 cycles)
+   - Read failure details: \`gh pr checks <PR_NUMBER>\`
+   - For **test / lint / build** failures: fix the code, commit, and push to \`${projectBranchName}\`:
+     \`\`\`bash
+     git add -A && git commit -m "fix: ..."
+     git push origin HEAD:refs/heads/${projectBranchName}
+     \`\`\`
+   - For **AI code-review feedback**: read comments via
+     \`gh api repos/${ghOwner}/${ghRepo}/pulls/<PR_NUMBER>/reviews\`
+     and \`gh api repos/${ghOwner}/${ghRepo}/pulls/<PR_NUMBER>/comments\`.
+     Address each suggestion, commit, and push with the same command above.
+   - Re-run: \`gh pr checks <PR_NUMBER> --watch\`
+   - After 3 failed cycles, report the remaining failures and stop.
+
+### Important constraints
+- You are in a worktree that branched from the project branch \`${projectBranchName}\`.
+- When pushing fixes, you MUST push to the project branch explicitly:
+  \`git push origin HEAD:refs/heads/${projectBranchName}\`
+  A bare \`git push\` will push to the wrong (task-level) branch.
+- Do **not** create new branches or merge the PR yourself — only ensure checks pass.
+
+### Executive Summary
+
+**IMPORTANT: When you have finished the task, you MUST end your response with an executive summary in exactly this format:**
+
+## Executive Summary
+**Status:** success | partial | failure
+**What was done:** One sentence describing the overall outcome.
+- Key finding or change 1
+- Key finding or change 2
+- Key finding or change 3
+**Follow-ups:**
+- Suggested follow-up action (if any)
+
+This summary is shown to the user for review. Keep each bullet concise (under 100 characters). Include 2-5 key findings. The summary must be the very last thing you output.`)
+    } else {
 
     // Build delivery-mode-aware workspace instructions
     {
@@ -781,6 +922,7 @@ ${verificationSection}
 - Suggested follow-up action (if any)
 
 This summary is shown to the user for review. Keep each bullet concise (under 100 characters). Include 2-5 key findings. The summary must be the very last thing you output.`)
+    } // end: else (not isPushToGithub)
   }
 
   // Fetch images from blob DB if referenced in task content
@@ -829,7 +971,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         astroBaseUrl,
         githubIssueUrl,
         githubIssueNumber,
-        deliveryMode: deliveryMode ?? 'pr',
+        deliveryMode: isPushToGithub ? 'push' : (deliveryMode ?? 'pr'),
         shortProjectId,
         shortNodeId,
       },
@@ -884,7 +1026,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     priority: priority === 'critical' ? 0 : priority === 'high' ? 1 : priority === 'normal' ? 2 : 3,
     workingDirectory,
     sourceDirectory,
-    deliveryMode: deliveryMode ?? 'pr',
+    deliveryMode: isPushToGithub ? 'push' : (deliveryMode ?? 'pr'),
     remoteType,
     baseBranch: baseBranch || undefined,
     projectBranch,
@@ -893,7 +1035,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     useWorktree,
     images,
     skipSafetyCheck: (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && approvedSafetyDirs.has(workingDirectory)),
-    ...(isInteractivePlan ? { type: 'plan' as const } : {}),
+    ...(isInteractivePlan ? { type: 'plan' as const, useWorktree: false, deliveryMode: 'direct' as const } : {}),
     ...(relaySystemPrompt ? { systemPrompt: relaySystemPrompt } : {}),
     ...(astroBaseUrl && { astroBaseUrl }),
     ...(githubIssueUrl && { githubIssueUrl }),

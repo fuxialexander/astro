@@ -202,7 +202,7 @@ describe("useExecutionStore — Playground Sessions", () => {
       expect(body.deliveryMode).toBe("direct")
       expect(body.skipSafetyCheck).toBe(true)
       expect(body.force).toBe(true)
-      expect(body.maxTurns).toBe(200)
+      expect(body.maxTurns).toBeUndefined()
     })
 
     it("truncates long descriptions for project name (60 chars)", async () => {
