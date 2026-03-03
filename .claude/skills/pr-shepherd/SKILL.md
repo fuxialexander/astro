@@ -1,11 +1,12 @@
 ---
 name: pr-shepherd
 description: |
-  Automated PR shepherd for the Astro codebase. Takes an open PR, drives it through
-  build/lint/test/CI cycles, reads AI reviewer feedback, fixes Critical and Important
-  issues, and iterates until clean approval. Trigger when the user says "shepherd PR #N",
-  "make this PR pass", "fix the CI on #346", "address the review comments", or
-  "get this PR merged".
+  Local GitHub Action for the Astro codebase. Reviews a PR for bugs, security issues,
+  and Astro-specific architecture violations, then runs build/lint/test locally, fixes
+  all Critical and Important issues, and pushes until CI passes. Combines code review
+  and CI pipeline in a single pass. Trigger when the user says "review PR #N",
+  "shepherd PR #N", "check this PR", "make this PR pass", "fix the CI on #346",
+  "address the review comments", or "get this PR merged".
 allowed-tools:
   - Bash
   - Read
@@ -19,13 +20,18 @@ allowed-tools:
 
 # PR Shepherd
 
-You are an automated PR shepherd for the Astro codebase (github.com/fuxialexander/astro).
-Your job is to take an open PR, ensure it passes all CI checks and gets AI reviewer approval,
-then report back with the final status.
+You are a local GitHub Action for the Astro codebase (github.com/fuxialexander/astro).
+Your job is to take an open PR, run a thorough code review AND all CI checks locally,
+fix every real issue, and push until the PR is clean and mergeable.
+
+You replace the GitHub Actions CI pipeline — build, lint, test, and AI code review —
+with a single local pass that's faster and can auto-fix what it finds.
 
 ## Input
 
-The user provides a PR number (e.g., `#346`) or URL. The repo is cloned locally.
+The user provides either:
+- A PR number or URL (e.g., `#398` or `https://github.com/fuxialexander/astro/pull/398`)
+- "my changes" / "local diff" to review uncommitted or staged changes
 
 ## Phase 0: Setup — Workspace Isolation
 
@@ -53,35 +59,99 @@ The user provides a PR number (e.g., `#346`) or URL. The repo is cloned locally.
 ## Phase 1: Understand the PR
 
 1. **Pull latest** — Someone may have already pushed fixes: `git pull origin <branch>`
-2. Read the PR description: `gh pr view <number>`. Also read all the sub-PRs in this PR.
-3. Read the diff to understand what changed: `git diff main...HEAD --stat` then read key files
-4. Identify which test files cover the changed code (look in `tests/` for matching patterns)
-5. **Read the latest AI review comment** to understand what needs fixing:
+2. Read the PR description: `gh pr view <number>`.
+3. Read the diff to understand what changed:
+   ```bash
+   gh pr diff <number>
+   git diff main...HEAD --stat
+   ```
+4. **Read each changed file** — not just the diff, but enough surrounding code to understand
+   context (imports, callers, related types).
+5. **Identify test files** that cover the changed code: look in `tests/` for matching patterns.
+6. **Read the latest AI review comment** (if any) to understand prior feedback:
    ```bash
    gh pr view <number> --comments --json comments \
      --jq '[.comments[] | select(.body | contains("AI Code Review"))] | last | .body'
    ```
 
-## Phase 2: Triage — Scope Your Work
+## Phase 2: Code Review
 
-**CRITICAL: Scope discipline prevents wasted effort and massive diffs.**
+Work through each category systematically. For each issue found, note the file, line range,
+and a concise explanation with a suggested fix. Assign a severity.
 
-Parse the AI review into severity tiers:
-- **Critical** — MUST fix. Security issues, data loss, broken functionality.
-- **Important** — SHOULD fix. Type safety, missing validation, inconsistent behavior.
-- **Suggestions** — SKIP unless trivial (< 5 lines changed). Do NOT refactor store
-  keying strategies, reorganize file structures, or do multi-file renames for "Suggestions".
+### Security (Critical)
+- **Injection**: SQL injection, command injection, XSS, path traversal
+- **Credential exposure**: Secrets in code, `.env` files committed, API keys in logs
+- **Access control**: Missing `requireAuth` middleware, cross-user/cross-team data leaks
+- **RLS policy gaps**: New tables without row-level security policies
 
-**Rules:**
-- Only fix Critical and Important items. Suggestions that require > 5 lines or touch > 2
-  files are out of scope — leave them for a follow-up PR.
-- If an Important item would require a large refactor, propose it as a follow-up in a PR
-  comment instead of doing it.
-- Before starting a fix, check if it was already addressed in a recent commit:
-  `git log --oneline -10` — someone may have fixed it before you started.
-- Each fix should be a minimal, focused change. Don't improve adjacent code.
+### Data Integrity (Critical)
+- **Silent failures**: catch blocks that swallow errors without surfacing them
+- **Race conditions**: Async operations without proper locking or ordering
+- **Missing validation**: API routes without Zod schema validation at boundaries
+- **UUID handling**: Client-generated IDs sent to UUID columns without validation
 
-## Phase 3: Verify Local Quality
+### Logic Errors (Important)
+- **Incorrect control flow**: Wrong conditions, missing early returns, inverted checks
+- **Type safety**: Unsafe `as` casts, missing null checks, `any` types at boundaries
+- **Error propagation**: Errors caught but not re-thrown or surfaced to the user
+- **Off-by-one**: Array indexing, pagination, range calculations
+
+### Astro-Specific Principles (Important)
+- **Provider parity**: Every feature must work across all agent providers (Claude Code,
+  Codex, Anthropic Direct, SLURM). If the change touches dispatch, execution, or streaming,
+  verify it handles all providers — not just the one the author tested.
+- **Resilience under disconnection**: SSE connections drop, WebSocket reconnects happen,
+  users refresh mid-task. Check that the change handles disconnection, reconnection, and
+  state recovery gracefully. Streaming handlers should tolerate partial data.
+- **User isolation**: All data must be scoped per-user and per-team. Check queries filter
+  by `userId`/`teamId`, endpoints enforce ownership, no cross-user data leakage is possible.
+- **Design doc consistency**: If unsure how a component should behave, check `docs/design/`
+  (ARCHITECTURE.md, BACKEND.md, FRONTEND.md, DATA_MODEL.md, WORKSPACE_V2.md).
+
+### Submodule Rules (Important)
+- `packages/agent-runner/` is a git submodule — changes must go to the standalone repo
+  (`github.com/astro-anywhere/astro-agent`), not be submitted here.
+- If the PR modifies files under `packages/agent-runner/`, flag it.
+
+### Test Coverage (Suggestions)
+- New behavior without corresponding tests
+- Changed behavior with tests that don't cover the new path
+- Test isolation issues (hardcoded names, shared state between tests)
+
+### Code Quality (Suggestions)
+- Dead code, unused imports
+- Over-engineering (premature abstractions, unnecessary configurability)
+- Missing error messages (generic "something went wrong" instead of descriptive errors)
+
+### Cross-Reference Historical Context
+
+For each file with changes:
+```bash
+git log --oneline -5 -- <file>
+```
+
+Check if:
+- Recent commits addressed similar issues (don't re-flag what was already fixed)
+- The change reverts or contradicts a recent intentional change
+
+### Validate Findings
+
+For each potential issue, ask yourself:
+- Is this a **real bug** or a stylistic preference?
+- Is this **introduced by this PR** or pre-existing?
+- Would a **senior engineer** flag this, or is it a pedantic nitpick?
+- Would a **linter, typechecker, or compiler** catch this instead?
+
+**Filter out:**
+- Pre-existing issues not introduced by this PR
+- Style preferences (trust the linter)
+- Documentation gaps unless it's a public API
+- "Could be simplified" unless the complexity actively hurts readability
+- Changes in test files unless they test the wrong thing
+- Issues on lines the PR did not modify
+
+## Phase 3: Local CI — Build, Lint, Test
 
 Run these checks in order. If any fail, fix the code before moving on.
 
@@ -113,69 +183,84 @@ Known flaky/pre-existing failures you can ignore:
 
 If any check fails, fix the code, commit, and re-run.
 
-## Phase 4: Fix and Push
+## Phase 4: Triage & Fix
+
+### Triage
+
+Combine findings from Phase 2 (code review) and Phase 3 (CI failures) into severity tiers:
+
+- **Critical** — MUST fix. Security issues, data loss, broken functionality, build failures.
+- **Important** — SHOULD fix. Type safety, missing validation, inconsistent behavior, lint errors.
+- **Suggestions** — SKIP unless trivial (< 5 lines changed). Do NOT refactor store keying
+  strategies, reorganize file structures, or do multi-file renames for "Suggestions".
+
+**Rules:**
+- Only fix Critical and Important items. Suggestions that require > 5 lines or touch > 2
+  files are out of scope — leave them for a follow-up PR.
+- If an Important item would require a large refactor, propose it as a follow-up in a PR
+  comment instead of doing it.
+- Before starting a fix, check if it was already addressed in a recent commit:
+  `git log --oneline -10` — someone may have fixed it before you started.
+- Each fix should be a minimal, focused change. Don't improve adjacent code.
+
+### Fix
 
 For each Critical/Important issue:
 1. Read the referenced file and line number
-2. Understand the issue
+2. Understand the issue in full context
 3. Implement the **minimal** fix
 4. If the fix involves a behavior change, check if existing tests cover it. Add a test if not.
 5. Run `npm run build` and the relevant test file to verify
 
-Then:
-1. Commit all fixes: `fix: address AI review — <summary of changes>`
+## Phase 5: Push & Iterate
+
+1. Commit all fixes: `fix: address review — <summary of changes>`
 2. Push to the PR branch: `git push origin <branch-name>`
 3. Wait for all CI checks: `gh pr checks <number> --watch`
 4. If checks fail, read logs, fix, commit, push, wait again. Retry up to 3 times.
-5. After CI passes, wait for the next AI review. Repeat from Phase 2 until the reviewer
-   gives a clean approval (no Critical or Important issues).
-
-## Phase 5: Generate PR Summary with Diagrams
-
-When updating the PR description, include 1-2 Mermaid diagrams focused on what changed:
-
-**Workflow/Data Flow** — for pipelines, dispatch flows, event handling:
-````markdown
-```mermaid
-flowchart TD
-  A[User Action] --> B[API Route]
-  B --> C{Validation}
-  C -->|Pass| D[Database Write]
-  C -->|Fail| E[400 Error]
-  D --> F[SSE Event]
-```
-````
-
-**Architecture/Component** — for new/modified modules:
-````markdown
-```mermaid
-graph LR
-  subgraph Frontend
-    A[Store] --> B[Component]
-  end
-  subgraph Backend
-    C[Route] --> D[(DB)]
-  end
-  A -->|fetch| C
-```
-````
-
-**State Transition** — for status changes or state machines:
-````markdown
-```mermaid
-stateDiagram-v2
-  [*] --> pending
-  pending --> in_progress: dispatch
-  in_progress --> completed: success
-```
-````
+5. After CI passes, check for new AI review comments. Repeat from Phase 2 if the reviewer
+   flags new Critical or Important issues.
 
 ## Phase 6: Report
 
-When the AI reviewer approves (verdict is "Approve" without "with changes"):
-- Report the final PR URL and status
-- List what was fixed across all iterations
-- Note any Suggestions that were left unfixed
+Produce a structured report summarizing what was found and fixed.
+
+### Format
+
+```
+## Summary
+This PR [brief description of purpose and approach].
+
+## Critical
+- **path/to/file.ts:45-52**: [Description of the issue]. → [Fix applied].
+
+## Important
+- **path/to/file.ts:78**: [Description]. → [Fix applied].
+
+## Suggestions (not fixed)
+- **path/to/file.ts:12**: [Description]. → [Recommended follow-up].
+
+## CI Status
+- Build: PASS/FAIL
+- Lint: PASS/FAIL
+- Tests: PASS/FAIL (N/N passing)
+
+## Verdict
+[One of the following:]
+- Approve — no issues found, CI passes
+- Approve with suggestions — non-blocking suggestions noted above
+- Changes remaining — critical issues that could not be auto-fixed
+```
+
+If the PR looks good with no issues, say so briefly:
+
+```
+## Summary
+This PR [description]. No issues found. CI passes.
+
+## Verdict
+Approve
+```
 
 ## Important Rules
 
@@ -215,12 +300,8 @@ If things go wrong (worktree deleted, CWD invalid, build broken after many attem
 5. If your changes are lost, start fresh — redo only Critical/Important fixes.
 6. **If you've spent > 20 tool calls without progress**, report current status and stop.
 
-### Common AI Reviewer Flags
-
-Be proactive about these patterns the reviewer commonly catches:
-- **Type safety**: Using `as` casts instead of runtime validation
-- **Missing validation**: API routes without input validation
-- **Frontend/backend inconsistency**: Behavior differs between client and server
-- **Missing test coverage**: New behavior without corresponding tests
-- **Dead code**: Unused imports, unreachable code paths
-- **Security**: Shell injection risks, RLS policy gaps, unescaped user input
+### What NOT to Flag
+- Style preferences (formatting, naming) — the linter handles this
+- General code quality that isn't specifically broken
+- Hypothetical edge cases that can't happen given the code constraints
+- Issues on lines the PR did not modify
