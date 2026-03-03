@@ -68,6 +68,15 @@ export function PluginLoader({ children }: Props) {
   // Track deferred skill subscriptions so they can be cleaned up on unmount or re-bridge
   const skillSubsRef = useRef(new Map<string, () => void>())
 
+  // Clean up deferred skill subscriptions on unmount
+  useEffect(() => {
+    const subs = skillSubsRef.current
+    return () => {
+      for (const unsub of subs.values()) unsub()
+      subs.clear()
+    }
+  }, [])
+
   // Phase 1: Register built-in plugin manifests (one-time)
   useEffect(() => {
     if (builtinRegisteredRef.current) return
