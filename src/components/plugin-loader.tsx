@@ -65,6 +65,8 @@ export function PluginLoader({ children }: Props) {
   const bridgedRef = useRef(new Map<string, PluginContributions>())
   // Track plugins currently being activated to prevent double-activation
   const activatingRef = useRef(new Set<string>())
+  // Track deferred skill subscriptions so they can be cleaned up on unmount or re-bridge
+  const skillSubsRef = useRef(new Map<string, () => void>())
 
   // Phase 1: Register built-in plugin manifests (one-time)
   useEffect(() => {
@@ -186,13 +188,17 @@ export function PluginLoader({ children }: Props) {
         processSkills()
       } else {
         // Skills arrived before store loaded from DB. Subscribe and process once ready.
-        // The subscription auto-cleans up after firing.
+        // Tracked in skillSubsRef so it can be cleaned up if the plugin is unbridged
+        // or the component unmounts before the store finishes loading.
+        skillSubsRef.current.get(pluginId)?.() // Clean up previous subscription if any
         const unsub = useSkillStore.subscribe((state) => {
           if (state.loaded) {
             unsub()
+            skillSubsRef.current.delete(pluginId)
             processSkills()
           }
         })
+        skillSubsRef.current.set(pluginId, unsub)
       }
     }
   }
@@ -213,6 +219,9 @@ export function PluginLoader({ children }: Props) {
         removeSkill(skill.name)
       }
     }
+    // Clean up any pending skill subscription for this plugin
+    skillSubsRef.current.get(pluginId)?.()
+    skillSubsRef.current.delete(pluginId)
   }
 
   return <>{children}</>

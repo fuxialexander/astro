@@ -228,7 +228,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       // Deduplicate nodes: by ID first, then collapse truly identical nodes within
       // the same project. Racing setProjectPlan calls (SSE vs WebSocket) can create
       // nodes with different UUIDs but identical content. We match on
-      // projectId + type + title + description (first 100 chars) so that legitimately
+      // projectId + type + title + description (first 500 chars) so that legitimately
       // different tasks with the same title (e.g. "Write tests" for frontend vs backend)
       // are preserved. Among duplicates, prefer the node with a server-assigned number.
       const seenIds = new Set<string>()
@@ -237,12 +237,12 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       for (const n of apiNodes) {
         if (seenIds.has(n.id)) continue
         seenIds.add(n.id)
-        const contentKey = `${n.projectId}::${n.type}::${n.title ?? ''}::${(n.description ?? '').slice(0, 100)}`
+        const contentKey = `${n.projectId}::${n.type}::${n.title ?? ''}::${(n.description ?? '').slice(0, 500)}`
         const existing = contentMap.get(contentKey)
         if (existing) {
           // Duplicate content — keep the node with a server-assigned number (lower wins)
-          const existingNum = (existing as PlanNode & { number?: number }).number ?? Infinity
-          const currentNum = (n as PlanNode & { number?: number }).number ?? Infinity
+          const existingNum = existing.number ?? Infinity
+          const currentNum = n.number ?? Infinity
           if (currentNum < existingNum) {
             keepIds.delete(existing.id)
             keepIds.add(n.id)
