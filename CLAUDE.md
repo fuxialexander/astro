@@ -211,4 +211,4 @@ Use `Glob` and `Read` to explore the full directory tree as needed.
 
 **Submodule rules for `packages/agent-runner`:**
 - If there are no explicit changes to agent-runner, never include it in your PR. Unstage it (`git restore --staged packages/agent-runner`) to avoid submodule pointer issues.
-- If all changes are exclusively in agent-runner, do not PR to this main repo. Instead, create the PR in the agent-runner repo (`github.com/fuxialexander/astro-agent`).
+- If all changes are exclusively in agent-runner, do not PR to this main repo. Instead, create the PR in the agent-runner repo (`github.com/astro-anywhere/astro-agent`).
