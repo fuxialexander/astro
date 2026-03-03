@@ -62,7 +62,7 @@ afterEach(() => {
 describe('Interactive plan dispatch overrides', { timeout: 30_000 }, () => {
   const baseBody = {
     nodeId: 'plan-test-1',
-    projectId: 'proj-test-1',
+    projectId: '00000000-0000-0000-0000-000000000001',
     title: 'Interactive plan session',
     description: 'Test interactive planning',
     workingDirectory: '/tmp/test-interactive-plan',
