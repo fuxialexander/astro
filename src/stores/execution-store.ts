@@ -1391,7 +1391,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
         if (!response.ok) {
           const errorBody = await response.json().catch(() => null)
-          const detail = errorBody?.error || ""
+          const detail = errorBody?.error || errorBody?.details?.[0]?.message || ""
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 
