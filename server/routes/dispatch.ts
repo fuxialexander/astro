@@ -191,9 +191,11 @@ dispatchRoute.post('/task', async (c) => {
   let nodeNumber: number | null | undefined
 
   // ── Early serial execution check for 'direct' delivery mode ──────
-  // This must run before the DB lookups so that we reject duplicates
-  // even if the project/node records are not found. The deliveryMode
-  // from the request body is sufficient for the check.
+  // Fail-fast optimization: if the client explicitly sends deliveryMode='direct',
+  // we can reject duplicate dispatches before the DB lookups (saves ~2 queries).
+  // This only fires when deliveryMode is in the request body. If the client
+  // omits deliveryMode (relying on DB resolution), the late check at ~line 405
+  // handles it after the project record is fetched.
   if (deliveryMode === 'direct' && !dryRun && !force) {
     const stats = await dispatchEngine.getStats()
     const activeForProject = stats.activePerProject?.[projectId] ?? 0
