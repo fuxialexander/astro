@@ -25,14 +25,27 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-import { OpenClawAdapter } from '../packages/agent-runner/src/providers/openclaw-adapter.js'
-import type { TaskOutputStream } from '../packages/agent-runner/src/providers/base-adapter.js'
-import type { TaskArtifact } from '../packages/agent-runner/src/types.js'
+// Dynamic imports — agent-runner submodule may not be checked out in CI
+let OpenClawAdapter: any
+let adapterAvailable = false
+let gatewaySupported = false
 
-// Check if the adapter supports Gateway EventFrame format.
-// Gateway support requires handleStreamLine to process { type: "event", event: "chat"|"agent" }
-// and the adapter to expose resetDeltaTracker() for cumulative delta text tracking.
-const gatewaySupported = typeof OpenClawAdapter.prototype.resetDeltaTracker === 'function'
+try {
+  const mod = await import('../packages/agent-runner/src/providers/openclaw-adapter.js')
+  OpenClawAdapter = mod.OpenClawAdapter
+  adapterAvailable = true
+
+  // Check if the adapter supports Gateway EventFrame format.
+  // Gateway support requires handleStreamLine to process { type: "event", event: "chat"|"agent" }
+  // and the adapter to expose resetDeltaTracker() for cumulative delta text tracking.
+  gatewaySupported = typeof OpenClawAdapter.prototype.resetDeltaTracker === 'function'
+} catch {
+  // agent-runner submodule not available — tests will be skipped
+}
+
+// Type aliases — use `any` since type imports can't be dynamic
+type TaskOutputStream = any
+type TaskArtifact = any
 
 /**
  * Create a mock TaskOutputStream with vi.fn() for each method
@@ -147,7 +160,7 @@ function agentLifecycle(phase: 'start' | 'end' | 'fallback', opts?: { selectedMo
 // Test Suite
 // =============================================================================
 
-describe('OpenClaw Gateway EventFrame Parsing', () => {
+describe.skipIf(!adapterAvailable)('OpenClaw Gateway EventFrame Parsing', () => {
   let adapter: OpenClawAdapter
   let stream: TaskOutputStream
   let artifacts: TaskArtifact[]
@@ -1003,7 +1016,8 @@ describe('OpenClaw Gateway EventFrame Parsing', () => {
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import type { Task } from '../packages/agent-runner/src/types.js'
+// Type alias — use `any` since type imports can't be dynamic
+type Task = any
 
 // Mock the spawn function
 vi.mock('node:child_process', () => ({
@@ -1090,7 +1104,7 @@ function createTestTask(overrides: Partial<Task> = {}): Task {
   }
 }
 
-describe('OpenClaw Adapter Lifecycle', () => {
+describe.skipIf(!adapterAvailable)('OpenClaw Adapter Lifecycle', () => {
   let adapter: OpenClawAdapter
   let mockSpawn: ReturnType<typeof vi.fn>
   let mockProcess: ReturnType<typeof createMockProcess>

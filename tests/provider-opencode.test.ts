@@ -2488,9 +2488,22 @@ describe('OpenCode SDK Event Parsing', () => {
 import { spawn, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import type { Writable } from 'node:stream'
-import { OpenCodeAdapter } from '../packages/agent-runner/src/providers/opencode-adapter.js'
-import type { TaskOutputStream } from '../packages/agent-runner/src/providers/base-adapter.js'
-import type { Task } from '../packages/agent-runner/src/types.js'
+
+// Dynamic imports — agent-runner submodule may not be checked out in CI
+let OpenCodeAdapter: any
+let lifecycleAdapterAvailable = false
+
+try {
+  const mod = await import('../packages/agent-runner/src/providers/opencode-adapter.js')
+  OpenCodeAdapter = mod.OpenCodeAdapter
+  lifecycleAdapterAvailable = true
+} catch {
+  // agent-runner submodule not available — lifecycle tests will be skipped
+}
+
+// Type aliases — use `any` since type imports can't be dynamic
+type LifecycleTaskOutputStream = any
+type Task = any
 
 // Mock the spawn function
 vi.mock('node:child_process', () => ({
@@ -2598,7 +2611,7 @@ function createLifecycleTestTask(overrides: Partial<Task> = {}): Task {
   }
 }
 
-describe('OpenCode Adapter Lifecycle', () => {
+describe.skipIf(!lifecycleAdapterAvailable)('OpenCode Adapter Lifecycle', () => {
   let adapter: OpenCodeAdapter
   let mockSpawn: ReturnType<typeof vi.fn>
   let mockProcess: ReturnType<typeof createMockProcess>
