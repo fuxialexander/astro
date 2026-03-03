@@ -72,6 +72,13 @@ interface AppliedMutations {
   newNodes: ParsedNewNode[]
 }
 
+/** Resolved mutations with guaranteed nodeIds (for activity events and storage) */
+interface ResolvedMutations {
+  nodeUpdates: Array<{ nodeId: string; [key: string]: unknown }>
+  edgeOps: Array<{ action: "add" | "remove"; source: string; target: string; type?: string }>
+  newNodes: Array<{ id?: string; title: string; description: string; type?: string; dependencies?: string[]; priority?: string; estimate?: string; verification?: string }>
+}
+
 interface Message {
   role: "user" | "assistant"
   content: string
@@ -426,10 +433,11 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   }, [displayBlocks.length, isStreaming])
 
   /** Apply all mutations (node updates + edge operations + new nodes) to the plan store.
-   *  Returns the real (prefixed) node IDs that were affected. */
-  const applyMutations = useCallback((mutations: AppliedMutations): string[] => {
+   *  Returns the affected node IDs and resolved mutations (with guaranteed nodeIds). */
+  const applyMutations = useCallback((mutations: AppliedMutations): { affectedNodeIds: string[]; resolvedMutations: ResolvedMutations } => {
     const { nodeUpdates, edgeOps, newNodes } = mutations
     const affectedNodeIds: string[] = []
+    const resolvedNodeUpdates: Array<{ nodeId: string; [key: string]: unknown }> = []
 
     // Create new nodes (from decomposition)
     // Map AI-generated IDs to proper UUIDs for consistency with manually created tasks.
@@ -506,12 +514,18 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       }
 
       affectedNodeIds.push(resolvedNodeId)
+
+      // Build resolved update object for activity events
+      const resolvedUpdate: { nodeId: string; [key: string]: unknown } = { nodeId: resolvedNodeId }
       const patch: Partial<PlanNode> = {}
       for (const [key, value] of Object.entries(u)) {
         if (key === "nodeId" || key === "nodeTitle" || key === "type") continue // not properties to patch
         if (INTERNAL_FIELDS.has(key)) continue // skip internal fields
         ;(patch as Record<string, unknown>)[key] = value
+        resolvedUpdate[key] = value
       }
+
+      resolvedNodeUpdates.push(resolvedUpdate)
 
       // When description is updated, also generate the HTML content field
       // (UI renders content, not description)
@@ -567,7 +581,14 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       }
     }
 
-    return affectedNodeIds
+    return {
+      affectedNodeIds,
+      resolvedMutations: {
+        nodeUpdates: resolvedNodeUpdates,
+        edgeOps: edgeOps,
+        newNodes: newNodes,
+      }
+    }
   }, [planNodes, projectId, updateNode, addNode, addEdge, removeEdge, reorganizeProject])
 
   const sendMessage = useCallback(async (text: string) => {
@@ -694,7 +715,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
             if (hasMutations) {
               // Apply side-effects outside setState to avoid React StrictMode
               // double-invocation duplicating nodes/edges.
-              const affectedNodeIds = applyMutations(mutations)
+              const { affectedNodeIds, resolvedMutations } = applyMutations(mutations)
               if (affectedNodeIds.length > 0) {
                 markNodesAsUpdating(affectedNodeIds)
               }
@@ -702,14 +723,14 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
               // Push mutation event to realtime store for activity timeline
               useRealtimeStore.getState().pushActivityEvent(resolvedTaskId, {
                 type: 'mutation',
-                nodeUpdates: mutations.nodeUpdates,
-                edgeOps: mutations.edgeOps,
-                newNodes: mutations.newNodes,
+                nodeUpdates: resolvedMutations.nodeUpdates,
+                edgeOps: resolvedMutations.edgeOps,
+                newNodes: resolvedMutations.newNodes,
                 timestamp: new Date(),
               })
 
-              // Update message display with clean content and mutation record
-              updateLastAssistantMessage(sid, cleanContent, mutations)
+              // Update message display with clean content and resolved mutation record
+              updateLastAssistantMessage(sid, cleanContent, resolvedMutations)
             } else {
               // Force an immediate save — appendToLastAssistantMessage only
               // debounce-saves to the database and never calls the API, so without
