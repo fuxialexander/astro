@@ -68,7 +68,7 @@ const dispatchTaskSchema = z.object({
   nodeId: z.string().min(1).max(100),
   projectId: z.string().min(1).max(100),
   title: z.string().min(1).max(1000).optional(),
-  description: z.string().min(1).max(50000).optional(),
+  description: z.string().min(1).max(200000).optional(),
   dependencies: z.array(z.string().max(100)).max(100).optional(),
   verification: z.enum(['auto', 'human']).optional(),
   visionDoc: z.string().max(100000).optional(),
