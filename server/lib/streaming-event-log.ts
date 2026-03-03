@@ -31,7 +31,6 @@ class StreamingEventLog {
     if (!chunks || chunks.length === 0) return null
 
     const text = chunks.join('')
-    this.textBuffers.delete(executionId)
 
     try {
       const [row] = await db.insert(streamingEvents).values({
@@ -39,9 +38,12 @@ class StreamingEventLog {
         eventType: 'text',
         data: { text },
       }).returning({ seq: streamingEvents.seq })
+      // Only delete buffer after successful DB write
+      this.textBuffers.delete(executionId)
       return row.seq
     } catch (err) {
-      console.warn('[streaming-event-log] Failed to flush text:', (err as Error).message)
+      console.error('[streaming-event-log] Failed to flush text for', executionId, ':', (err as Error).message)
+      // Buffer remains intact for retry on next structural event or disconnect
       return null
     }
   }

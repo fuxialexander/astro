@@ -1760,7 +1760,8 @@ async function processSSEStreamWithReconnect(
     }
 
     // Exponential backoff: 1s, 2s, 4s, 8s, 16s
-    const backoffMs = RECONNECT_BACKOFF_BASE_MS * Math.pow(2, Math.min(retryCount - 1, 4))
+    // Use max(retryCount, 1) - 1 to ensure minimum backoff is 1000ms (not 500ms)
+    const backoffMs = RECONNECT_BACKOFF_BASE_MS * Math.pow(2, Math.min(Math.max(retryCount, 1) - 1, 4))
     await new Promise((resolve) => setTimeout(resolve, backoffMs))
   }
 

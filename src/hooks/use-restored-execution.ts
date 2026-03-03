@@ -193,13 +193,13 @@ export function useRestoredExecution(
     console.log('[use-restored] Case 2: restored=%d stream=%d', restoredData.activityEvents.length, streamEvents.length)
     if (streamEvents.length > 0) {
       // Merge: restored history + new realtime events, sorted by timestamp.
-      // Deduplicate by checking if timestamps overlap (within 1s window).
+      // Only include stream events strictly newer than the last restored event
+      // to prevent duplicates in the merged array.
       const restoredEndTime = restoredData.activityEvents.length > 0
         ? new Date(restoredData.activityEvents[restoredData.activityEvents.length - 1].timestamp).getTime()
         : 0
-      // Only include stream events that are newer than the last restored event
       const newStreamEvents = streamEvents.filter(
-        e => new Date(e.timestamp).getTime() > restoredEndTime - 1000
+        e => new Date(e.timestamp).getTime() > restoredEndTime
       )
       const mergedEvents = [...restoredData.activityEvents, ...newStreamEvents]
       mergedEvents.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
