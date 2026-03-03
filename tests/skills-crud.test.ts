@@ -1294,7 +1294,7 @@ describe('skill store', () => {
       const injection = useSkillStore.getState().getSkillPromptInjection()
       expect(injection).toContain('<skills>')
       expect(injection).toContain('</skills>')
-      expect(injection).toContain('<skill name="test-skill" description="Test description">')
+      expect(injection).toContain('<skill name="astro/test-skill" description="Test description">')
       expect(injection).toContain('Do the thing.')
       expect(injection).toContain('</skill>')
     })
@@ -1313,9 +1313,9 @@ describe('skill store', () => {
       })
 
       const injection = useSkillStore.getState().getSkillPromptInjection()
-      expect(injection).toContain('name="alpha"')
-      expect(injection).toContain('name="beta"')
-      expect(injection).not.toContain('name="gamma"')
+      expect(injection).toContain('name="astro/alpha"')
+      expect(injection).toContain('name="astro/beta"')
+      expect(injection).not.toContain('name="astro/gamma"')
     })
   })
 
