@@ -42,7 +42,7 @@ The Skills system provides a **database-backed, team-scoped registry** of reusab
 ┌─────────────────────────────────────────────────────────┐
 │               Agent System Prompt                       │
 │  <skills>                                               │
-│    <skill name="..." description="...">                 │
+│    <skill name="astro/..." description="...">           │
 │      {instructions markdown}                            │
 │    </skill>                                             │
 │  </skills>                                              │
@@ -240,11 +240,32 @@ The frontend uses optimistic updates for responsive UX:
 
 ## Prompt Injection
 
+### Namespace Prefix
+
+All Astro skills are namespaced with an `astro/` prefix when injected into agent prompts. This distinguishes Astro platform skills (cloud-stored, team-scoped, synced across devices) from local agent skills (e.g., Claude Code skills stored in `~/.claude/skills/`).
+
+**Why**: Claude Code and other agents can have their own locally-installed skills. Without namespacing, an Astro skill named `kubernetes-workflow` could collide with a local Claude Code skill of the same name. The `astro/` prefix creates clear isolation — the model sees `astro/kubernetes-workflow` vs `kubernetes-workflow` and understands they come from different sources.
+
+**Implementation**: The prefix is applied at injection time in `buildSkillPromptInjection()` (`packages/core/src/skill-injector.ts`), not stored in the database. Skill names in the DB remain unprefixed (e.g., `kubernetes-workflow`). This keeps the DB clean and allows the prefix convention to evolve without migrations.
+
+### Two-Plane Architecture
+
+Astro skills and local agent skills operate on completely separate planes:
+
+| Plane | Storage | Scope | Injection | Prefix |
+|-------|---------|-------|-----------|--------|
+| **Astro Server Skills** | `skills` DB table | Team-scoped, synced across devices | `buildSkillPromptInjection()` → XML in system prompt | `astro/` |
+| **Local Agent Skills** | `~/.claude/skills/` (or equivalent) | Per-machine, per-user | Agent-runner scans local dir → slash commands / prompt injection | None |
+
+The two planes are independent — no collision detection or deduplication is needed because the `astro/` prefix makes names unambiguous in the prompt.
+
+### XML Format
+
 Skills are injected as XML blocks in the agent's system prompt:
 
 ```xml
 <skills>
-  <skill name="kubernetes-workflow" description="Use when the user mentions...">
+  <skill name="astro/kubernetes-workflow" description="Use when the user mentions...">
 # Kubernetes Workflow
 
 ## Goal
@@ -254,7 +275,7 @@ Execute tasks on Kubernetes clusters...
 1. Check cluster connectivity
 ...
   </skill>
-  <skill name="skypilot-workflow" description="Use when the user mentions...">
+  <skill name="astro/skypilot-workflow" description="Use when the user mentions...">
 ...
   </skill>
 </skills>
@@ -444,7 +465,7 @@ Plan generation / Task dispatch
 
 ## Testing
 
-Tests live in `tests/skills-crud.test.ts` (78 test cases) covering:
+Tests live in `tests/skills-crud.test.ts` (82 test cases) covering:
 
 - **Bootstrap**: Seeding, update detection, unchanged skip, field comparison
 - **API CRUD**: Create, read, update, delete with team scoping
@@ -453,6 +474,7 @@ Tests live in `tests/skills-crud.test.ts` (78 test cases) covering:
 - **Validation**: Config size limits, source immutability, unique constraints
 - **Store**: Optimistic updates, rollback on failure, temp-ID cleanup
 - **Parser**: SKILL.md parsing with various frontmatter formats
+- **Namespace**: `astro/` prefix in prompt injection XML, XML sanitization
 
 Run with:
 ```bash

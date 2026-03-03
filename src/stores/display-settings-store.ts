@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import { dataClient } from "@/lib/data-client"
 
-export type ViewKey = "projects" | "projects-timeline" | "plan-list" | "plan-graph" | "my-tasks" | "my-tasks-timeline" | "plan-board" | "my-tasks-board" | "initiative-projects"
+export type ViewKey = "projects" | "projects-timeline" | "plan-list" | "plan-graph" | "my-tasks" | "my-tasks-timeline" | "plan-board" | "my-tasks-board" | "initiative-projects" | "skills"
 
 export interface DisplaySettings {
   groupBy: string
@@ -84,6 +84,13 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     orderDirection: "asc",
     showCompleted: true,
     visibleProperties: ["status", "health", "progress", "targetDate"],
+  },
+  skills: {
+    groupBy: "none",
+    orderBy: "name",
+    orderDirection: "asc",
+    showCompleted: true,
+    visibleProperties: ["enabled", "category", "source", "tags"],
   },
 }
 
