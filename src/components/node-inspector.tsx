@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Link } from "react-router"
-import { FileText, XCircle, RotateCcw, X, Plus } from "lucide-react"
+import { FileText, XCircle, RotateCcw, X, Plus, Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { InlineRenameInput } from "@/components/inline-rename-input"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { PropertyPicker } from "@/components/property-picker"
 import { LabelPicker } from "@/components/label-picker"
@@ -14,10 +15,116 @@ import { ExecutionPanel } from "@/components/execution"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useExecutionStore } from "@/stores/execution-store"
+import { useToastStore } from "@/stores/toast-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
 import { statusLabels } from "@/lib/status-config"
 import { cn, getShortId } from "@/lib/utils"
+import { dataClient } from "@/lib/data-client"
 import type { PlanNode, Priority } from "@/types"
+
+/**
+ * Validates a task title.
+ * Returns an error message string, or null if valid.
+ */
+function validateTaskTitle(title: string): string | null {
+  if (!title.trim()) {
+    return "Task title cannot be empty"
+  }
+  if (title.length > 200) {
+    return "Task title is too long (max 200 characters)"
+  }
+  return null
+}
+
+/**
+ * Custom hook for task title editing with optimistic updates.
+ * Handles rename state, keyboard shortcuts, and error recovery.
+ */
+function useTaskRename(
+  node: PlanNode,
+  onNodeUpdate: (node: PlanNode) => void,
+  options?: { guardOpen?: boolean }
+) {
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [editingValue, setEditingValue] = useState<string | null>(null)
+  const addToast = useToastStore((s) => s.add)
+
+  // Reset rename state when node changes
+  useEffect(() => {
+    setIsRenaming(false)
+    setEditingValue(null)
+  }, [node.id])
+
+  // Lock input value when entering rename mode
+  useEffect(() => {
+    if (isRenaming && editingValue === null) {
+      setEditingValue(node.title)
+    } else if (!isRenaming) {
+      setEditingValue(null)
+    }
+  }, [isRenaming, editingValue, node.title])
+
+  // Add keyboard shortcut (F2) for rename
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const shouldGuard = options?.guardOpen !== undefined
+      const isGuardOpen = options?.guardOpen ?? true
+      if (e.key === 'F2' && !isRenaming && (!shouldGuard || isGuardOpen)) {
+        e.preventDefault()
+        setIsRenaming(true)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isRenaming, options?.guardOpen])
+
+  const handleRename = useCallback(async (newTitle: string) => {
+    // Read fresh node from store to avoid stale closure
+    const nodes = usePlanStore.getState().nodes
+    const freshNode = nodes.find(n => n.id === node.id)
+
+    if (!freshNode) {
+      addToast({
+        type: 'error',
+        title: 'Task not found',
+        description: 'This task may have been deleted. Please refresh the page.',
+      })
+      return
+    }
+
+    // Optimistically update local state
+    const nextNodes = nodes.map(n =>
+      n.id === node.id ? { ...n, title: newTitle, updatedAt: new Date() } : n
+    )
+    usePlanStore.setState({ nodes: nextNodes })
+    onNodeUpdate({ ...freshNode, title: newTitle })
+
+    try {
+      // Persist to backend
+      await dataClient.updateNode(node.id, { title: newTitle })
+
+      // Close input on success
+      setIsRenaming(false)
+    } catch (err) {
+      // Revert optimistic update - only revert the title field to preserve concurrent updates
+      const currentNodes = usePlanStore.getState().nodes
+      const revertedNodes = currentNodes.map(n =>
+        n.id === node.id ? { ...n, title: freshNode.title } : n
+      )
+      usePlanStore.setState({ nodes: revertedNodes })
+      onNodeUpdate(freshNode)
+
+      addToast({
+        type: 'error',
+        title: 'Failed to update task title',
+        description: err instanceof Error ? err.message : 'An unknown error occurred',
+      })
+      // Keep input open so user can retry or cancel
+    }
+  }, [node.id, onNodeUpdate, addToast])
+
+  return { isRenaming, setIsRenaming, editingValue, handleRename }
+}
 
 interface NodeInspectorProps {
   node: PlanNode
@@ -380,16 +487,42 @@ export function NodeInspectorContent({
  * Mobile: floating card dialog wrapping NodeInspectorContent.
  */
 export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }) {
-  const { open, onClose, node, ...rest } = props
+  const { open, onClose, node, onNodeUpdate, ...rest } = props
+  const { isRenaming, setIsRenaming, editingValue, handleRename } = useTaskRename(
+    node,
+    onNodeUpdate,
+    { guardOpen: open }
+  )
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="fixed inset-3 left-auto right-3 top-3 bottom-3 w-[calc(100%-1.5rem)] max-w-sm translate-x-0 translate-y-0 rounded-2xl bg-card/90 backdrop-blur-md shadow-2xl border-border/40 p-0 overflow-hidden">
         <div className="flex flex-col gap-5 p-4 overflow-auto h-full">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="font-semibold text-base truncate flex-1 pr-8">{node.title}</h3>
+            {isRenaming ? (
+              <InlineRenameInput
+                value={editingValue ?? node.title}
+                onSave={handleRename}
+                onCancel={() => setIsRenaming(false)}
+                validate={validateTaskTitle}
+                className="text-base font-semibold"
+              />
+            ) : (
+              <h3
+                className="font-semibold text-base truncate flex-1 pr-8 group/title cursor-text"
+                onDoubleClick={() => setIsRenaming(true)}
+              >
+                {node.title}
+                <Pencil
+                  className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/title:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); setIsRenaming(true) }}
+                  aria-label="Rename task"
+                />
+              </h3>
+            )}
           </div>
           <Separator />
-          <NodeInspectorContent node={node} onClose={onClose} {...rest} />
+          <NodeInspectorContent node={node} onClose={onClose} onNodeUpdate={onNodeUpdate} {...rest} />
         </div>
       </DialogContent>
     </Dialog>
@@ -400,7 +533,12 @@ export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }
  * Desktop: right sidebar wrapping NodeInspectorContent.
  */
 export function NodeInspectorSidebar(props: NodeInspectorProps) {
-  const { node, onClose, ...rest } = props
+  const { node, onClose, onNodeUpdate, ...rest } = props
+  const { isRenaming, setIsRenaming, editingValue, handleRename } = useTaskRename(
+    node,
+    onNodeUpdate
+  )
+
   return (
     <div className="flex flex-col gap-5 border-l bg-card p-5 overflow-auto border-border w-[320px] shrink-0">
       <div className="flex items-center justify-between gap-2">
@@ -415,9 +553,27 @@ export function NodeInspectorSidebar(props: NodeInspectorProps) {
         </Button>
       </div>
       <div className="flex flex-col gap-2">
-        <h3 className="font-semibold text-xl text-foreground truncate font-serif">
-          {node.title}
-        </h3>
+        {isRenaming ? (
+          <InlineRenameInput
+            value={editingValue ?? node.title}
+            onSave={handleRename}
+            onCancel={() => setIsRenaming(false)}
+            validate={validateTaskTitle}
+            className="text-xl font-semibold font-serif"
+          />
+        ) : (
+          <h3
+            className="font-semibold text-xl text-foreground truncate font-serif group/title cursor-text"
+            onDoubleClick={() => setIsRenaming(true)}
+          >
+            {node.title}
+            <Pencil
+              className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/title:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer"
+              onClick={(e) => { e.stopPropagation(); setIsRenaming(true) }}
+              aria-label="Rename task"
+            />
+          </h3>
+        )}
         {node.executionId && (
           <div className="flex items-center gap-2 text-xs">
             <div className="h-2 w-2 rounded-full bg-muted" />
@@ -426,7 +582,7 @@ export function NodeInspectorSidebar(props: NodeInspectorProps) {
         )}
       </div>
       <Separator />
-      <NodeInspectorContent node={node} onClose={onClose} {...rest} />
+      <NodeInspectorContent node={node} onClose={onClose} onNodeUpdate={onNodeUpdate} {...rest} />
     </div>
   )
 }
