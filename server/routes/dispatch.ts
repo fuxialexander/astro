@@ -194,6 +194,28 @@ dispatchRoute.post('/task', async (c) => {
   let nodeNumber: number | null | undefined
   let githubContext: import('../lib/prompt-templates.js').GitHubContextForPrompt | undefined
 
+  // ── Early serial execution check for 'direct' delivery mode ──────
+  // Fail-fast optimization: if the client explicitly sends deliveryMode='direct',
+  // we can reject duplicate dispatches before the DB lookups (saves ~2 queries).
+  // This only fires when deliveryMode is in the request body. If the client
+  // omits deliveryMode (relying on DB resolution), the late check at ~line 405
+  // handles it after the project record is fetched.
+  // Note: serial execution is a SAFETY constraint (prevents file corruption),
+  // not a dependency check — it applies even with force=true.
+  if (deliveryMode === 'direct' && !dryRun) {
+    const stats = await dispatchEngine.getStats()
+    const activeForProject = stats.activePerProject?.[projectId] ?? 0
+    if (activeForProject > 0) {
+      return c.json(
+        {
+          success: false,
+          error: 'Serial execution required: this project uses direct delivery mode (no git). Only one task can run at a time to prevent file conflicts.',
+        },
+        409
+      )
+    }
+  }
+
   // ── Server-side resolution: fill missing fields from DB ──────────
   // Always fetch plan node + project so that PR enrichment fields
   // (githubIssueUrl, githubIssueNumber) are resolved even when the
@@ -381,7 +403,12 @@ dispatchRoute.post('/task', async (c) => {
 
   // Serial execution constraint for 'direct' delivery mode (non-git directories).
   // Without git isolation, parallel execution on the same directory is unsafe.
-  if (deliveryMode === 'direct') {
+  // Note: if deliveryMode was already 'direct' from the request body, the early
+  // check above already ran. This catch handles the case where deliveryMode was
+  // resolved from the project's DB record (i.e., wasn't in the original body).
+  // Guard with !dryRun to match the early check — dry-run requests should never
+  // be rejected by the serial execution constraint (they don't actually run).
+  if (deliveryMode === 'direct' && !body.deliveryMode && !dryRun) {
     const stats = await dispatchEngine.getStats()
     const activeForProject = stats.activePerProject?.[projectId] ?? 0
     if (activeForProject > 0) {
