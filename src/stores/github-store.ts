@@ -6,16 +6,7 @@
 import { create } from 'zustand';
 import type { GitHubRepo, GitHubUser } from '../../server/types/github';
 import { apiUrl } from '@/lib/api-url';
-import { getAccessToken } from '@/lib/supabase-client';
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const headers: Record<string, string> = {};
-  const token = await getAccessToken();
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  return headers;
-}
+import { authHeaders } from '@/lib/auth-headers';
 
 interface GitHubState {
   // Connection state
