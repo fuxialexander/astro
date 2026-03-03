@@ -77,7 +77,14 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
 
       try {
         if (mountedRef.current) setSaveStatus('saving')
-        const markdown = editorRef.current?.getMarkdown() || html
+
+        // Get markdown from editor, or use empty string if unavailable
+        // (Never fall back to HTML as it would corrupt the description field)
+        const markdown = editorRef.current?.getMarkdown() ?? ''
+        if (!markdown && !editorRef.current) {
+          console.warn('[content-save] Editor unavailable, saving content only (description will be empty)')
+        }
+
         // Call dataClient.updateNode directly to ensure we await the actual API call
         // (plan-store.updateNode fires and forgets, which defeats the flush mechanism)
         const savePromise = dataClient.updateNode(node.id, { content: html, description: markdown })
