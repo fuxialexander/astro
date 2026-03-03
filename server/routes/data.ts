@@ -28,6 +28,7 @@ import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.
 import { isServerMode } from '../lib/app-mode.js'
 import { getServiceClient } from '../lib/supabase.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
+import { extractRepoInfo } from '../lib/git-url-utils.js'
 
 /**
  * Build a team-scoped filter with legacy fallback.
@@ -74,6 +75,17 @@ app.post('/projects', async (c) => {
     return c.json({ error: 'GitHub metadata inconsistent: githubOwner and githubRepo must both be set or both be null' }, 400)
   }
 
+  // Auto-extract githubOwner/githubRepo from repository URL when not explicitly provided
+  let finalGithubOwner = githubOwner
+  let finalGithubRepo = githubRepo
+  if (finalGithubOwner === null && finalGithubRepo === null && body.repository) {
+    const extracted = extractRepoInfo(body.repository)
+    if (extracted) {
+      finalGithubOwner = extracted.owner
+      finalGithubRepo = extracted.repo
+    }
+  }
+
   // Generate UUID if not provided
   const projectId = body.id || crypto.randomUUID()
   const teamId = user.teamId || body.teamId || null
@@ -115,9 +127,9 @@ app.post('/projects', async (c) => {
       workingDirectory: body.workingDirectory || null,
       sourceDirectory: body.sourceDirectory || null,
       repository: body.repository || null,
-      // Use pre-validated GitHub variables (normalized from empty strings to null above)
-      githubOwner,
-      githubRepo,
+      // Use pre-validated GitHub variables, with auto-extraction fallback from repository URL
+      githubOwner: finalGithubOwner,
+      githubRepo: finalGithubRepo,
       githubRepoId,
       defaultMachineId: body.defaultMachineId || null,
       projectBranch: body.projectBranch || null,
@@ -207,12 +219,30 @@ app.patch('/projects/:id', async (c) => {
   if (body.deliveryMode !== undefined) patch.deliveryMode = body.deliveryMode
   if (body.projectType !== undefined) patch.projectType = body.projectType
 
-  // GitHub metadata consistency: If any field is being updated, apply atomic all-or-nothing logic
-  // to prevent partial/inconsistent metadata (e.g., owner+repo set but repoId cleared)
+  // Auto-extract githubOwner/githubRepo from repository URL when repository is updated
+  // but GitHub metadata is not explicitly provided
   const githubOwnerProvided = body.githubOwner !== undefined
   const githubRepoProvided = body.githubRepo !== undefined
   const githubRepoIdProvided = body.githubRepoId !== undefined
 
+  if (body.repository !== undefined && !githubOwnerProvided && !githubRepoProvided) {
+    const repoUrl = body.repository || null
+    if (repoUrl) {
+      const extracted = extractRepoInfo(repoUrl)
+      if (extracted) {
+        patch.githubOwner = extracted.owner
+        patch.githubRepo = extracted.repo
+      }
+    } else {
+      // Repository cleared — clear GitHub metadata too
+      patch.githubOwner = null
+      patch.githubRepo = null
+      patch.githubRepoId = null
+    }
+  }
+
+  // GitHub metadata consistency: If any field is being updated, apply atomic all-or-nothing logic
+  // to prevent partial/inconsistent metadata (e.g., owner+repo set but repoId cleared)
   if (githubOwnerProvided || githubRepoProvided || githubRepoIdProvided) {
     // Compute final values (treating empty strings as null)
     const finalOwner = body.githubOwner || null
