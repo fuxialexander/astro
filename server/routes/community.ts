@@ -1,9 +1,14 @@
 import { Hono } from 'hono'
+import crypto from 'crypto'
 import { db } from '../lib/db/index.js'
 import {
   sharedPlans,
   userProfiles,
   planNodes,
+  projects,
+  sharedPlanStars,
+  sharedPlanForks,
+  planEdges,
 } from '../lib/db/schema.js'
 import { eq, and, desc, isNull, ilike, or, sql } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
@@ -354,6 +359,361 @@ app.delete('/plans/:id', async (c) => {
     .where(eq(sharedPlans.id, planId))
 
   return c.json({ success: true })
+})
+
+// ── POST /api/community/plans/:id/fork ───────────────────────────────
+// Fork a shared plan into a new project
+app.post('/plans/:id/fork', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const planId = c.req.param('id')
+
+  // Fetch the plan to fork
+  const [result] = await db.select({
+    id: sharedPlans.id,
+    title: sharedPlans.title,
+    description: sharedPlans.description,
+    authorId: sharedPlans.authorId,
+    authorName: sharedPlans.authorName,
+    visionDoc: sharedPlans.visionDoc,
+    planData: sharedPlans.planData,
+    visibility: sharedPlans.visibility,
+    teamId: sharedPlans.teamId,
+  })
+    .from(sharedPlans)
+    .where(and(
+      eq(sharedPlans.id, planId),
+      isNull(sharedPlans.deletedAt)
+    ))
+    .limit(1)
+
+  if (!result) {
+    return c.json({ error: 'Plan not found' }, 404)
+  }
+
+  // Check visibility permissions
+  const canAccess = (
+    result.visibility === 'public' ||
+    (result.visibility === 'team' && result.teamId === user.teamId) ||
+    (result.visibility === 'unlisted' && result.authorId === user.id) ||
+    result.authorId === user.id
+  )
+
+  if (!canAccess) {
+    return c.json({ error: 'Access denied' }, 403)
+  }
+
+  // Generate UUID mapping for nodes and edges
+  const uuidMap = new Map<string, string>()
+
+  // First pass: create UUID mappings for all nodes
+  for (const node of result.planData.nodes) {
+    const oldId = (node as { id: string }).id
+    const newId = crypto.randomUUID()
+    uuidMap.set(oldId, newId)
+  }
+
+  // Remap node IDs and clean execution fields
+  const remappedNodes = result.planData.nodes.map((node: Record<string, unknown>) => {
+    const oldId = node.id as string
+    const newId = uuidMap.get(oldId)!
+
+    // Remove execution-specific fields and IDs
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { id, executionId, executionOutput, executionError, executionStartedAt, executionCompletedAt, ...rest } = node
+
+    return {
+      ...rest,
+      id: newId,
+      status: 'planned', // Reset status to planned
+    }
+  })
+
+  // Remap edge IDs and source/target references
+  const remappedEdges = result.planData.edges.map((edge: Record<string, unknown>) => {
+    const oldSource = edge.source as string
+    const oldTarget = edge.target as string
+
+    return {
+      ...edge,
+      id: crypto.randomUUID(), // Generate new edge ID
+      source: uuidMap.get(oldSource) || oldSource,
+      target: uuidMap.get(oldTarget) || oldTarget,
+    }
+  })
+
+  // Create new project with forked plan
+  const now = new Date()
+  const projectId = crypto.randomUUID()
+
+  const projectData = {
+    id: projectId,
+    ownerId: user.id,
+    teamId: user.teamId,
+    name: `${result.title} (Fork)`,
+    description: result.description || '',
+    visionDoc: result.visionDoc || '',
+    status: 'active' as const,
+    source: {
+      type: 'community-fork' as const,
+      planId: result.id,
+      planTitle: result.title,
+      authorName: result.authorName,
+      forkedAt: now.toISOString(),
+    },
+    createdAt: now,
+    updatedAt: now,
+  }
+
+  try {
+    // Insert project
+    await db.insert(projects).values(projectData)
+
+    // Insert nodes with remapped IDs
+    if (remappedNodes.length > 0) {
+      const nodeInserts = remappedNodes.map((node: Record<string, unknown>) => ({
+        id: crypto.randomUUID(), // DB primary key
+        projectId,
+        clientId: node.id as string, // The remapped UUID used in the graph
+        number: node.number as number | null,
+        type: (node.type as string) || 'task',
+        title: (node.title as string) || '',
+        description: (node.description as string) || '',
+        status: 'planned' as const,
+        priority: (node.priority as string) || null,
+        assignee: (node.assignee as string) || null,
+        prompt: (node.prompt as string) || null,
+        startDate: (node.startDate as string) || null,
+        endDate: (node.endDate as string) || null,
+        dueDate: (node.dueDate as string) || null,
+        estimate: (node.estimate as string) || null,
+        milestoneId: (node.milestoneId as string) || null,
+        position: (node.position as { x: number; y: number }) || { x: 0, y: 0 },
+        createdAt: now,
+        updatedAt: now,
+      }))
+      await db.insert(planNodes).values(nodeInserts)
+    }
+
+    // Insert edges with remapped IDs
+    if (remappedEdges.length > 0) {
+      const edgeInserts = remappedEdges.map((edge: Record<string, unknown>) => ({
+        id: crypto.randomUUID(),
+        projectId,
+        clientId: edge.id as string,
+        source: edge.source as string,
+        target: edge.target as string,
+        type: (edge.type as string) || 'default',
+        animated: (edge.animated as boolean) || false,
+        label: (edge.label as string) || null,
+        createdAt: now,
+        updatedAt: now,
+      }))
+      await db.insert(planEdges).values(edgeInserts)
+    }
+
+    // Record fork in shared_plan_forks table
+    await db.insert(sharedPlanForks).values({
+      sourcePlanId: result.id,
+      forkedBy: user.id,
+      projectId,
+      createdAt: now,
+    })
+
+    // Atomically increment forksCount
+    await db.update(sharedPlans)
+      .set({ forksCount: sql`${sharedPlans.forksCount} + 1` })
+      .where(eq(sharedPlans.id, result.id))
+
+    return c.json({
+      projectId,
+      message: 'Plan forked successfully',
+    }, 201)
+  } catch (err) {
+    console.error('[community] Failed to fork plan:', err)
+    return c.json({ error: 'Failed to fork plan' }, 500)
+  }
+})
+
+// ── GET /api/community/plans/:id/export ──────────────────────────────
+// Export plan as downloadable .astro.json file
+app.get('/plans/:id/export', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const planId = c.req.param('id')
+
+  // Fetch plan
+  const [result] = await db.select({
+    id: sharedPlans.id,
+    title: sharedPlans.title,
+    description: sharedPlans.description,
+    authorId: sharedPlans.authorId,
+    authorName: sharedPlans.authorName,
+    visionDoc: sharedPlans.visionDoc,
+    planData: sharedPlans.planData,
+    templateId: sharedPlans.templateId,
+    templateParameters: sharedPlans.templateParameters,
+    category: sharedPlans.category,
+    tags: sharedPlans.tags,
+    visibility: sharedPlans.visibility,
+    teamId: sharedPlans.teamId,
+    createdAt: sharedPlans.createdAt,
+  })
+    .from(sharedPlans)
+    .where(and(
+      eq(sharedPlans.id, planId),
+      isNull(sharedPlans.deletedAt)
+    ))
+    .limit(1)
+
+  if (!result) {
+    return c.json({ error: 'Plan not found' }, 404)
+  }
+
+  // Check visibility permissions
+  const canAccess = (
+    result.visibility === 'public' ||
+    (result.visibility === 'team' && result.teamId === user.teamId) ||
+    (result.visibility === 'unlisted' && result.authorId === user.id) ||
+    result.authorId === user.id
+  )
+
+  if (!canAccess) {
+    return c.json({ error: 'Access denied' }, 403)
+  }
+
+  // Build exportable format
+  const exportData = {
+    version: '1.0.0',
+    type: 'astro-plan-export',
+    metadata: {
+      title: result.title,
+      description: result.description,
+      author: result.authorName,
+      category: result.category,
+      tags: result.tags,
+      exportedAt: new Date().toISOString(),
+      sourceUrl: `${c.req.url.split('/export')[0]}`,
+    },
+    visionDoc: result.visionDoc,
+    planData: result.planData,
+    templateId: result.templateId,
+    templateParameters: result.templateParameters,
+  }
+
+  // Set Content-Disposition header for download
+  const filename = `${result.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.astro.json`
+  c.header('Content-Disposition', `attachment; filename="${filename}"`)
+  c.header('Content-Type', 'application/json')
+
+  return c.json(exportData)
+})
+
+// ── POST /api/community/plans/:id/star ───────────────────────────────
+// Toggle star (upvote) for a shared plan
+app.post('/plans/:id/star', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const planId = c.req.param('id')
+
+  // Verify plan exists and is accessible
+  const [plan] = await db.select({
+    id: sharedPlans.id,
+    visibility: sharedPlans.visibility,
+    teamId: sharedPlans.teamId,
+    authorId: sharedPlans.authorId,
+  })
+    .from(sharedPlans)
+    .where(and(
+      eq(sharedPlans.id, planId),
+      isNull(sharedPlans.deletedAt)
+    ))
+    .limit(1)
+
+  if (!plan) {
+    return c.json({ error: 'Plan not found' }, 404)
+  }
+
+  // Check if user already starred this plan
+  const [existingStar] = await db.select()
+    .from(sharedPlanStars)
+    .where(and(
+      eq(sharedPlanStars.userId, user.id),
+      eq(sharedPlanStars.planId, planId)
+    ))
+    .limit(1)
+
+  if (existingStar) {
+    // Unstar - delete record and decrement count
+    await db.delete(sharedPlanStars)
+      .where(and(
+        eq(sharedPlanStars.userId, user.id),
+        eq(sharedPlanStars.planId, planId)
+      ))
+
+    await db.update(sharedPlans)
+      .set({ starsCount: sql`GREATEST(0, ${sharedPlans.starsCount} - 1)` })
+      .where(eq(sharedPlans.id, planId))
+
+    return c.json({ starred: false, message: 'Plan unstarred' })
+  } else {
+    // Star - insert record and increment count
+    await db.insert(sharedPlanStars).values({
+      userId: user.id,
+      planId,
+      createdAt: new Date(),
+    })
+
+    await db.update(sharedPlans)
+      .set({ starsCount: sql`${sharedPlans.starsCount} + 1` })
+      .where(eq(sharedPlans.id, planId))
+
+    return c.json({ starred: true, message: 'Plan starred' })
+  }
+})
+
+// ── GET /api/community/plans/:id/starred ─────────────────────────────
+// Check if current user has starred a plan
+app.get('/plans/:id/starred', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const planId = c.req.param('id')
+
+  const [star] = await db.select()
+    .from(sharedPlanStars)
+    .where(and(
+      eq(sharedPlanStars.userId, user.id),
+      eq(sharedPlanStars.planId, planId)
+    ))
+    .limit(1)
+
+  return c.json({ starred: !!star })
+})
+
+// ── GET /api/community/my-plans ───────────────────────────────────────
+// Get current user's published plans
+app.get('/my-plans', async (c) => {
+  const user = c.get('user')! as AuthUser
+
+  // Fetch user's published plans (including unlisted, excluding deleted)
+  const plans = await db.select({
+    id: sharedPlans.id,
+    title: sharedPlans.title,
+    description: sharedPlans.description,
+    category: sharedPlans.category,
+    tags: sharedPlans.tags,
+    visibility: sharedPlans.visibility,
+    starsCount: sharedPlans.starsCount,
+    forksCount: sharedPlans.forksCount,
+    commentsCount: sharedPlans.commentsCount,
+    version: sharedPlans.version,
+    createdAt: sharedPlans.createdAt,
+    updatedAt: sharedPlans.updatedAt,
+  })
+    .from(sharedPlans)
+    .where(and(
+      eq(sharedPlans.authorId, user.id),
+      isNull(sharedPlans.deletedAt)
+    ))
+    .orderBy(desc(sharedPlans.createdAt))
+
+  return c.json({ plans })
 })
 
 export { app as communityRoute }
