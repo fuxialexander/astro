@@ -6,7 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { TypingIndicator } from "@/components/ui/typing-indicator"
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
-import { chatWithTask, fetchSlashCommands } from "@/lib/api-client"
+import { chatWithTask, fetchSlashCommands, fetchStreamingEventsCatchUp, replayChatCatchUpEvents } from "@/lib/api-client"
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -27,6 +27,12 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
   const [isStreaming, setIsStreaming] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  /**
+   * Per-turn chat stream state: stable streamId for SSE event persistence
+   * and lastSeq (initially 0) for targeted catch-up queries after reconnect.
+   * Updated every time the user sends a message.
+   */
+  const chatStreamRef = useRef<{ streamId: string; lastSeq: number }>({ streamId: '', lastSeq: 0 })
   const model = useSettingsStore((s) => s.model)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const resolvedMachineId = useProjectMachineId(project)
@@ -102,6 +108,10 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
     setInput("")
     const sid = freshSession.id
 
+    // Generate a stable per-turn streamId for event persistence and catch-up
+    const turnStreamId = `task-chat-${node.id}-${Date.now()}`
+    chatStreamRef.current = { streamId: turnStreamId, lastSeq: 0 }
+
     // Add user message
     addMessage(sid, { role: "user", content: text })
 
@@ -136,6 +146,7 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
         {
           message: text,
           sessionId: hasCompletedExchange ? freshSession.providerSessionId : undefined,
+          streamId: turnStreamId,
           nodeId: node.id,
           projectId,
           taskTitle: node.title,
@@ -156,16 +167,60 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
             if (newSessionId) setProviderSessionId(sid, newSessionId)
             // Force immediate save — appendToLastAssistantMessage only debounce-saves
             updateLastAssistantMessage(sid, rawText)
+            chatStreamRef.current = { streamId: '', lastSeq: 0 }
             setIsStreaming(false)
           },
           onError: (error) => {
             appendToLastAssistantMessage(sid, `\n\nError: ${error}`)
+            chatStreamRef.current = { streamId: '', lastSeq: 0 }
             setIsStreaming(false)
+          },
+          onSeq: (seq) => {
+            chatStreamRef.current.lastSeq = seq
           },
         },
         abortRef.current.signal,
       )
-    } catch {
+    } catch (e: unknown) {
+      // User-initiated abort — no catch-up needed
+      if (e instanceof Error && e.name === 'AbortError') {
+        setIsStreaming(false)
+        return
+      }
+
+      // Network error — attempt catch-up using stored streamId and lastSeq
+      const { streamId: catchUpStreamId, lastSeq } = chatStreamRef.current
+      if (catchUpStreamId) {
+        try {
+          const { events } = await fetchStreamingEventsCatchUp([catchUpStreamId], lastSeq)
+          if (events.length > 0) {
+            const { completed } = replayChatCatchUpEvents(events, {
+              onText: (chunk) => {
+                rawText += chunk
+                appendToLastAssistantMessage(sid, chunk)
+              },
+              onDone: (newSessionId) => {
+                if (newSessionId) setProviderSessionId(sid, newSessionId)
+                updateLastAssistantMessage(sid, rawText)
+              },
+              onError: (error) => {
+                appendToLastAssistantMessage(sid, `\n\nError: ${error}`)
+              },
+            })
+            if (completed) {
+              chatStreamRef.current = { streamId: '', lastSeq: 0 }
+            }
+          } else {
+            appendToLastAssistantMessage(sid, '\n\nConnection lost during chat')
+          }
+        } catch {
+          // Catch-up also failed
+          appendToLastAssistantMessage(sid, '\n\nConnection lost — unable to recover')
+        }
+      } else {
+        appendToLastAssistantMessage(sid, '\n\nConnection lost')
+      }
+
       setIsStreaming(false)
     }
   }, [input, isStreaming, node.id, node.title, node.content, node.description, projectId, taskOutput, visionDoc, model, addMessage, appendToLastAssistantMessage, updateLastAssistantMessage, setProviderSessionId])

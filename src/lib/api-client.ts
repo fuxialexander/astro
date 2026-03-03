@@ -1,6 +1,6 @@
 import type { PlanNode, PlanEdge } from "@/types"
 import { getAccessToken } from "@/lib/supabase-client"
-import { parseChatSSE, parseExecutionSSE } from "@/lib/sse-parser"
+import { parseChatSSE } from "@/lib/sse-parser"
 import { apiUrl } from "@/lib/api-url"
 
 /**
@@ -80,12 +80,14 @@ export async function fetchSlashCommands(
 }
 
 export async function generatePlan(
-  params: { description: string; visionDoc?: string; projectId: string; model?: string; providerId?: string; workingDirectory?: string; fileTree?: string[]; keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }; targetMachineId?: string; gitState?: { currentBranch: string; targetBranch: string; isDirty: boolean; dirtyDetails?: { staged: number; unstaged: number; untracked: number } } },
+  params: { description: string; visionDoc?: string; projectId: string; model?: string; providerId?: string; workingDirectory?: string; fileTree?: string[]; keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }; targetMachineId?: string; gitState?: { currentBranch: string; targetBranch: string; isDirty: boolean; dirtyDetails?: { staged: number; unstaged: number; untracked: number } }; streamId?: string },
   callbacks: {
     onText: (text: string) => void
     onPlanResult: (result: PlanGraphResult) => void
     onError: (error: string) => void
     onDone: () => void
+    /** Called when an SSE `id:` field is received — tracks last seq for reconnection */
+    onId?: (id: string) => void
   },
   signal?: AbortSignal,
 ): Promise<void> {
@@ -114,6 +116,7 @@ export async function generatePlan(
 
   await parseChatSSE(res, {
     onText: callbacks.onText,
+    onId: callbacks.onId,
     onPlanResult: (result) => {
       const planResult = result as PlanGraphResult
       console.log(`[plan-gen] plan_result received: ${planResult.nodes.length} nodes, ${planResult.edges.length} edges`)
@@ -190,6 +193,8 @@ export async function planChatWithAgent(
     onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
     onDone: (sessionId: string) => void
     onError: (error: string) => void
+    /** Called with each SSE seq number — track for disconnect catch-up */
+    onSeq?: (seq: number) => void
   },
   signal?: AbortSignal,
 ): Promise<void> {
@@ -213,6 +218,7 @@ export async function planChatWithAgent(
     onToolResult: callbacks.onToolResult,
     onDone: callbacks.onDone,
     onError: callbacks.onError,
+    onSeq: callbacks.onSeq,
   })
 }
 
@@ -252,6 +258,8 @@ export async function chatWithTask(
     onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
     onDone: (sessionId: string) => void
     onError: (error: string) => void
+    /** Called with each SSE seq number — track for disconnect catch-up */
+    onSeq?: (seq: number) => void
   },
   signal?: AbortSignal,
 ): Promise<void> {
@@ -275,6 +283,7 @@ export async function chatWithTask(
     onToolResult: callbacks.onToolResult,
     onDone: callbacks.onDone,
     onError: callbacks.onError,
+    onSeq: callbacks.onSeq,
   })
 }
 
@@ -464,71 +473,6 @@ export async function redetectProviders(): Promise<ProviderStatusResult> {
   return response.json()
 }
 
-// Dispatch types
-export interface DispatchParams {
-  nodeId: string
-  projectId: string
-  taskTitle: string
-  taskDescription: string
-  taskType?: string
-  visionDoc?: string
-  dependencyOutputs?: string
-  workingDirectory?: string
-  model?: string
-  providerId?: string
-  maxTurns?: number
-}
-
-export interface DispatchCallbacks {
-  onInit?: (data: { executionId: string; nodeId: string; providerId: string; providerName: string }) => void
-  onText?: (text: string) => void
-  onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
-  onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
-  onFileChange?: (data: { path: string; action: string; diff?: string }) => void
-  onProgress?: (data: { message: string; percentage?: number }) => void
-  onResult?: (data: {
-    executionId: string
-    nodeId: string
-    status: string
-    output: string
-    metrics?: Record<string, unknown>
-  }) => void
-  onError?: (error: string) => void
-  onDone?: (data: { executionId: string; nodeId: string; sessionId?: string }) => void
-}
-
-export async function dispatchTask(
-  params: DispatchParams,
-  callbacks: DispatchCallbacks,
-  signal?: AbortSignal
-): Promise<void> {
-  const response = await fetch(apiUrl("/api/agent/dispatch"), {
-    method: "POST",
-    headers: await authHeaders(),
-    body: JSON.stringify(params),
-    signal,
-  })
-
-  if (!response.ok) {
-    let errorMsg = `Server error: ${response.status}`
-    try { const b = await response.json(); if (b.error) errorMsg += ` – ${b.error}` } catch { /* non-JSON */ }
-    callbacks.onError?.(errorMsg)
-    return
-  }
-
-  await parseExecutionSSE(response, {
-    onInit: callbacks.onInit,
-    onText: callbacks.onText,
-    onToolUse: callbacks.onToolUse,
-    onToolResult: callbacks.onToolResult,
-    onFileChange: callbacks.onFileChange,
-    onProgress: callbacks.onProgress,
-    onResult: callbacks.onResult,
-    onError: callbacks.onError,
-    onDone: callbacks.onDone,
-  })
-}
-
 /**
  * Reset a task node for re-execution.
  * Closes PR, deletes branch, cleans worktree, clears node fields.
@@ -582,6 +526,60 @@ export async function fetchStreamingEventsCatchUp(
     throw new Error(`Failed to fetch streaming events catch-up: ${response.status} ${response.statusText} - ${errorText}`)
   }
   return response.json()
+}
+
+/**
+ * Replay caught-up streaming events through chat callbacks.
+ * Used after a network disconnect to reconstruct missed chat events.
+ * Returns whether a `done` event was found (turn completed server-side)
+ * and the highest seq number encountered.
+ */
+export function replayChatCatchUpEvents(
+  events: StreamingEventRow[],
+  callbacks: {
+    onText?: (text: string) => void
+    onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
+    onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
+    onDone?: (sessionId: string) => void
+    onError?: (error: string) => void
+  },
+): { completed: boolean; lastSeq: number } {
+  let completed = false
+  let lastSeq = 0
+  for (const event of events) {
+    const data = event.data as Record<string, unknown>
+    lastSeq = event.seq
+    switch (event.eventType) {
+      case 'text':
+        callbacks.onText?.((data.text as string) || '')
+        break
+      case 'tool_use':
+        callbacks.onToolUse?.({
+          toolName: (data.toolName as string) || '',
+          toolInput: data.toolInput,
+        })
+        break
+      case 'tool_result':
+        callbacks.onToolResult?.({
+          toolName: (data.toolName as string) || '',
+          success: (data.success as boolean) ?? true,
+          result: data.result,
+        })
+        break
+      case 'done':
+        try {
+          callbacks.onDone?.((data.sessionId as string) || '')
+        } catch {
+          callbacks.onDone?.('')
+        }
+        completed = true
+        break
+      case 'error':
+        callbacks.onError?.((data.error as string) || (data.message as string) || '')
+        break
+    }
+  }
+  return { completed, lastSeq }
 }
 
 // ============================================================================

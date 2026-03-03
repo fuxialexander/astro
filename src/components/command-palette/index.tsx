@@ -211,7 +211,7 @@ export function CommandPalette() {
 
       return cmd
     })
-  }, [allCommands, navigate, theme, setTheme, availableThemes, projects])
+  }, [allCommands, navigate, theme, setTheme, availableThemes, projects, playgroundProjects])
 
   // Get commands to display (either root commands or children of current breadcrumb)
   const displayCommands = useMemo(() => {

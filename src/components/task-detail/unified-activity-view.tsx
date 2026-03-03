@@ -16,7 +16,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
-import { chatWithTask } from "@/lib/api-client"
+import { chatWithTask, fetchStreamingEventsCatchUp, replayChatCatchUpEvents } from "@/lib/api-client"
 import { parseSSEStream } from "@/lib/sse-parser"
 import { cn } from "@/lib/utils"
 import type { PlanNode, TaskExecution, TaskActivityEvent } from "@/types"
@@ -61,6 +61,8 @@ export function UnifiedActivityView({
   const [autoScroll, setAutoScroll] = useState(true)
   const containerRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  /** Per-turn chat stream state for disconnect catch-up */
+  const chatStreamRef = useRef<{ streamId: string; lastSeq: number }>({ streamId: '', lastSeq: 0 })
 
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const addSteerMessage = useRealtimeStore((s) => s.addSteerMessage)
@@ -197,76 +199,117 @@ export function UnifiedActivityView({
             return { executions: newExecutions }
           })
 
-          // Process the SSE stream to update execution state
-          await parseSSEStream(response, {
-            onEvent: ({ event, data }) => {
-              switch (event) {
-                case "text":
-                  useExecutionStore.getState().appendText(nodeId, data)
-                  break
-                case "tool_use":
-                  try {
-                    const parsed = JSON.parse(data)
-                    const traceId = `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
-                    useExecutionStore.getState().addToolTrace(nodeId, {
-                      id: traceId,
-                      toolName: parsed.toolName,
-                      toolInput: parsed.toolInput,
-                      timestamp: new Date(),
-                    })
-                  } catch { /* ignore */ }
-                  break
-                case "tool_result":
-                  try {
-                    const parsed = JSON.parse(data)
-                    useExecutionStore.getState().updateToolTraceResult(
-                      nodeId, parsed.toolName, parsed.result, parsed.success
-                    )
-                  } catch { /* ignore */ }
-                  break
-                case "file_change":
-                  try {
-                    const parsed = JSON.parse(data)
-                    useExecutionStore.getState().addFileChange(nodeId, {
-                      path: parsed.path,
-                      action: parsed.action || "modify",
-                      linesAdded: parsed.linesAdded,
-                      linesRemoved: parsed.linesRemoved,
-                      diff: parsed.diff,
-                      timestamp: new Date(),
-                    })
-                  } catch { /* ignore */ }
-                  break
-                case "result":
-                  try {
-                    const parsed = JSON.parse(data)
-                    useExecutionStore.setState((state) => {
-                      const newExecutions = new Map(state.executions)
-                      const exec = newExecutions.get(nodeId)
-                      if (exec) {
-                        exec.status = (parsed.status === "success" || parsed.status === "completed") ? "success" : "failure"
-                        exec.completedAt = new Date()
-                        if (parsed.sessionId) exec.sessionId = parsed.sessionId
-                      }
-                      return { executions: newExecutions }
-                    })
-                  } catch { /* ignore */ }
-                  break
-                case "error":
-                  try {
-                    const parsed = JSON.parse(data)
-                    console.error("[steer] Resume error:", parsed.error)
-                  } catch { /* ignore */ }
-                  break
-                case "resumed":
-                case "session_init":
-                case "done":
-                case "heartbeat":
-                case "aborted":
-                  break
+          // Process the SSE stream to update execution state (with reconnection)
+          let lastSeq = 0
+          let streamCompleted = false
+
+          /** Replay a single SSE event by type — shared between live stream and catch-up */
+          const replayEvent = (event: string, data: string) => {
+            switch (event) {
+              case "text":
+                useExecutionStore.getState().appendText(nodeId, data)
+                break
+              case "tool_use":
+                try {
+                  const parsed = JSON.parse(data)
+                  const traceId = `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
+                  useExecutionStore.getState().addToolTrace(nodeId, {
+                    id: traceId,
+                    toolName: parsed.toolName,
+                    toolInput: parsed.toolInput,
+                    timestamp: new Date(),
+                  })
+                } catch { /* ignore */ }
+                break
+              case "tool_result":
+                try {
+                  const parsed = JSON.parse(data)
+                  useExecutionStore.getState().updateToolTraceResult(
+                    nodeId, parsed.toolName, parsed.result, parsed.success
+                  )
+                } catch { /* ignore */ }
+                break
+              case "file_change":
+                try {
+                  const parsed = JSON.parse(data)
+                  useExecutionStore.getState().addFileChange(nodeId, {
+                    path: parsed.path,
+                    action: parsed.action || "modify",
+                    linesAdded: parsed.linesAdded,
+                    linesRemoved: parsed.linesRemoved,
+                    diff: parsed.diff,
+                    timestamp: new Date(),
+                  })
+                } catch { /* ignore */ }
+                break
+              case "result":
+                try {
+                  const parsed = JSON.parse(data)
+                  streamCompleted = true
+                  useExecutionStore.setState((state) => {
+                    const newExecutions = new Map(state.executions)
+                    const exec = newExecutions.get(nodeId)
+                    if (exec) {
+                      exec.status = (parsed.status === "success" || parsed.status === "completed") ? "success" : "failure"
+                      exec.completedAt = new Date()
+                      if (parsed.sessionId) exec.sessionId = parsed.sessionId
+                    }
+                    return { executions: newExecutions }
+                  })
+                } catch { /* ignore */ }
+                break
+              case "error":
+                try {
+                  const parsed = JSON.parse(data)
+                  console.error("[steer] Resume error:", parsed.error)
+                } catch { /* ignore */ }
+                break
+              case "done":
+                streamCompleted = true
+                break
+              case "resumed":
+              case "session_init":
+              case "heartbeat":
+              case "aborted":
+                break
+            }
+          }
+
+          try {
+            await parseSSEStream(response, {
+              onEvent: ({ event, data }) => replayEvent(event, data),
+              onId: (id) => {
+                const seq = parseInt(id, 10)
+                if (!isNaN(seq) && seq > lastSeq) lastSeq = seq
+              },
+            })
+          } catch (streamError) {
+            // Stream errored — attempt catch-up if not a page unload
+            if (streamCompleted) {
+              // Already got terminal event, ignore trailing error
+            } else if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+              // Page is unloading — task still runs server-side; skip failure marking
+              console.log('[steer] SSE interrupted by page unload, skipping failure marking')
+            } else {
+              // Network drop mid-stream: catch up from persisted events
+              console.warn('[steer] SSE stream error, attempting catch-up:', streamError)
+              try {
+                const { events } = await fetchStreamingEventsCatchUp(
+                  [executionId],
+                  lastSeq,
+                )
+                for (const row of events) {
+                  const data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+                  replayEvent(row.eventType, data)
+                }
+                if (events.length > 0) {
+                  console.log(`[steer] Caught up ${events.length} events after stream error`)
+                }
+              } catch (catchUpError) {
+                console.warn('[steer] Catch-up fetch also failed:', catchUpError)
               }
-            },
-          })
+            }
+          }
         } else {
           // JSON response — standard ack for active session injection
           updateSteerMessage(executionId, steerIndex, { accepted: true })
@@ -275,10 +318,17 @@ export function UnifiedActivityView({
     } catch (error) {
       clearTimeout(timeoutId)
       setPendingSteerText(null)
-      updateSteerMessage(executionId, steerIndex, {
-        accepted: false,
-        ackMessage: `Failed: ${error instanceof Error ? error.message : "Network error"}`,
-      })
+
+      // Don't mark as failure if the page is unloading (refresh/navigate away)
+      // — the task is still running server-side, catch-up will reconcile on reload
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        console.log('[steer] SSE interrupted by page unload, skipping failure marking')
+      } else {
+        updateSteerMessage(executionId, steerIndex, {
+          accepted: false,
+          ackMessage: `Failed: ${error instanceof Error ? error.message : "Network error"}`,
+        })
+      }
     } finally {
       setSending(false)
     }
@@ -296,6 +346,10 @@ export function UnifiedActivityView({
     // Store in session for conversation history (sent to backend on subsequent turns)
     addMessage(sid, { role: "user", content: text })
 
+    // Generate a stable per-turn streamId for event persistence and catch-up
+    const turnStreamId = `task-chat-${node.id}-${Date.now()}`
+    chatStreamRef.current = { streamId: turnStreamId, lastSeq: 0 }
+
     setIsChatStreaming(true)
     abortRef.current = new AbortController()
 
@@ -303,6 +357,40 @@ export function UnifiedActivityView({
     const historyMessages = (chatSession.messages || [])
       .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
+
+    // Shared callback helpers for both live stream and catch-up replay
+    const handleToolUse = (data: { toolName: string; toolInput: unknown }) => {
+      const id = `chat-tool-${++chatToolCounterRef.current}`
+      pushChatEvent({
+        type: 'tool_use',
+        id,
+        toolName: data.toolName,
+        toolInput: data.toolInput,
+        timestamp: new Date(),
+      })
+    }
+    const handleToolResult = (data: { toolName: string; success: boolean; result: unknown }) => {
+      const events = chatEventsRef.current
+      let matchId = `chat-tool-result-${++chatToolCounterRef.current}`
+      for (let i = events.length - 1; i >= 0; i--) {
+        const e = events[i]
+        if (e.type === 'tool_use' && e.toolName === data.toolName) {
+          const hasResult = events.some(r => r.type === 'tool_result' && r.id === e.id)
+          if (!hasResult) {
+            matchId = e.id
+            break
+          }
+        }
+      }
+      pushChatEvent({
+        type: 'tool_result',
+        id: matchId,
+        toolName: data.toolName,
+        toolResult: data.result,
+        success: data.success,
+        timestamp: new Date(),
+      })
+    }
 
     let rawText = ""
     try {
@@ -314,7 +402,7 @@ export function UnifiedActivityView({
         {
           message: text,
           sessionId: resumeId,
-          streamId: executionId,
+          streamId: turnStreamId,
           nodeId: node.id,
           projectId,
           taskTitle: node.title,
@@ -331,46 +419,21 @@ export function UnifiedActivityView({
             rawText += chunk
             pushChatEvent({ type: 'text', content: chunk, timestamp: new Date() })
           },
-          onToolUse: (data) => {
-            const id = `chat-tool-${++chatToolCounterRef.current}`
-            pushChatEvent({
-              type: 'tool_use',
-              id,
-              toolName: data.toolName,
-              toolInput: data.toolInput,
-              timestamp: new Date(),
-            })
-          },
-          onToolResult: (data) => {
-            const events = chatEventsRef.current
-            let matchId = `chat-tool-result-${++chatToolCounterRef.current}`
-            for (let i = events.length - 1; i >= 0; i--) {
-              const e = events[i]
-              if (e.type === 'tool_use' && e.toolName === data.toolName) {
-                const hasResult = events.some(r => r.type === 'tool_result' && r.id === e.id)
-                if (!hasResult) {
-                  matchId = e.id
-                  break
-                }
-              }
-            }
-            pushChatEvent({
-              type: 'tool_result',
-              id: matchId,
-              toolName: data.toolName,
-              toolResult: data.result,
-              success: data.success,
-              timestamp: new Date(),
-            })
-          },
+          onToolUse: handleToolUse,
+          onToolResult: handleToolResult,
           onDone: (newSessionId) => {
             if (newSessionId) setProviderSessionId(sid, newSessionId)
+            chatStreamRef.current = { streamId: '', lastSeq: 0 }
             // Store full text in session for conversation history
             addMessage(sid, { role: "assistant", content: rawText })
             flushChatEvents()
             setIsChatStreaming(false)
           },
+          onSeq: (seq) => {
+            chatStreamRef.current.lastSeq = seq
+          },
           onError: (error) => {
+            chatStreamRef.current = { streamId: '', lastSeq: 0 }
             pushChatEvent({ type: 'error', error, timestamp: new Date() })
             flushChatEvents()
             setIsChatStreaming(false)
@@ -379,6 +442,38 @@ export function UnifiedActivityView({
         abortRef.current.signal,
       )
     } catch {
+      // Attempt catch-up on network error
+      const { streamId: catchUpStreamId, lastSeq } = chatStreamRef.current
+      if (catchUpStreamId) {
+        try {
+          const { events } = await fetchStreamingEventsCatchUp([catchUpStreamId], lastSeq)
+          if (events.length > 0) {
+            const { completed } = replayChatCatchUpEvents(events, {
+              onText: (chunk) => {
+                rawText += chunk
+                pushChatEvent({ type: 'text', content: chunk, timestamp: new Date() })
+              },
+              onToolUse: handleToolUse,
+              onToolResult: handleToolResult,
+              onDone: (newSessionId) => {
+                if (newSessionId) setProviderSessionId(sid, newSessionId)
+                addMessage(sid, { role: "assistant", content: rawText })
+              },
+            })
+            if (completed) {
+              chatStreamRef.current = { streamId: '', lastSeq: 0 }
+            }
+          } else {
+            pushChatEvent({ type: 'error', error: 'Connection lost during chat', timestamp: new Date() })
+          }
+        } catch {
+          chatStreamRef.current = { streamId: '', lastSeq: 0 }
+          pushChatEvent({ type: 'error', error: 'Connection lost — unable to recover', timestamp: new Date() })
+        }
+      } else {
+        pushChatEvent({ type: 'error', error: 'Connection lost', timestamp: new Date() })
+      }
+
       flushChatEvents()
       setIsChatStreaming(false)
     }
