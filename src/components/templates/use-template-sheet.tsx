@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react"
+import { useState, useCallback, useMemo } from "react"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { TemplateGallery } from "./template-gallery"
@@ -55,14 +55,21 @@ export function UseTemplateSheet({ open, onOpenChange, projectId }: UseTemplateS
   const previewTemplate = useTemplateStore((s) => s.previewTemplate)
   const reset = useTemplateStore((s) => s.reset)
 
-  // Reset state when sheet closes
-  useEffect(() => {
-    if (!open) {
-      reset()
-      setStep("gallery")
-      setIsApplying(false)
-    }
-  }, [open, reset])
+  // Handle open change with state reset when closing
+  const handleOpenChange = useCallback(
+    (newOpen: boolean) => {
+      if (!newOpen) {
+        // Reset state when closing (use setTimeout to avoid cascading renders)
+        setTimeout(() => {
+          reset()
+          setStep("gallery")
+          setIsApplying(false)
+        }, 0)
+      }
+      onOpenChange(newOpen)
+    },
+    [onOpenChange, reset]
+  )
 
   // Handle template selection
   const handleTemplateSelect = useCallback(
@@ -196,7 +203,7 @@ export function UseTemplateSheet({ open, onOpenChange, projectId }: UseTemplateS
             })
 
             // Close the sheet
-            onOpenChange(false)
+            handleOpenChange(false)
           },
           onError: (error) => {
             console.error("[apply-template] Error:", error)
@@ -222,7 +229,7 @@ export function UseTemplateSheet({ open, onOpenChange, projectId }: UseTemplateS
       })
       setIsApplying(false)
     }
-  }, [selectedTemplate, projectId, parameterValues, onOpenChange])
+  }, [selectedTemplate, projectId, parameterValues, handleOpenChange])
 
   // Render current step
   const renderStep = () => {
@@ -321,7 +328,7 @@ export function UseTemplateSheet({ open, onOpenChange, projectId }: UseTemplateS
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent side="right" className="w-[600px] max-w-[90vw] p-0">
         <div className="flex flex-col h-full p-6">{renderStep()}</div>
       </SheetContent>
