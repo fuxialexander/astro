@@ -49,4 +49,5 @@ export interface OpenClawSkill {
   pluginId?: string                       // which plugin contributed this skill
   enabled: boolean
   config?: Record<string, unknown>        // per-skill config (env overrides, apiKey, etc.)
+  teamId?: string | null                  // team ownership (null = global builtin)
 }

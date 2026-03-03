@@ -141,7 +141,7 @@ export async function syncSkillsFromDb(
 ): Promise<void> {
   const rows = await db.select().from(skills).where(eq(skills.enabled, true))
   // rows inherits `any[]` from the dual-driver db proxy — annotate explicitly
-  const mapped = rows.map((s: { name: string; description: string; instructions: string; source: string | null; enabled: boolean; config: Record<string, unknown> | null }) => ({
+  const mapped = rows.map((s: { name: string; description: string; instructions: string; source: string | null; enabled: boolean; config: Record<string, unknown> | null; teamId: string | null }) => ({
     name: s.name,
     description: s.description,
     instructions: s.instructions,
@@ -150,6 +150,7 @@ export async function syncSkillsFromDb(
     config: (s.config ?? {}) as Record<string, unknown>,
     userInvocable: (s.config?.userInvocable as boolean | undefined),
     disableModelInvocation: (s.config?.disableModelInvocation as boolean | undefined),
+    teamId: s.teamId,
   }))
   skillManager.loadSkills(mapped)
 }

@@ -164,6 +164,14 @@ skillsRoute.post('/', async (c) => {
       return c.json({ error: 'allowedTools must be an array' }, 400)
     }
 
+    // Validate OpenClaw extension field types before packing into config
+    if (body.userInvocable !== undefined && typeof body.userInvocable !== 'boolean') {
+      return c.json({ error: 'userInvocable must be a boolean' }, 400)
+    }
+    if (body.disableModelInvocation !== undefined && typeof body.disableModelInvocation !== 'boolean') {
+      return c.json({ error: 'disableModelInvocation must be a boolean' }, 400)
+    }
+
     // Pack OpenClaw extension fields into config JSONB
     // (these aren't separate DB columns, but affect runtime behavior)
     const config = { ...(body.config ?? {}) } as Record<string, unknown>
@@ -286,6 +294,13 @@ skillsRoute.put('/:id', async (c) => {
     if (body.enabled !== undefined) patch.enabled = body.enabled
     if (body.allowedTools !== undefined) patch.allowedTools = body.allowedTools
     if (body.config !== undefined) patch.config = body.config
+    // Validate OpenClaw extension field types
+    if (body.userInvocable !== undefined && typeof body.userInvocable !== 'boolean') {
+      return c.json({ error: 'userInvocable must be a boolean' }, 400)
+    }
+    if (body.disableModelInvocation !== undefined && typeof body.disableModelInvocation !== 'boolean') {
+      return c.json({ error: 'disableModelInvocation must be a boolean' }, 400)
+    }
     // Pack OpenClaw extension fields into config JSONB
     if (body.userInvocable !== undefined || body.disableModelInvocation !== undefined) {
       const existingConfig = (existing.config ?? {}) as Record<string, unknown>

@@ -595,8 +595,8 @@ async function dispatchViaRelay(
   // Detect "Push to GitHub" task node — these get special dispatch instructions
   const isPushToGithub = !isInteractivePlan && /push\s+to\s+github|publish\s+to\s+github/i.test(title)
 
-  // Get available skills for prompt injection
-  const skillsInjection = skillManager.getSkillPromptInjection() || undefined
+  // Get available skills for prompt injection (team-scoped to prevent cross-team leakage)
+  const skillsInjection = skillManager.getSkillPromptInjection(user?.teamId) || undefined
 
   if (isInteractivePlan) {
     // Use the dedicated interactive plan prompt as a system prompt.

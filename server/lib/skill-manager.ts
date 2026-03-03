@@ -5,6 +5,10 @@
  * The registry is synced from the DB on startup and after each API mutation
  * via syncSkillsFromDb() in bootstrap-skills.ts.
  *
+ * IMPORTANT: Skills are team-scoped. Prompt injection methods require a teamId
+ * parameter to ensure workspace skills from Team A are never leaked to Team B.
+ * Built-in skills (teamId=null) are visible to all teams.
+ *
  * Prompt injection logic lives in packages/core/src/skill-injector.ts.
  * DB persistence lives in server/routes/skills.ts (Drizzle ORM).
  */
@@ -41,17 +45,33 @@ export class SkillManager {
   }
 
   /**
-   * Get skills that pass gating requirements (enabled + not model-invocation-disabled)
+   * Get skills visible to a specific team.
+   * Returns builtins (teamId=null) + team-owned skills.
+   * Prevents cross-team data leakage of workspace skills.
    */
-  getEligibleSkills(): OpenClawSkill[] {
-    return getEligibleSkills(this.getAllSkills())
+  getSkillsForTeam(teamId: string | null | undefined): OpenClawSkill[] {
+    return this.getAllSkills().filter(s =>
+      s.teamId == null || s.teamId === teamId
+    )
   }
 
   /**
-   * Build XML prompt injection for eligible skills
+   * Get skills that pass gating requirements (enabled + not model-invocation-disabled),
+   * scoped to a specific team. If no teamId is provided (e.g., local mode with no auth),
+   * returns all eligible skills.
    */
-  getSkillPromptInjection(): string {
-    return buildSkillPromptInjection(this.getEligibleSkills())
+  getEligibleSkills(teamId?: string | null): OpenClawSkill[] {
+    const pool = teamId !== undefined ? this.getSkillsForTeam(teamId) : this.getAllSkills()
+    return getEligibleSkills(pool)
+  }
+
+  /**
+   * Build XML prompt injection for eligible skills, scoped to a team.
+   * Pass the requesting user's teamId to ensure team isolation.
+   * In local mode (no auth), pass undefined to include all skills.
+   */
+  getSkillPromptInjection(teamId?: string | null): string {
+    return buildSkillPromptInjection(this.getEligibleSkills(teamId))
   }
 
   /**
