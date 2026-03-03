@@ -1616,7 +1616,15 @@ function processCatchUpEvents(
 ) {
   for (const row of events) {
     try {
-      const data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+      // Text events are stored as { text: "..." } in the DB but the SSE handler
+      // expects a plain string. Extract the text field for text events to match
+      // the live SSE format (where data is msg.text, a plain string).
+      let data: string
+      if (row.eventType === 'text' && typeof row.data === 'object' && row.data !== null && 'text' in row.data) {
+        data = (row.data as { text: string }).text
+      } else {
+        data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+      }
       handleSSEEvent(row.eventType, data, nodeId, set, get, planStore)
       onResult?.(row.eventType, data)
     } catch (err) {
