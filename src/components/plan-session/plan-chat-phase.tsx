@@ -372,6 +372,7 @@ export function PlanChatPhase({
           }
         } catch {
           // Catch-up also failed — surface the connection error
+          chatStreamRef.current = { streamId: '', lastSeq: 0 }
           pushChatEvent({ type: 'error', error: 'Connection lost — unable to recover', timestamp: new Date() })
         }
       } else {

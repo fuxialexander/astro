@@ -58,7 +58,6 @@ const generatePlanSchema = z.object({
     packageInfo: z.string().max(100000).optional(),
   }).optional(),
   targetMachineId: z.string().max(100).optional(),
-  streamId: z.string().max(200).optional(),
   gitState: z.object({
     currentBranch: z.string().max(200),
     targetBranch: z.string().max(200),

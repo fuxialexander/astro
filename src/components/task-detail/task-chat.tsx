@@ -25,15 +25,13 @@ interface TaskChatProps {
 export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatProps) {
   const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
   /**
    * Per-turn chat stream state: stable streamId for SSE event persistence
    * and lastSeq (initially 0) for targeted catch-up queries after reconnect.
    * Updated every time the user sends a message.
    */
-  const chatTurnRef = useRef<{ streamId: string; lastSeq: number }>({ streamId: "", lastSeq: 0 })
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const abortRef = useRef<AbortController | null>(null)
-  /** Tracks per-turn streamId and last-seen seq for disconnect catch-up */
   const chatStreamRef = useRef<{ streamId: string; lastSeq: number }>({ streamId: '', lastSeq: 0 })
   const model = useSettingsStore((s) => s.model)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
@@ -112,7 +110,6 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
 
     // Generate a stable per-turn streamId for event persistence and catch-up
     const turnStreamId = `task-chat-${node.id}-${Date.now()}`
-    chatTurnRef.current = { streamId: turnStreamId, lastSeq: 0 }
     chatStreamRef.current = { streamId: turnStreamId, lastSeq: 0 }
 
     // Add user message

@@ -16,9 +16,8 @@ import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
-import { chatWithTask } from "@/lib/api-client"
+import { chatWithTask, fetchStreamingEventsCatchUp, replayChatCatchUpEvents } from "@/lib/api-client"
 import { parseSSEStream } from "@/lib/sse-parser"
-import { fetchStreamingEventsCatchUp } from "@/lib/api-client"
 import { cn } from "@/lib/utils"
 import type { PlanNode, TaskExecution, TaskActivityEvent } from "@/types"
 import {
@@ -62,6 +61,8 @@ export function UnifiedActivityView({
   const [autoScroll, setAutoScroll] = useState(true)
   const containerRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  /** Per-turn chat stream state for disconnect catch-up */
+  const chatStreamRef = useRef<{ streamId: string; lastSeq: number }>({ streamId: '', lastSeq: 0 })
 
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const addSteerMessage = useRealtimeStore((s) => s.addSteerMessage)
@@ -345,6 +346,10 @@ export function UnifiedActivityView({
     // Store in session for conversation history (sent to backend on subsequent turns)
     addMessage(sid, { role: "user", content: text })
 
+    // Generate a stable per-turn streamId for event persistence and catch-up
+    const turnStreamId = `task-chat-${node.id}-${Date.now()}`
+    chatStreamRef.current = { streamId: turnStreamId, lastSeq: 0 }
+
     setIsChatStreaming(true)
     abortRef.current = new AbortController()
 
@@ -352,6 +357,40 @@ export function UnifiedActivityView({
     const historyMessages = (chatSession.messages || [])
       .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
+
+    // Shared callback helpers for both live stream and catch-up replay
+    const handleToolUse = (data: { toolName: string; toolInput: unknown }) => {
+      const id = `chat-tool-${++chatToolCounterRef.current}`
+      pushChatEvent({
+        type: 'tool_use',
+        id,
+        toolName: data.toolName,
+        toolInput: data.toolInput,
+        timestamp: new Date(),
+      })
+    }
+    const handleToolResult = (data: { toolName: string; success: boolean; result: unknown }) => {
+      const events = chatEventsRef.current
+      let matchId = `chat-tool-result-${++chatToolCounterRef.current}`
+      for (let i = events.length - 1; i >= 0; i--) {
+        const e = events[i]
+        if (e.type === 'tool_use' && e.toolName === data.toolName) {
+          const hasResult = events.some(r => r.type === 'tool_result' && r.id === e.id)
+          if (!hasResult) {
+            matchId = e.id
+            break
+          }
+        }
+      }
+      pushChatEvent({
+        type: 'tool_result',
+        id: matchId,
+        toolName: data.toolName,
+        toolResult: data.result,
+        success: data.success,
+        timestamp: new Date(),
+      })
+    }
 
     let rawText = ""
     try {
@@ -363,7 +402,7 @@ export function UnifiedActivityView({
         {
           message: text,
           sessionId: resumeId,
-          streamId: executionId,
+          streamId: turnStreamId,
           nodeId: node.id,
           projectId,
           taskTitle: node.title,
@@ -380,46 +419,21 @@ export function UnifiedActivityView({
             rawText += chunk
             pushChatEvent({ type: 'text', content: chunk, timestamp: new Date() })
           },
-          onToolUse: (data) => {
-            const id = `chat-tool-${++chatToolCounterRef.current}`
-            pushChatEvent({
-              type: 'tool_use',
-              id,
-              toolName: data.toolName,
-              toolInput: data.toolInput,
-              timestamp: new Date(),
-            })
-          },
-          onToolResult: (data) => {
-            const events = chatEventsRef.current
-            let matchId = `chat-tool-result-${++chatToolCounterRef.current}`
-            for (let i = events.length - 1; i >= 0; i--) {
-              const e = events[i]
-              if (e.type === 'tool_use' && e.toolName === data.toolName) {
-                const hasResult = events.some(r => r.type === 'tool_result' && r.id === e.id)
-                if (!hasResult) {
-                  matchId = e.id
-                  break
-                }
-              }
-            }
-            pushChatEvent({
-              type: 'tool_result',
-              id: matchId,
-              toolName: data.toolName,
-              toolResult: data.result,
-              success: data.success,
-              timestamp: new Date(),
-            })
-          },
+          onToolUse: handleToolUse,
+          onToolResult: handleToolResult,
           onDone: (newSessionId) => {
             if (newSessionId) setProviderSessionId(sid, newSessionId)
+            chatStreamRef.current = { streamId: '', lastSeq: 0 }
             // Store full text in session for conversation history
             addMessage(sid, { role: "assistant", content: rawText })
             flushChatEvents()
             setIsChatStreaming(false)
           },
+          onSeq: (seq) => {
+            chatStreamRef.current.lastSeq = seq
+          },
           onError: (error) => {
+            chatStreamRef.current = { streamId: '', lastSeq: 0 }
             pushChatEvent({ type: 'error', error, timestamp: new Date() })
             flushChatEvents()
             setIsChatStreaming(false)
@@ -428,6 +442,38 @@ export function UnifiedActivityView({
         abortRef.current.signal,
       )
     } catch {
+      // Attempt catch-up on network error
+      const { streamId: catchUpStreamId, lastSeq } = chatStreamRef.current
+      if (catchUpStreamId) {
+        try {
+          const { events } = await fetchStreamingEventsCatchUp([catchUpStreamId], lastSeq)
+          if (events.length > 0) {
+            const { completed } = replayChatCatchUpEvents(events, {
+              onText: (chunk) => {
+                rawText += chunk
+                pushChatEvent({ type: 'text', content: chunk, timestamp: new Date() })
+              },
+              onToolUse: handleToolUse,
+              onToolResult: handleToolResult,
+              onDone: (newSessionId) => {
+                if (newSessionId) setProviderSessionId(sid, newSessionId)
+                addMessage(sid, { role: "assistant", content: rawText })
+              },
+            })
+            if (completed) {
+              chatStreamRef.current = { streamId: '', lastSeq: 0 }
+            }
+          } else {
+            pushChatEvent({ type: 'error', error: 'Connection lost during chat', timestamp: new Date() })
+          }
+        } catch {
+          chatStreamRef.current = { streamId: '', lastSeq: 0 }
+          pushChatEvent({ type: 'error', error: 'Connection lost — unable to recover', timestamp: new Date() })
+        }
+      } else {
+        pushChatEvent({ type: 'error', error: 'Connection lost', timestamp: new Date() })
+      }
+
       flushChatEvents()
       setIsChatStreaming(false)
     }
