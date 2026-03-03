@@ -561,6 +561,308 @@ app.get('/projects', async (c) => {
   return c.json({ projects: rows });
 });
 
+// ── Issue/PR Comments endpoints ──────────────────────────────────────
+
+/**
+ * GET /api/github/comments/:owner/:repo/:number
+ * Fetch comments for an issue or PR
+ */
+app.get('/comments/:owner/:repo/:number', async (c) => {
+  const userId = (c.get('user') as AuthUser).id;
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const number = parseInt(c.req.param('number'), 10);
+
+  if (isNaN(number) || number <= 0) {
+    return c.json({ error: 'Invalid issue/PR number' }, 400);
+  }
+
+  const connection = await githubStore.getConnection(userId);
+  if (!connection) {
+    return c.json({ error: 'GitHub not connected', requiresAuth: true }, 401);
+  }
+
+  try {
+    const since = c.req.query('since') || undefined;
+    const comments = await githubClient.getIssueComments(
+      connection.accessToken,
+      owner,
+      repo,
+      number,
+      { since }
+    );
+
+    return c.json({
+      comments: comments.map(comment => ({
+        id: comment.id,
+        body: comment.body,
+        author: comment.user.login,
+        authorAvatarUrl: comment.user.avatar_url,
+        htmlUrl: comment.html_url,
+        createdAt: comment.created_at,
+        updatedAt: comment.updated_at,
+      })),
+    });
+  } catch (error) {
+    console.error('[github] Failed to fetch comments:', error);
+    return c.json({ error: 'Failed to fetch comments' }, 500);
+  }
+});
+
+/**
+ * POST /api/github/comments/:owner/:repo/:number
+ * Post a comment on an issue or PR (as the authenticated user)
+ */
+app.post('/comments/:owner/:repo/:number', async (c) => {
+  const userId = (c.get('user') as AuthUser).id;
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const number = parseInt(c.req.param('number'), 10);
+
+  if (isNaN(number) || number <= 0) {
+    return c.json({ error: 'Invalid issue/PR number' }, 400);
+  }
+
+  const body = await c.req.json();
+  const { body: commentBody } = body as { body: string };
+
+  if (!commentBody || typeof commentBody !== 'string' || !commentBody.trim()) {
+    return c.json({ error: 'Comment body is required' }, 400);
+  }
+
+  const connection = await githubStore.getConnection(userId);
+  if (!connection) {
+    return c.json({ error: 'GitHub not connected', requiresAuth: true }, 401);
+  }
+
+  try {
+    const comment = await githubClient.postIssueComment(
+      connection.accessToken,
+      owner,
+      repo,
+      number,
+      commentBody.trim()
+    );
+
+    return c.json({
+      comment: {
+        id: comment.id,
+        body: comment.body,
+        author: comment.user.login,
+        authorAvatarUrl: comment.user.avatar_url,
+        htmlUrl: comment.html_url,
+        createdAt: comment.created_at,
+        updatedAt: comment.updated_at,
+      },
+    }, 201);
+  } catch (error) {
+    console.error('[github] Failed to post comment:', error);
+    return c.json({ error: 'Failed to post comment' }, 500);
+  }
+});
+
+// ── PR Review endpoints ─────────────────────────────────────────────
+
+/**
+ * GET /api/github/pr/:owner/:repo/:prNumber/reviews
+ * Fetch PR reviews with their inline comments
+ */
+app.get('/pr/:owner/:repo/:prNumber/reviews', async (c) => {
+  const userId = (c.get('user') as AuthUser).id;
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const prNumber = parseInt(c.req.param('prNumber'), 10);
+
+  if (isNaN(prNumber) || prNumber <= 0) {
+    return c.json({ error: 'Invalid PR number' }, 400);
+  }
+
+  const connection = await githubStore.getConnection(userId);
+  if (!connection) {
+    return c.json({ error: 'GitHub not connected', requiresAuth: true }, 401);
+  }
+
+  try {
+    const [reviews, reviewComments] = await Promise.all([
+      githubClient.getPrReviews(connection.accessToken, owner, repo, prNumber),
+      githubClient.getPrReviewComments(connection.accessToken, owner, repo, prNumber),
+    ]);
+
+    // Group review comments by review ID
+    const commentsByReview = new Map<number, typeof reviewComments>();
+    for (const comment of reviewComments) {
+      const reviewId = comment.pull_request_review_id;
+      if (!commentsByReview.has(reviewId)) {
+        commentsByReview.set(reviewId, []);
+      }
+      commentsByReview.get(reviewId)!.push(comment);
+    }
+
+    return c.json({
+      reviews: reviews.map(review => ({
+        id: review.id,
+        state: review.state,
+        author: review.user.login,
+        authorAvatarUrl: review.user.avatar_url,
+        body: review.body,
+        htmlUrl: review.html_url,
+        submittedAt: review.submitted_at,
+        comments: (commentsByReview.get(review.id) || []).map(rc => ({
+          id: rc.id,
+          body: rc.body,
+          author: rc.user.login,
+          authorAvatarUrl: rc.user.avatar_url,
+          htmlUrl: rc.html_url,
+          path: rc.path,
+          line: rc.line,
+          originalLine: rc.original_line,
+          side: rc.side,
+          diffHunk: rc.diff_hunk,
+          inReplyToId: rc.in_reply_to_id,
+          createdAt: rc.created_at,
+          updatedAt: rc.updated_at,
+        })),
+      })),
+    });
+  } catch (error) {
+    console.error('[github] Failed to fetch PR reviews:', error);
+    return c.json({ error: 'Failed to fetch PR reviews' }, 500);
+  }
+});
+
+/**
+ * GET /api/github/pr/:owner/:repo/:prNumber/threads
+ * Fetch PR review comment threads grouped by file path and line
+ */
+app.get('/pr/:owner/:repo/:prNumber/threads', async (c) => {
+  const userId = (c.get('user') as AuthUser).id;
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const prNumber = parseInt(c.req.param('prNumber'), 10);
+
+  if (isNaN(prNumber) || prNumber <= 0) {
+    return c.json({ error: 'Invalid PR number' }, 400);
+  }
+
+  const connection = await githubStore.getConnection(userId);
+  if (!connection) {
+    return c.json({ error: 'GitHub not connected', requiresAuth: true }, 401);
+  }
+
+  try {
+    const reviewComments = await githubClient.getPrReviewComments(
+      connection.accessToken, owner, repo, prNumber
+    );
+
+    // Build threads: group by root comment (comments without in_reply_to_id start a thread)
+    const threadMap = new Map<number, typeof reviewComments>();
+    const rootComments: typeof reviewComments = [];
+
+    for (const comment of reviewComments) {
+      if (comment.in_reply_to_id) {
+        // Reply to an existing thread
+        const threadId = comment.in_reply_to_id;
+        if (!threadMap.has(threadId)) {
+          threadMap.set(threadId, []);
+        }
+        threadMap.get(threadId)!.push(comment);
+      } else {
+        // Root comment starts a new thread
+        rootComments.push(comment);
+        if (!threadMap.has(comment.id)) {
+          threadMap.set(comment.id, []);
+        }
+      }
+    }
+
+    const threads = rootComments.map(root => ({
+      path: root.path,
+      line: root.line || root.original_line,
+      diffHunk: root.diff_hunk,
+      isResolved: false, // GitHub API doesn't expose this directly in REST API
+      comments: [root, ...(threadMap.get(root.id) || [])].map(rc => ({
+        id: rc.id,
+        body: rc.body,
+        author: rc.user.login,
+        authorAvatarUrl: rc.user.avatar_url,
+        htmlUrl: rc.html_url,
+        path: rc.path,
+        line: rc.line,
+        originalLine: rc.original_line,
+        side: rc.side,
+        diffHunk: rc.diff_hunk,
+        inReplyToId: rc.in_reply_to_id,
+        createdAt: rc.created_at,
+        updatedAt: rc.updated_at,
+      })),
+    }));
+
+    return c.json({ threads });
+  } catch (error) {
+    console.error('[github] Failed to fetch PR review threads:', error);
+    return c.json({ error: 'Failed to fetch PR review threads' }, 500);
+  }
+});
+
+/**
+ * POST /api/github/pr/:owner/:repo/:prNumber/reply
+ * Reply to a PR review comment thread
+ */
+app.post('/pr/:owner/:repo/:prNumber/reply', async (c) => {
+  const userId = (c.get('user') as AuthUser).id;
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const prNumber = parseInt(c.req.param('prNumber'), 10);
+
+  if (isNaN(prNumber) || prNumber <= 0) {
+    return c.json({ error: 'Invalid PR number' }, 400);
+  }
+
+  const body = await c.req.json();
+  const { commentId, body: replyBody } = body as { commentId: number; body: string };
+
+  if (!commentId || typeof commentId !== 'number') {
+    return c.json({ error: 'commentId is required (the comment to reply to)' }, 400);
+  }
+  if (!replyBody || typeof replyBody !== 'string' || !replyBody.trim()) {
+    return c.json({ error: 'Reply body is required' }, 400);
+  }
+
+  const connection = await githubStore.getConnection(userId);
+  if (!connection) {
+    return c.json({ error: 'GitHub not connected', requiresAuth: true }, 401);
+  }
+
+  try {
+    const comment = await githubClient.replyToReviewComment(
+      connection.accessToken,
+      owner,
+      repo,
+      prNumber,
+      commentId,
+      replyBody.trim()
+    );
+
+    return c.json({
+      comment: {
+        id: comment.id,
+        body: comment.body,
+        author: comment.user.login,
+        authorAvatarUrl: comment.user.avatar_url,
+        htmlUrl: comment.html_url,
+        path: comment.path,
+        line: comment.line,
+        inReplyToId: comment.in_reply_to_id,
+        createdAt: comment.created_at,
+        updatedAt: comment.updated_at,
+      },
+    }, 201);
+  } catch (error) {
+    console.error('[github] Failed to reply to review comment:', error);
+    return c.json({ error: 'Failed to reply to review comment' }, 500);
+  }
+});
+
 // ── PR and branch management endpoints ──────────────────────────────
 
 /**

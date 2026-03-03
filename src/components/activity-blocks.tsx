@@ -5,7 +5,7 @@
  * and task detail views can share the same rendering components.
  */
 
-import React, { useState } from "react"
+import React, { useState, useCallback } from "react"
 import {
   Loader2,
   CheckCircle2,
@@ -19,15 +19,23 @@ import {
   Pencil,
   GitBranch,
   PlusCircle,
+  MessageSquare,
+  Send,
+  ExternalLink,
+  FileCode,
+  ShieldCheck,
+  ShieldAlert,
+  MessageCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { TaskActivityEvent, ExecutionSummary } from "@/types"
 import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
+import type { GitHubReviewThread } from "@/types"
 
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface DisplayBlock {
-  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation'
+  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'github_comment' | 'github_review'
   events: TaskActivityEvent[]
 }
 
@@ -59,16 +67,16 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
       // Match by exact ID first, then fall back to toolName (handles hydrated events
       // where tool_use and tool_result get different sequential IDs)
       let resultEvent = currentToolEvents.find(
-        e => e.type === 'tool_result' && e.id === useEvent.id && !pairedResultIds.has(e.id)
+        e => e.type === 'tool_result' && e.id === useEvent.id && !pairedResultIds.has(String(e.id))
       )
       if (!resultEvent && 'toolName' in useEvent) {
         resultEvent = currentToolEvents.find(
-          e => e.type === 'tool_result' && 'toolName' in e && e.toolName === useEvent.toolName && !pairedResultIds.has(e.id)
+          e => e.type === 'tool_result' && 'toolName' in e && e.toolName === useEvent.toolName && !pairedResultIds.has(String(e.id))
         )
       }
       if (resultEvent && 'id' in resultEvent) {
         pair.push(resultEvent)
-        pairedResultIds.add(resultEvent.id)
+        pairedResultIds.add(String(resultEvent.id))
       }
       toolPairs.push(pair)
     }
@@ -156,6 +164,16 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
         flushText()
         flushTools()
         blocks.push({ type: 'mutation', events: [event] })
+        break
+      case 'github_comment':
+        flushText()
+        flushTools()
+        blocks.push({ type: 'github_comment', events: [event] })
+        break
+      case 'github_review':
+        flushText()
+        flushTools()
+        blocks.push({ type: 'github_review', events: [event] })
         break
     }
   }
@@ -624,4 +642,388 @@ export function MutationBlock({
       ))}
     </div>
   )
+}
+
+// ─── GitHub Comment Block ──────────────────────────────────────────
+
+export function GitHubCommentBlock({
+  event,
+  onReply,
+  isGitHubConnected = true,
+}: {
+  event: Extract<TaskActivityEvent, { type: 'github_comment' }>
+  onReply?: (body: string) => Promise<void>
+  isGitHubConnected?: boolean
+}) {
+  const [showReply, setShowReply] = useState(false)
+  const [replyText, setReplyText] = useState('')
+  const [sending, setSending] = useState(false)
+
+  const handleSubmitReply = useCallback(async () => {
+    if (!replyText.trim() || sending || !onReply) return
+    setSending(true)
+    try {
+      await onReply(replyText.trim())
+      setReplyText('')
+      setShowReply(false)
+    } catch (err) {
+      console.error('Failed to post reply:', err)
+    } finally {
+      setSending(false)
+    }
+  }, [replyText, sending, onReply])
+
+  const timeAgo = formatTimeAgo(event.createdAt)
+
+  return (
+    <div className="mx-4 my-1.5">
+      <div className="rounded-lg border border-border bg-card">
+        {/* Header */}
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-border/50">
+          {event.authorAvatarUrl ? (
+            <img src={event.authorAvatarUrl} alt={event.author} className="h-5 w-5 rounded-full" />
+          ) : (
+            <div className="h-5 w-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-medium">
+              {event.author[0]?.toUpperCase()}
+            </div>
+          )}
+          <span className="text-xs font-medium text-foreground">{event.author}</span>
+          <span className="text-[10px] text-muted-foreground">{timeAgo}</span>
+          {event.isPrReview && (
+            <span className="text-[9px] bg-muted px-1.5 py-0.5 rounded font-medium text-muted-foreground">
+              review
+            </span>
+          )}
+          <div className="flex-1" />
+          <a
+            href={event.htmlUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+          >
+            <ExternalLink className="h-3 w-3" />
+            <span>GitHub</span>
+          </a>
+        </div>
+
+        {/* Body */}
+        <div className="px-3 py-2">
+          <StreamingMarkdown content={event.body} className="text-xs leading-relaxed" />
+        </div>
+
+        {/* File context for review comments */}
+        {event.path && (
+          <div className="px-3 pb-2 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <FileCode className="h-3 w-3" />
+            <span className="font-mono">{event.path}</span>
+            {event.line && <span>:{event.line}</span>}
+          </div>
+        )}
+
+        {/* Reply section */}
+        {onReply && isGitHubConnected && (
+          <div className="px-3 pb-2">
+            {!showReply ? (
+              <button
+                onClick={() => setShowReply(true)}
+                className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <MessageSquare className="h-3 w-3" />
+                Reply
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <textarea
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  placeholder="Write a reply..."
+                  rows={3}
+                  className="w-full px-2.5 py-1.5 text-xs rounded-md border border-border bg-background resize-none focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault()
+                      handleSubmitReply()
+                    }
+                    if (e.key === 'Escape') {
+                      setShowReply(false)
+                      setReplyText('')
+                    }
+                  }}
+                />
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">Cmd+Enter to send</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => { setShowReply(false); setReplyText('') }}
+                      className="text-[10px] text-muted-foreground hover:text-foreground"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSubmitReply}
+                      disabled={!replyText.trim() || sending}
+                      className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {sending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                      Reply
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Connect GitHub prompt */}
+        {onReply && !isGitHubConnected && (
+          <div className="px-3 pb-2">
+            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+              <MessageSquare className="h-3 w-3" />
+              <a href="/settings" className="text-primary hover:underline">
+                Connect GitHub to reply
+              </a>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── GitHub Review Block ──────────────────────────────────────────
+
+export function GitHubReviewBlock({
+  event,
+}: {
+  event: Extract<TaskActivityEvent, { type: 'github_review' }>
+}) {
+  const stateConfig = {
+    APPROVED: { icon: ShieldCheck, label: 'Approved', className: 'text-success bg-success/10 border-success/30' },
+    CHANGES_REQUESTED: { icon: ShieldAlert, label: 'Changes requested', className: 'text-warning bg-warning/10 border-warning/30' },
+    COMMENTED: { icon: MessageCircle, label: 'Commented', className: 'text-muted-foreground bg-muted/50 border-border' },
+    DISMISSED: { icon: XCircle, label: 'Dismissed', className: 'text-muted-foreground bg-muted/50 border-border' },
+    PENDING: { icon: Loader2, label: 'Pending', className: 'text-muted-foreground bg-muted/50 border-border' },
+  }
+
+  const config = stateConfig[event.state] || stateConfig.COMMENTED
+  const Icon = config.icon
+  const timeAgo = formatTimeAgo(event.submittedAt)
+
+  return (
+    <div className="mx-4 my-1.5">
+      <div className={cn("rounded-lg border px-3 py-2", config.className)}>
+        <div className="flex items-center gap-2">
+          <Icon className="h-4 w-4 shrink-0" />
+          {event.authorAvatarUrl ? (
+            <img src={event.authorAvatarUrl} alt={event.author} className="h-4 w-4 rounded-full" />
+          ) : (
+            <div className="h-4 w-4 rounded-full bg-muted flex items-center justify-center text-[9px] font-medium">
+              {event.author[0]?.toUpperCase()}
+            </div>
+          )}
+          <span className="text-xs font-medium">{event.author}</span>
+          <span className="text-xs">{config.label}</span>
+          <span className="text-[10px] opacity-70">{timeAgo}</span>
+          <div className="flex-1" />
+          <a
+            href={event.htmlUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] opacity-70 hover:opacity-100"
+          >
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
+        {event.body && (
+          <div className="mt-1.5 ml-6">
+            <StreamingMarkdown content={event.body} className="text-xs leading-relaxed opacity-90" />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── PR Review Thread Component ───────────────────────────────────
+
+export function PrReviewThreadBlock({
+  thread,
+  onReply,
+  isGitHubConnected = true,
+}: {
+  thread: GitHubReviewThread
+  onReply?: (commentId: number, body: string) => Promise<void>
+  isGitHubConnected?: boolean
+}) {
+  const [expanded, setExpanded] = useState(true)
+  const [showReply, setShowReply] = useState(false)
+  const [replyText, setReplyText] = useState('')
+  const [sending, setSending] = useState(false)
+
+  const rootComment = thread.comments[0]
+  const lastCommentId = thread.comments[thread.comments.length - 1]?.id ?? rootComment?.id ?? 0
+  const filename = thread.path.split('/').pop() || thread.path
+
+  const handleSubmitReply = useCallback(async () => {
+    if (!replyText.trim() || sending || !onReply || !lastCommentId) return
+    setSending(true)
+    try {
+      await onReply(lastCommentId, replyText.trim())
+      setReplyText('')
+      setShowReply(false)
+    } catch (err) {
+      console.error('Failed to reply to thread:', err)
+    } finally {
+      setSending(false)
+    }
+  }, [replyText, sending, onReply, lastCommentId])
+
+  if (!rootComment) return null
+
+  return (
+    <div className="mx-4 my-1.5">
+      <div className="rounded-lg border border-border bg-card overflow-hidden">
+        {/* File path header */}
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-muted/30 transition-colors"
+        >
+          <FileCode className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span className="text-[11px] font-mono text-foreground">{filename}</span>
+          <span className="text-[10px] font-mono text-muted-foreground truncate">{thread.path}</span>
+          {thread.line && (
+            <span className="text-[10px] font-mono text-muted-foreground">:{thread.line}</span>
+          )}
+          <div className="flex-1" />
+          <span className="text-[10px] text-muted-foreground">{thread.comments.length} comment{thread.comments.length !== 1 ? 's' : ''}</span>
+          {expanded ? (
+            <ChevronDown className="h-3 w-3 text-muted-foreground/50" />
+          ) : (
+            <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
+          )}
+        </button>
+
+        {expanded && (
+          <>
+            {/* Diff hunk */}
+            {thread.diffHunk && (
+              <div className="border-t border-b border-border/50 bg-muted/20">
+                <pre className="px-3 py-1.5 text-[10px] font-mono leading-relaxed text-muted-foreground overflow-x-auto max-h-[120px]">
+                  {thread.diffHunk}
+                </pre>
+              </div>
+            )}
+
+            {/* Comments */}
+            <div className="divide-y divide-border/30">
+              {thread.comments.map((comment) => (
+                <div key={comment.id} className="px-3 py-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    {comment.authorAvatarUrl ? (
+                      <img src={comment.authorAvatarUrl} alt={comment.author} className="h-4 w-4 rounded-full" />
+                    ) : (
+                      <div className="h-4 w-4 rounded-full bg-muted flex items-center justify-center text-[9px] font-medium">
+                        {comment.author[0]?.toUpperCase()}
+                      </div>
+                    )}
+                    <span className="text-[11px] font-medium text-foreground">{comment.author}</span>
+                    <span className="text-[10px] text-muted-foreground">{formatTimeAgo(comment.createdAt)}</span>
+                    <div className="flex-1" />
+                    <a
+                      href={comment.htmlUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] text-muted-foreground hover:text-foreground"
+                    >
+                      <ExternalLink className="h-2.5 w-2.5" />
+                    </a>
+                  </div>
+                  <div className="ml-6">
+                    <StreamingMarkdown content={comment.body} className="text-xs leading-relaxed" />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Reply input */}
+            {onReply && isGitHubConnected && (
+              <div className="px-3 py-2 border-t border-border/30">
+                {!showReply ? (
+                  <button
+                    onClick={() => setShowReply(true)}
+                    className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <MessageSquare className="h-3 w-3" />
+                    Reply
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <textarea
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      placeholder="Write a reply..."
+                      rows={2}
+                      className="w-full px-2.5 py-1.5 text-xs rounded-md border border-border bg-background resize-none focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault()
+                          handleSubmitReply()
+                        }
+                        if (e.key === 'Escape') {
+                          setShowReply(false)
+                          setReplyText('')
+                        }
+                      }}
+                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => { setShowReply(false); setReplyText('') }}
+                        className="text-[10px] text-muted-foreground hover:text-foreground"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleSubmitReply}
+                        disabled={!replyText.trim() || sending}
+                        className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {sending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                        Reply
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {onReply && !isGitHubConnected && (
+              <div className="px-3 py-2 border-t border-border/30">
+                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <MessageSquare className="h-3 w-3" />
+                  <a href="/settings" className="text-primary hover:underline">
+                    Connect GitHub to reply
+                  </a>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function formatTimeAgo(dateStr: string): string {
+  const now = Date.now()
+  const then = new Date(dateStr).getTime()
+  const diffMs = now - then
+
+  if (diffMs < 60_000) return 'just now'
+  if (diffMs < 3_600_000) return `${Math.floor(diffMs / 60_000)}m ago`
+  if (diffMs < 86_400_000) return `${Math.floor(diffMs / 3_600_000)}h ago`
+  if (diffMs < 604_800_000) return `${Math.floor(diffMs / 86_400_000)}d ago`
+  return new Date(dateStr).toLocaleDateString()
 }

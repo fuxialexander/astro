@@ -284,6 +284,55 @@ export type TaskActivityEvent =
   | { type: 'approval_request'; requestId: string; question: string; options: string[]; timestamp: Date }
   | { type: 'approval_response'; requestId: string; question: string; answer: string; autoApproved?: boolean; timestamp: Date }
   | { type: 'mutation'; nodeUpdates: Array<{ nodeId: string; [key: string]: unknown }>; edgeOps: Array<{ action: string; source: string; target: string; type?: string }>; newNodes: Array<{ title: string; description: string; type?: string; id?: string }>; timestamp: Date }
+  | { type: 'github_comment'; id: number; body: string; author: string; authorAvatarUrl?: string; htmlUrl: string; isPrReview?: boolean; path?: string; line?: number; inReplyToId?: number; createdAt: string; timestamp: Date }
+  | { type: 'github_review'; id: number; state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING'; author: string; authorAvatarUrl?: string; body: string; htmlUrl: string; submittedAt: string; timestamp: Date }
+
+// GitHub comment types for activity feed
+export interface GitHubComment {
+  id: number
+  body: string
+  author: string
+  authorAvatarUrl?: string
+  htmlUrl: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface GitHubReviewComment {
+  id: number
+  body: string
+  author: string
+  authorAvatarUrl?: string
+  htmlUrl: string
+  path: string
+  line?: number
+  originalLine?: number
+  side: 'LEFT' | 'RIGHT'
+  diffHunk?: string
+  inReplyToId?: number
+  pullRequestReviewId?: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface GitHubReview {
+  id: number
+  state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING'
+  author: string
+  authorAvatarUrl?: string
+  body: string
+  htmlUrl: string
+  submittedAt: string
+  comments: GitHubReviewComment[]
+}
+
+export interface GitHubReviewThread {
+  path: string
+  line?: number
+  diffHunk?: string
+  comments: GitHubReviewComment[]
+  isResolved: boolean
+}
 
 // Usage metrics from provider execution
 export interface UsageMetrics {

@@ -22,6 +22,9 @@ export type AstroEvent =
   | MergeQueueFailedEvent
   | MergeQueueSucceededEvent
   | ProjectCompletedEvent
+  | GitHubIssueCommentEvent
+  | GitHubPullRequestReviewEvent
+  | GitHubPullRequestReviewCommentEvent
 
 export interface TaskStartedEvent {
   type: 'task.started'
@@ -139,6 +142,53 @@ export interface ProjectCompletedEvent {
   projectBranch: string
   projectPrUrl?: string
   projectPrNumber?: number
+  timestamp: Date
+}
+
+export interface GitHubIssueCommentEvent {
+  type: 'github.issue_comment'
+  nodeId: string
+  projectId: string
+  issueNumber: number
+  commentId: number
+  author: string
+  authorAvatarUrl?: string
+  body: string
+  htmlUrl: string
+  createdAt: string
+  timestamp: Date
+}
+
+export interface GitHubPullRequestReviewEvent {
+  type: 'github.pull_request_review'
+  nodeId: string
+  projectId: string
+  prNumber: number
+  reviewId: number
+  reviewState: string
+  author: string
+  authorAvatarUrl?: string
+  body: string
+  htmlUrl: string
+  submittedAt: string
+  timestamp: Date
+}
+
+export interface GitHubPullRequestReviewCommentEvent {
+  type: 'github.pull_request_review_comment'
+  nodeId: string
+  projectId: string
+  prNumber: number
+  commentId: number
+  author: string
+  authorAvatarUrl?: string
+  body: string
+  htmlUrl: string
+  path: string
+  line?: number
+  diffHunk?: string
+  inReplyToId?: number
+  createdAt: string
   timestamp: Date
 }
 

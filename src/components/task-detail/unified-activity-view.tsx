@@ -16,7 +16,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
-import { chatWithTask } from "@/lib/api-client"
+import { chatWithTask, postGitHubComment as apiPostGitHubComment } from "@/lib/api-client"
 import { parseSSEStream } from "@/lib/sse-parser"
 import { cn } from "@/lib/utils"
 import type { PlanNode, TaskExecution, TaskActivityEvent } from "@/types"
@@ -31,9 +31,12 @@ import {
   ChatUserBlock,
   ChatAssistantBlock,
   SummaryCard,
+  GitHubCommentBlock,
+  GitHubReviewBlock,
 } from "@/components/activity-blocks"
 import { useRestoredExecution } from "@/hooks/use-restored-execution"
 import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
+import { PrReviewThreadsPanel } from "@/components/task-detail/pr-review-threads-panel"
 
 interface UnifiedActivityViewProps {
   node: PlanNode
@@ -384,6 +387,39 @@ export function UnifiedActivityView({
     }
   }
 
+  // Parse owner/repo/number from the node's PR or issue URL for GitHub comment replies
+  const githubContext = useMemo(() => {
+    // Try PR URL first (e.g., https://github.com/owner/repo/pull/123)
+    const prUrl = node.prUrl || execution?.prUrl
+    if (prUrl) {
+      const match = prUrl.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/)
+      if (match) return { owner: match[1], repo: match[2], number: parseInt(match[3], 10) }
+    }
+    // Fall back to issue URL
+    if (node.githubIssueUrl) {
+      const match = node.githubIssueUrl.match(/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/)
+      if (match) return { owner: match[1], repo: match[2], number: parseInt(match[3], 10) }
+    }
+    // Fall back to issue number from project context
+    if (node.githubIssueNumber && project?.githubOwner && project?.githubRepo) {
+      return { owner: project.githubOwner, repo: project.githubRepo, number: node.githubIssueNumber }
+    }
+    return null
+  }, [node.prUrl, node.githubIssueUrl, node.githubIssueNumber, execution?.prUrl, project?.githubOwner, project?.githubRepo])
+
+  // Handle reply to a GitHub comment (posts as the authenticated user)
+  const handleCommentReply = useMemo(() => {
+    if (!githubContext) return undefined
+    return async (body: string) => {
+      await apiPostGitHubComment(
+        githubContext.owner,
+        githubContext.repo,
+        githubContext.number,
+        body
+      )
+    }
+  }, [githubContext])
+
   // Allow steering on completed local tasks (resume session in worktree)
   const canSteer = isRunning || (machineId === "local" && execution?.status === "success")
 
@@ -412,6 +448,17 @@ export function UnifiedActivityView({
         {/* Summary card at top when available */}
         {execution?.summary && (
           <SummaryCard summary={execution.summary} />
+        )}
+
+        {/* PR Review Threads panel when a PR is linked */}
+        {githubContext && (node.prUrl || execution?.prUrl) && (
+          <div className="px-4 pt-2">
+            <PrReviewThreadsPanel
+              owner={githubContext.owner}
+              repo={githubContext.repo}
+              prNumber={githubContext.number}
+            />
+          </div>
         )}
 
         {/* Fallback for old tasks without activity events */}
@@ -452,6 +499,10 @@ export function UnifiedActivityView({
               return <ChatUserBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_user' }>} />
             case 'chat_assistant':
               return <ChatAssistantBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_assistant' }>} />
+            case 'github_comment':
+              return <GitHubCommentBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'github_comment' }>} onReply={handleCommentReply} />
+            case 'github_review':
+              return <GitHubReviewBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'github_review' }>} />
             default:
               return null
           }

@@ -20,6 +20,8 @@ import {
   handlePushEvent,
   handleCheckRunEvent,
   handleMergeGroupEvent,
+  handlePullRequestReviewEvent,
+  handlePullRequestReviewCommentEvent,
 } from './github-webhook-handler.js'
 
 let pluginConfig: GitHubChannelConfig | null = null
@@ -45,7 +47,7 @@ function loadConfig(): GitHubChannelConfig | null {
 
   const enabledEvents = process.env.GITHUB_CHANNEL_EVENTS
     ? process.env.GITHUB_CHANNEL_EVENTS.split(',').map((e) => e.trim())
-    : ['issues', 'issue_comment', 'pull_request', 'push', 'check_run', 'merge_group']
+    : ['issues', 'issue_comment', 'pull_request', 'push', 'check_run', 'merge_group', 'pull_request_review', 'pull_request_review_comment']
 
   return {
     webhookSecret,
@@ -149,6 +151,12 @@ async function processEvent(
     case 'merge_group':
       await handleMergeGroupEvent(payload, config)
       break
+    case 'pull_request_review':
+      await handlePullRequestReviewEvent(payload, config)
+      break
+    case 'pull_request_review_comment':
+      await handlePullRequestReviewCommentEvent(payload, config)
+      break
     default:
       console.log(`[channel-github] Unhandled event type: ${eventType}`)
   }
@@ -223,6 +231,11 @@ const plugin: AstroServerPlugin = {
         { type: 'github.pull_request', evaluator: (payload) => (payload as Record<string, unknown>)?.pull_request !== undefined },
         { type: 'github.check_run', evaluator: (payload) => (payload as Record<string, unknown>)?.check_run !== undefined },
         { type: 'github.merge_group', evaluator: (payload) => (payload as Record<string, unknown>)?.merge_group !== undefined },
+        { type: 'github.pull_request_review', evaluator: (payload) => (payload as Record<string, unknown>)?.review !== undefined },
+        { type: 'github.pull_request_review_comment', evaluator: (payload) => {
+          const p = payload as Record<string, unknown>
+          return p?.comment !== undefined && p?.pull_request !== undefined && (p?.comment as Record<string, unknown>)?.pull_request_review_id !== undefined
+        }},
       ],
     }
   },

@@ -347,6 +347,211 @@ export class GitHubClient {
     }
   }
 
+  // ── Comments & PR Review API ──────────────────────────────────────
+
+  /**
+   * Fetch comments on an issue or PR
+   */
+  async getIssueComments(
+    accessToken: string,
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    options: { perPage?: number; since?: string } = {}
+  ): Promise<Array<{
+    id: number
+    body: string
+    user: { login: string; avatar_url: string }
+    html_url: string
+    created_at: string
+    updated_at: string
+  }>> {
+    const { perPage = 100, since } = options
+    const params = new URLSearchParams({
+      per_page: perPage.toString(),
+      sort: 'created',
+      direction: 'asc',
+    })
+    if (since) params.set('since', since)
+
+    const response = await fetch(
+      `${this.baseUrl}/repos/${owner}/${repo}/issues/${issueNumber}/comments?${params}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      }
+    )
+
+    if (!response.ok) {
+      throw new Error(`GitHub API error: ${response.statusText}`)
+    }
+
+    return response.json()
+  }
+
+  /**
+   * Post a comment on an issue or PR (using the user's own token)
+   */
+  async postIssueComment(
+    accessToken: string,
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    body: string
+  ): Promise<{
+    id: number
+    body: string
+    user: { login: string; avatar_url: string }
+    html_url: string
+    created_at: string
+    updated_at: string
+  }> {
+    const response = await fetch(
+      `${this.baseUrl}/repos/${owner}/${repo}/issues/${issueNumber}/comments`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ body }),
+      }
+    )
+
+    if (!response.ok) {
+      const err = await response.text()
+      throw new Error(`GitHub API error: ${response.status} ${err}`)
+    }
+
+    return response.json()
+  }
+
+  /**
+   * Fetch PR review comments (inline code comments)
+   */
+  async getPrReviewComments(
+    accessToken: string,
+    owner: string,
+    repo: string,
+    prNumber: number,
+    options: { perPage?: number } = {}
+  ): Promise<Array<{
+    id: number
+    body: string
+    user: { login: string; avatar_url: string }
+    html_url: string
+    path: string
+    line: number | null
+    original_line: number | null
+    side: string
+    diff_hunk: string
+    in_reply_to_id?: number
+    pull_request_review_id: number
+    created_at: string
+    updated_at: string
+  }>> {
+    const { perPage = 100 } = options
+    const params = new URLSearchParams({
+      per_page: perPage.toString(),
+      sort: 'created',
+      direction: 'asc',
+    })
+
+    const response = await fetch(
+      `${this.baseUrl}/repos/${owner}/${repo}/pulls/${prNumber}/comments?${params}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      }
+    )
+
+    if (!response.ok) {
+      throw new Error(`GitHub API error: ${response.statusText}`)
+    }
+
+    return response.json()
+  }
+
+  /**
+   * Reply to a PR review comment thread
+   */
+  async replyToReviewComment(
+    accessToken: string,
+    owner: string,
+    repo: string,
+    prNumber: number,
+    commentId: number,
+    body: string
+  ): Promise<{
+    id: number
+    body: string
+    user: { login: string; avatar_url: string }
+    html_url: string
+    path: string
+    line: number | null
+    in_reply_to_id: number
+    created_at: string
+    updated_at: string
+  }> {
+    const response = await fetch(
+      `${this.baseUrl}/repos/${owner}/${repo}/pulls/${prNumber}/comments/${commentId}/replies`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ body }),
+      }
+    )
+
+    if (!response.ok) {
+      const err = await response.text()
+      throw new Error(`GitHub API error: ${response.status} ${err}`)
+    }
+
+    return response.json()
+  }
+
+  /**
+   * Fetch PR reviews (APPROVED, CHANGES_REQUESTED, etc.)
+   */
+  async getPrReviews(
+    accessToken: string,
+    owner: string,
+    repo: string,
+    prNumber: number
+  ): Promise<Array<{
+    id: number
+    user: { login: string; avatar_url: string }
+    body: string
+    state: string
+    html_url: string
+    submitted_at: string
+  }>> {
+    const response = await fetch(
+      `${this.baseUrl}/repos/${owner}/${repo}/pulls/${prNumber}/reviews`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      }
+    )
+
+    if (!response.ok) {
+      throw new Error(`GitHub API error: ${response.statusText}`)
+    }
+
+    return response.json()
+  }
+
   /**
    * Get a specific repository
    */

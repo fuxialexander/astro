@@ -140,12 +140,40 @@ export async function handleIssueCommentEvent(
   if (!projectId) return
 
   const commentBody = comment.body as string
-  if (!commentBody || !commentBody.toLowerCase().includes('@astro')) return
+  if (!commentBody) return
 
   const sender = comment.user as Record<string, unknown> | undefined
   const issueNumber = issue.number as number
   const commentId = comment.id as number
   const [owner, repoName] = repoFullName.split('/')
+
+  // Emit activity event for all comments on linked issues/PRs
+  const [linkedNode] = await db.select({ id: planNodes.id })
+    .from(planNodes)
+    .where(and(
+      eq(planNodes.projectId, projectId),
+      eq(planNodes.githubIssueNumber, issueNumber)
+    ))
+    .limit(1)
+
+  if (linkedNode) {
+    await astroEventTransport.emitEvent({
+      type: 'github.issue_comment',
+      nodeId: linkedNode.id,
+      projectId,
+      issueNumber,
+      commentId,
+      author: (sender?.login as string) || 'unknown',
+      authorAvatarUrl: sender?.avatar_url as string | undefined,
+      body: commentBody,
+      htmlUrl: comment.html_url as string,
+      createdAt: comment.created_at as string,
+      timestamp: new Date(),
+    })
+  }
+
+  // Only route @astro mentions through the channel router for AI response
+  if (!commentBody.toLowerCase().includes('@astro')) return
 
   console.log(`[github-channel] @astro mention in issue #${issueNumber} comment by ${sender?.login}`)
 
@@ -306,6 +334,105 @@ function mapDequeueReason(reason: string): 'conflicts' | 'ci_failure' | 'removed
   if (reason.includes('ci') || reason.includes('check') || reason.includes('fail')) return 'ci_failure'
   if (reason.includes('remov') || reason.includes('dequeue')) return 'removed'
   return 'unknown'
+}
+
+/**
+ * Handle `pull_request_review` webhook events.
+ * Logs PR review submissions and emits activity events.
+ */
+export async function handlePullRequestReviewEvent(
+  payload: Record<string, unknown>,
+  config: GitHubChannelConfig
+): Promise<void> {
+  const action = payload.action as string
+  if (action !== 'submitted') return
+
+  const review = payload.review as Record<string, unknown> | undefined
+  const pr = payload.pull_request as Record<string, unknown> | undefined
+  const repo = payload.repository as Record<string, unknown> | undefined
+  const repoFullName = repo?.full_name as string | undefined
+
+  if (!review || !pr || !repoFullName) return
+
+  const projectId = config.repoMappings[repoFullName]
+    ?? await lookupGitHubProject(repoFullName)
+  if (!projectId) return
+
+  const prNumber = pr.number as number
+  const reviewState = review.state as string
+  const reviewer = review.user as Record<string, unknown> | undefined
+  const headRef = (pr.head as Record<string, unknown>)?.ref as string | undefined
+
+  console.log(`[github-channel] PR #${prNumber} review "${reviewState}" by ${reviewer?.login} in ${repoFullName}`)
+
+  // Emit event for activity feed via event transport
+  const nodeId = extractNodeIdFromBranch(headRef)
+  if (nodeId) {
+    await astroEventTransport.emitEvent({
+      type: 'github.pull_request_review',
+      nodeId,
+      projectId,
+      prNumber,
+      reviewId: review.id as number,
+      reviewState: reviewState.toUpperCase(),
+      author: (reviewer?.login as string) || 'unknown',
+      authorAvatarUrl: reviewer?.avatar_url as string | undefined,
+      body: (review.body as string) || '',
+      htmlUrl: review.html_url as string,
+      submittedAt: review.submitted_at as string,
+      timestamp: new Date(),
+    })
+  }
+}
+
+/**
+ * Handle `pull_request_review_comment` webhook events.
+ * Emits activity events for inline code review comments.
+ */
+export async function handlePullRequestReviewCommentEvent(
+  payload: Record<string, unknown>,
+  config: GitHubChannelConfig
+): Promise<void> {
+  const action = payload.action as string
+  if (action !== 'created') return
+
+  const comment = payload.comment as Record<string, unknown> | undefined
+  const pr = payload.pull_request as Record<string, unknown> | undefined
+  const repo = payload.repository as Record<string, unknown> | undefined
+  const repoFullName = repo?.full_name as string | undefined
+
+  if (!comment || !pr || !repoFullName) return
+
+  const projectId = config.repoMappings[repoFullName]
+    ?? await lookupGitHubProject(repoFullName)
+  if (!projectId) return
+
+  const prNumber = pr.number as number
+  const sender = comment.user as Record<string, unknown> | undefined
+  const headRef = (pr.head as Record<string, unknown>)?.ref as string | undefined
+
+  console.log(`[github-channel] PR #${prNumber} review comment by ${sender?.login} on ${comment.path} in ${repoFullName}`)
+
+  const nodeId = extractNodeIdFromBranch(headRef)
+  if (nodeId) {
+    await astroEventTransport.emitEvent({
+      type: 'github.pull_request_review_comment',
+      nodeId,
+      projectId,
+      prNumber,
+      commentId: comment.id as number,
+      author: (sender?.login as string) || 'unknown',
+      authorAvatarUrl: sender?.avatar_url as string | undefined,
+      body: (comment.body as string) || '',
+      htmlUrl: comment.html_url as string,
+      path: comment.path as string,
+      line: (comment.line as number) || undefined,
+      diffHunk: comment.diff_hunk as string | undefined,
+      inReplyToId: comment.in_reply_to_id as number | undefined,
+      createdAt: comment.created_at as string,
+      timestamp: new Date(),
+    })
+  }
 }
 
 /**

@@ -428,6 +428,153 @@ export async function ensureBranch(
   }
 }
 
+// ── GitHub Comments & PR Review API ─────────────────────────────────
+
+export interface GitHubCommentResponse {
+  id: number
+  body: string
+  author: string
+  authorAvatarUrl: string
+  htmlUrl: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface GitHubReviewCommentResponse {
+  id: number
+  body: string
+  author: string
+  authorAvatarUrl: string
+  htmlUrl: string
+  path: string
+  line: number | null
+  originalLine: number | null
+  side: string
+  diffHunk: string
+  inReplyToId?: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface GitHubReviewResponse {
+  id: number
+  state: string
+  author: string
+  authorAvatarUrl: string
+  body: string
+  htmlUrl: string
+  submittedAt: string
+  comments: GitHubReviewCommentResponse[]
+}
+
+export interface GitHubReviewThreadResponse {
+  path: string
+  line: number | null
+  diffHunk: string
+  isResolved: boolean
+  comments: GitHubReviewCommentResponse[]
+}
+
+/**
+ * Fetch comments on a GitHub issue or PR.
+ */
+export async function fetchGitHubComments(
+  owner: string,
+  repo: string,
+  number: number,
+  since?: string,
+): Promise<{ comments: GitHubCommentResponse[]; requiresAuth?: boolean }> {
+  const params = since ? `?since=${encodeURIComponent(since)}` : ''
+  const res = await fetch(apiUrl(`/api/github/comments/${owner}/${repo}/${number}${params}`), {
+    headers: await authHeaders(),
+  })
+  if (!res.ok) {
+    if (res.status === 401) {
+      const data = await res.json()
+      return { comments: [], requiresAuth: data.requiresAuth }
+    }
+    throw new Error(`Failed to fetch comments: ${res.status}`)
+  }
+  return res.json()
+}
+
+/**
+ * Post a comment on a GitHub issue or PR (as the authenticated user).
+ */
+export async function postGitHubComment(
+  owner: string,
+  repo: string,
+  number: number,
+  body: string,
+): Promise<{ comment: GitHubCommentResponse }> {
+  const res = await fetch(apiUrl(`/api/github/comments/${owner}/${repo}/${number}`), {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({ body }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: 'Unknown error' }))
+    throw new Error(data.error || `Failed to post comment: ${res.status}`)
+  }
+  return res.json()
+}
+
+/**
+ * Fetch PR reviews with their inline comments.
+ */
+export async function fetchPrReviews(
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<{ reviews: GitHubReviewResponse[] }> {
+  const res = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}/reviews`), {
+    headers: await authHeaders(),
+  })
+  if (!res.ok) {
+    throw new Error(`Failed to fetch PR reviews: ${res.status}`)
+  }
+  return res.json()
+}
+
+/**
+ * Fetch PR review comment threads grouped by file path.
+ */
+export async function fetchPrReviewThreads(
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<{ threads: GitHubReviewThreadResponse[] }> {
+  const res = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}/threads`), {
+    headers: await authHeaders(),
+  })
+  if (!res.ok) {
+    throw new Error(`Failed to fetch PR review threads: ${res.status}`)
+  }
+  return res.json()
+}
+
+/**
+ * Reply to a PR review comment thread.
+ */
+export async function replyToReviewThread(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  commentId: number,
+  body: string,
+): Promise<{ comment: GitHubReviewCommentResponse }> {
+  const res = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}/reply`), {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({ commentId, body }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: 'Unknown error' }))
+    throw new Error(data.error || `Failed to reply: ${res.status}`)
+  }
+  return res.json()
+}
+
 // Provider status types
 export interface ProviderStatusResult {
   total: number
