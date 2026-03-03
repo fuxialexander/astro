@@ -275,7 +275,9 @@ async function performCatchUp(
     let catchUpText = ''
     for (const event of events) {
       if (event.eventType === 'text') {
-        catchUpText += typeof event.data === 'string' ? event.data : String(event.data)
+        // streaming-event-log persists text as { text: "..." }
+        const d = event.data as Record<string, unknown> | string
+        catchUpText += typeof d === 'string' ? d : ((d as Record<string, unknown>)?.text as string) || ''
       }
     }
 
