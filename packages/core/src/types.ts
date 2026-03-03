@@ -387,18 +387,6 @@ export interface PlanEdge {
   deletionActionId?: string;
 }
 
-// Context for replanning — lessons from prior plan execution
-export interface ReplanContext {
-  lessons: Array<{
-    nodeId: string;
-    title: string;
-    status: PlanNode['status'];
-    lesson: string;
-  }>;
-  previousPlanSummary: string;
-  changeDescription?: string;
-}
-
 // Domain expertise options for planning personalization
 export type DomainExpertise =
   | 'computational-biology'

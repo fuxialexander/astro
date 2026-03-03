@@ -1,116 +1,138 @@
-import type { PlanNode, PlanEdge } from "@/types"
-
-export interface ReplanLesson {
-  nodeId: string
-  title: string
-  status: PlanNode["status"]
-  lesson: string
-}
-
 /**
- * Extract lessons from completed/failed plan nodes for replan context.
- * Maps node statuses to actionable lessons.
+ * Replan utilities — extract lessons from prior executions and build
+ * summaries for the replanning prompt.
  */
-export function extractLessonsFromPlan(nodes: PlanNode[]): ReplanLesson[] {
-  const lessons: ReplanLesson[] = []
 
-  for (const node of nodes) {
-    if (node.type === "milestone") continue
+import type { PlanNode, PlanEdge, ReplanContext } from '@astro/core'
 
-    let lesson: string | null = null
-
-    switch (node.status) {
-      case "completed":
-      case "auto_verified":
-        lesson = `Completed successfully${node.executionOutput ? `: ${node.executionOutput.slice(0, 200)}` : ""}`
-        break
-      case "pruned":
-        lesson = "Was pruned/cancelled — may not be needed or was replaced"
-        break
-      case "planned":
-        lesson = "Was planned but never started — consider if still needed"
-        break
-      case "dispatched":
-      case "in_progress":
-        lesson = "Was in progress when replan started — work may be partially done"
-        break
-      case "awaiting_judgment":
-      case "awaiting_approval":
-        lesson = "Was awaiting review — output exists but was not verified"
-        break
-    }
-
-    if (lesson) {
-      lessons.push({
-        nodeId: node.id,
-        title: node.title,
-        status: node.status,
-        lesson,
-      })
-    }
+/**
+ * Derive a lesson status from a PlanNode's execution state.
+ *
+ * Mapping rules:
+ *  - `completed` or `auto_verified` → `'success'`
+ *  - Has `executionError`           → `'failure'`
+ *  - Has `executionId` but not completed/auto_verified → `'partial'`
+ *  - Otherwise                      → `'not_executed'`
+ */
+function deriveStatus(node: PlanNode): ReplanContext['lessons'][number]['status'] {
+  if (node.status === 'completed' || node.status === 'auto_verified') {
+    return 'success'
   }
-
-  return lessons
+  if (node.executionError) {
+    return 'failure'
+  }
+  if (node.executionId) {
+    return 'partial'
+  }
+  return 'not_executed'
 }
 
 /**
- * Build a text summary of the previous plan for replan context.
- * Groups nodes by milestone and lists dependencies.
+ * Extract per-task lessons from a list of plan nodes.
+ *
+ * Filters out milestone-type nodes and maps each remaining node to a lesson
+ * object with status derived from execution state.
+ */
+export function extractLessonsFromPlan(
+  nodes: PlanNode[],
+): ReplanContext['lessons'] {
+  return nodes
+    .filter((node) => node.type !== 'milestone')
+    .map((node) => ({
+      taskTitle: node.title,
+      taskDescription: node.description,
+      status: deriveStatus(node),
+      executionSummary: node.executionOutput || undefined,
+    }))
+}
+
+/**
+ * Build a markdown summary of a previous plan's structure and outcomes.
+ *
+ * Groups tasks by milestoneId, shows total/completed counts, and lists
+ * dependency edges for context.
  */
 export function buildPreviousPlanSummary(
   nodes: PlanNode[],
   edges: PlanEdge[],
 ): string {
-  if (nodes.length === 0) return "No previous plan."
+  // Only consider task-type nodes (skip milestones, branches, decisions for counting)
+  const tasks = nodes.filter((n) => n.type !== 'milestone')
+  const milestones = nodes.filter((n) => n.type === 'milestone')
 
-  const milestones = nodes.filter((n) => n.type === "milestone")
-  const tasks = nodes.filter((n) => n.type !== "milestone")
+  const totalTasks = tasks.length
+  const completedTasks = tasks.filter(
+    (t) => t.status === 'completed' || t.status === 'auto_verified',
+  ).length
 
-  // Build dependency map
-  const depMap = new Map<string, string[]>()
-  for (const edge of edges) {
-    if (edge.type !== "dependency") continue
-    const deps = depMap.get(edge.target) || []
-    deps.push(edge.source)
-    depMap.set(edge.target, deps)
+  // Group tasks by milestoneId
+  const milestoneMap = new Map<string, PlanNode>()
+  for (const m of milestones) {
+    milestoneMap.set(m.id, m)
   }
 
-  const nodeById = new Map(nodes.map((n) => [n.id, n]))
+  const tasksByMilestone = new Map<string | undefined, PlanNode[]>()
+  for (const task of tasks) {
+    const key = task.milestoneId
+    if (!tasksByMilestone.has(key)) {
+      tasksByMilestone.set(key, [])
+    }
+    tasksByMilestone.get(key)!.push(task)
+  }
 
+  // Build markdown
   const lines: string[] = []
-  lines.push(`Previous plan had ${nodes.length} nodes (${milestones.length} milestones, ${tasks.length} tasks).`)
-  lines.push("")
+  lines.push(`## Previous Plan Summary`)
+  lines.push('')
+  lines.push(`**Total tasks:** ${totalTasks} | **Completed:** ${completedTasks}`)
+  lines.push('')
 
-  // Group tasks by milestone
-  if (milestones.length > 0) {
-    for (const ms of milestones) {
-      lines.push(`## ${ms.title} [${ms.status}]`)
-      const msTasks = tasks.filter((t) => t.milestoneId === ms.id)
-      for (const task of msTasks) {
-        const deps = depMap.get(task.id) || []
-        const depNames = deps
-          .map((d) => nodeById.get(d)?.title)
-          .filter(Boolean)
-          .join(", ")
-        lines.push(`- ${task.title} [${task.status}]${depNames ? ` (depends on: ${depNames})` : ""}`)
+  // Milestones with their tasks
+  for (const [milestoneId, milestoneTasks] of tasksByMilestone) {
+    if (milestoneId && milestoneMap.has(milestoneId)) {
+      const milestone = milestoneMap.get(milestoneId)!
+      lines.push(`### ${milestone.title}`)
+    } else if (milestoneId) {
+      lines.push(`### Milestone: ${milestoneId}`)
+    } else {
+      lines.push(`### Unassigned Tasks`)
+    }
+    lines.push('')
+
+    for (const task of milestoneTasks) {
+      const statusIcon =
+        task.status === 'completed' || task.status === 'auto_verified'
+          ? '\u2705'
+          : task.executionError
+            ? '\u274C'
+            : task.executionId
+              ? '\u26A0\uFE0F'
+              : '\u2B1C'
+      lines.push(`- ${statusIcon} **${task.title}** — ${task.status}`)
+    }
+    lines.push('')
+  }
+
+  // Dependency structure
+  const dependencyEdges = edges.filter((e) => e.type === 'dependency')
+  if (dependencyEdges.length > 0) {
+    lines.push(`### Dependencies`)
+    lines.push('')
+
+    const nodeMap = new Map<string, PlanNode>()
+    for (const n of nodes) {
+      nodeMap.set(n.id, n)
+    }
+
+    for (const edge of dependencyEdges) {
+      const source = nodeMap.get(edge.source)
+      const target = nodeMap.get(edge.target)
+      if (source && target) {
+        lines.push(`- ${source.title} \u2192 ${target.title}`)
       }
-      lines.push("")
     }
+    lines.push('')
   }
 
-  // Tasks without milestones
-  const orphanTasks = tasks.filter((t) => !t.milestoneId)
-  if (orphanTasks.length > 0) {
-    lines.push("## Ungrouped Tasks")
-    for (const task of orphanTasks) {
-      const deps = depMap.get(task.id) || []
-      const depNames = deps
-        .map((d) => nodeById.get(d)?.title)
-        .filter(Boolean)
-        .join(", ")
-      lines.push(`- ${task.title} [${task.status}]${depNames ? ` (depends on: ${depNames})` : ""}`)
-    }
-  }
-
-  return lines.join("\n")
+  return lines.join('\n')
 }
