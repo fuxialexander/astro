@@ -314,7 +314,7 @@ async function syncIssuesForProject(
     };
 
     // Check if a node with this github_issue_number already exists
-    const [existing] = await db.select({ id: planNodes.id })
+    const [existing] = await db.select({ id: planNodes.id, deletedAt: planNodes.deletedAt })
       .from(planNodes)
       .where(and(
         eq(planNodes.projectId, projectId),
@@ -341,6 +341,7 @@ async function syncIssuesForProject(
         githubIssueUrl: issue.html_url,
         links: mergedLinks,
         updatedAt: new Date(),
+        deletedAt: null, // Resurrect soft-deleted nodes
       }).where(eq(planNodes.id, existing.id));
       updated++;
     } else {
