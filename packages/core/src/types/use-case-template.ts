@@ -29,7 +29,7 @@
  *    for tasks that need deterministic output (e.g., data analysis → JSON report).
  */
 
-import type { Priority, Estimate, DomainExpertise } from '../types.js'
+import type { Estimate, DomainExpertise } from '../types.js'
 import type { DispatchPriority } from '../dispatch/types.js'
 
 // ============================================================================
