@@ -94,6 +94,10 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
       enabled: skill.enabled,
       config: skill.config,
     }).then((created) => {
+      // Surface sync cache warning to user if present
+      if ('_warning' in created && created._warning) {
+        useToastStore.getState().add({ type: 'warning', title: 'Skill saved with warning', description: created._warning as string })
+      }
       // Replace temp entry with server response and sweep orphaned temp entries
       const current = new Map(get().skills)
       current.delete(tempId)
@@ -132,6 +136,9 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
 
     // Sync to backend using the DB id
     dataClient.updateSkill(id, updates).then((serverRow) => {
+      if ('_warning' in serverRow && serverRow._warning) {
+        useToastStore.getState().add({ type: 'warning', title: 'Skill updated with warning', description: serverRow._warning as string })
+      }
       const current = new Map(get().skills)
       current.set(serverRow.id, serverRow)
       set({ skills: current })
@@ -185,6 +192,9 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
 
     // Sync to backend
     dataClient.toggleSkill(id).then((serverRow) => {
+      if ('_warning' in serverRow && serverRow._warning) {
+        useToastStore.getState().add({ type: 'warning', title: 'Skill toggled with warning', description: serverRow._warning as string })
+      }
       const current = new Map(get().skills)
       current.set(id, serverRow)
       set({ skills: current })

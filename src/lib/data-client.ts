@@ -729,22 +729,28 @@ export const dataClient = {
     return (data.skills ?? []).map(mapSkillRow)
   },
 
-  async createSkill(skill: Partial<SkillRow>): Promise<SkillRow> {
+  async createSkill(skill: Partial<SkillRow>): Promise<SkillRow & { _warning?: string }> {
     const row = await post('/api/skills', skill) as Record<string, unknown>
-    return mapSkillRow(row)
+    const mapped = mapSkillRow(row)
+    if (row._warning) return { ...mapped, _warning: row._warning as string }
+    return mapped
   },
 
-  async updateSkill(id: string, updates: Partial<SkillRow>): Promise<SkillRow> {
+  async updateSkill(id: string, updates: Partial<SkillRow>): Promise<SkillRow & { _warning?: string }> {
     const row = await put(`/api/skills/${id}`, updates) as Record<string, unknown>
-    return mapSkillRow(row)
+    const mapped = mapSkillRow(row)
+    if (row._warning) return { ...mapped, _warning: row._warning as string }
+    return mapped
   },
 
   async deleteSkill(id: string): Promise<void> {
     await del(`/api/skills/${id}`)
   },
 
-  async toggleSkill(id: string): Promise<SkillRow> {
+  async toggleSkill(id: string): Promise<SkillRow & { _warning?: string }> {
     const row = await put(`/api/skills/${id}/toggle`, {}) as Record<string, unknown>
-    return mapSkillRow(row)
+    const mapped = mapSkillRow(row)
+    if (row._warning) return { ...mapped, _warning: row._warning as string }
+    return mapped
   },
 }
