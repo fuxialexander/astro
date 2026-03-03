@@ -687,11 +687,14 @@ function reconcileResultFromCatchUp(
     if (exec.executionId === executionId && nid.startsWith('plan-')) {
       const planProjectId = nid.replace(/^plan-/, '')
       // Only extract if project doesn't already have plan nodes
-      if (hydrated.stdout) {
-        const result = applyPlanFromText(planProjectId, hydrated.stdout, executionId)
-        if (result.applied) {
-          console.log('[realtime] Plan extracted from catch-up:', result.nodeCount, 'nodes')
-        }
+      // Prefer pre-extracted plan_result from hydrator; fall back to regex extraction from stdout
+      const result = hydrated.planResult
+        ? applyPlanFromText(planProjectId, '', executionId, false, hydrated.planResult)
+        : hydrated.stdout
+          ? applyPlanFromText(planProjectId, hydrated.stdout, executionId)
+          : null
+      if (result?.applied) {
+        console.log('[realtime] Plan extracted from catch-up:', result.nodeCount, 'nodes')
       }
       break
     }

@@ -39,39 +39,6 @@ Check backend health and Claude SDK authentication.
 
 ## Agent & AI
 
-### `POST /api/agent/generate-plan`
-
-Generate an AI plan from a project description. Streams results via Server-Sent Events (SSE).
-
-**Request:**
-```json
-{
-  "projectId": "550e8400-e29b-41d4-a716-446655440000",
-  "description": "Build a task management API",
-  "visionDoc": "Product vision...",
-  "repository": "https://github.com/user/repo",
-  "workingDirectory": "/path/to/repo"
-}
-```
-
-**SSE Event Types:**
-- `session_init` - Session created
-- `text` - Streaming text chunk
-- `tool_use` - Agent used a tool (Glob, Grep, Read)
-- `tool_result` - Tool execution result
-- `structured_output` - Final plan JSON
-- `done` - Generation complete
-- `error` - Error occurred
-
-**Example SSE Event:**
-```
-event: structured_output
-data: {"nodes": [...], "edges": [...]}
-
-event: done
-data: {"success": true}
-```
-
 ### `POST /api/agent/chat`
 
 Chat with AI about a plan. Streams via SSE.
@@ -85,7 +52,9 @@ Chat with AI about a plan. Streams via SSE.
 }
 ```
 
-**SSE Event Types:** Same as `generate-plan`
+**SSE Event Types:** `text`, `tool_use`, `tool_result`, `session_init`, `done`, `error`, `aborted`, `heartbeat`
+
+> **Note:** Plan generation uses `POST /api/dispatch/task` with `isInteractivePlan: true`. The former `/api/agent/generate-plan` endpoint has been removed.
 
 ### `POST /api/agent/abort`
 

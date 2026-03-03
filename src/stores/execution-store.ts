@@ -2144,6 +2144,7 @@ function handleSSEEvent(
       break
     }
 
+    // plan_result is only emitted for interactive planning sessions (nodeId: 'plan-<projectId>')
     case "plan_result": {
       try {
         const parsed = JSON.parse(data)
@@ -2151,7 +2152,9 @@ function handleSSEEvent(
           const planProjectId = nodeId.startsWith('plan-') ? nodeId.slice(5) : null
           if (planProjectId) {
             const exec = get().executions.get(nodeId)
-            applyPlanFromText(planProjectId, '', exec?.executionId, false, parsed)
+            applyPlanFromText(planProjectId, '', exec?.executionId || undefined, false, parsed)
+          } else {
+            console.warn(`[execution-store] plan_result received for non-plan node ${nodeId} — ignoring`)
           }
         }
       } catch { /* fallback extraction on result event will handle it */ }

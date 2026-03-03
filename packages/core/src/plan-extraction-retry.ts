@@ -25,19 +25,14 @@ export async function retryPlanExtractionWithHaiku(
 
     const client = new Anthropic({ apiKey })
 
-    const response = await Promise.race([
-      client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 16384,
-        messages: [{
-          role: 'user',
-          content: `Extract the project plan JSON from the following text. Output ONLY the JSON object with projectName, nodes, edges. No explanation, no markdown fences, just the raw JSON.\n\n${truncated}`,
-        }],
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Haiku retry timed out')), TIMEOUT_MS)
-      ),
-    ])
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 16384,
+      messages: [{
+        role: 'user',
+        content: `Extract the project plan JSON from the following text. Output ONLY the JSON object with projectName, nodes, edges. No explanation, no markdown fences, just the raw JSON.\n\n${truncated}`,
+      }],
+    }, { signal: AbortSignal.timeout(TIMEOUT_MS) })
 
     // Extract text from the response
     const responseText = response.content

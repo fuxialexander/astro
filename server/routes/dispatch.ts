@@ -28,8 +28,7 @@ import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch } from '../lib/prompt-templates.js'
 import { skillManager } from '../lib/skill-manager.js'
-import { extractPlanJsonFromText } from '@astro/core'
-import { retryPlanExtractionWithHaiku } from '@astro/core'
+import { extractPlanJsonFromText, retryPlanExtractionWithHaiku } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup)
@@ -1108,18 +1107,21 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       }
       // Server-side plan extraction for interactive plan sessions
       if (isInteractivePlan) {
-        try {
-          const textForExtraction = accumulatedText || msg.result.output || ''
-          let planJson = extractPlanJsonFromText(textForExtraction)
-          if (!planJson) {
-            planJson = await retryPlanExtractionWithHaiku(textForExtraction, process.env.ANTHROPIC_API_KEY).catch(() => null)
-          }
-          if (planJson) {
-            const planSeq = await streamingEventLog.append(executionId, 'plan_result', planJson)
-            stream.writeSSE({ id: String(planSeq), event: 'plan_result', data: JSON.stringify(planJson) }).catch(() => { alive = false })
-          }
-        } catch (e) {
-          console.error('[dispatch] Server-side plan extraction failed:', e)
+        const textForExtraction = accumulatedText || msg.result.output || ''
+        const planJson = extractPlanJsonFromText(textForExtraction)
+        if (planJson) {
+          // Regex extraction succeeded — emit plan_result synchronously before result
+          const planSeq = await streamingEventLog.append(executionId, 'plan_result', planJson)
+          stream.writeSSE({ id: String(planSeq), event: 'plan_result', data: JSON.stringify(planJson) }).catch(() => { alive = false })
+        } else {
+          // Regex failed — fire-and-forget Haiku retry (does NOT block result event)
+          retryPlanExtractionWithHaiku(textForExtraction, process.env.ANTHROPIC_API_KEY)
+            .then(retried => {
+              if (!retried || !alive) return
+              return streamingEventLog.append(executionId, 'plan_result', retried)
+                .then(seq => stream.writeSSE({ id: String(seq), event: 'plan_result', data: JSON.stringify(retried) }).catch(() => {}))
+            })
+            .catch(e => console.error('[dispatch] Haiku retry failed:', e))
         }
       }
 

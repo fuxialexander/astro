@@ -1,6 +1,10 @@
 /**
  * Integration test: Local execution end-to-end
  *
+ * @deprecated This test uses the removed `/api/agent/generate-plan` endpoint.
+ * Plan generation now uses `/api/dispatch/task` with `isInteractivePlan: true`.
+ * This script needs to be rewritten to use the new dispatch-based plan path.
+ *
  * 1. Generate a plan for a scatter-plot Python app
  * 2. Parse plan nodes/edges from SSE
  * 3. Dispatch the first task to local Claude Code provider

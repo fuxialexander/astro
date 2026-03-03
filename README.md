@@ -93,16 +93,16 @@ Agent Runner: Auto-commit → Push branch → Create PR → Cleanup worktree
 User creates project with description
        │
        ▼
-Frontend: POST /api/agent/generate-plan
+Frontend: POST /api/dispatch/task (isInteractivePlan: true)
        │
        ▼
-Backend: Build system prompt (with plan JSON schema) → Dispatch via relay
+Backend: Build interactive plan prompt → Dispatch via relay
        │
        ▼
 Agent Runner: Run Claude with structured output → Stream plan JSON back
        │
        ▼
-Backend: Parse plan JSON → SSE stream to browser
+Backend: Extract plan JSON → Emit plan_result SSE → SSE stream to browser
        │
        ▼
 Frontend: Render dependency graph in React Flow
@@ -490,7 +490,6 @@ astro/
 ### AI Agent (relay-only)
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/agent/generate-plan` | Generate plan via AI (SSE stream) |
 | POST | `/api/agent/chat` | Chat for plan refinement (SSE stream) |
 | POST | `/api/agent/task-chat` | Task-level chat (SSE stream) |
 | POST | `/api/agent/summarize` | Generate execution summary |

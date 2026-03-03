@@ -26,14 +26,11 @@ export function extractPlanJsonFromText(text: string): PlanJsonResult | null {
     fences.push({ content: match[1], index: match.index! })
   }
 
-  console.log(`[plan-extraction] Found ${fences.length} json code fences in text of length ${text.length}`)
-
   // Try fences in reverse order (last fence first — plan is typically the last output)
   for (let i = fences.length - 1; i >= 0; i--) {
     try {
       const parsed = JSON.parse(fences[i].content)
       if (parsed.nodes && Array.isArray(parsed.nodes)) {
-        console.log(`[plan-extraction] Matched code fence #${i} (of ${fences.length}): ${parsed.nodes.length} nodes`)
         return parsed
       }
     } catch {
@@ -45,7 +42,6 @@ export function extractPlanJsonFromText(text: string): PlanJsonResult | null {
   // Look for the LAST occurrence of "projectName" to find the plan JSON.
   const lastProjectNameIdx = text.lastIndexOf('"projectName"')
   if (lastProjectNameIdx === -1) {
-    console.log(`[plan-extraction] No "projectName" found in text`)
     return null
   }
 
@@ -59,7 +55,6 @@ export function extractPlanJsonFromText(text: string): PlanJsonResult | null {
   }
 
   if (openBraceIdx === -1) {
-    console.log(`[plan-extraction] No opening brace before "projectName"`)
     return null
   }
 
@@ -80,13 +75,11 @@ export function extractPlanJsonFromText(text: string): PlanJsonResult | null {
   try {
     const parsed = JSON.parse(text.slice(openBraceIdx, endIdx))
     if (parsed.nodes && Array.isArray(parsed.nodes)) {
-      console.log(`[plan-extraction] Matched raw JSON (last "projectName"): ${parsed.nodes.length} nodes`)
       return parsed
     }
-  } catch (e) {
-    console.log(`[plan-extraction] Raw JSON parse failed:`, e)
+  } catch {
+    // Parse failed
   }
 
-  console.log(`[plan-extraction] No plan JSON found in text of length ${text.length}`)
   return null
 }
