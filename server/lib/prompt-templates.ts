@@ -14,11 +14,14 @@ export {
   buildLabelSuggestionPrompt,
   buildSummaryPrompt,
   buildInteractivePlanPrompt,
+  sanitizeGitHubName,
+  sanitizeGitBranch,
 } from '../../packages/core/src/prompt-templates.js'
 
 export type {
   RepoContextForPrompt,
   GitStateForPrompt,
+  GitHubContextForPrompt,
   ChatPlanNode,
   ChatPlanEdge,
   TaskExecutionContext,

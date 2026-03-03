@@ -181,6 +181,39 @@ Use `Glob` and `Read` to explore the full directory tree as needed.
 - CLI: `@astroanywhere/cli` (packages/cli) — CLI + TUI for managing projects/plans/tasks (binary: `astro-cli`)
 - Agent runner: `@astroanywhere/agent` (packages/agent-runner, git submodule, binary: `astro-agent`)
 
+## Agent Runner Submodule Workflow
+
+`packages/agent-runner/` is a **git submodule** pointing to `github.com/astro-anywhere/astro-agent`. It has its own repository, branches, and PRs. When making changes to agent-runner code:
+
+1. **Work in the standalone repo** — The local clone is at `/Users/zhuoran_cisco/Documents/agent_tools/astro-agent`. Do NOT edit files in `packages/agent-runner/` directly (they'll be overwritten on submodule update).
+
+2. **Branch from `dev`** — The development branch is `dev`, not `main`. Create a feature branch from it:
+   ```bash
+   cd /Users/zhuoran_cisco/Documents/agent_tools/astro-agent
+   git checkout dev
+   git checkout -b fix/my-feature
+   ```
+
+3. **Build and test** — Run `npm run build` in the agent-runner repo to verify TypeScript compilation.
+
+4. **PR to `dev`** — Push the branch and create a PR targeting the `dev` branch:
+   ```bash
+   git push origin fix/my-feature
+   gh pr create --base dev --title "fix: description"
+   ```
+
+5. **Sync dev → main** — When ready to release, create a separate PR from `dev` → `main` in the agent-runner repo. This is needed so the astro repo's submodule pointer (which tracks `main`) picks up the changes.
+
+6. **Update submodule pointer** — After merging to `main` in the agent-runner repo, update the submodule pointer in the astro repo:
+   ```bash
+   cd /Users/zhuoran_cisco/Documents/agent_tools/astro
+   cd packages/agent-runner && git checkout main && git pull && cd ../..
+   git add packages/agent-runner
+   git commit -m "chore: update agent-runner submodule to latest main"
+   ```
+
+**Important:** The astro repo's CI reviews both repos. Agent-runner PRs trigger AI code review via `.github/workflows/ai-review.yml` in the agent-runner repo. Address review comments before merging.
+
 ## Guidelines
 
 ### Database
