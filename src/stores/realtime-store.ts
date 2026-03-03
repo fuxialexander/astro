@@ -374,6 +374,11 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     }
 
     if (!machineId) {
+      // Fall back to TaskStream machineId (recovered from hydrated init event)
+      const stream = get().taskStreams.get(taskId)
+      machineId = stream?.machineId
+    }
+    if (!machineId) {
       // Remove from pending so dialog doesn't stay stuck
       set((state) => {
         const newApprovals = new Map(state.dynamicApprovals)
@@ -460,6 +465,11 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     }
 
     if (!machineId) {
+      // Fall back to TaskStream machineId (recovered from hydrated init event)
+      const stream = get().taskStreams.get(taskId)
+      machineId = stream?.machineId
+    }
+    if (!machineId) {
       // Remove from map so the dialog doesn't get stuck
       set((state) => {
         const newPrompts = new Map(state.safetyPrompts)
@@ -505,8 +515,11 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   hydrateFromCatchUp: async (executionIds: string[], afterSeq = 0) => {
     if (executionIds.length === 0) return
     try {
-      const { events } = await fetchStreamingEventsCatchUp(executionIds, afterSeq)
+      const { events, lastSeq: newSeq } = await fetchStreamingEventsCatchUp(executionIds, afterSeq)
       if (events.length === 0) return
+
+      // Update realtimeClient.lastSeq so next reconnect doesn't re-fetch these events
+      realtimeClient.lastSeq = newSeq
 
       // Group events by executionId and hydrate into task streams
       const byExecution = new Map<string, typeof events>()
@@ -542,6 +555,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
           if (hydrated.model) metadata.model = hydrated.model
           if (hydrated.progress !== undefined) metadata.progress = hydrated.progress
           if (hydrated.progressMessage) metadata.progressMessage = hydrated.progressMessage
+          if (hydrated.machineId) metadata.machineId = hydrated.machineId
 
           if (isReconnect) {
             // Append caught-up events to fill the gap from network blip
@@ -554,20 +568,21 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               fileChanges: [...existing.fileChanges, ...hydrated.fileChanges],
             })
           } else {
-            // Full hydration: prefer existing live data if present
+            // Full hydration (page refresh): hydrated events are the complete history
+            // from the DB. If some live events arrived via SSE before hydration completed,
+            // append only genuinely new live events after the hydrated base. This prevents
+            // discarding historical events (e.g. approval_responses) when a race between
+            // SSE reconnect and catch-up hydration causes `existing` to be partially populated.
+            const mergedActivity = mergeHydratedAndLive(hydrated.activityEvents, existing.activityEvents)
+            const mergedToolTraces = mergeByTimestamp(hydrated.toolTraces, existing.toolTraces)
+            const mergedFileChanges = mergeByTimestamp(hydrated.fileChanges, existing.fileChanges)
             streams.set(execId, {
               ...existing,
               ...metadata,
-              stdout: existing.stdout || hydrated.stdout,
-              activityEvents: existing.activityEvents.length > 0
-                ? existing.activityEvents
-                : hydrated.activityEvents,
-              toolTraces: existing.toolTraces.length > 0
-                ? existing.toolTraces
-                : hydrated.toolTraces,
-              fileChanges: existing.fileChanges.length > 0
-                ? existing.fileChanges
-                : hydrated.fileChanges,
+              stdout: hydrated.stdout || existing.stdout,
+              activityEvents: mergedActivity,
+              toolTraces: mergedToolTraces,
+              fileChanges: mergedFileChanges,
             })
           }
         }
@@ -575,8 +590,10 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       })
 
       // Reconstruct dynamicApprovals from pending approval_request events
+      // and safetyPrompts from pending safety_prompt events
       set((state) => {
         const newApprovals = new Map(state.dynamicApprovals)
+        const newSafetyPrompts = new Map(state.safetyPrompts)
         for (const [execId] of byExecution) {
           const hydrated = hydratedByExecution.get(execId)!
           for (const approval of hydrated.pendingApprovals) {
@@ -589,8 +606,18 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               timestamp: approval.timestamp,
             })
           }
+          for (const safetyPrompt of hydrated.pendingSafetyPrompts) {
+            newSafetyPrompts.set(safetyPrompt.taskId, {
+              taskId: safetyPrompt.taskId,
+              safetyTier: safetyPrompt.safetyTier,
+              warning: safetyPrompt.warning,
+              machineId: safetyPrompt.machineId,
+              options: safetyPrompt.options,
+              timestamp: safetyPrompt.timestamp,
+            })
+          }
         }
-        return { dynamicApprovals: newApprovals }
+        return { dynamicApprovals: newApprovals, safetyPrompts: newSafetyPrompts }
       })
 
       // Reconcile plan nodes and execution store with hydrated result data
@@ -630,6 +657,61 @@ function createEmptyTaskStream(taskId: string): TaskStream {
     steerMessages: [],
     activityEvents: [],
   }
+}
+
+/**
+ * Merge hydrated activity events (full DB history) with live events that may have
+ * arrived via SSE before hydration completed. Uses the hydrated set as the base
+ * and appends only live events that are genuinely new (after the last hydrated event).
+ * This prevents losing historical events like approval_responses when SSE races
+ * ahead of catch-up hydration during page refresh.
+ */
+function mergeHydratedAndLive(
+  hydrated: TaskActivityEvent[],
+  live: TaskActivityEvent[],
+): TaskActivityEvent[] {
+  if (live.length === 0) return hydrated
+  if (hydrated.length === 0) return live
+
+  // Use the last hydrated event's timestamp as the cutoff.
+  // Live events with timestamps after this are genuinely new.
+  const lastHydratedTime = hydrated.length > 0
+    ? new Date(hydrated[hydrated.length - 1].timestamp).getTime()
+    : 0
+
+  // Only keep live events that arrived after the hydrated timeline
+  // (with 1s tolerance to avoid edge-case duplicates from clock skew)
+  const newLiveEvents = live.filter(
+    e => new Date(e.timestamp).getTime() > lastHydratedTime + 1000
+  )
+
+  return newLiveEvents.length > 0
+    ? [...hydrated, ...newLiveEvents]
+    : hydrated
+}
+
+/**
+ * Generic timestamp-based merge for arrays with a `timestamp` field.
+ * Hydrated (DB history) forms the base; live events after the cutoff are appended.
+ */
+function mergeByTimestamp<T extends { timestamp: Date }>(
+  hydrated: T[],
+  live: T[],
+): T[] {
+  if (live.length === 0) return hydrated
+  if (hydrated.length === 0) return live
+
+  const lastHydratedTime = hydrated.length > 0
+    ? new Date(hydrated[hydrated.length - 1].timestamp).getTime()
+    : 0
+
+  const newLiveItems = live.filter(
+    item => new Date(item.timestamp).getTime() > lastHydratedTime + 1000
+  )
+
+  return newLiveItems.length > 0
+    ? [...hydrated, ...newLiveItems]
+    : hydrated
 }
 
 /**
@@ -1364,22 +1446,28 @@ function handleRealtimeEvent(
           timestamp,
         })
 
-        // Also push approval_request activity event into task stream
-        // Remove stale approval_request events for the same task first
+        // Push approval_request activity event into task stream.
+        // Do NOT remove previous approval_request events — they are historical
+        // timeline entries that the UI needs to render answered approvals.
+        // Only the dynamicApprovals map (above) tracks the "pending" state.
         const streams = new Map(state.taskStreams)
         const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
-        stream.activityEvents = [
-          ...stream.activityEvents.filter(
-            e => !(e.type === 'approval_request' && e.requestId !== requestId)
-          ),
-          {
-            type: 'approval_request' as const,
-            requestId,
-            question,
-            options,
-            timestamp,
-          },
-        ]
+        // Deduplicate: skip if this exact requestId is already in the stream (e.g., from hydration)
+        const alreadyExists = stream.activityEvents.some(
+          e => e.type === 'approval_request' && e.requestId === requestId
+        )
+        if (!alreadyExists) {
+          stream.activityEvents = [
+            ...stream.activityEvents,
+            {
+              type: 'approval_request' as const,
+              requestId,
+              question,
+              options,
+              timestamp,
+            },
+          ]
+        }
         streams.set(taskId, stream)
 
         return { dynamicApprovals: newApprovals, taskStreams: streams }

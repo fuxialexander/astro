@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { useExecutionStore, canExecuteNode, getProjectWorkingDir, type ComputeBackendInfo } from "@/stores/execution-store"
+import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
@@ -173,6 +174,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
     }
   }, [project?.deliveryMode, useWorktree])
 
+  const [repoConfigOpen, setRepoConfigOpen] = useState(false)
   const [isRefining, setIsRefining] = useState(false)
   const [justRefined, setJustRefined] = useState(false)
   const updateNode = usePlanStore((s) => s.updateNode)
@@ -295,15 +297,26 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
 
       {/* Working directory warning */}
       {!dirCheck.ok && (
-        <div className="rounded-lg bg-warning/10 p-3 text-sm">
+        <button
+          type="button"
+          onClick={() => setRepoConfigOpen(true)}
+          className="w-full rounded-lg bg-warning/10 p-3 text-sm text-left cursor-pointer hover:bg-warning/15 transition-colors"
+        >
           <div className="flex items-start gap-2">
-            <AlertCircle className="h-4 w-4 text-warning mt-0.5" />
+            <AlertCircle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
             <div>
               <p className="font-medium text-warning">Cannot execute</p>
-              <p className="text-muted-foreground mt-1">{dirCheck.message}</p>
+              <p className="text-muted-foreground mt-1">No working directory or repository configured. <span className="underline">Click to configure.</span></p>
             </div>
           </div>
-        </div>
+        </button>
+      )}
+      {project && (
+        <RepoConfigDialog
+          open={repoConfigOpen}
+          onOpenChange={setRepoConfigOpen}
+          project={project}
+        />
       )}
 
       {/* Provider Selection — always visible when providers loaded */}

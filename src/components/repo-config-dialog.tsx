@@ -106,10 +106,11 @@ export function RepoConfigDialog({
     return result
   }, [isMultiTenant, registeredMachines, relayMachines, realtimeMachines])
 
-  // Auto-select if only one machine and none selected
+  // Auto-select a machine when none selected: prefer connected, fall back to first
   useEffect(() => {
-    if (open && allMachines.length === 1 && !selectedMachineId) {
-      setSelectedMachineId(allMachines[0].id)
+    if (open && allMachines.length > 0 && !selectedMachineId) {
+      const connected = allMachines.find((m) => m.isConnected)
+      setSelectedMachineId((connected ?? allMachines[0]).id)
     }
   }, [open, allMachines, selectedMachineId])
 

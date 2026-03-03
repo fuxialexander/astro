@@ -1319,12 +1319,15 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       executionEventBus.emit('task:file_change', { taskId: executionId, path: msg.path, action: msg.action })
     }
 
-    const onMachineDisconnected = (disconnectedId: string) => {
+    const onMachineDisconnected = async (disconnectedId: string) => {
       if (!alive || disconnectedId !== machineId) return
       console.log(`[dispatch] Machine ${machineId} disconnected during task ${executionId}`)
+      const errorData = { error: 'Remote machine disconnected during task execution', recoverable: false }
+      const seq = await streamingEventLog.append(executionId, 'error', errorData)
       stream.writeSSE({
+        id: String(seq),
         event: 'error',
-        data: JSON.stringify({ error: 'Remote machine disconnected during task execution', recoverable: false }),
+        data: JSON.stringify(errorData),
       }).catch(() => {})
       stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
       alive = false
@@ -1339,10 +1342,13 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       streamingEventLog.append(executionId, 'approval_request', approvalData).catch(() => {})
     }
 
-    const onSafetyPrompt = (msg: { taskId: string; safetyTier: string; warning?: string; options: Array<{ id: string; label: string; description?: string }> }) => {
+    const onSafetyPrompt = (msg: { taskId: string; safetyTier: string; warning?: string; options: Array<{ id: string; label: string; description?: string }>; machineId?: string }) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
       waitingForApproval = true
+      // Persist safety_prompt so it survives page refresh
+      const safetyData = { safetyTier: msg.safetyTier, warning: msg.warning, options: msg.options, machineId: msg.machineId || machineId }
+      streamingEventLog.append(executionId, 'safety_prompt', safetyData).catch(() => {})
     }
 
     // Mark this task as having an active dispatch stream so events.ts
@@ -1377,26 +1383,32 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 
     if (!dispatched) {
       cleanup()
+      const errorData = { error: `Failed to dispatch to machine: ${machineId}`, recoverable: false }
+      const seq = await streamingEventLog.append(executionId, 'error', errorData)
       await stream.writeSSE({
+        id: String(seq),
         event: 'error',
-        data: JSON.stringify({ error: `Failed to dispatch to machine: ${machineId}` }),
+        data: JSON.stringify(errorData),
       })
       await stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) })
       return
     }
 
-    // Send init event
+    // Send init event (persist first so page-refresh hydration can recover machineId)
     const targetMachine = machineRegistry.get(machineId!)
+    const initData = {
+      executionId,
+      nodeId,
+      machineId,
+      providerId: preferredProvider || targetMachine?.providers[0]?.type,
+      providerName: preferredProvider || targetMachine?.providers[0]?.type,
+      computeBackend,
+    }
+    const initSeq = await streamingEventLog.append(executionId, 'init', initData)
     await stream.writeSSE({
+      id: String(initSeq),
       event: 'init',
-      data: JSON.stringify({
-        executionId,
-        nodeId,
-        machineId,
-        providerId: preferredProvider || targetMachine?.providers[0]?.type,
-        providerName: preferredProvider || targetMachine?.providers[0]?.type,
-        computeBackend,
-      }),
+      data: JSON.stringify(initData),
     })
 
     // Keepalive + activity timeout
@@ -1407,10 +1419,19 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         if (dispatchEngine.hasPendingApprovalForExecution(executionId) || waitingForApproval) {
           lastActivity = Date.now() // Reset timer while approval is pending
         } else if (!resultSent) {
-          stream.writeSSE({
-            event: 'error',
-            data: JSON.stringify({ error: 'Activity timeout — agent runner stopped responding', recoverable: false }),
-          }).catch(() => {})
+          const errorData = { error: 'Activity timeout — agent runner stopped responding', recoverable: false }
+          streamingEventLog.append(executionId, 'error', errorData).then((seq) => {
+            stream.writeSSE({
+              id: String(seq),
+              event: 'error',
+              data: JSON.stringify(errorData),
+            }).catch(() => {})
+          }).catch(() => {
+            stream.writeSSE({
+              event: 'error',
+              data: JSON.stringify(errorData),
+            }).catch(() => {})
+          })
           stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
           alive = false
           clearInterval(heartbeat)
@@ -1585,6 +1606,9 @@ dispatchRoute.post('/safety-decision', async (c) => {
       500
     )
   }
+
+  // Persist safety_response so hydration knows this prompt was answered
+  streamingEventLog.append(taskId, 'safety_response', { decision }).catch(() => {})
 
   // Cache safety approval for this working directory so subsequent tasks skip the prompt
   if (decision !== 'cancel') {

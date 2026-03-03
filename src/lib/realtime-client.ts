@@ -52,9 +52,22 @@ export class RealtimeClient {
   private lastProjectId?: string
   private _lastSeq = 0
   private _onReconnect: (() => void) | null = null
+  private _reconnectDelay = 3000 // Start at 3s, exponential backoff
+  private _visibilityHandler: (() => void) | null = null
+  private _pendingReconnect = false // True if reconnect was deferred due to hidden tab
 
   constructor(baseUrl = '/api/events/stream') {
     this.url = apiUrl(baseUrl)
+    // Listen for visibility changes to pause/resume reconnection
+    if (typeof document !== 'undefined') {
+      this._visibilityHandler = () => {
+        if (document.visibilityState === 'visible' && this._pendingReconnect) {
+          this._pendingReconnect = false
+          this.scheduleReconnect(1000) // Resume quickly when tab becomes visible
+        }
+      }
+      document.addEventListener('visibilitychange', this._visibilityHandler)
+    }
   }
 
   get connected(): boolean {
@@ -64,6 +77,13 @@ export class RealtimeClient {
   /** Highest sequence number seen from streaming events (for catch-up) */
   get lastSeq(): number {
     return this._lastSeq
+  }
+
+  /** Update lastSeq (e.g. after catch-up hydration fills the gap) */
+  set lastSeq(value: number) {
+    if (value > this._lastSeq) {
+      this._lastSeq = value
+    }
   }
 
   async connect(projectId?: string): Promise<void> {
@@ -99,6 +119,7 @@ export class RealtimeClient {
       const wasReconnect = this._wasConnected
       this._connected = true
       this._wasConnected = true
+      this._reconnectDelay = 3000 // Reset backoff on successful connection
       this.emit({ type: 'heartbeat' as RealtimeEventType, data: { connected: true } })
       // Fire reconnect callback so the store can trigger catch-up hydration
       if (wasReconnect && this._onReconnect) {
@@ -108,9 +129,16 @@ export class RealtimeClient {
 
     this.eventSource.onerror = () => {
       this._connected = false
-      // Close stale connection and reconnect with a fresh token
+      // Close stale connection and reconnect with backoff
       this.disconnect()
-      this.scheduleReconnect(3000)
+      // Pause reconnection when tab is hidden to avoid hammering server
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        this._pendingReconnect = true
+        return
+      }
+      this.scheduleReconnect(this._reconnectDelay)
+      // Exponential backoff: 3s → 6s → 12s → 24s → 48s → 60s (cap)
+      this._reconnectDelay = Math.min(this._reconnectDelay * 2, 60000)
     }
 
     // Register known event types
@@ -179,6 +207,7 @@ export class RealtimeClient {
       this.eventSource = null
     }
     this._connected = false
+    this._pendingReconnect = false
   }
 
   private scheduleReconnect(delayMs: number): void {

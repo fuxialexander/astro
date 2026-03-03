@@ -18,6 +18,17 @@ import { applyPlanFromText, planNodeIdToProjectId } from "@/lib/plan-extraction"
 import { getSigningPrivateKey, signDispatchIntent, generateNonce, type DispatchSigningPayload } from "@/lib/dispatch-signing"
 import { useAuthStore } from "./auth-store"
 
+// ─── Page Unload Detection ────────────────────────────────────────────
+// `document.visibilityState` is unreliable during page refresh — it may
+// still be 'visible' when the fetch connection is dropped, causing the
+// SSE error handler to falsely mark running tasks as failed.
+// `beforeunload` fires deterministically BEFORE fetch connections die,
+// so this flag is always set in time.
+let isPageUnloading = false
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => { isPageUnloading = true })
+}
+
 // Helper: Create auth headers for API requests
 async function getAuthHeaders(): Promise<HeadersInit> {
   const token = await getAccessToken()
@@ -472,8 +483,11 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         planStore.updateNode(nodeId, { status: "planned" })
       } else {
         // Don't mark as failure if the page is unloading (refresh/navigate away)
-        // — the task is still running server-side, catch-up will reconcile on reload
-        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        // — the task is still running server-side, catch-up will reconcile on reload.
+        // Check `isPageUnloading` first: `beforeunload` fires before fetch connections
+        // are dropped, so this flag is reliable. `visibilityState` is a fallback but
+        // can still be 'visible' when the fetch errors out during refresh.
+        if (isPageUnloading || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) {
           console.log('[execution] SSE interrupted by page unload, skipping failure marking')
           return
         }
@@ -1095,7 +1109,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         } else {
           // Don't mark as failure if the page is unloading (refresh/navigate away)
           // — the task is still running server-side, catch-up will reconcile on reload
-          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+          if (isPageUnloading || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) {
             console.log('[plan-session] SSE interrupted by page unload, skipping failure marking')
             return
           }
@@ -1320,7 +1334,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           })
         } else {
           // Don't mark as failure if the page is unloading (refresh/navigate away)
-          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+          if (isPageUnloading || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) {
             console.log('[plan-session-forProject] SSE interrupted by page unload, skipping failure marking')
             return
           }

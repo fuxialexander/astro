@@ -37,6 +37,7 @@ export function InlineApprovalCard({
   const [selectedOption, setSelectedOption] = useState<string>(options[0] || "")
   const [customText, setCustomText] = useState("")
   const [responding, setResponding] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const customInputRef = useRef<HTMLInputElement>(null)
 
   const isOther = selectedOption === OTHER_SENTINEL
@@ -53,9 +54,11 @@ export function InlineApprovalCard({
   const handleSubmit = async () => {
     if (!effectiveAnswer || responding) return
     setResponding(true)
+    setError(null)
     try {
       await onRespond(requestId, effectiveAnswer)
-    } catch {
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send response')
       setResponding(false)
     }
   }
@@ -141,6 +144,10 @@ export function InlineApprovalCard({
           />
         </div>
       </RadioGroup>
+
+      {error && (
+        <p className="text-xs text-destructive mb-2">{error}</p>
+      )}
 
       <Button
         size="sm"
