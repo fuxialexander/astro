@@ -620,3 +620,298 @@ export async function fetchTraceSummary(traceId: string): Promise<string> {
   }
   return response.text()
 }
+
+// ============================================================================
+// Templates API
+// ============================================================================
+
+import type {
+  UseCaseTemplate,
+  UseCaseTemplateSummary,
+  UseCaseParameter,
+  ResolvedParameters,
+  TemplateValidationResult,
+} from "@astro/core/templates"
+
+export interface TemplateCategory {
+  category: string
+  count: number
+  templates: Array<{
+    id: string
+    name: string
+    icon?: string
+  }>
+}
+
+export interface TemplatesListResult {
+  templates: UseCaseTemplateSummary[]
+  count: number
+  categories: string[]
+}
+
+export interface TemplateDetailsResult {
+  template: UseCaseTemplate
+  validation: TemplateValidationResult
+}
+
+export interface TemplateSchemaResult {
+  templateId: string
+  templateName: string
+  requiredParameters: UseCaseParameter[]
+  optionalParameters: UseCaseParameter[]
+  parameterGroups: Record<string, UseCaseParameter[]>
+}
+
+export interface ParameterValidationError {
+  parameterId: string
+  message: string
+  code: 'MISSING_REQUIRED' | 'INVALID_TYPE' | 'INVALID_VALUE' | 'INVALID_PATTERN' | 'OUT_OF_RANGE'
+}
+
+export interface TemplateValidationParams {
+  valid: boolean
+  errors: ParameterValidationError[]
+  resolvedParameters: ResolvedParameters
+}
+
+export interface LaunchTemplateParams {
+  parameters: Record<string, unknown>
+  projectName?: string
+  workingDirectory?: string
+  targetMachineId?: string
+  model?: string
+  fileTree?: string[]
+  keyFiles?: {
+    claudeMd?: string
+    readmeMd?: string
+    packageInfo?: string
+  }
+  gitState?: {
+    currentBranch: string
+    targetBranch: string
+    isDirty: boolean
+    dirtyDetails?: {
+      staged: number
+      unstaged: number
+      untracked: number
+    }
+  }
+}
+
+export interface LaunchTemplateResult {
+  project: {
+    id: string
+    name: string
+    description: string
+    [key: string]: unknown
+  }
+  templateUsed: {
+    id: string
+    name: string
+    version: string
+  }
+  resolvedParameters: ResolvedParameters
+  planHints?: unknown
+  executionConfig?: unknown
+  parallelizationConfig?: unknown
+  planGenerationRequest: {
+    projectId: string
+    description: string
+    visionDoc: string
+    model?: string
+    workingDirectory?: string
+    targetMachineId?: string
+    fileTree?: string[]
+    keyFiles?: Record<string, string>
+    gitState?: Record<string, unknown>
+  }
+}
+
+export interface PreviewTemplateResult {
+  templateId: string
+  templateName: string
+  resolvedParameters: ResolvedParameters
+  interpolatedPrompts: {
+    planGeneration: string
+    taskExecution?: string
+    planRefinement?: string
+    sharedContext?: string
+  }
+  planHints?: unknown
+  executionConfig?: unknown
+  parallelizationConfig?: unknown
+}
+
+/**
+ * Get all available templates, optionally filtered by category.
+ * @param category - Optional category to filter by
+ * @returns List of template summaries
+ */
+export async function getTemplates(category?: string): Promise<TemplatesListResult> {
+  const params = new URLSearchParams()
+  if (category) {
+    params.set('category', category)
+  }
+
+  const url = apiUrl(`/api/templates${params.toString() ? `?${params}` : ''}`)
+  const response = await fetch(url, {
+    headers: await authHeaders(),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch templates: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Get all template categories with counts and template lists.
+ * @returns List of categories with their templates
+ */
+export async function getTemplateCategories(): Promise<{ categories: TemplateCategory[] }> {
+  const response = await fetch(apiUrl('/api/templates/categories'), {
+    headers: await authHeaders(),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch template categories: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Get full details for a specific template including parameter schema.
+ * @param id - Template ID (will be URL-encoded, e.g., "astro/web-app")
+ * @returns Template details with validation result
+ */
+export async function getTemplate(id: string): Promise<TemplateDetailsResult> {
+  const encodedId = encodeURIComponent(id)
+  const response = await fetch(apiUrl(`/api/templates/${encodedId}`), {
+    headers: await authHeaders(),
+  })
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Template not found: ${id}`)
+    }
+    throw new Error(`Failed to fetch template: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Get only the parameter schema for a template (for form generation).
+ * @param id - Template ID (will be URL-encoded)
+ * @returns Parameter schema with grouped parameters
+ */
+export async function getTemplateSchema(id: string): Promise<TemplateSchemaResult> {
+  const encodedId = encodeURIComponent(id)
+  const response = await fetch(apiUrl(`/api/templates/${encodedId}/schema`), {
+    headers: await authHeaders(),
+  })
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Template not found: ${id}`)
+    }
+    throw new Error(`Failed to fetch template schema: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Validate parameters against a template's schema without launching.
+ * Useful for real-time form validation.
+ * @param id - Template ID (will be URL-encoded)
+ * @param params - Parameters to validate
+ * @returns Validation result with resolved parameters
+ */
+export async function validateTemplateParams(
+  id: string,
+  params: Record<string, unknown>
+): Promise<TemplateValidationParams> {
+  const encodedId = encodeURIComponent(id)
+  const response = await fetch(apiUrl(`/api/templates/${encodedId}/validate`), {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({ parameters: params }),
+  })
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Template not found: ${id}`)
+    }
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.error || `Validation failed: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Launch a template with provided parameters.
+ * Creates a new project and returns configuration for plan generation.
+ * @param id - Template ID (will be URL-encoded)
+ * @param params - Launch parameters including template parameters and project config
+ * @returns Created project and plan generation request
+ */
+export async function launchTemplate(
+  id: string,
+  params: LaunchTemplateParams
+): Promise<LaunchTemplateResult> {
+  const encodedId = encodeURIComponent(id)
+  const response = await fetch(apiUrl(`/api/templates/${encodedId}/launch`), {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify(params),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    if (response.status === 404) {
+      throw new Error(`Template not found: ${id}`)
+    }
+    if (response.status === 400 && errorData.details) {
+      throw new Error(`Validation failed: ${JSON.stringify(errorData.details)}`)
+    }
+    throw new Error(errorData.error || `Failed to launch template: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Preview what a template launch would produce without creating anything.
+ * Returns interpolated prompts and project configuration.
+ * @param id - Template ID (will be URL-encoded)
+ * @param params - Parameters to preview with
+ * @returns Preview of interpolated prompts and configuration
+ */
+export async function previewTemplate(
+  id: string,
+  params: Record<string, unknown>
+): Promise<PreviewTemplateResult> {
+  const encodedId = encodeURIComponent(id)
+  const response = await fetch(apiUrl(`/api/templates/${encodedId}/preview`), {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({ parameters: params }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    if (response.status === 404) {
+      throw new Error(`Template not found: ${id}`)
+    }
+    if (response.status === 400 && errorData.details) {
+      throw new Error(`Validation failed: ${JSON.stringify(errorData.details)}`)
+    }
+    throw new Error(errorData.error || `Failed to preview template: ${response.status}`)
+  }
+
+  return response.json()
+}
