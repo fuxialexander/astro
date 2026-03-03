@@ -44,4 +44,8 @@ export {
   streamingEvents,
   skills,
   customTemplates,
+  sharedPlans,
+  sharedPlanStars,
+  sharedPlanForks,
+  sharedPlanComments,
 } from '../../../packages/core/src/db/schema.js'
