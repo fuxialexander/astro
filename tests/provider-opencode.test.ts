@@ -2452,6 +2452,7 @@ import { EventEmitter } from 'node:events'
 import type { Writable } from 'node:stream'
 
 // Dynamic imports — agent-runner submodule may not be checked out in CI
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamically imported class constructor
 let OpenCodeAdapter: any
 let lifecycleAdapterAvailable = false
 
@@ -2463,9 +2464,8 @@ try {
   // agent-runner submodule not available — lifecycle tests will be skipped
 }
 
-// Type aliases — use `any` since type imports can't be dynamic
-type LifecycleTaskOutputStream = any
-type Task = any
+// Type aliases — use Record<string, unknown> since type imports can't be dynamic
+type Task = Record<string, unknown>
 
 // Mock the spawn function
 vi.mock('node:child_process', () => ({

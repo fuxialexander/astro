@@ -27,6 +27,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createMockStream } from './helpers/mock-stream.js'
 
 // Dynamic imports — agent-runner submodule may not be checked out in CI
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamically imported class constructor
 let OpenClawAdapter: any
 let adapterAvailable = false
 let gatewaySupported = false
@@ -44,8 +45,8 @@ try {
   // agent-runner submodule not available — tests will be skipped
 }
 
-// Type aliases — use `any` since type imports can't be dynamic
-type TaskArtifact = any
+// Type aliases — use Record<string, unknown> since type imports can't be dynamic
+type TaskArtifact = Record<string, unknown>
 
 // =============================================================================
 // Helper: Gateway EventFrame builders
@@ -998,8 +999,8 @@ describe.skipIf(!adapterAvailable)('OpenClaw Gateway EventFrame Parsing', () => 
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-// Type alias — use `any` since type imports can't be dynamic
-type Task = any
+// Type alias — use Record<string, unknown> since type imports can't be dynamic
+type Task = Record<string, unknown>
 
 // Mock the spawn function
 vi.mock('node:child_process', () => ({

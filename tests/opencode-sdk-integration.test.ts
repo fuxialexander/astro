@@ -2184,4 +2184,204 @@ describe('OpenCode SDK Integration Path', () => {
       expect(stepFinish.type).toBe('step-finish')
     })
   })
+
+  // ===========================================================================
+  // 9. Concurrent Session Handling
+  // ===========================================================================
+
+  describe('concurrent session handling', () => {
+    it('independent adapters track separate session state', () => {
+      const adapter1 = new OpenCodeSdkAdapter()
+      const adapter2 = new OpenCodeSdkAdapter()
+      const stream1 = createMockStream()
+      const stream2 = createMockStream()
+
+      // Session 1 gets created
+      const created1: EventSessionCreated = {
+        type: 'session.created',
+        properties: {
+          info: {
+            id: 'session-001',
+            projectID: 'proj-1',
+            directory: '/workspace/a',
+          } as Session,
+        },
+      }
+      adapter1.handleEvent(created1, stream1)
+
+      // Session 2 gets created with different ID
+      const created2: EventSessionCreated = {
+        type: 'session.created',
+        properties: {
+          info: {
+            id: 'session-002',
+            projectID: 'proj-2',
+            directory: '/workspace/b',
+          } as Session,
+        },
+      }
+      adapter2.handleEvent(created2, stream2)
+
+      expect(adapter1.getSessionId()).toBe('session-001')
+      expect(adapter2.getSessionId()).toBe('session-002')
+
+      // Events for session 1 don't affect session 2
+      const text1: EventMessagePartUpdated = {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            id: 'p1',
+            sessionID: 'session-001',
+            messageID: 'm1',
+            type: 'text',
+            text: 'Hello from session 1',
+          },
+        },
+      }
+      adapter1.handleEvent(text1, stream1)
+
+      expect(stream1.text).toHaveBeenCalledWith('Hello from session 1')
+      expect(stream2.text).not.toHaveBeenCalled()
+    })
+
+    it('adapter reset isolates sequential sessions', () => {
+      const adapter = new OpenCodeSdkAdapter()
+      const stream1 = createMockStream()
+      const stream2 = createMockStream()
+
+      // First session
+      const created1: EventSessionCreated = {
+        type: 'session.created',
+        properties: {
+          info: {
+            id: 'session-A',
+            projectID: 'proj-1',
+            directory: '/workspace',
+          } as Session,
+        },
+      }
+      adapter.handleEvent(created1, stream1)
+      expect(adapter.getSessionId()).toBe('session-A')
+
+      // Record some metrics
+      const stepFinish: EventMessagePartUpdated = {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            id: 'p1',
+            sessionID: 'session-A',
+            messageID: 'm1',
+            type: 'step-finish',
+            reason: 'end_turn',
+            cost: 0.05,
+            tokens: { input: 500, output: 200, reasoning: 0, cache: { read: 0, write: 0 } },
+          } as StepFinishPart,
+        },
+      }
+      adapter.handleEvent(stepFinish, stream1)
+      expect(adapter.getLastMetrics()?.totalCost).toBe(0.05)
+
+      // Reset between sessions
+      adapter.reset()
+      expect(adapter.getSessionId()).toBeNull()
+      expect(adapter.getLastMetrics()).toBeNull()
+
+      // Second session starts fresh
+      const created2: EventSessionCreated = {
+        type: 'session.created',
+        properties: {
+          info: {
+            id: 'session-B',
+            projectID: 'proj-2',
+            directory: '/workspace',
+          } as Session,
+        },
+      }
+      adapter.handleEvent(created2, stream2)
+      expect(adapter.getSessionId()).toBe('session-B')
+
+      // Metrics should not carry over
+      expect(adapter.getLastMetrics()).toBeNull()
+    })
+
+    it('tool name maps are isolated per adapter instance', () => {
+      const adapter1 = new OpenCodeSdkAdapter()
+      const adapter2 = new OpenCodeSdkAdapter()
+      const stream1 = createMockStream()
+
+      // Adapter 1 tracks a tool call
+      const tool1: EventMessagePartUpdated = {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            id: 'p1',
+            sessionID: 's1',
+            messageID: 'm1',
+            type: 'tool',
+            callID: 'call-001',
+            tool: 'bash',
+            state: {
+              status: 'running',
+              input: { command: 'ls' },
+              title: 'List files',
+              metadata: {},
+              time: { start: 0 },
+            } as ToolStateRunning,
+          } as ToolPart,
+        },
+      }
+      adapter1.handleEvent(tool1, stream1)
+
+      // Adapter 1 should know about call-001, adapter 2 should not
+      expect(adapter1.getToolName('call-001')).toBe('bash')
+      expect(adapter2.getToolName('call-001')).toBeUndefined()
+    })
+
+    it('handles interleaved events from multiple sessions correctly', () => {
+      const adapter1 = new OpenCodeSdkAdapter()
+      const adapter2 = new OpenCodeSdkAdapter()
+      const stream1 = createMockStream()
+      const stream2 = createMockStream()
+
+      // Session 1: text event
+      adapter1.handleEvent({
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            id: 'p1', sessionID: 's1', messageID: 'm1',
+            type: 'text', text: 'Session 1 text',
+          },
+        },
+      } as EventMessagePartUpdated, stream1)
+
+      // Session 2: text event (interleaved)
+      adapter2.handleEvent({
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            id: 'p2', sessionID: 's2', messageID: 'm2',
+            type: 'text', text: 'Session 2 text',
+          },
+        },
+      } as EventMessagePartUpdated, stream2)
+
+      // Session 1: another text event
+      adapter1.handleEvent({
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            id: 'p3', sessionID: 's1', messageID: 'm1',
+            type: 'text', text: ' continued',
+          },
+        },
+      } as EventMessagePartUpdated, stream1)
+
+      // Verify streams received the correct events
+      expect(stream1.text).toHaveBeenCalledTimes(2)
+      expect(stream1.text).toHaveBeenCalledWith('Session 1 text')
+      expect(stream1.text).toHaveBeenCalledWith(' continued')
+      expect(stream2.text).toHaveBeenCalledTimes(1)
+      expect(stream2.text).toHaveBeenCalledWith('Session 2 text')
+    })
+  })
 })
