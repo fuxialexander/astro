@@ -383,7 +383,9 @@ dispatchRoute.post('/task', async (c) => {
   // Note: if deliveryMode was already 'direct' from the request body, the early
   // check above already ran. This catch handles the case where deliveryMode was
   // resolved from the project's DB record (i.e., wasn't in the original body).
-  if (deliveryMode === 'direct' && !body.deliveryMode) {
+  // Guard with !dryRun to match the early check — dry-run requests should never
+  // be rejected by the serial execution constraint (they don't actually run).
+  if (deliveryMode === 'direct' && !body.deliveryMode && !dryRun) {
     const stats = await dispatchEngine.getStats()
     const activeForProject = stats.activePerProject?.[projectId] ?? 0
     if (activeForProject > 0) {

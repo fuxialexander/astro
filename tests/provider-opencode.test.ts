@@ -19,50 +19,12 @@
  * - reasoning:    Internal reasoning (ReasoningPart, requires --thinking flag)
  * - error:        Session errors (SessionError)
  *
- * @see docs/planning/13-CLI-JSONL-FORMAT-ANALYSIS.md
+ * @see docs/planning/cli-jsonl-format-analysis.md
  * @see tests/fixtures/opencode-output.jsonl
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-
-// =============================================================================
-// Mock TaskOutputStream Interface
-// =============================================================================
-
-/**
- * TaskOutputStream interface for emitting structured events.
- * This is a mock of the actual TaskOutputStream from base-adapter.
- */
-interface TaskOutputStream {
-  stdout: ReturnType<typeof vi.fn>
-  stderr: ReturnType<typeof vi.fn>
-  status: ReturnType<typeof vi.fn>
-  toolTrace: ReturnType<typeof vi.fn>
-  text: ReturnType<typeof vi.fn>
-  toolUse: ReturnType<typeof vi.fn>
-  toolResult: ReturnType<typeof vi.fn>
-  fileChange: ReturnType<typeof vi.fn>
-  sessionInit: ReturnType<typeof vi.fn>
-  approvalRequest: ReturnType<typeof vi.fn>
-}
-
-/**
- * Create a mock TaskOutputStream with vi.fn() for each method
- */
-function createMockStream(): TaskOutputStream {
-  return {
-    stdout: vi.fn(),
-    stderr: vi.fn(),
-    status: vi.fn(),
-    toolTrace: vi.fn(),
-    text: vi.fn(),
-    toolUse: vi.fn(),
-    toolResult: vi.fn(),
-    fileChange: vi.fn(),
-    sessionInit: vi.fn(),
-    approvalRequest: vi.fn(),
-  }
-}
+import { createMockStream } from './helpers/mock-stream.js'
 
 // =============================================================================
 // OpenCode Event Type Definitions

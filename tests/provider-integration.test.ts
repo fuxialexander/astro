@@ -25,6 +25,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { createTrackedMockStream } from './helpers/mock-stream.js'
 import { exec, type ChildProcess } from 'node:child_process'
 import { promisify } from 'node:util'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -48,7 +49,6 @@ try {
 }
 
 // Type aliases — use `any` since type imports can't be dynamic
-type TaskOutputStream = any
 type Task = any
 
 const execAsync = promisify(exec)
@@ -87,56 +87,6 @@ const opencodeAvailable = await isCliAvailable('opencode')
 // =============================================================================
 // Test Helpers
 // =============================================================================
-
-/**
- * Create a mock TaskOutputStream with vi.fn() for each method.
- * Captures all stream events for assertion.
- */
-function createMockStream(): TaskOutputStream & {
-  _calls: {
-    text: string[]
-    toolUse: Array<{ name: string; input: unknown }>
-    toolResult: Array<{ name: string; result: unknown; success: boolean }>
-    fileChange: Array<{ path: string; action: string }>
-    sessionInit: Array<{ sessionId: string; model?: string }>
-    status: Array<{ status: string; progress?: number; message?: string }>
-  }
-} {
-  const calls = {
-    text: [] as string[],
-    toolUse: [] as Array<{ name: string; input: unknown }>,
-    toolResult: [] as Array<{ name: string; result: unknown; success: boolean }>,
-    fileChange: [] as Array<{ path: string; action: string }>,
-    sessionInit: [] as Array<{ sessionId: string; model?: string }>,
-    status: [] as Array<{ status: string; progress?: number; message?: string }>,
-  }
-
-  return {
-    _calls: calls,
-    stdout: vi.fn(),
-    stderr: vi.fn(),
-    status: vi.fn((status: string, progress?: number, message?: string) => {
-      calls.status.push({ status, progress, message })
-    }),
-    toolTrace: vi.fn(),
-    text: vi.fn((data: string) => {
-      calls.text.push(data)
-    }),
-    toolUse: vi.fn((name: string, input: unknown) => {
-      calls.toolUse.push({ name, input })
-    }),
-    toolResult: vi.fn((name: string, result: unknown, success: boolean) => {
-      calls.toolResult.push({ name, result, success })
-    }),
-    fileChange: vi.fn((path: string, action: 'created' | 'modified' | 'deleted') => {
-      calls.fileChange.push({ path, action })
-    }),
-    sessionInit: vi.fn((sessionId: string, model?: string) => {
-      calls.sessionInit.push({ sessionId, model })
-    }),
-    approvalRequest: vi.fn(),
-  }
-}
 
 /**
  * Create a minimal test task with reasonable defaults.
@@ -224,12 +174,12 @@ function createMockChildProcess(): ChildProcess & {
 
 describe.skipIf(!adapterAvailable || !opencodeAvailable)('OpenCode Provider Integration', () => {
   let adapter: OpenCodeAdapter
-  let stream: ReturnType<typeof createMockStream>
+  let stream: ReturnType<typeof createTrackedMockStream>
   let tempDir: string
 
   beforeEach(() => {
     adapter = new OpenCodeAdapter()
-    stream = createMockStream()
+    stream = createTrackedMockStream()
     // Create an isolated temp directory for each test
     tempDir = mkdtempSync(join(tmpdir(), 'astro-opencode-integration-'))
     // Write a minimal file so the directory isn't empty
@@ -493,13 +443,13 @@ describe.skipIf(!adapterAvailable || !opencodeAvailable)('OpenCode Provider Inte
 
 describe.skipIf(!adapterAvailable || !openclawAvailable)('OpenClaw Provider Integration', () => {
   let adapter: OpenClawAdapter
-  let stream: ReturnType<typeof createMockStream>
+  let stream: ReturnType<typeof createTrackedMockStream>
   let artifacts: Array<{ type: string; name: string; path?: string }>
   let tempDir: string
 
   beforeEach(() => {
     adapter = new OpenClawAdapter()
-    stream = createMockStream()
+    stream = createTrackedMockStream()
     artifacts = []
     // Create an isolated temp directory for each test
     tempDir = mkdtempSync(join(tmpdir(), 'astro-openclaw-integration-'))
@@ -904,11 +854,11 @@ describe.skipIf(!adapterAvailable || !openclawAvailable)('OpenClaw Provider Inte
 
 describe.skipIf(!adapterAvailable || !opencodeAvailable)('OpenCode Full Session JSONL Sequences', () => {
   let adapter: OpenCodeAdapter
-  let stream: ReturnType<typeof createMockStream>
+  let stream: ReturnType<typeof createTrackedMockStream>
 
   beforeEach(() => {
     adapter = new OpenCodeAdapter()
-    stream = createMockStream()
+    stream = createTrackedMockStream()
   })
 
   afterEach(() => {
@@ -1009,13 +959,13 @@ describe.skipIf(!adapterAvailable || !opencodeAvailable)('OpenCode Full Session 
 
 describe.skipIf(!adapterAvailable)('OpenCode Execute Lifecycle (mocked spawn)', () => {
   let adapter: OpenCodeAdapter
-  let stream: ReturnType<typeof createMockStream>
+  let stream: ReturnType<typeof createTrackedMockStream>
   let mockProc: ReturnType<typeof createMockChildProcess>
   let tempDir: string
 
   beforeEach(() => {
     adapter = new OpenCodeAdapter()
-    stream = createMockStream()
+    stream = createTrackedMockStream()
     mockProc = createMockChildProcess()
 
     // Create isolated temp directory
@@ -1270,13 +1220,13 @@ describe.skipIf(!adapterAvailable)('OpenCode Execute Lifecycle (mocked spawn)', 
 
 describe.skipIf(!adapterAvailable)('OpenClaw Execute Lifecycle (mocked spawn)', () => {
   let adapter: OpenClawAdapter
-  let stream: ReturnType<typeof createMockStream>
+  let stream: ReturnType<typeof createTrackedMockStream>
   let mockProc: ReturnType<typeof createMockChildProcess>
   let tempDir: string
 
   beforeEach(() => {
     adapter = new OpenClawAdapter()
-    stream = createMockStream()
+    stream = createTrackedMockStream()
     mockProc = createMockChildProcess()
 
     tempDir = mkdtempSync(join(tmpdir(), 'astro-openclaw-exec-'))
@@ -1429,12 +1379,12 @@ describe.skipIf(!adapterAvailable)('OpenClaw Execute Lifecycle (mocked spawn)', 
 
 describe.skipIf(!adapterAvailable)('Timeout Configuration', () => {
   let mockProc: ReturnType<typeof createMockChildProcess>
-  let stream: ReturnType<typeof createMockStream>
+  let stream: ReturnType<typeof createTrackedMockStream>
   let tempDir: string
 
   beforeEach(() => {
     mockProc = createMockChildProcess()
-    stream = createMockStream()
+    stream = createTrackedMockStream()
     tempDir = mkdtempSync(join(tmpdir(), 'astro-timeout-'))
     writeFileSync(join(tempDir, 'README.md'), '# Test\n')
 
@@ -1575,7 +1525,7 @@ describe.skipIf(!adapterAvailable)('Concurrent Task Tracking', () => {
 
     const adapter = new OpenCodeAdapter()
     await adapter.isAvailable()
-    const stream = createMockStream()
+    const stream = createTrackedMockStream()
 
     const task = createTestTask({ workingDirectory: tempDir })
     const controller = new AbortController()
@@ -1598,7 +1548,7 @@ describe.skipIf(!adapterAvailable)('Concurrent Task Tracking', () => {
     mockGetProviderFn.mockResolvedValue(null)
 
     const adapter = new OpenCodeAdapter()
-    const stream = createMockStream()
+    const stream = createTrackedMockStream()
 
     const task = createTestTask({ workingDirectory: tempDir })
     const controller = new AbortController()
@@ -1665,7 +1615,7 @@ describe.skipIf(!adapterAvailable)('Provider Adapter Contract', () => {
         mockGetProviderFn.mockResolvedValue(null)
 
         const adapter = createAdapter()
-        const stream = createMockStream()
+        const stream = createTrackedMockStream()
         const task = createTestTask({ provider: adapter.type as 'opencode' | 'openclaw' })
         const controller = new AbortController()
 
@@ -1732,6 +1682,169 @@ describe.skipIf(!adapterAvailable)('Provider CLI Detection', () => {
     // At least one assertion so the test passes
     expect(providers).toHaveLength(2)
   })
+})
+
+// =============================================================================
+// Cross-Provider Error Handling Parity Tests
+// =============================================================================
+
+describe.skipIf(!adapterAvailable)('Cross-Provider Error Handling Parity', () => {
+  let openCodeAdapter: InstanceType<typeof OpenCodeAdapter>
+  let openClawAdapter: InstanceType<typeof OpenClawAdapter>
+  let mockProc: ReturnType<typeof createMockChildProcess>
+  let tempDir: string
+
+  beforeEach(() => {
+    openCodeAdapter = new OpenCodeAdapter()
+    openClawAdapter = new OpenClawAdapter()
+    mockProc = createMockChildProcess()
+    mockSpawnFn.mockReturnValue(mockProc)
+    tempDir = mkdtempSync(join(tmpdir(), 'parity-test-'))
+    writeFileSync(join(tempDir, '.git'), 'gitdir: /tmp/fake-git')
+  })
+
+  afterEach(() => {
+    try { rmSync(tempDir, { recursive: true, force: true }) } catch { /* ignore */ }
+  })
+
+  it('both adapters should emit proper error status on CLI exit code 1', async () => {
+    // Setup both adapters as available
+    mockGetProviderFn.mockReset()
+    mockGetProviderFn.mockImplementation(async (type: string) => ({
+      type,
+      name: type === 'opencode' ? 'OpenCode' : 'OpenClaw',
+      version: '1.0.0',
+      path: `/usr/local/bin/${type}`,
+      available: true,
+      capabilities: { streaming: true, tools: true, multiTurn: true, maxConcurrentTasks: 1 },
+    }))
+
+    // Test OpenCode adapter
+    await openCodeAdapter.isAvailable()
+    const ocStream = createTrackedMockStream()
+    const ocTask = createTestTask({ provider: 'opencode', workingDirectory: tempDir })
+    const ocController = new AbortController()
+    const ocResultPromise = openCodeAdapter.execute(ocTask, ocStream, ocController.signal)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    mockProc._emitStderr('Fatal: connection refused\n')
+    mockProc._close(1)
+    const ocResult = await ocResultPromise
+
+    expect(ocResult.status).toBe('failed')
+    expect(ocResult.exitCode).toBe(1)
+    expect(ocResult.error).toBeTruthy()
+    expect(typeof ocResult.error).toBe('string')
+    expect(ocResult.error!.length).toBeGreaterThan(0)
+
+    // Reset mock process for OpenClaw
+    mockProc = createMockChildProcess()
+    mockSpawnFn.mockReturnValue(mockProc)
+
+    // Test OpenClaw adapter
+    await openClawAdapter.isAvailable()
+    const clawStream = createTrackedMockStream()
+    const clawTask = createTestTask({ provider: 'openclaw', workingDirectory: tempDir })
+    const clawController = new AbortController()
+    const clawResultPromise = openClawAdapter.execute(clawTask, clawStream, clawController.signal)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    mockProc._emitStderr('Error: API key invalid\n')
+    mockProc._close(1)
+    const clawResult = await clawResultPromise
+
+    expect(clawResult.status).toBe('failed')
+    expect(clawResult.exitCode).toBe(1)
+    expect(clawResult.error).toBeTruthy()
+    expect(typeof clawResult.error).toBe('string')
+    expect(clawResult.error!.length).toBeGreaterThan(0)
+  }, 30_000)
+
+  it('both adapters should surface error messages from stderr (not silently swallow them)', async () => {
+    mockGetProviderFn.mockReset()
+    mockGetProviderFn.mockImplementation(async (type: string) => ({
+      type,
+      name: type === 'opencode' ? 'OpenCode' : 'OpenClaw',
+      version: '1.0.0',
+      path: `/usr/local/bin/${type}`,
+      available: true,
+      capabilities: { streaming: true, tools: true, multiTurn: true, maxConcurrentTasks: 1 },
+    }))
+
+    const errorMessage = 'ENOENT: no such file or directory'
+
+    // OpenCode: stderr should be surfaced in result
+    await openCodeAdapter.isAvailable()
+    const ocStream = createTrackedMockStream()
+    const ocTask = createTestTask({ provider: 'opencode', workingDirectory: tempDir })
+    const ocController = new AbortController()
+    const ocResultPromise = openCodeAdapter.execute(ocTask, ocStream, ocController.signal)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    mockProc._emitStderr(`${errorMessage}\n`)
+    mockProc._close(1)
+    const ocResult = await ocResultPromise
+
+    expect(ocResult.status).toBe('failed')
+    expect(ocResult.error).toContain(errorMessage)
+
+    // Reset for OpenClaw
+    mockProc = createMockChildProcess()
+    mockSpawnFn.mockReturnValue(mockProc)
+
+    // OpenClaw: stderr should be surfaced in result
+    await openClawAdapter.isAvailable()
+    const clawStream = createTrackedMockStream()
+    const clawTask = createTestTask({ provider: 'openclaw', workingDirectory: tempDir })
+    const clawController = new AbortController()
+    const clawResultPromise = openClawAdapter.execute(clawTask, clawStream, clawController.signal)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    mockProc._emitStderr(`${errorMessage}\n`)
+    mockProc._close(1)
+    const clawResult = await clawResultPromise
+
+    expect(clawResult.status).toBe('failed')
+    expect(clawResult.error).toContain(errorMessage)
+  }, 30_000)
+
+  it('neither adapter should silently fall back to degraded behavior on spawn error', async () => {
+    mockGetProviderFn.mockReset()
+    mockGetProviderFn.mockImplementation(async (type: string) => ({
+      type,
+      name: type === 'opencode' ? 'OpenCode' : 'OpenClaw',
+      version: '1.0.0',
+      path: `/usr/local/bin/${type}`,
+      available: true,
+      capabilities: { streaming: true, tools: true, multiTurn: true, maxConcurrentTasks: 1 },
+    }))
+
+    // OpenCode: non-existent directory should produce failed status with error description
+    await openCodeAdapter.isAvailable()
+    const ocStream = createTrackedMockStream()
+    const ocTask = createTestTask({
+      provider: 'opencode',
+      workingDirectory: '/nonexistent/path/should/fail',
+    })
+    const ocController = new AbortController()
+    const ocResult = await openCodeAdapter.execute(ocTask, ocStream, ocController.signal)
+
+    expect(ocResult.status).toBe('failed')
+    expect(ocResult.error).toBeTruthy()
+    // Error must be descriptive, not empty or generic
+    expect(ocResult.error!.length).toBeGreaterThan(5)
+
+    // OpenClaw: non-existent directory should produce failed status with error description
+    await openClawAdapter.isAvailable()
+    const clawStream = createTrackedMockStream()
+    const clawTask = createTestTask({
+      provider: 'openclaw',
+      workingDirectory: '/nonexistent/path/should/fail',
+    })
+    const clawController = new AbortController()
+    const clawResult = await openClawAdapter.execute(clawTask, clawStream, clawController.signal)
+
+    expect(clawResult.status).toBe('failed')
+    expect(clawResult.error).toBeTruthy()
+    // Error must be descriptive, not empty or generic
+    expect(clawResult.error!.length).toBeGreaterThan(5)
+  }, 30_000)
 })
 
 // =============================================================================

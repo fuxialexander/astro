@@ -36,6 +36,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { createMockStream } from './helpers/mock-stream.js'
 
 // Check if @opencode-ai/sdk is installed (optional dependency)
 let sdkAvailable = false
@@ -85,38 +86,6 @@ import type {
   SessionPromptAsyncData,
   SessionAbortData,
 } from '@opencode-ai/sdk'
-
-// =============================================================================
-// Mock TaskOutputStream (matches packages/agent-runner/src/providers/base-adapter.ts)
-// =============================================================================
-
-interface TaskOutputStream {
-  stdout: ReturnType<typeof vi.fn>
-  stderr: ReturnType<typeof vi.fn>
-  status: ReturnType<typeof vi.fn>
-  toolTrace: ReturnType<typeof vi.fn>
-  text: ReturnType<typeof vi.fn>
-  toolUse: ReturnType<typeof vi.fn>
-  toolResult: ReturnType<typeof vi.fn>
-  fileChange: ReturnType<typeof vi.fn>
-  sessionInit: ReturnType<typeof vi.fn>
-  approvalRequest: ReturnType<typeof vi.fn>
-}
-
-function createMockStream(): TaskOutputStream {
-  return {
-    stdout: vi.fn(),
-    stderr: vi.fn(),
-    status: vi.fn(),
-    toolTrace: vi.fn(),
-    text: vi.fn(),
-    toolUse: vi.fn(),
-    toolResult: vi.fn(),
-    fileChange: vi.fn(),
-    sessionInit: vi.fn(),
-    approvalRequest: vi.fn(),
-  }
-}
 
 // =============================================================================
 // OpenCode SDK Adapter — Maps SDK events to TaskOutputStream

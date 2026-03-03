@@ -9,8 +9,8 @@ This document provides a comprehensive analysis of the actual JSONL event format
 
 | CLI | Source Files Examined | Verification Date |
 |-----|----------------------|-------------------|
-| OpenClaw | `/tmp/openclaw/src/acp/runtime/types.ts` | 2025-03-02 |
-| OpenCode | `/tmp/opencode/packages/opencode/src/cli/cmd/run.ts` | 2025-03-02 |
+| OpenClaw | `src/acp/runtime/types.ts` ([github.com/openclawai/openclaw](https://github.com/openclawai/openclaw) — examined locally during analysis) | 2025-03-02 |
+| OpenCode | `packages/opencode/src/cli/cmd/run.ts` ([github.com/nicholasgriffintn/opencode](https://github.com/nicholasgriffintn/opencode) — examined locally during analysis) | 2025-03-02 |
 | Astro Adapters | `packages/agent-runner/src/providers/openclaw-adapter.ts`, `opencode-adapter.ts` | 2025-03-02 |
 
 ---
@@ -26,7 +26,7 @@ This document provides a comprehensive analysis of the actual JSONL event format
 
 ## OpenClaw JSONL Format (ACP Protocol)
 
-### Source: `/tmp/openclaw/src/acp/runtime/types.ts`
+### Source: [`src/acp/runtime/types.ts`](https://github.com/openclawai/openclaw/blob/main/src/acp/runtime/types.ts)
 
 OpenClaw uses the **ACP (Agent Client Protocol)** format for streaming events. The `AcpRuntimeEvent` union type defines 5 core event types:
 
@@ -147,7 +147,7 @@ openclaw agent --json --message "<task>"
 
 ## OpenCode JSONL Format (SDK Events)
 
-### Source: `/tmp/opencode/packages/opencode/src/cli/cmd/run.ts`
+### Source: [`packages/opencode/src/cli/cmd/run.ts`](https://github.com/nicholasgriffintn/opencode/blob/main/packages/opencode/src/cli/cmd/run.ts)
 
 OpenCode emits **5 primary event types** when using `--format json`. Each event has a consistent wrapper structure:
 
@@ -386,8 +386,8 @@ opencode run --format json --thinking "your prompt"
 
 | Adapter | CLI Invocation Used | Format CLI Outputs | Format Adapter Expects | Status |
 |---------|--------------------|--------------------|------------------------|--------|
-| OpenClaw | `openclaw agent --json --message "..."` | Batch JSON response OR Gateway EventFrame | ✅ Gateway EventFrame, ✅ Legacy flat, ✅ Batch | **PARTIAL** — ACP format not supported |
-| OpenCode | `opencode run --print --output-format json "..."` | SDK wrapper events (`text`, `tool_use`, `step_*`) | ❌ Claude-like events (`system`, `assistant`, `result`) | **BROKEN** — Complete mismatch |
+| OpenClaw | `openclaw agent --json --message "..."` | Batch JSON response OR Gateway EventFrame | ✅ Gateway EventFrame, ✅ Legacy flat, ✅ Batch, ✅ ACP | ✅ **FIXED** (PR #308) — ACP format now supported |
+| OpenCode | `opencode run --format json "..."` | SDK wrapper events (`text`, `tool_use`, `step_*`) | ✅ SDK events (`text`, `tool_use`, `step_start`, `step_finish`, `reasoning`, `error`) | ✅ **FIXED** (PR #310) — CLI flags and event mapping corrected |
 
 ### Key Finding: OpenCode CLI Flag Discrepancy
 
@@ -444,15 +444,15 @@ export type AcpRuntimeEvent =
 
 ### Gap Analysis — OpenClaw
 
-| Adapter Expectation | Actual ACP Format | Gap |
-|---------------------|-------------------|-----|
-| `session.start` → sessionInit | Not present | **MISSING** — Need to emit sessionInit on first event |
-| `content.text` → text | `text_delta` | **NAME MISMATCH** — Different event type name |
-| `tool_use.start` → toolUse | `tool_call` (status: in_progress) | **STRUCTURE DIFFERENT** — ACP uses status field |
-| `tool_use.end` → toolResult | `tool_call` (status: completed) | **STRUCTURE DIFFERENT** — No separate result field |
-| `session.end` → metrics | `done` | **MISSING METRICS** — `done` has no usage data |
-| N/A | `status` | **NEW** — Progress updates not mapped |
-| N/A | `error` | **PARTIALLY MAPPED** — Only in Gateway format |
+| Adapter Expectation | Actual ACP Format | Gap | Status |
+|---------------------|-------------------|-----|--------|
+| `session.start` → sessionInit | Not present | **MISSING** — Need to emit sessionInit on first event | ✅ FIXED (PR #308) |
+| `content.text` → text | `text_delta` | **NAME MISMATCH** — Different event type name | ✅ FIXED (PR #308) |
+| `tool_use.start` → toolUse | `tool_call` (status: in_progress) | **STRUCTURE DIFFERENT** — ACP uses status field | ✅ FIXED (PR #308) |
+| `tool_use.end` → toolResult | `tool_call` (status: completed) | **STRUCTURE DIFFERENT** — No separate result field | ✅ FIXED (PR #308) |
+| `session.end` → metrics | `done` | **MISSING METRICS** — `done` has no usage data | ✅ FIXED (PR #308) |
+| N/A | `status` | **NEW** — Progress updates not mapped | ✅ FIXED (PR #308) |
+| N/A | `error` | **PARTIALLY MAPPED** — Only in Gateway format | ✅ FIXED (PR #308) |
 
 ### OpenCode Adapter (`opencode-adapter.ts`)
 
@@ -505,15 +505,15 @@ function emit(type: string, data: Record<string, unknown>) {
 
 ### Gap Analysis — OpenCode
 
-| Adapter Expectation | Actual Format | Gap |
-|---------------------|---------------|-----|
-| `type: "system"` | Not present | **MISSING** — No init event, sessionID in wrapper |
-| `type: "assistant"` (content blocks) | `type: "text"`, `type: "tool_use"` | **STRUCTURE DIFFERENT** — Separate events, not blocks |
-| `type: "tool_result"` | `type: "tool_use"` (status: completed) | **MERGED** — Tool use and result in same event |
-| `type: "result"` | `type: "step_finish"` | **NAME MISMATCH** — Different name, same purpose |
-| N/A | `type: "step_start"` | **NEW** — Step lifecycle not mapped |
-| N/A | `type: "reasoning"` | **NEW** — Reasoning output not mapped |
-| `event.model` | `part.tokens`, `part.cost` | **LOCATION DIFFERENT** — Metrics in part, not root |
+| Adapter Expectation | Actual Format | Gap | Status |
+|---------------------|---------------|-----|--------|
+| `type: "system"` | Not present | **MISSING** — No init event, sessionID in wrapper | ✅ FIXED (PR #310) |
+| `type: "assistant"` (content blocks) | `type: "text"`, `type: "tool_use"` | **STRUCTURE DIFFERENT** — Separate events, not blocks | ✅ FIXED (PR #310) |
+| `type: "tool_result"` | `type: "tool_use"` (status: completed) | **MERGED** — Tool use and result in same event | ✅ FIXED (PR #310) |
+| `type: "result"` | `type: "step_finish"` | **NAME MISMATCH** — Different name, same purpose | ✅ FIXED (PR #310) |
+| N/A | `type: "step_start"` | **NEW** — Step lifecycle not mapped | ✅ FIXED (PR #310) |
+| N/A | `type: "reasoning"` | **NEW** — Reasoning output not mapped | ✅ FIXED (PR #310) |
+| `event.model` | `part.tokens`, `part.cost` | **LOCATION DIFFERENT** — Metrics in part, not root | ✅ FIXED (PR #310) |
 
 ---
 

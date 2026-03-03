@@ -24,6 +24,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { createMockStream } from './helpers/mock-stream.js'
 
 // Dynamic imports — agent-runner submodule may not be checked out in CI
 let OpenClawAdapter: any
@@ -44,26 +45,7 @@ try {
 }
 
 // Type aliases — use `any` since type imports can't be dynamic
-type TaskOutputStream = any
 type TaskArtifact = any
-
-/**
- * Create a mock TaskOutputStream with vi.fn() for each method
- */
-function createMockStream(): TaskOutputStream {
-  return {
-    stdout: vi.fn(),
-    stderr: vi.fn(),
-    status: vi.fn(),
-    toolTrace: vi.fn(),
-    text: vi.fn(),
-    toolUse: vi.fn(),
-    toolResult: vi.fn(),
-    fileChange: vi.fn(),
-    sessionInit: vi.fn(),
-    approvalRequest: vi.fn(),
-  }
-}
 
 // =============================================================================
 // Helper: Gateway EventFrame builders
