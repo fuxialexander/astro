@@ -428,6 +428,69 @@ export async function ensureBranch(
   }
 }
 
+// ── GitHub PR data fetching ──────────────────────────────────────────
+
+import type { GithubPrData, GithubCheckRun, GithubReview } from "@/types"
+
+/**
+ * Fetch PR details (title, state, diff stats).
+ */
+export async function fetchPrDetails(
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<GithubPrData | null> {
+  try {
+    const res = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}`), {
+      headers: await authHeaders(),
+    })
+    if (!res.ok) return null
+    return await res.json()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Fetch CI check runs for a PR.
+ */
+export async function fetchPrChecks(
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<GithubCheckRun[]> {
+  try {
+    const res = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}/checks`), {
+      headers: await authHeaders(),
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.checks ?? []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Fetch reviews for a PR.
+ */
+export async function fetchPrReviews(
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<GithubReview[]> {
+  try {
+    const res = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}/reviews`), {
+      headers: await authHeaders(),
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.reviews ?? []
+  } catch {
+    return []
+  }
+}
+
 // Provider status types
 export interface ProviderStatusResult {
   total: number

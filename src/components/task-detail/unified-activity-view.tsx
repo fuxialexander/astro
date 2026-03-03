@@ -34,6 +34,7 @@ import {
 } from "@/components/activity-blocks"
 import { useRestoredExecution } from "@/hooks/use-restored-execution"
 import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
+import { PrStatusCard } from "@/components/task-detail/pr-status-card"
 
 interface UnifiedActivityViewProps {
   node: PlanNode
@@ -412,6 +413,15 @@ export function UnifiedActivityView({
         {/* Summary card at top when available */}
         {execution?.summary && (
           <SummaryCard summary={execution.summary} />
+        )}
+
+        {/* PR status card when node has a PR linked */}
+        {node.prNumber && (
+          <PrStatusCard
+            node={node}
+            owner={project?.githubOwner ?? undefined}
+            repo={project?.githubRepo ?? undefined}
+          />
         )}
 
         {/* Fallback for old tasks without activity events */}

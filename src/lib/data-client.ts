@@ -134,6 +134,7 @@ function mapNode(row: Record<string, unknown>): PlanNode {
     branchName: (r.branchName as string) ?? undefined,
     prUrl: (r.prUrl as string) ?? undefined,
     prNumber: (r.prNumber as number) ?? undefined,
+    githubPrData: r.githubPrData as PlanNode["githubPrData"],
   } as PlanNode
 }
 

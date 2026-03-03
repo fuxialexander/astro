@@ -187,6 +187,37 @@ export interface AcceptanceCriterion {
   autoVerifiable: boolean
 }
 
+// GitHub PR enrichment data (stored as JSONB on plan nodes)
+export interface GithubCheckRun {
+  id: number
+  name: string
+  status: 'queued' | 'in_progress' | 'completed'
+  conclusion?: 'success' | 'failure' | 'neutral' | 'cancelled' | 'skipped' | 'timed_out' | 'action_required' | null
+  startedAt?: string
+  completedAt?: string
+  detailsUrl?: string
+}
+
+export interface GithubReview {
+  user: string
+  avatarUrl?: string
+  state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'PENDING' | 'DISMISSED'
+}
+
+export interface GithubPrData {
+  title?: string
+  state?: 'open' | 'closed' | 'merged'
+  draft?: boolean
+  additions?: number
+  deletions?: number
+  changedFiles?: number
+  headRef?: string
+  baseRef?: string
+  checks?: GithubCheckRun[]
+  reviews?: GithubReview[]
+  updatedAt?: string
+}
+
 export interface PlanNode {
   id: string;
   number?: number;
@@ -226,6 +257,7 @@ export interface PlanNode {
   autoPr?: boolean;
   githubIssueNumber?: number;
   githubIssueUrl?: string;
+  githubPrData?: GithubPrData;
   deletedAt?: Date;
   deletionActionId?: string;
   metadata?: Record<string, unknown>;

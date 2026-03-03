@@ -752,4 +752,205 @@ app.post('/ensure-branch', async (c) => {
   }
 });
 
+// ── PR data endpoints (for PrStatusCard) ─────────────────────────────
+
+/**
+ * GET /api/github/pr/:owner/:repo/:prNumber
+ * Fetch PR details including diff stats
+ */
+app.get('/pr/:owner/:repo/:prNumber', async (c) => {
+  const userId = (c.get('user') as AuthUser).id;
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const prNumber = parseInt(c.req.param('prNumber'), 10);
+
+  if (!owner || !repo || isNaN(prNumber)) {
+    return c.json({ error: 'owner, repo, and prNumber are required' }, 400);
+  }
+
+  const connection = await githubStore.getConnection(userId);
+  if (!connection) {
+    return c.json({ error: 'GitHub not connected' }, 401);
+  }
+
+  const headers = {
+    Authorization: `Bearer ${connection.accessToken}`,
+    Accept: 'application/vnd.github.v3+json',
+  };
+
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`,
+      { headers }
+    );
+
+    if (!response.ok) {
+      return c.json({ error: `GitHub API error: ${response.status}` }, response.status as 400);
+    }
+
+    const pr = await response.json() as {
+      title: string;
+      state: string;
+      draft: boolean;
+      additions: number;
+      deletions: number;
+      changed_files: number;
+      head: { ref: string };
+      base: { ref: string };
+      merged: boolean;
+      updated_at: string;
+    };
+
+    return c.json({
+      title: pr.title,
+      state: pr.merged ? 'merged' : pr.state as 'open' | 'closed',
+      draft: pr.draft,
+      additions: pr.additions,
+      deletions: pr.deletions,
+      changedFiles: pr.changed_files,
+      headRef: pr.head.ref,
+      baseRef: pr.base.ref,
+      updatedAt: pr.updated_at,
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('[github] pr details error:', msg);
+    return c.json({ error: msg }, 500);
+  }
+});
+
+/**
+ * GET /api/github/pr/:owner/:repo/:prNumber/checks
+ * Fetch CI check runs for a PR's head commit
+ */
+app.get('/pr/:owner/:repo/:prNumber/checks', async (c) => {
+  const userId = (c.get('user') as AuthUser).id;
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const prNumber = parseInt(c.req.param('prNumber'), 10);
+
+  if (!owner || !repo || isNaN(prNumber)) {
+    return c.json({ error: 'owner, repo, and prNumber are required' }, 400);
+  }
+
+  const connection = await githubStore.getConnection(userId);
+  if (!connection) {
+    return c.json({ error: 'GitHub not connected' }, 401);
+  }
+
+  const headers = {
+    Authorization: `Bearer ${connection.accessToken}`,
+    Accept: 'application/vnd.github.v3+json',
+  };
+
+  try {
+    // First get the PR to find the head SHA
+    const prRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`,
+      { headers }
+    );
+
+    if (!prRes.ok) {
+      return c.json({ error: `GitHub API error: ${prRes.status}` }, prRes.status as 400);
+    }
+
+    const pr = await prRes.json() as { head: { sha: string } };
+
+    // Fetch check runs for the head commit
+    const checksRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/commits/${pr.head.sha}/check-runs`,
+      { headers }
+    );
+
+    if (!checksRes.ok) {
+      return c.json({ error: `GitHub API error: ${checksRes.status}` }, checksRes.status as 400);
+    }
+
+    const checksData = await checksRes.json() as {
+      check_runs: Array<{
+        id: number;
+        name: string;
+        status: string;
+        conclusion: string | null;
+        started_at: string | null;
+        completed_at: string | null;
+        details_url: string | null;
+      }>;
+    };
+
+    const checks = checksData.check_runs.map(run => ({
+      id: run.id,
+      name: run.name,
+      status: run.status as 'queued' | 'in_progress' | 'completed',
+      conclusion: run.conclusion as string | null,
+      startedAt: run.started_at,
+      completedAt: run.completed_at,
+      detailsUrl: run.details_url,
+    }));
+
+    return c.json({ checks });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('[github] pr checks error:', msg);
+    return c.json({ error: msg }, 500);
+  }
+});
+
+/**
+ * GET /api/github/pr/:owner/:repo/:prNumber/reviews
+ * Fetch reviews for a PR
+ */
+app.get('/pr/:owner/:repo/:prNumber/reviews', async (c) => {
+  const userId = (c.get('user') as AuthUser).id;
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const prNumber = parseInt(c.req.param('prNumber'), 10);
+
+  if (!owner || !repo || isNaN(prNumber)) {
+    return c.json({ error: 'owner, repo, and prNumber are required' }, 400);
+  }
+
+  const connection = await githubStore.getConnection(userId);
+  if (!connection) {
+    return c.json({ error: 'GitHub not connected' }, 401);
+  }
+
+  const headers = {
+    Authorization: `Bearer ${connection.accessToken}`,
+    Accept: 'application/vnd.github.v3+json',
+  };
+
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/reviews`,
+      { headers }
+    );
+
+    if (!response.ok) {
+      return c.json({ error: `GitHub API error: ${response.status}` }, response.status as 400);
+    }
+
+    const reviewsData = await response.json() as Array<{
+      user: { login: string; avatar_url: string };
+      state: string;
+    }>;
+
+    // Deduplicate: keep only the latest review per user
+    const latestByUser = new Map<string, { user: string; avatarUrl: string; state: string }>();
+    for (const review of reviewsData) {
+      latestByUser.set(review.user.login, {
+        user: review.user.login,
+        avatarUrl: review.user.avatar_url,
+        state: review.state,
+      });
+    }
+
+    return c.json({ reviews: Array.from(latestByUser.values()) });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('[github] pr reviews error:', msg);
+    return c.json({ error: msg }, 500);
+  }
+});
+
 export default app;

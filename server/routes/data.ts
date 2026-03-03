@@ -449,6 +449,7 @@ app.get('/plan', async (c) => {
       branchName: n.branchName,
       prUrl: n.prUrl,
       prNumber: n.prNumber,
+      githubPrData: n.githubPrData,
       content: n.content,
       attachments: n.attachments,
       links: n.links,
@@ -509,6 +510,7 @@ app.get('/plan/:projectId', async (c) => {
     branchName: n.branchName,
     prUrl: n.prUrl,
     prNumber: n.prNumber,
+    githubPrData: n.githubPrData,
     content: n.content,
     attachments: n.attachments,
     links: n.links,
@@ -589,6 +591,7 @@ app.put('/plan/:projectId', async (c) => {
         prNumber: (n.prNumber as number) ?? null,
         mergeQueueStatus: (n.mergeQueueStatus as string) ?? null,
         autoPr: (n.autoPr as boolean) ?? false,
+        githubPrData: n.githubPrData ?? null,
         content: (n.content as string) ?? null,
         attachments: (n.attachments as unknown[]) ?? [],
         links: (n.links as unknown[]) ?? [],
@@ -666,6 +669,7 @@ app.post('/plan/nodes', async (c) => {
       prNumber: body.prNumber ?? null,
       mergeQueueStatus: body.mergeQueueStatus ?? null,
       autoPr: body.autoPr ?? false,
+      githubPrData: body.githubPrData ?? null,
       content: body.content ?? null,
       attachments: body.attachments ?? [],
       links: body.links ?? [],
@@ -725,6 +729,7 @@ app.patch('/plan/nodes/:id', async (c) => {
   if (body.prNumber !== undefined) patch.prNumber = body.prNumber || null
   if (body.mergeQueueStatus !== undefined) patch.mergeQueueStatus = body.mergeQueueStatus || null
   if (body.autoPr !== undefined) patch.autoPr = body.autoPr ?? false
+  if (body.githubPrData !== undefined) patch.githubPrData = body.githubPrData ?? null
   if (body.content !== undefined) patch.content = body.content || null
   if (body.attachments !== undefined) patch.attachments = body.attachments ?? []
   if (body.links !== undefined) patch.links = body.links ?? []
