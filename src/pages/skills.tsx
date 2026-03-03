@@ -311,9 +311,29 @@ function GitHubImportDialog({
   const [previewSkill, setPreviewSkill] = useState<OpenClawSkill | null>(null)
 
   const validateGitHubUrl = useCallback((inputUrl: string) => {
-    // GitHub URL patterns: https://github.com/user/repo or https://github.com/user/repo.git
-    const pattern = /^https:\/\/github\.com\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+(\.git)?$/
-    return pattern.test(inputUrl.trim())
+    // Support multiple GitHub URL patterns:
+    // 1. Full URLs: https://github.com/owner/repo
+    // 2. Tree URLs (subfolders): https://github.com/owner/repo/tree/branch/path
+    // 3. Blob URLs (direct file): https://github.com/owner/repo/blob/branch/path/SKILL.md
+    // 4. Without protocol: github.com/owner/repo/...
+    // 5. Shorthand: owner/repo or owner/repo/path/to/folder
+    const trimmed = inputUrl.trim().replace(/\/+$/, '').replace(/\.git$/, '')
+
+    // Remove protocol and github.com prefix for validation
+    const normalized = trimmed.replace(/^https?:\/\//, '').replace(/^github\.com\//, '')
+
+    // Split and validate minimum owner/repo
+    const parts = normalized.split('/')
+    if (parts.length < 2) return false
+
+    const [owner, repo] = parts
+    if (!owner || !repo) return false
+
+    // Validate owner and repo format (alphanumeric, hyphens, underscores, dots)
+    const validNamePattern = /^[a-zA-Z0-9_.-]+$/
+    if (!validNamePattern.test(owner) || !validNamePattern.test(repo)) return false
+
+    return true
   }, [])
 
   const handleUrlBlur = useCallback(() => {
@@ -322,7 +342,7 @@ function GitHubImportDialog({
       const isValid = validateGitHubUrl(trimmedUrl)
       setIsValidUrl(isValid)
       if (!isValid) {
-        setError("Please enter a valid GitHub repository URL (e.g., https://github.com/user/repo)")
+        setError("Please enter a valid GitHub URL. Examples: owner/repo, owner/repo/skill-folder, or a full GitHub URL")
       } else {
         setError("")
       }
@@ -417,19 +437,18 @@ function GitHubImportDialog({
             <DialogHeader>
               <DialogTitle>Import from GitHub</DialogTitle>
               <DialogDescription>
-                Import a skill from a GitHub repository. The repository should contain
-                a SKILL.md file following the OpenClaw format.
+                Import a skill from a GitHub repository or skill collection. Point to a folder containing a SKILL.md file.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleFetchSkill} className="flex flex-col gap-4 mt-2">
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="github-url" className="text-sm font-medium">
-                  GitHub Repository URL <span className="text-destructive">*</span>
+                  GitHub URL <span className="text-destructive">*</span>
                 </label>
                 <Input
                   id="github-url"
-                  type="url"
-                  placeholder="https://github.com/user/repo"
+                  type="text"
+                  placeholder="owner/repo/skill-folder or paste GitHub URL"
                   value={url}
                   onChange={handleUrlChange}
                   onBlur={handleUrlBlur}
@@ -437,6 +456,9 @@ function GitHubImportDialog({
                   autoFocus
                   className={error && url ? "border-destructive" : ""}
                 />
+                <p className="text-[11px] text-muted-foreground">
+                  Supports: owner/repo, owner/repo/path, or full GitHub URLs including /tree/branch/path links
+                </p>
               </div>
 
               {/* Error Display */}
