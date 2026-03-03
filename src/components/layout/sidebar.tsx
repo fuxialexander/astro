@@ -100,13 +100,12 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     const session = agentSessions.get(projectId)
     const planExec = executions.get(`plan-${projectId}`)
     const isGenerating = session?.status === "active" || session?.status === "generated" || planExec?.status === "running" || planExec?.status === "pending"
-    const project = projects.find(p => p.id === projectId)
-    if (isGenerating || project?.projectType === "plan") {
+    if (isGenerating) {
       navigate(`/plan?projectId=${projectId}`)
     } else {
       navigate(`/project/${projectId}/list`)
     }
-  }, [agentSessions, executions, projects, navigate])
+  }, [agentSessions, executions, navigate])
 
   // O(1) lookup map for plan nodes by ID
   const planNodesById = useMemo(() => {
