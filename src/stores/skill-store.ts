@@ -4,6 +4,11 @@ import { buildSkillPromptInjection } from "@astro/core/skill-injector"
 import { dataClient } from "@/lib/data-client"
 import { useToastStore } from "@/stores/toast-store"
 
+/** Returns true if the id is a temp placeholder (not yet persisted to server). */
+function isTempId(id: string): boolean {
+  return id.startsWith('temp-')
+}
+
 /**
  * SkillRow extends OpenClawSkill with the DB fields returned by the API.
  * The `id` is the server-assigned UUID primary key used for CRUD operations.
@@ -122,6 +127,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
   },
 
   updateSkill: (id, updates) => {
+    if (isTempId(id)) return // Still saving — server ID not yet assigned
     const skills = new Map(get().skills)
     const existing = skills.get(id)
     if (!existing) return
@@ -157,6 +163,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
   },
 
   removeSkill: (id) => {
+    if (isTempId(id)) return // Still saving — server ID not yet assigned
     const skills = new Map(get().skills)
     const existing = skills.get(id)
     if (!existing) return
@@ -181,6 +188,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
   },
 
   toggleSkill: (id) => {
+    if (isTempId(id)) return // Still saving — server ID not yet assigned
     const skills = new Map(get().skills)
     const existing = skills.get(id)
     if (!existing) return
@@ -208,6 +216,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
   },
 
   enableSkill: (id) => {
+    if (isTempId(id)) return // Still saving — server ID not yet assigned
     const skills = new Map(get().skills)
     const existing = skills.get(id)
     if (!existing || existing.enabled) return
@@ -230,6 +239,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
   },
 
   disableSkill: (id) => {
+    if (isTempId(id)) return // Still saving — server ID not yet assigned
     const skills = new Map(get().skills)
     const existing = skills.get(id)
     if (!existing || !existing.enabled) return
@@ -252,6 +262,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
   },
 
   updateSkillConfig: (id, config) => {
+    if (isTempId(id)) return // Still saving — server ID not yet assigned
     const skills = new Map(get().skills)
     const existing = skills.get(id)
     if (!existing) return

@@ -1022,6 +1022,16 @@ describe('skill store', () => {
       expect(mockDataClient.updateSkill).not.toHaveBeenCalled()
     })
 
+    it('no-ops on temp-prefixed IDs (skill still saving)', () => {
+      const existing = makeSkillRow({ id: 'temp-abc123', name: 'pending-skill' })
+      useSkillStore.setState({
+        skills: new Map([['temp-abc123', existing as unknown as SkillRow]]),
+      })
+
+      useSkillStore.getState().updateSkill('temp-abc123', { description: 'Changed' })
+      expect(mockDataClient.updateSkill).not.toHaveBeenCalled()
+    })
+
     it('calls dataClient.updateSkill for backend sync', () => {
       const existing = makeSkillRow({ id: 'skill-id', name: 'to-sync' })
       useSkillStore.setState({
@@ -1088,6 +1098,18 @@ describe('skill store', () => {
       useSkillStore.getState().removeSkill('nonexistent')
       expect(mockDataClient.deleteSkill).not.toHaveBeenCalled()
     })
+
+    it('no-ops on temp-prefixed IDs (skill still saving)', () => {
+      const existing = makeSkillRow({ id: 'temp-abc123', name: 'pending-skill' })
+      useSkillStore.setState({
+        skills: new Map([['temp-abc123', existing as unknown as SkillRow]]),
+      })
+
+      useSkillStore.getState().removeSkill('temp-abc123')
+      expect(mockDataClient.deleteSkill).not.toHaveBeenCalled()
+      // Skill should remain in local state (not optimistically removed)
+      expect(useSkillStore.getState().skills.has('temp-abc123')).toBe(true)
+    })
   })
 
   describe('toggleSkill', () => {
@@ -1151,6 +1173,18 @@ describe('skill store', () => {
     it('no-ops when skill does not exist', () => {
       useSkillStore.getState().toggleSkill('nonexistent')
       expect(mockDataClient.toggleSkill).not.toHaveBeenCalled()
+    })
+
+    it('no-ops on temp-prefixed IDs (skill still saving)', () => {
+      const existing = makeSkillRow({ id: 'temp-abc123', name: 'pending-skill', enabled: true })
+      useSkillStore.setState({
+        skills: new Map([['temp-abc123', existing as unknown as SkillRow]]),
+      })
+
+      useSkillStore.getState().toggleSkill('temp-abc123')
+      expect(mockDataClient.toggleSkill).not.toHaveBeenCalled()
+      // Enabled state should not change
+      expect(useSkillStore.getState().skills.get('temp-abc123')?.enabled).toBe(true)
     })
   })
 
