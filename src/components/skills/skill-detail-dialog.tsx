@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Zap, Pencil, Trash2, ExternalLink, Tag, Clock, Calendar } from "lucide-react"
+import { Zap, Pencil, Trash2, ExternalLink, Tag, Clock, Calendar, Info } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -311,6 +311,14 @@ export function SkillDetailDialog({
               )}
             </div>
 
+            {/* Info banner for builtin skills */}
+            {skill.source === "builtin" && (
+              <div className="flex items-center gap-2 rounded-md border border-info/30 bg-info/5 px-3 py-2 text-xs text-info">
+                <Info className="h-3.5 w-3.5 flex-shrink-0" />
+                <span>Built-in skills cannot be edited.</span>
+              </div>
+            )}
+
             {isEditingInstructions ? (
               <div className="flex flex-col gap-2 flex-1 min-h-0">
                 <Textarea
@@ -360,6 +368,14 @@ export function SkillDetailDialog({
               )}
             </div>
 
+            {/* Info banner for builtin skills */}
+            {skill.source === "builtin" && (
+              <div className="flex items-center gap-2 rounded-md border border-info/30 bg-info/5 px-3 py-2 text-xs text-info">
+                <Info className="h-3.5 w-3.5 flex-shrink-0" />
+                <span>Built-in skills cannot be edited.</span>
+              </div>
+            )}
+
             {isEditingConfig ? (
               <div className="flex flex-col gap-2 flex-1 min-h-0">
                 <Textarea
@@ -403,11 +419,6 @@ export function SkillDetailDialog({
               </div>
             ) : (
               <div className="rounded-md border border-border bg-muted/30 p-4 overflow-y-auto max-h-[40vh]">
-                {skill.source === "builtin" && (
-                  <p className="text-xs text-muted-foreground mb-2 italic">
-                    Read-only (builtin skill)
-                  </p>
-                )}
                 <pre className="text-xs font-mono">
                   {JSON.stringify(skill.config || {}, null, 2)}
                 </pre>
