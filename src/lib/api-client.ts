@@ -339,11 +339,18 @@ export async function suggestLabels(title: string, description: string): Promise
 
 // ── GitHub PR & branch management ───────────────────────────────────
 
+/**
+ * Close a GitHub pull request.
+ * @param owner - Repository owner (username or organization)
+ * @param repo - Repository name
+ * @param prNumber - Pull request number
+ * @returns Promise resolving to { success: boolean; error: string | null }
+ */
 export async function closePr(
   owner: string,
   repo: string,
   prNumber: number,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error: string | null }> {
   try {
     const res = await fetch(apiUrl("/api/github/close-pr"), {
       method: "POST",
@@ -353,18 +360,27 @@ export async function closePr(
     if (!res.ok) {
       return { success: false, error: `Server error: ${res.status}` }
     }
-    return await res.json()
+    const data = await res.json()
+    return { success: data.success, error: data.error ?? null }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
 
+/**
+ * Ensure a GitHub branch exists, creating it if necessary.
+ * @param owner - Repository owner (username or organization)
+ * @param repo - Repository name
+ * @param branchName - Name of the branch to ensure exists
+ * @param sourceBranch - Optional source branch to create from (defaults to 'main' with fallback to 'master')
+ * @returns Promise resolving to { success: boolean; created?: boolean; error: string | null }
+ */
 export async function ensureBranch(
   owner: string,
   repo: string,
   branchName: string,
   sourceBranch?: string,
-): Promise<{ success: boolean; created?: boolean; error?: string }> {
+): Promise<{ success: boolean; created?: boolean; error: string | null }> {
   try {
     const res = await fetch(apiUrl("/api/github/ensure-branch"), {
       method: "POST",
@@ -374,7 +390,8 @@ export async function ensureBranch(
     if (!res.ok) {
       return { success: false, error: `Server error: ${res.status}` }
     }
-    return await res.json()
+    const data = await res.json()
+    return { success: data.success, created: data.created, error: data.error ?? null }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }

@@ -75,16 +75,27 @@ export function useConvertToProject() {
 
   const addProject = useProjectStore((s) => s.addProject)
   const updateProject = useProjectStore((s) => s.updateProject)
+  const deleteProject = useProjectStore((s) => s.deleteProject)
   const removeNodes = usePlanStore((s) => s.removeNodes)
   const startPlanSessionForProject = useExecutionStore((s) => s.startPlanSessionForProject)
   const addToast = useToastStore((s) => s.add)
 
   const convert = useCallback(async ({ node, projectName }: ConvertOptions): Promise<boolean> => {
+    // Validate project name upfront
+    if (!projectName.trim()) {
+      addToast({ type: "error", title: "Project name required" })
+      return false
+    }
+
     setIsConverting(true)
     setError(null)
 
+    // Track whether we created the project for cleanup on failure
+    let createdProjectId: string | null = null
+
     try {
-      // Re-check isolation at convert time
+      // Re-check isolation at convert time (known race: edges could be added between
+      // check and delete, but impact is low since delete is soft and UI hides button)
       const liveEdges = usePlanStore.getState().edges.filter(isLive)
       const hasEdge = liveEdges.some((e) => e.source === node.id || e.target === node.id)
       if (hasEdge) {
@@ -188,6 +199,7 @@ export function useConvertToProject() {
       }
 
       await addProject(newProject)
+      createdProjectId = newProjectId
 
       // 7. Start plan generation (before deleting node — if this fails, node remains)
       await startPlanSessionForProject(newProjectId, enrichedDescription, {
@@ -213,6 +225,16 @@ export function useConvertToProject() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setError(message)
+
+      // Cleanup: Remove orphaned project if we created it but later steps failed
+      if (createdProjectId) {
+        try {
+          deleteProject(createdProjectId)
+        } catch (cleanupErr) {
+          console.error("Failed to clean up orphaned project:", cleanupErr)
+        }
+      }
+
       addToast({
         type: "error",
         title: "Failed to convert node to project",
@@ -222,7 +244,7 @@ export function useConvertToProject() {
     } finally {
       setIsConverting(false)
     }
-  }, [navigate, addProject, updateProject, removeNodes, startPlanSessionForProject, addToast])
+  }, [navigate, addProject, updateProject, deleteProject, removeNodes, startPlanSessionForProject, addToast])
 
   return { convert, isConverting, error }
 }
