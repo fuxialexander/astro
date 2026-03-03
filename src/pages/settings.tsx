@@ -1577,20 +1577,32 @@ function EnvironmentsSettingsContent() {
 
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const resetTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const pendingSaveRef = useRef<{ tier: ModelTier; provider: string; model: string } | null>(null)
 
   useEffect(() => {
     if (!machinesLoaded) loadMachines()
     if (!providersLoaded) loadProviders()
   }, [machinesLoaded, loadMachines, providersLoaded, loadProviders])
 
-  // Cleanup timeout on unmount
+  // Cleanup timeouts on unmount and flush pending changes
   useEffect(() => {
     return () => {
+      // Clear debounce timeout
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current)
       }
+      // Clear reset status timeout
+      if (resetTimeoutRef.current) {
+        clearTimeout(resetTimeoutRef.current)
+      }
+      // Flush pending save to avoid data loss
+      if (pendingSaveRef.current) {
+        const { tier, provider, model } = pendingSaveRef.current
+        setCustomModel(tier, provider, model)
+      }
     }
-  }, [])
+  }, [setCustomModel])
 
   const onlineMachines = execMachines.filter((m) => m.status !== "offline")
   const availableProviders = providers.filter((p) => p.available)
@@ -1608,14 +1620,21 @@ function EnvironmentsSettingsContent() {
   const debouncedSetCustomModel = useCallback((tier: ModelTier, provider: string, model: string) => {
     setSaveStatus("saving")
 
-    // Clear existing timeout
+    // Store pending save params for cleanup flush
+    pendingSaveRef.current = { tier, provider, model }
+
+    // Clear existing timeouts
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current)
     }
+    if (resetTimeoutRef.current) {
+      clearTimeout(resetTimeoutRef.current)
+    }
 
-    // Set new timeout
+    // Set new debounced save timeout (300ms for better UX)
     saveTimeoutRef.current = setTimeout(() => {
       setCustomModel(tier, provider, model)
+      pendingSaveRef.current = null // Clear pending save after successful save
       setSaveStatus("saved")
       addToast({
         type: "success",
@@ -1625,10 +1644,10 @@ function EnvironmentsSettingsContent() {
       })
 
       // Reset to idle after showing "saved" for a moment
-      setTimeout(() => {
+      resetTimeoutRef.current = setTimeout(() => {
         setSaveStatus("idle")
       }, 1500)
-    }, 500)
+    }, 300)
   }, [setCustomModel, addToast])
 
   return (
