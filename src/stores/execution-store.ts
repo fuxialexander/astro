@@ -416,12 +416,12 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           workingDirectory: resolvedDir,
           computeBackend: options?.computeBackend,
           deliveryMode: project?.deliveryMode || undefined,
-          remoteType: project?.source?.remoteType,
-          agentDir: project?.agentDir,
-          worktreeStrategy: project?.worktreeStrategy,
+          remoteType: project?.source?.remoteType || undefined,
+          agentDir: project?.agentDir || undefined,
+          worktreeStrategy: project?.worktreeStrategy || undefined,
           useWorktree: options?.useWorktree,
           imageRefs: node.content ? extractBlobUrls(node.content) : undefined,
-          acceptanceCriteria: node.acceptanceCriteria,
+          acceptanceCriteria: node.acceptanceCriteria || undefined,
           ...signing,
         }),
         signal: abortController.signal,
@@ -1033,7 +1033,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
         if (!response.ok) {
           const errorBody = await response.json().catch(() => null)
-          const detail = errorBody?.error || ""
+          const detail = errorBody?.error || errorBody?.details?.[0]?.message || ""
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 
@@ -1250,7 +1250,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             targetMachineId: options?.targetMachineId,
             model: options?.model,
             preferredProvider: options?.preferredProvider,
-            workingDirectory: options?.workingDirectory || project.workingDirectory,
+            workingDirectory: options?.workingDirectory || project.workingDirectory || undefined,
             isInteractivePlan: true,
             ...signing,
           }),
@@ -1259,7 +1259,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
         if (!response.ok) {
           const errorBody = await response.json().catch(() => null)
-          const detail = errorBody?.error || ""
+          const detail = errorBody?.error || errorBody?.details?.[0]?.message || ""
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 
@@ -1391,7 +1391,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
         if (!response.ok) {
           const errorBody = await response.json().catch(() => null)
-          const detail = errorBody?.error || ""
+          const detail = errorBody?.error || errorBody?.details?.[0]?.message || ""
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 
