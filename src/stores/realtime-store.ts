@@ -687,9 +687,8 @@ function reconcileResultFromCatchUp(
     if (exec.executionId === executionId && nid.startsWith('plan-')) {
       const planProjectId = nid.replace(/^plan-/, '')
       // Only extract if project doesn't already have plan nodes
-      const existingNodes = planStore.nodes.filter(n => n.projectId === planProjectId)
-      if (existingNodes.length === 0 && hydrated.stdout) {
-        const result = applyPlanFromText(planProjectId, hydrated.stdout)
+      if (hydrated.stdout) {
+        const result = applyPlanFromText(planProjectId, hydrated.stdout, executionId)
         if (result.applied) {
           console.log('[realtime] Plan extracted from catch-up:', result.nodeCount, 'nodes')
         }
@@ -932,15 +931,13 @@ function handleRealtimeEvent(
       for (const [nid, exec] of execStore.executions) {
         if (exec.executionId === taskId && nid.startsWith('plan-')) {
           const planProjectId = nid.replace(/^plan-/, '')
-          const existingNodes = planStore.nodes.filter(n => n.projectId === planProjectId)
-          if (existingNodes.length === 0) {
-            // Get accumulated stdout from task stream
-            const stream = useRealtimeStore.getState().taskStreams.get(taskId)
-            if (stream?.stdout) {
-              const result = applyPlanFromText(planProjectId, stream.stdout)
-              if (result.applied) {
-                console.log('[realtime] Plan extracted from live SSE result:', result.nodeCount, 'nodes')
-              }
+          // Get accumulated stdout from task stream — use executionId for idempotency
+          // to prevent race duplication with the SSE path in execution-store
+          const stream = useRealtimeStore.getState().taskStreams.get(taskId)
+          if (stream?.stdout) {
+            const result = applyPlanFromText(planProjectId, stream.stdout, taskId)
+            if (result.applied) {
+              console.log('[realtime] Plan extracted from live SSE result:', result.nodeCount, 'nodes')
             }
           }
           break

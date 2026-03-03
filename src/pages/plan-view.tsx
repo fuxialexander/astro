@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Sparkles, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { TaskCreationForm } from "@/components/task-creation-form"
@@ -734,8 +734,6 @@ function InlineListCreationRow({
 
 // --- Inline Empty State for List View ---
 function ListEmptyState({ projectId, columns }: { projectId: string; columns: ListColumn<PlanNode>[] }) {
-  const [visionOpen, setVisionOpen] = useState(false)
-  const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const displaySettings = useDisplaySettingsStore((s) => s.get("plan-list"))
 
   // Filter visible columns (but always show name for creation)
@@ -746,44 +744,29 @@ function ListEmptyState({ projectId, columns }: { projectId: string; columns: Li
   )
 
   return (
-    <>
-      <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project!} />
-      <div className="flex flex-col h-full">
-        {/* Header row */}
-        <div className="flex items-center gap-3 border-b border-border px-6 py-2 bg-muted/30">
-          {visibleColumns.map((col) => (
-            <div
-              key={col.id}
-              className={cn(
-                "text-xs font-medium text-muted-foreground uppercase tracking-wide",
-                col.width
-              )}
-            >
-              {col.label}
-            </div>
-          ))}
-        </div>
-
-        {/* Inline creation row */}
-        <InlineListCreationRow
-          projectId={projectId}
-          columns={columns}
-          displaySettings={displaySettings}
-        />
-
-        {/* AI generation option */}
-        <div className="flex items-center justify-center gap-2 py-4">
-          <span className="text-sm text-muted-foreground">or</span>
-          <button
-            onClick={() => setVisionOpen(true)}
-            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm text-primary hover:bg-primary/10 rounded-md transition-colors"
+    <div className="flex flex-col h-full">
+      {/* Header row */}
+      <div className="flex items-center gap-3 border-b border-border px-6 py-2 bg-muted/30">
+        {visibleColumns.map((col) => (
+          <div
+            key={col.id}
+            className={cn(
+              "text-xs font-medium text-muted-foreground uppercase tracking-wide",
+              col.width
+            )}
           >
-            <Sparkles className="h-3.5 w-3.5" />
-            Generate plan with AI
-          </button>
-        </div>
+            {col.label}
+          </div>
+        ))}
       </div>
-    </>
+
+      {/* Inline creation row */}
+      <InlineListCreationRow
+        projectId={projectId}
+        columns={columns}
+        displaySettings={displaySettings}
+      />
+    </div>
   )
 }
 
