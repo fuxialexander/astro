@@ -415,7 +415,7 @@ export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }
     } else if (!isRenaming) {
       setEditingValue(null)
     }
-  }, [isRenaming, node.title, editingValue])
+  }, [isRenaming, editingValue])
 
   // Add keyboard shortcut (F2) for rename
   useEffect(() => {
@@ -449,8 +449,12 @@ export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }
       // Close input on success
       setIsRenaming(false)
     } catch (err) {
-      // Revert optimistic update
-      usePlanStore.setState({ nodes })
+      // Revert optimistic update - only revert THIS node to avoid overwriting concurrent updates
+      const currentNodes = usePlanStore.getState().nodes
+      const revertedNodes = currentNodes.map(n =>
+        n.id === node.id ? freshNode : n
+      )
+      usePlanStore.setState({ nodes: revertedNodes })
       onNodeUpdate(freshNode)
 
       addToast({
@@ -519,7 +523,7 @@ export function NodeInspectorSidebar(props: NodeInspectorProps) {
     } else if (!isRenaming) {
       setEditingValue(null)
     }
-  }, [isRenaming, node.title, editingValue])
+  }, [isRenaming, editingValue])
 
   // Add keyboard shortcut (F2) for rename
   useEffect(() => {
@@ -553,8 +557,12 @@ export function NodeInspectorSidebar(props: NodeInspectorProps) {
       // Close input on success
       setIsRenaming(false)
     } catch (err) {
-      // Revert optimistic update
-      usePlanStore.setState({ nodes })
+      // Revert optimistic update - only revert THIS node to avoid overwriting concurrent updates
+      const currentNodes = usePlanStore.getState().nodes
+      const revertedNodes = currentNodes.map(n =>
+        n.id === node.id ? freshNode : n
+      )
+      usePlanStore.setState({ nodes: revertedNodes })
       onNodeUpdate(freshNode)
 
       addToast({
