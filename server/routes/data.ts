@@ -105,6 +105,11 @@ app.post('/projects', async (c) => {
       workingDirectory: body.workingDirectory ?? null,
       sourceDirectory: body.sourceDirectory ?? null,
       repository: body.repository ?? null,
+      githubOwner: body.githubOwner ?? null,
+      githubRepo: body.githubRepo ?? null,
+      githubRepoId: body.githubRepoId ?? null,
+      defaultMachineId: body.defaultMachineId ?? null,
+      projectBranch: body.projectBranch ?? null,
       mergeQueueEnabled: body.mergeQueueEnabled ?? false,
       mergeQueueMergeMethod: body.mergeQueueMergeMethod ?? 'squash',
       source: body.source ?? null,
@@ -180,7 +185,11 @@ app.patch('/projects/:id', async (c) => {
   if (body.workingDirectory !== undefined) patch.workingDirectory = body.workingDirectory || null
   if (body.sourceDirectory !== undefined) patch.sourceDirectory = body.sourceDirectory || null
   if (body.repository !== undefined) patch.repository = body.repository || null
+  if (body.githubOwner !== undefined) patch.githubOwner = body.githubOwner || null
+  if (body.githubRepo !== undefined) patch.githubRepo = body.githubRepo || null
+  if (body.githubRepoId !== undefined) patch.githubRepoId = body.githubRepoId ?? null
   if (body.defaultMachineId !== undefined) patch.defaultMachineId = body.defaultMachineId || null
+  if (body.projectBranch !== undefined) patch.projectBranch = body.projectBranch || null
   if (body.mergeQueueEnabled !== undefined) patch.mergeQueueEnabled = body.mergeQueueEnabled ?? false
   if (body.mergeQueueMergeMethod !== undefined) patch.mergeQueueMergeMethod = body.mergeQueueMergeMethod || 'squash'
   if (body.source !== undefined) patch.source = body.source

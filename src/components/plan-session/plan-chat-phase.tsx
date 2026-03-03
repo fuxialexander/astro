@@ -7,7 +7,7 @@
  */
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react"
-import { Send, Loader2, ArrowDown, Sparkles } from "lucide-react"
+import { Send, Loader2, ArrowDown, Sparkles, AlertCircle, Monitor } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useExecutionStore } from "@/stores/execution-store"
@@ -35,6 +35,7 @@ import { PlanSessionHeader } from "./plan-session-header"
 import type { TaskActivityEvent } from "@/types"
 import { useRestoredExecution } from "@/hooks/use-restored-execution"
 import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
+import { Link } from "react-router"
 
 interface PlanChatPhaseProps {
   projectId: string
@@ -417,8 +418,56 @@ export function PlanChatPhase({
         {execution?.status === "failure" && execution.error && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center max-w-md px-4">
-              <p className="text-sm font-medium text-destructive mb-1">Planning session failed</p>
-              <p className="text-xs text-muted-foreground">{execution.error}</p>
+              <AlertCircle className="h-8 w-8 text-destructive mx-auto mb-3" />
+              <p className="text-sm font-medium text-destructive mb-2">Planning session failed</p>
+              {execution.error.toLowerCase().includes("no available machine") ? (
+                <div className="space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    No machine is connected. Connect an agent runner to start planning.
+                  </p>
+                  <div className="flex items-center justify-center gap-2">
+                    <Link to="/environments">
+                      <Button variant="outline" size="sm">
+                        <Monitor className="h-3.5 w-3.5 mr-1.5" />
+                        Set Up Machine
+                      </Button>
+                    </Link>
+                    {onBack && (
+                      <Button variant="ghost" size="sm" onClick={onBack}>
+                        Go Back
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ) : execution.error.toLowerCase().includes("not found or not authorized") ? (
+                <div className="space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    The selected machine is no longer available. It may have disconnected.
+                  </p>
+                  <div className="flex items-center justify-center gap-2">
+                    <Link to="/environments">
+                      <Button variant="outline" size="sm">
+                        <Monitor className="h-3.5 w-3.5 mr-1.5" />
+                        Check Machines
+                      </Button>
+                    </Link>
+                    {onBack && (
+                      <Button variant="ghost" size="sm" onClick={onBack}>
+                        Go Back
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-xs text-muted-foreground">{execution.error}</p>
+                  {onBack && (
+                    <Button variant="ghost" size="sm" onClick={onBack}>
+                      Go Back
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
