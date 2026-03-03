@@ -27,7 +27,7 @@ import { shareRoute } from './routes/share.js'
 import { connectedAccountsRoute } from './routes/connected-accounts.js'
 import { teamsRoute } from './routes/teams.js'
 import { runMigrations } from './lib/db/migrate.js'
-import { bootstrapBuiltinSkills } from './lib/db/bootstrap-skills.js'
+import { bootstrapBuiltinSkills, syncSkillsFromDb } from './lib/db/bootstrap-skills.js'
 import { closeDb } from '../packages/core/src/db/index.js'
 import { relayServer } from './lib/relay-server.js'
 import { redisPubSub } from './lib/redis-pubsub.js'
@@ -261,6 +261,14 @@ async function start() {
     await bootstrapBuiltinSkills()
   } catch (err) {
     console.error('[bootstrap] Built-in skills bootstrap failed:', err)
+  }
+
+  // Load DB skills into in-memory skill-manager for prompt injection
+  try {
+    const { skillManager } = await import('./lib/skill-manager.js')
+    await syncSkillsFromDb(skillManager)
+  } catch (err) {
+    console.error('[bootstrap] Skill-manager sync failed:', err)
   }
 
   console.log('[backend] initializing server (relay-only mode)...')

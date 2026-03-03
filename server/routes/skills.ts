@@ -10,6 +10,8 @@
 import { Hono } from 'hono'
 import { eq, and, or, isNull } from 'drizzle-orm'
 import { db } from '../lib/db/index.js'
+import { syncSkillsFromDb } from '../lib/db/bootstrap-skills.js'
+import { skillManager } from '../lib/skill-manager.js'
 import { skills } from '../lib/db/schema.js'
 import { errorMessage } from '../lib/error-utils.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
@@ -200,6 +202,9 @@ skillsRoute.post('/', async (c) => {
 
     const [created] = await db.select().from(skills).where(eq(skills.id, skillId))
 
+    // Sync in-memory skill-manager for prompt injection
+    await syncSkillsFromDb(skillManager)
+
     return c.json(created, 201)
   } catch (e) {
     console.error('[skills] POST / error:', e)
@@ -273,7 +278,7 @@ skillsRoute.put('/:id', async (c) => {
       if (body.source !== existing.source) {
         return c.json({ error: 'source field is immutable after creation' }, 400)
       }
-      console.warn(`[skills] Client sent source field in PUT request for skill ${id}, ignoring (source is immutable)`)
+      // Same source as existing — no-op
     }
     if (body.sourceUrl !== undefined) patch.sourceUrl = body.sourceUrl || null
     if (body.enabled !== undefined) patch.enabled = body.enabled
@@ -300,6 +305,10 @@ skillsRoute.put('/:id', async (c) => {
     await db.update(skills).set(patch).where(eq(skills.id, id))
 
     const [updated] = await db.select().from(skills).where(eq(skills.id, id))
+
+    // Sync in-memory skill-manager for prompt injection
+    await syncSkillsFromDb(skillManager)
+
     return c.json(updated)
   } catch (e) {
     console.error('[skills] PUT /:id error:', e)
@@ -334,6 +343,9 @@ skillsRoute.delete('/:id', async (c) => {
     }
 
     await db.delete(skills).where(eq(skills.id, id))
+
+    // Sync in-memory skill-manager for prompt injection
+    await syncSkillsFromDb(skillManager)
 
     return c.json({ ok: true, id })
   } catch (e) {
@@ -373,6 +385,10 @@ skillsRoute.put('/:id/toggle', async (c) => {
     }).where(eq(skills.id, id))
 
     const [updated] = await db.select().from(skills).where(eq(skills.id, id))
+
+    // Sync in-memory skill-manager for prompt injection
+    await syncSkillsFromDb(skillManager)
+
     return c.json(updated)
   } catch (e) {
     console.error('[skills] PUT /:id/toggle error:', e)

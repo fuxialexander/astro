@@ -84,3 +84,31 @@ export async function bootstrapBuiltinSkills(): Promise<void> {
     `[bootstrap] Built-in skills seeding complete: ${inserted} inserted, ${updated} updated`
   )
 }
+
+
+/**
+ * Load all enabled skills from DB into the in-memory skill-manager.
+ * Called after bootstrap and after API mutations to keep the
+ * in-memory registry (used for prompt injection) in sync with DB.
+ */
+export async function syncSkillsFromDb(
+  skillManager: { loadSkills: (skills: Array<{
+    name: string; description: string; instructions: string;
+    source: string; enabled: boolean;
+    config?: Record<string, unknown>;
+    userInvocable?: boolean; disableModelInvocation?: boolean;
+  }>) => void }
+): Promise<void> {
+  const rows = await db.select().from(skills).where(eq(skills.enabled, true))
+  const mapped = rows.map((s) => ({
+    name: s.name,
+    description: s.description,
+    instructions: s.instructions,
+    source: s.source ?? 'workspace',
+    enabled: s.enabled,
+    config: (s.config ?? {}) as Record<string, unknown>,
+    userInvocable: ((s.config as Record<string, unknown>)?.userInvocable as boolean | undefined),
+    disableModelInvocation: ((s.config as Record<string, unknown>)?.disableModelInvocation as boolean | undefined),
+  }))
+  skillManager.loadSkills(mapped)
+}

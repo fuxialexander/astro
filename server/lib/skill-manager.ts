@@ -1,13 +1,12 @@
 /**
  * Skill Manager (Server-side, In-Memory Registry)
  *
- * Manages an in-memory registry of skills. Skills are populated from:
- * - Relay messages (agent runner reports machine-local skills)
- * - API calls (frontend sends skills discovered via Tauri or relay)
- * - Programmatic registration (server plugins contribute skills)
+ * Manages an in-memory registry of skills used for prompt injection.
+ * The registry is synced from the DB on startup and after each API mutation
+ * via syncSkillsFromDb() in bootstrap-skills.ts.
  *
- * NO filesystem access. Parsing logic lives in src/lib/skill-parser.ts.
- * Prompt injection logic lives in server/lib/skill-injector.ts.
+ * Prompt injection logic lives in packages/core/src/skill-injector.ts.
+ * DB persistence lives in server/routes/skills.ts (Drizzle ORM).
  */
 
 import type { OpenClawSkill } from '../../src/types/skill.js'
@@ -52,7 +51,7 @@ export class SkillManager {
    * Build XML prompt injection for eligible skills
    */
   getSkillPromptInjection(): string {
-    return buildSkillPromptInjection(this.getAllSkills())
+    return buildSkillPromptInjection(this.getEligibleSkills())
   }
 
   /**
