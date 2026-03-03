@@ -631,13 +631,10 @@ app.post('/plans/:id/fork', async (c) => {
           id: crypto.randomUUID(),
           projectId,
           clientId: edge.id as string,
-          source: edge.source as string,
-          target: edge.target as string,
-          type: (edge.type as string) || 'default',
-          animated: (edge.animated as boolean) || false,
-          label: (edge.label as string) || null,
+          sourceClientId: edge.source as string,
+          targetClientId: edge.target as string,
+          type: (edge.type as string) || 'dependency',
           createdAt: now,
-          updatedAt: now,
         }))
         await tx.insert(planEdges).values(edgeInserts)
       }
@@ -785,31 +782,41 @@ app.post('/plans/:id/star', async (c) => {
     .limit(1)
 
   if (existingStar) {
-    // Unstar - delete record and decrement count
-    await db.delete(sharedPlanStars)
-      .where(and(
-        eq(sharedPlanStars.userId, user.id),
-        eq(sharedPlanStars.planId, planId)
-      ))
-
-    await db.update(sharedPlans)
-      .set({ starsCount: sql`GREATEST(0, ${sharedPlans.starsCount} - 1)` })
-      .where(eq(sharedPlans.id, planId))
-
-    return c.json({ starred: false, message: 'Plan unstarred' })
-  } else {
-    // Star - insert record and increment count
-    await db.insert(sharedPlanStars).values({
-      userId: user.id,
-      planId,
-      createdAt: new Date(),
+    // Unstar - delete record and decrement count atomically
+    await db.transaction(async (tx) => {
+      await tx.delete(sharedPlanStars)
+        .where(and(
+          eq(sharedPlanStars.userId, user.id),
+          eq(sharedPlanStars.planId, planId)
+        ))
+      await tx.update(sharedPlans)
+        .set({ starsCount: sql`GREATEST(0, ${sharedPlans.starsCount} - 1)` })
+        .where(eq(sharedPlans.id, planId))
     })
 
-    await db.update(sharedPlans)
-      .set({ starsCount: sql`${sharedPlans.starsCount} + 1` })
-      .where(eq(sharedPlans.id, planId))
+    // Query actual count for accurate response
+    const [updated] = await db.select({ starsCount: sharedPlans.starsCount })
+      .from(sharedPlans).where(eq(sharedPlans.id, planId)).limit(1)
 
-    return c.json({ starred: true, message: 'Plan starred' })
+    return c.json({ starred: false, starsCount: updated?.starsCount ?? 0, message: 'Plan unstarred' })
+  } else {
+    // Star - insert record and increment count atomically
+    await db.transaction(async (tx) => {
+      await tx.insert(sharedPlanStars).values({
+        userId: user.id,
+        planId,
+        createdAt: new Date(),
+      })
+      await tx.update(sharedPlans)
+        .set({ starsCount: sql`${sharedPlans.starsCount} + 1` })
+        .where(eq(sharedPlans.id, planId))
+    })
+
+    // Query actual count for accurate response
+    const [updated] = await db.select({ starsCount: sharedPlans.starsCount })
+      .from(sharedPlans).where(eq(sharedPlans.id, planId)).limit(1)
+
+    return c.json({ starred: true, starsCount: updated?.starsCount ?? 0, message: 'Plan starred' })
   }
 })
 

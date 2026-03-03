@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { formatDistanceToNow } from "date-fns"
 import { useCommunityStore } from "@/stores/community-store"
+import { useToastStore } from "@/stores/toast-store"
 import { useAuthStore } from "@/stores/auth-store"
 import { editComment, deleteComment } from "@/lib/community-client"
 import { Button } from "@/components/ui/button"
@@ -190,6 +191,11 @@ export function CommunityPlanDetail() {
       navigate(`/project/${projectId}`)
     } catch (err) {
       console.error("Failed to fork plan:", err)
+      useToastStore.getState().add({
+        type: "error",
+        title: "Failed to fork plan",
+        description: err instanceof Error ? err.message : "Something went wrong",
+      })
     } finally {
       setIsForking(false)
     }
@@ -203,6 +209,11 @@ export function CommunityPlanDetail() {
       setReplyingTo(null)
     } catch (err) {
       console.error("Failed to add comment:", err)
+      useToastStore.getState().add({
+        type: "error",
+        title: "Failed to add comment",
+        description: err instanceof Error ? err.message : "Something went wrong",
+      })
     }
   }
 
@@ -463,7 +474,7 @@ export function CommunityPlanDetail() {
                           <div className="text-center space-y-3">
                             <Layers className="h-12 w-12 mx-auto text-muted-foreground" />
                             <p className="text-sm font-medium text-foreground">
-                              Plan with {plan.planData.nodes.length} nodes and {plan.planData.edges.length} edges
+                              Plan with {plan.planData?.nodes?.length ?? 0} nodes and {plan.planData?.edges?.length ?? 0} edges
                             </p>
                             <p className="text-xs text-muted-foreground max-w-sm">
                               Interactive graph preview coming soon
@@ -644,7 +655,7 @@ export function CommunityPlanDetail() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Nodes</span>
-                  <span className="font-medium">{plan.planData.nodes.length}</span>
+                  <span className="font-medium">{plan.planData?.nodes?.length ?? 0}</span>
                 </div>
               </CardContent>
             </Card>

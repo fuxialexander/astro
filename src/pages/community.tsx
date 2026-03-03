@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react"
 import { Search, ChevronLeft, ChevronRight, Globe, FileText, Edit2, Trash2, Star, GitFork } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { useCommunityStore } from "@/stores/community-store"
+import { useToastStore } from "@/stores/toast-store"
 import { updatePublishedPlan, deletePublishedPlan } from "@/lib/community-client"
 import type { SharedPlanSummary } from "@/lib/community-client"
 import { Input } from "@/components/ui/input"
@@ -60,6 +61,11 @@ function MyPlanCard({ plan, onEdit, onUnpublish }: MyPlanCardProps) {
       onUnpublish()
     } catch (err) {
       console.error("Failed to unpublish plan:", err)
+      useToastStore.getState().add({
+        type: "error",
+        title: "Failed to unpublish",
+        description: err instanceof Error ? err.message : "Something went wrong",
+      })
     } finally {
       setIsUnpublishing(false)
     }
@@ -296,6 +302,11 @@ export function Community() {
       await fetchMyPlans()
     } catch (err) {
       console.error("Failed to update plan:", err)
+      useToastStore.getState().add({
+        type: "error",
+        title: "Failed to update plan",
+        description: err instanceof Error ? err.message : "Something went wrong",
+      })
     } finally {
       setIsSavingEdit(false)
     }

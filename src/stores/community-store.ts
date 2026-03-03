@@ -164,60 +164,36 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
 
   // Toggle star status (optimistic update with rollback on error)
   toggleStar: async (id: string) => {
-    const { plans, selectedPlan } = get()
-
-    // Capture current star count for rollback
-    let previousStarsCount = 0
-
-    // Find plan in any list to get current count
-    const planInList = plans.find((p) => p.id === id)
-    if (planInList) {
-      previousStarsCount = planInList.starsCount
-    }
-    if (selectedPlan && selectedPlan.id === id) {
-      previousStarsCount = selectedPlan.starsCount
-    }
+    // Capture current star count for rollback (read fresh state)
+    const { plans: currentPlans, selectedPlan: currentSelected } = get()
+    const planInList = currentPlans.find((p) => p.id === id)
+    const previousStarsCount = (currentSelected?.id === id ? currentSelected.starsCount : planInList?.starsCount) ?? 0
 
     // Optimistic update: assume toggling means adding a star (increment)
-    const optimisticIncrement = 1
-    const optimisticStarsCount = previousStarsCount + optimisticIncrement
+    const optimisticStarsCount = previousStarsCount + 1
+    const updateStarCount = (count: number) => {
+      const { plans, selectedPlan } = get() // Always read fresh state
+      set({
+        plans: plans.map((p) =>
+          p.id === id ? { ...p, starsCount: count } : p
+        ),
+        selectedPlan:
+          selectedPlan && selectedPlan.id === id
+            ? { ...selectedPlan, starsCount: count }
+            : selectedPlan,
+      })
+    }
 
-    // Update all occurrences optimistically
-    set({
-      plans: plans.map((p) =>
-        p.id === id ? { ...p, starsCount: optimisticStarsCount } : p
-      ),
-      selectedPlan:
-        selectedPlan && selectedPlan.id === id
-          ? { ...selectedPlan, starsCount: optimisticStarsCount }
-          : selectedPlan,
-    })
+    updateStarCount(optimisticStarsCount)
 
     try {
       const result = await apiToggleStar(id)
       // Apply actual result from server
-      const actualStarsCount = result.starsCount
-      set({
-        plans: plans.map((p) =>
-          p.id === id ? { ...p, starsCount: actualStarsCount } : p
-        ),
-        selectedPlan:
-          selectedPlan && selectedPlan.id === id
-            ? { ...selectedPlan, starsCount: actualStarsCount }
-            : selectedPlan,
-      })
+      updateStarCount(result.starsCount)
     } catch (err) {
       console.error('[community-store] Failed to toggle star:', err)
       // Rollback: restore previous count
-      set({
-        plans: plans.map((p) =>
-          p.id === id ? { ...p, starsCount: previousStarsCount } : p
-        ),
-        selectedPlan:
-          selectedPlan && selectedPlan.id === id
-            ? { ...selectedPlan, starsCount: previousStarsCount }
-            : selectedPlan,
-      })
+      updateStarCount(previousStarsCount)
     }
   },
 
