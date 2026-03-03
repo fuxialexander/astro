@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Zap, Pencil, Trash2, ExternalLink, Tag } from "lucide-react"
+import { Zap, Pencil, Trash2, ExternalLink, Tag, Clock, Calendar } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -118,17 +118,14 @@ export function SkillDetailDialog({
               <Zap className="h-4 w-4 text-primary-foreground" />
             </div>
             <div className="flex flex-col gap-0.5">
-              <DialogTitle className="flex items-center gap-2">
-                {skill.name}
-                {skill.version && (
-                  <span className="text-xs font-normal text-muted-foreground">
-                    v{skill.version}
-                  </span>
-                )}
-              </DialogTitle>
+              <DialogTitle>{skill.name}</DialogTitle>
             </div>
           </div>
-          <DialogDescription>{skill.description}</DialogDescription>
+          {skill.description && (
+            <DialogDescription className="line-clamp-2">
+              {skill.description}
+            </DialogDescription>
+          )}
         </DialogHeader>
 
         <Tabs defaultValue="overview" className="flex-1 flex flex-col min-h-0">
@@ -138,8 +135,8 @@ export function SkillDetailDialog({
             <TabsTrigger value="configuration">Configuration</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="overview" className="flex-1 flex flex-col gap-4 min-h-0">
-            {/* Metadata row: source, category, tags */}
+          <TabsContent value="overview" className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto">
+            {/* Metadata row: source, category, version, tags */}
             <div className="flex flex-wrap items-center gap-2">
               <Badge
                 className={cn(
@@ -152,6 +149,11 @@ export function SkillDetailDialog({
               {skill.category && (
                 <Badge variant="outline" className="text-[10px] py-0 h-4">
                   {skill.category}
+                </Badge>
+              )}
+              {skill.version && (
+                <Badge variant="secondary" className="text-[10px] py-0 h-4">
+                  v{skill.version}
                 </Badge>
               )}
               {skill.tags && skill.tags.length > 0 && (
@@ -168,18 +170,14 @@ export function SkillDetailDialog({
                   ))}
                 </>
               )}
-              {skill.homepage && (
-                <a
-                  href={skill.homepage}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[10px] text-info hover:underline"
-                >
-                  <ExternalLink className="h-2.5 w-2.5" />
-                  Homepage
-                </a>
-              )}
             </div>
+
+            {/* Description (markdown) */}
+            {skill.description && (
+              <div className="rounded-md border border-border bg-muted/30 p-3">
+                <MarkdownRenderer content={skill.description} className="text-sm" />
+              </div>
+            )}
 
             {/* Enable/disable toggle */}
             <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
@@ -195,6 +193,92 @@ export function SkillDetailDialog({
                 onCheckedChange={handleToggle}
               />
             </div>
+
+            {/* Allowed Tools */}
+            {skill.allowedTools && skill.allowedTools.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <span className="text-xs font-medium text-muted-foreground">
+                  Allowed Tools
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {skill.allowedTools.map((tool) => (
+                    <Badge
+                      key={tool}
+                      variant="outline"
+                      className="text-[10px] px-2 py-0.5 font-mono"
+                    >
+                      {tool}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Source URL / Homepage */}
+            {(skill.homepage || skill.sourceUrl) && (
+              <div className="flex flex-col gap-2">
+                <span className="text-xs font-medium text-muted-foreground">Links</span>
+                <div className="flex flex-col gap-1">
+                  {skill.homepage && (
+                    <a
+                      href={skill.homepage}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs text-info hover:underline"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Homepage
+                    </a>
+                  )}
+                  {skill.sourceUrl && skill.sourceUrl !== skill.homepage && (
+                    <a
+                      href={skill.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground hover:underline"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Source URL
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Timestamps */}
+            {(skill.createdAt || skill.updatedAt) && (
+              <div className="flex flex-col gap-2 pt-2 border-t border-border">
+                <span className="text-xs font-medium text-muted-foreground">
+                  Metadata
+                </span>
+                <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+                  {skill.createdAt && (
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="h-3 w-3" />
+                      <span>
+                        Created {new Date(skill.createdAt).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </span>
+                    </div>
+                  )}
+                  {skill.updatedAt && (
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="h-3 w-3" />
+                      <span>
+                        Updated {new Date(skill.updatedAt).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="instructions" className="flex-1 flex flex-col gap-2 min-h-0">
