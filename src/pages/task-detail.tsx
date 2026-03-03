@@ -22,6 +22,8 @@ import { statusBadgeVariants } from "@/lib/status-config"
 import { formatDuration } from "@/lib/date-utils"
 import { cn, getShortId } from "@/lib/utils"
 import { useRestoredExecution } from "@/hooks/use-restored-execution"
+import { GitHubCommentBlock } from "@/components/github-comment-block"
+import { PrReviewThreads } from "@/components/pr-review-threads"
 
 export type PanelSize = 'default' | 'three-quarter' | 'full'
 
@@ -453,6 +455,72 @@ export function TaskDetail() {
           )}
         </div>
       )}
+
+      {/* GitHub Comments & PR Review Threads */}
+      {(() => {
+        // Extract owner/repo from project or PR URL
+        const prUrl = node.prUrl || execution?.prUrl
+        const prNum = node.prNumber || execution?.prNumber
+        const issueNum = node.githubIssueNumber
+        const ghOwner = project?.githubOwner
+        const ghRepo = project?.githubRepo
+
+        // Try to extract owner/repo from PR URL if project doesn't have it
+        let owner = ghOwner
+        let repo = ghRepo
+        if (!owner || !repo) {
+          if (prUrl) {
+            const match = prUrl.match(/github\.com\/([^/]+)\/([^/]+)/)
+            if (match) {
+              owner = match[1]
+              repo = match[2]
+            }
+          } else if (node.githubIssueUrl) {
+            const match = node.githubIssueUrl.match(/github\.com\/([^/]+)\/([^/]+)/)
+            if (match) {
+              owner = match[1]
+              repo = match[2]
+            }
+          }
+        }
+
+        const showPrSection = owner && repo && prNum
+        const showIssueSection = owner && repo && issueNum
+
+        if (!showPrSection && !showIssueSection) return null
+
+        return (
+          <div className="px-4 md:px-6 py-2 space-y-2">
+            {/* Issue/PR Comments */}
+            {showIssueSection && (
+              <GitHubCommentBlock
+                owner={owner!}
+                repo={repo!}
+                number={issueNum!}
+              />
+            )}
+            {/* PR-specific sections (review threads + PR-level comments) */}
+            {showPrSection && (
+              <>
+                {/* PR-level comments (if different from issue) */}
+                {(!issueNum || issueNum !== prNum) && (
+                  <GitHubCommentBlock
+                    owner={owner!}
+                    repo={repo!}
+                    number={prNum!}
+                  />
+                )}
+                {/* Review threads */}
+                <PrReviewThreads
+                  owner={owner!}
+                  repo={repo!}
+                  prNumber={prNum!}
+                />
+              </>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Main content area: Tabs + optional Inspector sidebar */}
       <div className="flex flex-1 min-h-0">

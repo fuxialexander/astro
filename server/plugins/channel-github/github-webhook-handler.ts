@@ -9,6 +9,7 @@ import type { GitHubChannelConfig, InboundMessage, ChannelRouter } from '../../l
 import { postGitHubComment } from './github-api.js'
 import { astroEventTransport } from '../../lib/events/astro-event-transport.js'
 import { lookupGitHubProject } from '../../lib/github-store.js'
+import { githubCommentDedup } from '../../lib/github-comment-dedup.js'
 import { db } from '../../lib/db/index.js'
 import { planNodes } from '../../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
@@ -134,6 +135,13 @@ export async function handleIssueCommentEvent(
 
   if (!comment || !issue || !repo) return
 
+  // Dedup: skip if this comment was posted from Astro's API (webhook echo)
+  const commentId = comment.id as number
+  if (commentId && githubCommentDedup.isEcho(commentId)) {
+    console.log(`[github-channel] Skipping webhook echo for comment ${commentId}`)
+    return
+  }
+
   const repoFullName = repo.full_name as string
   const projectId = config.repoMappings[repoFullName]
     ?? await lookupGitHubProject(repoFullName)
@@ -144,7 +152,6 @@ export async function handleIssueCommentEvent(
 
   const sender = comment.user as Record<string, unknown> | undefined
   const issueNumber = issue.number as number
-  const commentId = comment.id as number
   const [owner, repoName] = repoFullName.split('/')
 
   console.log(`[github-channel] @astro mention in issue #${issueNumber} comment by ${sender?.login}`)
