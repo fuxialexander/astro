@@ -593,9 +593,10 @@ async function dispatchViaRelay(
     if (dependencyOutputs.length > 0) {
       const depsSection = dependencyOutputs
         .map((d) => {
+          const safeTitle = d.title.replace(/[\r\n]/g, ' ').slice(0, 200)
           const prInfo = d.prUrl ? `\n**PR:** [#${d.prNumber || '?'}](${d.prUrl})` : ''
           const branchInfo = d.branchName ? `\n**Branch:** \`${d.branchName}\`` : ''
-          return `### ${d.title}${prInfo}${branchInfo}\n\n${d.output}`
+          return `### ${safeTitle}${prInfo}${branchInfo}\n\n${d.output}`
         })
         .join('\n\n---\n\n')
       promptParts.push(`## Previous Task Outputs\n\n${depsSection}`)
@@ -608,10 +609,20 @@ async function dispatchViaRelay(
       const ghOwner = sanitizeGitHubName(githubContext.owner || '')
       const ghRepo = sanitizeGitHubName(githubContext.repo || '')
 
+      if (!ghOwner || !ghRepo) {
+        return c.json(
+          { success: false, error: 'Invalid GitHub repository configuration: owner or repo name contains only invalid characters' },
+          400
+        )
+      }
+
       // Build explicit sub-PR listing from dependency outputs
       const subPrs = dependencyOutputs
         .filter(d => d.prUrl && d.prNumber)
-        .map(d => `- **${d.title}**: [PR #${d.prNumber}](${d.prUrl})`)
+        .map(d => {
+          const sanitizedTitle = d.title.replace(/[\r\n]/g, ' ').slice(0, 200)
+          return `- **${sanitizedTitle}**: [PR #${d.prNumber}](${d.prUrl})`
+        })
       const subPrSection = subPrs.length > 0
         ? `\n### Sub-PRs merged into \`${projectBranchName}\`\n\nThese task PRs have already been merged into the project branch:\n${subPrs.join('\n')}\n\nUse these PR links in the final PR body to give reviewers context on what changed.`
         : `\n### Sub-PRs\n\nNo per-task PR links found in dependency outputs. You can discover them by running:\n\`\`\`bash\ngh pr list --base '${projectBranchName}' --state merged --json number,title,url\n\`\`\`\nInclude any found PRs in the final PR body.`
