@@ -517,7 +517,7 @@ export function Skills() {
         variant: "destructive",
         onAction: (ids) => {
           for (const skill of allSkills) {
-            if (ids.includes(skill.id)) {
+            if (ids.includes(skill.id) && skill.source !== 'builtin') {
               removeSkill(skill.name)
             }
           }

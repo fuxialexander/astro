@@ -17,15 +17,35 @@ import { eq, and } from 'drizzle-orm'
 import { builtinSkills } from '../../../../skills/index.js'
 
 /**
+ * Check if any builtin skill field has changed compared to the DB row.
+ */
+function builtinNeedsUpdate(
+  existing: { version: string | null; description: string; instructions: string; category: string | null; tags: string[]; allowedTools: string[] },
+  skill: { version: string; description: string; instructions: string; category: string; tags: string[]; allowedTools: string[] },
+): boolean {
+  return (
+    existing.version !== skill.version ||
+    existing.description !== skill.description ||
+    existing.instructions !== skill.instructions ||
+    existing.category !== skill.category ||
+    JSON.stringify(existing.tags) !== JSON.stringify(skill.tags) ||
+    JSON.stringify(existing.allowedTools) !== JSON.stringify(skill.allowedTools)
+  )
+}
+
+/**
  * Seed built-in skills into the database.
  *
  * For each built-in skill definition:
  * - Check if a skill with the same name and source='builtin' exists
  * - If not, insert it
- * - If yes, update it if version changed (allows skill updates on upgrade)
+ * - If yes, update it if any field has changed (not just version)
  */
 export async function bootstrapBuiltinSkills(): Promise<void> {
   console.log('[bootstrap] Seeding built-in skills...')
+
+  // Warm up the DB connection to ensure readiness before bootstrap
+  await db.select().from(skills).limit(1)
 
   let inserted = 0
   let updated = 0
@@ -62,8 +82,8 @@ export async function bootstrapBuiltinSkills(): Promise<void> {
       })
       console.log(`[bootstrap] Inserted builtin skill: ${skill.name}`)
       inserted++
-    } else if (existing.version !== skill.version) {
-      // Update existing skill if version changed (skill definition updated)
+    } else if (builtinNeedsUpdate(existing, skill)) {
+      // Update existing skill if any field has changed
       await db
         .update(skills)
         .set({
