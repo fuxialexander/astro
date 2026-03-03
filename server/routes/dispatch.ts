@@ -194,10 +194,14 @@ dispatchRoute.post('/task', async (c) => {
   // Fail-fast optimization: if the client explicitly sends deliveryMode='direct',
   // we can reject duplicate dispatches before the DB lookups (saves ~2 queries).
   // This only fires when deliveryMode is in the request body. If the client
-  // omits deliveryMode (relying on DB resolution), the late check at ~line 405
-  // handles it after the project record is fetched.
+  // omits deliveryMode (relying on DB resolution), the late check
+  // (search: "Late serial execution check") handles it after the project record is fetched.
   // Note: serial execution is a SAFETY constraint (prevents file corruption),
   // not a dependency check — it applies even with force=true.
+  // NOTE: This is a best-effort check with a TOCTOU race window — two concurrent
+  // requests could both pass the activeForProject === 0 check before either starts.
+  // For single-server deployments this is acceptable; for horizontal scaling,
+  // consider a DB-level advisory lock or unique partial index on active executions.
   if (deliveryMode === 'direct' && !dryRun) {
     const stats = await dispatchEngine.getStats()
     const activeForProject = stats.activePerProject?.[projectId] ?? 0
@@ -290,8 +294,9 @@ dispatchRoute.post('/task', async (c) => {
     if (dbProject) {
       visionDoc ??= dbProject.visionDoc || undefined
       // Resolution precedence: body > DB > undefined.
-      // This precedence is relied upon by the serial execution checks at ~line 201
-      // (early: body-provided deliveryMode) and ~line 391 (late: DB-resolved deliveryMode).
+      // This precedence is relied upon by the two serial execution checks:
+      //   - EARLY check (search: "Early serial execution check"): runs when body provides deliveryMode
+      //   - LATE check (search: "Serial execution constraint for 'direct'"): runs when deliveryMode resolved from DB
       deliveryMode ??= (dbProject.deliveryMode as typeof deliveryMode) || undefined
       const source = dbProject.source as { localPath?: string; remoteType?: string; baseBranch?: string } | null
       remoteType ??= (source?.remoteType as typeof remoteType) || undefined
@@ -381,14 +386,16 @@ dispatchRoute.post('/task', async (c) => {
     }
   }
 
-  // Serial execution constraint for 'direct' delivery mode (non-git directories).
+  // ── Late serial execution check for 'direct' delivery mode ──────
   // Without git isolation, parallel execution on the same directory is unsafe.
-  // Note: if deliveryMode was already 'direct' from the request body, the early
-  // check above already ran. This catch handles the case where deliveryMode was
-  // resolved from the project's DB record (i.e., wasn't in the original body).
-  // Guard with !dryRun to match the early check — dry-run requests should never
-  // be rejected by the serial execution constraint (they don't actually run).
-  if (deliveryMode === 'direct' && !body.deliveryMode && !dryRun) {
+  // This check only runs when deliveryMode was resolved from the project's DB
+  // record (not provided in the request body). If the client explicitly sent
+  // deliveryMode='direct', the early check (search: "Early serial execution check")
+  // already handled it before DB lookups.
+  // Guard: !dryRun — dry-run requests don't actually execute tasks.
+  // Same TOCTOU caveat as the early check applies here.
+  const deliveryModeResolvedFromDb = !body.deliveryMode
+  if (deliveryMode === 'direct' && deliveryModeResolvedFromDb && !dryRun) {
     const stats = await dispatchEngine.getStats()
     const activeForProject = stats.activePerProject?.[projectId] ?? 0
     if (activeForProject > 0) {
