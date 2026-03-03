@@ -3,9 +3,11 @@
  */
 
 import { Hono } from 'hono';
+import { streamSSE } from 'hono/streaming';
 import { randomBytes, randomUUID } from 'crypto';
 import { GitHubClient } from '../lib/github-client';
 import { githubStore } from '../lib/github-store';
+import { githubCommentBus, type GitHubCommentEvent } from '../lib/github-comment-bus.js';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
 import { db } from '../lib/db/index.js';
 import { projects, planNodes, planEdges } from '../lib/db/schema.js';
@@ -751,6 +753,262 @@ app.post('/ensure-branch', async (c) => {
     console.error('[github] ensure-branch error:', msg);
     return c.json({ success: false, error: msg }, 500);
   }
+});
+
+// ── Comments and PR review endpoints ─────────────────────────────────
+
+/**
+ * GET /api/github/comments/:owner/:repo/:number
+ * Fetch comments for an issue or PR
+ */
+app.get('/comments/:owner/:repo/:number', async (c) => {
+  const userId = (c.get('user') as AuthUser).id;
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const number = parseInt(c.req.param('number'), 10);
+
+  if (!owner || !repo || isNaN(number)) {
+    return c.json({ error: 'owner, repo, and number are required' }, 400);
+  }
+
+  const connection = await githubStore.getConnection(userId);
+  if (!connection) {
+    return c.json({ error: 'GitHub not connected' }, 401);
+  }
+
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/issues/${number}/comments?per_page=100`,
+      {
+        headers: {
+          Authorization: `Bearer ${connection.accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      return c.json({ error: `GitHub API error ${response.status}: ${errorBody}` }, response.status as 400);
+    }
+
+    const comments = await response.json();
+    return c.json({ comments });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('[github] fetch comments error:', msg);
+    return c.json({ error: msg }, 500);
+  }
+});
+
+/**
+ * POST /api/github/comments/:owner/:repo/:number
+ * Post a comment on a GitHub issue or PR
+ */
+app.post('/comments/:owner/:repo/:number', async (c) => {
+  const userId = (c.get('user') as AuthUser).id;
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const number = parseInt(c.req.param('number'), 10);
+
+  if (!owner || !repo || isNaN(number)) {
+    return c.json({ error: 'owner, repo, and number are required' }, 400);
+  }
+
+  const body = await c.req.json();
+  const { body: commentBody } = body as { body: string };
+
+  if (typeof commentBody !== 'string' || !commentBody.trim()) {
+    return c.json({ error: 'Comment body is required' }, 400);
+  }
+
+  const connection = await githubStore.getConnection(userId);
+  if (!connection) {
+    return c.json({ error: 'GitHub not connected' }, 401);
+  }
+
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/issues/${number}/comments`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${connection.accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ body: commentBody }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      return c.json({ error: `GitHub API error ${response.status}: ${errorBody}` }, response.status as 400);
+    }
+
+    const comment = await response.json();
+    return c.json({ comment }, 201);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('[github] post comment error:', msg);
+    return c.json({ error: msg }, 500);
+  }
+});
+
+/**
+ * GET /api/github/review-comments/:owner/:repo/:number
+ * Fetch PR review comments (inline code review threads)
+ */
+app.get('/review-comments/:owner/:repo/:number', async (c) => {
+  const userId = (c.get('user') as AuthUser).id;
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const number = parseInt(c.req.param('number'), 10);
+
+  if (!owner || !repo || isNaN(number)) {
+    return c.json({ error: 'owner, repo, and number are required' }, 400);
+  }
+
+  const connection = await githubStore.getConnection(userId);
+  if (!connection) {
+    return c.json({ error: 'GitHub not connected' }, 401);
+  }
+
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/pulls/${number}/comments?per_page=100`,
+      {
+        headers: {
+          Authorization: `Bearer ${connection.accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      return c.json({ error: `GitHub API error ${response.status}: ${errorBody}` }, response.status as 400);
+    }
+
+    const comments = await response.json();
+    return c.json({ comments });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('[github] fetch review comments error:', msg);
+    return c.json({ error: msg }, 500);
+  }
+});
+
+/**
+ * POST /api/github/review-comments/:owner/:repo/:number
+ * Reply to a PR review comment thread
+ */
+app.post('/review-comments/:owner/:repo/:number', async (c) => {
+  const userId = (c.get('user') as AuthUser).id;
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const number = parseInt(c.req.param('number'), 10);
+
+  if (!owner || !repo || isNaN(number)) {
+    return c.json({ error: 'owner, repo, and number are required' }, 400);
+  }
+
+  const body = await c.req.json();
+  const { body: commentBody, in_reply_to } = body as { body: string; in_reply_to: number };
+
+  if (typeof commentBody !== 'string' || !commentBody.trim()) {
+    return c.json({ error: 'Comment body is required' }, 400);
+  }
+
+  if (typeof in_reply_to !== 'number') {
+    return c.json({ error: 'in_reply_to (comment ID) is required for review comment replies' }, 400);
+  }
+
+  const connection = await githubStore.getConnection(userId);
+  if (!connection) {
+    return c.json({ error: 'GitHub not connected' }, 401);
+  }
+
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/pulls/${number}/comments`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${connection.accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          body: commentBody,
+          in_reply_to,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      return c.json({ error: `GitHub API error ${response.status}: ${errorBody}` }, response.status as 400);
+    }
+
+    const comment = await response.json();
+    return c.json({ comment }, 201);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('[github] post review comment error:', msg);
+    return c.json({ error: msg }, 500);
+  }
+});
+
+// ── Real-time comment stream (SSE) ──────────────────────────────────
+
+/**
+ * GET /api/github/comments-stream/:owner/:repo/:number
+ * SSE stream for real-time comment updates via webhooks
+ *
+ * Clients connect to receive new comments as they arrive from GitHub webhooks.
+ * This enables immediate UI updates without polling.
+ */
+app.get('/comments-stream/:owner/:repo/:number', async (c) => {
+  const owner = c.req.param('owner');
+  const repo = c.req.param('repo');
+  const number = parseInt(c.req.param('number'), 10);
+
+  if (!owner || !repo || isNaN(number)) {
+    return c.json({ error: 'owner, repo, and number are required' }, 400);
+  }
+
+  return streamSSE(c, async (stream) => {
+    const handler = (event: GitHubCommentEvent) => {
+      if (event.owner === owner && event.repo === repo && event.number === number) {
+        void stream.writeSSE({
+          event: 'comment',
+          data: JSON.stringify(event.comment),
+        });
+      }
+    };
+
+    githubCommentBus.onComment(handler);
+
+    // Send initial keepalive
+    await stream.writeSSE({ event: 'connected', data: 'ok' });
+
+    // Send heartbeat every 30s to keep connection alive
+    const heartbeat = setInterval(() => {
+      void stream.writeSSE({ event: 'heartbeat', data: '' });
+    }, 30000);
+
+    // Clean up on disconnect
+    stream.onAbort(() => {
+      clearInterval(heartbeat);
+      githubCommentBus.offComment(handler);
+    });
+
+    // Keep the stream open until client disconnects
+    await new Promise<void>((resolve) => {
+      stream.onAbort(() => resolve());
+    });
+  });
 });
 
 export default app;

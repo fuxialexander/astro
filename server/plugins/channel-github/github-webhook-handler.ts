@@ -9,6 +9,7 @@ import type { GitHubChannelConfig, InboundMessage, ChannelRouter } from '../../l
 import { postGitHubComment } from './github-api.js'
 import { astroEventTransport } from '../../lib/events/astro-event-transport.js'
 import { lookupGitHubProject } from '../../lib/github-store.js'
+import { githubCommentBus } from '../../lib/github-comment-bus.js'
 import { db } from '../../lib/db/index.js'
 import { planNodes } from '../../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
@@ -139,13 +140,34 @@ export async function handleIssueCommentEvent(
     ?? await lookupGitHubProject(repoFullName)
   if (!projectId) return
 
-  const commentBody = comment.body as string
-  if (!commentBody || !commentBody.toLowerCase().includes('@astro')) return
-
   const sender = comment.user as Record<string, unknown> | undefined
   const issueNumber = issue.number as number
   const commentId = comment.id as number
   const [owner, repoName] = repoFullName.split('/')
+
+  // Broadcast the new comment to connected SSE clients for real-time updates
+  githubCommentBus.emit({
+    owner,
+    repo: repoName,
+    number: issueNumber,
+    comment: {
+      id: commentId,
+      nodeId: (comment.node_id as string) ?? '',
+      body: (comment.body as string) ?? '',
+      htmlUrl: (comment.html_url as string) ?? '',
+      createdAt: (comment.created_at as string) ?? '',
+      updatedAt: (comment.updated_at as string) ?? '',
+      user: {
+        login: (sender?.login as string) ?? '',
+        avatarUrl: (sender?.avatar_url as string) ?? '',
+        id: (sender?.id as number) ?? 0,
+      },
+    },
+  })
+
+  // Only process @astro mentions for AI chat
+  const commentBody = comment.body as string
+  if (!commentBody || !commentBody.toLowerCase().includes('@astro')) return
 
   console.log(`[github-channel] @astro mention in issue #${issueNumber} comment by ${sender?.login}`)
 
