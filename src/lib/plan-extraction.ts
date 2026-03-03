@@ -6,8 +6,14 @@ import { useProjectStore } from '@/stores/project-store'
  * Module-level Set to track processed executionIds for idempotency.
  * Prevents race conditions when both SSE and WebSocket paths call this
  * function simultaneously for the same execution result.
+ *
+ * Max size is capped at 1000 entries to prevent unbounded memory growth
+ * in long-running tabs. When the limit is reached, the oldest 100 entries
+ * are removed (approximated via Set iteration order).
  */
 const processedExecutionIds = new Set<string>()
+const MAX_PROCESSED_IDS = 1000
+const CLEANUP_THRESHOLD = 100
 
 /**
  * Extracts plan JSON from text and applies it to the plan store.
@@ -35,6 +41,17 @@ export function applyPlanFromText(
     }
     // Mark as processed immediately to prevent concurrent calls from proceeding
     processedExecutionIds.add(executionId)
+
+    // Cleanup: remove oldest entries when Set grows beyond max size
+    if (processedExecutionIds.size > MAX_PROCESSED_IDS) {
+      const toRemove = processedExecutionIds.size - (MAX_PROCESSED_IDS - CLEANUP_THRESHOLD)
+      const iter = processedExecutionIds.values()
+      for (let i = 0; i < toRemove; i++) {
+        const { value, done } = iter.next()
+        if (!done) processedExecutionIds.delete(value)
+      }
+      console.log(`[plan-extraction] Cleaned up ${toRemove} old executionIds (${processedExecutionIds.size} remaining)`)
+    }
   } else if (skipIfExists) {
     // Fallback: non-atomic check for backward compatibility
     const existing = usePlanStore.getState().nodes.filter(n => n.projectId === projectId)
