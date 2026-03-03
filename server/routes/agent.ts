@@ -486,7 +486,7 @@ agentRoute.post('/generate-plan', async (c) => {
 
   // Build the full plan prompt: system prompt + user description
   // Include available skills so the planner can create tasks that leverage them
-  // Team-scoped: only inject builtins + user's team skills (prevents cross-team leakage)
+  // Team-scoped: only inject builtins + user's team skills (prevents cross-team leakage).
   const skillsSummary = skillManager.getSkillPromptInjection(user.teamId) || undefined
   const systemPrompt = buildPlanSystemPrompt(visionDoc, repoContext, gitState, skillsSummary, githubContext)
   const fullPrompt = `${systemPrompt}\n\n---\n\n## User Request\n\n${description}\n\n---\n\nIMPORTANT: Respond with ONLY the JSON plan object. Start your response with { and end with }. No prose, no markdown fences, no explanation. The JSON must have "projectName", "nodes", and "edges" keys.`

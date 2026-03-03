@@ -615,10 +615,11 @@ async function dispatchViaRelay(
   const isPushToGithub = !isInteractivePlan && /push\s+to\s+github|publish\s+to\s+github/i.test(title)
 
   // Get available skills for prompt injection, filtered by team.
-  // CRITICAL: Must pass user.teamId to enforce team isolation. Without this,
+  // CRITICAL: Must pass user's teamId to enforce team isolation. Without this,
   // workspace skills from other teams could leak into the prompt, exposing
   // proprietary instructions or internal workflows stored in skill config.
-  // In local mode (no auth), user?.teamId is undefined → includes all skills.
+  // requireAuth middleware guarantees `user` is non-null. In local mode,
+  // teamId is undefined → getSkillPromptInjection returns all skills (safe for single-user).
   const skillsInjection = skillManager.getSkillPromptInjection(user?.teamId) || undefined
 
   if (isInteractivePlan) {
