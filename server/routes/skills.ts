@@ -466,8 +466,9 @@ skillsRoute.put('/:id/toggle', async (c) => {
  * Serves SKILL.md files from the skills/ directory.
  * Used by the skill creation UI to load system prompts (e.g., skill-onboarder).
  *
- * Note: This endpoint does NOT require authentication as it only serves
- * publicly available skill definition files from the repo.
+ * Note: This endpoint requires authentication (via the route-level requireAuth
+ * middleware) even though it serves static content. This is consistent with the
+ * other skills endpoints and prevents unauthenticated enumeration of skills.
  */
 skillsRoute.get('/files/:skillName/SKILL.md', async (c) => {
   try {
