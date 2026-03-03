@@ -428,7 +428,7 @@ describe('PUT /api/skills/:id', () => {
     expect(body.error).toContain('Config too large')
   })
 
-  it('returns 400 when trying to change source (immutable)', async () => {
+  it('returns 403 when trying to change source (immutable)', async () => {
     const createRes = await postJson('/api/skills', {
       name: `Source Immutable ${crypto.randomUUID().slice(0, 8)}`,
       source: 'workspace',
@@ -439,7 +439,7 @@ describe('PUT /api/skills/:id', () => {
     const updateRes = await putJson(`/api/skills/${created.id}`, {
       source: 'clawhub',
     })
-    expect(updateRes.status).toBe(400)
+    expect(updateRes.status).toBe(403)
     const body = await updateRes.json() as { error: string }
     expect(body.error).toContain('immutable')
   })

@@ -22,7 +22,7 @@ const skillsRoute = new Hono()
 skillsRoute.use('/*', requireAuth)
 
 /**
- * Maximum config JSON text size in bytes (95KB) for API-layer validation.
+ * Maximum config JSON text size in bytes (80KB) for API-layer validation.
  *
  * NOTE: This measures JSON.stringify().length (text bytes), while the DB
  * constraint uses pg_column_size() (storage bytes including TOAST headers,
@@ -313,7 +313,7 @@ skillsRoute.put('/:id', async (c) => {
     // source is immutable after creation — reject attempts to change it
     if (body.source !== undefined) {
       if (body.source !== existing.source) {
-        return c.json({ error: 'source field is immutable after creation to maintain skill provenance and prevent builtin impersonation' }, 400)
+        return c.json({ error: 'source field is immutable after creation to maintain skill provenance and prevent builtin impersonation' }, 403)
       }
       // Same source as existing — no-op
     }
