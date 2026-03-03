@@ -103,6 +103,8 @@ export async function parseChatSSE(
     onPlanResult?: (result: unknown) => void
     onDone?: (sessionId: string) => void
     onError?: (error: string) => void
+    /** Called when an SSE event carries a numeric `id:` field (seq number). */
+    onSeq?: (seq: number) => void
   },
 ): Promise<void> {
   await parseSSEStream(response, {
@@ -145,6 +147,12 @@ export async function parseChatSSE(
           break
       }
     },
+    onId: handlers.onSeq
+      ? (id) => {
+          const seq = Number(id)
+          if (!isNaN(seq)) handlers.onSeq!(seq)
+        }
+      : undefined,
   })
 }
 
