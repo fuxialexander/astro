@@ -60,6 +60,27 @@ export function getProjectMachineLock(project: Project | undefined): {
   return {}
 }
 
+// Dispatch field length limits — must match server-side Zod schema in dispatch.ts
+const MAX_DESCRIPTION_LENGTH = 200_000
+const MAX_VISIONDOC_LENGTH = 100_000
+
+/**
+ * Truncate a dispatch field if it exceeds the max length.
+ * Shows a warning toast so the user knows content was trimmed.
+ */
+function truncateDispatchField(value: string, maxLength: number, fieldLabel: string): string {
+  if (value.length <= maxLength) return value
+  const truncated = value.slice(0, maxLength)
+  const droppedChars = value.length - maxLength
+  useToastStore.getState().add({
+    type: "warning",
+    title: `${fieldLabel} truncated`,
+    description: `Input was ${value.length.toLocaleString()} characters — trimmed to ${maxLength.toLocaleString()} (${droppedChars.toLocaleString()} characters dropped). Consider splitting into smaller tasks.`,
+    duration: 10000,
+  })
+  return truncated
+}
+
 // Helper: Sign a dispatch intent if user has a signing key
 async function buildDispatchSignature(
   nodeId: string,
@@ -397,6 +418,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       // Use the dispatch/task endpoint
       const headers = await getAuthHeaders()
       const signing = await buildDispatchSignature(nodeId, projectId, effectiveTargetMachineId)
+      const rawDescription = node.content ? stripHtml(node.content) : (node.description || node.title)
       const response = await fetch(apiUrl("/api/dispatch/task"), {
         method: "POST",
         headers,
@@ -404,10 +426,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           nodeId,
           projectId,
           title: node.title,
-          description: node.content ? stripHtml(node.content) : (node.description || node.title),
+          description: truncateDispatchField(rawDescription, MAX_DESCRIPTION_LENGTH, "Task description"),
           dependencies: node.dependencies,
           verification: node.verification,
-          visionDoc: project?.visionDoc,
+          visionDoc: project?.visionDoc ? truncateDispatchField(project.visionDoc, MAX_VISIONDOC_LENGTH, "Vision doc") : undefined,
           dependencyOutputs,
           preferredProvider: options?.preferredProvider,
           targetMachineId: effectiveTargetMachineId,
@@ -1011,6 +1033,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     getAuthHeaders().then(async (headers) => {
       try {
         const signing = await buildDispatchSignature(nodeId, projectId, options?.targetMachineId)
+        const safeDescription = truncateDispatchField(description, MAX_DESCRIPTION_LENGTH, "Plan description")
         const response = await fetch(apiUrl("/api/dispatch/task"), {
           method: "POST",
           headers,
@@ -1018,10 +1041,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             nodeId,
             projectId,
             title: `Interactive planning: ${projectName || description.slice(0, 50)}`,
-            description,
+            description: safeDescription,
             dependencies: [],
             verification: "human",
-            visionDoc: options?.visionDoc,
+            visionDoc: options?.visionDoc ? truncateDispatchField(options.visionDoc, MAX_VISIONDOC_LENGTH, "Vision doc") : undefined,
             targetMachineId: options?.targetMachineId,
             model: options?.model,
             preferredProvider: options?.preferredProvider,
@@ -1238,6 +1261,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     getAuthHeaders().then(async (headers) => {
       try {
         const signing = await buildDispatchSignature(nodeId, projectId, options?.targetMachineId)
+        const safeDescription = truncateDispatchField(description, MAX_DESCRIPTION_LENGTH, "Plan description")
         const response = await fetch(apiUrl("/api/dispatch/task"), {
           method: "POST",
           headers,
@@ -1245,10 +1269,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             nodeId,
             projectId,
             title: `Interactive planning: ${description.slice(0, 50)}`,
-            description,
+            description: safeDescription,
             dependencies: [],
             verification: "human",
-            visionDoc: options?.visionDoc,
+            visionDoc: options?.visionDoc ? truncateDispatchField(options.visionDoc, MAX_VISIONDOC_LENGTH, "Vision doc") : undefined,
             targetMachineId: options?.targetMachineId,
             model: options?.model,
             preferredProvider: options?.preferredProvider,
@@ -1367,6 +1391,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     getAuthHeaders().then(async (headers) => {
       try {
         const signing = await buildDispatchSignature(nodeId, projectId, options.targetMachineId)
+        const safeDescription = truncateDispatchField(description, MAX_DESCRIPTION_LENGTH, "Playground description")
         const response = await fetch(apiUrl("/api/dispatch/task"), {
           method: "POST",
           headers,
@@ -1374,7 +1399,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             nodeId,
             projectId,
             title: `Playground: ${description.slice(0, 80)}`,
-            description,
+            description: safeDescription,
             dependencies: [],
             verification: "human",
             targetMachineId: options.targetMachineId,
@@ -1591,7 +1616,15 @@ function processCatchUpEvents(
 ) {
   for (const row of events) {
     try {
-      const data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+      // Text events are stored as { text: "..." } in the DB but the SSE handler
+      // expects a plain string. Extract the text field for text events to match
+      // the live SSE format (where data is msg.text, a plain string).
+      let data: string
+      if (row.eventType === 'text' && typeof row.data === 'object' && row.data !== null && 'text' in row.data) {
+        data = (row.data as { text: string }).text
+      } else {
+        data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+      }
       handleSSEEvent(row.eventType, data, nodeId, set, get, planStore)
       onResult?.(row.eventType, data)
     } catch (err) {
