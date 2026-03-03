@@ -9,6 +9,10 @@ export default defineConfig({
     exclude: ['**/node_modules/**', '.astro/**'],
   },
   resolve: {
+    // Resolve @astro/core/* subpath imports in tests. Vitest doesn't use
+    // TypeScript path mapping from tsconfig, so we replicate the aliases here.
+    // Each @astro/core/* subpath needs an explicit entry because Vitest's
+    // alias resolution doesn't support wildcard subpath patterns.
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@astro/core/dispatch': path.resolve(__dirname, './packages/core/src/dispatch/index.ts'),

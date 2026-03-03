@@ -1,5 +1,10 @@
 # OpenCode JSONL Test Fixtures
 #
+# FORMAT NOTE: This is "JSONL with comments" — lines starting with '#' are
+# documentation comments and must be stripped by the test parser before JSON
+# parsing. Standard JSONL does not support comments; this is a custom extension
+# for test readability.
+#
 # This file contains realistic OpenCode JSONL events based on the actual format
 # as defined in the OpenCode SDK (packages/opencode/src/cli/cmd/run.ts).
 #

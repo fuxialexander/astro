@@ -44,7 +44,11 @@ export interface MockStreamCalls {
   status: Array<{ status: string; progress?: number; message?: string }>
 }
 
-export type TrackedMockTaskOutputStream = MockTaskOutputStream & { _calls: MockStreamCalls }
+export type TrackedMockTaskOutputStream = MockTaskOutputStream & {
+  _calls: MockStreamCalls
+  /** Reset all accumulated call arrays — useful for reusing the mock between test cases. */
+  _reset: () => void
+}
 
 // =============================================================================
 // Factory Functions
@@ -85,6 +89,14 @@ export function createTrackedMockStream(): TrackedMockTaskOutputStream {
 
   return {
     _calls: calls,
+    _reset: () => {
+      calls.text.length = 0
+      calls.toolUse.length = 0
+      calls.toolResult.length = 0
+      calls.fileChange.length = 0
+      calls.sessionInit.length = 0
+      calls.status.length = 0
+    },
     stdout: vi.fn(),
     stderr: vi.fn(),
     status: vi.fn((status: string, progress?: number, message?: string) => {

@@ -1,5 +1,10 @@
 # OpenClaw ACP (Agent Client Protocol) JSONL Test Fixtures
 #
+# FORMAT NOTE: This is "JSONL with comments" — lines starting with '#' are
+# documentation comments and must be stripped by the test parser before JSON
+# parsing. Standard JSONL does not support comments; this is a custom extension
+# for test readability.
+#
 # This file contains realistic JSONL event sequences based on the actual ACP format
 # as defined in OpenClaw's src/acp/runtime/types.ts
 #

@@ -198,10 +198,13 @@ dispatchRoute.post('/task', async (c) => {
   // (search: "Late serial execution check") handles it after the project record is fetched.
   // Note: serial execution is a SAFETY constraint (prevents file corruption),
   // not a dependency check — it applies even with force=true.
-  // NOTE: This is a best-effort check with a TOCTOU race window — two concurrent
-  // requests could both pass the activeForProject === 0 check before either starts.
-  // For single-server deployments this is acceptable; for horizontal scaling,
-  // consider a DB-level advisory lock or unique partial index on active executions.
+  //
+  // ⚠️ TOCTOU note: There is a small race window between this check and
+  // the actual task insertion into the dispatch queue. Two concurrent requests
+  // could both pass this check simultaneously. In practice this is mitigated by:
+  // (a) 'direct' mode is uncommon, (b) concurrent clicks are rare, and
+  // (c) agents themselves use file-level locks. A DB-level advisory lock or
+  // unique partial index could eliminate this window if needed in the future.
   if (deliveryMode === 'direct' && !dryRun) {
     const stats = await dispatchEngine.getStats()
     const activeForProject = stats.activePerProject?.[projectId] ?? 0

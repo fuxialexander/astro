@@ -2452,6 +2452,7 @@ import { EventEmitter } from 'node:events'
 import type { Writable } from 'node:stream'
 
 // Dynamic imports — agent-runner submodule may not be checked out in CI
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let OpenCodeAdapter: any
 let lifecycleAdapterAvailable = false
 
@@ -2464,7 +2465,9 @@ try {
 }
 
 // Type aliases — use `any` since type imports can't be dynamic
+// eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
 type LifecycleTaskOutputStream = any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Task = any
 
 // Mock the spawn function

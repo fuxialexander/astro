@@ -5,6 +5,17 @@ This document provides a comprehensive analysis of the actual JSONL event format
 **Last Updated:** 2025-03-02
 **Status:** ✅ VERIFIED against source code
 
+> **Note:** Adapter implementation changes (openclaw-adapter.ts, opencode-adapter.ts) are tracked
+> in the [astro-anywhere/astro-agent](https://github.com/astro-anywhere/astro-agent) repository,
+> not in this repo. See PR #29 in astro-agent for the latest adapter updates.
+
+## Version Compatibility
+
+| CLI | Version Tested | Astro Adapter Commit | SDK Version | Status |
+|-----|----------------|----------------------|-------------|--------|
+| OpenClaw | Source analysis (pre-release) | `packages/agent-runner` (PR #308) | N/A (CLI only) | ✅ Compatible |
+| OpenCode | Source analysis (pre-release) | `packages/agent-runner` (PR #310, #312) | @opencode-ai/sdk v1.2.15 | ✅ Compatible |
+
 ## Source Verification
 
 | CLI | Source Files Examined | Verification Date |
@@ -389,13 +400,13 @@ opencode run --format json --thinking "your prompt"
 | OpenClaw | `openclaw agent --json --message "..."` | Batch JSON response OR Gateway EventFrame | ✅ Gateway EventFrame, ✅ Legacy flat, ✅ Batch, ✅ ACP | ✅ **FIXED** (PR #308) — ACP format now supported |
 | OpenCode | `opencode run --format json "..."` | SDK wrapper events (`text`, `tool_use`, `step_*`) | ✅ SDK events (`text`, `tool_use`, `step_start`, `step_finish`, `reasoning`, `error`) | ✅ **FIXED** (PR #310) — CLI flags and event mapping corrected |
 
-### Key Finding: OpenCode CLI Flag Discrepancy
+### Key Finding: OpenCode CLI Flag Discrepancy (Historical)
 
-**The current OpenCode adapter uses incorrect CLI flags:**
-- Adapter invokes: `opencode run --print --output-format json`
+**The original OpenCode adapter used incorrect CLI flags (now fixed in PR #310):**
+- ~~Adapter invoked: `opencode run --print --output-format json`~~
 - Correct invocation: `opencode run --format json`
 
-The `--print` flag does not exist in OpenCode CLI. The `--format` flag (not `--output-format`) controls JSON output.
+The `--print` flag does not exist in OpenCode CLI. The `--format` flag (not `--output-format`) controls JSON output (now fixed in PR #310).
 
 ---
 
@@ -456,12 +467,12 @@ export type AcpRuntimeEvent =
 
 ### OpenCode Adapter (`opencode-adapter.ts`)
 
-**Current CLI invocation (from adapter source, line 149-155):**
+**Original CLI invocation (from adapter source, before fix):**
 ```bash
 opencode run --print --output-format json "<task>"
 ```
 
-**⚠️ CRITICAL: These flags are WRONG.** The actual OpenCode CLI uses:
+**⚠️ These flags were incorrect (now fixed in PR #310).** The actual OpenCode CLI uses:
 ```bash
 opencode run --format json "your prompt"
 ```
