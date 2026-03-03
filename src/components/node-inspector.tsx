@@ -15,10 +15,26 @@ import { ExecutionPanel } from "@/components/execution"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useExecutionStore } from "@/stores/execution-store"
+import { useToastStore } from "@/stores/toast-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
 import { statusLabels } from "@/lib/status-config"
 import { cn, getShortId } from "@/lib/utils"
+import { dataClient } from "@/lib/data-client"
 import type { PlanNode, Priority } from "@/types"
+
+/**
+ * Validates a task title.
+ * Returns an error message string, or null if valid.
+ */
+function validateTaskTitle(title: string): string | null {
+  if (!title.trim()) {
+    return "Task title cannot be empty"
+  }
+  if (title.length > 200) {
+    return "Task title is too long (max 200 characters)"
+  }
+  return null
+}
 
 interface NodeInspectorProps {
   node: PlanNode
@@ -384,12 +400,49 @@ export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }
   const { open, onClose, node, onNodeUpdate, ...rest } = props
   const [isRenaming, setIsRenaming] = useState(false)
   const updateNode = usePlanStore((s) => s.updateNode)
+  const addToast = useToastStore((s) => s.add)
 
-  const handleRename = useCallback((newTitle: string) => {
-    updateNode(node.id, { title: newTitle })
-    onNodeUpdate({ ...node, title: newTitle })
+  // Reset rename state when node changes
+  useEffect(() => {
     setIsRenaming(false)
-  }, [node, updateNode, onNodeUpdate])
+  }, [node.id])
+
+  // Add keyboard shortcut (F2) for rename
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F2' && !isRenaming && open) {
+        e.preventDefault()
+        setIsRenaming(true)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isRenaming, open])
+
+  const handleRename = useCallback(async (newTitle: string) => {
+    try {
+      // Optimistically update local state
+      updateNode(node.id, { title: newTitle })
+      onNodeUpdate({ ...node, title: newTitle })
+      setIsRenaming(false)
+
+      // Persist to backend
+      await dataClient.updateNode(node.id, { title: newTitle })
+    } catch (err) {
+      // Revert optimistic update on error
+      updateNode(node.id, { title: node.title })
+      onNodeUpdate(node)
+
+      addToast({
+        type: 'error',
+        title: 'Failed to update task title',
+        description: err instanceof Error ? err.message : 'An unknown error occurred',
+      })
+
+      // Keep the input open so the user can try again
+      setIsRenaming(true)
+    }
+  }, [node, updateNode, onNodeUpdate, addToast])
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -401,6 +454,7 @@ export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }
                 value={node.title}
                 onSave={handleRename}
                 onCancel={() => setIsRenaming(false)}
+                validate={validateTaskTitle}
                 className="text-base font-semibold"
               />
             ) : (
@@ -409,7 +463,11 @@ export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }
                 onDoubleClick={() => setIsRenaming(true)}
               >
                 {node.title}
-                <Pencil className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/title:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsRenaming(true) }} />
+                <Pencil
+                  className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/title:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); setIsRenaming(true) }}
+                  aria-label="Rename task"
+                />
               </h3>
             )}
           </div>
@@ -428,12 +486,49 @@ export function NodeInspectorSidebar(props: NodeInspectorProps) {
   const { node, onClose, onNodeUpdate, ...rest } = props
   const [isRenaming, setIsRenaming] = useState(false)
   const updateNode = usePlanStore((s) => s.updateNode)
+  const addToast = useToastStore((s) => s.add)
 
-  const handleRename = useCallback((newTitle: string) => {
-    updateNode(node.id, { title: newTitle })
-    onNodeUpdate({ ...node, title: newTitle })
+  // Reset rename state when node changes
+  useEffect(() => {
     setIsRenaming(false)
-  }, [node, updateNode, onNodeUpdate])
+  }, [node.id])
+
+  // Add keyboard shortcut (F2) for rename
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F2' && !isRenaming) {
+        e.preventDefault()
+        setIsRenaming(true)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isRenaming])
+
+  const handleRename = useCallback(async (newTitle: string) => {
+    try {
+      // Optimistically update local state
+      updateNode(node.id, { title: newTitle })
+      onNodeUpdate({ ...node, title: newTitle })
+      setIsRenaming(false)
+
+      // Persist to backend
+      await dataClient.updateNode(node.id, { title: newTitle })
+    } catch (err) {
+      // Revert optimistic update on error
+      updateNode(node.id, { title: node.title })
+      onNodeUpdate(node)
+
+      addToast({
+        type: 'error',
+        title: 'Failed to update task title',
+        description: err instanceof Error ? err.message : 'An unknown error occurred',
+      })
+
+      // Keep the input open so the user can try again
+      setIsRenaming(true)
+    }
+  }, [node, updateNode, onNodeUpdate, addToast])
 
   return (
     <div className="flex flex-col gap-5 border-l bg-card p-5 overflow-auto border-border w-[320px] shrink-0">
@@ -454,6 +549,7 @@ export function NodeInspectorSidebar(props: NodeInspectorProps) {
             value={node.title}
             onSave={handleRename}
             onCancel={() => setIsRenaming(false)}
+            validate={validateTaskTitle}
             className="text-xl font-semibold font-serif"
           />
         ) : (
@@ -462,7 +558,11 @@ export function NodeInspectorSidebar(props: NodeInspectorProps) {
             onDoubleClick={() => setIsRenaming(true)}
           >
             {node.title}
-            <Pencil className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/title:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsRenaming(true) }} />
+            <Pencil
+              className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/title:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer"
+              onClick={(e) => { e.stopPropagation(); setIsRenaming(true) }}
+              aria-label="Rename task"
+            />
           </h3>
         )}
         {node.executionId && (
