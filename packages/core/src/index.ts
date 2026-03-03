@@ -24,5 +24,6 @@ export { parseSkillMd } from './skill-parser.js'
 export { getEligibleSkills, buildSkillPromptInjection } from './skill-injector.js'
 export * from './prompt-templates.js'
 
-// Built-in skills
-export * from '../../../skills/index.js'
+// Built-in skills — definitions live at repo root (skills/) for co-location with SKILL.md files.
+// The relative import is required for tsx runtime resolution; @skills alias handles tsc type checking.
+export * from '../../../skills/index.js' // @skills

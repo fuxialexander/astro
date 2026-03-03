@@ -321,6 +321,23 @@ describe('PUT /api/skills/:id', () => {
     })
     expect(res.status).toBe(404)
   })
+
+  it('ignores source=builtin spoofing on update', async () => {
+    const createRes = await postJson('/api/skills', {
+      name: 'Spoof Builtin Test',
+      source: 'workspace',
+    })
+    const created = await createRes.json() as Record<string, unknown>
+
+    // Attempt to escalate source to 'builtin' — must be silently ignored
+    const updateRes = await putJson(`/api/skills/${created.id}`, {
+      source: 'builtin',
+    })
+    expect(updateRes.status).toBe(200)
+    const updated = await updateRes.json() as Record<string, unknown>
+    // Source must remain 'workspace', not 'builtin'
+    expect(updated.source).toBe('workspace')
+  })
 })
 
 describe('DELETE /api/skills/:id', () => {
@@ -615,9 +632,9 @@ describe('skill store', () => {
       vi.clearAllMocks()
     })
 
-    it('loads skills from dataClient into the map keyed by name', async () => {
-      const skill1 = makeSkillRow({ name: 'alpha' })
-      const skill2 = makeSkillRow({ name: 'beta' })
+    it('loads skills from dataClient into the map keyed by id', async () => {
+      const skill1 = makeSkillRow({ id: 'id-1', name: 'alpha' })
+      const skill2 = makeSkillRow({ id: 'id-2', name: 'beta' })
       mockDataClient.listSkills.mockResolvedValueOnce([skill1, skill2])
 
       await useSkillStore.getState().load()
@@ -627,8 +644,8 @@ describe('skill store', () => {
       expect(state.loading).toBe(false)
       expect(state.error).toBeNull()
       expect(state.skills.size).toBe(2)
-      expect(state.skills.get('alpha')).toBeDefined()
-      expect(state.skills.get('beta')).toBeDefined()
+      expect(state.skills.get('id-1')).toBeDefined()
+      expect(state.skills.get('id-2')).toBeDefined()
     })
 
     it('sets loading flag during load', async () => {
@@ -677,21 +694,21 @@ describe('skill store', () => {
     it('replaces existing skills on reload', async () => {
       // First load
       mockDataClient.listSkills.mockResolvedValueOnce([
-        makeSkillRow({ name: 'old-skill' }),
+        makeSkillRow({ id: 'old-id', name: 'old-skill' }),
       ])
       await useSkillStore.getState().load()
       expect(useSkillStore.getState().skills.size).toBe(1)
 
       // Second load with different data
       mockDataClient.listSkills.mockResolvedValueOnce([
-        makeSkillRow({ name: 'new-skill-1' }),
-        makeSkillRow({ name: 'new-skill-2' }),
+        makeSkillRow({ id: 'new-id-1', name: 'new-skill-1' }),
+        makeSkillRow({ id: 'new-id-2', name: 'new-skill-2' }),
       ])
       await useSkillStore.getState().load()
 
       expect(useSkillStore.getState().skills.size).toBe(2)
-      expect(useSkillStore.getState().skills.has('old-skill')).toBe(false)
-      expect(useSkillStore.getState().skills.has('new-skill-1')).toBe(true)
+      expect(useSkillStore.getState().skills.has('old-id')).toBe(false)
+      expect(useSkillStore.getState().skills.has('new-id-1')).toBe(true)
     })
   })
 
@@ -712,8 +729,8 @@ describe('skill store', () => {
       })
 
       const state = useSkillStore.getState()
-      expect(state.skills.has('new-skill')).toBe(true)
-      const skill = state.skills.get('new-skill')!
+      expect(state.skills.size).toBe(1)
+      const skill = Array.from(state.skills.values())[0]
       expect(skill.name).toBe('new-skill')
       expect(skill.description).toBe('A new skill')
       expect(skill.id).toBeTruthy() // Temp ID assigned
@@ -751,8 +768,8 @@ describe('skill store', () => {
 
       // Wait for async sync
       await vi.waitFor(() => {
-        const skill = useSkillStore.getState().skills.get('merged-skill')
-        expect(skill?.id).toBe('server-id')
+        expect(useSkillStore.getState().skills.has('server-id')).toBe(true)
+        expect(useSkillStore.getState().skills.get('server-id')?.name).toBe('merged-skill')
       })
     })
   })
@@ -764,27 +781,27 @@ describe('skill store', () => {
     })
 
     it('optimistically updates skill in local state', () => {
-      const existing = makeSkillRow({ name: 'to-update', description: 'Old' })
+      const existing = makeSkillRow({ id: 'upd-id', name: 'to-update', description: 'Old' })
       useSkillStore.setState({
-        skills: new Map([['to-update', existing as unknown as SkillRow]]),
+        skills: new Map([['upd-id', existing as unknown as SkillRow]]),
       })
 
-      useSkillStore.getState().updateSkill('to-update', { description: 'New' })
+      useSkillStore.getState().updateSkill('upd-id', { description: 'New' })
 
-      const updated = useSkillStore.getState().skills.get('to-update')
+      const updated = useSkillStore.getState().skills.get('upd-id')
       expect(updated?.description).toBe('New')
     })
 
-    it('handles name change by re-keying the map', () => {
-      const existing = makeSkillRow({ name: 'old-name' })
+    it('keeps same id key when name changes', () => {
+      const existing = makeSkillRow({ id: 'upd-id', name: 'old-name' })
       useSkillStore.setState({
-        skills: new Map([['old-name', existing as unknown as SkillRow]]),
+        skills: new Map([['upd-id', existing as unknown as SkillRow]]),
       })
 
-      useSkillStore.getState().updateSkill('old-name', { name: 'new-name' })
+      useSkillStore.getState().updateSkill('upd-id', { name: 'new-name' })
 
-      expect(useSkillStore.getState().skills.has('old-name')).toBe(false)
-      expect(useSkillStore.getState().skills.has('new-name')).toBe(true)
+      expect(useSkillStore.getState().skills.has('upd-id')).toBe(true)
+      expect(useSkillStore.getState().skills.get('upd-id')?.name).toBe('new-name')
     })
 
     it('no-ops when skill does not exist', () => {
@@ -793,15 +810,15 @@ describe('skill store', () => {
     })
 
     it('calls dataClient.updateSkill for backend sync', () => {
-      const existing = makeSkillRow({ id: 'skill-id', name: 'to-sync' })
+      const existing = makeSkillRow({ id: 'upd-id', name: 'to-sync' })
       useSkillStore.setState({
-        skills: new Map([['to-sync', existing as unknown as SkillRow]]),
+        skills: new Map([['upd-id', existing as unknown as SkillRow]]),
       })
 
-      useSkillStore.getState().updateSkill('to-sync', { description: 'Changed' })
+      useSkillStore.getState().updateSkill('upd-id', { description: 'Changed' })
 
       expect(mockDataClient.updateSkill).toHaveBeenCalledWith(
-        'skill-id',
+        'upd-id',
         expect.objectContaining({ description: 'Changed' })
       )
     })
@@ -814,43 +831,43 @@ describe('skill store', () => {
     })
 
     it('optimistically removes skill from local state', () => {
-      const existing = makeSkillRow({ name: 'to-remove' })
+      const existing = makeSkillRow({ id: 'rm-id', name: 'to-remove' })
       useSkillStore.setState({
-        skills: new Map([['to-remove', existing as unknown as SkillRow]]),
+        skills: new Map([['rm-id', existing as unknown as SkillRow]]),
       })
 
-      useSkillStore.getState().removeSkill('to-remove')
+      useSkillStore.getState().removeSkill('rm-id')
 
-      expect(useSkillStore.getState().skills.has('to-remove')).toBe(false)
+      expect(useSkillStore.getState().skills.has('rm-id')).toBe(false)
     })
 
     it('calls dataClient.deleteSkill for backend sync', () => {
-      const existing = makeSkillRow({ id: 'del-id', name: 'to-delete' })
+      const existing = makeSkillRow({ id: 'rm-id', name: 'to-delete' })
       useSkillStore.setState({
-        skills: new Map([['to-delete', existing as unknown as SkillRow]]),
+        skills: new Map([['rm-id', existing as unknown as SkillRow]]),
       })
 
-      useSkillStore.getState().removeSkill('to-delete')
+      useSkillStore.getState().removeSkill('rm-id')
 
-      expect(mockDataClient.deleteSkill).toHaveBeenCalledWith('del-id')
+      expect(mockDataClient.deleteSkill).toHaveBeenCalledWith('rm-id')
     })
 
     it('reverts on backend failure', async () => {
-      const existing = makeSkillRow({ id: 'revert-id', name: 'revert-me' })
+      const existing = makeSkillRow({ id: 'rm-id', name: 'revert-me' })
       useSkillStore.setState({
-        skills: new Map([['revert-me', existing as unknown as SkillRow]]),
+        skills: new Map([['rm-id', existing as unknown as SkillRow]]),
       })
 
       mockDataClient.deleteSkill.mockRejectedValueOnce(new Error('Delete failed'))
 
-      useSkillStore.getState().removeSkill('revert-me')
+      useSkillStore.getState().removeSkill('rm-id')
 
       // Immediately removed
-      expect(useSkillStore.getState().skills.has('revert-me')).toBe(false)
+      expect(useSkillStore.getState().skills.has('rm-id')).toBe(false)
 
       // After async rejection, should revert
       await vi.waitFor(() => {
-        expect(useSkillStore.getState().skills.has('revert-me')).toBe(true)
+        expect(useSkillStore.getState().skills.has('rm-id')).toBe(true)
       })
     })
 
@@ -867,54 +884,54 @@ describe('skill store', () => {
     })
 
     it('optimistically toggles enabled true → false', () => {
-      const existing = makeSkillRow({ name: 'toggle-me', enabled: true })
+      const existing = makeSkillRow({ id: 'tog-id', name: 'toggle-me', enabled: true })
       useSkillStore.setState({
-        skills: new Map([['toggle-me', existing as unknown as SkillRow]]),
+        skills: new Map([['tog-id', existing as unknown as SkillRow]]),
       })
 
-      useSkillStore.getState().toggleSkill('toggle-me')
+      useSkillStore.getState().toggleSkill('tog-id')
 
-      expect(useSkillStore.getState().skills.get('toggle-me')?.enabled).toBe(false)
+      expect(useSkillStore.getState().skills.get('tog-id')?.enabled).toBe(false)
     })
 
     it('optimistically toggles enabled false → true', () => {
-      const existing = makeSkillRow({ name: 'toggle-off', enabled: false })
+      const existing = makeSkillRow({ id: 'tog-id', name: 'toggle-off', enabled: false })
       useSkillStore.setState({
-        skills: new Map([['toggle-off', existing as unknown as SkillRow]]),
+        skills: new Map([['tog-id', existing as unknown as SkillRow]]),
       })
 
-      useSkillStore.getState().toggleSkill('toggle-off')
+      useSkillStore.getState().toggleSkill('tog-id')
 
-      expect(useSkillStore.getState().skills.get('toggle-off')?.enabled).toBe(true)
+      expect(useSkillStore.getState().skills.get('tog-id')?.enabled).toBe(true)
     })
 
     it('calls dataClient.toggleSkill for backend sync', () => {
-      const existing = makeSkillRow({ id: 'toggle-id', name: 'synced-toggle' })
+      const existing = makeSkillRow({ id: 'tog-id', name: 'synced-toggle' })
       useSkillStore.setState({
-        skills: new Map([['synced-toggle', existing as unknown as SkillRow]]),
+        skills: new Map([['tog-id', existing as unknown as SkillRow]]),
       })
 
-      useSkillStore.getState().toggleSkill('synced-toggle')
+      useSkillStore.getState().toggleSkill('tog-id')
 
-      expect(mockDataClient.toggleSkill).toHaveBeenCalledWith('toggle-id')
+      expect(mockDataClient.toggleSkill).toHaveBeenCalledWith('tog-id')
     })
 
     it('reverts on backend failure', async () => {
-      const existing = makeSkillRow({ id: 'fail-toggle', name: 'fail-toggle', enabled: true })
+      const existing = makeSkillRow({ id: 'tog-id', name: 'fail-toggle', enabled: true })
       useSkillStore.setState({
-        skills: new Map([['fail-toggle', existing as unknown as SkillRow]]),
+        skills: new Map([['tog-id', existing as unknown as SkillRow]]),
       })
 
       mockDataClient.toggleSkill.mockRejectedValueOnce(new Error('Toggle failed'))
 
-      useSkillStore.getState().toggleSkill('fail-toggle')
+      useSkillStore.getState().toggleSkill('tog-id')
 
       // Immediately toggled
-      expect(useSkillStore.getState().skills.get('fail-toggle')?.enabled).toBe(false)
+      expect(useSkillStore.getState().skills.get('tog-id')?.enabled).toBe(false)
 
       // After async rejection, should revert
       await vi.waitFor(() => {
-        expect(useSkillStore.getState().skills.get('fail-toggle')?.enabled).toBe(true)
+        expect(useSkillStore.getState().skills.get('tog-id')?.enabled).toBe(true)
       })
     })
 
@@ -931,23 +948,23 @@ describe('skill store', () => {
     })
 
     it('updates config in local state', () => {
-      const existing = makeSkillRow({ name: 'config-skill', config: { old: 1 } })
+      const existing = makeSkillRow({ id: 'cfg-id', name: 'config-skill', config: { old: 1 } })
       useSkillStore.setState({
-        skills: new Map([['config-skill', existing as unknown as SkillRow]]),
+        skills: new Map([['cfg-id', existing as unknown as SkillRow]]),
       })
 
-      useSkillStore.getState().updateSkillConfig('config-skill', { new: 2 })
+      useSkillStore.getState().updateSkillConfig('cfg-id', { new: 2 })
 
-      expect(useSkillStore.getState().skills.get('config-skill')?.config).toEqual({ new: 2 })
+      expect(useSkillStore.getState().skills.get('cfg-id')?.config).toEqual({ new: 2 })
     })
 
     it('calls dataClient.updateSkill with config', () => {
       const existing = makeSkillRow({ id: 'cfg-id', name: 'cfg-sync' })
       useSkillStore.setState({
-        skills: new Map([['cfg-sync', existing as unknown as SkillRow]]),
+        skills: new Map([['cfg-id', existing as unknown as SkillRow]]),
       })
 
-      useSkillStore.getState().updateSkillConfig('cfg-sync', { apiKey: 'secret' })
+      useSkillStore.getState().updateSkillConfig('cfg-id', { apiKey: 'secret' })
 
       expect(mockDataClient.updateSkill).toHaveBeenCalledWith(
         'cfg-id',
@@ -967,15 +984,15 @@ describe('skill store', () => {
     })
 
     it('returns only enabled skills without disableModelInvocation', () => {
-      const enabled = makeSkillRow({ name: 'eligible', enabled: true })
-      const disabled = makeSkillRow({ name: 'disabled', enabled: false })
-      const noInvoke = makeSkillRow({ name: 'no-invoke', enabled: true, disableModelInvocation: true })
+      const enabled = makeSkillRow({ id: 'elig-id', name: 'eligible', enabled: true })
+      const disabled = makeSkillRow({ id: 'dis-id', name: 'disabled', enabled: false })
+      const noInvoke = makeSkillRow({ id: 'noinv-id', name: 'no-invoke', enabled: true, disableModelInvocation: true })
 
       useSkillStore.setState({
         skills: new Map([
-          ['eligible', enabled as unknown as SkillRow],
-          ['disabled', disabled as unknown as SkillRow],
-          ['no-invoke', noInvoke as unknown as SkillRow],
+          ['elig-id', enabled as unknown as SkillRow],
+          ['dis-id', disabled as unknown as SkillRow],
+          ['noinv-id', noInvoke as unknown as SkillRow],
         ]),
       })
 
@@ -990,13 +1007,13 @@ describe('skill store', () => {
     })
 
     it('returns all enabled skills when none have disableModelInvocation', () => {
-      const s1 = makeSkillRow({ name: 'skill-1', enabled: true })
-      const s2 = makeSkillRow({ name: 'skill-2', enabled: true })
+      const s1 = makeSkillRow({ id: 's1-id', name: 'skill-1', enabled: true })
+      const s2 = makeSkillRow({ id: 's2-id', name: 'skill-2', enabled: true })
 
       useSkillStore.setState({
         skills: new Map([
-          ['skill-1', s1 as unknown as SkillRow],
-          ['skill-2', s2 as unknown as SkillRow],
+          ['s1-id', s1 as unknown as SkillRow],
+          ['s2-id', s2 as unknown as SkillRow],
         ]),
       })
 
@@ -1016,6 +1033,7 @@ describe('skill store', () => {
 
     it('generates XML skill injection for eligible skills', () => {
       const skill = makeSkillRow({
+        id: 'test-id',
         name: 'test-skill',
         description: 'Test description',
         instructions: 'Do the thing.',
@@ -1023,7 +1041,7 @@ describe('skill store', () => {
       })
 
       useSkillStore.setState({
-        skills: new Map([['test-skill', skill as unknown as SkillRow]]),
+        skills: new Map([['test-id', skill as unknown as SkillRow]]),
       })
 
       const injection = useSkillStore.getState().getSkillPromptInjection()
@@ -1035,15 +1053,15 @@ describe('skill store', () => {
     })
 
     it('includes multiple eligible skills', () => {
-      const s1 = makeSkillRow({ name: 'alpha', description: 'Alpha skill', instructions: 'Alpha instructions', enabled: true })
-      const s2 = makeSkillRow({ name: 'beta', description: 'Beta skill', instructions: 'Beta instructions', enabled: true })
-      const disabled = makeSkillRow({ name: 'gamma', description: 'Disabled', instructions: 'Nope', enabled: false })
+      const s1 = makeSkillRow({ id: 'a-id', name: 'alpha', description: 'Alpha skill', instructions: 'Alpha instructions', enabled: true })
+      const s2 = makeSkillRow({ id: 'b-id', name: 'beta', description: 'Beta skill', instructions: 'Beta instructions', enabled: true })
+      const disabled = makeSkillRow({ id: 'g-id', name: 'gamma', description: 'Disabled', instructions: 'Nope', enabled: false })
 
       useSkillStore.setState({
         skills: new Map([
-          ['alpha', s1 as unknown as SkillRow],
-          ['beta', s2 as unknown as SkillRow],
-          ['gamma', disabled as unknown as SkillRow],
+          ['a-id', s1 as unknown as SkillRow],
+          ['b-id', s2 as unknown as SkillRow],
+          ['g-id', disabled as unknown as SkillRow],
         ]),
       })
 
@@ -1063,22 +1081,22 @@ describe('skill store', () => {
     it('enableSkill enables a disabled skill', () => {
       const existing = makeSkillRow({ id: 'en-id', name: 'enable-me', enabled: false })
       useSkillStore.setState({
-        skills: new Map([['enable-me', existing as unknown as SkillRow]]),
+        skills: new Map([['en-id', existing as unknown as SkillRow]]),
       })
 
-      useSkillStore.getState().enableSkill('enable-me')
+      useSkillStore.getState().enableSkill('en-id')
 
-      expect(useSkillStore.getState().skills.get('enable-me')?.enabled).toBe(true)
+      expect(useSkillStore.getState().skills.get('en-id')?.enabled).toBe(true)
       expect(mockDataClient.toggleSkill).toHaveBeenCalledWith('en-id')
     })
 
     it('enableSkill no-ops when already enabled', () => {
       const existing = makeSkillRow({ id: 'en-id', name: 'already-on', enabled: true })
       useSkillStore.setState({
-        skills: new Map([['already-on', existing as unknown as SkillRow]]),
+        skills: new Map([['en-id', existing as unknown as SkillRow]]),
       })
 
-      useSkillStore.getState().enableSkill('already-on')
+      useSkillStore.getState().enableSkill('en-id')
 
       expect(mockDataClient.toggleSkill).not.toHaveBeenCalled()
     })
@@ -1086,22 +1104,22 @@ describe('skill store', () => {
     it('disableSkill disables an enabled skill', () => {
       const existing = makeSkillRow({ id: 'dis-id', name: 'disable-me', enabled: true })
       useSkillStore.setState({
-        skills: new Map([['disable-me', existing as unknown as SkillRow]]),
+        skills: new Map([['dis-id', existing as unknown as SkillRow]]),
       })
 
-      useSkillStore.getState().disableSkill('disable-me')
+      useSkillStore.getState().disableSkill('dis-id')
 
-      expect(useSkillStore.getState().skills.get('disable-me')?.enabled).toBe(false)
+      expect(useSkillStore.getState().skills.get('dis-id')?.enabled).toBe(false)
       expect(mockDataClient.toggleSkill).toHaveBeenCalledWith('dis-id')
     })
 
     it('disableSkill no-ops when already disabled', () => {
       const existing = makeSkillRow({ id: 'dis-id', name: 'already-off', enabled: false })
       useSkillStore.setState({
-        skills: new Map([['already-off', existing as unknown as SkillRow]]),
+        skills: new Map([['dis-id', existing as unknown as SkillRow]]),
       })
 
-      useSkillStore.getState().disableSkill('already-off')
+      useSkillStore.getState().disableSkill('dis-id')
 
       expect(mockDataClient.toggleSkill).not.toHaveBeenCalled()
     })

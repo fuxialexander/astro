@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useSkillStore } from "@/stores/skill-store"
+import { useSkillStore, type SkillRow } from "@/stores/skill-store"
 import { parseSkillMd } from "@/lib/skill-loader"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -49,7 +49,7 @@ const sourceColors: Record<OpenClawSkill["source"], string> = {
   user: "bg-muted/10 text-muted-foreground",
 }
 
-function SkillCard({ skill }: { skill: OpenClawSkill }) {
+function SkillCard({ skill }: { skill: SkillRow }) {
   const enableSkill = useSkillStore((s) => s.enableSkill)
   const disableSkill = useSkillStore((s) => s.disableSkill)
   const removeSkill = useSkillStore((s) => s.removeSkill)
@@ -60,7 +60,7 @@ function SkillCard({ skill }: { skill: OpenClawSkill }) {
   )
 
   const handleApiKeySave = () => {
-    updateSkillConfig(skill.name, { ...skill.config, apiKey })
+    updateSkillConfig(skill.id, { ...skill.config, apiKey })
   }
 
   const emoji = skill.metadata?.openclaw?.emoji || ""
@@ -103,14 +103,14 @@ function SkillCard({ skill }: { skill: OpenClawSkill }) {
           <Toggle
             checked={skill.enabled}
             onChange={(checked) =>
-              checked ? enableSkill(skill.name) : disableSkill(skill.name)
+              checked ? enableSkill(skill.id) : disableSkill(skill.id)
             }
           />
           {skill.source !== "builtin" && (
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => removeSkill(skill.name)}
+              onClick={() => removeSkill(skill.id)}
               className="text-destructive hover:text-destructive h-8 w-8 p-0"
             >
               <Trash2 className="h-4 w-4" />

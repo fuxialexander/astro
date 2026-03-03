@@ -72,7 +72,7 @@ type ViewMode = "list" | "grid"
 
 // --- Column definitions for skills list ---
 function getSkillColumns(
-  onToggle: (name: string) => void,
+  onToggle: (id: string) => void,
 ): ListColumn<SkillRow>[] {
   return [
     {
@@ -154,7 +154,7 @@ function getSkillColumns(
         <div
           onClick={(e) => {
             e.stopPropagation()
-            onToggle(skill.name)
+            onToggle(skill.id)
           }}
         >
           <Switch
@@ -288,7 +288,7 @@ function SkillCard({
   onToggle,
 }: {
   skill: SkillRow
-  onToggle: (name: string) => void
+  onToggle: (id: string) => void
 }) {
   const config = sourceConfig[skill.source] ?? sourceConfig.user
   return (
@@ -309,7 +309,7 @@ function SkillCard({
         <div onClick={(e) => e.stopPropagation()}>
           <Switch
             checked={skill.enabled}
-            onCheckedChange={() => onToggle(skill.name)}
+            onCheckedChange={() => onToggle(skill.id)}
             aria-label={`Toggle ${skill.name}`}
           />
         </div>
@@ -493,7 +493,7 @@ export function Skills() {
         onAction: (ids) => {
           for (const skill of allSkills) {
             if (ids.includes(skill.id) && !skill.enabled) {
-              toggleSkill(skill.name)
+              toggleSkill(skill.id)
             }
           }
         },
@@ -505,7 +505,7 @@ export function Skills() {
         onAction: (ids) => {
           for (const skill of allSkills) {
             if (ids.includes(skill.id) && skill.enabled) {
-              toggleSkill(skill.name)
+              toggleSkill(skill.id)
             }
           }
         },
@@ -518,7 +518,7 @@ export function Skills() {
         onAction: (ids) => {
           for (const skill of allSkills) {
             if (ids.includes(skill.id) && skill.source !== 'builtin') {
-              removeSkill(skill.name)
+              removeSkill(skill.id)
             }
           }
         },
@@ -762,7 +762,7 @@ export function Skills() {
                 <div onClick={(e) => e.stopPropagation()}>
                   <Switch
                     checked={skill.enabled}
-                    onCheckedChange={() => toggleSkill(skill.name)}
+                    onCheckedChange={() => toggleSkill(skill.id)}
                   />
                 </div>
                 <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />

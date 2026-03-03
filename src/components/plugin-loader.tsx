@@ -56,6 +56,7 @@ export function PluginLoader({ children }: Props) {
   const updatePluginConfig = usePluginStore((s) => s.updatePluginConfig)
   const addSkill = useSkillStore((s) => s.addSkill)
   const removeSkill = useSkillStore((s) => s.removeSkill)
+  const findByName = useSkillStore((s) => s.findByName)
   const registerExternalItem = useSidebarStore((s) => s.registerExternalItem)
   const unregisterExternalItem = useSidebarStore((s) => s.unregisterExternalItem)
   const { registerTheme, unregisterTheme } = useTheme()
@@ -187,7 +188,11 @@ export function PluginLoader({ children }: Props) {
     }
     if (contributions.skills) {
       for (const skill of contributions.skills) {
-        removeSkill(skill.name)
+        // Look up by name since plugins identify skills by name, not DB id
+        const existing = findByName(skill.name)
+        if (existing) {
+          removeSkill(existing.id)
+        }
       }
     }
   }
