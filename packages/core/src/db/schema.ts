@@ -1,4 +1,5 @@
-import { pgTable, text, integer, real, uuid, timestamp, boolean, date, jsonb, primaryKey, unique } from 'drizzle-orm/pg-core'
+import { pgTable, text, integer, real, uuid, timestamp, boolean, date, jsonb, primaryKey, unique, index, uniqueIndex, check } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 
 // ── Projects ──────────────────────────────────────────────────────────
 export const projects = pgTable('projects', {
@@ -645,4 +646,11 @@ export const skills = pgTable('skills', {
   teamId: uuid('team_id').references(() => teams.id, { onDelete: 'cascade' }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-}, (table) => [unique('skills_name_team_id_unique').on(table.name, table.teamId)])
+}, (table) => [
+  unique('skills_name_team_id_unique').on(table.name, table.teamId),
+  check('skills_source_check', sql`${table.source} IN ('builtin', 'workspace', 'clawhub', 'plugin', 'user')`),
+  index('skills_team_id_idx').on(table.teamId),
+  index('skills_team_enabled_idx').on(table.teamId, table.enabled),
+  index('skills_name_source_idx').on(table.name, table.source),
+  uniqueIndex('skills_builtin_name_unique').on(table.name).where(sql`${table.source} = 'builtin'`),
+])

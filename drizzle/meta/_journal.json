@@ -78,6 +78,13 @@
       "when": 1772469819695,
       "tag": "0010_jazzy_wendigo",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1772503917952,
+      "tag": "0011_dusty_snowbird",
+      "breakpoints": true
     }
   ]
 }
