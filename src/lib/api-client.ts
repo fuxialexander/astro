@@ -915,3 +915,50 @@ export async function previewTemplate(
 
   return response.json()
 }
+
+export interface ApplyTemplateResult {
+  projectId: string
+  description: string
+  visionDoc?: string
+  resolvedParameters: ResolvedParameters
+  templateUsed: {
+    id: string
+    name: string
+    version: string
+  }
+  planHints?: unknown
+}
+
+/**
+ * Apply a template to an existing project.
+ * Returns a plan generation request that can be used with /api/agent/generate-plan.
+ * @param id - Template ID (will be URL-encoded)
+ * @param projectId - ID of the existing project
+ * @param params - Template parameters
+ * @returns Plan generation request data
+ */
+export async function applyTemplate(
+  id: string,
+  projectId: string,
+  params: Record<string, unknown>
+): Promise<ApplyTemplateResult> {
+  const encodedId = encodeURIComponent(id)
+  const response = await fetch(apiUrl(`/api/templates/${encodedId}/apply`), {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({ projectId, parameters: params }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    if (response.status === 404) {
+      throw new Error(errorData.error || `Template or project not found`)
+    }
+    if (response.status === 400 && errorData.details) {
+      throw new Error(`Validation failed: ${JSON.stringify(errorData.details)}`)
+    }
+    throw new Error(errorData.error || `Failed to apply template: ${response.status}`)
+  }
+
+  return response.json()
+}

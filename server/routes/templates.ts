@@ -10,7 +10,7 @@ import { z } from 'zod'
 import crypto from 'crypto'
 import { db } from '../lib/db/index.js'
 import { projects } from '../lib/db/schema.js'
-import { eq } from 'drizzle-orm'
+import { eq, and, or, isNull } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import {
   // Built-in templates
@@ -727,6 +727,97 @@ templatesRoute.post('/:id/preview', async (c) => {
     planHints: template.planHints,
     executionConfig: template.execution,
     parallelizationConfig: template.parallelization,
+  })
+})
+
+/**
+ * POST /api/templates/:id/apply
+ *
+ * Apply a template to an existing project.
+ * Generates a plan generation request that the frontend can use to add template nodes.
+ * Returns the interpolated prompt and metadata for the frontend to call /api/agent/generate-plan.
+ */
+templatesRoute.post('/:id/apply', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const templateId = c.req.param('id')
+  const decodedId = decodeURIComponent(templateId)
+
+  const template = getTemplateById(decodedId)
+
+  if (!template) {
+    return c.json({ error: 'Template not found', templateId: decodedId }, 404)
+  }
+
+  if (!template.enabled) {
+    return c.json({ error: 'Template is disabled', templateId: decodedId }, 400)
+  }
+
+  // Parse request body
+  const applySchema = z.object({
+    projectId: z.string(),
+    parameters: z.record(z.unknown()),
+  })
+
+  let body: z.infer<typeof applySchema>
+  try {
+    const rawBody = await c.req.json()
+    body = applySchema.parse(rawBody)
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return c.json({ error: 'Invalid input', details: err.errors }, 400)
+    }
+    return c.json({ error: 'Invalid JSON body' }, 400)
+  }
+
+  // Verify user has access to the project
+  const [project] = await db.select().from(projects).where(
+    and(
+      eq(projects.id, body.projectId),
+      or(
+        eq(projects.teamId, user.teamId),
+        and(isNull(projects.teamId), eq(projects.ownerId, user.id))
+      )
+    )
+  )
+
+  if (!project) {
+    return c.json({ error: 'Project not found or access denied' }, 404)
+  }
+
+  // Validate parameters against template schema
+  const paramValidation = validateParameters(template, body.parameters)
+
+  if (!paramValidation.valid) {
+    return c.json({
+      error: 'Parameter validation failed',
+      details: paramValidation.errors,
+    }, 400)
+  }
+
+  const resolvedParams = paramValidation.resolvedParameters
+
+  // Generate the description from the template prompt with interpolated parameters
+  const generatedDescription = interpolatePrompt(template.prompts.planGeneration, resolvedParams)
+
+  // Add shared context if available
+  const fullDescription = template.prompts.sharedContext
+    ? `${interpolatePrompt(template.prompts.sharedContext, resolvedParams)}\n\n---\n\n${generatedDescription}`
+    : generatedDescription
+
+  // Prepare the plan generation request (to be used by frontend with /api/agent/generate-plan)
+  // The frontend will call generate-plan with appendToExisting: true
+  return c.json({
+    projectId: project.id,
+    description: fullDescription,
+    visionDoc: project.visionDoc || undefined,
+    resolvedParameters: resolvedParams,
+    templateUsed: {
+      id: template.id,
+      name: template.name,
+      version: template.version,
+    },
+    // Include hints for the frontend
+    planHints: template.planHints,
   })
 })
 
