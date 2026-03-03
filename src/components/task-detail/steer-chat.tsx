@@ -10,7 +10,7 @@ import { useSessionStore } from "@/stores/session-store"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useExecutionStore } from "@/stores/execution-store"
-import { fetchSlashCommands } from "@/lib/api-client"
+import { fetchSlashCommands, fetchStreamingEventsCatchUp } from "@/lib/api-client"
 import { useProjectMachineId } from "@/hooks/use-project-machine"
 import { parseSSEStream } from "@/lib/sse-parser"
 import type { SlashCommand, MentionItem } from "@/components/ui/file-completion-textarea"
@@ -67,9 +67,77 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
   /**
    * Process an SSE stream from a resumed steer session.
    * Updates the execution store with text, tool traces, etc.
+   *
+   * On stream error (not page-unload): catches up via fetchStreamingEventsCatchUp
+   * using the lastSeq tracked from SSE `id:` fields.
    */
   async function processResumedStream(response: Response) {
     setResuming(true)
+    let lastSeq = 0
+    let streamCompleted = false
+
+    // Capture executionId at call time for use in catch-up (may be undefined for new executions)
+    const executionId = useExecutionStore.getState().executions.get(nodeId)?.executionId
+
+    // Shared handler for both live SSE events and catch-up replay events
+    function handleStreamEvent(event: string, data: string) {
+      switch (event) {
+        case "text":
+          appendText(nodeId, data)
+          break
+        case "tool_use":
+          try {
+            const parsed = JSON.parse(data)
+            const traceId = `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
+            addToolTrace(nodeId, {
+              id: traceId,
+              toolName: parsed.toolName,
+              toolInput: parsed.toolInput,
+              timestamp: new Date(),
+            })
+          } catch { /* ignore */ }
+          break
+        case "tool_result":
+          try {
+            const parsed = JSON.parse(data)
+            updateToolTraceResult(nodeId, parsed.toolName, parsed.result, parsed.success)
+          } catch { /* ignore */ }
+          break
+        case "result":
+          // Mark stream as completed so catch-up knows a terminal event was received
+          streamCompleted = true
+          try {
+            const parsed = JSON.parse(data)
+            useExecutionStore.setState((state) => {
+              const newExecutions = new Map(state.executions)
+              const exec = newExecutions.get(nodeId)
+              if (exec) {
+                exec.status = (parsed.status === "success" || parsed.status === "completed") ? "success" : "failure"
+                exec.completedAt = new Date()
+                if (parsed.sessionId) exec.sessionId = parsed.sessionId
+              }
+              return { executions: newExecutions }
+            })
+            // Persist completed execution to database
+            useExecutionStore.getState().persist()
+          } catch { /* ignore */ }
+          break
+        case "error":
+          try {
+            const parsed = JSON.parse(data)
+            console.error("[steer-chat] Resume error:", parsed.error)
+            // Persist failed execution to database
+            useExecutionStore.getState().persist()
+          } catch { /* ignore */ }
+          break
+        case "resumed":
+        case "session_init":
+        case "done":
+        case "heartbeat":
+          break
+      }
+    }
+
     try {
       // Mark execution as running again during resume
       useExecutionStore.setState((state) => {
@@ -82,63 +150,64 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
         return { executions: newExecutions }
       })
 
-      await parseSSEStream(response, {
-        onEvent: ({ event, data }) => {
-          switch (event) {
-            case "text":
-              appendText(nodeId, data)
-              break
-            case "tool_use":
-              try {
-                const parsed = JSON.parse(data)
-                const traceId = `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
-                addToolTrace(nodeId, {
-                  id: traceId,
-                  toolName: parsed.toolName,
-                  toolInput: parsed.toolInput,
-                  timestamp: new Date(),
-                })
-              } catch { /* ignore */ }
-              break
-            case "tool_result":
-              try {
-                const parsed = JSON.parse(data)
-                updateToolTraceResult(nodeId, parsed.toolName, parsed.result, parsed.success)
-              } catch { /* ignore */ }
-              break
-            case "result":
-              try {
-                const parsed = JSON.parse(data)
-                useExecutionStore.setState((state) => {
-                  const newExecutions = new Map(state.executions)
-                  const exec = newExecutions.get(nodeId)
-                  if (exec) {
-                    exec.status = (parsed.status === "success" || parsed.status === "completed") ? "success" : "failure"
-                    exec.completedAt = new Date()
-                    if (parsed.sessionId) exec.sessionId = parsed.sessionId
-                  }
-                  return { executions: newExecutions }
-                })
-                // Persist completed execution to database
-                useExecutionStore.getState().persist()
-              } catch { /* ignore */ }
-              break
-            case "error":
-              try {
-                const parsed = JSON.parse(data)
-                console.error("[steer-chat] Resume error:", parsed.error)
-                // Persist failed execution to database
-                useExecutionStore.getState().persist()
-              } catch { /* ignore */ }
-              break
-            case "resumed":
-            case "session_init":
-            case "done":
-            case "heartbeat":
-              break
+      try {
+        await parseSSEStream(response, {
+          onEvent: ({ event, data }) => {
+            handleStreamEvent(event, data)
+            // Also track terminal events for streamCompleted flag
+            if (event === "done") {
+              streamCompleted = true
+            }
+          },
+          // Track lastSeq from SSE `id:` fields for reconnection catch-up
+          onId: (id) => {
+            const seq = parseInt(id, 10)
+            if (!isNaN(seq) && seq > lastSeq) {
+              lastSeq = seq
+            }
+          },
+        })
+      } catch (streamError) {
+        // If a terminal event already arrived, the trailing error is harmless
+        if (streamCompleted) return
+
+        // Page-unload guard: if the tab is hidden (refresh/navigate away), the task
+        // is still running server-side. Don't mark it as failure — catch-up will
+        // reconcile state on the next page load.
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+          console.log('[steer-chat] SSE interrupted by page unload, skipping failure marking')
+          return
+        }
+
+        console.warn('[steer-chat] Resume stream error, attempting catch-up:', streamError)
+
+        // Attempt one-shot catch-up from last known seq
+        if (executionId) {
+          try {
+            const { events } = await fetchStreamingEventsCatchUp([executionId], lastSeq)
+            for (const row of events) {
+              const rowData = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+              handleStreamEvent(row.eventType, rowData)
+            }
+          } catch (catchUpError) {
+            console.warn('[steer-chat] Catch-up failed:', catchUpError)
           }
-        },
-      })
+        }
+
+        // If still no terminal event after catch-up, mark as failure
+        if (!streamCompleted) {
+          useExecutionStore.setState((state) => {
+            const newExecutions = new Map(state.executions)
+            const exec = newExecutions.get(nodeId)
+            if (exec) {
+              exec.status = "failure"
+              exec.completedAt = new Date()
+            }
+            return { executions: newExecutions }
+          })
+          useExecutionStore.getState().persist()
+        }
+      }
     } finally {
       setResuming(false)
     }
