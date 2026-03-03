@@ -119,6 +119,14 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
 
     debounceRef.current = setTimeout(async () => {
       await flushFn()
+      // Debounce completed — content is persisted. Clear the stale flush
+      // function so "Execute All" doesn't re-save old captured html for
+      // every task the user browsed. Only clear if the store still holds
+      // THIS flushFn (a newer edit may have registered a new one mid-save).
+      const current = useContentSaveStore.getState().pendingSaves.get(node.id)
+      if (current?.flush === flushFn) {
+        useContentSaveStore.getState().clearPendingSave(node.id)
+      }
     }, 800)
   }, [node.id, initialContent, updateNode, registerPendingSave])
 
