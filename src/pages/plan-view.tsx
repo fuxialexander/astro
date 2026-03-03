@@ -1,10 +1,11 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, Sparkles, FileText, Globe } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, Sparkles, FileText, Globe, GitFork, X } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { TaskRow } from "@/components/task-row"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
@@ -257,6 +258,71 @@ function WorkdirBar({ project }: { project: Project }) {
         )}
       </div>
     </>
+  )
+}
+
+// --- Fork source lineage banner ---
+interface ForkSource {
+  type: 'community-fork'
+  planId: string
+  planTitle: string
+  authorName: string | null
+  forkedAt: string
+}
+
+function ForkSourceBanner({ project }: { project: Project }) {
+  const navigate = useNavigate()
+  // Use lazy initializer to check localStorage for dismissal state
+  const [isDismissed, setIsDismissed] = useState(() => {
+    const dismissKey = `fork-banner-dismissed-${project.id}`
+    return localStorage.getItem(dismissKey) === 'true'
+  })
+
+  // Check if project has fork source metadata
+  // The source field can be a ProjectSource (git info) or a fork source
+  const forkSource = project.source as unknown as ForkSource | undefined
+  const isCommunityFork = forkSource?.type === 'community-fork'
+
+  if (!isCommunityFork || isDismissed) {
+    return null
+  }
+
+  const handleDismiss = () => {
+    const dismissKey = `fork-banner-dismissed-${project.id}`
+    localStorage.setItem(dismissKey, 'true')
+    setIsDismissed(true)
+  }
+
+  const handleNavigateToPlan = () => {
+    navigate(`/community/plans/${forkSource.planId}`)
+  }
+
+  return (
+    <Alert variant="info" className="mx-3 md:mx-6 mt-2 mb-0 py-2 pr-10 relative">
+      <GitFork className="h-4 w-4" />
+      <AlertDescription className="flex items-center gap-1 text-sm">
+        <span>Forked from</span>
+        <button
+          onClick={handleNavigateToPlan}
+          className="font-medium text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+        >
+          {forkSource.planTitle}
+        </button>
+        {forkSource.authorName && (
+          <>
+            <span>by</span>
+            <span className="font-medium">{forkSource.authorName}</span>
+          </>
+        )}
+      </AlertDescription>
+      <button
+        onClick={handleDismiss}
+        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-blue-500/10 transition-colors cursor-pointer"
+        title="Dismiss"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </Alert>
   )
 }
 
@@ -1693,6 +1759,9 @@ export function PlanView() {
 
       {/* Working directory bar */}
       <WorkdirBar project={project} />
+
+      {/* Fork source lineage banner (if forked from community plan) */}
+      <ForkSourceBanner project={project} />
 
       {/* Canvas/List + Detail/Chat pane */}
       <div className={cn("flex flex-1 overflow-hidden", isRightChat ? "flex-row" : "flex-col")}>
