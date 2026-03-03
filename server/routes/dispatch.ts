@@ -1115,11 +1115,16 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           stream.writeSSE({ id: String(planSeq), event: 'plan_result', data: JSON.stringify(planJson) }).catch(() => { alive = false })
         } else {
           // Regex failed — fire-and-forget Haiku retry (does NOT block result event)
+          // Always persist to DB even if SSE stream is closed, so page-refresh recovery works.
           retryPlanExtractionWithHaiku(textForExtraction, process.env.ANTHROPIC_API_KEY)
             .then(retried => {
-              if (!retried || !alive) return
+              if (!retried) return
               return streamingEventLog.append(executionId, 'plan_result', retried)
-                .then(seq => stream.writeSSE({ id: String(seq), event: 'plan_result', data: JSON.stringify(retried) }).catch(() => {}))
+                .then(seq => {
+                  if (alive) {
+                    stream.writeSSE({ id: String(seq), event: 'plan_result', data: JSON.stringify(retried) }).catch(() => {})
+                  }
+                })
             })
             .catch(e => console.error('[dispatch] Haiku retry failed:', e))
         }
