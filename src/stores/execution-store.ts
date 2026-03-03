@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import type { TaskExecution, ProviderStatus, PlanNode, PlanEdge, ToolTrace, FileChange, UsageMetrics, Project, ExecutionSummary } from "@/types"
+import type { TaskExecution, ProviderStatus, PlanNode, PlanEdge, ToolTrace, FileChange, UsageMetrics, Project, ExecutionSummary, ReplanContext } from "@/types"
 import { parseSSEStream } from "@/lib/sse-parser"
 import { fetchStreamingEventsCatchUp, type StreamingEventRow } from "@/lib/api-client"
 import { usePlanStore, isLive } from "./plan-store"
@@ -238,6 +238,20 @@ interface ExecutionState {
       preferredProvider?: string
       visionDoc?: string
       baseBranch?: string
+    }
+  ) => Promise<{ projectId: string; nodeId: string }>
+
+  /** Start a replan session — regenerates the plan with lessons from prior execution */
+  startReplanSession: (
+    projectId: string,
+    changeDescription: string | undefined,
+    lessons: ReplanContext["lessons"],
+    previousPlanSummary: string,
+    options?: {
+      visionDoc?: string
+      targetMachineId?: string
+      model?: string
+      preferredProvider?: string
     }
   ) => Promise<{ projectId: string; nodeId: string }>
 
@@ -1292,6 +1306,141 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           // Don't mark as failure if the page is unloading (refresh/navigate away)
           if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
             console.log('[plan-session-forProject] SSE interrupted by page unload, skipping failure marking')
+            return
+          }
+          const message = error instanceof Error ? error.message : "Unknown error"
+          set((state) => {
+            const newExecutions = new Map(state.executions)
+            const exec = newExecutions.get(nodeId)
+            if (exec) {
+              newExecutions.set(nodeId, { ...exec, status: "failure", error: message, completedAt: new Date() })
+            }
+            return { executions: newExecutions }
+          })
+        }
+      } finally {
+        abortControllers.delete(nodeId)
+      }
+    })
+
+    return { projectId, nodeId }
+  },
+
+  // ─── Replan Session ──────────────────────────────────────────────────
+
+  startReplanSession: async (projectId, changeDescription, lessons, previousPlanSummary, options) => {
+    const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
+    if (!project) throw new Error(`Project ${projectId} not found`)
+
+    const nodeId = `plan-${projectId}`
+
+    // Cancel any active plan session first
+    const existingExec = get().executions.get(nodeId)
+    if (existingExec && existingExec.status !== "success" && existingExec.status !== "failure" && existingExec.status !== "cancelled") {
+      await get().cancelPlanSession(projectId)
+    }
+
+    // Build the replan description with context
+    const replanContext: ReplanContext = {
+      lessons,
+      previousPlanSummary,
+      changeDescription,
+    }
+
+    const description = changeDescription
+      ? `Replan: ${changeDescription}`
+      : "Regenerate plan based on lessons from previous execution"
+
+    // Create execution entry
+    const execution: TaskExecution = {
+      nodeId,
+      projectId,
+      executionId: "",
+      status: "pending",
+      streamText: "",
+      toolTraces: [],
+      fileChanges: [],
+      activityEvents: [],
+      startedAt: new Date(),
+    }
+
+    set((state) => {
+      const newExecutions = new Map(state.executions)
+      newExecutions.set(nodeId, execution)
+      return { executions: newExecutions }
+    })
+
+    // Create abort controller
+    const abortController = new AbortController()
+    abortControllers.set(nodeId, abortController)
+
+    // Dispatch via POST /api/dispatch/task with replanContext
+    getAuthHeaders().then(async (headers) => {
+      try {
+        const signing = await buildDispatchSignature(nodeId, projectId, options?.targetMachineId)
+        const response = await fetch(apiUrl("/api/dispatch/task"), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            nodeId,
+            projectId,
+            title: `Replan: ${(changeDescription || project.name).slice(0, 50)}`,
+            description,
+            dependencies: [],
+            verification: "human",
+            visionDoc: options?.visionDoc,
+            targetMachineId: options?.targetMachineId,
+            model: options?.model,
+            preferredProvider: options?.preferredProvider,
+            workingDirectory: project.workingDirectory,
+            isInteractivePlan: true,
+            replanContext,
+            ...signing,
+          }),
+          signal: abortController.signal,
+        })
+
+        if (!response.ok) {
+          const errorBody = await response.json().catch(() => null)
+          const detail = errorBody?.error || ""
+          throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
+        }
+
+        // Process SSE stream (with reconnection)
+        const planStore = usePlanStore.getState()
+        await processSSEStreamWithReconnect(response, nodeId, set, get, planStore, (event) => {
+          if (event === "result") {
+            try {
+              const exec = get().executions.get(nodeId)
+              if (exec?.streamText) {
+                if (!exec.executionId) {
+                  console.warn(`[replan-session] Skipping plan extraction — executionId missing for node ${nodeId}`)
+                } else {
+                  const result = applyPlanFromText(projectId, exec.streamText, exec.executionId)
+                  if (result.applied) {
+                    console.log(`[replan-session] Plan extracted: ${result.nodeCount} nodes`)
+                  }
+                }
+              }
+            } catch (e) {
+              console.error("[replan-session] Failed to extract plan:", e)
+            }
+          }
+        }, abortController.signal)
+      } catch (error) {
+        if (!get().executions.has(nodeId)) return
+        if (error instanceof Error && error.name === "AbortError") {
+          set((state) => {
+            const newExecutions = new Map(state.executions)
+            const exec = newExecutions.get(nodeId)
+            if (exec) {
+              newExecutions.set(nodeId, { ...exec, status: "cancelled", completedAt: new Date() })
+            }
+            return { executions: newExecutions }
+          })
+        } else {
+          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+            console.log('[replan-session] SSE interrupted by page unload, skipping failure marking')
             return
           }
           const message = error instanceof Error ? error.message : "Unknown error"
