@@ -26,7 +26,6 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
   const nodes = usePlanStore((s) => s.nodes)
   const profile = useUserProfileStore((s) => s.profile)
   const registerPendingSave = useContentSaveStore((s) => s.registerPendingSave)
-  const clearPendingSave = useContentSaveStore((s) => s.clearPendingSave)
   const editorRef = useRef<RichTextEditorRef>(null)
   const mountedRef = useRef(true)
 
@@ -96,7 +95,8 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
         updateNode(node.id, { content: html, description: markdown })
 
         savingRef.current = null
-        clearPendingSave(node.id)
+        // Don't clear pending save here - it may have been overwritten by a newer flush
+        // while this save was in progress. Clearing would lose the newer flush function.
         if (mountedRef.current) {
           setSaveStatus('saved')
           setTimeout(() => {
@@ -105,7 +105,7 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
         }
       } catch (error) {
         savingRef.current = null
-        clearPendingSave(node.id)
+        // Don't clear pending save - let it remain for potential retry via flush
         if (mountedRef.current) setSaveStatus('idle')
         console.error('Failed to save task content:', error)
         // Note: Could show toast here, but error is logged and execution will fail gracefully
@@ -117,7 +117,7 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
     debounceRef.current = setTimeout(async () => {
       await flushFn()
     }, 800)
-  }, [node.id, initialContent, updateNode, registerPendingSave, clearPendingSave])
+  }, [node.id, initialContent, updateNode, registerPendingSave])
 
   // Cleanup debounce on unmount and mark component as unmounted
   // Note: We intentionally DON'T clear the pending save from the store here.

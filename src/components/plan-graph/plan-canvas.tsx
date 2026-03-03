@@ -307,10 +307,13 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
       await flushPendingSaves(nodeIds)
     } catch (error) {
       console.error('Failed to save task content before execution:', error)
+      const description = error instanceof Error
+        ? error.message
+        : 'Could not save task content before execution. Please try again.'
       useToastStore.getState().add({
         type: 'error',
         title: 'Failed to save changes',
-        description: 'Could not save task content before execution. Please try again.',
+        description,
       })
       return
     }
@@ -347,10 +350,13 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
       await flushPendingSaves(nodeIds)
     } catch (error) {
       console.error('Failed to save task content before execution:', error)
+      const description = error instanceof Error
+        ? error.message
+        : 'Could not save task content before execution. Please try again.'
       useToastStore.getState().add({
         type: 'error',
         title: 'Failed to save changes',
-        description: 'Could not save task content before execution. Please try again.',
+        description,
       })
       return
     }
