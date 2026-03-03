@@ -243,6 +243,7 @@ export function PlanChatPhase({
     // Generate a stable per-turn streamId for event persistence and catch-up
     const turnStreamId = `plan-chat-${projectId}-${Date.now()}`
     useAgentStore.getState().updateInteractiveSession(projectId, { streamId: turnStreamId, lastSeq: 0 })
+    chatStreamRef.current = { streamId: turnStreamId, lastSeq: 0 }
 
     // Add user message as activity event for display
     pushChatEvent({ type: 'chat_user', message: text, timestamp: new Date() })
@@ -252,10 +253,6 @@ export function PlanChatPhase({
 
     setIsChatStreaming(true)
     abortRef.current = new AbortController()
-
-    // Generate a per-turn streamId for disconnect catch-up tracking
-    const turnStreamId = `plan-chat-${projectId}-${Date.now()}`
-    chatStreamRef.current = { streamId: turnStreamId, lastSeq: 0 }
 
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
     const historyMessages = (chatSession.messages || [] as Array<{ role: string; content: string }>)

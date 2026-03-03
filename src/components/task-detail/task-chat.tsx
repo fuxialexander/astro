@@ -113,6 +113,7 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
     // Generate a stable per-turn streamId for event persistence and catch-up
     const turnStreamId = `task-chat-${node.id}-${Date.now()}`
     chatTurnRef.current = { streamId: turnStreamId, lastSeq: 0 }
+    chatStreamRef.current = { streamId: turnStreamId, lastSeq: 0 }
 
     // Add user message
     addMessage(sid, { role: "user", content: text })
@@ -127,10 +128,6 @@ export function TaskChat({ node, projectId, visionDoc, taskOutput }: TaskChatPro
       abortRef.current.abort()
     }
     abortRef.current = new AbortController()
-
-    // Generate a per-turn streamId for disconnect catch-up tracking
-    const turnStreamId = `task-chat-${node.id}-${Date.now()}`
-    chatStreamRef.current = { streamId: turnStreamId, lastSeq: 0 }
 
     // Re-read messages from store after adding user msg + placeholder
     const updatedSession = useSessionStore.getState().sessions.get(sid)

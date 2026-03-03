@@ -158,12 +158,6 @@ export async function parseChatSSE(
           break
       }
     },
-    onId: handlers.onSeq
-      ? (id) => {
-          const n = Number(id)
-          if (Number.isInteger(n)) handlers.onSeq!(n)
-        }
-      : undefined,
   })
 }
 
