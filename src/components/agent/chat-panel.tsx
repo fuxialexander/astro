@@ -36,9 +36,11 @@ import {
 } from "@/components/activity-blocks"
 import type { PlanNode, ProviderStatus, Session, TaskActivityEvent } from "@/types"
 
-/** A node update: nodeId + any properties to patch */
+/** A node update: nodeId OR nodeTitle + any properties to patch */
 interface ParsedNodeUpdate {
-  nodeId: string
+  nodeId?: string
+  nodeTitle?: string
+  type?: string  // optional: disambiguate when multiple nodes have same title
   [key: string]: unknown
 }
 
@@ -97,7 +99,7 @@ function extractMutations(content: string): { cleanContent: string; mutations: A
       const parsed = JSON.parse(json.trim())
       if (Array.isArray(parsed)) {
         for (const item of parsed) {
-          if (item && typeof item === "object" && item.nodeId) {
+          if (item && typeof item === "object" && (item.nodeId || item.nodeTitle)) {
             nodeUpdates.push(item as ParsedNodeUpdate)
           }
         }
@@ -431,56 +433,10 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
     // Create new nodes (from decomposition)
     // Map AI-generated IDs to proper UUIDs for consistency with manually created tasks.
-    // Deduplicate by title + type: if a node with the same title and type already exists,
-    // update it instead of creating a duplicate. This allows multiple tasks with the same
-    // title but different types (e.g., "Review PR" as both task and milestone).
+    // No deduplication — if AI wants to update an existing node, it should use astro-updates with nodeTitle.
     const idMap = new Map<string, string>() // map AI-generated IDs to real UUIDs
-    const projectNodes = planNodes.filter((n) => n.projectId === projectId)
 
     for (const n of newNodes) {
-      const normalizedTitle = n.title.trim().toLowerCase()
-      const nodeType = (n.type as PlanNode["type"]) ?? "task"
-
-      // Find existing node with same title and type (compound key for more precise matching)
-      let existing = projectNodes.find(
-        (node) => node.title.trim().toLowerCase() === normalizedTitle && node.type === nodeType
-      )
-
-      // Fallback: if no type match, check for same title with description similarity
-      // (AI might reference existing task without specifying type)
-      // Only apply single-match fallback when AI didn't explicitly specify a type
-      if (!existing) {
-        const matches = projectNodes.filter((node) => node.title.trim().toLowerCase() === normalizedTitle)
-        const isDefaultType = n.type === undefined || n.type === null
-        if (matches.length === 1 && isDefaultType) {
-          // Only one match by title and AI didn't specify type — assume it's the same task
-          existing = matches[0]
-        } else if (matches.length > 1 && n.description) {
-          // Multiple matches — only match if description is identical to avoid wrong node
-          existing = matches.find((m) => m.description === n.description)
-        }
-      }
-
-      if (existing) {
-        // Node already exists — map the AI ID to the existing UUID and update instead
-        const realId = existing.id
-        affectedNodeIds.push(realId)
-        if (n.id) idMap.set(n.id, realId)
-        const patch: Partial<PlanNode> = {}
-        // Use != null instead of truthy check to allow clearing fields with empty strings
-        if (n.description != null && n.description !== existing.description) {
-          patch.description = n.description
-          patch.content = n.description ? `<p>${escapeHtml(n.description)}</p>` : ''
-        }
-        if (n.priority != null && n.priority !== existing.priority) patch.priority = n.priority as PlanNode["priority"]
-        if (n.estimate != null && n.estimate !== existing.estimate) patch.estimate = n.estimate as PlanNode["estimate"]
-        if (n.verification != null && n.verification !== existing.verification) patch.verification = n.verification as PlanNode["verification"]
-        if (Object.keys(patch).length > 0) {
-          updateNode(realId, patch)
-        }
-        continue
-      }
-
       const realId = crypto.randomUUID()
       affectedNodeIds.push(realId)
       if (n.id) idMap.set(n.id, realId)
@@ -519,10 +475,40 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
     // Apply node property updates
     for (const u of nodeUpdates) {
-      affectedNodeIds.push(u.nodeId)
+      // Resolve nodeId: either directly provided, or looked up by nodeTitle
+      let resolvedNodeId: string | undefined = u.nodeId
+
+      if (!resolvedNodeId && u.nodeTitle) {
+        // Title-based lookup: find node by title (case-insensitive)
+        const normalizedTitle = u.nodeTitle.trim().toLowerCase()
+        const projectNodes = planNodes.filter((n) => n.projectId === projectId)
+        let candidates = projectNodes.filter((n) => n.title.trim().toLowerCase() === normalizedTitle)
+
+        // If type is specified, filter by type for disambiguation
+        if (u.type && candidates.length > 1) {
+          candidates = candidates.filter((n) => n.type === u.type)
+        }
+
+        if (candidates.length === 0) {
+          console.warn(`[chat-panel] Node update failed: no node found with title "${u.nodeTitle}"${u.type ? ` and type "${u.type}"` : ''}`)
+          continue
+        } else if (candidates.length > 1) {
+          console.warn(`[chat-panel] Node update ambiguous: multiple nodes found with title "${u.nodeTitle}"${u.type ? ` and type "${u.type}"` : ''}. Specify type to disambiguate.`)
+          continue
+        }
+
+        resolvedNodeId = candidates[0].id
+      }
+
+      if (!resolvedNodeId) {
+        console.warn('[chat-panel] Node update failed: neither nodeId nor nodeTitle provided')
+        continue
+      }
+
+      affectedNodeIds.push(resolvedNodeId)
       const patch: Partial<PlanNode> = {}
       for (const [key, value] of Object.entries(u)) {
-        if (key === "nodeId") continue // not a property
+        if (key === "nodeId" || key === "nodeTitle" || key === "type") continue // not properties to patch
         if (INTERNAL_FIELDS.has(key)) continue // skip internal fields
         ;(patch as Record<string, unknown>)[key] = value
       }
@@ -535,25 +521,25 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
       // If dependencies were updated, reconcile edges automatically
       if (Array.isArray(u.dependencies)) {
-        const currentNode = planNodes.find((n) => n.id === u.nodeId)
+        const currentNode = planNodes.find((n) => n.id === resolvedNodeId)
         if (currentNode) {
           const newDeps = new Set(u.dependencies as string[])
           const oldDeps = new Set(currentNode.dependencies)
           // Remove edges for removed dependencies
           for (const dep of oldDeps) {
-            if (!newDeps.has(dep)) removeEdge(dep, u.nodeId)
+            if (!newDeps.has(dep)) removeEdge(dep, resolvedNodeId)
           }
           // Add edges for new dependencies
           for (const dep of newDeps) {
             if (!oldDeps.has(dep)) {
-              addEdge({ id: `e-${dep}-${u.nodeId}`, source: dep, target: u.nodeId, type: "dependency" })
+              addEdge({ id: `e-${dep}-${resolvedNodeId}`, source: dep, target: resolvedNodeId, type: "dependency" })
             }
           }
         }
       }
 
       if (Object.keys(patch).length > 0) {
-        updateNode(u.nodeId, patch)
+        updateNode(resolvedNodeId, patch)
       }
     }
 
