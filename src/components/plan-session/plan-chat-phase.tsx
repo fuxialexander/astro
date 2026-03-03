@@ -17,7 +17,7 @@ import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useAgentStore } from "@/stores/agent-store"
-import { planChatWithAgent, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
+import { planChatWithAgent, fetchStreamingEventsCatchUp, replayChatCatchUpEvents, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import {
   groupActivityEvents,
   TextBlock,
@@ -66,6 +66,8 @@ export function PlanChatPhase({
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  /** Tracks per-turn streamId and last-seen seq for disconnect catch-up */
+  const chatStreamRef = useRef<{ streamId: string; lastSeq: number }>({ streamId: '', lastSeq: 0 })
 
   // Execution state — stable selectors (Map.get returns same ref)
   const execution = useExecutionStore((s) => s.executions.get(nodeId))
@@ -251,10 +253,49 @@ export function PlanChatPhase({
     setIsChatStreaming(true)
     abortRef.current = new AbortController()
 
+    // Generate a per-turn streamId for disconnect catch-up tracking
+    const turnStreamId = `plan-chat-${projectId}-${Date.now()}`
+    chatStreamRef.current = { streamId: turnStreamId, lastSeq: 0 }
+
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
     const historyMessages = (chatSession.messages || [] as Array<{ role: string; content: string }>)
       .filter((m: { role: string; content: string }) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
       .map((m: { role: string; content: string }) => ({ role: m.role as "user" | "assistant", content: m.content }))
+
+    // Shared callback helpers for both live stream and catch-up replay
+    const handleToolUse = (data: { toolName: string; toolInput: unknown }) => {
+      const id = `chat-tool-${++chatToolCounterRef.current}`
+      pushChatEvent({
+        type: 'tool_use',
+        id,
+        toolName: data.toolName,
+        toolInput: data.toolInput,
+        timestamp: new Date(),
+      })
+    }
+    const handleToolResult = (data: { toolName: string; success: boolean; result: unknown }) => {
+      // Match with the last unmatched tool_use of the same tool name
+      const events = chatEventsRef.current
+      let matchId = `chat-tool-result-${++chatToolCounterRef.current}`
+      for (let i = events.length - 1; i >= 0; i--) {
+        const e = events[i]
+        if (e.type === 'tool_use' && e.toolName === data.toolName) {
+          const hasResult = events.some(r => r.type === 'tool_result' && r.id === e.id)
+          if (!hasResult) {
+            matchId = e.id
+            break
+          }
+        }
+      }
+      pushChatEvent({
+        type: 'tool_result',
+        id: matchId,
+        toolName: data.toolName,
+        toolResult: data.result,
+        success: data.success,
+        timestamp: new Date(),
+      })
+    }
 
     let rawText = ""
     try {
@@ -275,55 +316,71 @@ export function PlanChatPhase({
             rawText += chunk
             pushChatEvent({ type: 'text', content: chunk, timestamp: new Date() })
           },
-          onToolUse: (data) => {
-            const id = `chat-tool-${++chatToolCounterRef.current}`
-            pushChatEvent({
-              type: 'tool_use',
-              id,
-              toolName: data.toolName,
-              toolInput: data.toolInput,
-              timestamp: new Date(),
-            })
-          },
-          onToolResult: (data) => {
-            // Match with the last unmatched tool_use of the same tool name
-            const events = chatEventsRef.current
-            let matchId = `chat-tool-result-${++chatToolCounterRef.current}`
-            for (let i = events.length - 1; i >= 0; i--) {
-              const e = events[i]
-              if (e.type === 'tool_use' && e.toolName === data.toolName) {
-                const hasResult = events.some(r => r.type === 'tool_result' && r.id === e.id)
-                if (!hasResult) {
-                  matchId = e.id
-                  break
-                }
-              }
-            }
-            pushChatEvent({
-              type: 'tool_result',
-              id: matchId,
-              toolName: data.toolName,
-              toolResult: data.result,
-              success: data.success,
-              timestamp: new Date(),
-            })
-          },
+          onToolUse: handleToolUse,
+          onToolResult: handleToolResult,
           onDone: (newSessionId) => {
             if (newSessionId) setProviderSessionId(sid, newSessionId)
             // Store full text in session message for conversation history
             addMessage(sid, { role: "assistant", content: rawText })
+            chatStreamRef.current = { streamId: '', lastSeq: 0 }
             flushChatEvents()
             setIsChatStreaming(false)
           },
           onError: (error) => {
             pushChatEvent({ type: 'error', error, timestamp: new Date() })
+            chatStreamRef.current = { streamId: '', lastSeq: 0 }
             flushChatEvents()
             setIsChatStreaming(false)
+          },
+          onSeq: (seq) => {
+            chatStreamRef.current.lastSeq = seq
           },
         },
         abortRef.current.signal,
       )
-    } catch {
+    } catch (e: unknown) {
+      // User-initiated abort — no catch-up needed
+      if (e instanceof Error && e.name === 'AbortError') {
+        flushChatEvents()
+        setIsChatStreaming(false)
+        return
+      }
+
+      // Network error — attempt catch-up using stored streamId and lastSeq
+      const { streamId: catchUpStreamId, lastSeq } = chatStreamRef.current
+      if (catchUpStreamId) {
+        try {
+          const { events } = await fetchStreamingEventsCatchUp([catchUpStreamId], lastSeq)
+          if (events.length > 0) {
+            const { completed } = replayChatCatchUpEvents(events, {
+              onText: (chunk) => {
+                rawText += chunk
+                pushChatEvent({ type: 'text', content: chunk, timestamp: new Date() })
+              },
+              onToolUse: handleToolUse,
+              onToolResult: handleToolResult,
+              onDone: (newSessionId) => {
+                if (newSessionId) setProviderSessionId(sid, newSessionId)
+                addMessage(sid, { role: "assistant", content: rawText })
+              },
+              onError: (error) => {
+                pushChatEvent({ type: 'error', error, timestamp: new Date() })
+              },
+            })
+            if (completed) {
+              chatStreamRef.current = { streamId: '', lastSeq: 0 }
+            }
+          } else {
+            pushChatEvent({ type: 'error', error: 'Connection lost during chat', timestamp: new Date() })
+          }
+        } catch {
+          // Catch-up also failed — surface the connection error
+          pushChatEvent({ type: 'error', error: 'Connection lost — unable to recover', timestamp: new Date() })
+        }
+      } else {
+        pushChatEvent({ type: 'error', error: 'Connection lost', timestamp: new Date() })
+      }
+
       flushChatEvents()
       setIsChatStreaming(false)
     }
