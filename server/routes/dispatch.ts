@@ -137,16 +137,24 @@ dispatchRoute.use('/*', requireAuth)
  * All tasks are dispatched via relay to agent runners.
  */
 dispatchRoute.post('/task', async (c) => {
+  console.log(`[dispatch] POST /task received from ${c.req.header('x-forwarded-for') || 'unknown'}`)
   // Validate input
   let body: z.infer<typeof dispatchTaskSchema>
   try {
     const rawBody = await c.req.json()
+    // Convert null values to undefined — DB nullable columns return null,
+    // but Zod .optional() only accepts undefined. Belt-and-suspenders fix
+    // in case the client sends null for optional fields.
+    for (const key of Object.keys(rawBody)) {
+      if (rawBody[key] === null) rawBody[key] = undefined
+    }
     body = dispatchTaskSchema.parse(rawBody)
   } catch (err) {
     if (err instanceof z.ZodError) {
       console.error('[dispatch] Zod validation failed:', JSON.stringify(err.issues))
       return c.json({ success: false, error: 'Invalid input', details: err.issues }, 400)
     }
+    console.error('[dispatch] JSON parse failed:', err instanceof Error ? err.message : String(err))
     return c.json({ success: false, error: 'Invalid JSON' }, 400)
   }
 

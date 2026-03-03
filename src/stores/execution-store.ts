@@ -429,7 +429,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
       if (!response.ok) {
         const errorBody = await response.json().catch(() => null)
-        const detail = errorBody?.error || errorBody?.details?.[0]?.message || ''
+        const zodDetail = errorBody?.details?.[0]?.message
+        const detail = zodDetail ? `${errorBody?.error}: ${zodDetail}` : (errorBody?.error || '')
         throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
       }
 
@@ -1033,7 +1034,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
         if (!response.ok) {
           const errorBody = await response.json().catch(() => null)
-          const detail = errorBody?.error || errorBody?.details?.[0]?.message || ""
+          const zodDetail = errorBody?.details?.[0]?.message
+          const detail = zodDetail ? `${errorBody?.error}: ${zodDetail}` : (errorBody?.error || "")
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 
@@ -1259,7 +1261,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
         if (!response.ok) {
           const errorBody = await response.json().catch(() => null)
-          const detail = errorBody?.error || errorBody?.details?.[0]?.message || ""
+          const zodDetail = errorBody?.details?.[0]?.message
+          const detail = zodDetail ? `${errorBody?.error}: ${zodDetail}` : (errorBody?.error || "")
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 
@@ -1391,7 +1394,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
         if (!response.ok) {
           const errorBody = await response.json().catch(() => null)
-          const detail = errorBody?.error || errorBody?.details?.[0]?.message || ""
+          const zodDetail = errorBody?.details?.[0]?.message
+          const detail = zodDetail ? `${errorBody?.error}: ${zodDetail}` : (errorBody?.error || "")
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 
