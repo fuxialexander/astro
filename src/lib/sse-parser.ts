@@ -103,9 +103,12 @@ export async function parseChatSSE(
     onPlanResult?: (result: unknown) => void
     onDone?: (sessionId: string) => void
     onError?: (error: string) => void
+    /** Called when an SSE `id:` field is received — tracks last seq for reconnection */
+    onId?: (id: string) => void
   },
 ): Promise<void> {
   await parseSSEStream(response, {
+    onId: handlers.onId,
     onEvent: ({ event, data }) => {
       switch (event) {
         case "text":

@@ -80,12 +80,14 @@ export async function fetchSlashCommands(
 }
 
 export async function generatePlan(
-  params: { description: string; visionDoc?: string; projectId: string; model?: string; providerId?: string; workingDirectory?: string; fileTree?: string[]; keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }; targetMachineId?: string; gitState?: { currentBranch: string; targetBranch: string; isDirty: boolean; dirtyDetails?: { staged: number; unstaged: number; untracked: number } } },
+  params: { description: string; visionDoc?: string; projectId: string; streamId?: string; model?: string; providerId?: string; workingDirectory?: string; fileTree?: string[]; keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }; targetMachineId?: string; gitState?: { currentBranch: string; targetBranch: string; isDirty: boolean; dirtyDetails?: { staged: number; unstaged: number; untracked: number } } },
   callbacks: {
     onText: (text: string) => void
     onPlanResult: (result: PlanGraphResult) => void
     onError: (error: string) => void
     onDone: () => void
+    /** Called when an SSE `id:` field is received — tracks last seq for reconnection */
+    onId?: (id: string) => void
   },
   signal?: AbortSignal,
 ): Promise<void> {
@@ -114,6 +116,7 @@ export async function generatePlan(
 
   await parseChatSSE(res, {
     onText: callbacks.onText,
+    onId: callbacks.onId,
     onPlanResult: (result) => {
       const planResult = result as PlanGraphResult
       console.log(`[plan-gen] plan_result received: ${planResult.nodes.length} nodes, ${planResult.edges.length} edges`)
