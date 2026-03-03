@@ -244,7 +244,7 @@ describe('Plan Session Store', () => {
       expect(fetchBody.model).toBe('claude-opus-4-6')
       expect(fetchBody.workingDirectory).toBe('/home/user/project')
       expect(fetchBody.isInteractivePlan).toBe(true)
-      expect(fetchBody.maxTurns).toBe(200)
+      expect(fetchBody.maxTurns).toBeUndefined()
     })
 
     it('dispatches POST to /api/dispatch/task with auth headers', async () => {

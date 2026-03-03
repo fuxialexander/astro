@@ -122,7 +122,7 @@ async function streamChatViaRelay(
     type: opts.type,
     messages: opts.messages,
     model: opts.model,
-    maxTurns: opts.maxTurns ?? 50,
+    maxTurns: opts.maxTurns,
     workingDirectory: opts.workingDirectory,
     useWorktree: false,
     ...(opts.resumeSessionId && { resumeSessionId: opts.resumeSessionId }),
@@ -501,7 +501,6 @@ agentRoute.post('/generate-plan', async (c) => {
     workingDirectory,
     prompt: fullPrompt,
     model: model || undefined,
-    maxTurns: 200,
     outputFormat: { type: 'json_schema', schema: PLAN_GRAPH_SCHEMA },
     type: 'plan', // Mark as plan task to skip safety checks (no file system access)
     useWorktree: false,
@@ -719,7 +718,6 @@ agentRoute.post('/chat', async (c) => {
     type: 'chat',
     messages: historyMessages,
     model: model || undefined,
-    maxTurns: 50,
     workingDirectory: project?.workingDirectory ?? undefined,
     streamId,
   })
@@ -763,7 +761,6 @@ agentRoute.post('/plan-chat', async (c) => {
     type: 'chat',
     messages: historyMessages,
     model: model || 'haiku',  // Default to small model for plan chat
-    maxTurns: 50,
     workingDirectory: project?.workingDirectory ?? undefined,
     streamId,
   })
@@ -848,7 +845,6 @@ agentRoute.post('/task-chat', async (c) => {
     type: 'chat',
     messages: historyMessages,
     model: model || undefined,
-    maxTurns: 50,
     workingDirectory: project?.workingDirectory ?? undefined,
     // When we have a provider session ID, pass it so agent-runner can resume the Claude session
     resumeSessionId: existingSessionId || undefined,
@@ -913,19 +909,27 @@ Provide a structured summary that captures the essential context needed to conti
   })
 })
 
+const dispatchTaskSchema = z.object({
+  nodeId: z.string().min(1).max(100),
+  projectId: z.string().min(1).max(100),
+  taskTitle: z.string().min(1).max(1000),
+  taskDescription: z.string().min(1).max(100000),
+  visionDoc: z.string().max(100000).optional(),
+  dependencyOutputs: z.string().max(500000).optional(),
+  workingDirectory: z.string().max(1000).refine(
+    (path) => !path.includes('..'),
+    { message: 'Path traversal not allowed' }
+  ).optional(),
+  model: z.string().max(100).optional(),
+  providerId: z.string().max(100).optional(),
+  maxTurns: z.number().int().min(1).refine(
+    (value) => Number.isSafeInteger(value),
+    { message: 'maxTurns must be a safe integer' }
+  ).optional(),
+})
+
 agentRoute.post('/dispatch', async (c) => {
-  const body = await c.req.json<{
-    nodeId: string
-    projectId: string
-    taskTitle: string
-    taskDescription: string
-    visionDoc?: string
-    dependencyOutputs?: string
-    workingDirectory?: string
-    model?: string
-    providerId?: string
-    maxTurns?: number
-  }>()
+  const body = dispatchTaskSchema.parse(await c.req.json())
 
   const {
     nodeId,
@@ -935,7 +939,7 @@ agentRoute.post('/dispatch', async (c) => {
     visionDoc,
     dependencyOutputs,
     workingDirectory,
-    maxTurns = 100,
+    maxTurns,
   } = body
 
   const executionId = `exec-${nodeId}-${Date.now()}`
