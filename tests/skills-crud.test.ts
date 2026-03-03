@@ -31,6 +31,7 @@ import {
   LOCAL_TEAM_ID,
   SECOND_USER_ID,
 } from './helpers/test-server.js'
+import { bootstrapBuiltinSkills } from '../packages/core/src/db/bootstrap-skills.js'
 
 // ═══════════════════════════════════════════════════════════════════════
 // Part 1: Skills API Route Integration Tests
@@ -39,6 +40,7 @@ import {
 beforeAll(async () => {
   await setupTestServer()
   await bootstrapSecondUser()
+  await bootstrapBuiltinSkills()
 })
 
 describe('POST /api/skills', () => {
@@ -143,7 +145,7 @@ describe('POST /api/skills', () => {
     expect(skill.teamId).toBe(LOCAL_TEAM_ID)
   })
 
-  it('upserts on conflict (same id)', async () => {
+  it('returns 500 on duplicate id (no upsert)', async () => {
     const id = crypto.randomUUID()
 
     const res1 = await postJson('/api/skills', {
@@ -153,15 +155,13 @@ describe('POST /api/skills', () => {
     })
     expect(res1.status).toBe(201)
 
+    // Second POST with same ID should fail (no onConflictDoUpdate)
     const res2 = await postJson('/api/skills', {
       id,
       name: 'Updated Name',
       description: 'v2',
     })
-    expect(res2.status).toBe(201)
-    const skill = await res2.json() as Record<string, unknown>
-    expect(skill.name).toBe('Updated Name')
-    expect(skill.description).toBe('v2')
+    expect(res2.status).toBe(500)
   })
 })
 
@@ -449,17 +449,50 @@ describe('team scoping and isolation', () => {
     expect(names2).not.toContain(uniqueName1)
   })
 
-  it('each user gets skills from their own team only', async () => {
+  it('each user gets skills from their own team or global skills', async () => {
     const res = await request('/api/skills')
-    const data = await res.json() as { skills: Array<{ teamId: string | null; authorId: string }> }
+    const data = await res.json() as { skills: Array<{ teamId: string | null; authorId: string | null }> }
 
     // Every skill visible to user 1 should belong to their team
-    // OR be a legacy personal skill (teamId null, authorId matches)
+    // OR be a global skill (teamId null — includes builtins)
     for (const skill of data.skills) {
       const teamMatch = skill.teamId === LOCAL_TEAM_ID
-      const legacyMatch = skill.teamId === null && skill.authorId === LOCAL_USER_ID
-      expect(teamMatch || legacyMatch).toBe(true)
+      const globalMatch = skill.teamId === null
+      expect(teamMatch || globalMatch).toBe(true)
     }
+  })
+})
+
+describe('builtin skill protection', () => {
+  let builtinSkillId: string
+
+  it('builtin skills are visible to all users', async () => {
+    const res = await request('/api/skills')
+    const data = await res.json() as { skills: Array<{ id: string; name: string; source: string; teamId: string | null }> }
+
+    const builtins = data.skills.filter(s => s.source === 'builtin')
+    expect(builtins.length).toBeGreaterThan(0)
+
+    // Builtins have no teamId
+    for (const b of builtins) {
+      expect(b.teamId).toBeNull()
+    }
+
+    builtinSkillId = builtins[0].id
+  })
+
+  it('returns 403 when trying to update a builtin skill', async () => {
+    const res = await putJson(`/api/skills/${builtinSkillId}`, { description: 'hacked' })
+    expect(res.status).toBe(403)
+    const body = await res.json() as { error: string }
+    expect(body.error).toContain('builtin')
+  })
+
+  it('returns 403 when trying to delete a builtin skill', async () => {
+    const res = await del(`/api/skills/${builtinSkillId}`)
+    expect(res.status).toBe(403)
+    const body = await res.json() as { error: string }
+    expect(body.error).toContain('builtin')
   })
 })
 

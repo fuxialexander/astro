@@ -46,13 +46,15 @@ CREATE POLICY skills_select_policy ON skills
     OR team_id IS NULL  -- Global/builtin skills visible to all
   );
 
--- Policy: users can insert skills for themselves or their team
+-- Policy: users can insert skills for themselves or their team (team_id must be non-null)
 CREATE POLICY skills_insert_policy ON skills
   FOR INSERT
   WITH CHECK (
-    author_id = auth.uid()
-    OR team_id IN (
-      SELECT team_id FROM team_members WHERE user_id = auth.uid() AND role IN ('owner', 'admin')
+    team_id IS NOT NULL AND (
+      author_id = auth.uid()
+      OR team_id IN (
+        SELECT team_id FROM team_members WHERE user_id = auth.uid() AND role IN ('owner', 'admin')
+      )
     )
   );
 

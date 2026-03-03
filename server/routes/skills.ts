@@ -22,12 +22,12 @@ skillsRoute.use('/*', requireAuth)
 /**
  * Build a team-scoped filter for skills.
  * Matches rows where teamId equals the user's active team,
- * OR where teamId is null and authorId matches (for personal skills).
+ * OR where teamId is null (global/builtin skills visible to all).
  */
 function skillTeamScopeFilter(user: AuthUser) {
   return or(
     eq(skills.teamId, user.teamId),
-    and(isNull(skills.teamId), eq(skills.authorId, user.id))
+    isNull(skills.teamId)
   )!
 }
 
@@ -129,10 +129,7 @@ skillsRoute.post('/', async (c) => {
       updatedAt: body.updatedAt ? new Date(body.updatedAt) : now,
     }
 
-    await db.insert(skills).values(row).onConflictDoUpdate({
-      target: skills.id,
-      set: { ...row, id: undefined } as typeof row,
-    })
+    await db.insert(skills).values(row)
 
     const [created] = await db.select().from(skills).where(eq(skills.id, skillId))
 
@@ -160,6 +157,10 @@ skillsRoute.put('/:id', async (c) => {
 
     if (!existing) {
       return c.json({ error: 'Skill not found' }, 404)
+    }
+
+    if (existing.source === 'builtin') {
+      return c.json({ error: 'Cannot modify builtin skills' }, 403)
     }
 
     const body = await c.req.json()
@@ -204,6 +205,10 @@ skillsRoute.delete('/:id', async (c) => {
 
     if (!existing) {
       return c.json({ error: 'Skill not found' }, 404)
+    }
+
+    if (existing.source === 'builtin') {
+      return c.json({ error: 'Cannot delete builtin skills' }, 403)
     }
 
     await db.delete(skills).where(eq(skills.id, id))
