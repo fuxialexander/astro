@@ -46,6 +46,7 @@ export function SkillDetailDialog({
   const [editedInstructions, setEditedInstructions] = useState("")
   const [isEditingConfig, setIsEditingConfig] = useState(false)
   const [editedConfig, setEditedConfig] = useState("")
+  const [configError, setConfigError] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   // Reset state when dialog opens/closes or skill changes
@@ -58,6 +59,7 @@ export function SkillDetailDialog({
       setEditedInstructions(skill.instructions)
       setIsEditingConfig(false)
       setEditedConfig(JSON.stringify(skill.config || {}, null, 2))
+      setConfigError(null)
       setShowDeleteConfirm(false)
     }
   }
@@ -85,22 +87,34 @@ export function SkillDetailDialog({
 
   const handleEditConfig = () => {
     setEditedConfig(JSON.stringify(skill.config || {}, null, 2))
+    setConfigError(null)
     setIsEditingConfig(true)
   }
 
   const handleSaveConfig = () => {
     try {
       const parsedConfig = JSON.parse(editedConfig)
+
+      // Size validation (100KB limit, server enforces 80KB)
+      const configSize = new Blob([editedConfig]).size
+      if (configSize > 100 * 1024) {
+        setConfigError(`Configuration is too large (${Math.round(configSize / 1024)}KB). Maximum is 100KB.`)
+        return
+      }
+
       updateSkill(skill.id, { config: parsedConfig })
+      setConfigError(null)
       setIsEditingConfig(false)
     } catch (err) {
       // Keep editing mode open if JSON is invalid
-      console.error('Invalid JSON:', err)
+      const errorMessage = err instanceof Error ? err.message : 'Invalid JSON syntax'
+      setConfigError(`Invalid JSON: ${errorMessage}`)
     }
   }
 
   const handleCancelEditConfig = () => {
     setEditedConfig(JSON.stringify(skill.config || {}, null, 2))
+    setConfigError(null)
     setIsEditingConfig(false)
   }
 
@@ -267,9 +281,33 @@ export function SkillDetailDialog({
                 <Textarea
                   value={editedConfig}
                   onChange={(e) => setEditedConfig(e.target.value)}
-                  className="flex-1 min-h-[200px] max-h-[40vh] font-mono text-xs resize-none"
+                  className={cn(
+                    "flex-1 min-h-[200px] max-h-[40vh] font-mono text-xs resize-none",
+                    configError && "border-destructive focus-visible:ring-destructive"
+                  )}
                   placeholder='{"key": "value"}'
+                  disabled={skill.source === "builtin"}
                 />
+
+                {/* Hints and validation messages */}
+                <div className="flex flex-col gap-1.5 text-xs">
+                  {configError && (
+                    <p className="text-destructive font-medium">
+                      {configError}
+                    </p>
+                  )}
+                  <p className="text-muted-foreground">
+                    Max 100KB (server enforces 80KB API limit)
+                  </p>
+                  {(skill.category === "k8s" ||
+                    skill.name.toLowerCase().includes("k8s") ||
+                    skill.name.toLowerCase().includes("kubernetes")) && (
+                    <p className="text-info text-xs">
+                      💡 K8s skills typically require: <code className="bg-muted px-1 py-0.5 rounded">namespace</code>, <code className="bg-muted px-1 py-0.5 rounded">pvcName</code>, <code className="bg-muted px-1 py-0.5 rounded">containerImage</code>
+                    </p>
+                  )}
+                </div>
+
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" size="sm" onClick={handleCancelEditConfig}>
                     Cancel
@@ -281,6 +319,11 @@ export function SkillDetailDialog({
               </div>
             ) : (
               <div className="rounded-md border border-border bg-muted/30 p-4 overflow-y-auto max-h-[40vh]">
+                {skill.source === "builtin" && (
+                  <p className="text-xs text-muted-foreground mb-2 italic">
+                    Read-only (builtin skill)
+                  </p>
+                )}
                 <pre className="text-xs font-mono">
                   {JSON.stringify(skill.config || {}, null, 2)}
                 </pre>
