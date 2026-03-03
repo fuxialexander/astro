@@ -495,6 +495,16 @@ describe('builtin skill protection', () => {
     expect(body.error).toContain('builtin')
   })
 
+  it('returns 403 when trying to create a skill with source=builtin', async () => {
+    const res = await postJson('/api/skills', {
+      name: 'Fake Builtin',
+      source: 'builtin',
+    })
+    expect(res.status).toBe(403)
+    const body = await res.json() as { error: string }
+    expect(body.error).toContain('builtin')
+  })
+
   it('allows toggling builtin skills (enable/disable without deleting)', async () => {
     // Toggling builtins is intentionally allowed so users can disable
     // a builtin skill from prompt injection without deleting it

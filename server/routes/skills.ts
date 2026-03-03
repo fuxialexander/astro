@@ -107,7 +107,10 @@ skillsRoute.post('/', async (c) => {
       return c.json({ error: 'name is required' }, 400)
     }
 
-    const validSources = ['builtin', 'workspace', 'clawhub', 'plugin', 'user']
+    if (body.source === 'builtin') {
+      return c.json({ error: 'Cannot create skills with source=builtin. Only system-seeded skills can use this source.' }, 403)
+    }
+    const validSources = ['workspace', 'clawhub', 'plugin', 'user']
     if (body.source && !validSources.includes(body.source)) {
       return c.json({ error: `Invalid source. Must be one of: ${validSources.join(', ')}` }, 400)
     }
@@ -189,7 +192,8 @@ skillsRoute.put('/:id', async (c) => {
     if (body.instructions !== undefined) patch.instructions = body.instructions
     if (body.category !== undefined) patch.category = body.category || null
     if (body.tags !== undefined) patch.tags = body.tags
-    if (body.source !== undefined) patch.source = body.source
+    // source is immutable after creation — prevent spoofing
+    // (e.g., changing a workspace skill to appear as 'clawhub')
     if (body.sourceUrl !== undefined) patch.sourceUrl = body.sourceUrl || null
     if (body.enabled !== undefined) patch.enabled = body.enabled
     if (body.allowedTools !== undefined) patch.allowedTools = body.allowedTools
