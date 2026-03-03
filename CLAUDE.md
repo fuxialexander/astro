@@ -207,6 +207,8 @@ Use `Glob` and `Read` to explore the full directory tree as needed.
 ### Pull Requests
 **Before creating a PR, always run a round of code review using a subagent. Fix any issues and build errors before submitting the PR.**
 
+**Lockfile rule:** When changing dependencies in `package.json`, always run `pnpm install` and commit the updated `pnpm-lock.yaml`. The Fly.io deploy uses `--frozen-lockfile` and will fail if specifiers are out of sync.
+
 **Submodule rules for `packages/agent-runner`:**
 - If there are no explicit changes to agent-runner, never include it in your PR. Unstage it (`git restore --staged packages/agent-runner`) to avoid submodule pointer issues.
 - If all changes are exclusively in agent-runner, do not PR to this main repo. Instead, create the PR in the agent-runner repo (`github.com/fuxialexander/astro-agent`).
