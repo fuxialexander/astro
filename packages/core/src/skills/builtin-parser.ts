@@ -50,7 +50,9 @@ export function parseBuiltinSkillMd(content: string): BuiltinSkillDefinition | n
   const frontmatter = fmMatch[1]
   const instructions = fmMatch[2].trim()
 
-  // Parse key: value pairs from frontmatter
+  // Simple line-by-line YAML parser for flat key-value frontmatter.
+  // Does not support multi-line values, nested objects, or YAML anchors.
+  // For complex SKILL.md files, consider using a full YAML parser (js-yaml).
   const meta: Record<string, string> = {}
   for (const line of frontmatter.split('\n')) {
     const colonIdx = line.indexOf(':')

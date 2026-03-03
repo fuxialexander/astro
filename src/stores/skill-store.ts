@@ -79,7 +79,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
   addSkill: (skill) => {
     // Optimistic: add to local state immediately
     const skills = new Map(get().skills)
-    const tempId = crypto.randomUUID()
+    const tempId = `temp-${crypto.randomUUID()}`
     const row: SkillRow = { ...skill, id: tempId }
     skills.set(tempId, row)
     set({ skills })
@@ -96,14 +96,17 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     }).then((created) => {
       // Replace temp entry with server response
       const current = new Map(get().skills)
-      current.delete(tempId)
+      // Clean up all temp- prefixed optimistic entries for safety
+      for (const key of current.keys()) {
+        if (key.startsWith('temp-')) current.delete(key)
+      }
       current.set(created.id, created)
       set({ skills: current })
     }).catch((err) => {
       console.error('[skill-store] Failed to sync addSkill:', err)
-      // Remove optimistic entry on failure
+      // Remove optimistic entry on failure (identified by temp- prefix)
       const current = new Map(get().skills)
-      current.delete(tempId)
+      if (tempId.startsWith('temp-')) current.delete(tempId)
       set({ skills: current, error: err instanceof Error ? err.message : 'Failed to save skill' })
       useToastStore.getState().add({
         type: 'error',

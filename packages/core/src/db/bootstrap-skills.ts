@@ -38,29 +38,62 @@ export async function bootstrapBuiltinSkills(builtinSkills: BuiltinSkillDefiniti
 
   let inserted = 0
   let updated = 0
+  let unchanged = 0
 
-  // tx inherits `any` from the dual-driver db proxy (PGlite + postgres-js)
+  // tx inherits `any` from the dual-driver db proxy (PGlite + postgres-js).
+  // Both drivers expose identical Drizzle query-builder APIs at runtime, but
+  // TypeScript cannot unify their incompatible generic type declarations
+  // (PgliteDatabase vs PostgresJsDatabase). The `db` export is typed as
+  // `any` at the proxy boundary (see packages/core/src/db/index.ts), so the
+  // transaction callback parameter inherits that `any`. Narrowing to one
+  // driver's type would break the other driver at compile time, so `any` is
+  // the correct tradeoff here — callers still get full Drizzle API
+  // autocompletion and runtime safety; only the TypeScript-level generic
+  // parameter is lost.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await db.transaction(async (tx: any) => {
     for (const skill of builtinSkills) {
       try {
-        const [existing] = await tx.select({ id: skills.id, version: skills.version })
+        const [existing] = await tx.select({
+          id: skills.id,
+          version: skills.version,
+          description: skills.description,
+          instructions: skills.instructions,
+          category: skills.category,
+          tags: skills.tags,
+          allowedTools: skills.allowedTools,
+        })
           .from(skills)
           .where(and(eq(skills.name, skill.name), eq(skills.source, 'builtin')))
 
         if (existing) {
-          // Update if version or content changed
-          await tx.update(skills).set({
-            version: skill.version,
-            description: skill.description,
-            instructions: skill.instructions,
-            category: skill.category,
-            tags: skill.tags,
-            allowedTools: skill.allowedTools,
-            updatedAt: new Date(),
-          }).where(eq(skills.id, existing.id))
-          console.log(`[bootstrap] Updated builtin skill: ${skill.name}`)
-          updated++
+          // Compare all fields to avoid unnecessary writes
+          const tagsMatch = JSON.stringify(existing.tags ?? []) === JSON.stringify(skill.tags ?? [])
+          const toolsMatch = JSON.stringify(existing.allowedTools ?? []) === JSON.stringify(skill.allowedTools ?? [])
+          const isUnchanged =
+            existing.version === skill.version &&
+            existing.description === skill.description &&
+            existing.instructions === skill.instructions &&
+            existing.category === skill.category &&
+            tagsMatch &&
+            toolsMatch
+
+          if (isUnchanged) {
+            console.log(`[bootstrap] Unchanged builtin skill: ${skill.name}`)
+            unchanged++
+          } else {
+            await tx.update(skills).set({
+              version: skill.version,
+              description: skill.description,
+              instructions: skill.instructions,
+              category: skill.category,
+              tags: skill.tags,
+              allowedTools: skill.allowedTools,
+              updatedAt: new Date(),
+            }).where(eq(skills.id, existing.id))
+            console.log(`[bootstrap] Updated builtin skill: ${skill.name}`)
+            updated++
+          }
         } else {
           await tx.insert(skills).values({
             name: skill.name,
@@ -88,7 +121,7 @@ export async function bootstrapBuiltinSkills(builtinSkills: BuiltinSkillDefiniti
   })
 
   console.log(
-    `[bootstrap] Built-in skills seeding complete: ${inserted} inserted, ${updated} updated`
+    `[bootstrap] Built-in skills seeding complete: ${inserted} inserted, ${updated} updated, ${unchanged} unchanged`
   )
 }
 

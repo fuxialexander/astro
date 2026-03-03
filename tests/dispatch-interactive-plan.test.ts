@@ -43,6 +43,32 @@ vi.mock('../server/lib/relay-server.js', () => {
   }
 })
 
+// Mock machine registry to return a fake machine for non-dryRun tests
+vi.mock('../server/lib/machine-registry.js', async (importOriginal) => {
+  const original = await importOriginal() as Record<string, unknown>
+  return {
+    ...original,
+    machineRegistry: {
+      findBestMachine: vi.fn(() => ({
+        machineId: 'test-machine-001',
+        providerId: 'claude-code',
+        providerType: 'claude-code',
+        status: 'connected',
+      })),
+      get: vi.fn(() => ({
+        machineId: 'test-machine-001',
+        providerId: 'claude-code',
+        providerType: 'claude-code',
+        status: 'connected',
+      })),
+      getAll: vi.fn(() => []),
+      on: vi.fn(),
+      off: vi.fn(),
+      emit: vi.fn(),
+    },
+  }
+})
+
 import { setupTestServer, postJson, db } from './helpers/test-server.js'
 import { projects } from '../server/lib/db/schema.js'
 

@@ -63,6 +63,34 @@ function getShortNodeId(nodeId: string, nodeNumber?: number | null): string {
   return hex || 'unknown'
 }
 
+/**
+ * Check if a project in 'direct' delivery mode already has an active task.
+ * Direct mode (no git isolation) requires serial execution to prevent file conflicts.
+ *
+ * ⚠️ TOCTOU caveat: There is a small race window between this check and the actual
+ * task insertion into the dispatch queue. Two concurrent requests could both pass
+ * this check simultaneously. Mitigated in practice by:
+ * (a) 'direct' mode is uncommon, (b) concurrent clicks are rare, and
+ * (c) agents themselves use file-level locks. A DB-level advisory lock or unique
+ * partial index could eliminate this window if needed in the future.
+ *
+ * @returns An error Response (409) if parallel execution is unsafe, or null if safe to proceed.
+ */
+async function rejectIfParallelDirectExecution(projectId: string): Promise<{ status: 409; body: { success: false; error: string } } | null> {
+  const stats = await dispatchEngine.getStats()
+  const activeForProject = stats.activePerProject?.[projectId] ?? 0
+  if (activeForProject > 0) {
+    return {
+      status: 409,
+      body: {
+        success: false as const,
+        error: 'Serial execution required: this project uses direct delivery mode (no git). Only one task can run at a time to prevent file conflicts.',
+      },
+    }
+  }
+  return null
+}
+
 // Validation schemas
 const dispatchTaskSchema = z.object({
   nodeId: z.string().min(1).max(100),
@@ -382,16 +410,9 @@ dispatchRoute.post('/task', async (c) => {
   // Serial execution constraint for 'direct' delivery mode (non-git directories).
   // Without git isolation, parallel execution on the same directory is unsafe.
   if (deliveryMode === 'direct') {
-    const stats = await dispatchEngine.getStats()
-    const activeForProject = stats.activePerProject?.[projectId] ?? 0
-    if (activeForProject > 0) {
-      return c.json(
-        {
-          success: false,
-          error: 'Serial execution required: this project uses direct delivery mode (no git). Only one task can run at a time to prevent file conflicts.',
-        },
-        409
-      )
+    const rejection = await rejectIfParallelDirectExecution(projectId)
+    if (rejection) {
+      return c.json(rejection.body, rejection.status)
     }
   }
 

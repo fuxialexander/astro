@@ -276,7 +276,7 @@ skillsRoute.put('/:id', async (c) => {
     // source is immutable after creation — reject attempts to change it
     if (body.source !== undefined) {
       if (body.source !== existing.source) {
-        return c.json({ error: 'source field is immutable after creation' }, 400)
+        return c.json({ error: 'source field is immutable after creation to maintain skill provenance and prevent builtin impersonation' }, 400)
       }
       // Same source as existing — no-op
     }
@@ -298,7 +298,20 @@ skillsRoute.put('/:id', async (c) => {
     if (patch.config !== undefined) {
       const mergedConfigError = validateConfig(patch.config)
       if (mergedConfigError) {
-        return c.json({ error: mergedConfigError }, 400)
+        // Compute individual sizes to help diagnose which part caused the overflow
+        const existingConfigSize = JSON.stringify(existing.config ?? {}).length
+        const updateConfigSize = body.config !== undefined ? JSON.stringify(body.config).length : 0
+        const openClawFields: Record<string, unknown> = {}
+        if (body.userInvocable !== undefined) openClawFields.userInvocable = body.userInvocable
+        if (body.disableModelInvocation !== undefined) openClawFields.disableModelInvocation = body.disableModelInvocation
+        const openClawSize = Object.keys(openClawFields).length > 0 ? JSON.stringify(openClawFields).length : 0
+        const mergedSize = JSON.stringify(patch.config).length
+        return c.json({
+          error: `Merged config size (${mergedSize} bytes) exceeds maximum allowed (${MAX_CONFIG_SIZE} bytes). `
+            + `Breakdown: existing config=${existingConfigSize} bytes, `
+            + `update config=${updateConfigSize} bytes, `
+            + `OpenClaw fields=${openClawSize} bytes`,
+        }, 400)
       }
     }
 
