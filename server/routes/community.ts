@@ -53,15 +53,23 @@ app.post('/plans', async (c) => {
   // Compute execution summary if provided
   let executionSummary = body.executionSummary
   if (!executionSummary && body.projectId) {
-    // Try to compute from project's tasks
+    // Try to compute from project's tasks - verify ownership first
     try {
-      const nodes = await db.select().from(planNodes).where(eq(planNodes.projectId, body.projectId))
-      const completed = nodes.filter(n => n.status === 'completed' || n.status === 'auto_verified').length
-      const failed = nodes.filter(n => n.executionError).length
-      executionSummary = {
-        totalTasks: nodes.length,
-        completed,
-        failed,
+      // Check that the project exists and belongs to the user
+      const [project] = await db.select({ ownerId: projects.ownerId })
+        .from(projects)
+        .where(eq(projects.id, body.projectId))
+        .limit(1)
+
+      if (project && project.ownerId === user.id) {
+        const nodes = await db.select().from(planNodes).where(eq(planNodes.projectId, body.projectId))
+        const completed = nodes.filter(n => n.status === 'completed' || n.status === 'auto_verified').length
+        const failed = nodes.filter(n => n.executionError).length
+        executionSummary = {
+          totalTasks: nodes.length,
+          completed,
+          failed,
+        }
       }
     } catch {
       // Silently skip if project doesn't exist or query fails
@@ -630,6 +638,18 @@ app.post('/plans/:id/star', async (c) => {
 
   if (!plan) {
     return c.json({ error: 'Plan not found' }, 404)
+  }
+
+  // Check visibility permissions - users can only star plans they have access to
+  const canAccess = (
+    plan.visibility === 'public' ||
+    (plan.visibility === 'team' && plan.teamId === user.teamId) ||
+    (plan.visibility === 'unlisted' && plan.authorId === user.id) ||
+    plan.authorId === user.id
+  )
+
+  if (!canAccess) {
+    return c.json({ error: 'Access denied' }, 403)
   }
 
   // Check if user already starred this plan
