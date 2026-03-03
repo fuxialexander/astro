@@ -157,40 +157,7 @@ export function useConvertToProject() {
         updateProject(sourceProject.id, { projectBranch: sourceProjectBranch })
       }
 
-      // 4. GitHub-only: ensure branch exists on remote (best-effort)
-      if (isGitHub && sourceProjectBranch) {
-        const branchResult = await ensureBranch(
-          sourceProject.githubOwner!,
-          sourceProject.githubRepo!,
-          sourceProjectBranch,
-          sourceProject.source?.baseBranch,
-        )
-        if (!branchResult.success) {
-          addToast({
-            type: "warning",
-            title: "Could not ensure branch on remote",
-            description: `${branchResult.error ?? "Unknown error"}. You may need to manually create the branch '${sourceProjectBranch}' before running tasks that push to remote.`,
-          })
-        }
-      }
-
-      // 5. GitHub-only: close PR (best-effort)
-      if (isGitHub && node.prNumber) {
-        const prResult = await closePr(
-          sourceProject.githubOwner!,
-          sourceProject.githubRepo!,
-          node.prNumber,
-        )
-        if (!prResult.success) {
-          addToast({
-            type: "warning",
-            title: `Could not close PR #${node.prNumber}`,
-            description: prResult.error ?? undefined,
-          })
-        }
-      }
-
-      // 6. Create new project
+      // 4. Create new project
       const newProjectId = crypto.randomUUID()
       const now = new Date()
 
@@ -226,13 +193,48 @@ export function useConvertToProject() {
       await addProject(newProject)
       createdProjectId = newProjectId
 
-      // 7. Start plan generation (before deleting node — if this fails, node remains)
+      // 5. Start plan generation (before deleting node — if this fails, node remains)
       await startPlanSessionForProject(newProjectId, enrichedDescription, {
         workingDirectory: sourceProject.workingDirectory,
         targetMachineId: sourceProject.defaultMachineId,
         visionDoc: sourceProject.visionDoc,
         baseBranch: isGitRepo ? sourceProjectBranch : undefined,
       })
+
+      // 6. GitHub-only: ensure branch exists on remote (best-effort, after plan generation)
+      // Now that plan generation has started successfully, we can safely perform GitHub operations.
+      // These are best-effort — if they fail, we warn but don't roll back the conversion.
+      if (isGitHub && sourceProjectBranch) {
+        const branchResult = await ensureBranch(
+          sourceProject.githubOwner!,
+          sourceProject.githubRepo!,
+          sourceProjectBranch,
+          sourceProject.source?.baseBranch,
+        )
+        if (!branchResult.success) {
+          addToast({
+            type: "warning",
+            title: "Could not ensure branch on remote",
+            description: `${branchResult.error ?? "Unknown error"}. You may need to manually create the branch '${sourceProjectBranch}' before running tasks that push to remote.`,
+          })
+        }
+      }
+
+      // 7. GitHub-only: close PR (best-effort, after plan generation)
+      if (isGitHub && node.prNumber) {
+        const prResult = await closePr(
+          sourceProject.githubOwner!,
+          sourceProject.githubRepo!,
+          node.prNumber,
+        )
+        if (!prResult.success) {
+          addToast({
+            type: "warning",
+            title: `Could not close PR #${node.prNumber}`,
+            description: prResult.error ?? undefined,
+          })
+        }
+      }
 
       // 8. Delete source node (soft-delete) — only after plan session starts successfully
       // Note: "starts successfully" means the SSE stream was initiated, not that plan
