@@ -143,6 +143,7 @@ export function useRestoredExecution(
     }
     console.log('[use-restored] fetching trace for', executionId)
     fetchTrace(executionId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- execution?.activityEvents?.length is only used in debug log; hasLiveEvents already captures it transitively
   }, [executionId, hasLiveEvents, fetchTrace, getTrace, taskStream])
 
   // Reconstruct from trace when available
@@ -160,7 +161,7 @@ export function useRestoredExecution(
     const execEvents = execution?.activityEvents || []
     if (execEvents.length > 0) {
       console.log('[use-restored] clearing restored data — exec store has', execEvents.length, 'events')
-      setRestoredData(null) // eslint-disable-line react-hooks/set-state-in-effect -- intentional: clear restored cache when live data arrives
+      setRestoredData(null)
       return
     }
     const result = reconstructActivityFromTrace(trace)
@@ -170,7 +171,7 @@ export function useRestoredExecution(
       fileChanges: result.fileChanges.length,
     })
     setRestoredData(result)
-  }, [trace, execution?.activityEvents])
+  }, [trace, executionId, execution?.activityEvents])
 
   // Determine what to return based on data availability
   const hasExecStoreEvents = (execution?.activityEvents?.length || 0) > 0
