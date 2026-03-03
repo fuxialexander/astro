@@ -962,3 +962,211 @@ export async function applyTemplate(
 
   return response.json()
 }
+
+// ============================================================================
+// Custom Template API Functions
+// ============================================================================
+
+export interface CustomTemplateInput {
+  name: string
+  description?: string
+  category?: string
+  version?: string
+  icon?: string
+  tags?: string[]
+  maturity?: 'stable' | 'beta' | 'experimental'
+  enabled?: boolean
+  requiredParameters?: Array<{
+    id: string
+    name: string
+    description: string
+    type: string
+    required: boolean
+    default?: unknown
+    placeholder?: string
+    options?: Array<{ label: string; value: string; description?: string }>
+    validation?: { min?: number; max?: number; pattern?: string; message?: string }
+    visibleWhen?: { parameterId: string; operator: string; value?: unknown }
+    group?: string
+    order?: number
+  }>
+  optionalParameters?: Array<{
+    id: string
+    name: string
+    description: string
+    type: string
+    required: boolean
+    default?: unknown
+    placeholder?: string
+    options?: Array<{ label: string; value: string; description?: string }>
+    validation?: { min?: number; max?: number; pattern?: string; message?: string }
+    visibleWhen?: { parameterId: string; operator: string; value?: unknown }
+    group?: string
+    order?: number
+  }>
+  prompts: {
+    planGeneration: string
+    taskExecution?: string
+    planRefinement?: string
+    sharedContext?: string
+  }
+  execution?: {
+    preferredModel?: string
+    maxTurns?: number
+    maxBudgetPerTask?: number
+    skills?: string[]
+    deliveryMode?: string
+    skipSafetyCheck?: boolean
+    defaultVerification?: string
+  }
+  parallelization?: {
+    maxConcurrentTasks?: number
+    autoDispatch?: boolean
+    defaultPriority?: string
+    retry?: { maxRetries: number; retryDelayMs: number; exponentialBackoff: boolean }
+    machineSelectionPolicy?: string
+    requiredMachineLabels?: string[]
+  }
+  planHints?: {
+    targetNodeCount?: { min: number; max: number }
+    defaultEstimate?: string
+    suggestedMilestones?: Array<{ title: string; description: string }>
+    commonLabels?: string[]
+    preferParallelTasks?: boolean
+  }
+  sourceProjectId?: string
+  teamId?: string
+}
+
+export interface CustomTemplateResult {
+  template: UseCaseTemplate & {
+    isOwner?: boolean
+    canEdit?: boolean
+  }
+  message?: string
+}
+
+export interface CustomTemplatesListResult {
+  templates: Array<UseCaseTemplate & {
+    isOwner: boolean
+    canEdit: boolean
+  }>
+  count: number
+}
+
+/**
+ * Get all custom templates for the current user (including team templates).
+ * @returns List of custom templates with ownership info
+ */
+export async function getCustomTemplates(): Promise<CustomTemplatesListResult> {
+  const response = await fetch(apiUrl('/api/templates/custom'), {
+    headers: await authHeaders(),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch custom templates: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Get a specific custom template by ID.
+ * @param id - Custom template UUID (without 'custom/' prefix)
+ * @returns Template details with ownership info
+ */
+export async function getCustomTemplate(id: string): Promise<CustomTemplateResult> {
+  const response = await fetch(apiUrl(`/api/templates/custom/${id}`), {
+    headers: await authHeaders(),
+  })
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error('Template not found')
+    }
+    throw new Error(`Failed to fetch custom template: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Create a new custom template.
+ * @param input - Template data
+ * @returns Created template
+ */
+export async function createCustomTemplate(input: CustomTemplateInput): Promise<CustomTemplateResult> {
+  const response = await fetch(apiUrl('/api/templates/custom'), {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify(input),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    if (response.status === 400 && errorData.details) {
+      throw new Error(`Validation failed: ${JSON.stringify(errorData.details)}`)
+    }
+    throw new Error(errorData.error || `Failed to create template: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Update an existing custom template.
+ * @param id - Custom template UUID (without 'custom/' prefix)
+ * @param input - Partial template data to update
+ * @returns Updated template
+ */
+export async function updateCustomTemplate(
+  id: string,
+  input: Partial<CustomTemplateInput>
+): Promise<CustomTemplateResult> {
+  const response = await fetch(apiUrl(`/api/templates/custom/${id}`), {
+    method: 'PUT',
+    headers: await authHeaders(),
+    body: JSON.stringify(input),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    if (response.status === 404) {
+      throw new Error('Template not found')
+    }
+    if (response.status === 403) {
+      throw new Error('Permission denied')
+    }
+    if (response.status === 400 && errorData.details) {
+      throw new Error(`Validation failed: ${JSON.stringify(errorData.details)}`)
+    }
+    throw new Error(errorData.error || `Failed to update template: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Delete a custom template. Only the author can delete.
+ * @param id - Custom template UUID (without 'custom/' prefix)
+ * @returns Success message
+ */
+export async function deleteCustomTemplate(id: string): Promise<{ message: string }> {
+  const response = await fetch(apiUrl(`/api/templates/custom/${id}`), {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    if (response.status === 404) {
+      throw new Error('Template not found')
+    }
+    if (response.status === 403) {
+      throw new Error('Only the template author can delete it')
+    }
+    throw new Error(errorData.error || `Failed to delete template: ${response.status}`)
+  }
+
+  return response.json()
+}

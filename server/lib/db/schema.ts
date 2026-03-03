@@ -43,4 +43,5 @@ export {
   environmentConfigs,
   streamingEvents,
   skills,
+  customTemplates,
 } from '../../../packages/core/src/db/schema.js'

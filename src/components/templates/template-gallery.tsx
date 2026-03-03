@@ -11,6 +11,8 @@ interface TemplateGalleryProps {
   categories: Array<{ name: string; count: number }>
   isLoading?: boolean
   onTemplateSelect?: (template: UseCaseTemplateSummary) => void
+  onTemplateEdit?: (template: UseCaseTemplateSummary) => void
+  onTemplateDelete?: (template: UseCaseTemplateSummary) => void
 }
 
 type SortOption = 'popular' | 'newest' | 'a-z'
@@ -59,6 +61,8 @@ export function TemplateGallery({
   categories,
   isLoading = false,
   onTemplateSelect,
+  onTemplateEdit,
+  onTemplateDelete,
 }: TemplateGalleryProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState<string>("all")
@@ -202,6 +206,8 @@ export function TemplateGallery({
                 key={template.id}
                 template={template}
                 onClick={onTemplateSelect}
+                onEdit={onTemplateEdit}
+                onDelete={onTemplateDelete}
               />
             ))}
           </div>

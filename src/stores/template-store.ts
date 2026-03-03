@@ -10,11 +10,16 @@ import {
   validateTemplateParams,
   launchTemplate,
   previewTemplate,
+  getCustomTemplates,
+  createCustomTemplate,
+  updateCustomTemplate,
+  deleteCustomTemplate,
   type TemplateCategory,
   type ParameterValidationError,
   type PreviewTemplateResult,
   type LaunchTemplateParams,
   type LaunchTemplateResult,
+  type CustomTemplateInput,
 } from "@/lib/api-client"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -56,6 +61,12 @@ interface TemplateStore {
 
   // Launch
   launchTemplate: (projectName: string, workDir?: string) => Promise<LaunchTemplateResult | undefined>
+
+  // Custom template CRUD
+  createCustomTemplate: (input: CustomTemplateInput) => Promise<string | undefined>
+  updateCustomTemplate: (id: string, input: Partial<CustomTemplateInput>) => Promise<boolean>
+  deleteCustomTemplate: (id: string) => Promise<boolean>
+  refreshCustomTemplates: () => Promise<void>
 }
 
 export const useTemplateStore = create<TemplateStore>((set, get) => ({
@@ -345,6 +356,139 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
         description: errorMsg,
       })
       return undefined
+    }
+  },
+
+  /**
+   * Create a new custom template.
+   * @returns The created template ID, or undefined on error
+   */
+  createCustomTemplate: async (input: CustomTemplateInput) => {
+    set({ isLoading: true, error: null })
+    try {
+      const result = await createCustomTemplate(input)
+      useToastStore.getState().add({
+        type: 'success',
+        title: 'Template created',
+        description: `"${input.name}" is now available in your template library`,
+      })
+
+      // Refresh the templates list
+      await get().fetchTemplates()
+
+      set({ isLoading: false })
+      // Extract UUID from template ID (remove 'custom/' prefix)
+      return result.template.id.replace('custom/', '')
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to create template'
+      set({ isLoading: false, error: errorMsg })
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Failed to create template',
+        description: errorMsg,
+      })
+      return undefined
+    }
+  },
+
+  /**
+   * Update an existing custom template.
+   * @param id - Template UUID (without 'custom/' prefix)
+   * @returns true on success, false on error
+   */
+  updateCustomTemplate: async (id: string, input: Partial<CustomTemplateInput>) => {
+    set({ isLoading: true, error: null })
+    try {
+      await updateCustomTemplate(id, input)
+      useToastStore.getState().add({
+        type: 'success',
+        title: 'Template updated',
+        description: 'Your changes have been saved',
+      })
+
+      // Refresh the templates list
+      await get().fetchTemplates()
+
+      set({ isLoading: false })
+      return true
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to update template'
+      set({ isLoading: false, error: errorMsg })
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Failed to update template',
+        description: errorMsg,
+      })
+      return false
+    }
+  },
+
+  /**
+   * Delete a custom template.
+   * @param id - Template UUID (without 'custom/' prefix)
+   * @returns true on success, false on error
+   */
+  deleteCustomTemplate: async (id: string) => {
+    set({ isLoading: true, error: null })
+    try {
+      await deleteCustomTemplate(id)
+      useToastStore.getState().add({
+        type: 'success',
+        title: 'Template deleted',
+        description: 'The template has been removed',
+      })
+
+      // Refresh the templates list
+      await get().fetchTemplates()
+
+      set({ isLoading: false })
+      return true
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to delete template'
+      set({ isLoading: false, error: errorMsg })
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Failed to delete template',
+        description: errorMsg,
+      })
+      return false
+    }
+  },
+
+  /**
+   * Refresh custom templates only.
+   */
+  refreshCustomTemplates: async () => {
+    try {
+      const result = await getCustomTemplates()
+      const currentTemplates = get().templates
+
+      // Merge: keep built-in templates, replace custom templates
+      const builtinTemplates = currentTemplates.filter(t => t.source !== 'custom')
+
+      // Convert custom templates to summaries
+      const customSummaries: UseCaseTemplateSummary[] = result.templates.map(t => ({
+        id: t.id,
+        name: t.name,
+        description: t.description,
+        category: t.category,
+        icon: t.icon,
+        tags: t.tags,
+        maturity: t.maturity,
+        source: t.source,
+        domains: t.domains,
+        parameterCount: (t.requiredParameters?.length ?? 0) + (t.optionalParameters?.length ?? 0),
+        version: t.version,
+        // Preserve ownership info
+        isOwner: t.isOwner,
+        canEdit: t.canEdit,
+      } as UseCaseTemplateSummary & { isOwner?: boolean; canEdit?: boolean }))
+
+      const updatedTemplates = [...builtinTemplates, ...customSummaries]
+
+      set({ templates: updatedTemplates })
+    } catch (err) {
+      console.error('[template-store] Failed to refresh custom templates:', err)
     }
   },
 }))

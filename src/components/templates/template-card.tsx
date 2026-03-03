@@ -1,12 +1,25 @@
-import { FileText } from "lucide-react"
+import { FileText, MoreVertical, Pencil, Trash2, User } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import type { UseCaseTemplateSummary } from "@astro/core/templates"
 import { cn } from "@/lib/utils"
 
 interface TemplateCardProps {
-  template: UseCaseTemplateSummary
+  template: UseCaseTemplateSummary & {
+    isOwner?: boolean
+    canEdit?: boolean
+  }
   onClick?: (template: UseCaseTemplateSummary) => void
+  onEdit?: (template: UseCaseTemplateSummary) => void
+  onDelete?: (template: UseCaseTemplateSummary) => void
 }
 
 // Category display names
@@ -37,39 +50,91 @@ function getDifficultyFromParams(count: number): { label: string; className: str
   return { label: 'Advanced', className: 'text-error' }
 }
 
-export function TemplateCard({ template, onClick }: TemplateCardProps) {
+export function TemplateCard({ template, onClick, onEdit, onDelete }: TemplateCardProps) {
   const maturity = template.maturity ?? 'stable'
   const maturityStyle = maturityConfig[maturity] ?? maturityConfig.stable
   const difficulty = getDifficultyFromParams(template.parameterCount)
   const categoryLabel = categoryLabels[template.category] ?? template.category
+  const isCustom = template.source === 'custom'
+  const canEdit = template.canEdit ?? false
+  const isOwner = template.isOwner ?? false
+
+  const handleEdit = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onEdit?.(template)
+  }
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onDelete?.(template)
+  }
 
   return (
     <Card
       className={cn(
         "p-4 hover:border-primary/40 hover:shadow-md transition-all cursor-pointer flex flex-col gap-3",
-        "bg-card text-card-foreground"
+        "bg-card text-card-foreground group"
       )}
       onClick={() => onClick?.(template)}
     >
-      {/* Header: Icon + Name + Maturity Badge */}
+      {/* Header: Icon + Name + Maturity Badge + Actions */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted shrink-0">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted shrink-0 relative">
             {template.icon ? (
               <span className="text-xl">{template.icon}</span>
             ) : (
               <FileText className="h-4 w-4 text-muted-foreground" />
+            )}
+            {isCustom && (
+              <div className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-primary flex items-center justify-center">
+                <User className="h-2 w-2 text-primary-foreground" />
+              </div>
             )}
           </div>
           <div className="min-w-0 flex-1">
             <h3 className="text-sm font-semibold truncate">{template.name}</h3>
           </div>
         </div>
-        {maturity !== 'stable' && (
-          <Badge className={cn("text-[10px] border-0 px-1.5 py-0 shrink-0", maturityStyle.className)}>
-            {maturityStyle.label}
-          </Badge>
-        )}
+        <div className="flex items-center gap-1 shrink-0">
+          {maturity !== 'stable' && (
+            <Badge className={cn("text-[10px] border-0 px-1.5 py-0", maturityStyle.className)}>
+              {maturityStyle.label}
+            </Badge>
+          )}
+          {isCustom && canEdit && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <MoreVertical className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleEdit}>
+                  <Pencil className="h-3.5 w-3.5 mr-2" />
+                  Edit Template
+                </DropdownMenuItem>
+                {isOwner && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={handleDelete}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 mr-2" />
+                      Delete Template
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
 
       {/* Description (truncated 2 lines) */}
