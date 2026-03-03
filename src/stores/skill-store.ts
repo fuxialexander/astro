@@ -93,6 +93,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
       }
     }).catch((err) => {
       console.error('[skill-store] Failed to sync addSkill:', err)
+      set({ error: err instanceof Error ? err.message : 'Failed to save skill' })
       useToastStore.getState().add({
         type: 'error',
         title: 'Failed to save skill',
@@ -139,7 +140,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
         current.delete(updates.name) // Remove the optimistic new key
       }
       current.set(originalKey, originalSkill) // Restore with original key
-      set({ skills: current })
+      set({ skills: current, error: err instanceof Error ? err.message : 'Failed to update skill' })
       useToastStore.getState().add({
         type: 'error',
         title: 'Failed to update skill',
@@ -163,7 +164,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
       // Revert on failure
       const current = new Map(get().skills)
       current.set(name, existing)
-      set({ skills: current })
+      set({ skills: current, error: err instanceof Error ? err.message : 'Failed to remove skill' })
       useToastStore.getState().add({
         type: 'error',
         title: 'Failed to remove skill',
@@ -192,7 +193,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
       // Revert on failure
       const current = new Map(get().skills)
       current.set(name, existing)
-      set({ skills: current })
+      set({ skills: current, error: err instanceof Error ? err.message : 'Failed to toggle skill' })
     })
   },
 

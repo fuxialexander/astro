@@ -110,6 +110,12 @@ skillsRoute.post('/', async (c) => {
     const now = new Date()
     const skillId = body.id || crypto.randomUUID()
 
+    // Pack OpenClaw extension fields into config JSONB
+    // (these aren't separate DB columns, but affect runtime behavior)
+    const config = { ...(body.config ?? {}) } as Record<string, unknown>
+    if (body.userInvocable !== undefined) config.userInvocable = body.userInvocable
+    if (body.disableModelInvocation !== undefined) config.disableModelInvocation = body.disableModelInvocation
+
     const row = {
       id: skillId,
       name: body.name,
@@ -118,12 +124,12 @@ skillsRoute.post('/', async (c) => {
       instructions: body.instructions ?? '',
       category: body.category ?? null,
       tags: body.tags ?? [],
-      source: body.source ?? 'user',
+      source: body.source ?? 'workspace',
       sourceUrl: body.sourceUrl ?? null,
       authorId: user.id,
       enabled: body.enabled ?? true,
       allowedTools: body.allowedTools ?? [],
-      config: body.config ?? {},
+      config,
       teamId: user.teamId ?? null,
       createdAt: body.createdAt ? new Date(body.createdAt) : now,
       updatedAt: body.updatedAt ? new Date(body.updatedAt) : now,
@@ -177,6 +183,14 @@ skillsRoute.put('/:id', async (c) => {
     if (body.enabled !== undefined) patch.enabled = body.enabled
     if (body.allowedTools !== undefined) patch.allowedTools = body.allowedTools
     if (body.config !== undefined) patch.config = body.config
+    // Pack OpenClaw extension fields into config JSONB
+    if (body.userInvocable !== undefined || body.disableModelInvocation !== undefined) {
+      const existingConfig = (existing.config ?? {}) as Record<string, unknown>
+      const mergedConfig = { ...existingConfig, ...(patch.config as Record<string, unknown> ?? {}) }
+      if (body.userInvocable !== undefined) mergedConfig.userInvocable = body.userInvocable
+      if (body.disableModelInvocation !== undefined) mergedConfig.disableModelInvocation = body.disableModelInvocation
+      patch.config = mergedConfig
+    }
 
     await db.update(skills).set(patch).where(eq(skills.id, id))
 

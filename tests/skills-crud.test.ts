@@ -89,7 +89,7 @@ describe('POST /api/skills', () => {
     expect(skill.instructions).toBe('')
     expect(skill.version).toBe('1.0.0')
     expect(skill.enabled).toBe(true)
-    expect(skill.source).toBe('user')
+    expect(skill.source).toBe('workspace')
     expect(skill.tags).toEqual([])
     expect(skill.allowedTools).toEqual([])
     expect(skill.config).toEqual({})
