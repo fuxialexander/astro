@@ -339,18 +339,20 @@ export async function suggestLabels(title: string, description: string): Promise
 
 // ── GitHub PR & branch management ───────────────────────────────────
 
+export type ApiErrorType = "network" | "server" | "github"
+
 /**
  * Close a GitHub pull request.
  * @param owner - Repository owner (username or organization)
  * @param repo - Repository name
  * @param prNumber - Pull request number
- * @returns Promise resolving to { success: boolean; error: string | null }
+ * @returns Promise resolving to { success: boolean; error: string | null; errorType?: ApiErrorType }
  */
 export async function closePr(
   owner: string,
   repo: string,
   prNumber: number,
-): Promise<{ success: boolean; error: string | null }> {
+): Promise<{ success: boolean; error: string | null; errorType?: ApiErrorType }> {
   try {
     const res = await fetch(apiUrl("/api/github/close-pr"), {
       method: "POST",
@@ -358,12 +360,20 @@ export async function closePr(
       body: JSON.stringify({ owner, repo, prNumber }),
     })
     if (!res.ok) {
-      return { success: false, error: `Server error: ${res.status}` }
+      return { success: false, error: `Server error: ${res.status}`, errorType: "server" }
     }
     const data = await res.json()
-    return { success: data.success, error: data.error ?? null }
+    return {
+      success: data.success,
+      error: data.error ?? null,
+      errorType: data.error ? "github" : undefined,
+    }
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) }
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+      errorType: "network",
+    }
   }
 }
 
@@ -373,14 +383,14 @@ export async function closePr(
  * @param repo - Repository name
  * @param branchName - Name of the branch to ensure exists
  * @param sourceBranch - Optional source branch to create from (defaults to 'main' with fallback to 'master')
- * @returns Promise resolving to { success: boolean; created?: boolean; error: string | null }
+ * @returns Promise resolving to { success: boolean; created?: boolean; error: string | null; errorType?: ApiErrorType }
  */
 export async function ensureBranch(
   owner: string,
   repo: string,
   branchName: string,
   sourceBranch?: string,
-): Promise<{ success: boolean; created?: boolean; error: string | null }> {
+): Promise<{ success: boolean; created?: boolean; error: string | null; errorType?: ApiErrorType }> {
   try {
     const res = await fetch(apiUrl("/api/github/ensure-branch"), {
       method: "POST",
@@ -388,12 +398,21 @@ export async function ensureBranch(
       body: JSON.stringify({ owner, repo, branchName, sourceBranch }),
     })
     if (!res.ok) {
-      return { success: false, error: `Server error: ${res.status}` }
+      return { success: false, error: `Server error: ${res.status}`, errorType: "server" }
     }
     const data = await res.json()
-    return { success: data.success, created: data.created, error: data.error ?? null }
+    return {
+      success: data.success,
+      created: data.created,
+      error: data.error ?? null,
+      errorType: data.error ? "github" : undefined,
+    }
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) }
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+      errorType: "network",
+    }
   }
 }
 

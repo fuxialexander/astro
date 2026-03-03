@@ -18,6 +18,7 @@ import { useExecutionStore } from "@/stores/execution-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
 import { statusLabels } from "@/lib/status-config"
 import { cn, getShortId } from "@/lib/utils"
+import { isNodeIsolated } from "@/lib/plan-utils"
 import type { PlanNode, Priority } from "@/types"
 
 interface NodeInspectorProps {
@@ -118,8 +119,7 @@ export function NodeInspectorContent({
 
   // Node is isolated when no live edge touches it
   const isIsolated = useMemo(() => {
-    const liveEdges = allEdges.filter(isLive)
-    return !liveEdges.some((e) => e.source === node.id || e.target === node.id)
+    return isNodeIsolated(node.id, allEdges, isLive)
   }, [allEdges, node.id])
 
   // Get project labels for this node

@@ -7,13 +7,37 @@ import { useToastStore } from "@/stores/toast-store"
 import { dataClient } from "@/lib/data-client"
 import { closePr, ensureBranch } from "@/lib/api-client"
 import { getShortId } from "@/lib/utils"
+import { isNodeIsolated } from "@/lib/plan-utils"
 import type { PlanNode, Project, ProjectSource } from "@/types"
 
 /**
- * Strip HTML tags from rich text content (TipTap HTML).
+ * Strip HTML tags from rich text content (TipTap HTML) and decode HTML entities.
  */
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim()
+  // Remove HTML tags
+  let text = html.replace(/<[^>]*>/g, " ")
+
+  // Decode common HTML entities
+  const entities: Record<string, string> = {
+    "&nbsp;": " ",
+    "&amp;": "&",
+    "&lt;": "<",
+    "&gt;": ">",
+    "&quot;": '"',
+    "&#39;": "'",
+    "&apos;": "'",
+  }
+
+  for (const [entity, char] of Object.entries(entities)) {
+    text = text.replaceAll(entity, char)
+  }
+
+  // Decode numeric entities (&#123; and &#x1A;)
+  text = text.replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+  text = text.replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+
+  // Normalize whitespace
+  return text.replace(/\s+/g, " ").trim()
 }
 
 /**
@@ -96,9 +120,8 @@ export function useConvertToProject() {
     try {
       // Re-check isolation at convert time (known race: edges could be added between
       // check and delete, but impact is low since delete is soft and UI hides button)
-      const liveEdges = usePlanStore.getState().edges.filter(isLive)
-      const hasEdge = liveEdges.some((e) => e.source === node.id || e.target === node.id)
-      if (hasEdge) {
+      const edges = usePlanStore.getState().edges
+      if (!isNodeIsolated(node.id, edges, isLive)) {
         throw new Error(
           "This node now has dependencies and can't be converted. Another user may have added connections while you were confirming."
         )
@@ -146,7 +169,7 @@ export function useConvertToProject() {
           addToast({
             type: "warning",
             title: "Could not ensure branch on remote",
-            description: branchResult.error ?? undefined,
+            description: `${branchResult.error ?? "Unknown error"}. You may need to manually create the branch '${sourceProjectBranch}' before running tasks that push to remote.`,
           })
         }
       }
@@ -212,6 +235,9 @@ export function useConvertToProject() {
       })
 
       // 8. Delete source node (soft-delete) — only after plan session starts successfully
+      // Note: "starts successfully" means the SSE stream was initiated, not that plan
+      // generation completed. If the SSE stream fails immediately after, the node will
+      // already be deleted, but the user can retry from the project page.
       removeNodes([node.id])
 
       // 9. Navigate to plan page

@@ -603,6 +603,10 @@ async function resolveBranchSha(
 
   if (sourceRes.ok) {
     const data = await sourceRes.json();
+    // Validate GitHub API response structure
+    if (!data?.commit?.sha || typeof data.commit.sha !== 'string') {
+      return { sha: null, error: 'Invalid GitHub API response structure' };
+    }
     return { sha: data.commit.sha };
   }
 
@@ -614,6 +618,10 @@ async function resolveBranchSha(
     );
     if (masterRes.ok) {
       const data = await masterRes.json();
+      // Validate GitHub API response structure
+      if (!data?.commit?.sha || typeof data.commit.sha !== 'string') {
+        return { sha: null, error: 'Invalid GitHub API response structure' };
+      }
       return { sha: data.commit.sha };
     }
     return { sha: null, error: `Could not find branch 'main' or 'master'` };
