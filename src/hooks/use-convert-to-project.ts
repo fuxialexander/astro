@@ -115,6 +115,9 @@ export function useConvertToProject() {
       let sourceProjectBranch = sourceProject.projectBranch
       if (isGitRepo && !sourceProjectBranch) {
         sourceProjectBranch = `astro/${getShortId(sourceProject.id)}`
+        // Intentional: Set branch on source project before conversion succeeds.
+        // This is idempotent (setting a missing branch) and prevents duplicate work
+        // if conversion is retried. All other mutations happen after validation.
         updateProject(sourceProject.id, { projectBranch: sourceProjectBranch })
       }
 
@@ -155,10 +158,11 @@ export function useConvertToProject() {
       const newProjectId = crypto.randomUUID()
       const now = new Date()
 
+      // Only create source if we have a valid working directory for git repos
       const source: ProjectSource | undefined =
-        isGitRepo && sourceProjectBranch
+        isGitRepo && sourceProjectBranch && sourceProject.workingDirectory
           ? {
-              localPath: sourceProject.workingDirectory || "",
+              localPath: sourceProject.workingDirectory,
               isGit: true,
               remoteType: sourceProject.source?.remoteType || "none",
               baseBranch: sourceProjectBranch,

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { ArrowUpRight, Loader2 } from "lucide-react"
 import {
   Dialog,
@@ -28,12 +28,10 @@ export function ConvertToProjectDialog({
   const [projectName, setProjectName] = useState(node.title)
   const { convert, isConverting } = useConvertToProject()
 
-  // Reset name when dialog opens with a different node
-  const [prevNodeId, setPrevNodeId] = useState(node.id)
-  if (node.id !== prevNodeId) {
-    setPrevNodeId(node.id)
+  // Reset name when node changes
+  useEffect(() => {
     setProjectName(node.title)
-  }
+  }, [node.id, node.title])
 
   const handleConvert = async () => {
     const ok = await convert({ node, projectName: projectName.trim() || node.title })

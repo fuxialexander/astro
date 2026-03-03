@@ -59,6 +59,11 @@ app.post('/projects', async (c) => {
   const body = await c.req.json()
   const now = new Date()
 
+  // Validate project name
+  if (!body.name || typeof body.name !== 'string' || !body.name.trim()) {
+    return c.json({ error: 'Project name is required and must be non-empty' }, 400)
+  }
+
   // Generate UUID if not provided
   const projectId = body.id || crypto.randomUUID()
   const teamId = user.teamId || body.teamId || null

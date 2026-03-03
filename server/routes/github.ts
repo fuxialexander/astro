@@ -626,15 +626,17 @@ app.post('/ensure-branch', async (c) => {
       return c.json({ success: true, created: false });
     }
 
-    // Get SHA from source branch (or default branch)
+    // Get SHA from source branch, with main/master fallback
+    let sha: string;
     const source = sourceBranch || 'main';
+
     const sourceRes = await fetch(
       `https://api.github.com/repos/${owner}/${repo}/branches/${encodeURIComponent(source)}`,
       { headers }
     );
 
     if (!sourceRes.ok) {
-      // Try 'master' if 'main' fails and no explicit source was given
+      // Try 'master' fallback only if no explicit source was given
       if (!sourceBranch) {
         const masterRes = await fetch(
           `https://api.github.com/repos/${owner}/${repo}/branches/master`,
@@ -643,45 +645,21 @@ app.post('/ensure-branch', async (c) => {
         if (!masterRes.ok) {
           return c.json({
             success: false,
-            error: `Could not find source branch '${source}' or 'master'`,
+            error: `Could not find branch 'main' or 'master'`,
           });
         }
-        const masterData = await masterRes.json();
-        const sha = masterData.commit.sha;
-
-        const createRes = await fetch(
-          `https://api.github.com/repos/${owner}/${repo}/git/refs`,
-          {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              ref: `refs/heads/${branchName}`,
-              sha,
-            }),
-          }
-        );
-
-        if (!createRes.ok) {
-          const errorBody = await createRes.text();
-          return c.json({
-            success: false,
-            error: `Failed to create branch: ${errorBody}`,
-          });
-        }
-
-        return c.json({ success: true, created: true });
+        sha = (await masterRes.json()).commit.sha;
+      } else {
+        return c.json({
+          success: false,
+          error: `Source branch '${source}' not found`,
+        });
       }
-
-      return c.json({
-        success: false,
-        error: `Source branch '${source}' not found`,
-      });
+    } else {
+      sha = (await sourceRes.json()).commit.sha;
     }
 
-    const sourceData = await sourceRes.json();
-    const sha = sourceData.commit.sha;
-
-    // Create the branch
+    // Create the branch (single code path)
     const createRes = await fetch(
       `https://api.github.com/repos/${owner}/${repo}/git/refs`,
       {
