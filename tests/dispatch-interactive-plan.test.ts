@@ -17,6 +17,24 @@ import { vi, describe, it, expect, beforeAll, beforeEach, afterEach } from 'vite
 // Create mock dispatchTask function
 const mockDispatchTask = vi.fn()
 
+// Mock the machine registry so dispatch finds a machine without a real agent runner
+vi.mock('../server/lib/machine-registry.js', () => ({
+  machineRegistry: {
+    findBestMachine: () => ({
+      machineId: 'test-machine-001',
+      connectionStatus: 'connected',
+      providers: [{ type: 'claude-code', status: 'available', currentTasks: 0, maxConcurrentTasks: 1 }],
+      load: { cpuPercent: 0, activeTasks: 0 },
+    }),
+    get: (id: string) => ({
+      machineId: id,
+      connectionStatus: 'connected',
+      providers: [{ type: 'claude-code', status: 'available', currentTasks: 0, maxConcurrentTasks: 1 }],
+      load: { cpuPercent: 0, activeTasks: 0 },
+    }),
+  },
+}))
+
 // Mock the relay server module
 vi.mock('../server/lib/relay-server.js', () => {
   // Create a minimal EventEmitter-like object
