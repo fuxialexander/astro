@@ -76,11 +76,9 @@ describe('Task node CSS class for recently updated', () => {
 // ============================================================================
 
 describe('Full pipeline: chat → mutations → graph highlight', () => {
-  const projectId = 'abcdef12-3456-7890-abcd-ef1234567890'
-  const prefix = projectId.slice(0, 8)
-
   /**
    * Simulates the full pipeline for a chat message that updates existing nodes.
+   * New nodes get proper UUIDs (matching the real chat-panel.tsx behavior).
    */
   function simulatePipeline(
     assistantMessage: string,
@@ -113,11 +111,13 @@ describe('Full pipeline: chat → mutations → graph highlight', () => {
     }
 
     // Step 2: Apply mutations (returns real IDs)
+    // All new nodes get proper UUIDs via crypto.randomUUID()
     const affectedNodeIds: string[] = []
-    const safePrefixId = (id: string) => id.startsWith(prefix) ? id : `${prefix}-${id}`
+    const idMap = new Map<string, string>()
 
     for (const n of newNodes) {
-      const realId = n.id ? safePrefixId(n.id) : `${prefix}-auto-${Math.random().toString(36).slice(2, 8)}`
+      const realId = crypto.randomUUID()
+      if (n.id) idMap.set(n.id, realId)
       affectedNodeIds.push(realId)
     }
     for (const u of nodeUpdates) {
@@ -131,20 +131,21 @@ describe('Full pipeline: chat → mutations → graph highlight', () => {
   }
 
   it('pipeline: node update → correct IDs in recentlyUpdatedNodeIds', () => {
+    const existingId = crypto.randomUUID()
     const message = `I've updated the task.
 
 \`\`\`astro-updates
-[{"nodeId": "${prefix}-task-1", "status": "completed"}]
+[{"nodeId": "${existingId}", "status": "completed"}]
 \`\`\`
 
 Done!`
 
     const { recentlyUpdatedNodeIds } = simulatePipeline(message)
-    expect(recentlyUpdatedNodeIds.has(`${prefix}-task-1`)).toBe(true)
+    expect(recentlyUpdatedNodeIds.has(existingId)).toBe(true)
     expect(recentlyUpdatedNodeIds.size).toBe(1)
   })
 
-  it('pipeline: new node → prefixed ID in recentlyUpdatedNodeIds', () => {
+  it('pipeline: new node → UUID in recentlyUpdatedNodeIds', () => {
     const message = `I've decomposed the task.
 
 \`\`\`astro-add-nodes
@@ -154,16 +155,20 @@ Done!`
 Done!`
 
     const { recentlyUpdatedNodeIds } = simulatePipeline(message)
-    // Should have the PREFIXED ID, not the raw "new-task"
+    // Should NOT have the raw AI ID
     expect(recentlyUpdatedNodeIds.has('new-task')).toBe(false)
-    expect(recentlyUpdatedNodeIds.has(`${prefix}-new-task`)).toBe(true)
+    expect(recentlyUpdatedNodeIds.size).toBe(1)
+    // Should have a proper UUID
+    const id = Array.from(recentlyUpdatedNodeIds)[0]
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
   })
 
   it('pipeline: mixed updates and new nodes', () => {
+    const existingId = crypto.randomUUID()
     const message = `Changes applied.
 
 \`\`\`astro-updates
-[{"nodeId": "${prefix}-existing", "priority": "high"}]
+[{"nodeId": "${existingId}", "priority": "high"}]
 \`\`\`
 
 \`\`\`astro-add-nodes
@@ -174,8 +179,10 @@ All done!`
 
     const { recentlyUpdatedNodeIds } = simulatePipeline(message)
     expect(recentlyUpdatedNodeIds.size).toBe(2)
-    expect(recentlyUpdatedNodeIds.has(`${prefix}-existing`)).toBe(true)
-    expect(recentlyUpdatedNodeIds.has(`${prefix}-child-1`)).toBe(true)
+    expect(recentlyUpdatedNodeIds.has(existingId)).toBe(true)
+    // The new node should have a UUID, not 'child-1'
+    const newNodeId = Array.from(recentlyUpdatedNodeIds).find((id) => id !== existingId)!
+    expect(newNodeId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
   })
 
   it('pipeline: no mutations → empty set', () => {
@@ -184,7 +191,7 @@ All done!`
     expect(recentlyUpdatedNodeIds.size).toBe(0)
   })
 
-  it('pipeline: node without explicit ID gets auto-generated prefixed ID', () => {
+  it('pipeline: node without explicit ID gets auto-generated UUID', () => {
     const message = `\`\`\`astro-add-nodes
 [{"title": "Auto ID Task", "description": "No explicit ID"}]
 \`\`\``
@@ -192,7 +199,8 @@ All done!`
     const { recentlyUpdatedNodeIds } = simulatePipeline(message)
     expect(recentlyUpdatedNodeIds.size).toBe(1)
     const id = Array.from(recentlyUpdatedNodeIds)[0]
-    expect(id.startsWith(prefix)).toBe(true)
+    // Should be a proper UUID
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
   })
 })
 

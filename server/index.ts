@@ -327,7 +327,7 @@ async function start() {
 
     // Set up relay event handlers
     relayServer.on('task:result', async (message) => {
-      console.log(`[relay] Task ${message.result.taskId} completed: ${message.result.status}`)
+      console.log(`[relay] Task ${message.result.taskId} completed: ${message.result.status}${message.result.error ? ` error=${message.result.error}` : ''}`)
       // Publish to Redis for other services to consume
       if (redisPubSub.isConnected()) {
         // Task machine mapping cleanup happens when task completes

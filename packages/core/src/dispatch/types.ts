@@ -44,6 +44,8 @@ export interface TaskResult {
   summary?: {
     status: 'success' | 'partial' | 'failure'
     workCompleted: string
+    /** 1-2 paragraph executive summary: what was done, why, approach taken, and key decisions */
+    executiveSummary?: string
     keyFindings: string[]
     filesChanged: string[]
     followUps: string[]
@@ -182,6 +184,12 @@ export interface DependencyOutput {
   truncated: boolean
   /** Status of the dependency */
   status: PlanNode['status']
+  /** PR URL created by this task (if any) */
+  prUrl?: string
+  /** PR number created by this task (if any) */
+  prNumber?: number
+  /** Branch name used by this task (if any) */
+  branchName?: string
 }
 
 /**

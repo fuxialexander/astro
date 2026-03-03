@@ -322,6 +322,8 @@ export interface TaskExecution {
   /** Error message when deliveryStatus is 'failed' */
   deliveryError?: string;
   computeBackend?: string;
+  /** SSE connection state for reconnection tracking */
+  connectionState?: 'connected' | 'reconnecting' | 'polling';
   summary?: ExecutionSummary;
   subroutineProgress?: {
     name: string;

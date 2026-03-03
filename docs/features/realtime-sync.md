@@ -14,7 +14,7 @@ The realtime sync system enables automatic synchronization of data across multip
 
 **Data Flow:**
 ```
-User Action (Device A) → Zustand Store (optimistic) → IndexedDB Cache → API Call →
+User Action (Device A) → Zustand Store (optimistic) → API Call →
 PostgreSQL Write → Supabase Realtime CDC → WebSocket → realtime-sync.ts →
 Zustand Store Update (Device B) → React Re-render
 ```
@@ -88,8 +88,8 @@ Database uses `snake_case`, frontend uses `camelCase`. The `mapNode()`, `mapProj
 2. Removes all active channels via `supabase.removeChannel()`
 3. Clears state and sets `realtimeSyncEnabled = false`
 
-### IndexedDB-Only Mode
-Automatically disabled when not using Supabase:
+### Local Mode
+Automatically disabled when running in local mode (PGlite, no Supabase):
 ```typescript
 if (!shouldUseSupabase()) {
   return  // No-op in local mode
@@ -149,7 +149,7 @@ Statuses: `SUBSCRIBED` (ok), `TIMED_OUT` (network issue), `CLOSED` (auth issue),
 
 | Problem | Cause | Fix |
 |---------|-------|-----|
-| No updates appearing | Sync not enabled | Check env vars, ensure not in IndexedDB mode |
+| No updates appearing | Sync not enabled | Check env vars, ensure not in local mode |
 | Duplicate updates | Client receives own events | Deduplication should handle; check handler code |
 | Stale data after reconnect | Missed events not replayed | Refresh page or call `store.load()` |
 | High bandwidth | Channel leak | Call `teardownRealtimeSync()` before re-setup |

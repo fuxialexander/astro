@@ -5,6 +5,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { mkdirSync } from 'fs'
 import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, buildTitleGenerationPrompt, buildRefinementPrompt, buildLabelSuggestionPrompt, PLAN_GRAPH_SCHEMA } from '../lib/prompt-templates.js'
+import type { GitHubContextForPrompt } from '../lib/prompt-templates.js'
 import { skillManager } from '../lib/skill-manager.js'
 import { readRepoContext } from '../lib/repo-context.js'
 import { relayServer } from '../lib/relay-server.js'
@@ -148,6 +149,20 @@ async function streamChatViaRelay(
       if (!alive || msg.result.taskId !== opts.taskId) return
       lastActivity = Date.now()
       const resolvedSessionId = providerSessionId || opts.taskId
+
+      // Forward agent runner errors to client instead of silently sending 'done'
+      if (msg.result.status === 'failed') {
+        const errorMsg = msg.result.error || 'Agent runner task failed'
+        console.error(`[chat] Task ${opts.taskId} failed: ${errorMsg}`)
+        await streamingEventLog.append(persistId, 'result', { sessionId: resolvedSessionId, error: errorMsg })
+        stream.writeSSE({
+          event: 'error',
+          data: errorMsg,
+        }).catch(() => {})
+        alive = false
+        return
+      }
+
       await streamingEventLog.append(persistId, 'result', { sessionId: resolvedSessionId })
       stream.writeSSE({
         event: 'done',
@@ -430,6 +445,12 @@ agentRoute.post('/generate-plan', async (c) => {
   const { description, visionDoc, projectId, model, workingDirectory, fileTree, keyFiles, targetMachineId, gitState } = body
   const taskId = `gen-${projectId}-${Date.now()}`
 
+  // Verify project ownership
+  const user = c.get('user') as AuthUser
+  if (!await verifyProjectAccess(projectId, user)) {
+    return c.json({ error: 'Project not found' }, 404)
+  }
+
   console.log(`[plan-gen] Request received: projectId=${projectId}, targetMachineId=${targetMachineId || 'any'}, workingDirectory=${workingDirectory || 'none'}`)
 
   // Build repo context from provided data (key files + file tree from remote setup)
@@ -443,10 +464,30 @@ agentRoute.post('/generate-plan', async (c) => {
     }
   }
 
+  // Build GitHub context for prompt if project has a GitHub repo
+  let githubContext: GitHubContextForPrompt | undefined
+  try {
+    const [dbProject] = await db.select({
+      githubOwner: projects.githubOwner,
+      githubRepo: projects.githubRepo,
+      source: projects.source,
+    }).from(projects).where(eq(projects.id, projectId)).limit(1)
+    if (dbProject?.githubOwner?.trim() && dbProject?.githubRepo?.trim()) {
+      githubContext = {
+        hasRepo: true,
+        owner: dbProject.githubOwner.trim(),
+        repo: dbProject.githubRepo.trim(),
+        baseBranch: (dbProject.source as { baseBranch?: string } | null)?.baseBranch?.trim() || 'main',
+      }
+    }
+  } catch (err) {
+    console.warn('[plan-gen] Failed to fetch GitHub context from project:', err)
+  }
+
   // Build the full plan prompt: system prompt + user description
   // Include available skills so the planner can create tasks that leverage them
   const skillsSummary = skillManager.getSkillPromptInjection() || undefined
-  const systemPrompt = buildPlanSystemPrompt(visionDoc, repoContext, gitState, skillsSummary)
+  const systemPrompt = buildPlanSystemPrompt(visionDoc, repoContext, gitState, skillsSummary, githubContext)
   const fullPrompt = `${systemPrompt}\n\n---\n\n## User Request\n\n${description}\n\n---\n\nIMPORTANT: Respond with ONLY the JSON plan object. Start your response with { and end with }. No prose, no markdown fences, no explanation. The JSON must have "projectName", "nodes", and "edges" keys.`
 
   // Build relay task dispatch

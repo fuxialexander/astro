@@ -41,7 +41,7 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
   },
   "plan-list": {
     groupBy: "milestone",
-    orderBy: "dependency",
+    orderBy: "number",
     orderDirection: "asc",
     showCompleted: true,
     visibleProperties: ["status", "labels", "pr"],

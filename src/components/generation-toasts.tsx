@@ -45,7 +45,8 @@ function SessionCard({ session }: { session: GenerationSession }) {
     }
   }, [expanded])
 
-  // Auto-dismiss completed sessions (only if not expanded and not interactive)
+  // Auto-dismiss completed sessions from toast (only if not expanded, not interactive,
+  // and not in "generated" state — generated sessions stay visible on the Active page)
   useEffect(() => {
     if (session.status === "completed" && !expanded && !session.isInteractive) {
       dismissTimer.current = setTimeout(() => {
@@ -69,7 +70,13 @@ function SessionCard({ session }: { session: GenerationSession }) {
     }
   }
 
+  const markPlanViewed = useAgentStore((s) => s.markPlanViewed)
+
   function handleNavigate() {
+    // Mark generated plan as viewed when user navigates to it
+    if (session.status === "generated") {
+      markPlanViewed(session.projectId)
+    }
     if (session.isInteractive) {
       navigate(`/project/${session.projectId}/graph`)
     } else {
@@ -90,7 +97,7 @@ function SessionCard({ session }: { session: GenerationSession }) {
         {isActive && session.phase !== "repo_setup" && (
           <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
         )}
-        {session.status === "completed" && (
+        {(session.status === "generated" || session.status === "completed") && (
           <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
         )}
         {isError && (
@@ -122,10 +129,20 @@ function SessionCard({ session }: { session: GenerationSession }) {
                 )}
               </span>
             )}
-            {session.status === "completed" && "Plan generated"}
+            {(session.status === "generated" || session.status === "completed") && "Plan generated"}
             {isError && (session.error || "Generation failed")}
           </p>
         </div>
+
+        {/* View plan button for generated sessions */}
+        {session.status === "generated" && (
+          <button
+            onClick={handleNavigate}
+            className="flex items-center gap-1 h-6 px-2.5 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer"
+          >
+            View plan
+          </button>
+        )}
 
         {/* Expand toggle — show whenever there's text, even after completion */}
         {hasText && (
@@ -188,9 +205,56 @@ function SessionCard({ session }: { session: GenerationSession }) {
   )
 }
 
+// Track which generated sessions have been auto-hidden from the toast
+const TOAST_AUTO_HIDE_MS = 10_000
+const TOAST_HIDDEN_KEY = "astro:toast-hidden-sessions"
+
+function loadHiddenFromStorage(): Set<string> {
+  try {
+    const raw = sessionStorage.getItem(TOAST_HIDDEN_KEY)
+    return raw ? new Set(JSON.parse(raw) as string[]) : new Set()
+  } catch {
+    return new Set()
+  }
+}
+
+function saveHiddenToStorage(hidden: Set<string>): void {
+  try {
+    sessionStorage.setItem(TOAST_HIDDEN_KEY, JSON.stringify([...hidden]))
+  } catch {
+    // sessionStorage may be unavailable
+  }
+}
+
 export function GenerationToasts() {
   const sessions = useAgentStore((s) => s.sessions)
-  const entries = Array.from(sessions.values())
+  const [hiddenFromToast, setHiddenFromToast] = useState<Set<string>>(loadHiddenFromStorage)
+
+  // Auto-hide "generated" sessions from the toast after a delay
+  // (they remain visible on the Active page)
+  useEffect(() => {
+    const timers: ReturnType<typeof setTimeout>[] = []
+    for (const [projectId, session] of sessions) {
+      if (session.status === "generated" && !hiddenFromToast.has(projectId)) {
+        const timer = setTimeout(() => {
+          setHiddenFromToast((prev) => {
+            const next = new Set(prev).add(projectId)
+            saveHiddenToStorage(next)
+            return next
+          })
+        }, TOAST_AUTO_HIDE_MS)
+        timers.push(timer)
+      }
+    }
+    return () => timers.forEach(clearTimeout)
+  }, [sessions, hiddenFromToast])
+
+  // Filter entries: show active, error, completed sessions; show generated only if not auto-hidden
+  const allEntries = Array.from(sessions.values())
+  const entries = allEntries.filter((s) =>
+    s.status === "active" || s.status === "error" || s.status === "completed" ||
+    (s.status === "generated" && !hiddenFromToast.has(s.projectId))
+  )
   const hasExpanded = entries.some((s) => s.streamText.length > 0)
   const [minimized, setMinimized] = useState(false)
 

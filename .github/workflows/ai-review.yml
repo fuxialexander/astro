@@ -2,6 +2,13 @@ name: AI Code Review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review (for manual trigger)'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -24,31 +31,79 @@ jobs:
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
 
+      - name: Resolve PR number
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Support manual trigger via workflow_dispatch
+          if [ -n "${{ inputs.pr_number }}" ]; then
+            echo "pr_number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+            echo "Manual trigger for PR #${{ inputs.pr_number }}"
+            exit 0
+          fi
+
+          # When a branch name is reused across PRs (e.g., project branches that get
+          # merged and recreated), the event payload may reference a stale/merged PR.
+          # Resolve the actual current open PR for this head branch.
+          HEAD_REF="${{ github.event.pull_request.head.ref }}"
+          EVENT_PR="${{ github.event.pull_request.number }}"
+
+          OPEN_PR=$(gh pr list --head "$HEAD_REF" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+
+          if [ -n "$OPEN_PR" ] && [ "$OPEN_PR" != "$EVENT_PR" ]; then
+            echo "::warning::Event PR #${EVENT_PR} differs from current open PR #${OPEN_PR} for branch ${HEAD_REF}. Using #${OPEN_PR}."
+            echo "pr_number=$OPEN_PR" >> "$GITHUB_OUTPUT"
+          else
+            echo "pr_number=$EVENT_PR" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Gather PR context
         id: context
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
         run: |
           # Get diff stats
-          DIFF_STAT=$(gh pr diff ${{ github.event.pull_request.number }} --name-only)
+          DIFF_STAT=$(gh pr diff "$PR_NUMBER" --name-only)
           echo "files_changed<<ENDFILES" >> "$GITHUB_OUTPUT"
           echo "$DIFF_STAT" >> "$GITHUB_OUTPUT"
           echo "ENDFILES" >> "$GITHUB_OUTPUT"
 
           # Get diff
-          DIFF=$(gh pr diff ${{ github.event.pull_request.number }})
+          DIFF=$(gh pr diff "$PR_NUMBER")
           # Truncate to ~80K chars to stay within context limits
           echo "$DIFF" | head -c 80000 > /tmp/pr_diff.txt
 
           # Get commit messages
-          COMMITS=$(gh pr view ${{ github.event.pull_request.number }} --json commits --jq '.commits[].messageHeadline')
+          COMMITS=$(gh pr view "$PR_NUMBER" --json commits --jq '.commits[].messageHeadline')
           echo "commits<<ENDCOMMITS" >> "$GITHUB_OUTPUT"
           echo "$COMMITS" >> "$GITHUB_OUTPUT"
           echo "ENDCOMMITS" >> "$GITHUB_OUTPUT"
 
           # Get PR body
-          PR_BODY=$(gh pr view ${{ github.event.pull_request.number }} --json body --jq '.body')
+          PR_BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body')
           echo "$PR_BODY" > /tmp/pr_body.txt
+
+          # Detect sub-PRs: look for merged PRs whose base branch is this PR's head branch
+          # (task PRs targeting the project branch)
+          HEAD_REF=$(gh pr view "$PR_NUMBER" --json headRefName --jq '.headRefName')
+          SUB_PRS=$(gh pr list --base "$HEAD_REF" --state merged --json number,title,url,headRefName --jq '.' 2>/dev/null || echo "[]")
+          echo "$SUB_PRS" > /tmp/sub_prs.json
+          SUB_PR_COUNT=$(echo "$SUB_PRS" | jq 'length')
+          echo "sub_pr_count=$SUB_PR_COUNT" >> "$GITHUB_OUTPUT"
+
+          if [ "$SUB_PR_COUNT" -gt 0 ]; then
+            echo "::notice::Found $SUB_PR_COUNT sub-PRs merged into branch $HEAD_REF"
+            # Gather each sub-PR's diff summary for the reviewer
+            echo "" > /tmp/sub_pr_summaries.txt
+            echo "$SUB_PRS" | jq -r '.[].number' | while read -r SUB_NUM; do
+              SUB_TITLE=$(echo "$SUB_PRS" | jq -r --arg n "$SUB_NUM" '.[] | select(.number == ($n | tonumber)) | .title')
+              echo "### Sub-PR #${SUB_NUM}: ${SUB_TITLE}" >> /tmp/sub_pr_summaries.txt
+              gh pr diff "$SUB_NUM" --name-only >> /tmp/sub_pr_summaries.txt 2>/dev/null || echo "(diff unavailable)" >> /tmp/sub_pr_summaries.txt
+              echo "" >> /tmp/sub_pr_summaries.txt
+            done
+          fi
 
       - name: AI Review
         env:
@@ -57,6 +112,8 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           CLAUDE_CODE_USE_BEDROCK: "1"
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
+          SUB_PR_COUNT: ${{ steps.context.outputs.sub_pr_count }}
         run: |
           # Build the review prompt
           cat <<'PROMPT' > /tmp/review_prompt.txt
@@ -72,6 +129,29 @@ jobs:
              - Relay: WebSocket message → machine registry → task routing
              - Events: hook triggers → SSE → browser
           5. **Produce a structured review** with findings categorized by severity.
+
+          ## Reviewing Project PRs with Sub-PRs
+
+          Astro uses a two-tier branch model: task PRs merge into a **project branch**, then a
+          final "Push to GitHub" PR merges the project branch into the base branch (e.g., `main`).
+          This means a single PR may contain the accumulated work of many sub-PRs.
+
+          **When this PR has sub-PRs** (listed in the "Sub-PRs" section below):
+
+          1. **Review the FULL diff holistically** — do not assume sub-PRs were individually reviewed.
+             Each sub-PR was reviewed in isolation; your job is to catch cross-cutting issues that
+             only become visible when all changes are combined.
+          2. **Trace cross-sub-PR interactions**: If sub-PR A adds a new function and sub-PR B calls
+             it, verify the contract (types, error handling, edge cases) is correct across both.
+          3. **Check for conflicts and inconsistencies**: Different sub-PRs may modify the same file
+             or introduce competing patterns. Flag any contradictions, duplicate code, or divergent
+             approaches that should be unified.
+          4. **Verify integration points**: When sub-PRs touch different layers (e.g., one adds a
+             DB column, another adds the API route, a third adds the UI), verify the full vertical
+             slice works end-to-end — types match, data flows correctly, error states are handled.
+          5. **Read ALL code changes critically** — treat this as a fresh review of the entire diff,
+             not a rubber-stamp of pre-reviewed sub-PRs. The whole may have issues the parts did not.
+          6. **List each sub-PR** in your summary with a one-line assessment of its changes.
 
           ## Astro-Specific Principles
 
@@ -128,6 +208,9 @@ jobs:
 
           Respond with a structured review. Start with a 1-2 sentence summary of the PR's purpose and approach. Then list findings grouped by severity. For each finding, include the file path, line range, and a concise explanation of the issue with a suggested fix. If the PR looks good with no issues, say so briefly.
 
+          **If this PR contains sub-PRs**, start with a "Sub-PR Breakdown" section listing each sub-PR
+          with a one-line summary, then proceed with the holistic review of the combined diff.
+
           Example:
           ```
           ## Summary
@@ -152,14 +235,20 @@ jobs:
           - 🔴 **Request changes** — critical issues that must be fixed
           PROMPT
 
+          # Fetch PR metadata (works for both event-triggered and manual dispatch)
+          PR_TITLE=$(gh pr view "$PR_NUMBER" --json title --jq '.title')
+          PR_AUTHOR=$(gh pr view "$PR_NUMBER" --json author --jq '.author.login')
+          PR_BASE=$(gh pr view "$PR_NUMBER" --json baseRefName --jq '.baseRefName')
+          PR_HEAD=$(gh pr view "$PR_NUMBER" --json headRefName --jq '.headRefName')
+
           # Append PR context to prompt
           cat >> /tmp/review_prompt.txt <<EOF
 
           ## PR Information
 
-          **Title:** ${{ github.event.pull_request.title }}
-          **Author:** ${{ github.event.pull_request.user.login }}
-          **Base:** ${{ github.event.pull_request.base.ref }} ← **Head:** ${{ github.event.pull_request.head.ref }}
+          **Title:** ${PR_TITLE}
+          **Author:** ${PR_AUTHOR}
+          **Base:** ${PR_BASE} ← **Head:** ${PR_HEAD}
 
           **PR Description:**
           $(cat /tmp/pr_body.txt)
@@ -174,10 +263,27 @@ jobs:
           $(cat /tmp/pr_diff.txt)
           EOF
 
+          # Append sub-PR context if any exist
+          if [ "$SUB_PR_COUNT" -gt 0 ] && [ -f /tmp/sub_pr_summaries.txt ]; then
+            cat >> /tmp/review_prompt.txt <<EOF
+
+          ## Sub-PRs (${SUB_PR_COUNT} task PRs merged into this project branch)
+
+          This is a **project PR** that accumulates work from multiple task PRs.
+          Each sub-PR below was merged into the project branch before this final PR was created.
+          You MUST review the combined diff critically — do not assume sub-PRs were adequately reviewed.
+
+          $(cat /tmp/sub_pr_summaries.txt)
+
+          **Sub-PR JSON data** (for cross-referencing):
+          $(cat /tmp/sub_prs.json)
+          EOF
+          fi
+
           # Run Claude review
           REVIEW=$(claude -p "$(cat /tmp/review_prompt.txt)" --output-format text 2>&1) || true
 
-          # Post as PR comment
+          # Post as PR comment using resolved PR number
           if [ -n "$REVIEW" ]; then
             COMMENT=$(cat <<COMMENT_EOF
           ## 🤖 AI Code Review
@@ -189,7 +295,7 @@ jobs:
           COMMENT_EOF
           )
 
-            gh pr comment ${{ github.event.pull_request.number }} --body "$COMMENT"
+            gh pr comment "$PR_NUMBER" --body "$COMMENT"
           else
             echo "Warning: AI review produced no output"
           fi

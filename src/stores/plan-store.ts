@@ -12,6 +12,9 @@ export function isLive<T extends { deletedAt?: Date }>(item: T): boolean {
 
 const COMPLETED_STATUSES: PlanNode["status"][] = ["completed", "auto_verified"]
 
+/** Pattern for detecting "Push to GitHub" / "Publish to GitHub" task nodes */
+const PUSH_TO_GITHUB_RE = /push\s+to\s+github|publish\s+to\s+github/i
+
 /**
  * Recompute milestone node statuses based on their upstream dependencies.
  * Handles cascading: completing milestone A may satisfy milestone B's deps.
@@ -276,6 +279,30 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       pendingSaveNodeIds.delete(nodeId)
       console.error('[plan-store] Failed to save node to API:', err)
     })
+
+    // Auto-wire: if a "Push to GitHub" node exists and the new node isn't it,
+    // add the new node as a dependency of the Push node (keeps it as the final task).
+    if (node.type === 'task' && !PUSH_TO_GITHUB_RE.test(node.title)) {
+      const pushNode = get().nodes.find(
+        (n) => n.type === 'task' && PUSH_TO_GITHUB_RE.test(n.title) && !n.deletedAt
+      )
+      if (pushNode) {
+        // Add edge: new node → Push node (so Push depends on this node)
+        const edgeExists = get().edges.some(
+          (e) => e.source === nodeId && e.target === pushNode.id
+        )
+        if (!edgeExists) {
+          const edge: PlanEdge = {
+            id: crypto.randomUUID(),
+            source: nodeId,
+            target: pushNode.id,
+            type: 'dependency',
+          }
+          get().addEdge(edge)
+          // No need to update pushNode.dependencies locally — it's rebuilt from edges on load()
+        }
+      }
+    }
   },
 
   updateNode: (id, updates) => {

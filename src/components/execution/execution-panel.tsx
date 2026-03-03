@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from "react"
 import { stripHtml } from "@/lib/html-utils"
 import { Link, useNavigate } from "react-router"
-import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, ChevronDown, Bot, Boxes, Sparkles, GitBranch } from "lucide-react"
+import { Play, Square, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ExternalLink, Server, ChevronDown, Bot, Boxes, Sparkles, GitBranch, WifiOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -538,6 +538,27 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
                     {execution.error}
                   </p>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Reconnection indicator */}
+          {execution.connectionState === 'reconnecting' && (
+            <div className="rounded-lg bg-yellow-500/10 p-3 text-sm">
+              <div className="flex items-center gap-2">
+                <WifiOff className="h-4 w-4 text-yellow-600" />
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-3 w-3 animate-spin text-yellow-600" />
+                  <span className="text-yellow-700 dark:text-yellow-400">Connection lost. Reconnecting...</span>
+                </div>
+              </div>
+            </div>
+          )}
+          {execution.connectionState === 'polling' && (
+            <div className="rounded-lg bg-yellow-500/10 p-3 text-sm">
+              <div className="flex items-center gap-2">
+                <WifiOff className="h-4 w-4 text-yellow-600" />
+                <span className="text-yellow-700 dark:text-yellow-400">Connection lost. Checking for updates...</span>
               </div>
             </div>
           )}

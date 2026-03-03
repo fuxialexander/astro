@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react"
+import { useIOSKeyboardFix } from "@/hooks/use-ios-keyboard-fix"
 import { BrowserRouter, Routes, Route, Navigate } from "react-router"
 import { ThemeProvider } from "@/components/theme-provider"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -289,6 +290,9 @@ export default function App() {
   useEffect(() => {
     initializeAuth()
   }, [initializeAuth])
+
+  // Prevent iOS/iPadOS page shift when keyboard/toolbar appears
+  useIOSKeyboardFix()
 
   return (
     <ThemeProvider defaultTheme="light">

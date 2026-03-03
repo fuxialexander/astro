@@ -186,7 +186,46 @@
   border-color: var(--border);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   VIEWPORT STABILIZATION — Prevent page shift on iPad/iOS when keyboard appears
+   ═══════════════════════════════════════════════════════════════════════════
+
+   On iPadOS, focusing a text input (even with an external keyboard) triggers a
+   toolbar/suggestions bar that resizes the viewport. Combined with `h-dvh`, this
+   caused the entire layout to shift up and become invisible.
+
+   Fix has three layers:
+   1. `interactive-widget=resizes-visual` in the viewport meta tag tells the
+      browser to only resize the visual viewport (not layout viewport).
+   2. Global CSS (`overflow: hidden` on html/body) prevents document-level
+      scrolling — safe on all platforms since the app uses internal scroll
+      containers (h-dvh + overflow-auto).
+   3. iOS-specific: `position: fixed` on html (via `.ios-viewport-fix` class
+      applied by useIOSKeyboardFix hook) and a JS scroll-reset handler.
+      This is scoped to iOS because `position: fixed` on html is only needed
+      to counter iOS WebKit's aggressive document scrolling on input focus,
+      and could interfere with browser scroll restoration on other platforms.
+   ═══════════════════════════════════════════════════════════════════════════ */
+html {
+  /* Prevent the document itself from scrolling — all scrolling happens inside
+     app containers (AppLayout/MobileLayout use h-dvh + overflow-auto). */
+  overflow: hidden;
+  overscroll-behavior: none;
+  height: 100%;
+  width: 100%;
+}
+
+/* iOS-only: position: fixed prevents iOS Safari from force-scrolling the html
+   element when inputs are focused. overflow: hidden alone does not reliably
+   prevent this on iOS WebKit. Applied by useIOSKeyboardFix hook. */
+html.ios-viewport-fix {
+  position: fixed;
+}
+
 body {
+  overflow: hidden;
+  overscroll-behavior: none;
+  height: 100%;
   background-color: var(--background);
   color: var(--foreground);
   font-family: "DM Sans", sans-serif;
