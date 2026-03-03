@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useSearchParams, useLocation } from "react-router"
-import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, AlertCircle, Info, Monitor, Bot, Clock, X, FileCode2, Layers, Github, Link } from "lucide-react"
+import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, AlertCircle, Info, Monitor, Bot, Clock, X, FileCode2, Layers, Github, Link, ChevronDown, ChevronRight, FileText, Paperclip } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
@@ -22,6 +22,7 @@ import { SessionPickerDialog } from "@/components/playground/session-picker-dial
 import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { BranchSelector } from "@/components/branch-selector"
 import { GitHubRepoPickerDialog } from "@/components/github-repo-picker-dialog"
+import { AttachmentList } from "@/components/task-detail/attachment-list"
 import { useDirectoryDetection } from "@/hooks/use-directory-detection"
 import { useGitHubStore } from "@/stores/github-store"
 import { requestNotificationPermission } from "@/lib/notifications"
@@ -29,7 +30,7 @@ import { OnboardingHint } from "@/components/onboarding-hint"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
 import { deriveAvailableProviders, isProviderAvailable, PROVIDER_NAMES } from "@/components/execution/provider-utils"
-import type { GitHubRepo } from "@/types"
+import type { GitHubRepo, TaskAttachment } from "@/types"
 
 /** Parse a GitHub URL to extract owner and repo name */
 function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
@@ -66,6 +67,9 @@ export function ProjectNewPlan() {
   const [githubOwner, setGithubOwner] = useState("")
   const [githubRepo, setGithubRepo] = useState("")
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
+  const [contextOpen, setContextOpen] = useState(false)
+  const [visionDoc, setVisionDoc] = useState("")
+  const [attachments, setAttachments] = useState<TaskAttachment[]>([])
   const modelTier: ModelTier = "large"
 
   // Git detection (debounced)
@@ -311,6 +315,44 @@ export function ProjectNewPlan() {
     }
   }, [selectedBranch])
 
+  // Attachment handlers
+  const handleAddAttachment = useCallback((attachment: TaskAttachment) => {
+    setAttachments((prev) => [...prev, attachment])
+  }, [])
+
+  const handleRemoveAttachment = useCallback((attachmentId: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== attachmentId))
+  }, [])
+
+  // Handle paste in goal textarea (image paste support)
+  const handleGoalPaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = e.clipboardData?.files
+    if (!files || files.length === 0) return
+
+    // Check if any pasted items are files (images)
+    const imageFiles = Array.from(files).filter((f) => f.type.startsWith('image/'))
+    if (imageFiles.length === 0) return
+
+    e.preventDefault() // Prevent pasting file name as text
+
+    for (const file of imageFiles) {
+      const url = URL.createObjectURL(file)
+      const attachment: TaskAttachment = {
+        id: crypto.randomUUID(),
+        name: file.name || `pasted-image-${Date.now()}.png`,
+        url,
+        mimeType: file.type || 'image/png',
+        size: file.size,
+        uploadedAt: new Date(),
+        thumbnailUrl: url,
+      }
+      setAttachments((prev) => [...prev, attachment])
+    }
+
+    // Auto-expand context section to show pasted images
+    setContextOpen(true)
+  }, [])
+
   const customModelMap = useSettingsStore((s) => s.customModelMap)
 
   async function handleSubmit() {
@@ -321,6 +363,12 @@ export function ProjectNewPlan() {
       const effectiveModel = selectedModel || resolveModel(modelTier, selectedProvider || undefined, customModelMap)
       // Use first line of description as project name (truncated)
       const firstLine = description.trim().split('\n')[0].slice(0, 80)
+
+      // Combine user-provided vision doc with playground context
+      const combinedVisionDoc = [playgroundVisionDoc, visionDoc.trim()]
+        .filter(Boolean)
+        .join('\n\n') || undefined
+
       const { projectId } = await startPlanSession(
         description.trim(),
         firstLine,
@@ -329,19 +377,24 @@ export function ProjectNewPlan() {
           workingDirectory: workingDir || undefined,
           preferredProvider: selectedProvider || undefined,
           model: effectiveModel,
-          visionDoc: playgroundVisionDoc,
+          visionDoc: combinedVisionDoc,
           baseBranch: effectiveBranch || undefined,
           repository: repoUrl || undefined,
         }
       )
 
-      // Update project with GitHub owner/repo if set
+      // Update project with GitHub owner/repo and attachments if set
+      const projectUpdates: Record<string, unknown> = {}
       if (githubOwner && githubRepo) {
-        updateProject(projectId, {
-          githubOwner,
-          githubRepo,
-          repository: repoUrl || undefined,
-        })
+        projectUpdates.githubOwner = githubOwner
+        projectUpdates.githubRepo = githubRepo
+        projectUpdates.repository = repoUrl || undefined
+      }
+      if (attachments.length > 0) {
+        projectUpdates.attachments = attachments
+      }
+      if (Object.keys(projectUpdates).length > 0) {
+        updateProject(projectId, projectUpdates)
       }
 
       setActiveProjectId(projectId)
@@ -428,6 +481,7 @@ export function ProjectNewPlan() {
                   handleSubmit()
                 }
               }}
+              onPaste={handleGoalPaste}
               placeholder="What do you want to build or accomplish?"
               rows={5}
               autoFocus
@@ -622,6 +676,75 @@ export function ProjectNewPlan() {
               )}
             </div>
           )}
+
+          {/* Add Context — collapsible section */}
+          <div className="flex flex-col">
+            <button
+              type="button"
+              onClick={() => setContextOpen(!contextOpen)}
+              className="flex items-center gap-1.5 text-left py-1.5 rounded transition-colors cursor-pointer group hover:bg-muted/30 -mx-1 px-1"
+            >
+              {contextOpen ? (
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              )}
+              <span className="text-xs text-muted-foreground font-medium">
+                Add Context
+              </span>
+              {(visionDoc.trim() || attachments.length > 0) && (
+                <span className="flex items-center gap-1 text-[10px] text-primary">
+                  {visionDoc.trim() && (
+                    <Badge variant="outline" className="text-[10px] py-0 px-1.5 h-4">
+                      <FileText className="h-2.5 w-2.5 mr-0.5" />
+                      Vision
+                    </Badge>
+                  )}
+                  {attachments.length > 0 && (
+                    <Badge variant="outline" className="text-[10px] py-0 px-1.5 h-4">
+                      <Paperclip className="h-2.5 w-2.5 mr-0.5" />
+                      {attachments.length}
+                    </Badge>
+                  )}
+                </span>
+              )}
+            </button>
+
+            {contextOpen && (
+              <div className="flex flex-col gap-4 mt-2 animate-reveal">
+                {/* Vision / Design Document */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <FileText className="h-3 w-3" />
+                    Vision / Design Document
+                  </label>
+                  <textarea
+                    value={visionDoc}
+                    onChange={(e) => setVisionDoc(e.target.value)}
+                    placeholder="Define the product vision, research question, or project context here. This will be provided to all agents working on this project as persistent context (skill.md)..."
+                    rows={6}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-y min-h-[100px]"
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    Markdown supported. Injected into every agent session as context.
+                  </p>
+                </div>
+
+                {/* Attachments */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Paperclip className="h-3 w-3" />
+                    Attachments
+                  </label>
+                  <AttachmentList
+                    attachments={attachments}
+                    onAdd={handleAddAttachment}
+                    onRemove={handleRemoveAttachment}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Submit button */}
           <div className="flex items-center justify-end gap-3">
