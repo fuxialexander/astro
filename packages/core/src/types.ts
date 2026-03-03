@@ -449,6 +449,21 @@ export interface CommandHistory {
   frequency: number;
 }
 
+/** Context for replanning from a prior execution's lessons */
+export interface ReplanContext {
+  /** Markdown summary of the previous plan's structure and outcomes */
+  previousPlanSummary: string;
+  /** Per-task lessons extracted from execution results */
+  lessons: Array<{
+    taskTitle: string;
+    taskDescription: string;
+    status: 'success' | 'failure' | 'partial' | 'not_executed';
+    executionSummary?: string;
+  }>;
+  /** User-supplied description of what changed or why a replan is needed */
+  changeDescription: string;
+}
+
 export interface EnvironmentConfig {
   id: string;
   userId: string;
