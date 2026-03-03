@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback } from "react"
+import { useNavigate } from "react-router"
 import {
   Wrench,
   ListFilter,
@@ -16,6 +17,7 @@ import {
   AlertCircle,
   ArrowLeft,
   Check,
+  Sparkles,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -612,6 +614,7 @@ function SkillCard({
 
 // --- Main Skills Page ---
 export function Skills() {
+  const navigate = useNavigate()
   const skillsMap = useSkillStore((s) => s.skills)
   const addSkill = useSkillStore((s) => s.addSkill)
   const removeSkill = useSkillStore((s) => s.removeSkill)
@@ -871,6 +874,15 @@ export function Skills() {
           >
             <Download className="h-3.5 w-3.5" />
             <span className="hidden md:inline">Import from GitHub</span>
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => navigate("/skills/new")}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            <span className="hidden md:inline">Create with AI</span>
           </Button>
           <Button
             size="sm"
