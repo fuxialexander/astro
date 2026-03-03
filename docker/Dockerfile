@@ -13,7 +13,9 @@ RUN apk add --no-cache python3 make g++ git
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
 # Install ALL dependencies (devDeps needed for tsc + vite)
-COPY package.json pnpm-lock.yaml ./
+# Copy workspace config and core package.json so pnpm resolves workspace links
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/core/package.json ./packages/core/
 RUN pnpm install --frozen-lockfile
 
 # Copy source
