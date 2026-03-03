@@ -41,6 +41,11 @@ CREATE INDEX IF NOT EXISTS skills_team_enabled_idx ON skills(team_id, enabled);
 -- Index for bootstrap queries: lookup by name and source
 CREATE INDEX IF NOT EXISTS skills_name_source_idx ON skills(name, source);
 
+-- Partial unique index: builtin skill names must be globally unique.
+-- The (name, team_id) constraint doesn't cover builtins because they have
+-- team_id=NULL, and Postgres treats NULL != NULL in unique constraints.
+CREATE UNIQUE INDEX IF NOT EXISTS skills_builtin_name_unique ON skills(name) WHERE source = 'builtin';
+
 -- Enable RLS for team-based access control.
 -- Note: The Hono API server connects with the service_role key, which bypasses RLS.
 -- These policies are a secondary defense for direct database access (e.g., Supabase Dashboard,

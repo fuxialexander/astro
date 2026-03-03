@@ -427,23 +427,37 @@ describe('PUT /api/skills/:id', () => {
     expect(body.error).toContain('config size')
   })
 
-  it('does not allow source to be modified', async () => {
+  it('returns 400 when trying to change source (immutable)', async () => {
     const createRes = await postJson('/api/skills', {
-      name: 'Source Immutability Test',
+      name: `Source Immutable ${crypto.randomUUID().slice(0, 8)}`,
       source: 'workspace',
     })
+    expect(createRes.status).toBe(201)
     const created = await createRes.json() as Record<string, unknown>
-    expect(created.source).toBe('workspace')
 
-    // Try to change source to clawhub
     const updateRes = await putJson(`/api/skills/${created.id}`, {
       source: 'clawhub',
     })
-    expect(updateRes.status).toBe(200)
+    expect(updateRes.status).toBe(400)
+    const body = await updateRes.json() as { error: string }
+    expect(body.error).toContain('immutable')
+  })
 
-    // Source should remain unchanged
+  it('allows sending same source value on update (no-op)', async () => {
+    const createRes = await postJson('/api/skills', {
+      name: `Source Same ${crypto.randomUUID().slice(0, 8)}`,
+      source: 'workspace',
+    })
+    expect(createRes.status).toBe(201)
+    const created = await createRes.json() as Record<string, unknown>
+
+    const updateRes = await putJson(`/api/skills/${created.id}`, {
+      source: 'workspace',
+      description: 'updated',
+    })
+    expect(updateRes.status).toBe(200)
     const updated = await updateRes.json() as Record<string, unknown>
-    expect(updated.source).toBe('workspace')
+    expect(updated.description).toBe('updated')
   })
 
   it('returns 409 when updating name to conflict with existing skill', async () => {
@@ -651,26 +665,6 @@ describe('builtin skill protection', () => {
     expect(res.status).toBe(403)
     const body = await res.json() as { error: string }
     expect(body.error).toContain('builtin')
-  })
-
-  it('source is immutable on update (attempts to change source are ignored)', async () => {
-    // Create a workspace skill
-    const createRes = await postJson('/api/skills', {
-      name: 'Source Immutability Test',
-      source: 'workspace',
-    })
-    expect(createRes.status).toBe(201)
-    const created = await createRes.json() as Record<string, unknown>
-    expect(created.source).toBe('workspace')
-
-    // Try to change source to 'clawhub' via PUT
-    const updateRes = await putJson(`/api/skills/${created.id}`, {
-      source: 'clawhub',
-    })
-    expect(updateRes.status).toBe(200)
-    const updated = await updateRes.json() as Record<string, unknown>
-    // Source should still be 'workspace' — immutable after creation
-    expect(updated.source).toBe('workspace')
   })
 
   it('allows toggling builtin skills (enable/disable without deleting)', async () => {
