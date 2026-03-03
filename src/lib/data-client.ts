@@ -3,6 +3,7 @@ import type { DisplaySettings, ViewKey } from "@/stores/display-settings-store"
 import type { SessionMetrics } from "@/stores/usage-store"
 import type { TaskChatMessage, TaskChatSession } from "@/stores/task-chat-store"
 import type { Activity } from "@/stores/activity-store"
+import type { SkillRow } from "@/stores/skill-store"
 import { getAccessToken } from "./supabase-client"
 import { snakeToCamel } from "./utils"
 import { apiUrl } from "./api-url"
@@ -198,6 +199,31 @@ function mapChatEntry(entry: { session: Record<string, unknown>; messages: Recor
       updatedAt: toDate(s.updatedAt),
     },
     messages: entry.messages.map(mapChatMessage),
+  }
+}
+
+function mapSkillRow(row: Record<string, unknown>): SkillRow {
+  const r = snakeToCamel(row)
+  const config = (r.config && typeof r.config === 'object' ? r.config : {}) as Record<string, unknown>
+  return {
+    id: String(r.id ?? ''),
+    name: String(r.name ?? ''),
+    description: String(r.description ?? ''),
+    instructions: String(r.instructions ?? ''),
+    source: (typeof r.source === 'string' ? r.source : 'builtin') as SkillRow['source'],
+    enabled: typeof r.enabled === 'boolean' ? r.enabled : true,
+    // OpenClaw extension fields — stored in config JSONB, extracted here
+    userInvocable: typeof config.userInvocable === 'boolean' ? config.userInvocable : true,
+    disableModelInvocation: typeof config.disableModelInvocation === 'boolean' ? config.disableModelInvocation : false,
+    pluginId: typeof r.pluginId === 'string' ? r.pluginId : undefined,
+    config,
+    version: typeof r.version === 'string' ? r.version : '1.0.0',
+    category: typeof r.category === 'string' ? r.category : undefined,
+    tags: Array.isArray(r.tags) ? r.tags : [],
+    allowedTools: Array.isArray(r.allowedTools) ? r.allowedTools : [],
+    sourceUrl: typeof r.sourceUrl === 'string' ? r.sourceUrl : undefined,
+    createdAt: r.createdAt ? toDate(r.createdAt) : undefined,
+    updatedAt: r.updatedAt ? toDate(r.updatedAt) : undefined,
   }
 }
 
@@ -695,5 +721,36 @@ export const dataClient = {
 
   async deleteEnvironmentConfig(id: string): Promise<void> {
     await del(`${BASE}/environment-configs/${id}`)
+  },
+
+  // ── Skills (uses /api/skills, not /api/data) ─────────────────────────
+  async listSkills(): Promise<SkillRow[]> {
+    const data = await json<{ skills: Record<string, unknown>[] }>('/api/skills')
+    return (data.skills ?? []).map(mapSkillRow)
+  },
+
+  async createSkill(skill: Partial<SkillRow>): Promise<SkillRow & { _warning?: string }> {
+    const row = await post('/api/skills', skill) as Record<string, unknown>
+    const mapped = mapSkillRow(row)
+    if (row._warning) return { ...mapped, _warning: row._warning as string }
+    return mapped
+  },
+
+  async updateSkill(id: string, updates: Partial<SkillRow>): Promise<SkillRow & { _warning?: string }> {
+    const row = await put(`/api/skills/${id}`, updates) as Record<string, unknown>
+    const mapped = mapSkillRow(row)
+    if (row._warning) return { ...mapped, _warning: row._warning as string }
+    return mapped
+  },
+
+  async deleteSkill(id: string): Promise<void> {
+    await del(`/api/skills/${id}`)
+  },
+
+  async toggleSkill(id: string): Promise<SkillRow & { _warning?: string }> {
+    const row = await put(`/api/skills/${id}/toggle`, {}) as Record<string, unknown>
+    const mapped = mapSkillRow(row)
+    if (row._warning) return { ...mapped, _warning: row._warning as string }
+    return mapped
   },
 }

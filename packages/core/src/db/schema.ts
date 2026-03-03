@@ -1,4 +1,5 @@
-import { pgTable, text, integer, real, uuid, timestamp, boolean, date, jsonb, primaryKey } from 'drizzle-orm/pg-core'
+import { pgTable, text, integer, real, uuid, timestamp, boolean, date, jsonb, primaryKey, unique, index, uniqueIndex, check } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 
 // ── Projects ──────────────────────────────────────────────────────────
 export const projects = pgTable('projects', {
@@ -624,3 +625,37 @@ export const streamingEvents = pgTable('streaming_events', {
   data: jsonb('data').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
+
+// ── Skills ───────────────────────────────────────────────────────
+// Reusable skill definitions that can be assigned to tasks/agents.
+// Skills define instructions, tools, and configurations for specific capabilities.
+export const skills = pgTable('skills', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  version: text('version').notNull().default('1.0.0'),
+  description: text('description').notNull().default(''),
+  instructions: text('instructions').notNull().default(''),
+  category: text('category'), // e.g. 'coding', 'research', 'analysis'
+  tags: text('tags').array().notNull().default([]),
+  source: text('source'), // 'builtin' | 'user' | 'marketplace'
+  sourceUrl: text('source_url'),
+  authorId: uuid('author_id').references(() => userProfiles.id, { onDelete: 'set null' }),
+  enabled: boolean('enabled').notNull().default(true),
+  allowedTools: text('allowed_tools').array().notNull().default([]),
+  config: jsonb('config').$type<Record<string, unknown>>().default({}),
+  teamId: uuid('team_id').references(() => teams.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  unique('skills_name_team_id_unique').on(table.name, table.teamId),
+  check('skills_source_check', sql`${table.source} IN ('builtin', 'workspace', 'clawhub', 'plugin', 'user')`),
+  index('skills_team_id_idx').on(table.teamId),
+  index('skills_author_id_idx').on(table.authorId),
+  index('skills_category_idx').on(table.category),
+  index('skills_enabled_idx').on(table.enabled),
+  index('skills_team_enabled_idx').on(table.teamId, table.enabled),
+  index('skills_name_source_idx').on(table.name, table.source),
+  // Partial unique index — PGlite-compatible (PGlite supports WHERE clauses on unique indexes)
+  uniqueIndex('skills_builtin_name_unique').on(table.name).where(sql`${table.source} = 'builtin'`),
+  check('skills_builtin_null_ownership', sql`${table.source} != 'builtin' OR (${table.teamId} IS NULL AND ${table.authorId} IS NULL)`),
+])

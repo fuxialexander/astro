@@ -99,8 +99,14 @@ export async function generatePlan(
   })
 
   if (!res.ok) {
-    console.error(`[plan-gen] Server error: ${res.status}`)
-    callbacks.onError(`Server error: ${res.status}`)
+    let errorMsg = `Server error: ${res.status}`
+    try {
+      const body = await res.json()
+      if (body.error) errorMsg += ` – ${body.error}`
+      if (body.details) console.error(`[plan-gen] Validation details:`, body.details)
+    } catch { /* non-JSON response */ }
+    console.error(`[plan-gen] ${errorMsg}`)
+    callbacks.onError(errorMsg)
     return
   }
 
@@ -163,7 +169,9 @@ export async function chatWithAgent(
   })
 
   if (!res.ok) {
-    callbacks.onError(`Server error: ${res.status}`)
+    let errorMsg = `Server error: ${res.status}`
+    try { const b = await res.json(); if (b.error) errorMsg += ` – ${b.error}` } catch { /* non-JSON */ }
+    callbacks.onError(errorMsg)
     return
   }
 
@@ -193,7 +201,9 @@ export async function planChatWithAgent(
   })
 
   if (!res.ok) {
-    callbacks.onError(`Server error: ${res.status}`)
+    let errorMsg = `Server error: ${res.status}`
+    try { const b = await res.json(); if (b.error) errorMsg += ` – ${b.error}` } catch { /* non-JSON */ }
+    callbacks.onError(errorMsg)
     return
   }
 
@@ -253,7 +263,9 @@ export async function chatWithTask(
   })
 
   if (!res.ok) {
-    callbacks.onError(`Server error: ${res.status}`)
+    let errorMsg = `Server error: ${res.status}`
+    try { const b = await res.json(); if (b.error) errorMsg += ` – ${b.error}` } catch { /* non-JSON */ }
+    callbacks.onError(errorMsg)
     return
   }
 
@@ -498,7 +510,9 @@ export async function dispatchTask(
   })
 
   if (!response.ok) {
-    callbacks.onError?.(`Server error: ${response.status}`)
+    let errorMsg = `Server error: ${response.status}`
+    try { const b = await response.json(); if (b.error) errorMsg += ` – ${b.error}` } catch { /* non-JSON */ }
+    callbacks.onError?.(errorMsg)
     return
   }
 

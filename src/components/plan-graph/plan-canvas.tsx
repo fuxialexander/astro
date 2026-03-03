@@ -21,6 +21,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { useExecutionStore, canExecuteNode, getProjectWorkingDir } from "@/stores/execution-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
+import { useContentSaveStore } from "@/stores/content-save-store"
 import { useKeyboardNav } from "@/hooks/use-keyboard-nav"
 import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
 import { TaskNode } from "./task-node"
@@ -92,6 +93,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const machines = useExecutionStore((s) => s.machines)
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
   const loadMachines = useExecutionStore((s) => s.loadMachines)
+  const flushPendingSaves = useContentSaveStore((s) => s.flushPendingSaves)
   const isProjectGenerating = useAgentStore((s) => s.sessions.get(projectId)?.status === 'active')
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const updateProject = useProjectStore((s) => s.updateProject)
@@ -281,7 +283,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     }, 10)
   }, [checkedIds, removeNodes, projectNodes, addActivity, projectId, onNodeSelect, reorganizeProject, rfFitView])
 
-  const handleExecuteSelected = useCallback(() => {
+  const handleExecuteSelected = useCallback(async () => {
     if (checkedIds.size === 0) return
     if (!resolvedMachineId) {
       useToastStore.getState().add({
@@ -300,18 +302,33 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     const nodesToExecute = projectNodes.filter(
       (n) => checkedIds.has(n.id) && canExecuteNode(n, allNodes, allEdges).ready
     )
+
+    // Flush pending saves for all nodes to execute
+    const nodeIds = nodesToExecute.map((n) => n.id)
+    try {
+      await flushPendingSaves(nodeIds)
+    } catch (error) {
+      console.error('Failed to save task content before execution:', error)
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Failed to save changes',
+        description: 'Could not save task content before execution. Please try again.',
+      })
+      return
+    }
+
     for (const node of nodesToExecute) {
       startExecution(node.id, projectId)
     }
     setCheckedIds(new Set())
-  }, [checkedIds, projectNodes, startExecution, projectId, project, resolvedMachineId])
+  }, [checkedIds, projectNodes, startExecution, projectId, project, resolvedMachineId, flushPendingSaves])
 
   const handleSelectAll = useCallback(() => {
     const allIds = new Set(projectNodes.map((n) => n.id))
     setCheckedIds(allIds)
   }, [projectNodes])
 
-  const handleExecuteAll = useCallback(() => {
+  const handleExecuteAll = useCallback(async () => {
     if (!resolvedMachineId) {
       useToastStore.getState().add({
         type: "warning",
@@ -325,8 +342,23 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
       setPathBrowserOpen(true)
       return
     }
+
+    // Flush pending saves for all project nodes before batch execution
+    const nodeIds = projectNodes.map((n) => n.id)
+    try {
+      await flushPendingSaves(nodeIds)
+    } catch (error) {
+      console.error('Failed to save task content before execution:', error)
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Failed to save changes',
+        description: 'Could not save task content before execution. Please try again.',
+      })
+      return
+    }
+
     executeAllProject(projectId)
-  }, [executeAllProject, projectId, project, resolvedMachineId])
+  }, [executeAllProject, projectId, project, resolvedMachineId, projectNodes, flushPendingSaves])
 
   const handleStopBatch = useCallback(() => {
     stopBatchExecution(projectId)

@@ -112,12 +112,15 @@ app.post('/projects', async (c) => {
       color: body.color ?? '#3b82f6',
       icon: body.icon ?? '📋',
       number: assignedNumber ?? (body.number ?? null),
-      workingDirectory: body.workingDirectory ?? null,
-      sourceDirectory: body.sourceDirectory ?? null,
-      repository: body.repository ?? null,
+      workingDirectory: body.workingDirectory || null,
+      sourceDirectory: body.sourceDirectory || null,
+      repository: body.repository || null,
+      // Use pre-validated GitHub variables (normalized from empty strings to null above)
       githubOwner,
       githubRepo,
       githubRepoId,
+      defaultMachineId: body.defaultMachineId || null,
+      projectBranch: body.projectBranch || null,
       mergeQueueEnabled: body.mergeQueueEnabled ?? false,
       mergeQueueMergeMethod: body.mergeQueueMergeMethod ?? 'squash',
       source: body.source ?? null,
@@ -193,11 +196,20 @@ app.patch('/projects/:id', async (c) => {
   if (body.workingDirectory !== undefined) patch.workingDirectory = body.workingDirectory || null
   if (body.sourceDirectory !== undefined) patch.sourceDirectory = body.sourceDirectory || null
   if (body.repository !== undefined) patch.repository = body.repository || null
+  if (body.githubOwner !== undefined) patch.githubOwner = body.githubOwner || null
+  if (body.githubRepo !== undefined) patch.githubRepo = body.githubRepo || null
+  if (body.githubRepoId !== undefined) patch.githubRepoId = body.githubRepoId ?? null
   if (body.defaultMachineId !== undefined) patch.defaultMachineId = body.defaultMachineId || null
+  if (body.projectBranch !== undefined) patch.projectBranch = body.projectBranch || null
   if (body.mergeQueueEnabled !== undefined) patch.mergeQueueEnabled = body.mergeQueueEnabled ?? false
   if (body.mergeQueueMergeMethod !== undefined) patch.mergeQueueMergeMethod = body.mergeQueueMergeMethod || 'squash'
   if (body.source !== undefined) patch.source = body.source
   if (body.deliveryMode !== undefined) patch.deliveryMode = body.deliveryMode
+  // GitHub fields: || normalizes empty strings to null (see POST handler comment)
+  if (body.githubOwner !== undefined) patch.githubOwner = body.githubOwner || null
+  if (body.githubRepo !== undefined) patch.githubRepo = body.githubRepo || null
+  if (body.githubRepoId !== undefined) patch.githubRepoId = body.githubRepoId ?? null
+  if (body.projectBranch !== undefined) patch.projectBranch = body.projectBranch || null
   if (body.projectType !== undefined) patch.projectType = body.projectType
 
   // GitHub metadata consistency: If any field is being updated, apply atomic all-or-nothing logic
