@@ -23,6 +23,7 @@ import githubRoute from './routes/github.js'
 import { wellKnownRoute } from './routes/well-known.js'
 import systemRoute from './routes/system.js'
 import { skillsRoute } from './routes/skills.js'
+import { templatesRoute } from './routes/templates.js'
 import { shareRoute } from './routes/share.js'
 import { connectedAccountsRoute } from './routes/connected-accounts.js'
 import { teamsRoute } from './routes/teams.js'
@@ -168,6 +169,7 @@ export function createApp() {
   app.route('/api/data', dataRoute)
   app.route('/api/system', systemRoute)
   app.route('/api/skills', skillsRoute)
+  app.route('/api/templates', templatesRoute)
   app.route('/api/observations', observationsRoute)
   app.route('/api/teams', teamsRoute)
 

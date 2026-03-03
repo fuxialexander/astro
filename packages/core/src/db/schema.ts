@@ -659,3 +659,99 @@ export const skills = pgTable('skills', {
   uniqueIndex('skills_builtin_name_unique').on(table.name).where(sql`${table.source} = 'builtin'`),
   check('skills_builtin_null_ownership', sql`${table.source} != 'builtin' OR (${table.teamId} IS NULL AND ${table.authorId} IS NULL)`),
 ])
+
+// ── Custom Templates ───────────────────────────────────────────────
+// User-created templates for reusable project patterns.
+// Stores the full template definition including parameters, prompts, and execution config.
+export const customTemplates = pgTable('custom_templates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  category: text('category').notNull().default('custom'), // UseCaseCategory
+  version: text('version').notNull().default('1.0.0'),
+  icon: text('icon'),
+  tags: text('tags').array().notNull().default([]),
+  maturity: text('maturity').notNull().default('stable'), // 'stable' | 'beta' | 'experimental'
+  enabled: boolean('enabled').notNull().default(true),
+
+  // Parameter schema (stored as JSONB arrays)
+  requiredParameters: jsonb('required_parameters').$type<Array<{
+    id: string
+    name: string
+    description: string
+    type: string
+    required: boolean
+    default?: unknown
+    placeholder?: string
+    options?: Array<{ label: string; value: string; description?: string }>
+    validation?: { min?: number; max?: number; pattern?: string; message?: string }
+    visibleWhen?: { parameterId: string; operator: string; value?: unknown }
+    group?: string
+    order?: number
+  }>>().notNull().default([]),
+  optionalParameters: jsonb('optional_parameters').$type<Array<{
+    id: string
+    name: string
+    description: string
+    type: string
+    required: boolean
+    default?: unknown
+    placeholder?: string
+    options?: Array<{ label: string; value: string; description?: string }>
+    validation?: { min?: number; max?: number; pattern?: string; message?: string }
+    visibleWhen?: { parameterId: string; operator: string; value?: unknown }
+    group?: string
+    order?: number
+  }>>().notNull().default([]),
+
+  // Prompt configuration
+  prompts: jsonb('prompts').$type<{
+    planGeneration: string
+    taskExecution?: string
+    planRefinement?: string
+    sharedContext?: string
+  }>().notNull(),
+
+  // Execution config
+  execution: jsonb('execution').$type<{
+    preferredModel?: string
+    maxTurns?: number
+    maxBudgetPerTask?: number
+    skills?: string[]
+    deliveryMode?: string
+    skipSafetyCheck?: boolean
+    defaultVerification?: string
+  }>(),
+  parallelization: jsonb('parallelization').$type<{
+    maxConcurrentTasks?: number
+    autoDispatch?: boolean
+    defaultPriority?: string
+    retry?: { maxRetries: number; retryDelayMs: number; exponentialBackoff: boolean }
+    machineSelectionPolicy?: string
+    requiredMachineLabels?: string[]
+  }>(),
+  planHints: jsonb('plan_hints').$type<{
+    targetNodeCount?: { min: number; max: number }
+    defaultEstimate?: string
+    suggestedMilestones?: Array<{ title: string; description: string }>
+    commonLabels?: string[]
+    preferParallelTasks?: boolean
+  }>(),
+
+  // Source project (for templates created from existing plans)
+  sourceProjectId: uuid('source_project_id').references(() => projects.id, { onDelete: 'set null' }),
+
+  // Ownership
+  authorId: uuid('author_id').notNull().references(() => userProfiles.id, { onDelete: 'cascade' }),
+  teamId: uuid('team_id').references(() => teams.id, { onDelete: 'cascade' }),
+
+  // Timestamps
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('custom_templates_author_id_idx').on(table.authorId),
+  index('custom_templates_team_id_idx').on(table.teamId),
+  index('custom_templates_category_idx').on(table.category),
+  index('custom_templates_enabled_idx').on(table.enabled),
+  unique('custom_templates_name_author_id_unique').on(table.name, table.authorId),
+])
