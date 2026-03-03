@@ -12,12 +12,11 @@ import {
   type Connection,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
-import { LayoutGrid, Trash2, Play, X, CheckSquare, Square, PlayCircle, Plus, Minus, Maximize, Sparkles, ListPlus, Info, Server, FolderOpen, AlertTriangle } from "lucide-react"
+import { LayoutGrid, Trash2, Play, X, CheckSquare, Square, PlayCircle, Plus, Minus, Maximize, ListPlus, Server, FolderOpen, AlertTriangle } from "lucide-react"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useProjectStore } from "@/stores/project-store"
-import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore, canExecuteNode, getProjectWorkingDir } from "@/stores/execution-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
@@ -26,7 +25,6 @@ import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
 import { TaskNode } from "./task-node"
 import { DeletableEdge } from "./deletable-edge"
 import { TaskCreationForm } from "@/components/task-creation-form"
-import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { calculateChildPosition, calculateParentPosition } from "@/lib/graph-utils"
 import { cn } from "@/lib/utils"
@@ -85,7 +83,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const removeEdge = usePlanStore((s) => s.removeEdge)
   const removeNodes = usePlanStore((s) => s.removeNodes)
   const reorganizeProject = usePlanStore((s) => s.reorganizeProject)
-  const startGeneration = useAgentStore((s) => s.startGeneration)
   const startExecution = useExecutionStore((s) => s.startExecution)
   const executeAllProject = useExecutionStore((s) => s.executeAllProject)
   const stopBatchExecution = useExecutionStore((s) => s.stopBatchExecution)
@@ -97,7 +94,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const updateProject = useProjectStore((s) => s.updateProject)
   const graphDisplaySettings = useDisplaySettingsStore((s) => s.get("plan-graph"))
-  const connectionStatus = useSettingsStore((s) => s.connectionStatus)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
 
@@ -535,76 +531,13 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     setTimeout(() => handleReorganize(), 0)
   }, [handleReorganize])
 
-  const [showVisionDialog, setShowVisionDialog] = useState(false)
-
-  const handleGeneratePlan = useCallback(() => {
-    if (project && connectionStatus === "connected") {
-      // If no vision doc, show dialog first to let user add one
-      if (!project.visionDoc?.trim()) {
-        setShowVisionDialog(true)
-        // Note: User will need to manually trigger generation after saving vision doc
-      } else {
-        // Build repoContext from stored project data so regeneration preserves machine/directory
-        const repoContext = (project.sourceDirectory || project.workingDirectory || project.repository || project.defaultMachineId) ? {
-          workingDirectory: project.sourceDirectory || project.workingDirectory || project.repository || '',
-          targetMachineId: project.defaultMachineId,
-        } : undefined
-        startGeneration(projectId, project.name, project.description || project.name, project.visionDoc, repoContext)
-      }
-    }
-  }, [startGeneration, projectId, project, connectionStatus])
-
-  // Auto-trigger generation when vision dialog closes and vision doc exists
-  useEffect(() => {
-    if (!showVisionDialog && project?.visionDoc?.trim() && connectionStatus === "connected") {
-      const hasNoNodes = projectNodes.length === 0
-      const justClosedDialog = !showVisionDialog
-      // Only auto-generate if we just closed the dialog and have no nodes yet
-      if (hasNoNodes && justClosedDialog) {
-        const repoContext = (project.sourceDirectory || project.workingDirectory || project.repository || project.defaultMachineId) ? {
-          workingDirectory: project.sourceDirectory || project.workingDirectory || project.repository || '',
-          targetMachineId: project.defaultMachineId,
-        } : undefined
-        startGeneration(projectId, project.name, project.description || project.name, project.visionDoc, repoContext)
-      }
-    }
-  }, [showVisionDialog, project, connectionStatus, projectNodes.length, startGeneration, projectId])
-
   // Show empty state when no nodes and not currently generating
   if (projectNodes.length === 0 && !isProjectGenerating) {
-    const isConnected = connectionStatus === "connected"
-
     return (
       <div ref={canvasRef} className="h-full w-full bg-background flex items-center justify-center p-8 relative">
         <div className="flex w-full max-w-[600px] flex-col gap-6">
-          {/* Planning options */}
+          {/* Manual task creation */}
           <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Info className="h-4 w-4" />
-              <span>Choose how to plan:</span>
-            </div>
-
-            {/* Option 1: AI Generate Plan */}
-            <button
-              onClick={handleGeneratePlan}
-              disabled={!isConnected}
-              className={cn(
-                "flex flex-col gap-3 rounded-xl border p-5 text-left transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
-                "border-primary/20 bg-primary/[0.03] hover:bg-primary/[0.05] hover:border-primary/30"
-              )}
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-                  <Sparkles className="h-5 w-5 text-primary" />
-                </div>
-                <div className="flex-1">
-                  <div className="text-base font-semibold text-foreground">Generate plan with AI</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">Let AI generate a structured plan with tasks and dependencies</div>
-                </div>
-              </div>
-            </button>
-
-            {/* Option 2: Manual Add Task */}
             {!addChildState ? (
               <button
                 type="button"
@@ -653,24 +586,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
               </div>
             )}
           </div>
-
-          {!isConnected && (
-            <div className="flex items-center gap-2 rounded-lg bg-warning/5 border border-warning/20 px-4 py-3 text-sm">
-              <Info className="h-4 w-4 text-warning shrink-0" />
-              <span className="text-foreground">
-                Connect to backend in <a href="/settings" className="underline font-medium">Settings</a> to enable AI plan generation
-              </span>
-            </div>
-          )}
-
-          {/* Vision Doc Dialog */}
-          {project && (
-            <VisionDocDialog
-              open={showVisionDialog}
-              onOpenChange={setShowVisionDialog}
-              project={project}
-            />
-          )}
         </div>
 
       </div>
