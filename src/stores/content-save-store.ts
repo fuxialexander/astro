@@ -11,9 +11,6 @@ interface ContentSaveStore {
   // Register a pending save for a node
   registerPendingSave: (nodeId: string, flushFn: () => Promise<void>) => void
 
-  // Clear a pending save (called after save completes naturally)
-  clearPendingSave: (nodeId: string) => void
-
   // Flush pending saves for one or more nodes (waits for saves to complete)
   flushPendingSaves: (nodeIds: string[]) => Promise<void>
 }
@@ -25,14 +22,6 @@ export const useContentSaveStore = create<ContentSaveStore>((set, get) => ({
     set((state) => {
       const newMap = new Map(state.pendingSaves)
       newMap.set(nodeId, { flush: flushFn })
-      return { pendingSaves: newMap }
-    })
-  },
-
-  clearPendingSave: (nodeId) => {
-    set((state) => {
-      const newMap = new Map(state.pendingSaves)
-      newMap.delete(nodeId)
       return { pendingSaves: newMap }
     })
   },

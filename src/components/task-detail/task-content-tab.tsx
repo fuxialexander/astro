@@ -109,10 +109,9 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
         }
       } catch (error) {
         savingRef.current = null
-        // Don't clear pending save - let it remain for potential retry via flush
         if (mountedRef.current) setSaveStatus('idle')
         console.error('Failed to save task content:', error)
-        // Note: Could show toast here, but error is logged and execution will fail gracefully
+        throw error
       }
     }
 
