@@ -2184,11 +2184,16 @@ function handleSSEEvent(
         }
 
         // Show notification if task used more than 500 turns
+        // Threshold rationale: With unlimited maxTurns for execution tasks, 500+ turns
+        // is a significant outlier that warrants user attention. This helps detect:
+        // - Unusually complex tasks that may benefit from decomposition
+        // - Potential agent loops or inefficient exploration patterns
+        // - Tasks approaching cost/time budgets that may need intervention
         if (metrics?.turnsUsed && metrics.turnsUsed > 500) {
           useToastStore.getState().add({
             type: 'warning',
             title: 'High Turn Count',
-            description: `Task used ${metrics.turnsUsed} turns (${Math.round(metrics.turnsUsed / 10) * 10}+). This may indicate a complex task or potential issue.`,
+            description: `Task used ${metrics.turnsUsed} turns. This may indicate a complex task or potential issue.`,
             duration: 8000,
           })
         }
