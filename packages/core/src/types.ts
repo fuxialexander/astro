@@ -9,7 +9,7 @@ export type Priority = 'urgent' | 'high' | 'medium' | 'low' | 'none';
 export type Estimate = 'XS' | 'S' | 'M' | 'L' | 'XL';
 
 // Session types for unified chat/execution system
-export type SessionType = 'plan-chat' | 'task-chat' | 'steer' | 'execution' | 'plan-generation';
+export type SessionType = 'plan-chat' | 'task-chat' | 'steer' | 'execution' | 'plan-generation' | 'skill-create';
 export type SessionStatus = 'active' | 'streaming' | 'completed' | 'error' | 'cancelled';
 
 export interface SessionMessage {
