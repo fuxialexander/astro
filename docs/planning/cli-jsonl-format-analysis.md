@@ -30,8 +30,8 @@ This document provides a comprehensive analysis of the actual JSONL event format
 
 | CLI | Actual Format | Adapter Expectation | Gaps |
 |-----|---------------|---------------------|------|
-| **OpenClaw** | ACP Runtime Events (`text_delta`, `tool_call`, `status`, `done`, `error`) | Legacy flat events (`session.start`, `content.text`, etc.) OR Gateway EventFrame | **Significant mismatch** — adapter supports legacy format but not ACP |
-| **OpenCode** | Typed parts via SDK events (`text`, `tool_use`, `step_start`, `step_finish`, `reasoning`, `error`) with timestamp/sessionID | Claude-like events (`system`, `assistant`, `tool_result`, `result`) | **Partial mismatch** — event structure differs from expected |
+| **OpenClaw** | ACP Runtime Events (`text_delta`, `tool_call`, `status`, `done`, `error`) | Legacy flat events (`session.start`, `content.text`, etc.) OR Gateway EventFrame | ✅ **Resolved** (PR #308) — adapter now supports ACP, Gateway EventFrame, Legacy, and Batch formats |
+| **OpenCode** | Typed parts via SDK events (`text`, `tool_use`, `step_start`, `step_finish`, `reasoning`, `error`) with timestamp/sessionID | Claude-like events (`system`, `assistant`, `tool_result`, `result`) | ✅ **Resolved** (PR #310) — adapter now handles SDK event format with correct CLI flags |
 
 ---
 
