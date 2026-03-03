@@ -460,3 +460,15 @@ export interface EnvironmentConfig {
   createdAt: Date;
   updatedAt: Date;
 }
+
+// Context for replanning: captures lessons from prior plan execution
+export interface ReplanContext {
+  previousPlanSummary?: string;
+  lessons: Array<{
+    taskTitle: string;
+    status: 'success' | 'partial' | 'failure' | 'not_executed';
+    executionSummary?: string;
+    followUps?: string[];
+  }>;
+  changeDescription?: string;
+}
