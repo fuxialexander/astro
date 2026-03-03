@@ -57,6 +57,7 @@ import { Playground } from "@/pages/playground"
 import { ShareImport } from "@/pages/share-import"
 import { Skills } from "@/pages/skills"
 import { Templates } from "@/pages/templates"
+import { SkillNew } from "@/pages/skill-new"
 
 /**
  * ResponsiveLayout switches between desktop (sidebar) and mobile (bottom tab bar) layouts.
@@ -341,6 +342,7 @@ export default function App() {
                 <Route path="environments" element={<Environments />} />
                 <Route path="workflows" element={<Workflows />} />
                 <Route path="skills" element={<Skills />} />
+                <Route path="skills/new" element={<SkillNew />} />
                 <Route path="templates" element={<Templates />} />
                 <Route path="share/:id" element={<ShareImport />} />
                 <Route path="settings" element={<Settings />} />
