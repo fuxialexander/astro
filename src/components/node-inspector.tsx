@@ -106,10 +106,10 @@ function useTaskRename(
       // Close input on success
       setIsRenaming(false)
     } catch (err) {
-      // Revert optimistic update - only revert THIS node to avoid overwriting concurrent updates
+      // Revert optimistic update - only revert the title field to preserve concurrent updates
       const currentNodes = usePlanStore.getState().nodes
       const revertedNodes = currentNodes.map(n =>
-        n.id === node.id ? freshNode : n
+        n.id === node.id ? { ...n, title: freshNode.title } : n
       )
       usePlanStore.setState({ nodes: revertedNodes })
       onNodeUpdate(freshNode)
