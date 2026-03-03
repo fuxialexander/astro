@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils"
 
 interface DeletableEdgeData {
   onDelete?: (source: string, target: string) => void
+  readOnly?: boolean
   [key: string]: unknown
 }
 
@@ -56,27 +57,29 @@ export const DeletableEdge = memo(function DeletableEdge({
   return (
     <>
       {/* Invisible wider path for easier hover targeting */}
-      <path
-        d={edgePath}
-        fill="none"
-        strokeWidth={16}
-        stroke="transparent"
-        className="react-flow__edge-interaction"
-        onMouseEnter={showEdge}
-        onMouseLeave={hideEdge}
-      />
+      {!data?.readOnly && (
+        <path
+          d={edgePath}
+          fill="none"
+          strokeWidth={16}
+          stroke="transparent"
+          className="react-flow__edge-interaction"
+          onMouseEnter={showEdge}
+          onMouseLeave={hideEdge}
+        />
+      )}
       <BaseEdge
         id={id}
         path={edgePath}
         style={{
           ...style,
-          stroke: hovered ? "var(--destructive)" : style?.stroke,
-          strokeWidth: hovered ? 2 : (style?.strokeWidth ?? 1.5),
+          stroke: hovered && !data?.readOnly ? "var(--destructive)" : style?.stroke,
+          strokeWidth: hovered && !data?.readOnly ? 2 : (style?.strokeWidth ?? 1.5),
           transition: "stroke 150ms, stroke-width 150ms",
         }}
         className={cn(animated && "animated")}
       />
-      {hovered && (
+      {!data?.readOnly && hovered && (
         <EdgeLabelRenderer>
           <button
             type="button"
