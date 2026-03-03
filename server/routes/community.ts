@@ -9,6 +9,7 @@ import {
   sharedPlanStars,
   sharedPlanForks,
   planEdges,
+  sharedPlanComments,
 } from '../lib/db/schema.js'
 import { eq, and, desc, isNull, ilike, or, sql } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
@@ -714,6 +715,388 @@ app.get('/my-plans', async (c) => {
     .orderBy(desc(sharedPlans.createdAt))
 
   return c.json({ plans })
+})
+
+// ── GET /api/community/plans/:id/comments ────────────────────────────
+// List comments with threading (nest replies by parentCommentId)
+app.get('/plans/:id/comments', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const planId = c.req.param('id')
+
+  // Verify plan exists and is accessible
+  const [plan] = await db.select({
+    id: sharedPlans.id,
+    visibility: sharedPlans.visibility,
+    teamId: sharedPlans.teamId,
+    authorId: sharedPlans.authorId,
+  })
+    .from(sharedPlans)
+    .where(and(
+      eq(sharedPlans.id, planId),
+      isNull(sharedPlans.deletedAt)
+    ))
+    .limit(1)
+
+  if (!plan) {
+    return c.json({ error: 'Plan not found' }, 404)
+  }
+
+  // Check visibility permissions
+  const canAccess = (
+    plan.visibility === 'public' ||
+    (plan.visibility === 'team' && plan.teamId === user.teamId) ||
+    (plan.visibility === 'unlisted' && plan.authorId === user.id) ||
+    plan.authorId === user.id
+  )
+
+  if (!canAccess) {
+    return c.json({ error: 'Access denied' }, 403)
+  }
+
+  // Fetch all comments for this plan (excluding soft-deleted)
+  const allComments = await db.select({
+    id: sharedPlanComments.id,
+    planId: sharedPlanComments.planId,
+    authorId: sharedPlanComments.authorId,
+    authorName: sharedPlanComments.authorName,
+    content: sharedPlanComments.content,
+    parentCommentId: sharedPlanComments.parentCommentId,
+    createdAt: sharedPlanComments.createdAt,
+    updatedAt: sharedPlanComments.updatedAt,
+    // Include author info
+    authorEmail: userProfiles.email,
+    authorAvatarUrl: userProfiles.avatarUrl,
+  })
+    .from(sharedPlanComments)
+    .leftJoin(userProfiles, eq(sharedPlanComments.authorId, userProfiles.id))
+    .where(and(
+      eq(sharedPlanComments.planId, planId),
+      isNull(sharedPlanComments.deletedAt)
+    ))
+    .orderBy(sharedPlanComments.createdAt)
+
+  // Build nested comment structure
+  interface CommentWithReplies {
+    id: string
+    planId: string
+    authorId: string | null
+    authorName: string
+    content: string
+    parentCommentId: string | null
+    createdAt: Date
+    updatedAt: Date
+    authorEmail: string | null
+    authorAvatarUrl: string | null
+    replies: CommentWithReplies[]
+  }
+
+  const commentMap = new Map<string, CommentWithReplies>()
+  const rootComments: CommentWithReplies[] = []
+
+  // First pass: create all comment objects with empty replies arrays
+  for (const comment of allComments) {
+    commentMap.set(comment.id, {
+      ...comment,
+      replies: [],
+    })
+  }
+
+  // Second pass: nest replies under parent comments
+  for (const comment of allComments) {
+    const commentWithReplies = commentMap.get(comment.id)!
+    if (comment.parentCommentId) {
+      // This is a reply - add it to parent's replies array
+      const parent = commentMap.get(comment.parentCommentId)
+      if (parent) {
+        parent.replies.push(commentWithReplies)
+      } else {
+        // Parent was deleted - treat as root comment
+        rootComments.push(commentWithReplies)
+      }
+    } else {
+      // This is a root comment
+      rootComments.push(commentWithReplies)
+    }
+  }
+
+  return c.json({ comments: rootComments })
+})
+
+// ── POST /api/community/plans/:id/comments ───────────────────────────
+// Add a comment (with optional parentCommentId for replies)
+app.post('/plans/:id/comments', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const planId = c.req.param('id')
+  const body = await c.req.json()
+
+  // Validate required fields
+  if (!body.content || typeof body.content !== 'string' || !body.content.trim()) {
+    return c.json({ error: 'Content is required and must be non-empty' }, 400)
+  }
+
+  // Verify plan exists and is accessible
+  const [plan] = await db.select({
+    id: sharedPlans.id,
+    visibility: sharedPlans.visibility,
+    teamId: sharedPlans.teamId,
+    authorId: sharedPlans.authorId,
+  })
+    .from(sharedPlans)
+    .where(and(
+      eq(sharedPlans.id, planId),
+      isNull(sharedPlans.deletedAt)
+    ))
+    .limit(1)
+
+  if (!plan) {
+    return c.json({ error: 'Plan not found' }, 404)
+  }
+
+  // Check visibility permissions
+  const canAccess = (
+    plan.visibility === 'public' ||
+    (plan.visibility === 'team' && plan.teamId === user.teamId) ||
+    (plan.visibility === 'unlisted' && plan.authorId === user.id) ||
+    plan.authorId === user.id
+  )
+
+  if (!canAccess) {
+    return c.json({ error: 'Access denied' }, 403)
+  }
+
+  // Verify parent comment exists if provided
+  if (body.parentCommentId) {
+    const [parentComment] = await db.select({ id: sharedPlanComments.id })
+      .from(sharedPlanComments)
+      .where(and(
+        eq(sharedPlanComments.id, body.parentCommentId),
+        eq(sharedPlanComments.planId, planId),
+        isNull(sharedPlanComments.deletedAt)
+      ))
+      .limit(1)
+
+    if (!parentComment) {
+      return c.json({ error: 'Parent comment not found' }, 404)
+    }
+  }
+
+  // Get author name from user profile
+  let authorName = 'Anonymous'
+  try {
+    const [profile] = await db.select({ name: userProfiles.name })
+      .from(userProfiles)
+      .where(eq(userProfiles.id, user.id))
+      .limit(1)
+    authorName = profile?.name || authorName
+  } catch {
+    // Use fallback if profile fetch fails
+  }
+
+  // Insert comment
+  const [comment] = await db.insert(sharedPlanComments).values({
+    planId,
+    authorId: user.id,
+    authorName,
+    content: body.content.trim(),
+    parentCommentId: body.parentCommentId || null,
+  }).returning()
+
+  // Atomically increment commentsCount
+  await db.update(sharedPlans)
+    .set({ commentsCount: sql`${sharedPlans.commentsCount} + 1` })
+    .where(eq(sharedPlans.id, planId))
+
+  return c.json(comment, 201)
+})
+
+// ── PUT /api/community/comments/:id ───────────────────────────────────
+// Edit a comment (author only)
+app.put('/comments/:id', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const commentId = c.req.param('id')
+  const body = await c.req.json()
+
+  // Validate content
+  if (!body.content || typeof body.content !== 'string' || !body.content.trim()) {
+    return c.json({ error: 'Content is required and must be non-empty' }, 400)
+  }
+
+  // Fetch existing comment to check ownership
+  const [existing] = await db.select({
+    id: sharedPlanComments.id,
+    authorId: sharedPlanComments.authorId,
+  })
+    .from(sharedPlanComments)
+    .where(and(
+      eq(sharedPlanComments.id, commentId),
+      isNull(sharedPlanComments.deletedAt)
+    ))
+    .limit(1)
+
+  if (!existing) {
+    return c.json({ error: 'Comment not found' }, 404)
+  }
+
+  if (existing.authorId !== user.id) {
+    return c.json({ error: 'Only the author can edit this comment' }, 403)
+  }
+
+  // Update comment
+  const [updated] = await db.update(sharedPlanComments)
+    .set({
+      content: body.content.trim(),
+      updatedAt: new Date(),
+    })
+    .where(eq(sharedPlanComments.id, commentId))
+    .returning()
+
+  return c.json(updated)
+})
+
+// ── DELETE /api/community/comments/:id ────────────────────────────────
+// Soft delete a comment (author only)
+app.delete('/comments/:id', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const commentId = c.req.param('id')
+
+  // Fetch existing comment to check ownership
+  const [existing] = await db.select({
+    id: sharedPlanComments.id,
+    authorId: sharedPlanComments.authorId,
+    planId: sharedPlanComments.planId,
+  })
+    .from(sharedPlanComments)
+    .where(and(
+      eq(sharedPlanComments.id, commentId),
+      isNull(sharedPlanComments.deletedAt)
+    ))
+    .limit(1)
+
+  if (!existing) {
+    return c.json({ error: 'Comment not found' }, 404)
+  }
+
+  if (existing.authorId !== user.id) {
+    return c.json({ error: 'Only the author can delete this comment' }, 403)
+  }
+
+  // Soft delete by setting deletedAt
+  await db.update(sharedPlanComments)
+    .set({ deletedAt: new Date() })
+    .where(eq(sharedPlanComments.id, commentId))
+
+  // Atomically decrement commentsCount
+  await db.update(sharedPlans)
+    .set({ commentsCount: sql`GREATEST(0, ${sharedPlans.commentsCount} - 1)` })
+    .where(eq(sharedPlans.id, existing.planId))
+
+  return c.json({ success: true })
+})
+
+// ── GET /api/community/plans/trending ─────────────────────────────────
+// Get trending plans based on recent activity
+// Score formula: stars_7d * 2 + forks_7d * 3 + log(total_stars + 1)
+app.get('/plans/trending', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const sevenDaysAgo = new Date()
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+
+  // Build visibility conditions
+  const visibilityConditions = or(
+    eq(sharedPlans.visibility, 'public'),
+    and(eq(sharedPlans.visibility, 'team'), eq(sharedPlans.teamId, user.teamId)),
+    and(eq(sharedPlans.visibility, 'unlisted'), eq(sharedPlans.authorId, user.id))
+  )!
+
+  // Query trending plans with weighted score
+  const trendingPlans = await db.select({
+    id: sharedPlans.id,
+    title: sharedPlans.title,
+    description: sharedPlans.description,
+    authorId: sharedPlans.authorId,
+    authorName: sharedPlans.authorName,
+    isAnonymous: sharedPlans.isAnonymous,
+    category: sharedPlans.category,
+    tags: sharedPlans.tags,
+    starsCount: sharedPlans.starsCount,
+    forksCount: sharedPlans.forksCount,
+    commentsCount: sharedPlans.commentsCount,
+    visibility: sharedPlans.visibility,
+    createdAt: sharedPlans.createdAt,
+    updatedAt: sharedPlans.updatedAt,
+    // Include author info
+    authorEmail: userProfiles.email,
+    authorAvatarUrl: userProfiles.avatarUrl,
+    // Calculate stars in last 7 days
+    stars7d: sql<number>`(
+      SELECT COUNT(*)::int
+      FROM ${sharedPlanStars}
+      WHERE ${sharedPlanStars.planId} = ${sharedPlans.id}
+        AND ${sharedPlanStars.createdAt} >= ${sevenDaysAgo}
+    )`,
+    // Calculate forks in last 7 days
+    forks7d: sql<number>`(
+      SELECT COUNT(*)::int
+      FROM ${sharedPlanForks}
+      WHERE ${sharedPlanForks.sourcePlanId} = ${sharedPlans.id}
+        AND ${sharedPlanForks.createdAt} >= ${sevenDaysAgo}
+    )`,
+    // Calculate trending score: stars_7d * 2 + forks_7d * 3 + log(total_stars + 1)
+    trendingScore: sql<number>`(
+      (
+        SELECT COUNT(*)::int
+        FROM ${sharedPlanStars}
+        WHERE ${sharedPlanStars.planId} = ${sharedPlans.id}
+          AND ${sharedPlanStars.createdAt} >= ${sevenDaysAgo}
+      ) * 2
+      + (
+        SELECT COUNT(*)::int
+        FROM ${sharedPlanForks}
+        WHERE ${sharedPlanForks.sourcePlanId} = ${sharedPlans.id}
+          AND ${sharedPlanForks.createdAt} >= ${sevenDaysAgo}
+      ) * 3
+      + LN(${sharedPlans.starsCount} + 1)
+    )`,
+  })
+    .from(sharedPlans)
+    .leftJoin(userProfiles, eq(sharedPlans.authorId, userProfiles.id))
+    .where(and(
+      isNull(sharedPlans.deletedAt),
+      visibilityConditions
+    ))
+    .orderBy(sql`trending_score DESC`)
+    .limit(20)
+
+  return c.json({ plans: trendingPlans })
+})
+
+// ── GET /api/community/plans/categories ───────────────────────────────
+// Get distinct categories with counts
+app.get('/plans/categories', async (c) => {
+  const user = c.get('user')! as AuthUser
+
+  // Build visibility conditions
+  const visibilityConditions = or(
+    eq(sharedPlans.visibility, 'public'),
+    and(eq(sharedPlans.visibility, 'team'), eq(sharedPlans.teamId, user.teamId)),
+    and(eq(sharedPlans.visibility, 'unlisted'), eq(sharedPlans.authorId, user.id))
+  )!
+
+  // Query distinct categories with counts
+  const categories = await db.select({
+    category: sharedPlans.category,
+    count: sql<number>`COUNT(*)::int`,
+  })
+    .from(sharedPlans)
+    .where(and(
+      isNull(sharedPlans.deletedAt),
+      visibilityConditions,
+      sql`${sharedPlans.category} IS NOT NULL`
+    ))
+    .groupBy(sharedPlans.category)
+    .orderBy(sql`count DESC`)
+
+  return c.json({ categories })
 })
 
 export { app as communityRoute }
