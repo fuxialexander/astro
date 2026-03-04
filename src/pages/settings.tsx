@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Link } from "react-router"
+import { Link, useSearchParams } from "react-router"
 import {
   ChevronLeft,
   SlidersHorizontal,
@@ -56,8 +56,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { GitHubConnectButton, GitHubSyncButton } from "@/components/github-connect-button"
+import { GitHubSyncButton } from "@/components/github-connect-button"
 import { GitHubAppInstallationManager } from "@/components/github-app-installation-manager"
+import { GitHubIntegrationGuide } from "@/components/github-integration-guide"
 import { PluginSettingsContent } from "@/components/plugin-settings"
 import { SkillSettingsContent } from "@/components/skill-settings"
 import { ChannelAccountCard } from "@/components/channel-account-card"
@@ -943,6 +944,65 @@ function ProfileContent() {
 function ConnectedAccountsContent() {
   const { connected, user, repos, selectedRepoIds, fetchStatus, disconnect } = useGitHubStore()
   const { load: loadAccounts, loaded: accountsLoaded } = useConnectedAccountsStore()
+  const { add: addToast } = useToastStore()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // Handle OAuth callback
+  useEffect(() => {
+    const githubParam = searchParams.get('github')
+    const githubAppParam = searchParams.get('github-app')
+    const reason = searchParams.get('reason')
+
+    if (githubParam === 'connected') {
+      addToast({
+        title: 'GitHub connected',
+        description: 'Your GitHub account has been successfully connected.',
+        type: 'success',
+        duration: 5000,
+      })
+      // Clear query params
+      setSearchParams({})
+    } else if (githubParam === 'error') {
+      addToast({
+        title: 'Connection failed',
+        description: 'Failed to connect your GitHub account. Please try again.',
+        type: 'error',
+        duration: 5000,
+      })
+      setSearchParams({})
+    }
+
+    if (githubAppParam === 'installed') {
+      addToast({
+        title: 'GitHub App installed',
+        description: 'The GitHub App has been successfully installed. You can now link it to teams or use it for projects.',
+        type: 'success',
+        duration: 5000,
+      })
+      setSearchParams({})
+    } else if (githubAppParam === 'error') {
+      const errorReason = reason === 'app_not_configured'
+        ? 'GitHub App is not configured on this server.'
+        : reason === 'invalid_state'
+        ? 'Installation session expired. Please try again.'
+        : 'Failed to install the GitHub App. Please try again.'
+      addToast({
+        title: 'Installation failed',
+        description: errorReason,
+        type: 'error',
+        duration: 5000,
+      })
+      setSearchParams({})
+    } else if (githubAppParam === 'uninstalled') {
+      addToast({
+        title: 'GitHub App uninstalled',
+        description: 'The GitHub App was uninstalled from your GitHub account.',
+        type: 'info',
+        duration: 5000,
+      })
+      setSearchParams({})
+    }
+  }, [searchParams, addToast, setSearchParams])
 
   useEffect(() => {
     fetchStatus()
@@ -954,88 +1014,81 @@ function ConnectedAccountsContent() {
     }
   }, [accountsLoaded, loadAccounts])
 
+  const handleConnect = async () => {
+    await fetchStatus()
+  }
+
   return (
     <div className="flex flex-col gap-8">
       <h1 className="text-xl font-primary font-semibold">Connected accounts</h1>
 
-      {/* GitHub Integration */}
+      {/* GitHub Integration Guide */}
       <section className="flex flex-col gap-3">
         <h2 className="text-sm font-semibold">GitHub</h2>
         <p className="text-[13px] text-muted-foreground">
-          Connect your GitHub account to browse and select repositories when creating projects.
+          Astro integrates with GitHub in two ways. Choose the option that best fits your workflow—you can use both simultaneously.
         </p>
 
-        <div className="rounded-xl border border-border bg-card">
-          <div className="flex items-center justify-between px-4 py-4 border-b border-border">
-            <div className="flex items-center gap-3">
-              <div className={cn(
-                "flex h-10 w-10 items-center justify-center rounded-lg",
-                connected ? "bg-primary/10" : "bg-muted"
-              )}>
-                <Github className={cn("h-5 w-5", connected ? "text-primary" : "text-muted-foreground")} />
+        <GitHubIntegrationGuide
+          onOAuthClick={handleConnect}
+          onAppClick={handleConnect}
+        />
+      </section>
+
+      {/* Personal Account Connection Status */}
+      {connected && (
+        <section className="flex flex-col gap-3">
+          <h3 className="text-sm font-semibold">Personal Account Status</h3>
+
+          <div className="rounded-xl border border-border bg-card">
+            <div className="flex items-center justify-between px-4 py-4 border-b border-border">
+              <div className="flex items-center gap-3">
+                <div className={cn(
+                  "flex h-10 w-10 items-center justify-center rounded-lg",
+                  "bg-primary/10"
+                )}>
+                  <Github className={cn("h-5 w-5", "text-primary")} />
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm font-medium">@{user?.login}</span>
+                  <span className="text-[13px] text-muted-foreground">
+                    Personal account
+                  </span>
+                </div>
               </div>
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-medium">GitHub</span>
-                {connected ? (
+              <Badge variant="success" className="gap-1">
+                <CheckCircle2 className="h-3 w-3" />
+                Connected
+              </Badge>
+            </div>
+
+            <div className="px-4 py-3.5 border-b border-border">
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm">Repositories</span>
                   <span className="text-[13px] text-muted-foreground">
-                    Connected as @{user?.login}
+                    {repos.length} repositories • {selectedRepoIds.length} selected
                   </span>
-                ) : (
-                  <span className="text-[13px] text-muted-foreground">
-                    Not connected
-                  </span>
-                )}
+                </div>
+                <GitHubSyncButton />
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              {connected ? (
-                <Badge variant="success" className="gap-1">
-                  <CheckCircle2 className="h-3 w-3" />
-                  Connected
-                </Badge>
-              ) : (
-                <Badge variant="secondary" className="gap-1">
-                  <XCircle className="h-3 w-3" />
-                  Disconnected
-                </Badge>
-              )}
+            <div className="px-4 py-3.5">
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm">Disconnect</span>
+                  <span className="text-[13px] text-muted-foreground">
+                    Remove personal account integration
+                  </span>
+                </div>
+                <Button variant="outline" size="sm" onClick={disconnect}>
+                  Disconnect
+                </Button>
+              </div>
             </div>
           </div>
-
-          {connected ? (
-            <>
-              <div className="px-4 py-3.5 border-b border-border">
-                <div className="flex items-center justify-between">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-sm">Repositories</span>
-                    <span className="text-[13px] text-muted-foreground">
-                      {repos.length} repositories • {selectedRepoIds.length} selected
-                    </span>
-                  </div>
-                  <GitHubSyncButton />
-                </div>
-              </div>
-              <div className="px-4 py-3.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-sm">Disconnect</span>
-                    <span className="text-[13px] text-muted-foreground">
-                      Remove GitHub integration and clear repository cache
-                    </span>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={disconnect}>
-                    Disconnect
-                  </Button>
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="px-4 py-4">
-              <GitHubConnectButton />
-            </div>
-          )}
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* GitHub App Installations */}
       <GitHubAppInstallationManager />
