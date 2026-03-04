@@ -141,6 +141,39 @@ async function fetchInstallationDetails(installationId: number): Promise<{
   }
 }
 
+/**
+ * Save a GitHub App installation to the database.
+ * Exported so the OAuth callback can also save installations
+ * when "Request user authorization during installation" is enabled.
+ */
+export async function saveInstallation(installationId: number, userId: string): Promise<void> {
+  const details = await fetchInstallationDetails(installationId);
+
+  if (!details) {
+    throw new Error('Cannot verify installation — GITHUB_APP_ID/GITHUB_APP_PRIVATE_KEY not configured');
+  }
+
+  const installData = {
+    installationId,
+    userId,
+    accountLogin: details.accountLogin,
+    accountType: details.accountType,
+    accountAvatarUrl: details.accountAvatarUrl ?? null,
+    appId: details.appId ?? null,
+    repositorySelection: details.repositorySelection,
+    repos: details.repos,
+    permissions: details.permissions,
+  };
+
+  await db
+    .insert(githubAppInstallations)
+    .values(installData)
+    .onConflictDoUpdate({
+      target: githubAppInstallations.installationId,
+      set: { ...installData, updatedAt: new Date() },
+    });
+}
+
 // ── Routes ───────────────────────────────────────────────────────────────────
 
 /**
@@ -197,35 +230,12 @@ app.get('/callback', async (c) => {
     return c.redirect(`${frontendUrl}/settings?github-app=uninstalled`);
   }
 
-  // Verify installation details from GitHub API (requires App credentials)
-  const details = await fetchInstallationDetails(Number(installationId));
-
-  if (!details) {
-    // Cannot verify the installation_id without App credentials.
-    // Reject to prevent accepting an unverified installation_id.
-    console.error('[github-app] Cannot verify installation — GITHUB_APP_ID/GITHUB_APP_PRIVATE_KEY not configured');
+  try {
+    await saveInstallation(Number(installationId), userId);
+  } catch (err) {
+    console.error('[github-app] Installation save failed:', err);
     return c.redirect(`${frontendUrl}/settings?github-app=error&reason=app_not_configured`);
   }
-
-  const installData = {
-    installationId: Number(installationId),
-    userId,
-    accountLogin: details.accountLogin,
-    accountType: details.accountType,
-    accountAvatarUrl: details.accountAvatarUrl ?? null,
-    appId: details.appId ?? null,
-    repositorySelection: details.repositorySelection,
-    repos: details.repos,
-    permissions: details.permissions,
-  };
-
-  await db
-    .insert(githubAppInstallations)
-    .values(installData)
-    .onConflictDoUpdate({
-      target: githubAppInstallations.installationId,
-      set: { ...installData, updatedAt: new Date() },
-    });
 
   return c.redirect(`${frontendUrl}/settings?github-app=installed&installation_id=${installationId}`);
 });

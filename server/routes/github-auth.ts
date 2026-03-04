@@ -1,5 +1,9 @@
 /**
  * GitHub OAuth routes: connect, disconnect, callback, status check.
+ *
+ * When "Request user authorization during installation" is enabled on the
+ * GitHub App, the OAuth callback also receives `installation_id` — we
+ * handle both OAuth token exchange AND installation saving in one redirect.
  */
 
 import { Hono } from 'hono';
@@ -7,6 +11,7 @@ import { randomBytes } from 'crypto';
 import { GitHubClient } from '../lib/github-client';
 import { githubStore } from '../lib/github-store';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
+import { saveInstallation } from './github-app.js';
 
 const app = new Hono();
 
@@ -41,7 +46,11 @@ app.get('/status', async (c) => {
 
 /**
  * POST /api/github/connect
- * Initiate GitHub OAuth flow
+ * Initiate GitHub OAuth flow.
+ *
+ * When GITHUB_APP_SLUG is set, directs users to the GitHub App installation
+ * page which combines app install + OAuth in a single redirect (like Linear).
+ * Falls back to plain OAuth when the App slug isn't configured.
  */
 app.post('/connect', async (c) => {
   // Check if GitHub OAuth is configured
@@ -57,9 +66,16 @@ app.post('/connect', async (c) => {
   const state = randomBytes(32).toString('hex');
   githubStore.setOAuthState(state, userId);
 
-  // Get authorization URL
-  const authUrl = githubClient.getAuthorizationUrl(state);
+  // If a GitHub App is configured, send users to the App install page which
+  // also handles OAuth ("Request user authorization during installation").
+  const appSlug = process.env.GITHUB_APP_SLUG;
+  if (appSlug) {
+    const authUrl = `https://github.com/apps/${appSlug}/installations/new?state=${state}`;
+    return c.json({ authUrl });
+  }
 
+  // Fallback: plain OAuth flow
+  const authUrl = githubClient.getAuthorizationUrl(state);
   return c.json({ authUrl });
 });
 
@@ -97,9 +113,24 @@ app.get('/callback', async (c) => {
       user,
     });
 
+    // If GitHub App installation was combined with OAuth (the "Request user
+    // authorization during installation" flow), save the installation too.
+    const installationId = c.req.query('installation_id');
+    let installSuffix = '';
+    if (installationId) {
+      try {
+        await saveInstallation(Number(installationId), userId);
+        installSuffix = `&github-app=installed&installation_id=${installationId}`;
+      } catch (err) {
+        console.error('[github-auth] Failed to save installation during OAuth:', err);
+        // Don't fail the whole flow — OAuth succeeded, installation can be retried
+        installSuffix = '&github-app=error&reason=install_save_failed';
+      }
+    }
+
     // Redirect to frontend settings page with success
     const frontendUrl = process.env.FRONTEND_URL || process.env.VITE_FRONTEND_URL || 'http://localhost:5173';
-    return c.redirect(`${frontendUrl}/settings?github=connected`);
+    return c.redirect(`${frontendUrl}/settings?github=connected${installSuffix}`);
   } catch (error) {
     console.error('GitHub OAuth callback error:', error);
     const frontendUrl = process.env.FRONTEND_URL || process.env.VITE_FRONTEND_URL || 'http://localhost:5173';
