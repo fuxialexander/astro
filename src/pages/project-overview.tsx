@@ -16,6 +16,7 @@ import {
   Check,
   RotateCcw,
   GitPullRequest,
+  ListPlus,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -23,6 +24,7 @@ import { EditorOpenControls } from "@/components/ui/editor-open-controls"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { MilestoneDialog } from "@/components/milestone-dialog"
+import { MilestoneTaskPopover } from "@/components/milestone-task-popover"
 import { ActivityDialog } from "@/components/activity-dialog"
 import { LabelManagerDialog } from "@/components/label-manager-dialog"
 import { RichTextEditor, type RichTextEditorRef } from "@/components/ui/rich-text-editor"
@@ -312,11 +314,27 @@ export function OverviewTab({
                     <div className="flex-1 flex flex-col gap-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-sm font-medium truncate">{milestone.title}</span>
-                        {milestone.dueDate && (
-                          <span className="text-xs text-muted-foreground shrink-0">
-                            Due {formatDate(milestone.dueDate)}
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <MilestoneTaskPopover
+                            milestoneId={milestone.id}
+                            allNodes={allNodes}
+                            onToggleTask={(taskId, mId) => updateNode(taskId, { milestoneId: mId })}
+                          >
+                            <button
+                              type="button"
+                              className="p-0.5 rounded hover:bg-background/60 text-muted-foreground hover:text-foreground transition-colors"
+                              onClick={(e) => e.stopPropagation()}
+                              title="Manage tasks"
+                            >
+                              <ListPlus className="h-3.5 w-3.5" />
+                            </button>
+                          </MilestoneTaskPopover>
+                          {milestone.dueDate && (
+                            <span className="text-xs text-muted-foreground">
+                              Due {formatDate(milestone.dueDate)}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       {milestone.description && (
                         <p className="text-xs text-muted-foreground line-clamp-2">{milestone.description}</p>
