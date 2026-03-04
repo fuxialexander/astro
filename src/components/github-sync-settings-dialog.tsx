@@ -1,0 +1,361 @@
+/**
+ * GitHub Sync Settings Dialog
+ *
+ * Configures per-project sync settings: direction, enabled fields,
+ * auto-create behavior, and label mapping.
+ */
+
+import { useState, useCallback, useMemo } from 'react'
+import { Settings2, RotateCcw } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
+import { useToastStore } from '@/stores/toast-store'
+import { useProjectStore } from '@/stores/project-store'
+import { apiUrl } from '@/lib/api-url'
+import { getAccessToken } from '@/lib/supabase-client'
+import { cn } from '@/lib/utils'
+import type { Project, GitHubSyncSettings, GitHubSyncDirection } from '@astro/core/types'
+import { DEFAULT_GITHUB_SYNC_SETTINGS } from '@astro/core/types'
+import { SyncHealthDashboard } from './github-sync-health'
+
+const SYNCABLE_FIELDS = [
+  { id: 'title', label: 'Title' },
+  { id: 'description', label: 'Description' },
+  { id: 'status', label: 'Status (open/closed)' },
+  { id: 'priority', label: 'Priority (as labels)' },
+  { id: 'estimate', label: 'Estimate (as labels)' },
+  { id: 'assignee', label: 'Assignee' },
+  { id: 'labels', label: 'Labels' },
+] as const
+
+const DIRECTION_OPTIONS: Array<{ value: GitHubSyncDirection; label: string; description: string }> = [
+  { value: 'bidirectional', label: 'Bi-directional', description: 'Changes sync both ways' },
+  { value: 'github_to_astro', label: 'GitHub to Astro only', description: 'GitHub is the source of truth' },
+  { value: 'astro_to_github', label: 'Astro to GitHub only', description: 'Astro is the source of truth' },
+]
+
+const AUTO_CREATE_OPTIONS = [
+  { value: 'github_to_astro', label: 'New GitHub issues create Astro tasks' },
+  { value: 'astro_to_github', label: 'New Astro tasks create GitHub issues' },
+  { value: 'bidirectional', label: 'Both directions' },
+  { value: 'none', label: 'Disabled' },
+] as const
+
+/** Default priority → GitHub label name mapping */
+const DEFAULT_PRIORITY_LABELS: Record<string, string> = {
+  urgent: 'priority: urgent',
+  high: 'priority: high',
+  medium: 'priority: medium',
+  low: 'priority: low',
+}
+
+const PRIORITY_KEYS = ['urgent', 'high', 'medium', 'low'] as const
+
+interface GitHubSyncSettingsDialogProps {
+  project: Project
+  /** Render the trigger button (gear icon by default) */
+  trigger?: React.ReactNode
+}
+
+export function GitHubSyncSettingsDialog({ project, trigger }: GitHubSyncSettingsDialogProps) {
+  const [open, setOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [activeTab, setActiveTab] = useState<'settings' | 'health'>('settings')
+  const updateProject = useProjectStore((s) => s.updateProject)
+
+  // Merge project settings with defaults
+  const initial: GitHubSyncSettings = {
+    ...DEFAULT_GITHUB_SYNC_SETTINGS,
+    ...(project.githubSyncSettings ?? {}),
+  }
+
+  const [settings, setSettings] = useState<GitHubSyncSettings>(initial)
+
+  // Reset when dialog opens
+  const handleOpenChange = useCallback((isOpen: boolean) => {
+    if (isOpen) {
+      setSettings({
+        ...DEFAULT_GITHUB_SYNC_SETTINGS,
+        ...(project.githubSyncSettings ?? {}),
+      })
+    }
+    setOpen(isOpen)
+  }, [project.githubSyncSettings])
+
+  const toggleField = useCallback((fieldId: string) => {
+    setSettings((prev) => ({
+      ...prev,
+      enabledFields: prev.enabledFields.includes(fieldId)
+        ? prev.enabledFields.filter((f) => f !== fieldId)
+        : [...prev.enabledFields, fieldId],
+    }))
+  }, [])
+
+  const handleSave = useCallback(async () => {
+    setSaving(true)
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      const token = await getAccessToken()
+      if (token) headers['Authorization'] = `Bearer ${token}`
+
+      const res = await fetch(apiUrl(`/api/github/projects/${project.id}/sync-settings`), {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ settings }),
+      })
+
+      if (!res.ok) throw new Error('Failed to save settings')
+
+      // Optimistically update the store
+      updateProject(project.id, { githubSyncSettings: settings })
+      useToastStore.getState().add({ type: 'success', title: 'Sync settings saved' })
+      setOpen(false)
+    } catch (err) {
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Failed to save',
+        description: err instanceof Error ? err.message : 'Unknown error',
+      })
+    } finally {
+      setSaving(false)
+    }
+  }, [project.id, settings, updateProject])
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        {trigger ?? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <Settings2 className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>GitHub Sync Settings</TooltipContent>
+          </Tooltip>
+        )}
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>GitHub Sync</DialogTitle>
+          <DialogDescription>
+            {project.githubOwner}/{project.githubRepo}
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Tab bar */}
+        <div className="flex gap-1 border-b">
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={cn(
+              'px-3 py-1.5 text-sm font-medium border-b-2 transition-colors -mb-px',
+              activeTab === 'settings'
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            )}
+          >
+            Settings
+          </button>
+          <button
+            onClick={() => setActiveTab('health')}
+            className={cn(
+              'px-3 py-1.5 text-sm font-medium border-b-2 transition-colors -mb-px',
+              activeTab === 'health'
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            )}
+          >
+            Sync Health
+          </button>
+        </div>
+
+        {activeTab === 'health' ? (
+          <div className="py-2">
+            <SyncHealthDashboard projectId={project.id} />
+          </div>
+        ) : (
+        <div className="space-y-6 py-4">
+          {/* Enable/Disable toggle */}
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm font-medium">Auto-sync</Label>
+              <p className="text-xs text-muted-foreground">Automatically sync changes via webhooks</p>
+            </div>
+            <Switch
+              checked={settings.enabled}
+              onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, enabled: checked }))}
+            />
+          </div>
+
+          {/* Direction */}
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">Sync direction</Label>
+            <Select
+              value={settings.direction}
+              onValueChange={(value) => setSettings((prev) => ({ ...prev, direction: value as GitHubSyncDirection }))}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {DIRECTION_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    <div className="flex flex-col">
+                      <span>{opt.label}</span>
+                      <span className="text-xs text-muted-foreground">{opt.description}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Field toggles */}
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">Fields to sync</Label>
+            <div className="space-y-2">
+              {SYNCABLE_FIELDS.map((field) => (
+                <div key={field.id} className="flex items-center gap-2">
+                  <Checkbox
+                    id={`field-${field.id}`}
+                    checked={settings.enabledFields.includes(field.id)}
+                    onCheckedChange={() => toggleField(field.id)}
+                  />
+                  <Label htmlFor={`field-${field.id}`} className="text-sm font-normal cursor-pointer">
+                    {field.label}
+                  </Label>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Auto-create */}
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">Auto-create tasks</Label>
+            <p className="text-xs text-muted-foreground">
+              Automatically create tasks when new issues or tasks appear
+            </p>
+            <Select
+              value={settings.autoCreateDirection}
+              onValueChange={(value) => setSettings((prev) => ({ ...prev, autoCreateDirection: value as GitHubSyncSettings['autoCreateDirection'] }))}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {AUTO_CREATE_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Label Mapping */}
+          {settings.enabledFields.includes('priority') && (
+            <LabelMappingEditor
+              labelMapping={settings.labelMapping}
+              onChange={(labelMapping) => setSettings((prev) => ({ ...prev, labelMapping }))}
+            />
+          )}
+        </div>
+        )}
+
+        {activeTab === 'settings' && (
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving...' : 'Save Settings'}
+          </Button>
+        </DialogFooter>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── Label Mapping Editor ─────────────────────────────────────────────
+
+interface LabelMappingEditorProps {
+  labelMapping: Record<string, string>
+  onChange: (mapping: Record<string, string>) => void
+}
+
+function LabelMappingEditor({ labelMapping, onChange }: LabelMappingEditorProps) {
+  // Merge defaults with user overrides so every priority key has a value
+  const effectiveMapping = useMemo(() => {
+    const merged: Record<string, string> = {}
+    for (const key of PRIORITY_KEYS) {
+      merged[key] = labelMapping[key] ?? DEFAULT_PRIORITY_LABELS[key]
+    }
+    return merged
+  }, [labelMapping])
+
+  const hasCustomMapping = useMemo(
+    () => PRIORITY_KEYS.some((k) => labelMapping[k] && labelMapping[k] !== DEFAULT_PRIORITY_LABELS[k]),
+    [labelMapping]
+  )
+
+  const handleChange = useCallback(
+    (key: string, value: string) => {
+      const next = { ...labelMapping }
+      if (value === DEFAULT_PRIORITY_LABELS[key] || value === '') {
+        delete next[key]
+      } else {
+        next[key] = value
+      }
+      onChange(next)
+    },
+    [labelMapping, onChange]
+  )
+
+  const handleReset = useCallback(() => {
+    onChange({})
+  }, [onChange])
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <div>
+          <Label className="text-sm font-medium">Priority label mapping</Label>
+          <p className="text-xs text-muted-foreground">
+            GitHub label names for each Astro priority level
+          </p>
+        </div>
+        {hasCustomMapping && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleReset}>
+                <RotateCcw className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Reset to defaults</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+      <div className="space-y-1.5">
+        {PRIORITY_KEYS.map((key) => (
+          <div key={key} className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground w-14 capitalize shrink-0">{key}</span>
+            <span className="text-xs text-muted-foreground shrink-0">→</span>
+            <Input
+              value={effectiveMapping[key]}
+              onChange={(e) => handleChange(key, e.target.value)}
+              placeholder={DEFAULT_PRIORITY_LABELS[key]}
+              className="h-7 text-xs"
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}

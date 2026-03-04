@@ -122,6 +122,30 @@ export interface TeamMember {
   joinedAt: Date;
 }
 
+// GitHub sync settings stored per-project
+export type GitHubSyncDirection = 'github_to_astro' | 'astro_to_github' | 'bidirectional'
+
+export interface GitHubSyncSettings {
+  /** Whether auto-sync is enabled */
+  enabled: boolean
+  /** Sync direction */
+  direction: GitHubSyncDirection
+  /** Which fields to sync (title, description, status, priority, assignee, labels, estimate) */
+  enabledFields: string[]
+  /** Auto-create direction for new issues */
+  autoCreateDirection: 'astro_to_github' | 'github_to_astro' | 'bidirectional' | 'none'
+  /** Custom priority→label name mapping (overrides defaults) */
+  labelMapping: Record<string, string>
+}
+
+export const DEFAULT_GITHUB_SYNC_SETTINGS: GitHubSyncSettings = {
+  enabled: true,
+  direction: 'bidirectional',
+  enabledFields: ['title', 'status', 'priority', 'assignee', 'labels', 'estimate'],
+  autoCreateDirection: 'github_to_astro',
+  labelMapping: {},
+}
+
 export type RemoteType = 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none'
 export type DeliveryMode = 'pr' | 'push' | 'branch' | 'copy' | 'direct'
 export type WorktreeStrategy = 'copy' | 'reference' | 'direct'
@@ -170,6 +194,7 @@ export interface Project {
   githubOwner?: string
   githubRepo?: string
   githubRepoId?: number
+  githubSyncSettings?: GitHubSyncSettings
   projectBranch?: string
   projectPrUrl?: string
   projectPrNumber?: number
@@ -246,6 +271,9 @@ export interface PlanNode {
   autoPr?: boolean;
   githubIssueNumber?: number;
   githubIssueUrl?: string;
+  githubSyncedAt?: Date;
+  githubSyncVersion?: number;
+  syncSource?: 'user' | 'github' | 'sync';
   deletedAt?: Date;
   deletionActionId?: string;
   metadata?: Record<string, unknown>;
@@ -306,6 +334,7 @@ export type TaskActivityEvent =
   | { type: 'mutation'; nodeUpdates: Array<{ nodeId: string; [key: string]: unknown }>; edgeOps: Array<{ action: string; source: string; target: string; type?: string }>; newNodes: Array<{ title: string; description: string; type?: string; id?: string }>; timestamp: Date }
   | { type: 'pr_status'; prNumber: number; prUrl: string; title?: string; state?: 'open' | 'closed' | 'merged'; branchName?: string; baseBranch?: string; additions?: number; deletions?: number; changedFiles?: number; draft?: boolean; checks?: Array<{ name: string; status: string; conclusion: string | null; startedAt?: string; completedAt?: string; htmlUrl?: string }>; reviews?: Array<{ user: { login: string; avatarUrl?: string }; state: string; submittedAt?: string }>; timestamp: Date }
   | { type: 'github_comment'; commentId: number; author: { login: string; avatar: string }; body: string; commentType: 'issue_comment' | 'review_comment'; path?: string; line?: number; url?: string; timestamp: Date }
+  | { type: 'branch_linked'; prNumber: number; prUrl: string; branchName: string; linkSource: 'auto-branch' | 'auto-body-reference' | 'manual'; timestamp: Date }
 
 // Usage metrics from provider execution
 export interface UsageMetrics {
