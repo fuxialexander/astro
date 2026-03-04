@@ -285,16 +285,16 @@ export function PublishDialog({
 
           {/* Customization Notes */}
           <div className="flex flex-col gap-2">
-            <Label htmlFor="customizationNotes">Customization Notes</Label>
+            <Label htmlFor="customizationNotes">Prerequisites & Customization Notes</Label>
             <Textarea
               id="customizationNotes"
-              placeholder="Explain what others should change when adapting this plan..."
+              placeholder={`Describe what others need to know to use this plan effectively:\n\n• Skills used (e.g. kubernetes-workflow, skypilot-workflow)\n• Environment setup (e.g. GPU access, API keys, cluster config)\n• How you generated this plan (vision doc focus, key decisions)\n• What to change when adapting to a different use case`}
               value={customizationNotes}
               onChange={(e) => setCustomizationNotes(e.target.value)}
-              rows={3}
+              rows={5}
             />
             <p className="text-xs text-muted-foreground">
-              Help others understand how to adapt your plan to their specific needs.
+              Help others reproduce your results — mention any skills, tools, or environment setup that shaped this plan.
             </p>
           </div>
 

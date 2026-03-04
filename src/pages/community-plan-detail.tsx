@@ -369,11 +369,11 @@ export function CommunityPlanDetail() {
                   </Card>
                 )}
 
-                {/* Customization Notes */}
+                {/* Prerequisites & Customization Notes */}
                 {plan.customizationNotes && (
                   <Card>
                     <CardHeader>
-                      <CardTitle className="text-lg">Customization Guide</CardTitle>
+                      <CardTitle className="text-lg">Prerequisites & Customization Guide</CardTitle>
                     </CardHeader>
                     <CardContent>
                       <div className="prose prose-sm max-w-none dark:prose-invert">
