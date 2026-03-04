@@ -76,11 +76,6 @@ export function Examples() {
                         <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
                           {t.category}
                         </span>
-                        {t.maturity === 'stable' && (
-                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 font-medium">
-                            Stable
-                          </span>
-                        )}
                       </div>
                     </div>
                   </div>

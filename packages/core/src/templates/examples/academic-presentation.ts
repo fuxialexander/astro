@@ -6,7 +6,7 @@
  * - Blog posts (Markdown)
  * - Conference posters (PDF via HTML + Playwright)
  *
- * Uses HTML-based rendering with Morandi-style low-saturation color palette.
+ * Uses HTML-based rendering with a low-saturation color palette.
  * Evolved from paper-to-slides.ts into a multi-deliverable template.
  */
 
@@ -17,7 +17,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
   id: 'astro/academic-presentation',
   name: 'Academic Paper Presentation',
   description:
-    'Convert academic papers into polished slides (PDF), blog posts (Markdown), and conference posters (PDF). Uses HTML-based rendering with a Morandi-style low-saturation color palette, Playwright for PDF generation, and SVG figure generation. Supports multiple papers, customizable audience levels, and multiple output formats.',
+    'Convert academic papers into polished slides (PDF), blog posts (Markdown), and conference posters (PDF). Uses HTML-based rendering with a low-saturation color palette, Playwright for PDF generation, and SVG figure generation. Supports multiple papers, customizable audience levels, and multiple output formats.',
   category: 'research-analysis',
   version: '1.0.0',
   icon: '🎓',
@@ -34,7 +34,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
         'Path to a directory containing PDF files, OR arXiv links (one per line). When PDFs are provided, the PDF skill is used to extract content. For arXiv links, LaTeX source or HTML is fetched automatically.',
       type: 'string',
       required: true,
-      placeholder: '/path/to/papers/\nhttps://arxiv.org/abs/2502.15872\nhttps://arxiv.org/abs/2501.12345',
+      placeholder: '/path/to/papers/\nhttps://arxiv.org/abs/XXXX.XXXXX',
       validation: {
         min: 1,
         message: 'Provide a PDF directory path or arXiv URL(s)',
@@ -50,7 +50,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
       required: true,
       default: ['slides'],
       options: [
-        { label: 'Slides (PDF)', value: 'slides', description: 'HTML slides rendered to PDF via Playwright. 5 layout types with Morandi palette.' },
+        { label: 'Slides (PDF)', value: 'slides', description: 'HTML slides rendered to PDF via Playwright. 5 layout types with low-saturation palette.' },
         { label: 'Blog Post (Markdown)', value: 'blog-post', description: 'Detailed or succinct Markdown blog post with citations and figures.' },
         { label: 'Conference Poster (PDF)', value: 'poster', description: 'Single-page HTML CSS grid poster rendered to A0 PDF via Playwright.' },
       ],
@@ -128,8 +128,8 @@ export const academicPresentationTemplate: UseCaseTemplate = {
       required: false,
       default: 'light',
       options: [
-        { label: 'Light', value: 'light', description: 'Light background with Morandi accent colors' },
-        { label: 'Dark', value: 'dark', description: 'Dark background with Morandi accent colors' },
+        { label: 'Light', value: 'light', description: 'Light background with soft accent colors' },
+        { label: 'Dark', value: 'dark', description: 'Dark background with soft accent colors' },
         { label: 'Both', value: 'both', description: 'Generate both light and dark versions' },
       ],
       visibleWhen: { parameterId: 'deliverables', operator: 'contains', value: 'slides' },
@@ -171,37 +171,6 @@ export const academicPresentationTemplate: UseCaseTemplate = {
       order: 0,
     },
 
-    // ── Style group ──
-    {
-      id: 'colorPalette',
-      name: 'Color Palette',
-      description: 'Color palette style for all deliverables.',
-      type: 'select',
-      required: false,
-      default: 'morandi-light',
-      options: [
-        { label: 'Morandi Light', value: 'morandi-light', description: 'Soft, muted tones on light background — classic Morandi aesthetic' },
-        { label: 'Morandi Dark', value: 'morandi-dark', description: 'Soft, muted tones on dark background' },
-        { label: 'Minimal', value: 'minimal', description: 'Monochrome with single accent color' },
-      ],
-      group: 'style',
-      order: 0,
-    },
-    {
-      id: 'fontFamily',
-      name: 'Font Family',
-      description: 'Primary font family for all deliverables.',
-      type: 'select',
-      required: false,
-      default: 'palatino',
-      options: [
-        { label: 'Palatino', value: 'palatino', description: 'Classic serif — elegant, academic feel' },
-        { label: 'Inter', value: 'inter', description: 'Modern sans-serif — clean, technical' },
-        { label: 'Source Serif', value: 'source-serif', description: 'Google Fonts serif — readable, contemporary' },
-      ],
-      group: 'style',
-      order: 1,
-    },
   ],
 
   // ── Prompts ───────────────────────────────────────────────────────────
@@ -222,13 +191,10 @@ export const academicPresentationTemplate: UseCaseTemplate = {
 - Slide Theme: {{slideTheme}}
 - Blog Style: {{blogStyle}}
 - Poster Orientation: {{posterOrientation}}
-- Color Palette: {{colorPalette}}
-- Font Family: {{fontFamily}}
-
 ## Skill Reference
 This project uses the \`academic-presentation\` skill. The skill's SKILL.md contains the complete rendering specification including:
 - 5 HTML slide layout types (title, section-divider, full-bullet, left-right-split, three-zone)
-- Morandi color palette definitions (emph, blue, muted, teal, gold)
+- Color palette definitions (emph, blue, muted, teal, gold) for light and dark themes
 - Typography rules, box styles, SVG figure guidelines
 - HTML→PDF rendering via Playwright
 - Blog Markdown structure and poster CSS grid layout
@@ -298,13 +264,10 @@ For **poster** (when selected):
 - Code Repository: {{githubUrl}}
 - Deliverables: {{deliverables}}
 - Target Audience: {{targetAudience}}
-- Color Palette: {{colorPalette}}
-- Font Family: {{fontFamily}}
-
 ## IMPORTANT: Skill Reference
 This task uses the \`academic-presentation\` skill. Consult the skill's SKILL.md for:
 - Complete HTML/CSS templates for each slide layout type
-- Morandi color hex values and usage rules
+- Color hex values and usage rules
 - Typography scale and font stacks
 - Box style CSS classes
 - SVG figure generation guidelines
@@ -314,7 +277,7 @@ This task uses the \`academic-presentation\` skill. Consult the skill's SKILL.md
 
 ## General Rules
 - One key idea per slide (max 6-8 bullet points)
-- Use SVG for all generated figures — match the Morandi palette
+- Use SVG for all generated figures — match the color palette
 - Annotate equations with plain-English descriptions
 - Max 2-3 accent colors per slide/section
 - Every HTML slide must be self-contained with embedded CSS
@@ -328,7 +291,7 @@ This task uses the \`academic-presentation\` skill. Consult the skill's SKILL.md
 
     sharedContext: `Academic Paper Presentation shared context:
 
-## Morandi Color Palette
+## Color Palette
 
 ### Light Mode
 - Background: #FAF8F5 (warm off-white)
@@ -357,10 +320,7 @@ This task uses the \`academic-presentation\` skill. Consult the skill's SKILL.md
 - Use gold for highlights and awards
 
 ## Typography
-- Headings: Font specified by {{fontFamily}} parameter
-- Palatino stack: 'Palatino Linotype', 'Book Antiqua', Palatino, serif
-- Inter stack: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif
-- Source Serif stack: 'Source Serif 4', 'Source Serif Pro', Georgia, serif
+- Font stack: 'Palatino Linotype', 'Book Antiqua', Palatino, serif
 - H1: 34px, bold
 - H2: 28px, semibold
 - Body: 22px, regular
@@ -384,7 +344,7 @@ This task uses the \`academic-presentation\` skill. Consult the skill's SKILL.md
 ## Quality Checklist
 - [ ] One idea per slide, max 6-8 bullet points
 - [ ] Key equations annotated with plain English
-- [ ] Figures use SVG with matching Morandi palette
+- [ ] Figures use SVG with matching color palette
 - [ ] Max 2-3 accent colors per slide
 - [ ] Narrative follows motivation → methodology → results → discussion
 - [ ] All HTML slides are self-contained with embedded CSS
@@ -458,7 +418,7 @@ This task uses the \`academic-presentation\` skill. Consult the skill's SKILL.md
       },
       {
         title: 'Slides Generated',
-        description: 'All HTML slides generated with embedded CSS, SVG figures, and Morandi palette',
+        description: 'All HTML slides generated with embedded CSS, SVG figures, and color palette',
       },
       {
         title: 'Blog Post Written',
