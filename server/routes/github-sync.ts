@@ -11,6 +11,14 @@ import { sanitizeGitHubName } from '@astro/core/prompt-templates';
 import { db } from '../lib/db/index.js';
 import { projects, planNodes, planEdges, githubSyncLog } from '../lib/db/schema.js';
 import { eq, and, or, isNotNull, inArray, gte, desc, count } from 'drizzle-orm';
+import { marked } from 'marked';
+
+/** Convert GitHub issue body (markdown) to HTML for the tiptap `content` field. */
+function githubMarkdownToHtml(body: string | null | undefined): string | null {
+  if (!body) return null;
+  return marked.parse(body, { async: false, gfm: true, breaks: true }) as string;
+}
+
 
 const app = new Hono();
 
@@ -278,6 +286,7 @@ async function syncIssuesForProject(
       await db.update(planNodes).set({
         title: issue.title,
         description: issue.body || '',
+        content: githubMarkdownToHtml(issue.body),
         status: issue.state === 'open' ? 'planned' : 'completed',
         githubIssueUrl: issue.html_url,
         links: mergedLinks,
@@ -293,6 +302,7 @@ async function syncIssuesForProject(
         type: 'task',
         title: issue.title,
         description: issue.body || '',
+        content: githubMarkdownToHtml(issue.body),
         status: issue.state === 'open' ? 'planned' : 'completed',
         verification: 'human',
         githubIssueNumber: issue.number,
