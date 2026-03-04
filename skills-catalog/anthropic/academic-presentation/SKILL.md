@@ -19,6 +19,23 @@ All deliverables use a Morandi-style low-saturation color palette with consisten
 
 ---
 
+## 0. Document Reading — PDF Skill
+
+**CRITICAL**: When the paper source is PDF files, you MUST use the **PDF skill** to read them. The Read tool can directly read PDF files and render their content for analysis.
+
+Reference: https://github.com/anthropics/skills/tree/main/skills/pdf
+
+```
+# Simply use the Read tool on the PDF file:
+Read: /path/to/paper.pdf
+```
+
+The PDF skill handles text extraction with layout preservation, table extraction, figure identification, equation rendering, and multi-column layout parsing.
+
+For **arXiv links**, fetch the LaTeX source or HTML directly. For **DOCX files** (if provided), use the DOCX skill: https://github.com/anthropics/skills/tree/main/skills/docx
+
+---
+
 ## 1. Slide Layout System
 
 Every slide is a self-contained HTML file with embedded CSS. The page size is **1280×720px** (16:9 aspect ratio). Use the following 5 layout types for all slides.

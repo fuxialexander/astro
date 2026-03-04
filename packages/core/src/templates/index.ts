@@ -70,6 +70,8 @@ export type {
 export {
   // Individual templates
   academicPresentationTemplate,
+  academicReviewTemplate,
+  moatFragilityTemplate,
 
   // Collections
   BUILTIN_TEMPLATES,
