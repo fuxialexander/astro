@@ -1152,6 +1152,50 @@ export function PlanListView({
     )
   }
 
+  // Reverse lookup: statusLabel → status key
+  const reverseStatusLabels = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const [key, label] of Object.entries(statusLabels)) {
+      map[label] = key
+    }
+    return map
+  }, [])
+
+  const handleGroupDrop = useCallback((itemId: string, _sourceGroupKey: string, targetGroupKey: string) => {
+    const groupBy = displaySettings.groupBy
+    if (groupBy === "milestone") {
+      // Group keys: "milestone-<id>" or "unassigned"
+      const milestoneId = targetGroupKey === "unassigned" ? undefined : targetGroupKey.replace("milestone-", "")
+      updateNode(itemId, { milestoneId })
+    } else if (groupBy === "status") {
+      // Group keys are status display labels — reverse-lookup the status key
+      const statusKey = reverseStatusLabels[targetGroupKey]
+      if (statusKey) {
+        updateNode(itemId, { status: statusKey as PlanNode["status"] })
+      }
+    } else if (groupBy === "priority") {
+      // Group keys: capitalized priority or "No priority"
+      const priority = targetGroupKey === "No priority" ? undefined : targetGroupKey.toLowerCase() as Priority
+      updateNode(itemId, { priority })
+    } else if (groupBy === "label") {
+      // Group keys: "label-<id>" or "no-label"
+      // For label groups, we add the label to the task (or clear all labels)
+      const targetLabelId = targetGroupKey.startsWith("label-") ? targetGroupKey.replace("label-", "") : undefined
+      const node = allProjectNodes.find((n) => n.id === itemId)
+      if (!node) return
+      if (targetLabelId) {
+        // Add the target label if not already present
+        const currentLabels = node.labelIds ?? []
+        if (!currentLabels.includes(targetLabelId)) {
+          updateNode(itemId, { labelIds: [...currentLabels, targetLabelId] })
+        }
+      } else {
+        // Dropping into "no-label" clears labels
+        updateNode(itemId, { labelIds: [] })
+      }
+    }
+  }, [displaySettings.groupBy, updateNode, reverseStatusLabels, allProjectNodes])
+
   const handleSort = useCallback((sortKey: string) => {
     if (displaySettings.orderBy === sortKey) {
       updateDisplaySettings(displayViewKey, {
@@ -1193,6 +1237,7 @@ export function PlanListView({
         sortColumn={displaySettings.orderBy}
         sortDirection={displaySettings.orderDirection}
         onSort={handleSort}
+        onGroupDrop={displaySettings.groupBy !== "none" && displaySettings.groupBy !== "project" ? handleGroupDrop : undefined}
         renderMobileItem={(node) => (
           <TaskRow
             task={node}
