@@ -11,12 +11,10 @@ import type { AstroPlugin, PluginContributions } from "@/types/plugin"
 // Built-in plugins bundled with Astro
 import gtdPlugin from "@/plugins/gtd-workflow"
 import exampleThemePlugin from "@/plugins/example-theme"
-import celltypePlugin from "@/plugins/celltype"
 
 const BUILTIN_PLUGINS: AstroPlugin[] = [
   gtdPlugin,
   exampleThemePlugin,
-  celltypePlugin,
 ]
 
 /**

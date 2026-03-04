@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import type { OpenClawSkill } from "@/types/skill"
+import type { OpenClawSkill, SkillCollectionManifest } from "@/types/skill"
 import { buildSkillPromptInjection } from "@astro/core/skill-injector"
 import { dataClient } from "@/lib/data-client"
 import { useToastStore } from "@/stores/toast-store"
@@ -31,8 +31,14 @@ interface SkillStore {
   loading: boolean
   error: string | null
 
+  /** Catalog collections */
+  collections: SkillCollectionManifest[]
+  collectionsLoaded: boolean
+
   // Lifecycle
   load: () => Promise<void>
+  loadCollections: () => Promise<void>
+  toggleCollection: (collectionId: string) => void
   addSkill: (skill: OpenClawSkill) => void
   updateSkill: (id: string, updates: Partial<OpenClawSkill>) => void
   removeSkill: (id: string) => void
@@ -55,6 +61,42 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
   loaded: false,
   loading: false,
   error: null,
+  collections: [],
+  collectionsLoaded: false,
+
+  loadCollections: async () => {
+    try {
+      const collections = await dataClient.listCollections()
+      set({ collections, collectionsLoaded: true })
+    } catch (err) {
+      console.error('[skill-store] Failed to load collections:', err)
+      set({ collectionsLoaded: true })
+    }
+  },
+
+  toggleCollection: (collectionId) => {
+    // Optimistic: toggle collection locally
+    const collections = get().collections.map((c) =>
+      c.id === collectionId ? { ...c, enabled: !c.enabled, enabledCount: c.enabled ? 0 : c.skillCount } : c
+    )
+    set({ collections })
+
+    // Sync to backend, then reload skills + collections
+    dataClient.toggleCollection(collectionId).then(() => {
+      // Reload both skills and collections to reflect new enabled state
+      get().load()
+      get().loadCollections()
+    }).catch((err) => {
+      console.error('[skill-store] Failed to toggle collection:', err)
+      // Revert
+      get().loadCollections()
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Failed to toggle collection',
+        description: err instanceof Error ? err.message : 'Unknown error',
+      })
+    })
+  },
 
   load: async () => {
     set({ loading: true, error: null })

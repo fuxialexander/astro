@@ -21,6 +21,7 @@ import type { OpenClawSkill } from "@/types/skill"
 
 const sourceColors: Record<OpenClawSkill["source"], string> = {
   builtin: "bg-info/10 text-info",
+  catalog: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
   workspace: "bg-success/10 text-success",
   clawhub: "bg-primary/10 text-primary",
   plugin: "bg-warning/10 text-warning",
