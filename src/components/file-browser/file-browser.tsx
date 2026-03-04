@@ -38,9 +38,10 @@ import { Button } from "@/components/ui/button"
 import { EditorOpenControls, type EditorType } from "@/components/ui/editor-open-controls"
 import { cn } from "@/lib/utils"
 import { buildFileUrlSync } from "@/lib/path-utils"
-import { useToastStore } from "@/stores/toast-store"
 import { useFileBrowser, type DirectoryEntry } from "./use-file-browser"
 import { FileActionsMenu } from "./file-actions-menu"
+import { useFileUpload } from "./use-file-upload"
+import { UploadManager } from "./upload-manager"
 
 // ---------------------------------------------------------------------------
 // Props
@@ -158,10 +159,7 @@ export function FileBrowser({
   const [activeEditor, setActiveEditor] = useState<EditorType>(initialEditorType)
   const [useLocal, setUseLocal] = useState(true)
   const [isDragOver, setIsDragOver] = useState(false)
-  const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const addToast = useToastStore((s) => s.add)
-
   const machine = { name: machineName, hostname: machineHostname }
 
   const {
@@ -180,11 +178,31 @@ export function FileBrowser({
     refresh,
     toggleHiddenFiles,
     setPreviewPath,
-    uploadFile,
     handleKeyDown: hookKeyDown,
     breadcrumbs,
     entries,
   } = useFileBrowser({ machineId, workingDirectory })
+
+  // File upload with validation, progress, and overwrite detection
+  const {
+    uploads,
+    isUploading,
+    startUpload,
+    cancelUpload,
+    retryUpload,
+    dismissUpload,
+    clearCompleted,
+    overwritePending,
+    confirmOverwrite,
+    rejectOverwrite,
+    validationErrors,
+    dismissValidationError,
+  } = useFileUpload({
+    machineId,
+    currentPath: path,
+    currentEntries: entries,
+    onRefresh: refresh,
+  })
 
   // Extend keyboard handler to open files on Enter
   const handleKeyDown = useCallback(
@@ -234,42 +252,13 @@ export function FileBrowser({
   // Upload handlers
   // -----------------------------------------------------------------------
 
-  const handleUploadFiles = async (fileList: FileList) => {
-    if (fileList.length === 0) return
-
-    setUploading(true)
-    let successCount = 0
-    let errorCount = 0
-
-    for (const file of Array.from(fileList)) {
-      const result = await uploadFile(file)
-      if (result.success) {
-        successCount++
-      } else {
-        errorCount++
-        addToast({
-          type: "error",
-          title: `Failed to upload ${file.name}`,
-          description: result.error,
-        })
-      }
-    }
-
-    setUploading(false)
-
-    if (successCount > 0) {
-      addToast({
-        type: "success",
-        title: `Uploaded ${successCount} file${successCount > 1 ? "s" : ""}`,
-      })
-    }
-    if (errorCount > 0 && successCount > 0) {
-      addToast({
-        type: "warning",
-        title: `${errorCount} file${errorCount > 1 ? "s" : ""} failed to upload`,
-      })
-    }
-  }
+  const handleUploadFiles = useCallback(
+    (fileList: FileList) => {
+      if (fileList.length === 0) return
+      startUpload(Array.from(fileList))
+    },
+    [startUpload]
+  )
 
   const handleUploadClick = () => {
     fileInputRef.current?.click()
@@ -386,10 +375,10 @@ export function FileBrowser({
             size="icon"
             className="h-6 w-6"
             onClick={handleUploadClick}
-            disabled={uploading}
+            disabled={isUploading}
             title="Upload files"
           >
-            <Upload className={cn("h-3 w-3", uploading && "animate-pulse")} />
+            <Upload className={cn("h-3 w-3", isUploading && "animate-pulse")} />
           </Button>
           <Button
             variant="ghost"
@@ -480,10 +469,10 @@ export function FileBrowser({
               size="icon"
               className="h-5 w-5"
               onClick={handleUploadClick}
-              disabled={uploading}
+              disabled={isUploading}
               title="Upload files"
             >
-              <Upload className={cn("h-2.5 w-2.5", uploading && "animate-pulse")} />
+              <Upload className={cn("h-2.5 w-2.5", isUploading && "animate-pulse")} />
             </Button>
             <Button
               variant="ghost"
@@ -592,12 +581,18 @@ export function FileBrowser({
       </div>
 
       {/* Upload progress overlay */}
-      {uploading && (
-        <div className="absolute bottom-0 left-0 right-0 bg-background/80 border-t border-border px-3 py-2 flex items-center gap-2">
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-          <span className="text-xs text-muted-foreground">Uploading...</span>
-        </div>
-      )}
+      <UploadManager
+        uploads={uploads}
+        overwritePending={overwritePending}
+        validationErrors={validationErrors}
+        onCancel={cancelUpload}
+        onRetry={retryUpload}
+        onDismiss={dismissUpload}
+        onClearCompleted={clearCompleted}
+        onConfirmOverwrite={confirmOverwrite}
+        onRejectOverwrite={rejectOverwrite}
+        onDismissValidationError={dismissValidationError}
+      />
     </div>
   )
 }
