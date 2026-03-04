@@ -14,6 +14,7 @@ import { postGitHubComment } from './github-api.js'
 import { astroEventTransport } from '../../lib/events/astro-event-transport.js'
 import { lookupGitHubProject } from '../../lib/github-store.js'
 import { githubCommentBus } from '../../lib/github-comment-bus.js'
+import { githubPrBus } from '../../lib/github-pr-bus.js'
 import { db } from '../../lib/db/index.js'
 import { planNodes, projects } from '../../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
@@ -715,6 +716,26 @@ export async function handlePullRequestEvent(
     }).where(eq(planNodes.id, linkedNode.id))
 
     console.log(`[github-channel] Updated githubPrData on node ${linkedNode.clientId} for PR #${prNumber}`)
+
+    // Broadcast PR state change to connected SSE clients
+    const [prOwner, prRepoName] = repoFullName.split('/')
+    githubPrBus.emitPrChange({
+      owner: prOwner,
+      repo: prRepoName,
+      prNumber,
+      changeType: 'pr_state',
+      data: {
+        title: prData.title,
+        state: prData.mergedAt ? 'merged' : prData.closedAt ? 'closed' : 'open',
+        branchName: prData.branch,
+        draft: prData.draft,
+        additions: prData.diffStats?.additions,
+        deletions: prData.diffStats?.deletions,
+        changedFiles: prData.diffStats?.changedFiles,
+        ciStatus: ciStatus as string,
+        reviewStatus: prData.reviewStatus,
+      },
+    })
   }
 
   const prBody = (pr.body as string) || ''
@@ -744,6 +765,19 @@ export async function handlePullRequestEvent(
             linkSource: 'auto-branch',
             timestamp: new Date(),
           })
+          // Broadcast branch linking event
+          const [branchOwner, branchRepoName] = repoFullName.split('/')
+          githubPrBus.emitPrChange({
+            owner: branchOwner,
+            repo: branchRepoName,
+            prNumber,
+            changeType: 'branch_linked',
+            data: {
+              nodeId: nodeIdFromBranch,
+              branchName: headRef || '',
+              linkSource: 'auto-branch',
+            },
+          })
           break
         }
       }
@@ -767,6 +801,19 @@ export async function handlePullRequestEvent(
             branchName: headRef || '',
             linkSource: 'auto-body-reference',
             timestamp: new Date(),
+          })
+          // Broadcast branch linking event
+          const [bodyOwner, bodyRepoName] = repoFullName.split('/')
+          githubPrBus.emitPrChange({
+            owner: bodyOwner,
+            repo: bodyRepoName,
+            prNumber,
+            changeType: 'branch_linked',
+            data: {
+              nodeId: bodyNodeId,
+              branchName: headRef || '',
+              linkSource: 'auto-body-reference',
+            },
           })
         }
       }
@@ -1025,6 +1072,19 @@ export async function handleCheckRunEvent(
       }).where(eq(planNodes.id, linkedNode.id))
 
       console.log(`[github-channel] Updated CI status to "${ciStatus}" on node ${linkedNode.clientId} (check: ${checkName}, ${updatedCheckRuns.length} total)`)
+
+      // Broadcast CI status change to connected SSE clients
+      const [ciOwner, ciRepoName] = repoFullName.split('/')
+      githubPrBus.emitPrChange({
+        owner: ciOwner,
+        repo: ciRepoName,
+        prNumber,
+        changeType: 'ci_status',
+        data: {
+          ciStatus,
+          checkRuns: updatedCheckRuns,
+        },
+      })
     } catch (err) {
       // TODO: implement dead-letter queue for failed webhook DB writes
       console.error(`[github-channel] Failed to update CI status on node ${linkedNode.clientId}:`, {
@@ -1104,6 +1164,19 @@ export async function handlePullRequestReviewEvent(
     }).where(eq(planNodes.id, linkedNode.id))
 
     console.log(`[github-channel] Updated review status to "${reviewStatus}" on node ${linkedNode.clientId} (reviewer: ${reviewer}, ${states.length} total)`)
+
+    // Broadcast review status change to connected SSE clients
+    const [revOwner, revRepoName] = repoFullName!.split('/')
+    githubPrBus.emitPrChange({
+      owner: revOwner,
+      repo: revRepoName,
+      prNumber,
+      changeType: 'review_status',
+      data: {
+        reviewStatus,
+        reviewerStates,
+      },
+    })
   } catch (err) {
     // TODO: implement dead-letter queue for failed webhook DB writes
     console.error(`[github-channel] Failed to update review status on node ${linkedNode.clientId}:`, {

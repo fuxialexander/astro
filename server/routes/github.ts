@@ -12,7 +12,7 @@ import { Hono } from 'hono';
 import authApp from './github-auth.js';
 import syncApp from './github-sync.js';
 import prApp from './github-pr.js';
-import { commentsApp, reviewCommentsApp, commentsStreamApp } from './github-comments.js';
+import { commentsApp, reviewCommentsApp, commentsStreamApp, prStreamApp } from './github-comments.js';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
 import { githubStore } from '../lib/github-store.js';
 import { sanitizeGitHubName } from '@astro/core/prompt-templates';
@@ -25,6 +25,7 @@ app.route('/', prApp);
 app.route('/comments', commentsApp);
 app.route('/review-comments', reviewCommentsApp);
 app.route('/comments-stream', commentsStreamApp);
+app.route('/pr-stream', prStreamApp);
 
 // Apply auth middleware to all PR action routes defined below
 app.use('/pr/*', requireAuth);

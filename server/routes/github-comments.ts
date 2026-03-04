@@ -10,6 +10,7 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { githubStore } from '../lib/github-store.js'
 import { githubCommentBus, type GitHubCommentEvent } from '../lib/github-comment-bus.js'
+import { githubPrBus, type GitHubPrEvent } from '../lib/github-pr-bus.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { sanitizeGitHubName } from '@astro/core/prompt-templates'
 import { fetchWithRateLimit } from '../lib/github-rate-limit.js'
@@ -403,4 +404,77 @@ commentsStreamApp.get('/:owner/:repo/:number', async (c) => {
   })
 })
 
-export { commentsApp, reviewCommentsApp, commentsStreamApp }
+// ── SSE PR Status Stream ─────────────────────────────────────────────
+
+const prStreamApp = new Hono()
+prStreamApp.use('/*', requireAuth)
+
+/**
+ * GET /api/github/pr-stream/:owner/:repo/:prNumber
+ * SSE stream for real-time PR state changes (CI status, reviews, merges).
+ */
+prStreamApp.get('/:owner/:repo/:prNumber', async (c) => {
+  const userId = (c.get('user') as AuthUser).id
+  const owner = sanitizeGitHubName(c.req.param('owner'))
+  const repo = sanitizeGitHubName(c.req.param('repo'))
+  const prNumber = parseInt(c.req.param('prNumber'), 10)
+
+  if (!owner || !repo || isNaN(prNumber) || prNumber <= 0) {
+    return c.json({ error: 'Invalid owner, repo, or prNumber' }, 400)
+  }
+
+  // Verify the user has GitHub access
+  const headerResult = await getGitHubHeaders(userId)
+  if ('error' in headerResult) {
+    return c.json({ error: headerResult.error }, 401)
+  }
+
+  // Disable proxy buffering so SSE chunks flush immediately
+  c.header('X-Accel-Buffering', 'no')
+
+  return streamSSE(c, async (stream) => {
+    let alive = true
+
+    const handler = (event: GitHubPrEvent) => {
+      if (!alive) return
+      if (event.owner !== owner || event.repo !== repo || event.prNumber !== prNumber) return
+
+      stream.writeSSE({
+        event: 'pr_change',
+        data: JSON.stringify({ changeType: event.changeType, ...event.data }),
+      }).catch(() => {
+        alive = false
+      })
+    }
+
+    githubPrBus.onPrChange(handler)
+
+    // 30s heartbeat to keep connection alive
+    const heartbeat = setInterval(() => {
+      if (!alive) {
+        clearInterval(heartbeat)
+        return
+      }
+      stream.writeSSE({ event: 'heartbeat', data: '' }).catch(() => {
+        alive = false
+        clearInterval(heartbeat)
+      })
+    }, 30_000)
+
+    stream.onAbort(() => {
+      alive = false
+      clearInterval(heartbeat)
+      githubPrBus.offPrChange(handler)
+    })
+
+    // Keep the stream open
+    while (alive) {
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+
+    clearInterval(heartbeat)
+    githubPrBus.offPrChange(handler)
+  })
+})
+
+export { commentsApp, reviewCommentsApp, commentsStreamApp, prStreamApp }

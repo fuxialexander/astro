@@ -34,7 +34,7 @@ import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface DisplayBlock {
-  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment'
+  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment' | 'branch_linked'
   events: TaskActivityEvent[]
 }
 
@@ -173,6 +173,11 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
         flushText()
         flushTools()
         blocks.push({ type: 'github_comment', events: [event] })
+        break
+      case 'branch_linked':
+        flushText()
+        flushTools()
+        blocks.push({ type: 'branch_linked', events: [event] })
         break
     }
   }
@@ -872,6 +877,27 @@ export function GitHubCommentBlock({ event, githubContext }: GitHubCommentBlockP
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Branch auto-linking notification — shown when a PR is auto-linked
+ * to a plan node via branch name or body reference.
+ */
+export function BranchLinkedBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'branch_linked' }> }) {
+  return (
+    <div className="flex items-center gap-2 mx-4 my-1.5 px-3 py-2 rounded-md bg-primary/5 border border-primary/20 text-xs">
+      <GitBranch className="h-3.5 w-3.5 text-primary shrink-0" />
+      <span className="text-foreground">
+        PR <a
+          href={event.prUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-primary hover:underline"
+        >#{event.prNumber}</a> linked via {event.linkSource === 'auto-branch' ? 'branch name' : 'body reference'}
+      </span>
+      <span className="text-muted-foreground font-mono text-[10px] truncate">{event.branchName}</span>
     </div>
   )
 }
