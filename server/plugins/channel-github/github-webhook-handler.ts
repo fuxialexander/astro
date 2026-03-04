@@ -178,7 +178,88 @@ export async function handleIssueCommentEvent(
 }
 
 /**
+ * Extract PR metadata for storage on plan nodes.
+ */
+function extractPrData(pr: Record<string, unknown>): {
+  title: string
+  branch: string
+  diffStats: { additions: number; deletions: number; changedFiles: number }
+  ciStatus: string
+  reviewStatus: string
+  reviewers: string[]
+  mergedAt: string | null
+  closedAt: string | null
+} {
+  const head = pr.head as Record<string, unknown> | undefined
+  const requestedReviewers = (pr.requested_reviewers as Array<Record<string, unknown>>) || []
+
+  let reviewStatus = 'pending'
+  if (pr.merged) reviewStatus = 'merged'
+  else if (pr.state === 'closed') reviewStatus = 'closed'
+  else if (pr.draft) reviewStatus = 'draft'
+
+  return {
+    title: (pr.title as string) || '',
+    branch: (head?.ref as string) || '',
+    diffStats: {
+      additions: (pr.additions as number) || 0,
+      deletions: (pr.deletions as number) || 0,
+      changedFiles: (pr.changed_files as number) || 0,
+    },
+    ciStatus: 'pending', // Will be updated by check_run events
+    reviewStatus,
+    reviewers: requestedReviewers.map((r) => (r.login as string) || '').filter(Boolean),
+    mergedAt: (pr.merged_at as string | null) ?? null,
+    closedAt: (pr.closed_at as string | null) ?? null,
+  }
+}
+
+/**
+ * Find the plan node linked to a PR by branch name or PR number.
+ */
+async function findLinkedNode(projectId: string, prNumber: number, branchName?: string) {
+  // First try by prNumber
+  const [byPr] = await db.select({
+    id: planNodes.id,
+    clientId: planNodes.clientId,
+    githubPrData: planNodes.githubPrData,
+  })
+    .from(planNodes)
+    .where(and(
+      eq(planNodes.projectId, projectId),
+      eq(planNodes.prNumber, prNumber)
+    ))
+    .limit(1)
+
+  if (byPr) return byPr
+
+  // Fallback: try by branch name (astro/<nodeClientId>)
+  if (branchName) {
+    const nodeClientId = extractNodeIdFromBranch(branchName)
+    if (nodeClientId) {
+      const [byBranch] = await db.select({
+        id: planNodes.id,
+        clientId: planNodes.clientId,
+        githubPrData: planNodes.githubPrData,
+      })
+        .from(planNodes)
+        .where(and(
+          eq(planNodes.projectId, projectId),
+          eq(planNodes.clientId, nodeClientId)
+        ))
+        .limit(1)
+
+      if (byBranch) return byBranch
+    }
+  }
+
+  return null
+}
+
+/**
  * Handle `pull_request` webhook events.
+ * Enhanced to include diff stats, review status, and CI status in the webhook payload.
+ * Stores PR metadata on the linked plan node (githubPrData JSON field).
  */
 export async function handlePullRequestEvent(
   payload: Record<string, unknown>,
@@ -198,10 +279,29 @@ export async function handlePullRequestEvent(
   const prNumber = pr.number as number
   const prTitle = pr.title as string
   const headRef = (pr.head as Record<string, unknown>)?.ref as string | undefined
+  const prData = extractPrData(pr)
+
+  // Update githubPrData on the linked plan node for all PR actions
+  const linkedNode = await findLinkedNode(projectId, prNumber, headRef)
+  if (linkedNode) {
+    // Preserve existing ciStatus if we already have it
+    const existingPrData = linkedNode.githubPrData as Record<string, unknown> | null
+    const ciStatus = existingPrData?.ciStatus as string || prData.ciStatus
+
+    await db.update(planNodes).set({
+      githubPrData: { ...prData, ciStatus },
+      updatedAt: new Date(),
+    }).where(eq(planNodes.id, linkedNode.id))
+
+    console.log(`[github-channel] Updated githubPrData on node ${linkedNode.clientId} for PR #${prNumber}`)
+  }
 
   switch (action) {
     case 'opened':
-      console.log(`[github-channel] PR #${prNumber} opened in ${repoFullName}: "${prTitle}" → plan task creation for project ${projectId}`)
+      console.log(`[github-channel] PR #${prNumber} opened in ${repoFullName}: "${prTitle}" (${prData.diffStats.changedFiles} files, +${prData.diffStats.additions}/-${prData.diffStats.deletions}) → project ${projectId}`)
+      break
+    case 'synchronize':
+      console.log(`[github-channel] PR #${prNumber} synchronized in ${repoFullName}: "${prTitle}" (${prData.diffStats.changedFiles} files, +${prData.diffStats.additions}/-${prData.diffStats.deletions})`)
       break
     case 'closed': {
       const merged = pr.merged as boolean
@@ -245,6 +345,9 @@ export async function handlePullRequestEvent(
       }
       break
     }
+    case 'review_requested':
+      console.log(`[github-channel] PR #${prNumber} review requested in ${repoFullName}: reviewers=[${prData.reviewers.join(', ')}]`)
+      break
     default:
       console.log(`[github-channel] PR event "${action}" for #${prNumber} in ${repoFullName}`)
   }
@@ -333,6 +436,7 @@ export async function handlePushEvent(
 
 /**
  * Handle `check_run` webhook events.
+ * Updates CI status on linked plan nodes in real-time.
  */
 export async function handleCheckRunEvent(
   payload: Record<string, unknown>,
@@ -350,7 +454,102 @@ export async function handleCheckRunEvent(
   if (!projectId) return
 
   const checkName = checkRun.name as string
+  const status = checkRun.status as string
   const conclusion = checkRun.conclusion as string | undefined
 
-  console.log(`[github-channel] Check run "${checkName}" ${action} (conclusion: ${conclusion ?? 'pending'}) in ${repoFullName} → verification status for project ${projectId}`)
+  console.log(`[github-channel] Check run "${checkName}" ${action} (status: ${status}, conclusion: ${conclusion ?? 'pending'}) in ${repoFullName} → project ${projectId}`)
+
+  // Find linked node(s) via the check run's associated pull requests
+  const pullRequests = (checkRun.pull_requests as Array<Record<string, unknown>>) || []
+
+  for (const prRef of pullRequests) {
+    const prNumber = prRef.number as number
+    if (!prNumber) continue
+
+    const headRef = (prRef.head as Record<string, unknown> | undefined)?.ref as string | undefined
+    const linkedNode = await findLinkedNode(projectId, prNumber, headRef)
+    if (!linkedNode) continue
+
+    // Determine CI status from check run conclusion
+    let ciStatus = 'pending'
+    if (status === 'completed') {
+      if (conclusion === 'success' || conclusion === 'skipped' || conclusion === 'neutral') {
+        ciStatus = 'success'
+      } else if (conclusion === 'failure' || conclusion === 'timed_out') {
+        ciStatus = 'failure'
+      } else if (conclusion === 'cancelled') {
+        ciStatus = 'cancelled'
+      } else {
+        ciStatus = conclusion || 'unknown'
+      }
+    } else if (status === 'in_progress') {
+      ciStatus = 'in_progress'
+    }
+
+    // Update githubPrData.ciStatus on the linked node
+    const existingPrData = linkedNode.githubPrData as Record<string, unknown> | null
+    if (existingPrData) {
+      await db.update(planNodes).set({
+        githubPrData: { ...existingPrData, ciStatus },
+        updatedAt: new Date(),
+      }).where(eq(planNodes.id, linkedNode.id))
+
+      console.log(`[github-channel] Updated CI status to "${ciStatus}" on node ${linkedNode.clientId} (check: ${checkName})`)
+    }
+  }
+}
+
+/**
+ * Handle `pull_request_review` webhook events.
+ * Updates review status on linked plan nodes in real-time.
+ */
+export async function handlePullRequestReviewEvent(
+  payload: Record<string, unknown>,
+  config: GitHubChannelConfig
+): Promise<void> {
+  const action = payload.action as string
+  const review = payload.review as Record<string, unknown> | undefined
+  const pr = payload.pull_request as Record<string, unknown> | undefined
+  const repo = payload.repository as Record<string, unknown> | undefined
+  const repoFullName = repo?.full_name as string | undefined
+
+  if (!review || !pr || !repoFullName) return
+
+  const projectId = config.repoMappings[repoFullName]
+    ?? await lookupGitHubProject(repoFullName)
+  if (!projectId) return
+
+  const prNumber = pr.number as number
+  const headRef = (pr.head as Record<string, unknown>)?.ref as string | undefined
+  const reviewState = review.state as string // 'approved', 'changes_requested', 'commented', 'dismissed'
+  const reviewer = (review.user as Record<string, unknown>)?.login as string | undefined
+
+  console.log(`[github-channel] PR #${prNumber} review "${reviewState}" by ${reviewer ?? 'unknown'} (action: ${action}) in ${repoFullName}`)
+
+  if (action !== 'submitted' && action !== 'dismissed') return
+
+  const linkedNode = await findLinkedNode(projectId, prNumber, headRef)
+  if (!linkedNode) return
+
+  const existingPrData = linkedNode.githubPrData as Record<string, unknown> | null
+  if (!existingPrData) return
+
+  // Determine overall review status
+  let reviewStatus = 'pending'
+  if (reviewState === 'approved') {
+    reviewStatus = 'approved'
+  } else if (reviewState === 'changes_requested') {
+    reviewStatus = 'changes_requested'
+  } else if (reviewState === 'commented') {
+    reviewStatus = 'commented'
+  } else if (reviewState === 'dismissed') {
+    reviewStatus = 'pending' // Dismissed review reverts to pending
+  }
+
+  await db.update(planNodes).set({
+    githubPrData: { ...existingPrData, reviewStatus },
+    updatedAt: new Date(),
+  }).where(eq(planNodes.id, linkedNode.id))
+
+  console.log(`[github-channel] Updated review status to "${reviewStatus}" on node ${linkedNode.clientId} (reviewer: ${reviewer})`)
 }

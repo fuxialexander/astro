@@ -139,6 +139,16 @@ export const planNodes = pgTable('plan_nodes', {
   }>>().default([]),
   githubIssueNumber: integer('github_issue_number'),
   githubIssueUrl: text('github_issue_url'),
+  githubPrData: jsonb('github_pr_data').$type<{
+    title: string
+    branch: string
+    diffStats: { additions: number; deletions: number; changedFiles: number }
+    ciStatus: string
+    reviewStatus: string
+    reviewers: string[]
+    mergedAt: string | null
+    closedAt: string | null
+  }>(),
   deletedAt: timestamp('deleted_at'),
   deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),

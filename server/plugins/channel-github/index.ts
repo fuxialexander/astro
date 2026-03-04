@@ -20,6 +20,7 @@ import {
   handlePushEvent,
   handleCheckRunEvent,
   handleMergeGroupEvent,
+  handlePullRequestReviewEvent,
 } from './github-webhook-handler.js'
 
 let pluginConfig: GitHubChannelConfig | null = null
@@ -45,7 +46,7 @@ function loadConfig(): GitHubChannelConfig | null {
 
   const enabledEvents = process.env.GITHUB_CHANNEL_EVENTS
     ? process.env.GITHUB_CHANNEL_EVENTS.split(',').map((e) => e.trim())
-    : ['issues', 'issue_comment', 'pull_request', 'push', 'check_run', 'merge_group']
+    : ['issues', 'issue_comment', 'pull_request', 'pull_request_review', 'push', 'check_run', 'merge_group']
 
   return {
     webhookSecret,
@@ -143,6 +144,9 @@ async function processEvent(
     case 'push':
       await handlePushEvent(payload, config)
       break
+    case 'pull_request_review':
+      await handlePullRequestReviewEvent(payload, config)
+      break
     case 'check_run':
       await handleCheckRunEvent(payload, config)
       break
@@ -221,6 +225,7 @@ const plugin: AstroServerPlugin = {
         { type: 'github.push', evaluator: (payload) => (payload as Record<string, unknown>)?.ref !== undefined },
         { type: 'github.issues', evaluator: (payload) => (payload as Record<string, unknown>)?.issue !== undefined },
         { type: 'github.pull_request', evaluator: (payload) => (payload as Record<string, unknown>)?.pull_request !== undefined },
+        { type: 'github.pull_request_review', evaluator: (payload) => (payload as Record<string, unknown>)?.review !== undefined && (payload as Record<string, unknown>)?.pull_request !== undefined },
         { type: 'github.check_run', evaluator: (payload) => (payload as Record<string, unknown>)?.check_run !== undefined },
         { type: 'github.merge_group', evaluator: (payload) => (payload as Record<string, unknown>)?.merge_group !== undefined },
       ],
