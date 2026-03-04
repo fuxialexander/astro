@@ -702,6 +702,91 @@ export async function commentOnPr(
 }
 
 /**
+ * Mark a draft PR as ready for review.
+ */
+export async function markPrReady(
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<{ success: boolean; error: string | null; errorType?: ApiErrorType }> {
+  try {
+    const res = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}/ready`), {
+      method: "PUT",
+      headers: await authHeaders(),
+    })
+    if (!res.ok) {
+      return { success: false, error: `Server error: ${res.status}`, errorType: "server" }
+    }
+    const data = await res.json()
+    return {
+      success: data.success,
+      error: data.error ?? null,
+      errorType: data.error ? "github" : undefined,
+    }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+      errorType: "network",
+    }
+  }
+}
+
+/**
+ * Edit an existing issue/PR comment on GitHub.
+ */
+export async function editGitHubComment(
+  owner: string,
+  repo: string,
+  commentId: number,
+  body: string,
+): Promise<{ success: boolean; error: string | null }> {
+  try {
+    const res = await fetch(apiUrl(`/api/github/comments/${owner}/${repo}/${commentId}`), {
+      method: "PATCH",
+      headers: await authHeaders(),
+      body: JSON.stringify({ body }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      return { success: false, error: data.error || `Server error: ${res.status}` }
+    }
+    return { success: true, error: null }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+/**
+ * Delete an issue/PR comment on GitHub.
+ */
+export async function deleteGitHubComment(
+  owner: string,
+  repo: string,
+  commentId: number,
+): Promise<{ success: boolean; error: string | null }> {
+  try {
+    const res = await fetch(apiUrl(`/api/github/comments/${owner}/${repo}/${commentId}`), {
+      method: "DELETE",
+      headers: await authHeaders(),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      return { success: false, error: data.error || `Server error: ${res.status}` }
+    }
+    return { success: true, error: null }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+/**
  * Manually link a GitHub PR to a plan node.
  */
 export async function linkPrToNode(

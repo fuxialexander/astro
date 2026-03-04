@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import { GitHubClient, resolveGitHubToken } from '../lib/github-client';
 import { githubStore } from '../lib/github-store';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
+import { sanitizeGitHubName } from '@astro/core/prompt-templates';
 import { db } from '../lib/db/index.js';
 import { projects, planNodes, planEdges } from '../lib/db/schema.js';
 import { eq, and, or, isNotNull, inArray } from 'drizzle-orm';
@@ -130,8 +131,12 @@ app.post('/repos/select', async (c) => {
  */
 app.get('/repo/:owner/:name', async (c) => {
   const userId = (c.get('user') as AuthUser).id;
-  const owner = c.req.param('owner');
-  const name = c.req.param('name');
+  const owner = sanitizeGitHubName(c.req.param('owner'));
+  const name = sanitizeGitHubName(c.req.param('name'));
+
+  if (!owner || !name) {
+    return c.json({ error: 'Invalid owner or repo name' }, 400);
+  }
 
   const connection = await githubStore.getConnection(userId);
   if (!connection) {
@@ -158,8 +163,12 @@ app.get('/repo/:owner/:name', async (c) => {
  */
 app.get('/branches/:owner/:name', async (c) => {
   const userId = (c.get('user') as AuthUser).id;
-  const owner = c.req.param('owner');
-  const name = c.req.param('name');
+  const owner = sanitizeGitHubName(c.req.param('owner'));
+  const name = sanitizeGitHubName(c.req.param('name'));
+
+  if (!owner || !name) {
+    return c.json({ error: 'Invalid owner or repo name' }, 400);
+  }
 
   const connection = await githubStore.getConnection(userId);
   if (!connection) {

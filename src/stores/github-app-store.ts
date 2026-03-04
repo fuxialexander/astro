@@ -95,10 +95,16 @@ export const useGitHubAppStore = create<GitHubAppState>((set, get) => ({
 
       // Keep loading:true while popup is open — prevents duplicate installs.
       // fetchInstallations() will clear it when it completes.
+      // Max timeout of 5 minutes to prevent indefinite polling.
+      const MAX_POLL_MS = 5 * 60 * 1000;
+      const pollStart = Date.now();
       installPollInterval = setInterval(() => {
-        if (popup.closed) {
+        if (popup.closed || Date.now() - pollStart > MAX_POLL_MS) {
           clearInterval(installPollInterval!);
           installPollInterval = null;
+          if (!popup.closed) {
+            try { popup.close(); } catch { /* ignore */ }
+          }
           get().fetchInstallations();
         }
       }, 500);
@@ -128,6 +134,7 @@ export const useGitHubAppStore = create<GitHubAppState>((set, get) => ({
       await get().fetchInstallations();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Failed to link installation' });
+      throw err;  // Re-throw so caller can show per-row error
     }
   },
 
@@ -147,6 +154,7 @@ export const useGitHubAppStore = create<GitHubAppState>((set, get) => ({
       }));
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Failed to remove installation' });
+      throw err;  // Re-throw so caller can show per-row error
     }
   },
 

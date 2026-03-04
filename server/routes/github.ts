@@ -12,14 +12,19 @@ import { Hono } from 'hono';
 import authApp from './github-auth.js';
 import syncApp from './github-sync.js';
 import prApp from './github-pr.js';
+import { commentsApp, reviewCommentsApp, commentsStreamApp } from './github-comments.js';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
 import { githubStore } from '../lib/github-store.js';
+import { sanitizeGitHubName } from '@astro/core/prompt-templates';
 
 const app = new Hono();
 
 app.route('/', authApp);
 app.route('/', syncApp);
 app.route('/', prApp);
+app.route('/comments', commentsApp);
+app.route('/review-comments', reviewCommentsApp);
+app.route('/comments-stream', commentsStreamApp);
 
 // Apply auth middleware to all PR action routes defined below
 app.use('/pr/*', requireAuth);
@@ -74,8 +79,8 @@ async function resolveMergeToken(userId: string): Promise<{ token: string; isBot
  */
 app.post('/pr/:owner/:repo/:prNumber/review', async (c) => {
   const userId = (c.get('user') as AuthUser).id;
-  const owner = c.req.param('owner');
-  const repo = c.req.param('repo');
+  const owner = sanitizeGitHubName(c.req.param('owner'));
+  const repo = sanitizeGitHubName(c.req.param('repo'));
   const prNumber = parseInt(c.req.param('prNumber'), 10);
 
   if (!owner || !repo || !prNumber || isNaN(prNumber) || prNumber <= 0) {
@@ -155,8 +160,8 @@ app.post('/pr/:owner/:repo/:prNumber/review', async (c) => {
  */
 app.post('/pr/:owner/:repo/:prNumber/merge', async (c) => {
   const userId = (c.get('user') as AuthUser).id;
-  const owner = c.req.param('owner');
-  const repo = c.req.param('repo');
+  const owner = sanitizeGitHubName(c.req.param('owner'));
+  const repo = sanitizeGitHubName(c.req.param('repo'));
   const prNumber = parseInt(c.req.param('prNumber'), 10);
 
   if (!owner || !repo || !prNumber || isNaN(prNumber) || prNumber <= 0) {
@@ -266,8 +271,8 @@ app.post('/pr/:owner/:repo/:prNumber/merge', async (c) => {
  */
 app.post('/pr/:owner/:repo/:prNumber/comment', async (c) => {
   const userId = (c.get('user') as AuthUser).id;
-  const owner = c.req.param('owner');
-  const repo = c.req.param('repo');
+  const owner = sanitizeGitHubName(c.req.param('owner'));
+  const repo = sanitizeGitHubName(c.req.param('repo'));
   const prNumber = parseInt(c.req.param('prNumber'), 10);
 
   if (!owner || !repo || !prNumber || isNaN(prNumber) || prNumber <= 0) {
@@ -325,92 +330,74 @@ app.post('/pr/:owner/:repo/:prNumber/comment', async (c) => {
 });
 
 /**
- * GET /api/github/pr/:owner/:repo/:prNumber
- * Fetch PR details including status, checks, and review state
+ * PUT /api/github/pr/:owner/:repo/:prNumber/ready
+ * Mark a draft PR as ready for review using the GitHub GraphQL API.
+ *
+ * Uses the user's OAuth token.
  */
-app.get('/pr/:owner/:repo/:prNumber', async (c) => {
+app.put('/pr/:owner/:repo/:prNumber/ready', async (c) => {
   const userId = (c.get('user') as AuthUser).id;
-  const owner = c.req.param('owner');
-  const repo = c.req.param('repo');
+  const owner = sanitizeGitHubName(c.req.param('owner'));
+  const repo = sanitizeGitHubName(c.req.param('repo'));
   const prNumber = parseInt(c.req.param('prNumber'), 10);
 
   if (!owner || !repo || !prNumber || isNaN(prNumber) || prNumber <= 0) {
-    return c.json({ error: 'Invalid owner, repo, or prNumber' }, 400);
+    return c.json({ success: false, error: 'Invalid owner, repo, or prNumber' }, 400);
   }
 
   const tokenResult = await resolveUserToken(userId);
   if (!tokenResult.token) {
-    return c.json({ error: tokenResult.error }, 401);
+    return c.json({ success: false, error: tokenResult.error }, 401);
   }
 
   try {
-    const headers = githubApiHeaders(tokenResult.token);
-
-    // Fetch PR details, reviews, and check runs in parallel
-    const [prResponse, reviewsResponse, checksResponse] = await Promise.all([
-      fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`, { headers }),
-      fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/reviews`, { headers }),
-      fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(`refs/pull/${prNumber}/head`)}/check-runs`, { headers }),
-    ]);
+    // First, get the PR's node_id (needed for GraphQL)
+    const prResponse = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`,
+      { headers: githubApiHeaders(tokenResult.token) }
+    );
 
     if (!prResponse.ok) {
-      const errorBody = await prResponse.text();
-      console.error('[github] PR fetch error:', errorBody);
-      return c.json({ error: `Failed to fetch PR: ${prResponse.status}` }, prResponse.status as 404 | 500);
+      return c.json({ success: false, error: `Failed to fetch PR: ${prResponse.status}` });
     }
 
     const prData = await prResponse.json();
 
-    // Parse reviews
-    let reviews: Array<{ id: number; user: string; state: string; submittedAt: string }> = [];
-    if (reviewsResponse.ok) {
-      const reviewsData = await reviewsResponse.json();
-      reviews = reviewsData.map((r: Record<string, unknown>) => ({
-        id: r.id as number,
-        user: (r.user as Record<string, unknown>)?.login as string || 'unknown',
-        state: r.state as string,
-        submittedAt: r.submitted_at as string,
-      }));
+    if (!prData.draft) {
+      return c.json({ success: false, error: 'PR is not a draft' }, 409);
     }
 
-    // Parse check runs
-    let checks: Array<{ id: number; name: string; status: string; conclusion: string | null }> = [];
-    if (checksResponse.ok) {
-      const checksData = await checksResponse.json();
-      checks = (checksData.check_runs || []).map((cr: Record<string, unknown>) => ({
-        id: cr.id as number,
-        name: cr.name as string,
-        status: cr.status as string,
-        conclusion: (cr.conclusion as string | null) ?? null,
-      }));
-    }
-
-    return c.json({
-      pr: {
-        number: prData.number,
-        title: prData.title,
-        state: prData.state,
-        merged: prData.merged,
-        mergeable: prData.mergeable,
-        mergeableState: prData.mergeable_state,
-        draft: prData.draft,
-        additions: prData.additions,
-        deletions: prData.deletions,
-        changedFiles: prData.changed_files,
-        headBranch: prData.head?.ref,
-        baseBranch: prData.base?.ref,
-        htmlUrl: prData.html_url,
-        user: prData.user?.login,
-        createdAt: prData.created_at,
-        updatedAt: prData.updated_at,
-      },
-      reviews,
-      checks,
+    // Use GraphQL to mark as ready (REST API doesn't support this)
+    const graphqlResponse = await fetch('https://api.github.com/graphql', {
+      method: 'POST',
+      headers: githubApiHeaders(tokenResult.token),
+      body: JSON.stringify({
+        query: `mutation($pullRequestId: ID!) {
+          markPullRequestReadyForReview(input: { pullRequestId: $pullRequestId }) {
+            pullRequest { id isDraft }
+          }
+        }`,
+        variables: { pullRequestId: prData.node_id },
+      }),
     });
+
+    if (!graphqlResponse.ok) {
+      const errorBody = await graphqlResponse.text();
+      console.error('[github] GraphQL error:', errorBody);
+      return c.json({ success: false, error: `GitHub GraphQL error: ${graphqlResponse.status}` });
+    }
+
+    const graphqlData = await graphqlResponse.json();
+    if (graphqlData.errors?.length) {
+      const errMsg = graphqlData.errors[0].message || 'GraphQL error';
+      return c.json({ success: false, error: errMsg });
+    }
+
+    return c.json({ success: true, error: null });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error('[github] pr-details error:', msg);
-    return c.json({ error: msg }, 500);
+    console.error('[github] mark-ready error:', msg);
+    return c.json({ success: false, error: msg }, 500);
   }
 });
 

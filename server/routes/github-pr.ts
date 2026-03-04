@@ -6,6 +6,7 @@
 import { Hono } from 'hono';
 import { githubStore } from '../lib/github-store';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
+import { sanitizeGitHubName } from '@astro/core/prompt-templates';
 
 const app = new Hono();
 
@@ -21,15 +22,12 @@ app.post('/close-pr', async (c) => {
   const userId = (c.get('user') as AuthUser).id;
 
   const body = await c.req.json();
-  const { owner, repo, prNumber } = body as {
-    owner: string;
-    repo: string;
-    prNumber: number;
-  };
+  const rawBody = body as { owner: string; repo: string; prNumber: number };
+  const owner = sanitizeGitHubName(rawBody.owner ?? '');
+  const repo = sanitizeGitHubName(rawBody.repo ?? '');
+  const prNumber = rawBody.prNumber;
 
-  if (typeof owner !== 'string' || !owner.trim() ||
-      typeof repo !== 'string' || !repo.trim() ||
-      typeof prNumber !== 'number' || prNumber <= 0) {
+  if (!owner || !repo || typeof prNumber !== 'number' || prNumber <= 0) {
     return c.json({ success: false, error: 'owner, repo, and a positive prNumber are required' }, 400);
   }
 
@@ -129,16 +127,12 @@ app.post('/ensure-branch', async (c) => {
   const userId = (c.get('user') as AuthUser).id;
 
   const body = await c.req.json();
-  const { owner, repo, branchName, sourceBranch } = body as {
-    owner: string;
-    repo: string;
-    branchName: string;
-    sourceBranch?: string;
-  };
+  const rawBody = body as { owner: string; repo: string; branchName: string; sourceBranch?: string };
+  const owner = sanitizeGitHubName(rawBody.owner ?? '');
+  const repo = sanitizeGitHubName(rawBody.repo ?? '');
+  const { branchName, sourceBranch } = rawBody;
 
-  if (typeof owner !== 'string' || !owner.trim() ||
-      typeof repo !== 'string' || !repo.trim() ||
-      typeof branchName !== 'string' || !branchName.trim()) {
+  if (!owner || !repo || typeof branchName !== 'string' || !branchName.trim()) {
     return c.json({ success: false, error: 'owner, repo, and branchName are required' }, 400);
   }
 

@@ -43,13 +43,18 @@ import {
   submitPrReview,
   mergePr,
   commentOnPr,
+  closePr,
+  markPrReady,
   type PrDetails,
   type PrChecksResult,
   type PrReviewsResult,
   type PrReviewEvent,
   type PrMergeMethod,
 } from "@/lib/api-client"
+import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
 import { cn } from "@/lib/utils"
+import { useGitHubStore } from "@/stores/github-store"
+import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 
 interface PrStatusCardProps {
   owner: string
@@ -68,7 +73,9 @@ export function PrStatusCard({
   currentUserLogin,
 }: PrStatusCardProps) {
   const addToast = useToastStore((s) => s.add)
+  const { connected, user: ghUser } = useGitHubStore()
   const [prDetails, setPrDetails] = useState<PrDetails | null>(null)
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false)
   const [checksResult, setChecksResult] = useState<PrChecksResult | null>(null)
   const [reviewsResult, setReviewsResult] = useState<PrReviewsResult | null>(null)
   const [loading, setLoading] = useState(true)
@@ -77,6 +84,7 @@ export function PrStatusCard({
 
   // Dialog states
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false)
+  const [closeDialogOpen, setCloseDialogOpen] = useState(false)
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false)
   const [commentDialogOpen, setCommentDialogOpen] = useState(false)
   const [selectedMergeMethod, setSelectedMergeMethod] = useState<PrMergeMethod>("squash")
@@ -120,6 +128,15 @@ export function PrStatusCard({
   const isClosed = pr?.state === 'closed' && !isMerged
   const isOpen = pr?.state === 'open'
   const isDraft = pr?.draft === true
+
+  // Auto-refresh open PRs every 60 seconds
+  useEffect(() => {
+    if (!isOpen) return
+    const interval = setInterval(() => {
+      loadPrDetails()
+    }, 60_000)
+    return () => clearInterval(interval)
+  }, [isOpen, loadPrDetails])
 
   // Check status aggregation
   const totalChecks = checks.length
@@ -174,6 +191,10 @@ export function PrStatusCard({
   const handleMerge = useCallback(async () => {
     if (!canMerge) return
     setActionLoading('merge')
+    // Optimistic update
+    const prevDetails = prDetails
+    setPrDetails(prev => prev ? { ...prev, state: 'closed', merged: true } : prev)
+    setMergeDialogOpen(false)
     try {
       const result = await mergePr(owner, repo, prNumber, selectedMergeMethod)
       if (result.success) {
@@ -182,10 +203,10 @@ export function PrStatusCard({
           title: "PR merged",
           description: `Successfully merged via ${selectedMergeMethod}`,
         })
-        setMergeDialogOpen(false)
-        // Refresh PR details
         loadPrDetails()
       } else {
+        // Rollback optimistic update
+        setPrDetails(prevDetails)
         addToast({
           type: "error",
           title: "Merge failed",
@@ -193,6 +214,7 @@ export function PrStatusCard({
         })
       }
     } catch (err) {
+      setPrDetails(prevDetails)
       addToast({
         type: "error",
         title: "Merge failed",
@@ -201,7 +223,7 @@ export function PrStatusCard({
     } finally {
       setActionLoading(null)
     }
-  }, [owner, repo, prNumber, selectedMergeMethod, canMerge, addToast, loadPrDetails])
+  }, [owner, repo, prNumber, selectedMergeMethod, canMerge, addToast, loadPrDetails, prDetails])
 
   const handleComment = useCallback(async () => {
     if (!commentBody.trim()) return
@@ -213,6 +235,22 @@ export function PrStatusCard({
           type: "success",
           title: "Comment posted",
         })
+        // Sync the new comment into the comments store so it appears in the feed
+        if (result.comment) {
+          useGitHubCommentsStore.getState().addWebhookComment(owner, repo, prNumber, {
+            id: result.comment.id,
+            nodeId: '',
+            body: commentBody.trim(),
+            htmlUrl: result.comment.htmlUrl || '',
+            createdAt: result.comment.createdAt || new Date().toISOString(),
+            updatedAt: result.comment.createdAt || new Date().toISOString(),
+            user: {
+              login: ghUser?.login ?? '',
+              avatarUrl: ghUser?.avatarUrl ?? '',
+              id: ghUser?.id ?? 0,
+            },
+          })
+        }
         setCommentDialogOpen(false)
         setCommentBody("")
       } else {
@@ -231,7 +269,52 @@ export function PrStatusCard({
     } finally {
       setActionLoading(null)
     }
-  }, [owner, repo, prNumber, commentBody, addToast])
+  }, [owner, repo, prNumber, commentBody, addToast, ghUser])
+
+  const handleMarkReady = useCallback(async () => {
+    if (!isDraft || !isOpen) return
+    setActionLoading('ready')
+    const prevDetails = prDetails
+    setPrDetails(prev => prev ? { ...prev, draft: false } : prev)
+    try {
+      const result = await markPrReady(owner, repo, prNumber)
+      if (result.success) {
+        addToast({ type: "success", title: "PR marked as ready for review" })
+        loadPrDetails()
+      } else {
+        setPrDetails(prevDetails)
+        addToast({ type: "error", title: "Failed to mark ready", description: result.error || "Unknown error" })
+      }
+    } catch (err) {
+      setPrDetails(prevDetails)
+      addToast({ type: "error", title: "Failed to mark ready", description: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setActionLoading(null)
+    }
+  }, [owner, repo, prNumber, isDraft, isOpen, addToast, loadPrDetails, prDetails])
+
+  const handleClose = useCallback(async () => {
+    if (!isOpen) return
+    setActionLoading('close')
+    const prevDetails = prDetails
+    setPrDetails(prev => prev ? { ...prev, state: 'closed' } : prev)
+    setCloseDialogOpen(false)
+    try {
+      const result = await closePr(owner, repo, prNumber)
+      if (result.success) {
+        addToast({ type: "success", title: "PR closed" })
+        loadPrDetails()
+      } else {
+        setPrDetails(prevDetails)
+        addToast({ type: "error", title: "Close failed", description: result.error || "Unknown error" })
+      }
+    } catch (err) {
+      setPrDetails(prevDetails)
+      addToast({ type: "error", title: "Close failed", description: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setActionLoading(null)
+    }
+  }, [owner, repo, prNumber, isOpen, addToast, loadPrDetails, prDetails])
 
   // ── Loading/Error states ────────────────────────────────────────────
 
@@ -307,13 +390,44 @@ export function PrStatusCard({
               <span>{pr.diffStats.changedFiles} file{pr.diffStats.changedFiles !== 1 ? 's' : ''}</span>
             </div>
           </div>
-          <Badge
-            variant={isMerged ? "default" : isClosed ? "destructive" : isDraft ? "secondary" : "success"}
-            className="shrink-0 text-[10px]"
-          >
-            {isMerged ? "Merged" : isClosed ? "Closed" : isDraft ? "Draft" : "Open"}
-          </Badge>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={loadPrDetails}
+              aria-label="Refresh PR details"
+            >
+              <RefreshCw className="h-3 w-3" />
+            </Button>
+            <Badge
+              variant={isMerged ? "default" : isClosed ? "destructive" : isDraft ? "secondary" : "success"}
+              className="text-[10px]"
+            >
+              {isMerged ? "Merged" : isClosed ? "Closed" : isDraft ? "Draft" : "Open"}
+            </Badge>
+          </div>
         </div>
+
+        {/* PR Description */}
+        {pr.body && (
+          <div className="px-4 py-2 border-t border-border/50">
+            <button
+              onClick={() => setDescriptionExpanded(!descriptionExpanded)}
+              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            >
+              {descriptionExpanded ? 'Hide description' : 'Show description'}
+            </button>
+            {descriptionExpanded && (
+              <div className="mt-1">
+                <StreamingMarkdown
+                  content={pr.body}
+                  className="text-xs leading-relaxed text-foreground/90"
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Status Row: checks + reviews */}
         <div className="px-4 py-2 border-t border-border/50 flex items-center gap-4 flex-wrap text-xs">
@@ -365,7 +479,20 @@ export function PrStatusCard({
         </div>
 
         {/* Action buttons - only for open PRs */}
-        {isOpen && (
+        {isOpen && !connected && (
+          <div className="px-4 py-2.5 border-t border-border/50 flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Connect GitHub to take actions</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs ml-auto"
+              onClick={() => useGitHubStore.getState().connect()}
+            >
+              Connect
+            </Button>
+          </div>
+        )}
+        {isOpen && connected && (
           <div className="px-4 py-2.5 border-t border-border/50 flex items-center gap-2 flex-wrap">
             {/* Approve */}
             <Button
@@ -414,6 +541,42 @@ export function PrStatusCard({
               <MessageSquare className="h-3 w-3" />
               Comment
             </Button>
+
+            {/* Mark as Ready — only for draft PRs */}
+            {isDraft && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1"
+                disabled={!!actionLoading}
+                onClick={handleMarkReady}
+              >
+                {actionLoading === 'ready' ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <GitPullRequest className="h-3 w-3" />
+                )}
+                Ready for Review
+              </Button>
+            )}
+
+            {/* Close PR — only for open, non-merged PRs */}
+            {!isMerged && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1 text-destructive hover:text-destructive"
+                disabled={!!actionLoading}
+                onClick={() => setCloseDialogOpen(true)}
+              >
+                {actionLoading === 'close' ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <X className="h-3 w-3" />
+                )}
+                Close
+              </Button>
+            )}
 
             <div className="flex-1" />
 
@@ -522,6 +685,41 @@ export function PrStatusCard({
         </DialogContent>
       </Dialog>
 
+      {/* ── Close Confirmation Dialog ──────────────────────────────────── */}
+      <Dialog open={closeDialogOpen} onOpenChange={setCloseDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Close Pull Request</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to close PR #{prNumber}? This will not delete the branch.
+              {pr && (
+                <span className="block mt-1 text-muted-foreground">
+                  {pr.branch} → {pr.baseBranch}
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setCloseDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={actionLoading === 'close'}
+              onClick={handleClose}
+            >
+              {actionLoading === 'close' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+              ) : (
+                <X className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              Close PR
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Review Dialog ─────────────────────────────────────────────── */}
       <Dialog open={reviewDialogOpen} onOpenChange={setReviewDialogOpen}>
         <DialogContent>
@@ -541,6 +739,7 @@ export function PrStatusCard({
           </DialogHeader>
           <textarea
             ref={textareaRef}
+            aria-label="Review comment"
             className="w-full min-h-[100px] rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y"
             placeholder={
               reviewEvent === 'APPROVE' ? "Leave an optional comment..." :
@@ -590,6 +789,7 @@ export function PrStatusCard({
             </DialogDescription>
           </DialogHeader>
           <textarea
+            aria-label="PR comment"
             className="w-full min-h-[100px] rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y"
             placeholder="Write your comment..."
             value={commentBody}

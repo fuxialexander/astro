@@ -9,21 +9,7 @@
 import { create } from 'zustand'
 import type { GitHubComment, GitHubReviewComment, GitHubReviewThread } from '@/types'
 import { apiUrl } from '@/lib/api-url'
-import { getAccessToken } from '@/lib/supabase-client'
-import { getActiveTeamId } from '@/lib/api-client'
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const headers: Record<string, string> = {}
-  const token = await getAccessToken()
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`
-  }
-  const teamId = getActiveTeamId()
-  if (teamId) {
-    headers['X-Team-Id'] = teamId
-  }
-  return headers
-}
+import { authHeaders } from '@/lib/auth-headers'
 
 /** Normalize a raw GitHub API comment to our GitHubComment type */
 function normalizeComment(raw: Record<string, unknown>): GitHubComment {
@@ -133,6 +119,21 @@ function makeKey(owner: string, repo: string, number: number): string {
   return `${owner}/${repo}/${number}`
 }
 
+/** Add an ID to the set, evicting the oldest entries if over the cap */
+const MAX_POSTED_IDS = 500
+function addPostedId(existing: Set<number>, id: number): Set<number> {
+  const next = new Set(existing)
+  next.add(id)
+  if (next.size > MAX_POSTED_IDS) {
+    // Evict oldest entries (Sets iterate in insertion order)
+    const iter = next.values()
+    while (next.size > MAX_POSTED_IDS) {
+      next.delete(iter.next().value!)
+    }
+  }
+  return next
+}
+
 export const useGitHubCommentsStore = create<CommentsState>((set, get) => ({
   comments: {},
   reviewThreads: {},
@@ -195,14 +196,14 @@ export const useGitHubCommentsStore = create<CommentsState>((set, get) => ({
           ...s.comments,
           [key]: [...(s.comments[key] ?? []), comment],
         },
-        postedCommentIds: new Set([...s.postedCommentIds, comment.id]),
+        postedCommentIds: addPostedId(s.postedCommentIds, comment.id),
       }))
 
       return comment
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
       set(s => ({ errors: { ...s.errors, [key]: msg } }))
-      return null
+      throw error  // Propagate to caller so UI can detect failure
     }
   },
 
@@ -267,7 +268,7 @@ export const useGitHubCommentsStore = create<CommentsState>((set, get) => ({
         }
         return {
           reviewThreads: { ...s.reviewThreads, [key]: threads },
-          postedCommentIds: new Set([...s.postedCommentIds, comment.id]),
+          postedCommentIds: addPostedId(s.postedCommentIds, comment.id),
         }
       })
 
@@ -275,7 +276,7 @@ export const useGitHubCommentsStore = create<CommentsState>((set, get) => ({
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
       set(s => ({ errors: { ...s.errors, [`review-${key}`]: msg } }))
-      return null
+      throw error  // Propagate to caller so UI can detect failure
     }
   },
 
@@ -382,6 +383,7 @@ export const useGitHubCommentsStore = create<CommentsState>((set, get) => ({
         retryCount++
         if (retryCount > MAX_RECONNECT_RETRIES) {
           console.warn(`[github-comments] Max reconnect retries (${MAX_RECONNECT_RETRIES}) reached for ${key}`)
+          set(s => ({ errors: { ...s.errors, [key]: 'Live updates disconnected. Refresh to reconnect.' } }))
           return
         }
 

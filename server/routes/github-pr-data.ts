@@ -8,6 +8,8 @@
 import { Hono } from 'hono'
 import { githubStore } from '../lib/github-store'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
+import { sanitizeGitHubName } from '@astro/core/prompt-templates'
+import { fetchWithRateLimit } from '../lib/github-rate-limit.js'
 
 const GITHUB_API = 'https://api.github.com'
 
@@ -84,12 +86,12 @@ export interface GitHubReview {
  */
 app.get('/:owner/:repo/:prNumber', async (c) => {
   const userId = (c.get('user') as AuthUser).id
-  const owner = c.req.param('owner')
-  const repo = c.req.param('repo')
+  const owner = sanitizeGitHubName(c.req.param('owner'))
+  const repo = sanitizeGitHubName(c.req.param('repo'))
   const prNumber = parseInt(c.req.param('prNumber'), 10)
 
-  if (isNaN(prNumber) || prNumber <= 0) {
-    return c.json({ error: 'Invalid PR number' }, 400)
+  if (!owner || !repo || isNaN(prNumber) || prNumber <= 0) {
+    return c.json({ error: 'Invalid owner, repo, or PR number' }, 400)
   }
 
   const result = await getGitHubHeaders(userId)
@@ -98,7 +100,7 @@ app.get('/:owner/:repo/:prNumber', async (c) => {
   }
 
   try {
-    const response = await fetch(
+    const response = await fetchWithRateLimit(
       `${GITHUB_API}/repos/${owner}/${repo}/pulls/${prNumber}`,
       { headers: result.headers }
     )
@@ -177,12 +179,12 @@ app.get('/:owner/:repo/:prNumber', async (c) => {
  */
 app.get('/:owner/:repo/:prNumber/checks', async (c) => {
   const userId = (c.get('user') as AuthUser).id
-  const owner = c.req.param('owner')
-  const repo = c.req.param('repo')
+  const owner = sanitizeGitHubName(c.req.param('owner'))
+  const repo = sanitizeGitHubName(c.req.param('repo'))
   const prNumber = parseInt(c.req.param('prNumber'), 10)
 
-  if (isNaN(prNumber) || prNumber <= 0) {
-    return c.json({ error: 'Invalid PR number' }, 400)
+  if (!owner || !repo || isNaN(prNumber) || prNumber <= 0) {
+    return c.json({ error: 'Invalid owner, repo, or PR number' }, 400)
   }
 
   const result = await getGitHubHeaders(userId)
@@ -192,7 +194,7 @@ app.get('/:owner/:repo/:prNumber/checks', async (c) => {
 
   try {
     // First, get the PR to find the head SHA
-    const prResponse = await fetch(
+    const prResponse = await fetchWithRateLimit(
       `${GITHUB_API}/repos/${owner}/${repo}/pulls/${prNumber}`,
       { headers: result.headers }
     )
@@ -214,7 +216,7 @@ app.get('/:owner/:repo/:prNumber/checks', async (c) => {
     }
 
     // Fetch check runs for the head SHA
-    const checksResponse = await fetch(
+    const checksResponse = await fetchWithRateLimit(
       `${GITHUB_API}/repos/${owner}/${repo}/commits/${headSha}/check-runs`,
       { headers: result.headers }
     )
@@ -278,12 +280,12 @@ app.get('/:owner/:repo/:prNumber/checks', async (c) => {
  */
 app.get('/:owner/:repo/:prNumber/reviews', async (c) => {
   const userId = (c.get('user') as AuthUser).id
-  const owner = c.req.param('owner')
-  const repo = c.req.param('repo')
+  const owner = sanitizeGitHubName(c.req.param('owner'))
+  const repo = sanitizeGitHubName(c.req.param('repo'))
   const prNumber = parseInt(c.req.param('prNumber'), 10)
 
-  if (isNaN(prNumber) || prNumber <= 0) {
-    return c.json({ error: 'Invalid PR number' }, 400)
+  if (!owner || !repo || isNaN(prNumber) || prNumber <= 0) {
+    return c.json({ error: 'Invalid owner, repo, or PR number' }, 400)
   }
 
   const result = await getGitHubHeaders(userId)
@@ -292,7 +294,7 @@ app.get('/:owner/:repo/:prNumber/reviews', async (c) => {
   }
 
   try {
-    const response = await fetch(
+    const response = await fetchWithRateLimit(
       `${GITHUB_API}/repos/${owner}/${repo}/pulls/${prNumber}/reviews`,
       { headers: result.headers }
     )

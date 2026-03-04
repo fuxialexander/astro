@@ -16,6 +16,7 @@ import {
   ChevronUp,
   Link as LinkIcon,
   CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -50,18 +51,31 @@ function InstallationRow({
   const [linking, setLinking] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
+  const [rowError, setRowError] = useState<string | null>(null);
 
   const handleLinkTeam = async (teamId: string) => {
     setLinking(true);
-    await linkToTeam(installation.installationId, teamId === '__personal' ? null : teamId);
-    setLinking(false);
+    setRowError(null);
+    try {
+      await linkToTeam(installation.installationId, teamId === '__personal' ? null : teamId);
+    } catch (err) {
+      setRowError(err instanceof Error ? err.message : 'Failed to link team');
+    } finally {
+      setLinking(false);
+    }
   };
 
   const handleRemove = async () => {
     setConfirmRemoveOpen(false);
     setRemoving(true);
-    await unlink(installation.installationId);
-    setRemoving(false);
+    setRowError(null);
+    try {
+      await unlink(installation.installationId);
+    } catch (err) {
+      setRowError(err instanceof Error ? err.message : 'Failed to remove installation');
+    } finally {
+      setRemoving(false);
+    }
   };
 
   const linkedTeam = teams.find((t) => t.id === installation.teamId);
@@ -193,6 +207,14 @@ function InstallationRow({
             </div>
           )}
 
+          {/* Row error */}
+          {rowError && (
+            <div className="flex items-center gap-1.5 text-xs text-destructive">
+              <AlertCircle className="h-3 w-3 shrink-0" />
+              {rowError}
+            </div>
+          )}
+
           {/* Repository list */}
           {installation.repos.length > 0 && (
             <div>
@@ -231,7 +253,7 @@ interface GitHubAppInstallationManagerProps {
 export function GitHubAppInstallationManager({
   className,
 }: GitHubAppInstallationManagerProps) {
-  const { installations, loading, fetchInstallations } = useGitHubAppStore();
+  const { installations, loading, error, fetchInstallations } = useGitHubAppStore();
   const { teams, loaded: teamsLoaded, load: loadTeams } = useTeamStore();
 
   useEffect(() => {
@@ -272,9 +294,11 @@ export function GitHubAppInstallationManager({
               <span className="text-[13px] text-muted-foreground">
                 {loading
                   ? 'Loading…'
-                  : installations.length === 0
-                    ? 'No installations yet'
-                    : `${installations.length} installation${installations.length !== 1 ? 's' : ''}`}
+                  : error && installations.length === 0
+                    ? 'Failed to load installations'
+                    : installations.length === 0
+                      ? 'No installations yet'
+                      : `${installations.length} installation${installations.length !== 1 ? 's' : ''}`}
               </span>
             </div>
           </div>
@@ -288,6 +312,22 @@ export function GitHubAppInstallationManager({
             )}
           </div>
         </div>
+
+        {/* Error state */}
+        {error && !loading && (
+          <div className="px-4 py-3 flex items-center gap-2 text-sm text-destructive border-b border-border">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span className="flex-1">{error}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs shrink-0"
+              onClick={() => fetchInstallations()}
+            >
+              Retry
+            </Button>
+          </div>
+        )}
 
         {/* Installation list */}
         {loading ? (

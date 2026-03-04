@@ -11,7 +11,8 @@ import { githubConnections, projects } from './db/schema.js';
 import { eq, and } from 'drizzle-orm';
 
 class GitHubStore {
-  // OAuth states are ephemeral — in-memory is fine
+  // OAuth states are ephemeral — in-memory is fine for single-instance.
+  // TODO: migrate to DB-backed state for multi-instance deployment
   private oauthStates = new Map<string, { userId: string; expiresAt: number }>();
 
   /**

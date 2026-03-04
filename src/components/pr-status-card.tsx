@@ -137,8 +137,17 @@ export function PrStatusCard({ node, prData: externalPrData, owner, repo, classN
     }
   }, [prData, node.prNumber, fetchPrData])
 
-  // Don't render if there's no PR data at all
-  if (!prData && !node.prNumber) return null
+  // Show subtle empty state when no PR is linked
+  if (!prData && !node.prNumber) {
+    return (
+      <div className={cn("mx-4 my-2 rounded-lg border border-dashed border-border/60 bg-card/30 p-3", className)}>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <GitPullRequest className="h-3.5 w-3.5 shrink-0" />
+          <span>No pull request linked</span>
+        </div>
+      </div>
+    )
+  }
 
   // Loading state
   if (loading && !prData) {
@@ -312,7 +321,7 @@ export function PrStatusCard({ node, prData: externalPrData, owner, repo, classN
       {/* Expandable CI check runs */}
       {checksExpanded && checks.length > 0 && (
         <div className="border-t border-border/50 bg-muted/10 px-3 py-2 space-y-1">
-          {checks.map((check, i) => {
+          {checks.map((check) => {
             const status = getCheckIcon(check.status, check.conclusion)
             const StatusIcon = status.label === "Running" ? Loader2 :
               status.label === "Queued" || status.label === "Pending" ? Clock :
@@ -321,7 +330,7 @@ export function PrStatusCard({ node, prData: externalPrData, owner, repo, classN
             const duration = formatCheckDuration(check.startedAt, check.completedAt)
 
             return (
-              <div key={i} className="flex items-center gap-2 text-xs py-0.5">
+              <div key={check.name || check.htmlUrl} className="flex items-center gap-2 text-xs py-0.5">
                 <StatusIcon className={cn("h-3 w-3 shrink-0", status.color, status.animate && "animate-spin")} />
                 <span className="font-mono truncate flex-1 text-foreground/80">
                   {check.name}

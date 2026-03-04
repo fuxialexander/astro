@@ -189,17 +189,27 @@ export async function handleIssueCommentEvent(
   const [owner, repoName] = repoFullName.split('/')
 
   // Store comment on the linked plan node
-  await appendCommentToNode(projectId, issueNumber, {
-    id: commentId,
-    author: {
-      login: (sender?.login as string) ?? 'unknown',
-      avatar: (sender?.avatar_url as string) ?? '',
-    },
-    body: commentBody,
-    createdAt: comment.created_at as string,
-    updatedAt: comment.updated_at as string,
-    type: 'issue_comment',
-  })
+  try {
+    await appendCommentToNode(projectId, issueNumber, {
+      id: commentId,
+      author: {
+        login: (sender?.login as string) ?? 'unknown',
+        avatar: (sender?.avatar_url as string) ?? '',
+      },
+      body: commentBody,
+      createdAt: comment.created_at as string,
+      updatedAt: comment.updated_at as string,
+      type: 'issue_comment',
+    })
+  } catch (err) {
+    // TODO: implement dead-letter queue for failed webhook DB writes
+    console.error(`[github-channel] Failed to store issue comment:`, {
+      event: 'issue_comment',
+      issueNumber,
+      commentId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
 
   // Broadcast the new comment to connected SSE clients for real-time updates
   githubCommentBus.emit({
@@ -340,8 +350,6 @@ export async function handlePRReviewCommentEvent(
   config: GitHubChannelConfig
 ): Promise<void> {
   const action = payload.action as string
-  if (action !== 'created') return
-
   const comment = payload.comment as Record<string, unknown> | undefined
   const pr = payload.pull_request as Record<string, unknown> | undefined
   const repo = payload.repository as Record<string, unknown> | undefined
@@ -357,22 +365,50 @@ export async function handlePRReviewCommentEvent(
   const prNumber = pr.number as number
   const commentId = comment.id as number
 
-  console.log(`[github-channel] PR review comment on PR #${prNumber} by ${sender?.login}`)
+  console.log(`[github-channel] PR review comment ${action} on PR #${prNumber} by ${sender?.login}`)
 
-  await appendCommentToNode(projectId, prNumber, {
-    id: commentId,
-    author: {
-      login: (sender?.login as string) ?? 'unknown',
-      avatar: (sender?.avatar_url as string) ?? '',
-    },
-    body: (comment.body as string) ?? '',
-    createdAt: comment.created_at as string,
-    updatedAt: comment.updated_at as string,
-    type: 'review_comment',
-    inReplyTo: (comment.in_reply_to_id as number) ?? undefined,
-    path: (comment.path as string) ?? undefined,
-    line: (comment.line as number) ?? (comment.original_line as number) ?? undefined,
-  })
+  try {
+    if (action === 'created' || action === 'edited') {
+      await appendCommentToNode(projectId, prNumber, {
+        id: commentId,
+        author: {
+          login: (sender?.login as string) ?? 'unknown',
+          avatar: (sender?.avatar_url as string) ?? '',
+        },
+        body: (comment.body as string) ?? '',
+        createdAt: comment.created_at as string,
+        updatedAt: comment.updated_at as string,
+        type: 'review_comment',
+        inReplyTo: (comment.in_reply_to_id as number) ?? undefined,
+        path: (comment.path as string) ?? undefined,
+        line: (comment.line as number) ?? (comment.original_line as number) ?? undefined,
+      })
+    } else if (action === 'deleted') {
+      // Remove the deleted comment from the plan node's stored comments
+      const [node] = await db.select({ id: planNodes.id, githubComments: planNodes.githubComments })
+        .from(planNodes)
+        .where(and(eq(planNodes.projectId, projectId), eq(planNodes.githubIssueNumber, prNumber)))
+        .limit(1)
+
+      if (node) {
+        const existing = (node.githubComments ?? []) as Array<{ id: number }>
+        const filtered = existing.filter(c => c.id !== commentId)
+        if (filtered.length !== existing.length) {
+          await db.update(planNodes).set({
+            githubComments: filtered,
+            updatedAt: new Date(),
+          }).where(eq(planNodes.id, node.id))
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[github-channel] Failed to handle PR review comment (${action}):`, {
+      event: 'pull_request_review_comment',
+      prNumber,
+      commentId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
 }
 
 /**
@@ -691,31 +727,46 @@ export async function handleCheckRunEvent(
     const linkedNode = await findLinkedNode(projectId, prNumber, headRef)
     if (!linkedNode) continue
 
-    // Determine CI status from check run conclusion
-    let ciStatus = 'pending'
-    if (status === 'completed') {
-      if (conclusion === 'success' || conclusion === 'skipped' || conclusion === 'neutral') {
-        ciStatus = 'success'
-      } else if (conclusion === 'failure' || conclusion === 'timed_out') {
-        ciStatus = 'failure'
-      } else if (conclusion === 'cancelled') {
-        ciStatus = 'cancelled'
-      } else {
-        ciStatus = conclusion || 'unknown'
-      }
-    } else if (status === 'in_progress') {
-      ciStatus = 'in_progress'
-    }
-
-    // Update githubPrData.ciStatus on the linked node
     const existingPrData = linkedNode.githubPrData as Record<string, unknown> | null
-    if (existingPrData) {
+    if (!existingPrData) continue
+
+    try {
+      // Maintain array of check runs for proper aggregation
+      const existingCheckRuns = (existingPrData.checkRuns as Array<{ name: string; status: string; conclusion: string | null }>) ?? []
+
+      // Update or add this check run
+      const updatedCheckRuns = existingCheckRuns.filter(cr => cr.name !== checkName)
+      updatedCheckRuns.push({ name: checkName, status, conclusion: conclusion ?? null })
+
+      // Compute overall CI status from all check runs
+      const allCompleted = updatedCheckRuns.every(cr => cr.status === 'completed')
+      const anyFailed = updatedCheckRuns.some(cr =>
+        cr.status === 'completed' && (cr.conclusion === 'failure' || cr.conclusion === 'timed_out')
+      )
+      const allSuccess = allCompleted && updatedCheckRuns.every(cr =>
+        cr.conclusion === 'success' || cr.conclusion === 'skipped' || cr.conclusion === 'neutral'
+      )
+
+      let ciStatus = 'pending'
+      if (anyFailed) ciStatus = 'failure'
+      else if (allSuccess) ciStatus = 'success'
+      else if (allCompleted) ciStatus = 'failure' // completed but not all success
+      // else remains 'pending'
+
       await db.update(planNodes).set({
-        githubPrData: { ...existingPrData, ciStatus },
+        githubPrData: { ...existingPrData, checkRuns: updatedCheckRuns, ciStatus },
         updatedAt: new Date(),
       }).where(eq(planNodes.id, linkedNode.id))
 
-      console.log(`[github-channel] Updated CI status to "${ciStatus}" on node ${linkedNode.clientId} (check: ${checkName})`)
+      console.log(`[github-channel] Updated CI status to "${ciStatus}" on node ${linkedNode.clientId} (check: ${checkName}, ${updatedCheckRuns.length} total)`)
+    } catch (err) {
+      // TODO: implement dead-letter queue for failed webhook DB writes
+      console.error(`[github-channel] Failed to update CI status on node ${linkedNode.clientId}:`, {
+        event: 'check_run',
+        prNumber,
+        checkName,
+        error: err instanceof Error ? err.message : String(err),
+      })
     }
   }
 }
@@ -755,22 +806,45 @@ export async function handlePullRequestReviewEvent(
   const existingPrData = linkedNode.githubPrData as Record<string, unknown> | null
   if (!existingPrData) return
 
-  // Determine overall review status
-  let reviewStatus = 'pending'
-  if (reviewState === 'approved') {
-    reviewStatus = 'approved'
-  } else if (reviewState === 'changes_requested') {
-    reviewStatus = 'changes_requested'
-  } else if (reviewState === 'commented') {
-    reviewStatus = 'commented'
-  } else if (reviewState === 'dismissed') {
-    reviewStatus = 'pending' // Dismissed review reverts to pending
+  try {
+    // Maintain per-reviewer state map for proper aggregation
+    const reviewerStates = (existingPrData.reviewerStates as Record<string, string>) ?? {}
+
+    // Update the current reviewer's state
+    if (reviewer) {
+      if (reviewState === 'dismissed') {
+        delete reviewerStates[reviewer]
+      } else {
+        reviewerStates[reviewer] = reviewState
+      }
+    }
+
+    // Compute overall review status from all reviewers
+    const states = Object.values(reviewerStates)
+    let reviewStatus = 'pending'
+    if (states.some(s => s === 'changes_requested')) {
+      reviewStatus = 'changes_requested'
+    } else if (states.length > 0 && states.every(s => s === 'approved')) {
+      reviewStatus = 'approved'
+    } else if (states.some(s => s === 'approved')) {
+      reviewStatus = 'partially_approved'
+    } else if (states.some(s => s === 'commented')) {
+      reviewStatus = 'commented'
+    }
+
+    await db.update(planNodes).set({
+      githubPrData: { ...existingPrData, reviewerStates, reviewStatus },
+      updatedAt: new Date(),
+    }).where(eq(planNodes.id, linkedNode.id))
+
+    console.log(`[github-channel] Updated review status to "${reviewStatus}" on node ${linkedNode.clientId} (reviewer: ${reviewer}, ${states.length} total)`)
+  } catch (err) {
+    // TODO: implement dead-letter queue for failed webhook DB writes
+    console.error(`[github-channel] Failed to update review status on node ${linkedNode.clientId}:`, {
+      event: 'pull_request_review',
+      prNumber,
+      reviewer,
+      error: err instanceof Error ? err.message : String(err),
+    })
   }
-
-  await db.update(planNodes).set({
-    githubPrData: { ...existingPrData, reviewStatus },
-    updatedAt: new Date(),
-  }).where(eq(planNodes.id, linkedNode.id))
-
-  console.log(`[github-channel] Updated review status to "${reviewStatus}" on node ${linkedNode.clientId} (reviewer: ${reviewer})`)
 }
