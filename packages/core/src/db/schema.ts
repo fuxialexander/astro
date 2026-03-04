@@ -34,6 +34,11 @@ export const projects = pgTable('projects', {
   githubRepo: text('github_repo'),
   githubRepoId: integer('github_repo_id'),
   references: jsonb('references').default([]),
+  githubSyncSettings: jsonb('github_sync_settings').$type<{
+    enabledFields: string[]       // which plan_node fields to sync (e.g. ['title','description','status'])
+    autoCreateDirection: 'astro_to_github' | 'github_to_astro' | 'bidirectional' | 'none'
+    labelMapping: Record<string, string>  // astro label id → github label name
+  }>(),
   projectBranch: text('project_branch'),
   projectPrUrl: text('project_pr_url'),
   projectPrNumber: integer('project_pr_number'),
@@ -155,6 +160,9 @@ export const planNodes = pgTable('plan_nodes', {
     type: 'issue_comment' | 'review_comment';
     inReplyTo?: number; path?: string; line?: number;
   }>>().default([]),
+  githubSyncedAt: timestamp('github_synced_at'),
+  githubSyncVersion: integer('github_sync_version').default(0),
+  syncSource: text('sync_source'),  // 'user' | 'github' | 'sync' — prevents infinite sync loops
   deletedAt: timestamp('deleted_at'),
   deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
