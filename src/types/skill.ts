@@ -7,4 +7,5 @@ export type {
   SkillInstaller,
   OpenClawSkillMetadata,
   OpenClawSkill,
+  SkillCollectionManifest,
 } from '../../packages/core/src/types/skill.js'

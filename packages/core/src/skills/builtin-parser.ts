@@ -69,7 +69,7 @@ export function parseBuiltinSkillMd(content: string): BuiltinSkillDefinition | n
   const description = meta.description?.replace(/^["']|["']$/g, '') || ''
   const version = meta.version?.replace(/^["']|["']$/g, '') || '1.0.0'
 
-  return {
+  const result: BuiltinSkillDefinition = {
     name: meta.name,
     version,
     description,
@@ -78,4 +78,12 @@ export function parseBuiltinSkillMd(content: string): BuiltinSkillDefinition | n
     tags: parseYamlArray(meta.tags || '[]'),
     allowedTools: parseYamlArray(meta.allowedTools || '[]') as AllowedTool[],
   }
+
+  // Parse optional boolean fields
+  if (meta.disableModelInvocation === 'true') result.disableModelInvocation = true
+  if (meta.disableModelInvocation === 'false') result.disableModelInvocation = false
+  if (meta.userInvocable === 'true') result.userInvocable = true
+  if (meta.userInvocable === 'false') result.userInvocable = false
+
+  return result
 }

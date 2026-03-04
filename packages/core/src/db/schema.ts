@@ -683,7 +683,7 @@ export const skills = pgTable('skills', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (table) => [
   unique('skills_name_team_id_unique').on(table.name, table.teamId),
-  check('skills_source_check', sql`${table.source} IN ('builtin', 'workspace', 'clawhub', 'plugin', 'user')`),
+  check('skills_source_check', sql`${table.source} IN ('builtin', 'workspace', 'clawhub', 'plugin', 'user', 'catalog')`),
   index('skills_team_id_idx').on(table.teamId),
   index('skills_author_id_idx').on(table.authorId),
   index('skills_category_idx').on(table.category),
@@ -693,6 +693,10 @@ export const skills = pgTable('skills', {
   // Partial unique index — PGlite-compatible (PGlite supports WHERE clauses on unique indexes)
   uniqueIndex('skills_builtin_name_unique').on(table.name).where(sql`${table.source} = 'builtin'`),
   check('skills_builtin_null_ownership', sql`${table.source} != 'builtin' OR (${table.teamId} IS NULL AND ${table.authorId} IS NULL)`),
+  // Catalog skills must also have null ownership (global, not team-scoped)
+  check('skills_catalog_null_ownership', sql`${table.source} != 'catalog' OR (${table.teamId} IS NULL AND ${table.authorId} IS NULL)`),
+  // Partial unique index for catalog skills (unique name per catalog source)
+  uniqueIndex('skills_catalog_name_unique').on(table.name).where(sql`${table.source} = 'catalog'`),
 ])
 
 // ── Custom Templates ───────────────────────────────────────────────

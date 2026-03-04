@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from "react"
+import { useEffect, useMemo, useState, useCallback } from "react"
 import { useNavigate } from "react-router"
 import {
   Wrench,
@@ -18,6 +18,8 @@ import {
   ArrowLeft,
   Check,
   Sparkles,
+  Microscope,
+  Package,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -46,11 +48,12 @@ import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useToastStore } from "@/stores/toast-store"
 import { cn } from "@/lib/utils"
 import { fetchSkillFromGitHub } from "@/lib/github-skill-import"
-import type { OpenClawSkill } from "@/types/skill"
+import type { OpenClawSkill, SkillCollectionManifest } from "@/types/skill"
 
 // --- Source badge styling ---
 const sourceConfig: Record<string, { label: string; className: string }> = {
   builtin: { label: "Built-in", className: "bg-primary/10 text-primary" },
+  catalog: { label: "Catalog", className: "bg-violet-500/10 text-violet-600 dark:text-violet-400" },
   workspace: { label: "Workspace", className: "bg-info/10 text-info" },
   clawhub: { label: "ClawHub", className: "bg-warning/10 text-warning" },
   plugin: { label: "Plugin", className: "bg-success/10 text-success" },
@@ -634,6 +637,68 @@ function SkillCard({
   )
 }
 
+// --- Collection icon helper ---
+function CollectionIcon({ icon, className }: { icon: string; className?: string }) {
+  switch (icon) {
+    case 'sparkles': return <Sparkles className={className} />
+    case 'microscope': return <Microscope className={className} />
+    default: return <Package className={className} />
+  }
+}
+
+// --- Collection Cards ---
+function CollectionCards({
+  collections,
+  onToggle,
+}: {
+  collections: SkillCollectionManifest[]
+  onToggle: (collectionId: string) => void
+}) {
+  if (collections.length === 0) return null
+
+  return (
+    <div className="border-b border-border px-6 py-4">
+      <h2 className="text-sm font-semibold text-muted-foreground mb-3">Skill Collections</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {collections.map((collection) => (
+          <div
+            key={collection.id}
+            className="rounded-lg border border-border bg-card p-4 hover:border-primary/40 hover:shadow-sm transition-all flex items-start gap-3"
+          >
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-500/10 shrink-0">
+              <CollectionIcon icon={collection.icon} className="h-5 w-5 text-violet-600 dark:text-violet-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold truncate">{collection.name}</h3>
+                  <p className="text-[11px] text-muted-foreground">{collection.provider}</p>
+                </div>
+                <div onClick={(e) => e.stopPropagation()}>
+                  <Switch
+                    checked={collection.enabled}
+                    onCheckedChange={() => onToggle(collection.id)}
+                    aria-label={`Toggle ${collection.name}`}
+                  />
+                </div>
+              </div>
+              {collection.description && (
+                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                  {collection.description}
+                </p>
+              )}
+              <p className="text-[11px] text-muted-foreground mt-1.5">
+                {collection.skillCount} skills
+                {collection.enabledCount > 0 && ` · ${collection.enabledCount} enabled`}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // --- Main Skills Page ---
 export function Skills() {
   const navigate = useNavigate()
@@ -641,6 +706,17 @@ export function Skills() {
   const addSkill = useSkillStore((s) => s.addSkill)
   const removeSkill = useSkillStore((s) => s.removeSkill)
   const rawToggleSkill = useSkillStore((s) => s.toggleSkill)
+  const collections = useSkillStore((s) => s.collections)
+  const collectionsLoaded = useSkillStore((s) => s.collectionsLoaded)
+  const loadCollections = useSkillStore((s) => s.loadCollections)
+  const toggleCollection = useSkillStore((s) => s.toggleCollection)
+
+  // Load collections on mount
+  useEffect(() => {
+    if (!collectionsLoaded) {
+      loadCollections()
+    }
+  }, [collectionsLoaded, loadCollections])
 
   const toggleSkill = useCallback((id: string) => {
     const skill = skillsMap.get(id)
@@ -1014,6 +1090,11 @@ export function Skills() {
           </button>
         </div>
       </div>
+
+      {/* Collection Cards */}
+      {collections.length > 0 && (
+        <CollectionCards collections={collections} onToggle={toggleCollection} />
+      )}
 
       {/* Content */}
       {allSkills.length === 0 ? (
