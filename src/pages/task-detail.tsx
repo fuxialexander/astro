@@ -18,6 +18,8 @@ import { TaskContentTab } from "@/components/task-detail/task-content-tab"
 import { NodeInspectorContent, NodeInspectorSheet } from "@/components/node-inspector"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { ApprovalCard } from "@/components/approval-card"
+import { PrStatusCard } from "@/components/task-detail/pr-status-card"
+import { useGitHubStore } from "@/stores/github-store"
 import { statusBadgeVariants } from "@/lib/status-config"
 import { formatDuration } from "@/lib/date-utils"
 import { cn, getShortId } from "@/lib/utils"
@@ -48,6 +50,9 @@ export function TaskDetail() {
   const [isResetting, setIsResetting] = useState(false)
   const getPendingApprovalForNode = useExecutionStore((s) => s.getPendingApprovalForNode)
   const respondToApproval = useExecutionStore((s) => s.respondToApproval)
+
+  // GitHub user for self-approval guard
+  const currentUserLogin = useGitHubStore((s) => s.user?.login)
 
   // Mobile detection
   const isMobile = useMediaQuery("(max-width: 767px)")
@@ -271,6 +276,37 @@ export function TaskDetail() {
           />
         </div>
       )}
+
+      {/* PR Status Card - shown when task has an associated PR */}
+      {(() => {
+        const thePrUrl = node.prUrl || execution?.prUrl
+        const thePrNumber = node.prNumber || execution?.prNumber
+        if (!thePrUrl || !thePrNumber) return null
+
+        // Resolve owner/repo: prefer project fields, fall back to parsing the PR URL
+        let prOwner = project?.githubOwner
+        let prRepo = project?.githubRepo
+        if (!prOwner || !prRepo) {
+          const match = thePrUrl.match(/github\.com\/([^/]+)\/([^/]+)\/pull\//)
+          if (match) {
+            prOwner = match[1]
+            prRepo = match[2]
+          }
+        }
+        if (!prOwner || !prRepo) return null
+
+        return (
+          <div className="px-4 md:px-6 pt-4">
+            <PrStatusCard
+              owner={prOwner}
+              repo={prRepo}
+              prNumber={thePrNumber}
+              prUrl={thePrUrl}
+              currentUserLogin={currentUserLogin}
+            />
+          </div>
+        )
+      })()}
 
       {/* Judgment Banner for awaiting_judgment tasks */}
       {node.status === "awaiting_judgment" && (

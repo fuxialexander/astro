@@ -2,8 +2,221 @@
  * GitHub API client for OAuth and repository management
  */
 
-import type { GitHubRepo, GitHubUser, GitHubTokenResponse, GitHubApiRepo } from '../types/github';
+import { createSign } from 'node:crypto';
+import type { GitHubRepo, GitHubUser, GitHubTokenResponse, GitHubApiRepo, GitHubComment } from '../types/github';
 import { convertToSshUrl } from './git-url-utils.js';
+import { db } from './db/index.js';
+import { githubConnections, teamMembers } from './db/schema.js';
+import { eq } from 'drizzle-orm';
+
+// ── Token Resolution Types ──────────────────────────────────────────────────
+
+export type GitHubTokenType = 'installation' | 'oauth' | 'env';
+
+export interface GitHubTokenResult {
+  token: string;
+  type: GitHubTokenType;
+  /** Human-readable description of where the token came from, for logging */
+  source: string;
+}
+
+// ── GitHub App JWT ──────────────────────────────────────────────────────────
+
+/**
+ * Encode a buffer as URL-safe base64 (base64url) without padding.
+ */
+function toBase64Url(input: Buffer | string): string {
+  const buf = typeof input === 'string' ? Buffer.from(input) : input;
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+/**
+ * Create a signed JWT for GitHub App authentication using RS256.
+ *
+ * The JWT is valid for 10 minutes and is back-dated by 60 seconds to
+ * account for clock skew between the server and GitHub.
+ */
+function createGitHubAppJwt(appId: string, privateKey: string): string {
+  const now = Math.floor(Date.now() / 1000);
+  const header = toBase64Url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const payload = toBase64Url(
+    JSON.stringify({
+      iat: now - 60,  // issued 60 s ago to account for clock skew
+      exp: now + 600, // expires in 10 minutes (GitHub's max)
+      iss: appId,
+    })
+  );
+
+  const sign = createSign('RSA-SHA256');
+  sign.update(`${header}.${payload}`);
+  const signatureB64 = sign.sign(privateKey, 'base64');
+  // Convert standard base64 → base64url
+  const signature = signatureB64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+
+  return `${header}.${payload}.${signature}`;
+}
+
+// ── Installation Token ──────────────────────────────────────────────────────
+
+/**
+ * Get a GitHub App installation access token for a specific repository.
+ *
+ * Requires GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY environment variables.
+ * Returns null if the app is not configured or not installed on the repo.
+ */
+async function getInstallationTokenForRepo(owner: string, repo: string): Promise<string | null> {
+  const appId = process.env.GITHUB_APP_ID;
+  // Support \n-escaped newlines that are common in env vars stored as single-line strings
+  const privateKey = process.env.GITHUB_APP_PRIVATE_KEY?.replace(/\\n/g, '\n');
+
+  if (!appId || !privateKey) return null;
+
+  try {
+    const jwt = createGitHubAppJwt(appId, privateKey);
+
+    // Look up which installation covers this repo
+    const installRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/installation`,
+      {
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      }
+    );
+
+    if (!installRes.ok) {
+      // 404 means the app is not installed on this repo — not an error, just no coverage
+      if (installRes.status !== 404) {
+        console.warn(
+          `[github-token] Installation lookup failed for ${owner}/${repo}: HTTP ${installRes.status}`
+        );
+      }
+      return null;
+    }
+
+    const install = await installRes.json() as { id: number };
+    const installationId = install.id;
+
+    // Exchange the installation ID for a short-lived access token
+    const tokenRes = await fetch(
+      `https://api.github.com/app/installations/${installationId}/access_tokens`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      }
+    );
+
+    if (!tokenRes.ok) {
+      console.warn(
+        `[github-token] Failed to create installation token for ${owner}/${repo}: HTTP ${tokenRes.status}`
+      );
+      return null;
+    }
+
+    const tokenData = await tokenRes.json() as { token: string };
+    return tokenData.token;
+  } catch (err) {
+    console.warn(
+      `[github-token] Error obtaining installation token for ${owner}/${repo}:`,
+      err instanceof Error ? err.message : String(err)
+    );
+    return null;
+  }
+}
+
+// ── Unified Token Resolver ──────────────────────────────────────────────────
+
+/**
+ * Resolve a GitHub API token using the unified priority chain:
+ *
+ * 1. **GitHub App installation token** — generated dynamically from the app's
+ *    private key (GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY). Preferred because
+ *    it is scoped to the specific repo and has no expiry concerns.
+ *
+ * 2. **GITHUB_TOKEN env var** — a pre-configured token (e.g. a GitHub Actions
+ *    installation token or admin PAT). Used for CI/CD compatibility.
+ *
+ * 3. **Project owner's OAuth token** — the token stored for the user who owns
+ *    the project, fetched from the `githubConnections` table.
+ *
+ * 4. **Any team member's OAuth token** — last resort; useful when the project
+ *    owner has not connected GitHub but a team member has.
+ *
+ * @param owner  - Repository owner (org or user login)
+ * @param repo   - Repository name
+ * @param userId - Project owner's user ID; enables OAuth fallback (tier 3)
+ * @param teamId - Project's team ID; enables team-member fallback (tier 4)
+ * @returns Token result with type + human-readable source, or null if unavailable
+ */
+export async function resolveGitHubToken(
+  owner: string,
+  repo: string,
+  userId?: string,
+  teamId?: string | null,
+): Promise<GitHubTokenResult | null> {
+  // ── Tier 1: GitHub App installation token ──────────────────────────
+  const installToken = await getInstallationTokenForRepo(owner, repo);
+  if (installToken) {
+    console.log(`[github-token] tier=installation repo=${owner}/${repo}`);
+    return {
+      token: installToken,
+      type: 'installation',
+      source: `GitHub App installation for ${owner}`,
+    };
+  }
+
+  // ── Tier 2: GITHUB_TOKEN env var ──────────────────────────────────
+  const envToken = process.env.GITHUB_TOKEN;
+  if (envToken) {
+    console.log(`[github-token] tier=env repo=${owner}/${repo}`);
+    return { token: envToken, type: 'env', source: 'GITHUB_TOKEN env var' };
+  }
+
+  // ── Tier 3: Project owner's OAuth token ───────────────────────────
+  if (userId) {
+    const [ownerConn] = await db
+      .select({ accessToken: githubConnections.accessToken })
+      .from(githubConnections)
+      .where(eq(githubConnections.userId, userId))
+      .limit(1);
+
+    if (ownerConn?.accessToken) {
+      console.log(`[github-token] tier=owner-oauth repo=${owner}/${repo} userId=${userId}`);
+      return {
+        token: ownerConn.accessToken,
+        type: 'oauth',
+        source: `owner OAuth (userId=${userId})`,
+      };
+    }
+  }
+
+  // ── Tier 4: Any team member's OAuth token ─────────────────────────
+  if (teamId) {
+    const [memberConn] = await db
+      .select({ accessToken: githubConnections.accessToken })
+      .from(githubConnections)
+      .innerJoin(teamMembers, eq(teamMembers.userId, githubConnections.userId))
+      .where(eq(teamMembers.teamId, teamId))
+      .limit(1);
+
+    if (memberConn?.accessToken) {
+      console.log(`[github-token] tier=team-oauth repo=${owner}/${repo} teamId=${teamId}`);
+      return {
+        token: memberConn.accessToken,
+        type: 'oauth',
+        source: `team member OAuth (teamId=${teamId})`,
+      };
+    }
+  }
+
+  return null;
+}
 
 export class GitHubClient {
   private readonly baseUrl = 'https://api.github.com';
@@ -384,6 +597,211 @@ export class GitHubClient {
       defaultBranch: data.default_branch,
       updatedAt: data.updated_at,
       pushedAt: data.pushed_at,
+    };
+  }
+
+  /**
+   * Fetch issue comments for a given issue/PR number.
+   * Uses conditional requests (ETag/If-None-Match) for efficient polling.
+   */
+  async getIssueComments(
+    accessToken: string,
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    options: { perPage?: number; etag?: string } = {}
+  ): Promise<{ comments: GitHubComment[]; etag?: string; notModified: boolean }> {
+    const { perPage = 100, etag } = options;
+    const comments: GitHubComment[] = [];
+    let page = 1;
+    let hasMore = true;
+    let responseEtag: string | undefined;
+
+    while (hasMore) {
+      const params = new URLSearchParams({
+        per_page: perPage.toString(),
+        page: page.toString(),
+        sort: 'created',
+        direction: 'asc',
+      });
+
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/vnd.github.v3+json',
+      };
+      if (etag && page === 1) {
+        headers['If-None-Match'] = etag;
+      }
+
+      const response = await fetch(
+        `${this.baseUrl}/repos/${owner}/${repo}/issues/${issueNumber}/comments?${params}`,
+        { headers }
+      );
+
+      if (response.status === 304) {
+        return { comments: [], notModified: true, etag };
+      }
+
+      if (!response.ok) {
+        throw new Error(`GitHub API error: ${response.statusText}`);
+      }
+
+      if (page === 1) {
+        responseEtag = response.headers.get('etag') ?? undefined;
+      }
+
+      const data = await response.json();
+      if (data.length === 0) {
+        hasMore = false;
+      } else {
+        comments.push(
+          ...data.map((c: Record<string, unknown>) => ({
+            id: c.id as number,
+            author: {
+              login: (c.user as Record<string, unknown>)?.login as string ?? 'unknown',
+              avatar: (c.user as Record<string, unknown>)?.avatar_url as string ?? '',
+            },
+            body: (c.body as string) ?? '',
+            createdAt: c.created_at as string,
+            updatedAt: c.updated_at as string,
+            type: 'issue_comment' as const,
+          }))
+        );
+        if (data.length < perPage) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      }
+    }
+
+    return { comments, etag: responseEtag, notModified: false };
+  }
+
+  /**
+   * Fetch PR review comments (inline code comments) for a pull request.
+   * Uses conditional requests (ETag/If-None-Match) for efficient polling.
+   */
+  async getPRReviewComments(
+    accessToken: string,
+    owner: string,
+    repo: string,
+    prNumber: number,
+    options: { perPage?: number; etag?: string } = {}
+  ): Promise<{ comments: GitHubComment[]; etag?: string; notModified: boolean }> {
+    const { perPage = 100, etag } = options;
+    const comments: GitHubComment[] = [];
+    let page = 1;
+    let hasMore = true;
+    let responseEtag: string | undefined;
+
+    while (hasMore) {
+      const params = new URLSearchParams({
+        per_page: perPage.toString(),
+        page: page.toString(),
+        sort: 'created',
+        direction: 'asc',
+      });
+
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/vnd.github.v3+json',
+      };
+      if (etag && page === 1) {
+        headers['If-None-Match'] = etag;
+      }
+
+      const response = await fetch(
+        `${this.baseUrl}/repos/${owner}/${repo}/pulls/${prNumber}/comments?${params}`,
+        { headers }
+      );
+
+      if (response.status === 304) {
+        return { comments: [], notModified: true, etag };
+      }
+
+      if (!response.ok) {
+        throw new Error(`GitHub API error: ${response.statusText}`);
+      }
+
+      if (page === 1) {
+        responseEtag = response.headers.get('etag') ?? undefined;
+      }
+
+      const data = await response.json();
+      if (data.length === 0) {
+        hasMore = false;
+      } else {
+        comments.push(
+          ...data.map((c: Record<string, unknown>) => ({
+            id: c.id as number,
+            author: {
+              login: (c.user as Record<string, unknown>)?.login as string ?? 'unknown',
+              avatar: (c.user as Record<string, unknown>)?.avatar_url as string ?? '',
+            },
+            body: (c.body as string) ?? '',
+            createdAt: c.created_at as string,
+            updatedAt: c.updated_at as string,
+            type: 'review_comment' as const,
+            inReplyTo: (c.in_reply_to_id as number) ?? undefined,
+            path: (c.path as string) ?? undefined,
+            line: (c.line as number) ?? (c.original_line as number) ?? undefined,
+          }))
+        );
+        if (data.length < perPage) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      }
+    }
+
+    return { comments, etag: responseEtag, notModified: false };
+  }
+
+  /**
+   * Fetch all comments (issue + PR review) for an issue/PR number.
+   * Merges both types into a unified list sorted by creation time.
+   */
+  async getAllComments(
+    accessToken: string,
+    owner: string,
+    repo: string,
+    issueOrPrNumber: number,
+    options: { perPage?: number; issueEtag?: string; reviewEtag?: string } = {}
+  ): Promise<{
+    comments: GitHubComment[];
+    issueEtag?: string;
+    reviewEtag?: string;
+    totalCount: number;
+  }> {
+    // Fetch both issue comments and PR review comments in parallel
+    const [issueResult, reviewResult] = await Promise.allSettled([
+      this.getIssueComments(accessToken, owner, repo, issueOrPrNumber, {
+        perPage: options.perPage,
+        etag: options.issueEtag,
+      }),
+      this.getPRReviewComments(accessToken, owner, repo, issueOrPrNumber, {
+        perPage: options.perPage,
+        etag: options.reviewEtag,
+      }),
+    ]);
+
+    const issueComments = issueResult.status === 'fulfilled' && !issueResult.value.notModified
+      ? issueResult.value.comments
+      : [];
+    const reviewComments = reviewResult.status === 'fulfilled' && !reviewResult.value.notModified
+      ? reviewResult.value.comments
+      : [];
+
+    const allComments = [...issueComments, ...reviewComments]
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    return {
+      comments: allComments,
+      issueEtag: issueResult.status === 'fulfilled' ? issueResult.value.etag : undefined,
+      reviewEtag: reviewResult.status === 'fulfilled' ? reviewResult.value.etag : undefined,
+      totalCount: allComments.length,
     };
   }
 }

@@ -70,3 +70,64 @@ export interface GitHubRepoSelection {
   repos: GitHubRepo[];
   lastSyncedAt: string;
 }
+
+// ── GitHub Comments ──────────────────────────────────────────────
+
+/**
+ * A comment on a GitHub issue or PR (from the issues/comments API)
+ */
+export interface GitHubComment {
+  id: number;
+  nodeId: string;
+  body: string;
+  htmlUrl: string;
+  createdAt: string;
+  updatedAt: string;
+  user: {
+    login: string;
+    avatarUrl: string;
+    id: number;
+  };
+}
+
+/** Response from the comments API endpoint */
+export interface GitHubCommentsResponse {
+  comments: GitHubComment[];
+  totalCount: number;
+  etag?: string;
+}
+
+/**
+ * A PR review comment (inline code review, from the pulls/comments API)
+ */
+export interface GitHubReviewComment {
+  id: number;
+  nodeId: string;
+  body: string;
+  htmlUrl: string;
+  path: string;
+  line: number | null;
+  originalLine: number | null;
+  side: 'LEFT' | 'RIGHT';
+  diffHunk: string;
+  inReplyToId: number | null;
+  createdAt: string;
+  updatedAt: string;
+  user: {
+    login: string;
+    avatarUrl: string;
+    id: number;
+  };
+}
+
+/**
+ * A thread of review comments on a specific file/line
+ */
+export interface GitHubReviewThread {
+  /** The root comment ID for this thread */
+  rootCommentId: number;
+  path: string;
+  line: number | null;
+  diffHunk: string;
+  comments: GitHubReviewComment[];
+}

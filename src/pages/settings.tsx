@@ -56,6 +56,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { GitHubConnectButton, GitHubSyncButton } from "@/components/github-connect-button"
+import { GitHubAppInstallationManager } from "@/components/github-app-installation-manager"
 import { PluginSettingsContent } from "@/components/plugin-settings"
 import { SkillSettingsContent } from "@/components/skill-settings"
 import { ChannelAccountCard } from "@/components/channel-account-card"
@@ -1033,6 +1034,9 @@ function ConnectedAccountsContent() {
           )}
         </div>
       </section>
+
+      {/* GitHub App Installations */}
+      <GitHubAppInstallationManager />
 
       {/* GitHub Projects */}
       <GitHubProjectLinker />

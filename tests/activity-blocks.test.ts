@@ -64,6 +64,17 @@ function approvalResponseEvent(requestId: string, answer: string): TaskActivityE
   return { type: 'approval_response', requestId, question: 'proceed?', answer, timestamp: new Date() }
 }
 
+function githubCommentEvent(login: string, body: string, commentType: 'issue_comment' | 'review_comment' = 'issue_comment'): TaskActivityEvent {
+  return {
+    type: 'github_comment',
+    commentId: Math.floor(Math.random() * 100000),
+    author: { login, avatar: `https://github.com/${login}.png` },
+    body,
+    commentType,
+    timestamp: new Date(),
+  }
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────
 
 describe('groupActivityEvents', () => {
@@ -406,6 +417,34 @@ describe('groupActivityEvents', () => {
       blocks.forEach(block => {
         expect(block.events).toHaveLength(1)
       })
+    })
+
+    it('should create individual blocks for github_comment events', () => {
+      const events = [
+        githubCommentEvent('user1', 'Looks good!'),
+        githubCommentEvent('user2', 'LGTM', 'review_comment'),
+      ]
+      const blocks = groupActivityEvents(events)
+
+      expect(blocks).toHaveLength(2)
+      expect(blocks[0].type).toBe('github_comment')
+      expect(blocks[0].events).toHaveLength(1)
+      expect(blocks[1].type).toBe('github_comment')
+      expect(blocks[1].events).toHaveLength(1)
+    })
+
+    it('should interleave github_comment blocks with other events', () => {
+      const events: TaskActivityEvent[] = [
+        textEvent('Working on it...'),
+        githubCommentEvent('reviewer', 'Please add tests'),
+        textEvent('Added tests.'),
+      ]
+      const blocks = groupActivityEvents(events)
+
+      expect(blocks).toHaveLength(3)
+      expect(blocks[0].type).toBe('text')
+      expect(blocks[1].type).toBe('github_comment')
+      expect(blocks[2].type).toBe('text')
     })
   })
 

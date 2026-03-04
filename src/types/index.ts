@@ -8,6 +8,10 @@ export type {
   GitHubUser,
   GitHubConnection,
   GitHubRepoSelection,
+  GitHubComment,
+  GitHubCommentsResponse,
+  GitHubReviewComment,
+  GitHubReviewThread,
 } from '../../server/types/github';
 
 export type {

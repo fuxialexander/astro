@@ -9,6 +9,7 @@ import type { GitHubChannelConfig, InboundMessage, ChannelRouter } from '../../l
 import { postGitHubComment } from './github-api.js'
 import { astroEventTransport } from '../../lib/events/astro-event-transport.js'
 import { lookupGitHubProject } from '../../lib/github-store.js'
+import { githubCommentBus } from '../../lib/github-comment-bus.js'
 import { db } from '../../lib/db/index.js'
 import { planNodes } from '../../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
@@ -117,8 +118,50 @@ export async function handleIssueEvent(
 }
 
 /**
+ * Maximum number of recent comments stored on a plan node's githubComments field.
+ */
+const MAX_STORED_COMMENTS = 50
+
+/**
+ * Append a comment to the plan node's githubComments JSONB field (last N comments).
+ */
+async function appendCommentToNode(
+  projectId: string,
+  issueNumber: number,
+  commentData: {
+    id: number
+    author: { login: string; avatar: string }
+    body: string
+    createdAt: string
+    updatedAt: string
+    type: 'issue_comment' | 'review_comment'
+    inReplyTo?: number
+    path?: string
+    line?: number
+  }
+): Promise<void> {
+  const [node] = await db.select({ id: planNodes.id, githubComments: planNodes.githubComments })
+    .from(planNodes)
+    .where(and(eq(planNodes.projectId, projectId), eq(planNodes.githubIssueNumber, issueNumber)))
+    .limit(1)
+
+  if (!node) return
+
+  const existing = (node.githubComments ?? []) as Array<typeof commentData>
+  // Deduplicate by comment ID
+  const filtered = existing.filter(c => c.id !== commentData.id)
+  const updated = [...filtered, commentData].slice(-MAX_STORED_COMMENTS)
+
+  await db.update(planNodes).set({
+    githubComments: updated,
+    updatedAt: new Date(),
+  }).where(eq(planNodes.id, node.id))
+}
+
+/**
  * Handle `issue_comment` webhook events.
  * Routes @astro mentions to the agent chat and posts the response back.
+ * Stores all new comments on linked plan nodes.
  */
 export async function handleIssueCommentEvent(
   payload: Record<string, unknown>,
@@ -139,13 +182,57 @@ export async function handleIssueCommentEvent(
     ?? await lookupGitHubProject(repoFullName)
   if (!projectId) return
 
-  const commentBody = comment.body as string
-  if (!commentBody || !commentBody.toLowerCase().includes('@astro')) return
-
   const sender = comment.user as Record<string, unknown> | undefined
   const issueNumber = issue.number as number
   const commentId = comment.id as number
+  const commentBody = (comment.body as string) ?? ''
   const [owner, repoName] = repoFullName.split('/')
+
+  // Store comment on the linked plan node
+  try {
+    await appendCommentToNode(projectId, issueNumber, {
+      id: commentId,
+      author: {
+        login: (sender?.login as string) ?? 'unknown',
+        avatar: (sender?.avatar_url as string) ?? '',
+      },
+      body: commentBody,
+      createdAt: comment.created_at as string,
+      updatedAt: comment.updated_at as string,
+      type: 'issue_comment',
+    })
+  } catch (err) {
+    // TODO: implement dead-letter queue for failed webhook DB writes
+    console.error(`[github-channel] Failed to store issue comment:`, {
+      event: 'issue_comment',
+      issueNumber,
+      commentId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+
+  // Broadcast the new comment to connected SSE clients for real-time updates
+  githubCommentBus.emit({
+    owner,
+    repo: repoName,
+    number: issueNumber,
+    comment: {
+      id: commentId,
+      nodeId: (comment.node_id as string) ?? '',
+      body: commentBody,
+      htmlUrl: (comment.html_url as string) ?? '',
+      createdAt: (comment.created_at as string) ?? '',
+      updatedAt: (comment.updated_at as string) ?? '',
+      user: {
+        login: (sender?.login as string) ?? '',
+        avatarUrl: (sender?.avatar_url as string) ?? '',
+        id: (sender?.id as number) ?? 0,
+      },
+    },
+  })
+
+  // Only route @astro mentions to the channel router
+  if (!commentBody.toLowerCase().includes('@astro')) return
 
   console.log(`[github-channel] @astro mention in issue #${issueNumber} comment by ${sender?.login}`)
 
@@ -178,7 +265,156 @@ export async function handleIssueCommentEvent(
 }
 
 /**
+ * Extract PR metadata for storage on plan nodes.
+ */
+function extractPrData(pr: Record<string, unknown>): {
+  title: string
+  branch: string
+  diffStats: { additions: number; deletions: number; changedFiles: number }
+  ciStatus: string
+  reviewStatus: string
+  reviewers: string[]
+  mergedAt: string | null
+  closedAt: string | null
+} {
+  const head = pr.head as Record<string, unknown> | undefined
+  const requestedReviewers = (pr.requested_reviewers as Array<Record<string, unknown>>) || []
+
+  let reviewStatus = 'pending'
+  if (pr.merged) reviewStatus = 'merged'
+  else if (pr.state === 'closed') reviewStatus = 'closed'
+  else if (pr.draft) reviewStatus = 'draft'
+
+  return {
+    title: (pr.title as string) || '',
+    branch: (head?.ref as string) || '',
+    diffStats: {
+      additions: (pr.additions as number) || 0,
+      deletions: (pr.deletions as number) || 0,
+      changedFiles: (pr.changed_files as number) || 0,
+    },
+    ciStatus: 'pending',
+    reviewStatus,
+    reviewers: requestedReviewers.map((r) => (r.login as string) || '').filter(Boolean),
+    mergedAt: (pr.merged_at as string | null) ?? null,
+    closedAt: (pr.closed_at as string | null) ?? null,
+  }
+}
+
+/**
+ * Find the plan node linked to a PR by branch name or PR number.
+ */
+async function findLinkedNode(projectId: string, prNumber: number, branchName?: string) {
+  const [byPr] = await db.select({
+    id: planNodes.id,
+    clientId: planNodes.clientId,
+    githubPrData: planNodes.githubPrData,
+  })
+    .from(planNodes)
+    .where(and(
+      eq(planNodes.projectId, projectId),
+      eq(planNodes.prNumber, prNumber)
+    ))
+    .limit(1)
+
+  if (byPr) return byPr
+
+  if (branchName) {
+    const nodeClientId = extractNodeIdFromBranch(branchName)
+    if (nodeClientId) {
+      const [byBranch] = await db.select({
+        id: planNodes.id,
+        clientId: planNodes.clientId,
+        githubPrData: planNodes.githubPrData,
+      })
+        .from(planNodes)
+        .where(and(
+          eq(planNodes.projectId, projectId),
+          eq(planNodes.clientId, nodeClientId)
+        ))
+        .limit(1)
+
+      if (byBranch) return byBranch
+    }
+  }
+
+  return null
+}
+
+/**
+ * Handle `pull_request_review_comment` webhook events.
+ * Stores inline review comments on linked plan nodes.
+ */
+export async function handlePRReviewCommentEvent(
+  payload: Record<string, unknown>,
+  config: GitHubChannelConfig
+): Promise<void> {
+  const action = payload.action as string
+  const comment = payload.comment as Record<string, unknown> | undefined
+  const pr = payload.pull_request as Record<string, unknown> | undefined
+  const repo = payload.repository as Record<string, unknown> | undefined
+
+  if (!comment || !pr || !repo) return
+
+  const repoFullName = repo.full_name as string
+  const projectId = config.repoMappings[repoFullName]
+    ?? await lookupGitHubProject(repoFullName)
+  if (!projectId) return
+
+  const sender = comment.user as Record<string, unknown> | undefined
+  const prNumber = pr.number as number
+  const commentId = comment.id as number
+
+  console.log(`[github-channel] PR review comment ${action} on PR #${prNumber} by ${sender?.login}`)
+
+  try {
+    if (action === 'created' || action === 'edited') {
+      await appendCommentToNode(projectId, prNumber, {
+        id: commentId,
+        author: {
+          login: (sender?.login as string) ?? 'unknown',
+          avatar: (sender?.avatar_url as string) ?? '',
+        },
+        body: (comment.body as string) ?? '',
+        createdAt: comment.created_at as string,
+        updatedAt: comment.updated_at as string,
+        type: 'review_comment',
+        inReplyTo: (comment.in_reply_to_id as number) ?? undefined,
+        path: (comment.path as string) ?? undefined,
+        line: (comment.line as number) ?? (comment.original_line as number) ?? undefined,
+      })
+    } else if (action === 'deleted') {
+      // Remove the deleted comment from the plan node's stored comments
+      const [node] = await db.select({ id: planNodes.id, githubComments: planNodes.githubComments })
+        .from(planNodes)
+        .where(and(eq(planNodes.projectId, projectId), eq(planNodes.githubIssueNumber, prNumber)))
+        .limit(1)
+
+      if (node) {
+        const existing = (node.githubComments ?? []) as Array<{ id: number }>
+        const filtered = existing.filter(c => c.id !== commentId)
+        if (filtered.length !== existing.length) {
+          await db.update(planNodes).set({
+            githubComments: filtered,
+            updatedAt: new Date(),
+          }).where(eq(planNodes.id, node.id))
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[github-channel] Failed to handle PR review comment (${action}):`, {
+      event: 'pull_request_review_comment',
+      prNumber,
+      commentId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+}
+
+/**
  * Handle `pull_request` webhook events.
+ * Enhanced to include diff stats, review status, and CI status in the webhook payload.
+ * Stores PR metadata on the linked plan node (githubPrData JSON field).
  */
 export async function handlePullRequestEvent(
   payload: Record<string, unknown>,
@@ -198,11 +434,78 @@ export async function handlePullRequestEvent(
   const prNumber = pr.number as number
   const prTitle = pr.title as string
   const headRef = (pr.head as Record<string, unknown>)?.ref as string | undefined
+  const prData = extractPrData(pr)
+
+  // Update githubPrData on the linked plan node for all PR actions
+  const linkedNode = await findLinkedNode(projectId, prNumber, headRef)
+  if (linkedNode) {
+    // Preserve existing ciStatus if we already have it
+    const existingPrData = linkedNode.githubPrData as Record<string, unknown> | null
+    const ciStatus = existingPrData?.ciStatus as string || prData.ciStatus
+
+    await db.update(planNodes).set({
+      githubPrData: { ...prData, ciStatus },
+      updatedAt: new Date(),
+    }).where(eq(planNodes.id, linkedNode.id))
+
+    console.log(`[github-channel] Updated githubPrData on node ${linkedNode.clientId} for PR #${prNumber}`)
+  }
+
+  const prBody = (pr.body as string) || ''
+  const prUrl = pr.html_url as string
 
   switch (action) {
-    case 'opened':
-      console.log(`[github-channel] PR #${prNumber} opened in ${repoFullName}: "${prTitle}" → plan task creation for project ${projectId}`)
+    case 'opened': {
+      console.log(`[github-channel] PR #${prNumber} opened in ${repoFullName}: "${prTitle}" → auto-linking for project ${projectId}`)
+
+      // Strategy 1: Match head branch name to node ID (astro/<nodeId> or task-<nodeId>/*)
+      const nodeIdFromBranch = extractNodeIdFromBranch(headRef)
+      if (nodeIdFromBranch) {
+        const [branchNode] = await db.select({ clientId: planNodes.clientId })
+          .from(planNodes)
+          .where(and(eq(planNodes.clientId, nodeIdFromBranch), eq(planNodes.projectId, projectId)))
+          .limit(1)
+
+        if (branchNode) {
+          console.log(`[github-channel] Auto-linking PR #${prNumber} to node '${nodeIdFromBranch}' via branch name`)
+          await astroEventTransport.emitEvent({
+            type: 'pr.linked',
+            nodeId: nodeIdFromBranch,
+            projectId,
+            prNumber,
+            prUrl,
+            branchName: headRef || '',
+            linkSource: 'auto-branch',
+            timestamp: new Date(),
+          })
+          break
+        }
+      }
+
+      // Strategy 2: Match astro-task:{nodeId} in PR body
+      const bodyNodeIds = extractNodeIdsFromBody(prBody)
+      for (const bodyNodeId of bodyNodeIds) {
+        const [bodyNode] = await db.select({ clientId: planNodes.clientId })
+          .from(planNodes)
+          .where(and(eq(planNodes.clientId, bodyNodeId), eq(planNodes.projectId, projectId)))
+          .limit(1)
+
+        if (bodyNode) {
+          console.log(`[github-channel] Auto-linking PR #${prNumber} to node '${bodyNodeId}' via body reference`)
+          await astroEventTransport.emitEvent({
+            type: 'pr.linked',
+            nodeId: bodyNodeId,
+            projectId,
+            prNumber,
+            prUrl,
+            branchName: headRef || '',
+            linkSource: 'auto-body-reference',
+            timestamp: new Date(),
+          })
+        }
+      }
       break
+    }
     case 'closed': {
       const merged = pr.merged as boolean
       const mergedSha = pr.merge_commit_sha as string | undefined
@@ -245,6 +548,9 @@ export async function handlePullRequestEvent(
       }
       break
     }
+    case 'review_requested':
+      console.log(`[github-channel] PR #${prNumber} review requested in ${repoFullName}: reviewers=[${prData.reviewers.join(', ')}]`)
+      break
     default:
       console.log(`[github-channel] PR event "${action}" for #${prNumber} in ${repoFullName}`)
   }
@@ -290,12 +596,38 @@ export async function handleMergeGroupEvent(
 }
 
 /**
- * Extract nodeId from an Astro branch name (astro/<nodeId>).
+ * Extract nodeId from an Astro branch name.
+ * Supports patterns:
+ *   - astro/<nodeId>
+ *   - task-<nodeId>/*
+ *   - astro-task/<nodeId>
  */
 function extractNodeIdFromBranch(branchName?: string): string | undefined {
   if (!branchName) return undefined
-  const match = branchName.match(/^astro\/(.+)$/)
-  return match?.[1]
+
+  // Pattern 1: astro/<nodeId> (primary pattern from agent runner)
+  const astroMatch = branchName.match(/^astro\/(.+)$/)
+  if (astroMatch) return astroMatch[1]
+
+  // Pattern 2: task-<nodeId> or task-<nodeId>/<anything>
+  const taskMatch = branchName.match(/^task-([^/]+)(?:\/.*)?$/)
+  if (taskMatch) return taskMatch[1]
+
+  // Pattern 3: astro-task/<nodeId>
+  const astroTaskMatch = branchName.match(/^astro-task\/(.+)$/)
+  if (astroTaskMatch) return astroTaskMatch[1]
+
+  return undefined
+}
+
+/**
+ * Extract node IDs from PR body using astro-task:{nodeId} references.
+ * Supports multiple references in a single body.
+ */
+function extractNodeIdsFromBody(body: string): string[] {
+  if (!body) return []
+  const matches = body.matchAll(/astro-task:([a-zA-Z0-9_-]+)/g)
+  return [...matches].map((m) => m[1])
 }
 
 /**
@@ -310,6 +642,7 @@ function mapDequeueReason(reason: string): 'conflicts' | 'ci_failure' | 'removed
 
 /**
  * Handle `push` webhook events.
+ * Extracts node ID from branch name patterns and auto-links branch → plan node.
  */
 export async function handlePushEvent(
   payload: Record<string, unknown>,
@@ -329,10 +662,38 @@ export async function handlePushEvent(
   const commitCount = commits?.length ?? 0
 
   console.log(`[github-channel] Push to ${ref} in ${repoFullName}: ${commitCount} commit(s) → auto-verification signal for project ${projectId}`)
+
+  // Extract branch name from refs/heads/<branchName>
+  const branchName = ref.replace('refs/heads/', '')
+  const nodeId = extractNodeIdFromBranch(branchName)
+
+  if (nodeId) {
+    // Check if this node exists and doesn't already have branchName set
+    const [existingNode] = await db.select({
+      clientId: planNodes.clientId,
+      branchName: planNodes.branchName,
+    })
+      .from(planNodes)
+      .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+      .limit(1)
+
+    if (existingNode && !existingNode.branchName) {
+      console.log(`[github-channel] Auto-linking branch '${branchName}' to node '${nodeId}' via push event`)
+      await astroEventTransport.emitEvent({
+        type: 'pr.linked',
+        nodeId,
+        projectId,
+        branchName,
+        linkSource: 'auto-branch',
+        timestamp: new Date(),
+      })
+    }
+  }
 }
 
 /**
  * Handle `check_run` webhook events.
+ * Updates CI status on linked plan nodes in real-time.
  */
 export async function handleCheckRunEvent(
   payload: Record<string, unknown>,
@@ -350,7 +711,140 @@ export async function handleCheckRunEvent(
   if (!projectId) return
 
   const checkName = checkRun.name as string
+  const status = checkRun.status as string
   const conclusion = checkRun.conclusion as string | undefined
 
-  console.log(`[github-channel] Check run "${checkName}" ${action} (conclusion: ${conclusion ?? 'pending'}) in ${repoFullName} → verification status for project ${projectId}`)
+  console.log(`[github-channel] Check run "${checkName}" ${action} (status: ${status}, conclusion: ${conclusion ?? 'pending'}) in ${repoFullName} → project ${projectId}`)
+
+  // Find linked node(s) via the check run's associated pull requests
+  const pullRequests = (checkRun.pull_requests as Array<Record<string, unknown>>) || []
+
+  for (const prRef of pullRequests) {
+    const prNumber = prRef.number as number
+    if (!prNumber) continue
+
+    const headRef = (prRef.head as Record<string, unknown> | undefined)?.ref as string | undefined
+    const linkedNode = await findLinkedNode(projectId, prNumber, headRef)
+    if (!linkedNode) continue
+
+    const existingPrData = linkedNode.githubPrData as Record<string, unknown> | null
+    if (!existingPrData) continue
+
+    try {
+      // Maintain array of check runs for proper aggregation
+      const existingCheckRuns = (existingPrData.checkRuns as Array<{ name: string; status: string; conclusion: string | null }>) ?? []
+
+      // Update or add this check run
+      const updatedCheckRuns = existingCheckRuns.filter(cr => cr.name !== checkName)
+      updatedCheckRuns.push({ name: checkName, status, conclusion: conclusion ?? null })
+
+      // Compute overall CI status from all check runs
+      const allCompleted = updatedCheckRuns.every(cr => cr.status === 'completed')
+      const anyFailed = updatedCheckRuns.some(cr =>
+        cr.status === 'completed' && (cr.conclusion === 'failure' || cr.conclusion === 'timed_out')
+      )
+      const allSuccess = allCompleted && updatedCheckRuns.every(cr =>
+        cr.conclusion === 'success' || cr.conclusion === 'skipped' || cr.conclusion === 'neutral'
+      )
+
+      let ciStatus = 'pending'
+      if (anyFailed) ciStatus = 'failure'
+      else if (allSuccess) ciStatus = 'success'
+      else if (allCompleted) ciStatus = 'failure' // completed but not all success
+      // else remains 'pending'
+
+      await db.update(planNodes).set({
+        githubPrData: { ...existingPrData, checkRuns: updatedCheckRuns, ciStatus },
+        updatedAt: new Date(),
+      }).where(eq(planNodes.id, linkedNode.id))
+
+      console.log(`[github-channel] Updated CI status to "${ciStatus}" on node ${linkedNode.clientId} (check: ${checkName}, ${updatedCheckRuns.length} total)`)
+    } catch (err) {
+      // TODO: implement dead-letter queue for failed webhook DB writes
+      console.error(`[github-channel] Failed to update CI status on node ${linkedNode.clientId}:`, {
+        event: 'check_run',
+        prNumber,
+        checkName,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+}
+
+/**
+ * Handle `pull_request_review` webhook events.
+ * Updates review status on linked plan nodes in real-time.
+ */
+export async function handlePullRequestReviewEvent(
+  payload: Record<string, unknown>,
+  config: GitHubChannelConfig
+): Promise<void> {
+  const action = payload.action as string
+  const review = payload.review as Record<string, unknown> | undefined
+  const pr = payload.pull_request as Record<string, unknown> | undefined
+  const repo = payload.repository as Record<string, unknown> | undefined
+  const repoFullName = repo?.full_name as string | undefined
+
+  if (!review || !pr || !repoFullName) return
+
+  const projectId = config.repoMappings[repoFullName]
+    ?? await lookupGitHubProject(repoFullName)
+  if (!projectId) return
+
+  const prNumber = pr.number as number
+  const headRef = (pr.head as Record<string, unknown>)?.ref as string | undefined
+  const reviewState = review.state as string // 'approved', 'changes_requested', 'commented', 'dismissed'
+  const reviewer = (review.user as Record<string, unknown>)?.login as string | undefined
+
+  console.log(`[github-channel] PR #${prNumber} review "${reviewState}" by ${reviewer ?? 'unknown'} (action: ${action}) in ${repoFullName}`)
+
+  if (action !== 'submitted' && action !== 'dismissed') return
+
+  const linkedNode = await findLinkedNode(projectId, prNumber, headRef)
+  if (!linkedNode) return
+
+  const existingPrData = linkedNode.githubPrData as Record<string, unknown> | null
+  if (!existingPrData) return
+
+  try {
+    // Maintain per-reviewer state map for proper aggregation
+    const reviewerStates = (existingPrData.reviewerStates as Record<string, string>) ?? {}
+
+    // Update the current reviewer's state
+    if (reviewer) {
+      if (reviewState === 'dismissed') {
+        delete reviewerStates[reviewer]
+      } else {
+        reviewerStates[reviewer] = reviewState
+      }
+    }
+
+    // Compute overall review status from all reviewers
+    const states = Object.values(reviewerStates)
+    let reviewStatus = 'pending'
+    if (states.some(s => s === 'changes_requested')) {
+      reviewStatus = 'changes_requested'
+    } else if (states.length > 0 && states.every(s => s === 'approved')) {
+      reviewStatus = 'approved'
+    } else if (states.some(s => s === 'approved')) {
+      reviewStatus = 'partially_approved'
+    } else if (states.some(s => s === 'commented')) {
+      reviewStatus = 'commented'
+    }
+
+    await db.update(planNodes).set({
+      githubPrData: { ...existingPrData, reviewerStates, reviewStatus },
+      updatedAt: new Date(),
+    }).where(eq(planNodes.id, linkedNode.id))
+
+    console.log(`[github-channel] Updated review status to "${reviewStatus}" on node ${linkedNode.clientId} (reviewer: ${reviewer}, ${states.length} total)`)
+  } catch (err) {
+    // TODO: implement dead-letter queue for failed webhook DB writes
+    console.error(`[github-channel] Failed to update review status on node ${linkedNode.clientId}:`, {
+      event: 'pull_request_review',
+      prNumber,
+      reviewer,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
 }

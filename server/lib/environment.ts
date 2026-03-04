@@ -268,6 +268,13 @@ export function validateEnvironment(): void {
 }
 
 /**
+ * Get the frontend base URL (used for OAuth/App callback redirects).
+ */
+export function getFrontendUrl(): string {
+  return process.env.FRONTEND_URL || process.env.VITE_FRONTEND_URL || 'http://localhost:5173';
+}
+
+/**
  * Get environment summary for debugging
  */
 export function getEnvironmentSummary() {

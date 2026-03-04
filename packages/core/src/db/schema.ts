@@ -139,6 +139,22 @@ export const planNodes = pgTable('plan_nodes', {
   }>>().default([]),
   githubIssueNumber: integer('github_issue_number'),
   githubIssueUrl: text('github_issue_url'),
+  githubPrData: jsonb('github_pr_data').$type<{
+    title: string
+    branch: string
+    diffStats: { additions: number; deletions: number; changedFiles: number }
+    ciStatus: string
+    reviewStatus: string
+    reviewers: string[]
+    mergedAt: string | null
+    closedAt: string | null
+  }>(),
+  githubComments: jsonb('github_comments').$type<Array<{
+    id: number; author: { login: string; avatar: string }; body: string;
+    createdAt: string; updatedAt: string;
+    type: 'issue_comment' | 'review_comment';
+    inReplyTo?: number; path?: string; line?: number;
+  }>>().default([]),
   deletedAt: timestamp('deleted_at'),
   deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -584,6 +600,25 @@ export const githubConnections = pgTable('github_connections', {
   selectedRepoIds: jsonb('selected_repo_ids').$type<number[]>().notNull().default([]),
   repos: jsonb('repos').$type<unknown[]>().notNull().default([]),
   lastSyncedAt: timestamp('last_synced_at'),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+// ── GitHub App Installations ─────────────────────────────────────
+// GitHub App installation records, linked to users and optionally teams.
+// Supports team-level access grants with per-installation repo selection.
+export const githubAppInstallations = pgTable('github_app_installations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  installationId: integer('installation_id').notNull().unique(),
+  userId: uuid('user_id').notNull(),         // who installed / linked it
+  teamId: uuid('team_id'),                   // optional team link
+  accountLogin: text('account_login').notNull(),
+  accountType: text('account_type').notNull().default('Organization'), // 'Organization' | 'User'
+  accountAvatarUrl: text('account_avatar_url'),
+  appId: integer('app_id'),
+  repositorySelection: text('repository_selection').notNull().default('all'), // 'all' | 'selected'
+  repos: jsonb('repos').$type<{ id: number; name: string; full_name: string; private: boolean }[]>().notNull().default([]),
+  permissions: jsonb('permissions').$type<Record<string, string>>().notNull().default({}),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 

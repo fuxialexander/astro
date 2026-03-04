@@ -39,6 +39,7 @@ export {
   blobs,
   nodeComments,
   githubConnections,
+  githubAppInstallations,
   encryptedApiKeys,
   environmentConfigs,
   streamingEvents,

@@ -20,6 +20,8 @@ import { repoRoute } from './routes/repo.js'
 import { dataRoute } from './routes/data.js'
 import { notificationsRoute } from './routes/notifications.js'
 import githubRoute from './routes/github.js'
+import githubAppRoute from './routes/github-app.js'
+import githubPrRoute from './routes/github-pr-data.js'
 import { wellKnownRoute } from './routes/well-known.js'
 import systemRoute from './routes/system.js'
 import { skillsRoute } from './routes/skills.js'
@@ -47,6 +49,7 @@ import { channelNotificationHook } from './lib/events/hooks/channel-notification
 import { githubIssueCloseHook } from './lib/events/hooks/github-issue-close-hook.js'
 import { prBodyUpdateHook } from './lib/events/hooks/pr-body-update-hook.js'
 import { projectCompletionHook } from './lib/events/hooks/project-completion-hook.js'
+import { prAutoLinkHook } from './lib/events/hooks/pr-auto-link-hook.js'
 import { observabilityHook, observationCollector } from './lib/observability/observation-collector.js'
 import { langfuseExportHook } from './lib/observability/langfuse-exporter.js'
 import { observationsRoute } from './routes/observations.js'
@@ -180,6 +183,8 @@ export function createApp() {
   if (!isLocalModeEnv()) {
     app.route('/api/notifications', notificationsRoute)
     app.route('/api/github', githubRoute)
+    app.route('/api/github-app', githubAppRoute)
+    app.route('/api/github/pr', githubPrRoute)
     app.route('/api/share', shareRoute)
     app.route('/api/connected-accounts', connectedAccountsRoute)
   }
@@ -298,6 +303,7 @@ async function start() {
     astroEventTransport.registerHook('project-completion', projectCompletionHook)
     astroEventTransport.registerHook('git-pull', gitPullHook)
     astroEventTransport.registerHook('channel-notification', channelNotificationHook)
+    astroEventTransport.registerHook('pr-auto-link', prAutoLinkHook)
     astroEventTransport.registerHook('observability', observabilityHook)
     observationCollector.start()
     if (langfuseExportHook) {

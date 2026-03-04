@@ -11,7 +11,7 @@ let _activeTeamId: string | undefined
 export function setActiveTeamId(teamId: string | undefined) {
   _activeTeamId = teamId
 }
-function getActiveTeamId(): string | undefined {
+export function getActiveTeamId(): string | undefined {
   return _activeTeamId
 }
 
@@ -435,6 +435,406 @@ export async function ensureBranch(
       errorType: "network",
     }
   }
+}
+
+// ── GitHub PR Details API ─────────────────────────────────────────────
+
+export interface PrDiffStats {
+  additions: number
+  deletions: number
+  changedFiles: number
+}
+
+export interface PrDetails {
+  number: number
+  title: string
+  body: string | null
+  state: string
+  branch: string
+  baseBranch: string
+  htmlUrl: string
+  merged: boolean
+  mergeable: boolean | null
+  mergedAt: string | null
+  closedAt: string | null
+  createdAt: string
+  updatedAt: string
+  user: { login: string; avatarUrl: string }
+  diffStats: PrDiffStats
+  reviewStatus: string
+  requestedReviewers: Array<{ login: string; avatarUrl: string }>
+  labels: Array<{ name: string; color: string }>
+  draft: boolean
+}
+
+export interface PrCheckRun {
+  id: number
+  name: string
+  status: string
+  conclusion: string | null
+  startedAt: string | null
+  completedAt: string | null
+  htmlUrl: string
+  app: { name: string; slug: string } | null
+}
+
+export interface PrChecksResult {
+  headSha: string
+  totalCount: number
+  overallStatus: string
+  checks: PrCheckRun[]
+}
+
+export interface PrReview {
+  id: number
+  user: { login: string; avatarUrl: string }
+  state: string
+  body: string | null
+  submittedAt: string | null
+  htmlUrl: string
+}
+
+export interface PrReviewsResult {
+  reviews: PrReview[]
+  overallReviewStatus: string
+  reviewerCount: number
+}
+
+// ── PR action types and functions ────────────────────────────────────
+
+export type PrReviewEvent = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'
+export type PrMergeMethod = 'squash' | 'merge' | 'rebase'
+
+export interface PrReviewResult {
+  success: boolean
+  error: string | null
+  errorType?: ApiErrorType
+  review?: {
+    id: number
+    state: string
+    htmlUrl: string
+    submittedAt: string
+  }
+}
+
+export interface PrMergeResult {
+  success: boolean
+  error: string | null
+  errorType?: ApiErrorType
+  merge?: {
+    sha: string
+    message: string
+    merged: boolean
+  }
+}
+
+export interface PrCommentResult {
+  success: boolean
+  error: string | null
+  errorType?: ApiErrorType
+  comment?: {
+    id: number
+    htmlUrl: string
+    createdAt: string
+  }
+}
+
+/**
+ * Fetch full PR details: title, body, branch, diff stats, merge status, review state, reviewers.
+ */
+export async function fetchPrDetails(
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<PrDetails> {
+  const response = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}`), {
+    headers: await authHeaders(),
+  })
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => 'Unknown error')
+    throw new Error(`Failed to fetch PR details: ${response.status} ${errorText}`)
+  }
+  return response.json()
+}
+
+/**
+ * Fetch CI check runs and their statuses for a PR.
+ */
+export async function fetchPrChecks(
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<PrChecksResult> {
+  const response = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}/checks`), {
+    headers: await authHeaders(),
+  })
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => 'Unknown error')
+    throw new Error(`Failed to fetch PR checks: ${response.status} ${errorText}`)
+  }
+  return response.json()
+}
+
+/**
+ * Fetch review decisions for a PR.
+ */
+export async function fetchPrReviews(
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<PrReviewsResult> {
+  const response = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}/reviews`), {
+    headers: await authHeaders(),
+  })
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => 'Unknown error')
+    throw new Error(`Failed to fetch PR reviews: ${response.status} ${errorText}`)
+  }
+  return response.json()
+}
+
+/**
+ * Submit a PR review (approve, request changes, or comment).
+ * Posts as the authenticated user.
+ */
+export async function submitPrReview(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  event: PrReviewEvent,
+  body?: string,
+): Promise<PrReviewResult> {
+  try {
+    const res = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}/review`), {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify({ event, body }),
+    })
+    if (!res.ok) {
+      return { success: false, error: `Server error: ${res.status}`, errorType: "server" }
+    }
+    const data = await res.json()
+    return {
+      success: data.success,
+      error: data.error ?? null,
+      errorType: data.error ? "github" : undefined,
+      review: data.review,
+    }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+      errorType: "network",
+    }
+  }
+}
+
+/**
+ * Merge a PR with the specified method.
+ * Uses installation token (higher permissions) when available.
+ */
+export async function mergePr(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  mergeMethod: PrMergeMethod = 'squash',
+  commitTitle?: string,
+  commitMessage?: string,
+): Promise<PrMergeResult> {
+  try {
+    const res = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}/merge`), {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify({ mergeMethod, commitTitle, commitMessage }),
+    })
+    if (!res.ok) {
+      return { success: false, error: `Server error: ${res.status}`, errorType: "server" }
+    }
+    const data = await res.json()
+    return {
+      success: data.success,
+      error: data.error ?? null,
+      errorType: data.error ? "github" : undefined,
+      merge: data.merge,
+    }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+      errorType: "network",
+    }
+  }
+}
+
+/**
+ * Post a comment on a PR.
+ * Posts as the authenticated user.
+ */
+export async function commentOnPr(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  body: string,
+): Promise<PrCommentResult> {
+  try {
+    const res = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}/comment`), {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify({ body }),
+    })
+    if (!res.ok) {
+      return { success: false, error: `Server error: ${res.status}`, errorType: "server" }
+    }
+    const data = await res.json()
+    return {
+      success: data.success,
+      error: data.error ?? null,
+      errorType: data.error ? "github" : undefined,
+      comment: data.comment,
+    }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+      errorType: "network",
+    }
+  }
+}
+
+/**
+ * Mark a draft PR as ready for review.
+ */
+export async function markPrReady(
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<{ success: boolean; error: string | null; errorType?: ApiErrorType }> {
+  try {
+    const res = await fetch(apiUrl(`/api/github/pr/${owner}/${repo}/${prNumber}/ready`), {
+      method: "PUT",
+      headers: await authHeaders(),
+    })
+    if (!res.ok) {
+      return { success: false, error: `Server error: ${res.status}`, errorType: "server" }
+    }
+    const data = await res.json()
+    return {
+      success: data.success,
+      error: data.error ?? null,
+      errorType: data.error ? "github" : undefined,
+    }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+      errorType: "network",
+    }
+  }
+}
+
+/**
+ * Edit an existing issue/PR comment on GitHub.
+ */
+export async function editGitHubComment(
+  owner: string,
+  repo: string,
+  commentId: number,
+  body: string,
+): Promise<{ success: boolean; error: string | null }> {
+  try {
+    const res = await fetch(apiUrl(`/api/github/comments/${owner}/${repo}/${commentId}`), {
+      method: "PATCH",
+      headers: await authHeaders(),
+      body: JSON.stringify({ body }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      return { success: false, error: data.error || `Server error: ${res.status}` }
+    }
+    return { success: true, error: null }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+/**
+ * Delete an issue/PR comment on GitHub.
+ */
+export async function deleteGitHubComment(
+  owner: string,
+  repo: string,
+  commentId: number,
+): Promise<{ success: boolean; error: string | null }> {
+  try {
+    const res = await fetch(apiUrl(`/api/github/comments/${owner}/${repo}/${commentId}`), {
+      method: "DELETE",
+      headers: await authHeaders(),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      return { success: false, error: data.error || `Server error: ${res.status}` }
+    }
+    return { success: true, error: null }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+/**
+ * Manually link a GitHub PR to a plan node.
+ */
+export async function linkPrToNode(
+  nodeId: string,
+  projectId: string,
+  prNumber: number,
+  prUrl: string,
+  branchName?: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch(apiUrl("/api/github/pr/link"), {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify({ nodeId, projectId, prNumber, prUrl, branchName }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      return { success: false, error: data.error || `Server error: ${res.status}` }
+    }
+    return { success: true }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+/**
+ * Fetch all plan nodes in a project that have PR/branch links.
+ */
+export async function fetchPrLinks(
+  projectId: string,
+): Promise<Array<{
+  clientId: string
+  title: string
+  status: string
+  branchName: string | null
+  prUrl: string | null
+  prNumber: number | null
+  mergeQueueStatus: string | null
+}>> {
+  const res = await fetch(apiUrl(`/api/github/pr/links/${projectId}`), {
+    headers: await authHeaders(),
+  })
+  if (!res.ok) throw new Error(`Failed to fetch PR links: ${res.status}`)
+  const data = await res.json()
+  return data.links
 }
 
 // Provider status types

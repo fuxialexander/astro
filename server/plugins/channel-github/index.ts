@@ -16,13 +16,31 @@ import { postGitHubComment } from './github-api.js'
 import {
   handleIssueEvent,
   handleIssueCommentEvent,
+  handlePRReviewCommentEvent,
   handlePullRequestEvent,
   handlePushEvent,
   handleCheckRunEvent,
   handleMergeGroupEvent,
+  handlePullRequestReviewEvent,
 } from './github-webhook-handler.js'
 
 let pluginConfig: GitHubChannelConfig | null = null
+
+// Track processed webhook deliveries to prevent replay attacks.
+// TTL: 10 minutes. Cleanup runs on each new delivery.
+const processedDeliveries = new Map<string, number>()
+const DELIVERY_TTL_MS = 10 * 60 * 1000
+
+function trackDelivery(deliveryId: string): boolean {
+  const now = Date.now()
+  // Cleanup expired entries
+  for (const [id, timestamp] of processedDeliveries) {
+    if (now - timestamp > DELIVERY_TTL_MS) processedDeliveries.delete(id)
+  }
+  if (processedDeliveries.has(deliveryId)) return false
+  processedDeliveries.set(deliveryId, now)
+  return true
+}
 
 function loadConfig(): GitHubChannelConfig | null {
   const webhookSecret = process.env.GITHUB_CHANNEL_WEBHOOK_SECRET
@@ -45,7 +63,7 @@ function loadConfig(): GitHubChannelConfig | null {
 
   const enabledEvents = process.env.GITHUB_CHANNEL_EVENTS
     ? process.env.GITHUB_CHANNEL_EVENTS.split(',').map((e) => e.trim())
-    : ['issues', 'issue_comment', 'pull_request', 'push', 'check_run', 'merge_group']
+    : ['issues', 'issue_comment', 'pull_request', 'pull_request_review', 'pull_request_review_comment', 'push', 'check_run', 'merge_group']
 
   return {
     webhookSecret,
@@ -72,6 +90,12 @@ function createRoutes(config: GitHubChannelConfig): Hono {
 
     if (!verifyHmacSignature(body, signature, config.webhookSecret, { prefix: 'sha256=' })) {
       return c.json({ error: 'Invalid signature' }, 401)
+    }
+
+    // Deduplicate webhook deliveries via X-GitHub-Delivery header
+    const deliveryId = c.req.header('X-GitHub-Delivery')
+    if (deliveryId && !trackDelivery(deliveryId)) {
+      return c.json({ ok: true }) // idempotent — already processed
     }
 
     // Respond 200 immediately, process async
@@ -142,6 +166,12 @@ async function processEvent(
       break
     case 'push':
       await handlePushEvent(payload, config)
+      break
+    case 'pull_request_review':
+      await handlePullRequestReviewEvent(payload, config)
+      break
+    case 'pull_request_review_comment':
+      await handlePRReviewCommentEvent(payload, config)
       break
     case 'check_run':
       await handleCheckRunEvent(payload, config)
@@ -221,6 +251,11 @@ const plugin: AstroServerPlugin = {
         { type: 'github.push', evaluator: (payload) => (payload as Record<string, unknown>)?.ref !== undefined },
         { type: 'github.issues', evaluator: (payload) => (payload as Record<string, unknown>)?.issue !== undefined },
         { type: 'github.pull_request', evaluator: (payload) => (payload as Record<string, unknown>)?.pull_request !== undefined },
+        { type: 'github.pull_request_review', evaluator: (payload) => (payload as Record<string, unknown>)?.review !== undefined && (payload as Record<string, unknown>)?.pull_request !== undefined },
+        { type: 'github.pull_request_review_comment', evaluator: (payload) => {
+          const p = payload as Record<string, unknown>
+          return p?.comment !== undefined && p?.pull_request !== undefined && p?.action === 'created'
+        }},
         { type: 'github.check_run', evaluator: (payload) => (payload as Record<string, unknown>)?.check_run !== undefined },
         { type: 'github.merge_group', evaluator: (payload) => (payload as Record<string, unknown>)?.merge_group !== undefined },
       ],

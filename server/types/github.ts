@@ -10,4 +10,8 @@ export type {
   GitHubTokenResponse,
   GitHubConnection,
   GitHubRepoSelection,
+  GitHubComment,
+  GitHubCommentsResponse,
+  GitHubReviewComment,
+  GitHubReviewThread,
 } from '../../packages/core/src/types/github.js'

@@ -31,8 +31,11 @@ import {
   ChatUserBlock,
   ChatAssistantBlock,
   SummaryCard,
+  GitHubCommentBlock,
 } from "@/components/activity-blocks"
 import { InlineApprovalCard } from "@/components/plan-session/inline-approval-card"
+import { PrStatusCard } from "@/components/pr-status-card"
+import type { PrData, PrCheckRun, PrReview } from "@/components/pr-status-card"
 import { useRestoredExecution } from "@/hooks/use-restored-execution"
 import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
 
@@ -66,6 +69,8 @@ export function UnifiedActivityView({
   const chatStreamRef = useRef<{ streamId: string; lastSeq: number }>({ streamId: '', lastSeq: 0 })
 
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
+  const githubOwner = project?.githubOwner
+  const githubRepo = project?.githubRepo
   const addSteerMessage = useRealtimeStore((s) => s.addSteerMessage)
   const updateSteerMessage = useRealtimeStore((s) => s.updateSteerMessage)
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
@@ -529,6 +534,15 @@ export function UnifiedActivityView({
           <SummaryCard summary={execution.summary} />
         )}
 
+        {/* Auto-show PR card when node has a prNumber and no pr_status block in feed */}
+        {node.prNumber && !displayBlocks.some(b => b.type === 'pr_status') && (
+          <PrStatusCard
+            node={node}
+            owner={githubOwner}
+            repo={githubRepo}
+          />
+        )}
+
         {/* Fallback for old tasks without activity events */}
         {hasFallback && (
           <pre className="font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-foreground px-4 py-2">
@@ -587,6 +601,45 @@ export function UnifiedActivityView({
             case 'approval_response':
               // Already rendered inline with the request
               return null
+            case 'pr_status': {
+              const prEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'pr_status' }>
+              const prDataFromEvent: PrData = {
+                title: prEvent.title || `PR #${prEvent.prNumber}`,
+                number: prEvent.prNumber,
+                state: prEvent.state || 'open',
+                htmlUrl: prEvent.prUrl,
+                branchName: prEvent.branchName,
+                baseBranch: prEvent.baseBranch,
+                additions: prEvent.additions,
+                deletions: prEvent.deletions,
+                changedFiles: prEvent.changedFiles,
+                draft: prEvent.draft,
+                checks: (prEvent.checks || []).map(c => ({
+                  name: c.name,
+                  status: c.status as PrCheckRun["status"],
+                  conclusion: c.conclusion as PrCheckRun["conclusion"],
+                  startedAt: c.startedAt,
+                  completedAt: c.completedAt,
+                  htmlUrl: c.htmlUrl,
+                })),
+                reviews: (prEvent.reviews || []).map(r => ({
+                  user: r.user,
+                  state: r.state as PrReview["state"],
+                  submittedAt: r.submittedAt,
+                })),
+              }
+              return (
+                <PrStatusCard
+                  key={i}
+                  node={node}
+                  prData={prDataFromEvent}
+                  owner={githubOwner}
+                  repo={githubRepo}
+                />
+              )
+            }
+            case 'github_comment':
+              return <GitHubCommentBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'github_comment' }>} />
             default:
               return null
           }
