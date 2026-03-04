@@ -63,9 +63,13 @@ interface PrStatusCardProps {
   className?: string
   /** Enable action buttons (approve/merge/request changes) */
   showActions?: boolean
+  /** Number of review comments to display as a link */
+  reviewCommentCount?: number
+  /** Callback when user clicks the review comments link */
+  onReviewCommentsClick?: () => void
 }
 
-export function PrStatusCard({ node, prData: externalPrData, owner, repo, className, showActions = true }: PrStatusCardProps) {
+export function PrStatusCard({ node, prData: externalPrData, owner, repo, className, showActions = true, reviewCommentCount, onReviewCommentsClick }: PrStatusCardProps) {
   const [prData, setPrData] = useState<PrData | null>(externalPrData ?? null)
   const [checksExpanded, setChecksExpanded] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -427,6 +431,24 @@ export function PrStatusCard({ node, prData: externalPrData, owner, repo, classN
               )}
             </div>
           </div>
+        )}
+
+        {/* Review comments link */}
+        {reviewCommentCount != null && reviewCommentCount > 0 && (
+          <>
+            {(checks.length > 0 || uniqueReviews.length > 0) && (
+              <div className="h-3 w-px bg-border shrink-0" />
+            )}
+            <button
+              onClick={onReviewCommentsClick}
+              className="flex items-center gap-1 text-xs text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
+            >
+              <MessageSquareWarning className="h-3 w-3" />
+              <span className="font-medium">
+                {reviewCommentCount} review comment{reviewCommentCount !== 1 ? "s" : ""}
+              </span>
+            </button>
+          </>
         )}
       </div>
 
