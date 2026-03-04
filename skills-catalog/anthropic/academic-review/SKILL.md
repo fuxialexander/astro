@@ -214,7 +214,7 @@ Format for each point:
 \usepackage{enumitem}
 \usepackage{tikz}
 
-% Morandi-inspired colors
+% Low-saturation accent colors
 \definecolor{reviewblue}{HTML}{4A6FA5}
 \definecolor{reviewgreen}{HTML}{5A8A5A}
 \definecolor{reviewred}{HTML}{A55A5A}

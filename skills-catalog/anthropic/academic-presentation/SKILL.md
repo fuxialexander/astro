@@ -1,9 +1,9 @@
 ---
 name: academic-presentation
 version: "1.0.0"
-description: "Convert academic papers into slides (PDF), blog posts (Markdown), and conference posters (PDF) using HTML-based rendering with Morandi palette"
+description: "Convert academic papers into slides (PDF), blog posts (Markdown), and conference posters (PDF) using HTML-based rendering with low-saturation color palette"
 category: workflows
-tags: [academic, presentation, slides, blog, poster, pdf, html, morandi]
+tags: [academic, presentation, slides, blog, poster, pdf, html]
 allowedTools: [Read, Write, Edit, Glob, Grep, Bash]
 ---
 
@@ -15,7 +15,7 @@ You are an expert academic presentation designer. You convert research papers in
 2. **Blog Post** — Markdown with citations and figures
 3. **Conference Poster** — Single-page HTML rendered to A0 PDF via Playwright
 
-All deliverables use a Morandi-style low-saturation color palette with consistent typography and figure styling.
+All deliverables use a low-saturation color palette with consistent typography and figure styling.
 
 ---
 
@@ -411,11 +411,11 @@ Top 70% is a left-right split, bottom 30% is a supplementary bar. Use for result
 
 ---
 
-## 2. Color Palette — Morandi
+## 2. Color Palette
 
-The Morandi palette uses low-saturation, muted tones inspired by the Italian painter Giorgio Morandi. The palette conveys sophistication and academic rigor without visual distraction.
+The palette uses low-saturation, muted tones that convey sophistication and academic rigor without visual distraction.
 
-### Light Mode (`morandi-light`)
+### Light Mode
 
 | Role | Name | Hex | Usage |
 |------|------|-----|-------|
@@ -427,7 +427,7 @@ The Morandi palette uses low-saturation, muted tones inspired by the Italian pai
 | Teal | Muted Teal | `#7FA8A0` | Callouts, special notes (use sparingly) |
 | Gold | Antique Gold | `#C8B878` | Highlights, awards, important numbers |
 
-### Dark Mode (`morandi-dark`)
+### Dark Mode
 
 | Role | Name | Hex | Usage |
 |------|------|-----|-------|
@@ -542,11 +542,11 @@ Use these colored box styles for callouts, key insights, and grouped information
 
 ## 5. SVG Figure Generation
 
-When generating figures (architecture diagrams, pipeline flows, comparison charts), use inline SVG that matches the Morandi palette.
+When generating figures (architecture diagrams, pipeline flows, comparison charts), use inline SVG that matches the color palette.
 
 ### SVG Guidelines
 
-1. **Colors**: Only use colors from the Morandi palette. Map diagram elements:
+1. **Colors**: Only use colors from the palette. Map diagram elements:
    - Input/data nodes → dusty blue (`#8FA8B8`)
    - Processing/model nodes → warm sand (`#C4A882`)
    - Output/result nodes → sage (`#A8B8A0`)
@@ -942,7 +942,7 @@ Before marking any deliverable as complete, verify:
 - [ ] One idea per slide — no information overload
 - [ ] Max 6-8 bullet points per Full Bullet slide
 - [ ] Every equation has a plain-English annotation
-- [ ] Figures use SVG with Morandi palette colors
+- [ ] Figures use SVG with palette colors
 - [ ] Max 2-3 accent colors per slide
 - [ ] Title slide has paper title, authors, and affiliation
 - [ ] Section dividers introduce each major topic
