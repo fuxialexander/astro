@@ -2,9 +2,9 @@
  * Activity Heatmap — GitHub contribution graph style
  *
  * 52-week CSS grid of daily activity, colored by tasksCompleted.
- * Dynamically sizes cells to fill the container width.
+ * Pure CSS grid (no charting library), Radix tooltips on hover.
  */
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useMemo } from "react"
 import {
   Tooltip,
   TooltipContent,
@@ -41,25 +41,7 @@ const INTENSITY_CLASSES = [
   "bg-emerald-700 dark:bg-emerald-300",
 ]
 
-const GAP = 2
-const DAY_LABEL_WIDTH = 24
-const DAY_LABEL_MARGIN = 4
-
 export function ActivityHeatmap({ data, className }: ActivityHeatmapProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [containerWidth, setContainerWidth] = useState(0)
-
-  useEffect(() => {
-    const node = containerRef.current
-    if (!node) return
-    const ro = new ResizeObserver(([entry]) => {
-      setContainerWidth(entry.contentRect.width)
-    })
-    ro.observe(node)
-    setContainerWidth(node.getBoundingClientRect().width)
-    return () => ro.disconnect()
-  }, [])
-
   // Build 52-week grid with sparse data
   const { grid, monthLabels } = useMemo(() => {
     const dataMap = new Map(data.map((d) => [d.date, d]))
@@ -90,6 +72,7 @@ export function ActivityHeatmap({ data, className }: ActivityHeatmapProps) {
             day: new Date(cursor),
           })
 
+          // Track month label at start of each new month
           const month = cursor.getMonth()
           if (month !== lastMonth) {
             months.push({ label: MONTH_LABELS[month], col: weekIdx })
@@ -105,22 +88,26 @@ export function ActivityHeatmap({ data, className }: ActivityHeatmapProps) {
     return { grid: weeks, monthLabels: months }
   }, [data])
 
-  // Calculate cell size to fill the container
-  const numWeeks = grid.length
-  const availableWidth = containerWidth - DAY_LABEL_WIDTH - DAY_LABEL_MARGIN
-  const cellSize = numWeeks > 0
-    ? Math.max(8, Math.floor((availableWidth - GAP * (numWeeks - 1)) / numWeeks))
-    : 11
-  const step = cellSize + GAP
-
   return (
-    <div ref={containerRef} className={cn("flex flex-col gap-2", className)}>
-      <h3 className="text-sm font-semibold">Activity</h3>
+    <div className={cn("flex flex-col gap-2", className)}>
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Activity</h3>
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          <span>Less</span>
+          {INTENSITY_CLASSES.map((cls, i) => (
+            <div
+              key={i}
+              className={cn("h-2.5 w-2.5 rounded-[2px]", cls)}
+            />
+          ))}
+          <span>More</span>
+        </div>
+      </div>
 
-      {containerWidth > 0 && (
-        <div className="flex flex-col gap-[2px]">
-          {/* Month labels */}
-          <div className="flex gap-[2px]" style={{ marginLeft: DAY_LABEL_WIDTH + DAY_LABEL_MARGIN }}>
+      {/* Month labels */}
+      <div className="overflow-x-auto">
+        <div className="inline-flex flex-col gap-[2px] min-w-fit">
+          <div className="flex gap-[2px] ml-[28px]">
             {monthLabels.map((m, i) => {
               const nextCol = i < monthLabels.length - 1 ? monthLabels[i + 1].col : grid.length
               const span = nextCol - m.col
@@ -128,7 +115,7 @@ export function ActivityHeatmap({ data, className }: ActivityHeatmapProps) {
                 <div
                   key={`${m.label}-${i}`}
                   className="text-[10px] text-muted-foreground"
-                  style={{ width: `${span * step - GAP}px` }}
+                  style={{ width: `${span * 13 - 2}px` }}
                 >
                   {span >= 3 ? m.label : ""}
                 </div>
@@ -139,13 +126,9 @@ export function ActivityHeatmap({ data, className }: ActivityHeatmapProps) {
           {/* Grid: 7 rows (days) x N columns (weeks) */}
           <div className="flex gap-0">
             {/* Day labels */}
-            <div className="flex flex-col gap-[2px] shrink-0" style={{ width: DAY_LABEL_WIDTH, marginRight: DAY_LABEL_MARGIN }}>
+            <div className="flex flex-col gap-[2px] mr-[4px] w-[24px]">
               {DAY_LABELS.map((label, i) => (
-                <div
-                  key={i}
-                  className="text-[10px] text-muted-foreground text-right"
-                  style={{ height: cellSize, lineHeight: `${cellSize}px` }}
-                >
+                <div key={i} className="h-[11px] text-[10px] leading-[11px] text-muted-foreground text-right">
                   {label}
                 </div>
               ))}
@@ -158,7 +141,7 @@ export function ActivityHeatmap({ data, className }: ActivityHeatmapProps) {
                   <div key={wi} className="flex flex-col gap-[2px]">
                     {week.map((day, di) => {
                       if (day.count < 0) {
-                        return <div key={di} style={{ height: cellSize, width: cellSize }} />
+                        return <div key={di} className="h-[11px] w-[11px]" />
                       }
                       const intensity = getIntensity(day.count)
                       return (
@@ -166,10 +149,9 @@ export function ActivityHeatmap({ data, className }: ActivityHeatmapProps) {
                           <TooltipTrigger asChild>
                             <div
                               className={cn(
-                                "rounded-[2px] transition-colors",
+                                "h-[11px] w-[11px] rounded-[2px] transition-colors",
                                 INTENSITY_CLASSES[intensity]
                               )}
-                              style={{ height: cellSize, width: cellSize }}
                             />
                           </TooltipTrigger>
                           <TooltipContent side="top" className="text-xs">
@@ -186,7 +168,7 @@ export function ActivityHeatmap({ data, className }: ActivityHeatmapProps) {
             </TooltipProvider>
           </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }
