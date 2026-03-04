@@ -10,7 +10,7 @@
 process.env.ASTRO_LOCAL_MODE = 'true'
 
 import { describe, it, expect } from 'vitest'
-import type { PlanNode, PlanEdge, KnowledgeEntry } from '../packages/core/src/types.js'
+import type { PlanNode, KnowledgeEntry, Project } from '../packages/core/src/types.js'
 import { createContextAssembler } from '../server/lib/dispatch/index.js'
 
 // ============================================================================
@@ -82,7 +82,7 @@ describe('ContextAssembler — Knowledge Entries', () => {
         }),
       ]
 
-      const context = assembler.assembleContext(node, [node], [], makeProject() as any, entries)
+      const context = assembler.assembleContext(node, [node], [], makeProject() as Project, entries)
       const prompt = assembler.buildExecutionPrompt(context)
 
       expect(prompt).toContain('## Project Knowledge')
@@ -111,7 +111,7 @@ describe('ContextAssembler — Knowledge Entries', () => {
         }),
       ]
 
-      const context = assembler.assembleContext(node, [node], [], makeProject() as any, entries)
+      const context = assembler.assembleContext(node, [node], [], makeProject() as Project, entries)
       const prompt = assembler.buildExecutionPrompt(context)
 
       expect(prompt).toContain('### findings_auth (from: "Auth Task")')
@@ -124,7 +124,7 @@ describe('ContextAssembler — Knowledge Entries', () => {
       const assembler = createContextAssembler()
       const node = makeNode()
 
-      const context = assembler.assembleContext(node, [node], [], makeProject() as any, [])
+      const context = assembler.assembleContext(node, [node], [], makeProject() as Project, [])
       const prompt = assembler.buildExecutionPrompt(context)
 
       expect(prompt).not.toContain('## Project Knowledge')
@@ -134,7 +134,7 @@ describe('ContextAssembler — Knowledge Entries', () => {
       const assembler = createContextAssembler()
       const node = makeNode()
 
-      const context = assembler.assembleContext(node, [node], [], makeProject() as any)
+      const context = assembler.assembleContext(node, [node], [], makeProject() as Project)
       const prompt = assembler.buildExecutionPrompt(context)
 
       expect(prompt).not.toContain('## Project Knowledge')
@@ -151,7 +151,7 @@ describe('ContextAssembler — Knowledge Entries', () => {
         }),
       ]
 
-      const context = assembler.assembleContext(node, [node], [], makeProject() as any, entries)
+      const context = assembler.assembleContext(node, [node], [], makeProject() as Project, entries)
       const prompt = assembler.buildExecutionPrompt(context)
 
       // Should have the key without "(from: ...)"
@@ -164,7 +164,7 @@ describe('ContextAssembler — Knowledge Entries', () => {
       const node = makeNode({ dependencies: [] })
       const entries = [makeKnowledgeEntry()]
 
-      const context = assembler.assembleContext(node, [node], [], makeProject() as any, entries)
+      const context = assembler.assembleContext(node, [node], [], makeProject() as Project, entries)
       const prompt = assembler.buildExecutionPrompt(context)
 
       const visionIdx = prompt.indexOf('## Project Vision')
@@ -208,7 +208,7 @@ describe('ContextAssembler — Knowledge Entries', () => {
         }),
       ]
 
-      const context = assembler.assembleContext(node, [node], [], makeProject() as any, entries)
+      const context = assembler.assembleContext(node, [node], [], makeProject() as Project, entries)
 
       // Should include at least one entry (the most recent) but not all three
       expect(context.knowledgeEntries).toBeDefined()
@@ -230,7 +230,7 @@ describe('ContextAssembler — Knowledge Entries', () => {
         }),
       ]
 
-      const context = assembler.assembleContext(node, [node], [], makeProject() as any, entries)
+      const context = assembler.assembleContext(node, [node], [], makeProject() as Project, entries)
 
       // Must still include the one entry
       expect(context.knowledgeEntries).toHaveLength(1)
@@ -261,7 +261,7 @@ describe('ContextAssembler — Knowledge Entries', () => {
         }),
       ]
 
-      const context = assembler.assembleContext(node, [node], [], makeProject() as any, entries)
+      const context = assembler.assembleContext(node, [node], [], makeProject() as Project, entries)
 
       expect(context.knowledgeEntries![0].key).toBe('new_entry')
       expect(context.knowledgeEntries![1].key).toBe('mid_entry')
@@ -277,7 +277,7 @@ describe('ContextAssembler — Knowledge Entries', () => {
         makeKnowledgeEntry({ id: 'ke-2', key: 'b', value: 'also short', updatedAt: new Date('2025-01-02') }),
       ]
 
-      const context = assembler.assembleContext(node, [node], [], makeProject() as any, entries)
+      const context = assembler.assembleContext(node, [node], [], makeProject() as Project, entries)
 
       expect(context.knowledgeEntries).toHaveLength(2)
     })
