@@ -1,3 +1,28 @@
+import { marked } from 'marked'
+
+/**
+ * Check if a string looks like it contains markdown formatting.
+ * Used to decide whether to parse description content as markdown
+ * (e.g., GitHub-synced issues store raw markdown in `description`).
+ */
+export function looksLikeMarkdown(text: string): boolean {
+  if (!text) return false
+  // Check for common markdown patterns
+  return /(?:^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|^\s*>\s|\*\*|__|```|~~|\[.*\]\(.*\))/m.test(text)
+}
+
+/**
+ * Convert markdown text to HTML using `marked`.
+ * Configures marked for safe HTML output compatible with tiptap.
+ */
+export function markdownToHtml(markdown: string): string {
+  if (!markdown) return ''
+  // marked.parse can return string | Promise<string> depending on config.
+  // With default sync config it returns string.
+  const result = marked.parse(markdown, { async: false, gfm: true, breaks: true }) as string
+  return result
+}
+
 /**
  * Escape special HTML characters to prevent XSS when embedding plain text in HTML.
  */
