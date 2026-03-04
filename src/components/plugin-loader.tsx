@@ -54,7 +54,6 @@ export function PluginLoader({ children }: Props) {
   const setPluginInstance = usePluginStore((s) => s.setPluginInstance)
   const setPluginError = usePluginStore((s) => s.setPluginError)
   const updatePluginConfig = usePluginStore((s) => s.updatePluginConfig)
-  const addSkill = useSkillStore((s) => s.addSkill)
   const removeSkill = useSkillStore((s) => s.removeSkill)
   const registerExternalItem = useSidebarStore((s) => s.registerExternalItem)
   const unregisterExternalItem = useSidebarStore((s) => s.unregisterExternalItem)
@@ -173,21 +172,17 @@ export function PluginLoader({ children }: Props) {
         registerTheme(theme)
       }
     }
-    // Bridge plugin skills to the skill store and sync to the server.
-    // Only add skills that don't already exist in the store (loaded from DB by DataLoader).
-    // Without this check, every page refresh would try to POST duplicate skills, causing 409s.
-    // IMPORTANT: Wait for skill store to be loaded first — if skills haven't loaded from DB
-    // yet, findByName returns nothing and ALL skills pass the filter, causing duplicate 409s.
+    // Sync plugin skills to the server via the idempotent /register endpoint.
+    // Don't use addSkill() here — it calls the non-idempotent POST /api/skills
+    // endpoint, causing 409 conflicts on every page refresh or React Strict Mode
+    // double-invocation. The /register endpoint handles upsert correctly.
+    // After sync, reload the skill store to pick up server-canonical state.
     if (contributions.skills && contributions.skills.length > 0) {
       const processSkills = () => {
-        const { findByName } = useSkillStore.getState()
-        const newSkills = contributions.skills!.filter(skill => !findByName(skill.name))
-        for (const skill of newSkills) {
-          addSkill(skill)
-        }
-        // Sync all plugin skills to server (idempotent endpoint) for prompt injection.
-        // Done inside the loaded gate so client and server state stay consistent.
-        syncSkillsToServer(contributions.skills!).catch((err) => {
+        syncSkillsToServer(contributions.skills!).then(() => {
+          // Reload skill store from backend to pick up newly registered/updated skills
+          useSkillStore.getState().load()
+        }).catch((err) => {
           console.warn(`[PluginLoader] Failed to sync skills for plugin "${pluginId}":`, err)
         })
       }
@@ -197,8 +192,6 @@ export function PluginLoader({ children }: Props) {
         processSkills()
       } else {
         // Skills arrived before store loaded from DB. Subscribe and process once ready.
-        // Tracked in skillSubsRef so it can be cleaned up if the plugin is unbridged
-        // or the component unmounts before the store finishes loading.
         skillSubsRef.current.get(pluginId)?.() // Clean up previous subscription if any
         const unsub = useSkillStore.subscribe((state) => {
           if (state.loaded) {
