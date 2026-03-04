@@ -21,6 +21,7 @@ import {
   nodeComments,
   environmentConfigs,
   streamingEvents,
+  projectKnowledge,
 } from '../lib/db/schema.js'
 import { eq, and, or, sql, desc, isNull, inArray } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
@@ -2143,6 +2144,88 @@ app.get('/stats/lifetime', async (c) => {
   const { getFullStats } = await import('../lib/stats.js')
   const data = await getFullStats(userId)
   return c.json(data)
+})
+
+// ── Project Knowledge ────────────────────────────────────────────────
+
+// GET /knowledge?projectId=<uuid> — list all entries for a project
+app.get('/knowledge', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const projectId = c.req.query('projectId')
+  if (!projectId) return c.json({ error: 'projectId query parameter required' }, 400)
+  if (!UUID_RE.test(projectId)) return c.json({ error: 'Invalid project ID' }, 400)
+
+  // Verify project access
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+  )
+  if (!project) return c.json({ error: 'Not found' }, 404)
+
+  const rows = await db.select().from(projectKnowledge)
+    .where(eq(projectKnowledge.projectId, projectId))
+    .orderBy(desc(projectKnowledge.updatedAt))
+
+  return c.json(rows)
+})
+
+// POST /knowledge — upsert a knowledge entry (insert or update by projectId+key)
+app.post('/knowledge', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const body = await c.req.json()
+  const { projectId, key, value, sourceNodeId, sourceTaskTitle, milestoneId } = body
+
+  if (!projectId || typeof projectId !== 'string') return c.json({ error: 'projectId is required' }, 400)
+  if (!key || typeof key !== 'string') return c.json({ error: 'key is required' }, 400)
+  if (value === undefined || value === null || typeof value !== 'string') return c.json({ error: 'value is required' }, 400)
+  if (!UUID_RE.test(projectId)) return c.json({ error: 'Invalid project ID' }, 400)
+
+  // Verify project access
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+  )
+  if (!project) return c.json({ error: 'Not found' }, 404)
+
+  const now = new Date()
+  const [row] = await db.insert(projectKnowledge).values({
+    projectId,
+    key,
+    value,
+    sourceNodeId: sourceNodeId ?? null,
+    sourceTaskTitle: sourceTaskTitle ?? null,
+    milestoneId: milestoneId ?? null,
+    createdAt: now,
+    updatedAt: now,
+  }).onConflictDoUpdate({
+    target: [projectKnowledge.projectId, projectKnowledge.key],
+    set: {
+      value,
+      sourceNodeId: sourceNodeId ?? null,
+      sourceTaskTitle: sourceTaskTitle ?? null,
+      milestoneId: milestoneId ?? null,
+      updatedAt: now,
+    },
+  }).returning()
+
+  return c.json(row, 201)
+})
+
+// DELETE /knowledge/:id — delete a single entry by UUID
+app.delete('/knowledge/:id', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const id = c.req.param('id')
+  if (!UUID_RE.test(id)) return c.json({ error: 'Invalid knowledge ID' }, 400)
+
+  const [row] = await db.select().from(projectKnowledge).where(eq(projectKnowledge.id, id))
+  if (!row) return c.json({ error: 'Not found' }, 404)
+
+  // Verify project access via parent project
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, row.projectId), teamScopeFilter(projects, user))
+  )
+  if (!project) return c.json({ error: 'Not authorized' }, 403)
+
+  await db.delete(projectKnowledge).where(eq(projectKnowledge.id, id))
+  return c.json({ ok: true })
 })
 
 export const dataRoute = app
