@@ -182,6 +182,7 @@ dispatchRoute.post('/task', async (c) => {
     dispatchSigningPayload,
     resumeSessionId,
     forkSession,
+    replanContext,
   } = body
 
   // These variables may be resolved from DB when not provided by the client
@@ -487,6 +488,7 @@ dispatchRoute.post('/task', async (c) => {
     dispatchSigningPayload,
     dryRun,
     nodeNumber,
+    replanContext,
   })
 })
 
@@ -531,6 +533,7 @@ async function dispatchViaRelay(
     dispatchSigningPayload?: { v: 1; nodeId: string; projectId: string; machineId: string; timestamp: string; nonce: string }
     dryRun?: boolean
     nodeNumber?: number | null
+    replanContext?: z.infer<typeof dispatchTaskSchema>['replanContext']
   }
 ) {
   // Derive Astro base URL: env var > request Origin header
@@ -572,6 +575,7 @@ async function dispatchViaRelay(
     dispatchSigningPayload,
     dryRun,
     nodeNumber,
+    replanContext,
   } = params
 
   // Compute short hex IDs early — needed for prompt building + relay dispatch
@@ -635,7 +639,7 @@ async function dispatchViaRelay(
       visionDoc: visionDoc || undefined,
       skillsSummary: skillsInjection,
       githubContext,
-      replanContext: body.replanContext,
+      replanContext,
     })
     // The user prompt is just the description
     promptParts.push(description)
@@ -1825,7 +1829,7 @@ dispatchRoute.post('/reset', async (c) => {
   const errors: string[] = []
 
   // Load project to get GitHub owner/repo
-  const [project] = await db.select().from(projects).where(eq(projects.clientId, projectId)).limit(1)
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
 
   // Get GitHub token for the authenticated user (used for PR close + branch delete)
   const { githubStore } = await import('../lib/github-store.js')
@@ -2011,7 +2015,7 @@ dispatchRoute.post('/bulk-reset', async (c) => {
   }
 
   // 2. Load the project to check for GitHub connection
-  const [project] = await db.select().from(projects).where(eq(projects.clientId, projectId)).limit(1)
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
 
   // Get GitHub token for the authenticated user
   const { githubStore } = await import('../lib/github-store.js')

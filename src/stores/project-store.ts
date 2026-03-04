@@ -40,6 +40,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const now = new Date()
     const withDefaults = {
       ...project,
+      status: project.status ?? 'active' as const,
       createdAt: project.createdAt ?? now,
       updatedAt: project.updatedAt ?? now,
     }

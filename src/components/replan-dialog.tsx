@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react"
+import { useNavigate } from "react-router"
 import { RefreshCw, AlertTriangle, Loader2 } from "lucide-react"
 import {
   Dialog,
@@ -24,6 +25,7 @@ interface ReplanDialogProps {
 }
 
 export function ReplanDialog({ open, onOpenChange, project }: ReplanDialogProps) {
+  const navigate = useNavigate()
   const [changeDescription, setChangeDescription] = useState("")
   const [isProcessing, setIsProcessing] = useState(false)
 
@@ -77,6 +79,8 @@ export function ReplanDialog({ open, onOpenChange, project }: ReplanDialogProps)
       )
 
       onOpenChange(false)
+      // Navigate to the plan activity page to show generation progress
+      navigate(`/plan?projectId=${project.id}`)
     } catch (error) {
       console.error("[replan-dialog] Replan failed:", error)
       useToastStore.getState().add({

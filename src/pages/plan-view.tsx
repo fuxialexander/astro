@@ -43,6 +43,8 @@ import { cn } from "@/lib/utils"
 import { splitTitleDescription } from "@/lib/text-utils"
 import { topologicalSortNodes } from "@/lib/graph-sort-utils"
 import { useFileTreeRefresh } from "@/hooks/use-file-tree-refresh"
+import { apiUrl } from "@/lib/api-url"
+import { getAccessToken } from "@/lib/supabase-client"
 import type { PlanNode, Priority, Project } from "@/types"
 
 type ViewMode = "graph" | "list" | "timeline" | "board"
@@ -1481,6 +1483,28 @@ export function PlanView() {
   const isGitHubProject = !!(project?.githubOwner && project?.githubRepo) || project?.source?.remoteType === 'github'
   const liveNodes = useMemo(() => planNodes.filter(n => n.projectId === id), [planNodes, id])
   const canReplan = liveNodes.length > 0 && !isGitHubProject
+  const canSyncGitHub = isGitHubProject
+
+  // GitHub issue sync handler
+  const [syncing, setSyncing] = useState(false)
+  const handleSyncGitHub = useCallback(async () => {
+    if (!project) return
+    setSyncing(true)
+    try {
+      const headers: Record<string, string> = {}
+      const token = await getAccessToken()
+      if (token) headers["Authorization"] = `Bearer ${token}`
+      const res = await fetch(apiUrl(`/api/github/projects/${project.id}/sync-issues`), { method: "POST", headers })
+      if (!res.ok) throw new Error("Failed to sync")
+      const data = await res.json()
+      await usePlanStore.getState().load()
+      useToastStore.getState().add({ type: "success", title: "Issues synced", description: `${data.created} new, ${data.updated} updated` })
+    } catch (err) {
+      useToastStore.getState().add({ type: "error", title: "Sync failed", description: err instanceof Error ? err.message : "Unknown error" })
+    } finally {
+      setSyncing(false)
+    }
+  }, [project])
 
   if (!project) {
     return (
@@ -1581,7 +1605,16 @@ export function PlanView() {
               activeViewAs: viewMode,
               onViewAsChange: (v) => navigate(`/project/${project.id}/${v}`),
             }} />
-            {canReplan && (
+            {canSyncGitHub ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" onClick={handleSyncGitHub} disabled={syncing}>
+                    <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Sync GitHub Issues</TooltipContent>
+              </Tooltip>
+            ) : canReplan ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button variant="ghost" size="icon" onClick={() => setReplanOpen(true)}>
@@ -1590,7 +1623,7 @@ export function PlanView() {
                 </TooltipTrigger>
                 <TooltipContent>Regenerate Plan</TooltipContent>
               </Tooltip>
-            )}
+            ) : null}
           </div>
         )}
 
@@ -1632,7 +1665,15 @@ export function PlanView() {
                 </div>
               </>
             )}
-            {canReplan && (
+            {canSyncGitHub ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleSyncGitHub} disabled={syncing}>
+                  <RefreshCw className={cn("h-3.5 w-3.5 mr-2", syncing && "animate-spin")} />
+                  Sync GitHub Issues
+                </DropdownMenuItem>
+              </>
+            ) : canReplan ? (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => setReplanOpen(true)}>
@@ -1640,7 +1681,7 @@ export function PlanView() {
                   Regenerate Plan
                 </DropdownMenuItem>
               </>
-            )}
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       </header>
