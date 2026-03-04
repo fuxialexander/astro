@@ -485,4 +485,324 @@ app.get('/projects', async (c) => {
   return c.json({ projects: rows });
 });
 
+// ── Issue creation, linking, and search endpoints ─────────────────────
+
+/** Map Astro priority to GitHub labels */
+function priorityToGitHubLabel(priority?: string): string | null {
+  switch (priority) {
+    case 'urgent': return 'P0';
+    case 'high': return 'P1';
+    case 'medium': return 'P2';
+    case 'low': return 'P3';
+    default: return null;
+  }
+}
+
+/**
+ * POST /api/github/issues
+ * Create a GitHub issue from an Astro task node
+ */
+app.post('/issues', async (c) => {
+  const user = c.get('user') as AuthUser;
+  const body = await c.req.json();
+  const { nodeId, projectId } = body as { nodeId: string; projectId: string };
+
+  if (!nodeId || !projectId) {
+    return c.json({ error: 'nodeId and projectId are required' }, 400);
+  }
+
+  // Look up project (must be github-linked, team-scoped)
+  const [project] = await db.select()
+    .from(projects)
+    .where(and(
+      eq(projects.id, projectId),
+      eq(projects.teamId, user.teamId)
+    ))
+    .limit(1);
+
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
+  }
+
+  if (project.projectType !== 'github' || !project.githubOwner || !project.githubRepo) {
+    return c.json({ error: 'Project is not a GitHub-linked project' }, 400);
+  }
+
+  // Look up node
+  const [node] = await db.select()
+    .from(planNodes)
+    .where(and(
+      eq(planNodes.id, nodeId),
+      eq(planNodes.projectId, projectId)
+    ))
+    .limit(1);
+
+  if (!node) {
+    return c.json({ error: 'Task node not found' }, 404);
+  }
+
+  if (node.githubIssueNumber) {
+    return c.json({ error: `Task already linked to GitHub issue #${node.githubIssueNumber}` }, 409);
+  }
+
+  // Resolve token
+  const tokenResult = await resolveGitHubToken(
+    project.githubOwner,
+    project.githubRepo,
+    user.id,
+    user.teamId ?? null,
+  );
+
+  if (!tokenResult) {
+    return c.json({ error: 'No GitHub token available for this repository' }, 401);
+  }
+
+  // Build labels (include priority label if applicable)
+  const labels: string[] = [];
+  const priorityLabel = priorityToGitHubLabel(node.priority ?? undefined);
+  if (priorityLabel) labels.push(priorityLabel);
+
+  try {
+    const issue = await githubClient.createIssue(
+      tokenResult.token,
+      project.githubOwner,
+      project.githubRepo,
+      {
+        title: node.title,
+        body: node.description || '',
+        labels,
+      }
+    );
+
+    // Build link entry
+    const linkEntry = {
+      id: `gh-${issue.number}`,
+      type: 'github_issue',
+      url: issue.html_url,
+      title: issue.title,
+      state: issue.state,
+      number: issue.number,
+    };
+
+    // Merge into existing links
+    const existingLinks = (node.links ?? []) as Array<{ id: string; type: string; url: string; title: string; state?: string; number?: number; targetId?: string }>;
+    const mergedLinks = [
+      ...existingLinks.filter((l) => l.id !== linkEntry.id),
+      linkEntry,
+    ];
+
+    // Update node with GitHub issue data + sync tracking
+    await db.update(planNodes).set({
+      githubIssueNumber: issue.number,
+      githubIssueUrl: issue.html_url,
+      links: mergedLinks,
+      githubSyncedAt: new Date(),
+      githubSyncVersion: (node.githubSyncVersion ?? 0) + 1,
+      syncSource: 'user',
+      updatedAt: new Date(),
+    }).where(eq(planNodes.id, nodeId));
+
+    return c.json({
+      issue: {
+        number: issue.number,
+        title: issue.title,
+        url: issue.html_url,
+        state: issue.state,
+      },
+    }, 201);
+  } catch (err) {
+    console.error(`[github] Failed to create issue for node ${nodeId}:`, err);
+    return c.json({ error: 'Failed to create GitHub issue' }, 500);
+  }
+});
+
+/**
+ * POST /api/github/issues/link
+ * Link an existing GitHub issue to an Astro task node
+ */
+app.post('/issues/link', async (c) => {
+  const user = c.get('user') as AuthUser;
+  const body = await c.req.json();
+  const { nodeId, projectId, issueNumber, issueUrl, issueTitle } = body as {
+    nodeId: string;
+    projectId: string;
+    issueNumber: number;
+    issueUrl: string;
+    issueTitle: string;
+  };
+
+  if (!nodeId || !projectId || !issueNumber || !issueUrl) {
+    return c.json({ error: 'nodeId, projectId, issueNumber, and issueUrl are required' }, 400);
+  }
+
+  // Look up project (team-scoped)
+  const [project] = await db.select()
+    .from(projects)
+    .where(and(
+      eq(projects.id, projectId),
+      eq(projects.teamId, user.teamId)
+    ))
+    .limit(1);
+
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
+  }
+
+  // Look up node
+  const [node] = await db.select()
+    .from(planNodes)
+    .where(and(
+      eq(planNodes.id, nodeId),
+      eq(planNodes.projectId, projectId)
+    ))
+    .limit(1);
+
+  if (!node) {
+    return c.json({ error: 'Task node not found' }, 404);
+  }
+
+  // Build link entry
+  const linkEntry = {
+    id: `gh-${issueNumber}`,
+    type: 'github_issue',
+    url: issueUrl,
+    title: issueTitle || `Issue #${issueNumber}`,
+    state: 'open',
+    number: issueNumber,
+  };
+
+  // Merge into existing links
+  const existingLinks = (node.links ?? []) as Array<{ id: string; type: string; url: string; title: string; state?: string; number?: number; targetId?: string }>;
+  const mergedLinks = [
+    ...existingLinks.filter((l) => l.id !== linkEntry.id),
+    linkEntry,
+  ];
+
+  await db.update(planNodes).set({
+    githubIssueNumber: issueNumber,
+    githubIssueUrl: issueUrl,
+    links: mergedLinks,
+    githubSyncedAt: new Date(),
+    githubSyncVersion: (node.githubSyncVersion ?? 0) + 1,
+    syncSource: 'user',
+    updatedAt: new Date(),
+  }).where(eq(planNodes.id, nodeId));
+
+  return c.json({ success: true });
+});
+
+/**
+ * POST /api/github/issues/unlink
+ * Unlink a GitHub issue from an Astro task node
+ */
+app.post('/issues/unlink', async (c) => {
+  const user = c.get('user') as AuthUser;
+  const body = await c.req.json();
+  const { nodeId, projectId } = body as { nodeId: string; projectId: string };
+
+  if (!nodeId || !projectId) {
+    return c.json({ error: 'nodeId and projectId are required' }, 400);
+  }
+
+  // Look up project (team-scoped)
+  const [project] = await db.select({ id: projects.id })
+    .from(projects)
+    .where(and(
+      eq(projects.id, projectId),
+      eq(projects.teamId, user.teamId)
+    ))
+    .limit(1);
+
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
+  }
+
+  // Look up node
+  const [node] = await db.select()
+    .from(planNodes)
+    .where(and(
+      eq(planNodes.id, nodeId),
+      eq(planNodes.projectId, projectId)
+    ))
+    .limit(1);
+
+  if (!node) {
+    return c.json({ error: 'Task node not found' }, 404);
+  }
+
+  // Remove GitHub issue links from links array
+  const existingLinks = (node.links ?? []) as Array<{ id: string; type: string; url: string; title: string; state?: string; number?: number; targetId?: string }>;
+  const filteredLinks = existingLinks.filter(
+    (l) => !(l.type === 'github_issue' && l.id === `gh-${node.githubIssueNumber}`)
+  );
+
+  await db.update(planNodes).set({
+    githubIssueNumber: null,
+    githubIssueUrl: null,
+    links: filteredLinks,
+    githubSyncedAt: new Date(),
+    githubSyncVersion: (node.githubSyncVersion ?? 0) + 1,
+    syncSource: 'user',
+    updatedAt: new Date(),
+  }).where(eq(planNodes.id, nodeId));
+
+  return c.json({ success: true });
+});
+
+/**
+ * GET /api/github/issues/search
+ * Search issues in the linked GitHub repo for a project
+ */
+app.get('/issues/search', async (c) => {
+  const user = c.get('user') as AuthUser;
+  const projectId = c.req.query('projectId');
+  const query = c.req.query('q') || '';
+
+  if (!projectId) {
+    return c.json({ error: 'projectId query param is required' }, 400);
+  }
+
+  // Look up project
+  const [project] = await db.select()
+    .from(projects)
+    .where(and(
+      eq(projects.id, projectId),
+      eq(projects.teamId, user.teamId)
+    ))
+    .limit(1);
+
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
+  }
+
+  if (project.projectType !== 'github' || !project.githubOwner || !project.githubRepo) {
+    return c.json({ error: 'Project is not a GitHub-linked project' }, 400);
+  }
+
+  // Resolve token
+  const tokenResult = await resolveGitHubToken(
+    project.githubOwner,
+    project.githubRepo,
+    user.id,
+    user.teamId ?? null,
+  );
+
+  if (!tokenResult) {
+    return c.json({ error: 'No GitHub token available for this repository' }, 401);
+  }
+
+  try {
+    const issues = await githubClient.searchIssues(
+      tokenResult.token,
+      project.githubOwner,
+      project.githubRepo,
+      { query, state: 'open', perPage: 20 }
+    );
+    return c.json({ issues });
+  } catch (err) {
+    console.error(`[github] Issue search failed:`, err);
+    return c.json({ error: 'Failed to search issues' }, 500);
+  }
+});
+
 export default app;

@@ -3,8 +3,10 @@ import { Loader2, ExternalLink, Paperclip, Link2, CircleCheck } from 'lucide-rea
 import { RichTextEditor, type RichTextEditorRef } from '@/components/ui/rich-text-editor'
 import { AttachmentList } from './attachment-list'
 import { LinkList } from './link-list'
+import { GitHubIssueActions } from './github-issue-actions'
 import { CommentSection } from './comment-section'
 import { usePlanStore } from '@/stores/plan-store'
+import { useProjectStore } from '@/stores/project-store'
 import { useUserProfileStore } from '@/stores/user-profile-store'
 import { useContentSaveStore } from '@/stores/content-save-store'
 import { dataClient } from '@/lib/data-client'
@@ -24,6 +26,7 @@ interface TaskContentTabProps {
 export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskContentTabProps) {
   const updateNode = usePlanStore((s) => s.updateNode)
   const nodes = usePlanStore((s) => s.nodes)
+  const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const profile = useUserProfileStore((s) => s.profile)
   const registerPendingSave = useContentSaveStore((s) => s.registerPendingSave)
   const editorRef = useRef<RichTextEditorRef>(null)
@@ -277,6 +280,16 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
         {/* Sidebar for attachments and links (wide layout) */}
         {isWide && (
           <div className="space-y-6">
+            {/* GitHub issue actions */}
+            {project && project.projectType === 'github' && (
+              <div>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  GitHub
+                </h4>
+                <GitHubIssueActions node={node} project={project} />
+              </div>
+            )}
+
             {/* Section tabs */}
             <div className="flex border-b border-border">
               <button
@@ -328,6 +341,16 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
                 onRemove={handleRemoveLink}
               />
             )}
+          </div>
+        )}
+
+        {/* GitHub issue actions (narrow layout) */}
+        {!isWide && project && project.projectType === 'github' && (
+          <div>
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+              GitHub
+            </h3>
+            <GitHubIssueActions node={node} project={project} />
           </div>
         )}
 

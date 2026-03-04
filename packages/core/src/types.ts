@@ -246,6 +246,9 @@ export interface PlanNode {
   autoPr?: boolean;
   githubIssueNumber?: number;
   githubIssueUrl?: string;
+  githubSyncedAt?: Date;
+  githubSyncVersion?: number;
+  syncSource?: 'user' | 'github' | 'sync';
   deletedAt?: Date;
   deletionActionId?: string;
   metadata?: Record<string, unknown>;
