@@ -203,9 +203,9 @@ export function useConvertToProject() {
 
       // 5. Start plan generation (before deleting node — if this fails, node remains)
       await startPlanSessionForProject(newProjectId, enrichedDescription, {
-        workingDirectory: sourceProject.workingDirectory,
-        targetMachineId: sourceProject.defaultMachineId,
-        visionDoc: sourceProject.visionDoc,
+        workingDirectory: sourceProject.workingDirectory || undefined,
+        targetMachineId: sourceProject.defaultMachineId || undefined,
+        visionDoc: sourceProject.visionDoc || undefined,
         baseBranch: isGitRepo ? sourceProjectBranch : undefined,
       })
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { NavLink, useNavigate, useParams, useLocation } from "react-router"
-import { GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X, FlaskConical, PanelLeftClose, PanelLeft, AlertCircle } from "lucide-react"
+import { GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X, FlaskConical, PanelLeftClose, PanelLeft, AlertCircle, LayoutTemplate } from "lucide-react"
 import { getFaIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
@@ -41,6 +41,7 @@ const iconMap: Record<string, typeof CheckSquare> = {
   Code,
   Sparkles,
   FlaskConical,
+  LayoutTemplate,
 }
 
 // Project color palette — Morandi muted tones
@@ -331,6 +332,18 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     [projects]
   )
 
+  // Shared handler for Plan click — resets to fresh input when already on /plan.
+  // Uses location.state to signal form reset even when URL doesn't change.
+  const handlePlanClick = useCallback((e?: React.MouseEvent) => {
+    e?.preventDefault()
+    if (location.pathname === "/plan") {
+      // Already on /plan — use a unique state key to force reset detection
+      navigate("/plan", { replace: true, state: { resetForm: Date.now() } })
+    } else {
+      navigate("/plan")
+    }
+  }, [location.pathname, navigate])
+
   return (
     <aside className={cn(
       "hidden md:flex h-full shrink-0 flex-col border-r border-border bg-card overflow-hidden",
@@ -425,7 +438,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
-                        onClick={() => navigate(item.to)}
+                        onClick={item.id === "plan" ? (e: React.MouseEvent) => handlePlanClick(e) : () => navigate(item.to)}
                         className={cn(
                           "flex items-center justify-center h-9 w-9 rounded-lg transition-colors relative",
                           isItemActive
@@ -490,6 +503,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   <NavLink
                     to={item.to}
                     end
+                    onClick={item.id === "plan" ? (e: React.MouseEvent) => handlePlanClick(e) : undefined}
                     className={({ isActive }) =>
                       cn(
                         "flex items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium transition-colors",

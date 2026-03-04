@@ -1,11 +1,12 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, Sparkles, FileText } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { TaskRow } from "@/components/task-row"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { PlanCanvas } from "@/components/plan-graph/plan-canvas"
 import { ChatPanel } from "@/components/agent/chat-panel"
@@ -21,6 +22,7 @@ import { ColorIconBadge } from "@/components/color-icon-picker"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { validateProjectName } from "@/lib/project-validation"
 import { OverviewTab } from "@/pages/project-overview"
+import { UseTemplateSheet } from "@/components/templates/use-template-sheet"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -735,6 +737,7 @@ function InlineListCreationRow({
 
 // --- Inline Empty State for List View ---
 function ListEmptyState({ projectId, columns }: { projectId: string; columns: ListColumn<PlanNode>[] }) {
+  const navigate = useNavigate()
   const displaySettings = useDisplaySettingsStore((s) => s.get("plan-list"))
 
   // Filter visible columns (but always show name for creation)
@@ -746,6 +749,18 @@ function ListEmptyState({ projectId, columns }: { projectId: string; columns: Li
 
   return (
     <div className="flex flex-col h-full">
+      {/* Generate with AI button */}
+      <div className="px-6 py-4">
+        <button
+          type="button"
+          onClick={() => navigate(`/plan?projectId=${projectId}`)}
+          className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 text-sm font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+        >
+          <Sparkles className="h-4 w-4" />
+          Generate with AI
+        </button>
+      </div>
+
       {/* Header row */}
       <div className="flex items-center gap-3 border-b border-border px-6 py-2 bg-muted/30">
         {visibleColumns.map((col) => (
@@ -1447,6 +1462,7 @@ export function PlanView() {
   }, [planNodes, handleNodeSelect])
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
   const [visionOpen, setVisionOpen] = useState(false)
+  const [useTemplateOpen, setUseTemplateOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
   const chatPanelPosition = useUIStore((s) => s.chatPanelPosition)
   const isRightChat = chatPanelPosition === "right"
@@ -1593,9 +1609,18 @@ export function PlanView() {
 
         <div className="flex-1 min-w-0" />
 
-        {/* View mode toggle - right-aligned, only visible when Plan is active */}
+        {/* View mode toggle + Use Template - right-aligned, only visible when Plan is active */}
         {activeTab === "plan" && (
           <div className="hidden md:flex items-center gap-2 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setUseTemplateOpen(true)}
+              className="text-xs"
+            >
+              <FileText className="h-3.5 w-3.5 mr-1.5" />
+              Use Template
+            </Button>
             <DisplayPopover config={{
               ...(viewMode === "list" ? planListDisplayConfig
                 : viewMode === "timeline" ? planTimelineDisplayConfig
@@ -1700,6 +1725,13 @@ export function PlanView() {
 
       {/* Vision Document Dialog */}
       <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />
+
+      {/* Use Template Sheet */}
+      <UseTemplateSheet
+        open={useTemplateOpen}
+        onOpenChange={setUseTemplateOpen}
+        projectId={project.id}
+      />
     </div>
   )
 }

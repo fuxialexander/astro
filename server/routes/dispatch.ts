@@ -69,7 +69,7 @@ const dispatchTaskSchema = z.object({
   nodeId: z.string().min(1).max(100),
   projectId: z.string().min(1).max(100),
   title: z.string().min(1).max(1000).optional(),
-  description: z.string().min(1).max(50000).optional(),
+  description: z.string().min(1).max(200000).optional(),
   dependencies: z.array(z.string().max(100)).max(100).optional(),
   verification: z.enum(['auto', 'human']).optional(),
   visionDoc: z.string().max(100000).optional(),
@@ -138,15 +138,24 @@ dispatchRoute.use('/*', requireAuth)
  * All tasks are dispatched via relay to agent runners.
  */
 dispatchRoute.post('/task', async (c) => {
+  console.log(`[dispatch] POST /task received from ${c.req.header('x-forwarded-for') || 'unknown'}`)
   // Validate input
   let body: z.infer<typeof dispatchTaskSchema>
   try {
     const rawBody = await c.req.json()
+    // Convert null values to undefined — DB nullable columns return null,
+    // but Zod .optional() only accepts undefined. Belt-and-suspenders fix
+    // in case the client sends null for optional fields.
+    for (const key of Object.keys(rawBody)) {
+      if (rawBody[key] === null) rawBody[key] = undefined
+    }
     body = dispatchTaskSchema.parse(rawBody)
   } catch (err) {
     if (err instanceof z.ZodError) {
+      console.error('[dispatch] Zod validation failed:', JSON.stringify(err.issues))
       return c.json({ success: false, error: 'Invalid input', details: err.issues }, 400)
     }
+    console.error('[dispatch] JSON parse failed:', err instanceof Error ? err.message : String(err))
     return c.json({ success: false, error: 'Invalid JSON' }, 400)
   }
 
@@ -1413,7 +1422,9 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       clearInterval(heartbeat)
       cleanup()
       // Flush any buffered text before disconnect
-      streamingEventLog.flushText(executionId).catch(() => {})
+      streamingEventLog.flushText(executionId).catch((err) => {
+        console.error(`[dispatch] Failed to flush text on disconnect for ${executionId}:`, err)
+      })
       // Task continues running on the agent runner — results arrive via relay → global SSE → realtime-store
     })
 

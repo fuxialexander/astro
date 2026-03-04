@@ -1,5 +1,6 @@
+import type { PlanNode, PlanEdge } from "@/types"
 import { getAccessToken } from "@/lib/supabase-client"
-import { parseChatSSE, parseExecutionSSE } from "@/lib/sse-parser"
+import { parseChatSSE } from "@/lib/sse-parser"
 import { apiUrl } from "@/lib/api-url"
 
 /**
@@ -31,6 +32,34 @@ async function authHeaders(): Promise<Record<string, string>> {
   return headers
 }
 
+interface PlanGraphResult {
+  projectName: string
+  nodes: Array<{
+    id: string
+    type: PlanNode["type"]
+    title: string
+    description: string
+    status: PlanNode["status"]
+    parentId: string | null
+    dependencies: string[]
+    verification: PlanNode["verification"]
+    position: { x: number; y: number }
+    startDate?: string
+    endDate?: string
+    priority?: string
+    estimate?: string
+    dueDate?: string
+    milestoneId?: string
+    labelIds?: string[]
+  }>
+  edges: Array<{
+    id: string
+    source: string
+    target: string
+    type: PlanEdge["type"]
+  }>
+}
+
 /**
  * Fetch available slash commands from a connected machine.
  */
@@ -48,6 +77,60 @@ export async function fetchSlashCommands(
   } catch {
     return []
   }
+}
+
+export async function generatePlan(
+  params: { description: string; visionDoc?: string; projectId: string; model?: string; providerId?: string; workingDirectory?: string; fileTree?: string[]; keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }; targetMachineId?: string; gitState?: { currentBranch: string; targetBranch: string; isDirty: boolean; dirtyDetails?: { staged: number; unstaged: number; untracked: number } }; streamId?: string },
+  callbacks: {
+    onText: (text: string) => void
+    onPlanResult: (result: PlanGraphResult) => void
+    onError: (error: string) => void
+    onDone: () => void
+    /** Called when an SSE `id:` field is received — tracks last seq for reconnection */
+    onId?: (id: string) => void
+  },
+  signal?: AbortSignal,
+): Promise<void> {
+  console.log(`[plan-gen] POST /api/agent/generate-plan projectId=${params.projectId}`)
+
+  const res = await fetch(apiUrl("/api/agent/generate-plan"), {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify(params),
+    signal,
+  })
+
+  if (!res.ok) {
+    let errorMsg = `Server error: ${res.status}`
+    try {
+      const body = await res.json()
+      if (body.error) errorMsg += ` – ${body.error}`
+      if (body.details) console.error(`[plan-gen] Validation details:`, body.details)
+    } catch { /* non-JSON response */ }
+    console.error(`[plan-gen] ${errorMsg}`)
+    callbacks.onError(errorMsg)
+    return
+  }
+
+  console.log(`[plan-gen] SSE stream opened for projectId=${params.projectId}`)
+
+  await parseChatSSE(res, {
+    onText: callbacks.onText,
+    onId: callbacks.onId,
+    onPlanResult: (result) => {
+      const planResult = result as PlanGraphResult
+      console.log(`[plan-gen] plan_result received: ${planResult.nodes.length} nodes, ${planResult.edges.length} edges`)
+      callbacks.onPlanResult(planResult)
+    },
+    onError: (error) => {
+      console.error(`[plan-gen] SSE error:`, error)
+      callbacks.onError(error)
+    },
+    onDone: () => {
+      console.log(`[plan-gen] SSE stream done for projectId=${params.projectId}`)
+      callbacks.onDone()
+    },
+  })
 }
 
 export interface ChatPlanNodeContext {
@@ -110,6 +193,8 @@ export async function planChatWithAgent(
     onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
     onDone: (sessionId: string) => void
     onError: (error: string) => void
+    /** Called with each SSE seq number — track for disconnect catch-up */
+    onSeq?: (seq: number) => void
   },
   signal?: AbortSignal,
 ): Promise<void> {
@@ -133,6 +218,7 @@ export async function planChatWithAgent(
     onToolResult: callbacks.onToolResult,
     onDone: callbacks.onDone,
     onError: callbacks.onError,
+    onSeq: callbacks.onSeq,
   })
 }
 
@@ -172,6 +258,8 @@ export async function chatWithTask(
     onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
     onDone: (sessionId: string) => void
     onError: (error: string) => void
+    /** Called with each SSE seq number — track for disconnect catch-up */
+    onSeq?: (seq: number) => void
   },
   signal?: AbortSignal,
 ): Promise<void> {
@@ -195,6 +283,7 @@ export async function chatWithTask(
     onToolResult: callbacks.onToolResult,
     onDone: callbacks.onDone,
     onError: callbacks.onError,
+    onSeq: callbacks.onSeq,
   })
 }
 
@@ -384,71 +473,6 @@ export async function redetectProviders(): Promise<ProviderStatusResult> {
   return response.json()
 }
 
-// Dispatch types
-export interface DispatchParams {
-  nodeId: string
-  projectId: string
-  taskTitle: string
-  taskDescription: string
-  taskType?: string
-  visionDoc?: string
-  dependencyOutputs?: string
-  workingDirectory?: string
-  model?: string
-  providerId?: string
-  maxTurns?: number
-}
-
-export interface DispatchCallbacks {
-  onInit?: (data: { executionId: string; nodeId: string; providerId: string; providerName: string }) => void
-  onText?: (text: string) => void
-  onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
-  onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
-  onFileChange?: (data: { path: string; action: string; diff?: string }) => void
-  onProgress?: (data: { message: string; percentage?: number }) => void
-  onResult?: (data: {
-    executionId: string
-    nodeId: string
-    status: string
-    output: string
-    metrics?: Record<string, unknown>
-  }) => void
-  onError?: (error: string) => void
-  onDone?: (data: { executionId: string; nodeId: string; sessionId?: string }) => void
-}
-
-export async function dispatchTask(
-  params: DispatchParams,
-  callbacks: DispatchCallbacks,
-  signal?: AbortSignal
-): Promise<void> {
-  const response = await fetch(apiUrl("/api/agent/dispatch"), {
-    method: "POST",
-    headers: await authHeaders(),
-    body: JSON.stringify(params),
-    signal,
-  })
-
-  if (!response.ok) {
-    let errorMsg = `Server error: ${response.status}`
-    try { const b = await response.json(); if (b.error) errorMsg += ` – ${b.error}` } catch { /* non-JSON */ }
-    callbacks.onError?.(errorMsg)
-    return
-  }
-
-  await parseExecutionSSE(response, {
-    onInit: callbacks.onInit,
-    onText: callbacks.onText,
-    onToolUse: callbacks.onToolUse,
-    onToolResult: callbacks.onToolResult,
-    onFileChange: callbacks.onFileChange,
-    onProgress: callbacks.onProgress,
-    onResult: callbacks.onResult,
-    onError: callbacks.onError,
-    onDone: callbacks.onDone,
-  })
-}
-
 /**
  * Reset a task node for re-execution.
  * Closes PR, deletes branch, cleans worktree, clears node fields.
@@ -504,6 +528,60 @@ export async function fetchStreamingEventsCatchUp(
   return response.json()
 }
 
+/**
+ * Replay caught-up streaming events through chat callbacks.
+ * Used after a network disconnect to reconstruct missed chat events.
+ * Returns whether a `done` event was found (turn completed server-side)
+ * and the highest seq number encountered.
+ */
+export function replayChatCatchUpEvents(
+  events: StreamingEventRow[],
+  callbacks: {
+    onText?: (text: string) => void
+    onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
+    onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
+    onDone?: (sessionId: string) => void
+    onError?: (error: string) => void
+  },
+): { completed: boolean; lastSeq: number } {
+  let completed = false
+  let lastSeq = 0
+  for (const event of events) {
+    const data = event.data as Record<string, unknown>
+    lastSeq = event.seq
+    switch (event.eventType) {
+      case 'text':
+        callbacks.onText?.((data.text as string) || '')
+        break
+      case 'tool_use':
+        callbacks.onToolUse?.({
+          toolName: (data.toolName as string) || '',
+          toolInput: data.toolInput,
+        })
+        break
+      case 'tool_result':
+        callbacks.onToolResult?.({
+          toolName: (data.toolName as string) || '',
+          success: (data.success as boolean) ?? true,
+          result: data.result,
+        })
+        break
+      case 'done':
+        try {
+          callbacks.onDone?.((data.sessionId as string) || '')
+        } catch {
+          callbacks.onDone?.('')
+        }
+        completed = true
+        break
+      case 'error':
+        callbacks.onError?.((data.error as string) || (data.message as string) || '')
+        break
+    }
+  }
+  return { completed, lastSeq }
+}
+
 // ============================================================================
 // Observations API
 // ============================================================================
@@ -539,4 +617,554 @@ export async function fetchTraceSummary(traceId: string): Promise<string> {
     throw new Error(`Failed to fetch trace summary: ${response.status}`)
   }
   return response.text()
+}
+
+// ============================================================================
+// Templates API
+// ============================================================================
+
+import type {
+  UseCaseTemplate,
+  UseCaseTemplateSummary,
+  UseCaseParameter,
+  ResolvedParameters,
+  TemplateValidationResult,
+} from "@astro/core/templates"
+
+export interface TemplateCategory {
+  category: string
+  count: number
+  templates: Array<{
+    id: string
+    name: string
+    icon?: string
+  }>
+}
+
+export interface TemplatesListResult {
+  templates: UseCaseTemplateSummary[]
+  count: number
+  categories: string[]
+}
+
+export interface TemplateDetailsResult {
+  template: UseCaseTemplate
+  validation: TemplateValidationResult
+}
+
+export interface TemplateSchemaResult {
+  templateId: string
+  templateName: string
+  requiredParameters: UseCaseParameter[]
+  optionalParameters: UseCaseParameter[]
+  parameterGroups: Record<string, UseCaseParameter[]>
+}
+
+export interface ParameterValidationError {
+  parameterId: string
+  message: string
+  code: 'MISSING_REQUIRED' | 'INVALID_TYPE' | 'INVALID_VALUE' | 'INVALID_PATTERN' | 'OUT_OF_RANGE'
+}
+
+export interface TemplateValidationParams {
+  valid: boolean
+  errors: ParameterValidationError[]
+  resolvedParameters: ResolvedParameters
+}
+
+export interface LaunchTemplateParams {
+  parameters: Record<string, unknown>
+  projectName?: string
+  workingDirectory?: string
+  targetMachineId?: string
+  model?: string
+  fileTree?: string[]
+  keyFiles?: {
+    claudeMd?: string
+    readmeMd?: string
+    packageInfo?: string
+  }
+  gitState?: {
+    currentBranch: string
+    targetBranch: string
+    isDirty: boolean
+    dirtyDetails?: {
+      staged: number
+      unstaged: number
+      untracked: number
+    }
+  }
+}
+
+export interface LaunchTemplateResult {
+  project: {
+    id: string
+    name: string
+    description: string
+    [key: string]: unknown
+  }
+  templateUsed: {
+    id: string
+    name: string
+    version: string
+  }
+  resolvedParameters: ResolvedParameters
+  planHints?: unknown
+  executionConfig?: unknown
+  parallelizationConfig?: unknown
+  planGenerationRequest: {
+    projectId: string
+    description: string
+    visionDoc: string
+    model?: string
+    workingDirectory?: string
+    targetMachineId?: string
+    fileTree?: string[]
+    keyFiles?: Record<string, string>
+    gitState?: Record<string, unknown>
+  }
+}
+
+export interface PreviewTemplateResult {
+  templateId: string
+  templateName: string
+  resolvedParameters: ResolvedParameters
+  interpolatedPrompts: {
+    planGeneration: string
+    taskExecution?: string
+    planRefinement?: string
+    sharedContext?: string
+  }
+  planHints?: unknown
+  executionConfig?: unknown
+  parallelizationConfig?: unknown
+}
+
+/**
+ * Get all available templates, optionally filtered by category.
+ * @param category - Optional category to filter by
+ * @returns List of template summaries
+ */
+export async function getTemplates(category?: string): Promise<TemplatesListResult> {
+  const params = new URLSearchParams()
+  if (category) {
+    params.set('category', category)
+  }
+
+  const url = apiUrl(`/api/templates${params.toString() ? `?${params}` : ''}`)
+  const response = await fetch(url, {
+    headers: await authHeaders(),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch templates: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Get all template categories with counts and template lists.
+ * @returns List of categories with their templates
+ */
+export async function getTemplateCategories(): Promise<{ categories: TemplateCategory[] }> {
+  const response = await fetch(apiUrl('/api/templates/categories'), {
+    headers: await authHeaders(),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch template categories: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Get full details for a specific template including parameter schema.
+ * @param id - Template ID (will be URL-encoded, e.g., "astro/web-app")
+ * @returns Template details with validation result
+ */
+export async function getTemplate(id: string): Promise<TemplateDetailsResult> {
+  const encodedId = encodeURIComponent(id)
+  const response = await fetch(apiUrl(`/api/templates/${encodedId}`), {
+    headers: await authHeaders(),
+  })
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Template not found: ${id}`)
+    }
+    throw new Error(`Failed to fetch template: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Get only the parameter schema for a template (for form generation).
+ * @param id - Template ID (will be URL-encoded)
+ * @returns Parameter schema with grouped parameters
+ */
+export async function getTemplateSchema(id: string): Promise<TemplateSchemaResult> {
+  const encodedId = encodeURIComponent(id)
+  const response = await fetch(apiUrl(`/api/templates/${encodedId}/schema`), {
+    headers: await authHeaders(),
+  })
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Template not found: ${id}`)
+    }
+    throw new Error(`Failed to fetch template schema: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Validate parameters against a template's schema without launching.
+ * Useful for real-time form validation.
+ * @param id - Template ID (will be URL-encoded)
+ * @param params - Parameters to validate
+ * @returns Validation result with resolved parameters
+ */
+export async function validateTemplateParams(
+  id: string,
+  params: Record<string, unknown>
+): Promise<TemplateValidationParams> {
+  const encodedId = encodeURIComponent(id)
+  const response = await fetch(apiUrl(`/api/templates/${encodedId}/validate`), {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({ parameters: params }),
+  })
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Template not found: ${id}`)
+    }
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.error || `Validation failed: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Launch a template with provided parameters.
+ * Creates a new project and returns configuration for plan generation.
+ * @param id - Template ID (will be URL-encoded)
+ * @param params - Launch parameters including template parameters and project config
+ * @returns Created project and plan generation request
+ */
+export async function launchTemplate(
+  id: string,
+  params: LaunchTemplateParams
+): Promise<LaunchTemplateResult> {
+  const encodedId = encodeURIComponent(id)
+  const response = await fetch(apiUrl(`/api/templates/${encodedId}/launch`), {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify(params),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    if (response.status === 404) {
+      throw new Error(`Template not found: ${id}`)
+    }
+    if (response.status === 400 && errorData.details) {
+      throw new Error(`Validation failed: ${JSON.stringify(errorData.details)}`)
+    }
+    throw new Error(errorData.error || `Failed to launch template: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Preview what a template launch would produce without creating anything.
+ * Returns interpolated prompts and project configuration.
+ * @param id - Template ID (will be URL-encoded)
+ * @param params - Parameters to preview with
+ * @returns Preview of interpolated prompts and configuration
+ */
+export async function previewTemplate(
+  id: string,
+  params: Record<string, unknown>
+): Promise<PreviewTemplateResult> {
+  const encodedId = encodeURIComponent(id)
+  const response = await fetch(apiUrl(`/api/templates/${encodedId}/preview`), {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({ parameters: params }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    if (response.status === 404) {
+      throw new Error(`Template not found: ${id}`)
+    }
+    if (response.status === 400 && errorData.details) {
+      throw new Error(`Validation failed: ${JSON.stringify(errorData.details)}`)
+    }
+    throw new Error(errorData.error || `Failed to preview template: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+export interface ApplyTemplateResult {
+  projectId: string
+  description: string
+  visionDoc?: string
+  resolvedParameters: ResolvedParameters
+  templateUsed: {
+    id: string
+    name: string
+    version: string
+  }
+  planHints?: unknown
+}
+
+/**
+ * Apply a template to an existing project.
+ * Returns a plan generation request that can be used with /api/agent/generate-plan.
+ * @param id - Template ID (will be URL-encoded)
+ * @param projectId - ID of the existing project
+ * @param params - Template parameters
+ * @returns Plan generation request data
+ */
+export async function applyTemplate(
+  id: string,
+  projectId: string,
+  params: Record<string, unknown>
+): Promise<ApplyTemplateResult> {
+  const encodedId = encodeURIComponent(id)
+  const response = await fetch(apiUrl(`/api/templates/${encodedId}/apply`), {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({ projectId, parameters: params }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    if (response.status === 404) {
+      throw new Error(errorData.error || `Template or project not found`)
+    }
+    if (response.status === 400 && errorData.details) {
+      throw new Error(`Validation failed: ${JSON.stringify(errorData.details)}`)
+    }
+    throw new Error(errorData.error || `Failed to apply template: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+// ============================================================================
+// Custom Template API Functions
+// ============================================================================
+
+export interface CustomTemplateInput {
+  name: string
+  description?: string
+  category?: string
+  version?: string
+  icon?: string
+  tags?: string[]
+  maturity?: 'stable' | 'beta' | 'experimental'
+  enabled?: boolean
+  requiredParameters?: Array<{
+    id: string
+    name: string
+    description: string
+    type: string
+    required: boolean
+    default?: unknown
+    placeholder?: string
+    options?: Array<{ label: string; value: string; description?: string }>
+    validation?: { min?: number; max?: number; pattern?: string; message?: string }
+    visibleWhen?: { parameterId: string; operator: string; value?: unknown }
+    group?: string
+    order?: number
+  }>
+  optionalParameters?: Array<{
+    id: string
+    name: string
+    description: string
+    type: string
+    required: boolean
+    default?: unknown
+    placeholder?: string
+    options?: Array<{ label: string; value: string; description?: string }>
+    validation?: { min?: number; max?: number; pattern?: string; message?: string }
+    visibleWhen?: { parameterId: string; operator: string; value?: unknown }
+    group?: string
+    order?: number
+  }>
+  prompts: {
+    planGeneration: string
+    taskExecution?: string
+    planRefinement?: string
+    sharedContext?: string
+  }
+  execution?: {
+    preferredModel?: string
+    maxTurns?: number
+    maxBudgetPerTask?: number
+    skills?: string[]
+    deliveryMode?: string
+    skipSafetyCheck?: boolean
+    defaultVerification?: string
+  }
+  parallelization?: {
+    maxConcurrentTasks?: number
+    autoDispatch?: boolean
+    defaultPriority?: string
+    retry?: { maxRetries: number; retryDelayMs: number; exponentialBackoff: boolean }
+    machineSelectionPolicy?: string
+    requiredMachineLabels?: string[]
+  }
+  planHints?: {
+    targetNodeCount?: { min: number; max: number }
+    defaultEstimate?: string
+    suggestedMilestones?: Array<{ title: string; description: string }>
+    commonLabels?: string[]
+    preferParallelTasks?: boolean
+  }
+  sourceProjectId?: string
+  teamId?: string
+}
+
+export interface CustomTemplateResult {
+  template: UseCaseTemplate & {
+    isOwner?: boolean
+    canEdit?: boolean
+  }
+  message?: string
+}
+
+export interface CustomTemplatesListResult {
+  templates: Array<UseCaseTemplate & {
+    isOwner: boolean
+    canEdit: boolean
+  }>
+  count: number
+}
+
+/**
+ * Get all custom templates for the current user (including team templates).
+ * @returns List of custom templates with ownership info
+ */
+export async function getCustomTemplates(): Promise<CustomTemplatesListResult> {
+  const response = await fetch(apiUrl('/api/templates/custom'), {
+    headers: await authHeaders(),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch custom templates: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Get a specific custom template by ID.
+ * @param id - Custom template UUID (without 'custom/' prefix)
+ * @returns Template details with ownership info
+ */
+export async function getCustomTemplate(id: string): Promise<CustomTemplateResult> {
+  const response = await fetch(apiUrl(`/api/templates/custom/${id}`), {
+    headers: await authHeaders(),
+  })
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error('Template not found')
+    }
+    throw new Error(`Failed to fetch custom template: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Create a new custom template.
+ * @param input - Template data
+ * @returns Created template
+ */
+export async function createCustomTemplate(input: CustomTemplateInput): Promise<CustomTemplateResult> {
+  const response = await fetch(apiUrl('/api/templates/custom'), {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify(input),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    if (response.status === 400 && errorData.details) {
+      throw new Error(`Validation failed: ${JSON.stringify(errorData.details)}`)
+    }
+    throw new Error(errorData.error || `Failed to create template: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Update an existing custom template.
+ * @param id - Custom template UUID (without 'custom/' prefix)
+ * @param input - Partial template data to update
+ * @returns Updated template
+ */
+export async function updateCustomTemplate(
+  id: string,
+  input: Partial<CustomTemplateInput>
+): Promise<CustomTemplateResult> {
+  const response = await fetch(apiUrl(`/api/templates/custom/${id}`), {
+    method: 'PUT',
+    headers: await authHeaders(),
+    body: JSON.stringify(input),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    if (response.status === 404) {
+      throw new Error('Template not found')
+    }
+    if (response.status === 403) {
+      throw new Error('Permission denied')
+    }
+    if (response.status === 400 && errorData.details) {
+      throw new Error(`Validation failed: ${JSON.stringify(errorData.details)}`)
+    }
+    throw new Error(errorData.error || `Failed to update template: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Delete a custom template. Only the author can delete.
+ * @param id - Custom template UUID (without 'custom/' prefix)
+ * @returns Success message
+ */
+export async function deleteCustomTemplate(id: string): Promise<{ message: string }> {
+  const response = await fetch(apiUrl(`/api/templates/custom/${id}`), {
+    method: 'DELETE',
+    headers: await authHeaders(),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    if (response.status === 404) {
+      throw new Error('Template not found')
+    }
+    if (response.status === 403) {
+      throw new Error('Only the template author can delete it')
+    }
+    throw new Error(errorData.error || `Failed to delete template: ${response.status}`)
+  }
+
+  return response.json()
 }

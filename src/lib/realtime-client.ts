@@ -68,6 +68,11 @@ export class RealtimeClient {
 
   async connect(projectId?: string): Promise<void> {
     if (this.eventSource) {
+      // Intentional reconnect (e.g. project switch) — reset _wasConnected
+      // so onReconnect doesn't fire spuriously on the new connection.
+      // Auto-reconnect (via onerror → scheduleReconnect → connect) won't
+      // enter this branch because disconnect() already set eventSource = null.
+      this._wasConnected = false
       this.disconnect()
     }
     this.lastProjectId = projectId

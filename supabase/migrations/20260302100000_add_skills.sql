@@ -21,11 +21,17 @@ CREATE TABLE IF NOT EXISTS skills (
 );
 
 -- Unique constraint: skill names must be unique within a team (or globally for builtins)
-ALTER TABLE skills ADD CONSTRAINT skills_name_team_id_unique UNIQUE (name, team_id);
+DO $$ BEGIN
+  ALTER TABLE skills ADD CONSTRAINT skills_name_team_id_unique UNIQUE (name, team_id);
+EXCEPTION WHEN duplicate_table OR duplicate_object THEN NULL;
+END $$;
 
 -- CHECK constraint: enforce valid source values
-ALTER TABLE skills ADD CONSTRAINT skills_source_check
-  CHECK (source IN ('builtin', 'workspace', 'clawhub', 'plugin', 'user'));
+DO $$ BEGIN
+  ALTER TABLE skills ADD CONSTRAINT skills_source_check
+    CHECK (source IN ('builtin', 'workspace', 'clawhub', 'plugin', 'user'));
+EXCEPTION WHEN duplicate_table OR duplicate_object THEN NULL;
+END $$;
 
 -- Index for fast lookup by team
 CREATE INDEX IF NOT EXISTS skills_team_id_idx ON skills(team_id);
@@ -63,6 +69,7 @@ ALTER TABLE skills ENABLE ROW LEVEL SECURITY;
 -- (Supabase Dashboard, PostgREST). The API applies stricter filtering (active team only
 -- via user.teamId). This is accepted as defense-in-depth: RLS prevents unauthorized
 -- access, while API enforces active-team scoping. See docs/design/SKILLS.md.
+DROP POLICY IF EXISTS skills_select_policy ON skills;
 CREATE POLICY skills_select_policy ON skills
   FOR SELECT
   USING (
@@ -75,6 +82,7 @@ CREATE POLICY skills_select_policy ON skills
 
 -- Policy: users can insert skills for themselves or their team (team_id must be non-null).
 -- Prevents users from creating global/builtin-like skills via direct DB access.
+DROP POLICY IF EXISTS skills_insert_policy ON skills;
 CREATE POLICY skills_insert_policy ON skills
   FOR INSERT
   WITH CHECK (
@@ -88,6 +96,7 @@ CREATE POLICY skills_insert_policy ON skills
 
 -- Policy: users can update their own skills or team skills they admin (not builtins).
 -- Defense-in-depth: team_id IS NOT NULL prevents modification even if source check is bypassed.
+DROP POLICY IF EXISTS skills_update_policy ON skills;
 CREATE POLICY skills_update_policy ON skills
   FOR UPDATE
   USING (
@@ -101,6 +110,7 @@ CREATE POLICY skills_update_policy ON skills
 
 -- Policy: users can delete their own skills or team skills they admin (not builtins).
 -- Defense-in-depth: team_id IS NOT NULL prevents deletion even if source check is bypassed.
+DROP POLICY IF EXISTS skills_delete_policy ON skills;
 CREATE POLICY skills_delete_policy ON skills
   FOR DELETE
   USING (
@@ -116,13 +126,19 @@ CREATE POLICY skills_delete_policy ON skills
 -- The API validates at 80KB (JSON text size); the DB constraint uses 100KB on
 -- pg_column_size (which includes storage overhead). The 20KB buffer accounts for
 -- JSONB storage overhead so users get a clear API error instead of a cryptic DB violation.
-ALTER TABLE skills ADD CONSTRAINT skills_config_size_limit CHECK (pg_column_size(config) <= 102400);
+DO $$ BEGIN
+  ALTER TABLE skills ADD CONSTRAINT skills_config_size_limit CHECK (pg_column_size(config) <= 102400);
+EXCEPTION WHEN duplicate_table OR duplicate_object THEN NULL;
+END $$;
 
 -- Invariant: builtin skills must have NULL team_id and NULL author_id.
 -- Prevents accidental team assignment or author attribution to system-seeded skills.
 -- Mirrors drizzle/0013_add_builtin_null_ownership_check.sql.
-ALTER TABLE skills ADD CONSTRAINT skills_builtin_null_ownership
-  CHECK (source != 'builtin' OR (team_id IS NULL AND author_id IS NULL));
+DO $$ BEGIN
+  ALTER TABLE skills ADD CONSTRAINT skills_builtin_null_ownership
+    CHECK (source != 'builtin' OR (team_id IS NULL AND author_id IS NULL));
+EXCEPTION WHEN duplicate_table OR duplicate_object THEN NULL;
+END $$;
 
 -- Invariant: source field should not be changed after creation.
 -- Prevents escalation from 'workspace' to 'builtin' via direct DB access.
@@ -138,6 +154,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS skills_prevent_source_change ON skills;
 CREATE TRIGGER skills_prevent_source_change
   BEFORE UPDATE ON skills
   FOR EACH ROW

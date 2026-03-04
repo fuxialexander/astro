@@ -22,9 +22,11 @@ async function authHeaders(): Promise<Record<string, string>> {
 interface GitHubRepoPickerDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** When provided, selecting a repo calls this callback instead of POSTing to create a project */
+  onSelect?: (repo: GitHubRepo) => void
 }
 
-export function GitHubRepoPickerDialog({ open, onOpenChange }: GitHubRepoPickerDialogProps) {
+export function GitHubRepoPickerDialog({ open, onOpenChange, onSelect }: GitHubRepoPickerDialogProps) {
   const repos = useGitHubStore((s) => s.repos)
   const loading = useGitHubStore((s) => s.loading)
   const projects = useProjectStore((s) => s.projects)
@@ -102,6 +104,13 @@ export function GitHubRepoPickerDialog({ open, onOpenChange }: GitHubRepoPickerD
 
   const handleLink = useCallback(
     async (repo: GitHubRepo) => {
+      // In onSelect mode, just return the repo without creating a project
+      if (onSelect) {
+        onSelect(repo)
+        onOpenChange(false)
+        return
+      }
+
       setLinking(repo.id)
       try {
         const hdrs = await authHeaders()
@@ -137,7 +146,7 @@ export function GitHubRepoPickerDialog({ open, onOpenChange }: GitHubRepoPickerD
         setLinking(null)
       }
     },
-    [addToast, onOpenChange]
+    [addToast, onOpenChange, onSelect]
   )
 
   // Keyboard navigation
@@ -264,7 +273,7 @@ export function GitHubRepoPickerDialog({ open, onOpenChange }: GitHubRepoPickerD
             </span>
             <span className="flex items-center gap-1">
               <kbd className="px-1 py-0.5 rounded bg-muted text-[10px]">↵</kbd>
-              import
+              {onSelect ? "select" : "import"}
             </span>
             <span className="flex items-center gap-1">
               <kbd className="px-1 py-0.5 rounded bg-muted text-[10px]">esc</kbd>

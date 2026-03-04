@@ -219,6 +219,8 @@ Use `Glob` and `Read` to explore the full directory tree as needed.
 ### Database
 **When implementing database-backed features, always include the Supabase schema migration as part of the initial implementation. Do not wait for the user to ask about database schema changes.**
 
+**Drizzle schema and Supabase migrations must always be kept in sync. When adding or modifying a table in the Drizzle schema (`packages/core/src/db/schema.ts`), always create the corresponding Supabase migration in `supabase/migrations/`. Conversely, when writing a new migration, ensure the Drizzle schema reflects the same change. Never leave one without the other.**
+
 ### Debugging
 **When debugging issues, investigate the root cause before attempting fixes. Check if setup scripts, cached tokens, or stale state could be the source. Do not iterate through surface-level fixes.**
 

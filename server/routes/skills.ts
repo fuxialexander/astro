@@ -18,7 +18,58 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js'
 
 const skillsRoute = new Hono()
 
-// All skills routes require authentication
+/**
+ * GET /api/skills/files/:skillName/SKILL.md
+ *
+ * Serves SKILL.md files from the skills/ directory.
+ * Used by the skill creation UI to load system prompts (e.g., skill-onboarder).
+ *
+ * Registered BEFORE the requireAuth middleware — these are static repo files
+ * with no user-specific data, so authentication is unnecessary.
+ * Path traversal protection is still enforced.
+ */
+skillsRoute.get('/files/:skillName/SKILL.md', async (c) => {
+  try {
+    const { skillName } = c.req.param()
+
+    // Sanitize skill name to prevent path traversal
+    if (!skillName || skillName.includes('..') || skillName.includes('/') || skillName.includes('\\')) {
+      return c.json({ error: 'Invalid skill name' }, 400)
+    }
+
+    const fs = await import('fs/promises')
+    const path = await import('path')
+    const { fileURLToPath } = await import('url')
+
+    // Get repo root (server/ is one level down from root)
+    const __dirname = path.dirname(fileURLToPath(import.meta.url))
+    const repoRoot = path.resolve(__dirname, '../..')
+    const skillPath = path.join(repoRoot, 'skills', skillName, 'SKILL.md')
+
+    // Verify the resolved path is still within skills/ (extra safety)
+    const skillsDir = path.join(repoRoot, 'skills')
+    if (!skillPath.startsWith(skillsDir)) {
+      return c.json({ error: 'Invalid skill path' }, 400)
+    }
+
+    try {
+      const content = await fs.readFile(skillPath, 'utf-8')
+      return c.text(content, 200, {
+        'Content-Type': 'text/markdown; charset=utf-8',
+      })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return c.json({ error: `Skill ${skillName} not found` }, 404)
+      }
+      throw error
+    }
+  } catch (error) {
+    console.error('Error serving skill file:', error)
+    return c.json({ error: errorMessage(error) }, 500)
+  }
+})
+
+// All remaining skills routes require authentication
 skillsRoute.use('/*', requireAuth)
 
 /**
@@ -140,6 +191,102 @@ skillsRoute.get('/:id', async (c) => {
     return c.json(row)
   } catch (e) {
     console.error('[skills] GET /:id error:', e)
+    return c.json({ error: errorMessage(e) }, 500)
+  }
+})
+
+/**
+ * POST /api/skills/register
+ * Bulk register (upsert) plugin-contributed skills — idempotent.
+ * Used by the frontend plugin loader to sync skills to the server for prompt injection.
+ * Only updates skills with source='plugin'; skips builtins and user-owned skills.
+ */
+skillsRoute.post('/register', async (c) => {
+  try {
+    const user = c.get('user')! as AuthUser
+    const body = await c.req.json()
+
+    if (!body.skills || !Array.isArray(body.skills)) {
+      return c.json({ error: 'skills array is required' }, 400)
+    }
+
+    let registered = 0
+    let updated = 0
+    let skipped = 0
+
+    for (const skill of body.skills as Record<string, unknown>[]) {
+      if (!skill.name || typeof skill.name !== 'string') {
+        skipped++
+        continue
+      }
+
+      const [existing] = await db.select({ id: skills.id, source: skills.source })
+        .from(skills)
+        .where(and(eq(skills.name, skill.name), skillTeamScopeFilter(user)))
+        .limit(1)
+
+      if (existing) {
+        // Only update plugin-source skills; don't override builtins or user customizations
+        if (existing.source === 'plugin') {
+          const config = { ...(skill.config as Record<string, unknown> ?? {}) }
+          if (skill.userInvocable !== undefined) config.userInvocable = skill.userInvocable
+          if (skill.disableModelInvocation !== undefined) config.disableModelInvocation = skill.disableModelInvocation
+          const configErr = validateConfig(config)
+          if (configErr) { skipped++; continue }
+          await db.update(skills).set({
+            description: (skill.description as string) ?? '',
+            instructions: (skill.instructions as string) ?? '',
+            enabled: (skill.enabled as boolean) ?? true,
+            config,
+            updatedAt: new Date(),
+          }).where(eq(skills.id, existing.id))
+          try { await syncSkillById(skillManager, existing.id) } catch { /* best-effort */ }
+          updated++
+        } else {
+          skipped++
+        }
+      } else {
+        const skillId = crypto.randomUUID()
+        const config = { ...(skill.config as Record<string, unknown> ?? {}) }
+        if (skill.userInvocable !== undefined) config.userInvocable = skill.userInvocable
+        if (skill.disableModelInvocation !== undefined) config.disableModelInvocation = skill.disableModelInvocation
+        const configErr = validateConfig(config)
+        if (configErr) { skipped++; continue }
+        try {
+          await db.insert(skills).values({
+            id: skillId,
+            name: skill.name,
+            version: (skill.version as string) ?? '1.0.0',
+            description: (skill.description as string) ?? '',
+            instructions: (skill.instructions as string) ?? '',
+            category: (skill.category as string | null) ?? null,
+            tags: (skill.tags as string[]) ?? [],
+            source: 'plugin',
+            sourceUrl: (skill.sourceUrl as string | null) ?? null,
+            authorId: user.id,
+            enabled: (skill.enabled as boolean) ?? true,
+            allowedTools: (skill.allowedTools as string[]) ?? [],
+            config,
+            teamId: user.teamId ?? null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          try { await syncSkillById(skillManager, skillId) } catch { /* best-effort */ }
+          registered++
+        } catch (insertErr) {
+          // Handle race condition: concurrent register calls may both try to insert
+          if (isUniqueViolation(insertErr)) {
+            updated++ // treat as successful upsert
+          } else {
+            throw insertErr
+          }
+        }
+      }
+    }
+
+    return c.json({ registered, updated, skipped })
+  } catch (e) {
+    console.error('[skills] POST /register error:', e)
     return c.json({ error: errorMessage(e) }, 500)
   }
 })

@@ -94,8 +94,10 @@ export function importProject(data: ProjectExportData): ImportResult {
     warnings.push(`${skippedEdges} edge(s) skipped due to missing node references`)
   }
 
-  // Write to stores
-  useProjectStore.getState().addProject(project)
+  // Write to stores (fire-and-forget — addProject is async but import is sync)
+  useProjectStore.getState().addProject(project).catch((err) => {
+    console.error('[import-project] Failed to persist project:', err)
+  })
   usePlanStore.getState().setProjectPlan(newProjectId, nodes, edges)
 
   return {
