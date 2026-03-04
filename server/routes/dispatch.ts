@@ -28,6 +28,7 @@ import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch } from '../lib/prompt-templates.js'
 import { skillManager } from '../lib/skill-manager.js'
+import { extractPlanJsonFromText, retryPlanExtractionWithHaiku } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup)
@@ -1074,6 +1075,10 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     let lastActivity = Date.now()
     let resultSent = false
     let waitingForApproval = false
+    // Accumulated text from `text` events — used for plan extraction in onResult.
+    // msg.result.output is equivalent for completed sessions; accumulatedText is the
+    // fallback when the relay strips output from the result message.
+    let accumulatedText = ''
     const ACTIVITY_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000 // 5 days
 
     const onResult = async (msg: import('../types/relay.js').TaskResultMessage) => {
@@ -1112,6 +1117,31 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         deliveryError: msg.result.deliveryError,
         summary: msg.result.summary,
       }
+      // Server-side plan extraction for interactive plan sessions
+      if (isInteractivePlan) {
+        const textForExtraction = accumulatedText || msg.result.output || ''
+        const planJson = extractPlanJsonFromText(textForExtraction)
+        if (planJson) {
+          // Regex extraction succeeded — emit plan_result synchronously before result
+          const planSeq = await streamingEventLog.append(executionId, 'plan_result', planJson)
+          stream.writeSSE({ id: String(planSeq), event: 'plan_result', data: JSON.stringify(planJson) }).catch(() => { alive = false })
+        } else {
+          // Regex failed — fire-and-forget Haiku retry (does NOT block result event)
+          // Always persist to DB even if SSE stream is closed, so page-refresh recovery works.
+          retryPlanExtractionWithHaiku(textForExtraction, process.env.ANTHROPIC_API_KEY)
+            .then(retried => {
+              if (!retried) return
+              return streamingEventLog.append(executionId, 'plan_result', retried)
+                .then(seq => {
+                  if (alive) {
+                    stream.writeSSE({ id: String(seq), event: 'plan_result', data: JSON.stringify(retried) }).catch(() => {})
+                  }
+                })
+            })
+            .catch(e => console.error('[dispatch] Haiku retry failed:', e))
+        }
+      }
+
       // Persist result event (also flushes any pending text)
       const seq = await streamingEventLog.append(executionId, 'result', resultData)
 
@@ -1216,6 +1246,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       waitingForApproval = false
       // Buffer text for batch persistence (flushed when next structural event arrives)
       streamingEventLog.appendText(executionId, msg.text)
+      if (isInteractivePlan) accumulatedText += msg.text
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
       executionEventBus.emit('task:stdout', { output: { taskId: executionId, data: msg.text, stream: 'stdout', timestamp: new Date() } })
     }

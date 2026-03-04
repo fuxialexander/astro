@@ -7,19 +7,21 @@ How data moves through the Astro system from user interaction to database storag
 ```
 User Action (New Project)
   ↓
-Frontend: project-new.tsx
-  ↓ POST /api/agent/generate-plan
-Backend: server/routes/agent.ts
-  ↓ Claude Agent SDK
+Frontend: project-new-plan.tsx
+  ↓ POST /api/dispatch/task (isInteractivePlan: true)
+Backend: server/routes/dispatch.ts
+  ↓ Relay → Agent Runner
 AI Planning Session
   ├─ Repo context injection (CLAUDE.md, README, file tree)
   ├─ Tool use (Read, Glob, Grep for exploration)
   ├─ Structured output (plan JSON)
   └─ SSE streaming → Frontend
   ↓
-Frontend: agent-store.ts
-  ├─ Parse SSE events
-  ├─ Update plan-store (nodes + edges)
+Backend: Extract plan JSON → Emit plan_result SSE event
+  ↓
+Frontend: execution-store.ts
+  ├─ Parse SSE events (plan_result + result)
+  ├─ Apply plan via plan-extraction.ts → plan-store (nodes + edges)
   └─ Persist via dataClient → /api/data/*
   ↓
 User navigates to /project/:id/plan

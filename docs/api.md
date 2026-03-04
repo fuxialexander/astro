@@ -102,7 +102,6 @@ All auth required. SSE-streaming endpoints return `text/event-stream`.
 
 | Method | Path | Streaming | Description |
 |--------|------|-----------|-------------|
-| POST | `/agent/generate-plan` | SSE | Generate AI plan |
 | POST | `/agent/chat` | SSE | General project chat |
 | POST | `/agent/plan-chat` | SSE | Plan-focused chat (defaults to haiku) |
 | POST | `/agent/task-chat` | SSE | Task-specific chat with execution context |

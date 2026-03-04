@@ -14,7 +14,7 @@ import { apiUrl } from "@/lib/api-url"
 import { useTaskChatStore } from "./task-chat-store"
 import { useSessionStore } from "./session-store"
 import { resolveWorkingDirectory, buildDependencyOutputs } from "@astro/core/dispatch"
-import { applyPlanFromText } from "@/lib/plan-extraction"
+import { applyPlanFromText, planNodeIdToProjectId } from "@/lib/plan-extraction"
 import { getSigningPrivateKey, signDispatchIntent, generateNonce, type DispatchSigningPayload } from "@/lib/dispatch-signing"
 import { useAuthStore } from "./auth-store"
 
@@ -1070,13 +1070,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             try {
               const exec = get().executions.get(nodeId)
               if (exec?.streamText) {
-                if (!exec.executionId) {
-                  console.warn(`[plan-session] Skipping plan extraction — executionId missing for node ${nodeId}`)
-                } else {
-                  const result = applyPlanFromText(projectId, exec.streamText, exec.executionId)
-                  if (result.applied) {
-                    console.log(`[plan-session] Plan extracted: ${result.nodeCount} nodes`)
-                  }
+                const result = applyPlanFromText(projectId, exec.streamText, exec.executionId || undefined)
+                if (result.applied) {
+                  console.log(`[plan-session] Plan extracted: ${result.nodeCount} nodes`)
                 }
               }
             } catch (e) {
@@ -2196,6 +2192,23 @@ function handleSSEEvent(
       } catch {
         // Ignore parse errors
       }
+      break
+    }
+
+    // plan_result is only emitted for interactive planning sessions (nodeId: 'plan-<projectId>')
+    case "plan_result": {
+      try {
+        const parsed = JSON.parse(data)
+        if (parsed.nodes && Array.isArray(parsed.nodes)) {
+          const planProjectId = planNodeIdToProjectId(nodeId)
+          if (planProjectId) {
+            const exec = get().executions.get(nodeId)
+            applyPlanFromText(planProjectId, '', exec?.executionId || undefined, false, parsed)
+          } else {
+            console.warn(`[execution-store] plan_result received for non-plan node ${nodeId} — ignoring`)
+          }
+        }
+      } catch { /* fallback extraction on result event will handle it */ }
       break
     }
 

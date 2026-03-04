@@ -8,6 +8,7 @@
 
 import type { TaskActivityEvent } from '@/types'
 import type { StreamingEventRow } from '@/lib/api-client'
+import type { PlanJsonResult } from '@astro/core'
 
 export interface PendingApproval {
   executionId: string
@@ -52,6 +53,7 @@ export interface HydratedStreamData {
   prNumber?: number
   deliveryStatus?: string
   summary?: string
+  planResult?: PlanJsonResult
 }
 
 let idCounter = 0
@@ -76,6 +78,7 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
   let prNumber: number | undefined
   let deliveryStatus: string | undefined
   let summary: string | undefined
+  let planResult: HydratedStreamData['planResult']
   // Map toolName → queue of unpaired tool_use IDs for matching with tool_result
   const unpairedToolUseIds = new Map<string, string[]>()
 
@@ -164,6 +167,20 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
         progressMessage = (data.message as string) || undefined
         break
       }
+      case 'plan_result': {
+        // Keep first successful extraction — Haiku retry may produce a truncated result
+        if (!planResult) {
+          const nodes = data.nodes as Record<string, unknown>[] | undefined
+          if (nodes && Array.isArray(nodes)) {
+            planResult = {
+              projectName: (data.projectName as string) || undefined,
+              nodes,
+              edges: (data.edges as Record<string, unknown>[]) || [],
+            }
+          }
+        }
+        break
+      }
       case 'result': {
         status = (data.status as string) || undefined
         output = (data.output as string) || undefined
@@ -223,5 +240,5 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
   const pendingApprovals = Array.from(approvalRequests.values())
     .filter(a => !answeredApprovals.has(a.requestId))
 
-  return { stdout, activityEvents, toolTraces, fileChanges, pendingApprovals, status, output, error, sessionId, model, progress, progressMessage, branchName, prUrl, prNumber, deliveryStatus, summary }
+  return { stdout, activityEvents, toolTraces, fileChanges, pendingApprovals, status, output, error, sessionId, model, progress, progressMessage, branchName, prUrl, prNumber, deliveryStatus, summary, planResult }
 }

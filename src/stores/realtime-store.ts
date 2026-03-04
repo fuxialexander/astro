@@ -16,7 +16,7 @@ import { usePlanStore } from './plan-store'
 import { useProjectStore } from './project-store'
 import { useExecutionStore } from './execution-store'
 import { useMachinesStore } from './machines-store'
-import { applyPlanFromText } from '@/lib/plan-extraction'
+import { applyPlanFromText, planNodeIdToProjectId } from '@/lib/plan-extraction'
 import type { TaskActivityEvent } from '@/types'
 
 export interface HpcCapability {
@@ -693,13 +693,16 @@ function reconcileResultFromCatchUp(
   // If this is a plan session, extract plan nodes from caught-up stdout
   for (const [nid, exec] of execStore.executions) {
     if (exec.executionId === executionId && nid.startsWith('plan-')) {
-      const planProjectId = nid.replace(/^plan-/, '')
+      const planProjectId = planNodeIdToProjectId(nid)!
       // Only extract if project doesn't already have plan nodes
-      if (hydrated.stdout) {
-        const result = applyPlanFromText(planProjectId, hydrated.stdout, executionId)
-        if (result.applied) {
-          console.log('[realtime] Plan extracted from catch-up:', result.nodeCount, 'nodes')
-        }
+      // Prefer pre-extracted plan_result from hydrator; fall back to regex extraction from stdout
+      const result = hydrated.planResult
+        ? applyPlanFromText(planProjectId, '', executionId, false, hydrated.planResult)
+        : hydrated.stdout
+          ? applyPlanFromText(planProjectId, hydrated.stdout, executionId)
+          : null
+      if (result?.applied) {
+        console.log('[realtime] Plan extracted from catch-up:', result.nodeCount, 'nodes')
       }
       break
     }
@@ -939,7 +942,7 @@ function handleRealtimeEvent(
       // If this is a plan session result, extract plan nodes from accumulated stdout
       for (const [nid, exec] of execStore.executions) {
         if (exec.executionId === taskId && nid.startsWith('plan-')) {
-          const planProjectId = nid.replace(/^plan-/, '')
+          const planProjectId = planNodeIdToProjectId(nid)!
           // Get accumulated stdout from task stream — use executionId for idempotency
           // to prevent race duplication with the SSE path in execution-store
           const stream = useRealtimeStore.getState().taskStreams.get(taskId)
