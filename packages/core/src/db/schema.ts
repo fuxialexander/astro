@@ -439,6 +439,7 @@ export const taskExecutions = pgTable('task_executions', {
   executionId: text('execution_id').notNull().unique(),
   nodeClientId: text('node_client_id').notNull(),
   projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id'), // nullable for backward compatibility with existing rows
   status: text('status').notNull().default('pending'), // 'pending' | 'running' | 'success' | 'failure' | 'cancelled'
   streamText: text('stream_text').notNull().default(''),
   error: text('error'),
