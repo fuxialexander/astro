@@ -15,7 +15,7 @@ import { astroEventTransport } from '../../lib/events/astro-event-transport.js'
 import { lookupGitHubProject } from '../../lib/github-store.js'
 import { githubCommentBus } from '../../lib/github-comment-bus.js'
 import { db } from '../../lib/db/index.js'
-import { planNodes } from '../../lib/db/schema.js'
+import { planNodes, projects } from '../../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import {
   isSyncEcho,
@@ -23,6 +23,35 @@ import {
   githubLabelsToPriority,
   resolveGitHubLoginToAstroUser,
 } from '../../lib/github-sync-utils.js'
+import type { GitHubSyncSettings } from '@astro/core/types'
+import { DEFAULT_GITHUB_SYNC_SETTINGS } from '@astro/core/types'
+
+/**
+ * Load sync settings for a project, falling back to defaults.
+ */
+async function loadSyncSettings(projectId: string): Promise<GitHubSyncSettings> {
+  try {
+    const [project] = await db.select({
+      githubSyncSettings: projects.githubSyncSettings,
+    }).from(projects).where(eq(projects.id, projectId)).limit(1)
+
+    if (project?.githubSyncSettings) {
+      return { ...DEFAULT_GITHUB_SYNC_SETTINGS, ...(project.githubSyncSettings as GitHubSyncSettings) }
+    }
+  } catch {
+    // Fall through to defaults
+  }
+  return DEFAULT_GITHUB_SYNC_SETTINGS
+}
+
+/**
+ * Check if a specific field is enabled for sync in the given direction.
+ */
+function isFieldEnabled(settings: GitHubSyncSettings, field: string, direction: 'github_to_astro' | 'astro_to_github'): boolean {
+  if (!settings.enabled) return false
+  if (settings.direction !== 'bidirectional' && settings.direction !== direction) return false
+  return settings.enabledFields.includes(field)
+}
 
 /**
  * Handle `issues` webhook events.
@@ -48,6 +77,21 @@ export async function handleIssueEvent(
   const projectId = config.repoMappings[repoFullName]
     ?? await lookupGitHubProject(repoFullName)
   if (!projectId) return
+
+  // Load per-project sync settings
+  const syncSettings = await loadSyncSettings(projectId)
+
+  // If sync is disabled entirely, skip all issue events
+  if (!syncSettings.enabled) {
+    console.log(`[github-channel] Sync disabled for project ${projectId} — skipping issue event`)
+    return
+  }
+
+  // If direction is 'astro_to_github' only, skip GitHub→Astro sync
+  if (syncSettings.direction === 'astro_to_github') {
+    console.log(`[github-channel] Direction is astro_to_github only — skipping GitHub→Astro sync`)
+    return
+  }
 
   const issueNumber = issue.number as number
   const issueTitle = issue.title as string
@@ -128,6 +172,7 @@ export async function handleIssueEvent(
       break
     }
     case 'closed': {
+      if (!isFieldEnabled(syncSettings, 'status', 'github_to_astro')) break
       const astroStatus = githubStateToAstro(issueState, stateReason)
 
       const [closedNode] = await db.select({
@@ -155,6 +200,7 @@ export async function handleIssueEvent(
       break
     }
     case 'reopened': {
+      if (!isFieldEnabled(syncSettings, 'status', 'github_to_astro')) break
       const [reopenedNode] = await db.select({
         id: planNodes.id,
         links: planNodes.links,
@@ -181,6 +227,10 @@ export async function handleIssueEvent(
     }
     case 'edited': {
       // GitHub owns body/description, shared ownership of title (last-write-wins)
+      const titleEnabled = isFieldEnabled(syncSettings, 'title', 'github_to_astro')
+      const descEnabled = isFieldEnabled(syncSettings, 'description', 'github_to_astro')
+      if (!titleEnabled && !descEnabled) break
+
       const [editedNode] = await db.select({
         id: planNodes.id,
         githubSyncVersion: planNodes.githubSyncVersion,
@@ -194,8 +244,8 @@ export async function handleIssueEvent(
 
       if (editedNode) {
         await db.update(planNodes).set({
-          title: issueTitle,
-          description: issueBody,
+          ...(titleEnabled ? { title: issueTitle } : {}),
+          ...(descEnabled ? { description: issueBody } : {}),
           syncSource: 'github',
           githubSyncVersion: (editedNode.githubSyncVersion ?? 0) + 1,
           githubSyncedAt: new Date(),
@@ -206,6 +256,7 @@ export async function handleIssueEvent(
     }
     case 'labeled':
     case 'unlabeled': {
+      if (!isFieldEnabled(syncSettings, 'priority', 'github_to_astro')) break
       // Sync priority labels from GitHub → Astro
       const priority = githubLabelsToPriority(issueLabels)
       const [labeledNode] = await db.select({
@@ -232,6 +283,7 @@ export async function handleIssueEvent(
     }
     case 'assigned':
     case 'unassigned': {
+      if (!isFieldEnabled(syncSettings, 'assignee', 'github_to_astro')) break
       // Map GitHub assignee → Astro user via githubConnections
       // Store in metadata since there's no dedicated assigneeId column
       let assigneeMetadata: Record<string, unknown> = {}
