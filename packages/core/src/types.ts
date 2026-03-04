@@ -471,6 +471,18 @@ export interface CommandHistory {
   frequency: number;
 }
 
+export interface KnowledgeEntry {
+  id: string;
+  projectId: string;
+  key: string;
+  value: string;
+  sourceNodeId?: string;
+  sourceTaskTitle?: string;
+  milestoneId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface EnvironmentConfig {
   id: string;
   userId: string;
