@@ -805,4 +805,39 @@ app.get('/issues/search', async (c) => {
   }
 });
 
+// ── Field Sync Endpoint ──────────────────────────────────────────────
+
+/**
+ * POST /api/github/issues/sync-fields
+ * Manually trigger Astro→GitHub field sync for a specific plan node.
+ *
+ * Body: { nodeId: string, changedFields?: string[] }
+ *
+ * Used when users update fields in the Astro UI (title, status, priority, etc.)
+ * and the change needs to be pushed to the linked GitHub issue.
+ */
+app.post('/issues/sync-fields', async (c) => {
+  const body = await c.req.json() as {
+    nodeId: string;
+    changedFields?: string[];
+  };
+
+  if (!body.nodeId) {
+    return c.json({ error: 'nodeId is required' }, 400);
+  }
+
+  // Dynamic import to avoid circular dependency at module load time
+  const { syncNodeToGitHub } = await import('../lib/events/hooks/github-field-sync-hook.js');
+
+  const result = await syncNodeToGitHub(body.nodeId, {
+    changedFields: body.changedFields,
+  });
+
+  if (result.success) {
+    return c.json({ success: true });
+  } else {
+    return c.json({ error: result.error || 'Sync failed' }, 500);
+  }
+});
+
 export default app;
