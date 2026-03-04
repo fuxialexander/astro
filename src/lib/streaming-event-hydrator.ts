@@ -8,6 +8,7 @@
 
 import type { TaskActivityEvent } from '@/types'
 import type { StreamingEventRow } from '@/lib/api-client'
+import type { PlanJsonResult } from '@astro/core'
 
 export interface PendingApproval {
   executionId: string
@@ -52,7 +53,7 @@ export interface HydratedStreamData {
   prNumber?: number
   deliveryStatus?: string
   summary?: string
-  planResult?: { projectName?: string; nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] }
+  planResult?: PlanJsonResult
 }
 
 let idCounter = 0
@@ -167,12 +168,15 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
         break
       }
       case 'plan_result': {
-        const nodes = data.nodes as Record<string, unknown>[] | undefined
-        if (nodes && Array.isArray(nodes)) {
-          planResult = {
-            projectName: (data.projectName as string) || undefined,
-            nodes,
-            edges: (data.edges as Record<string, unknown>[]) || [],
+        // Keep first successful extraction — Haiku retry may produce a truncated result
+        if (!planResult) {
+          const nodes = data.nodes as Record<string, unknown>[] | undefined
+          if (nodes && Array.isArray(nodes)) {
+            planResult = {
+              projectName: (data.projectName as string) || undefined,
+              nodes,
+              edges: (data.edges as Record<string, unknown>[]) || [],
+            }
           }
         }
         break

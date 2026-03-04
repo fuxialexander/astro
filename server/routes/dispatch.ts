@@ -1075,6 +1075,9 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     let lastActivity = Date.now()
     let resultSent = false
     let waitingForApproval = false
+    // Accumulated text from `text` events — used for plan extraction in onResult.
+    // msg.result.output is equivalent for completed sessions; accumulatedText is the
+    // fallback when the relay strips output from the result message.
     let accumulatedText = ''
     const ACTIVITY_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000 // 5 days
 

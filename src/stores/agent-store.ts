@@ -246,9 +246,7 @@ async function performCatchUp(
       if (event.eventType === 'plan_result') {
         try {
           const planData = typeof event.data === 'string' ? JSON.parse(event.data) : event.data
-          // Serialize the plan data to text so applyPlanFromText can extract it
-          const planText = JSON.stringify(planData)
-          const result = applyPlanFromText(projectId, planText, `catchup-${session.streamId}`)
+          const result = applyPlanFromText(projectId, '', `catchup-${session.streamId}`, false, planData)
           if (result.applied) {
             console.log(`[plan-gen] Catch-up recovered plan from plan_result event for ${projectId}: ${result.nodeCount} nodes`)
             set((s) => ({

@@ -14,7 +14,7 @@ import { apiUrl } from "@/lib/api-url"
 import { useTaskChatStore } from "./task-chat-store"
 import { useSessionStore } from "./session-store"
 import { resolveWorkingDirectory, buildDependencyOutputs } from "@astro/core/dispatch"
-import { applyPlanFromText } from "@/lib/plan-extraction"
+import { applyPlanFromText, planNodeIdToProjectId } from "@/lib/plan-extraction"
 import { getSigningPrivateKey, signDispatchIntent, generateNonce, type DispatchSigningPayload } from "@/lib/dispatch-signing"
 import { useAuthStore } from "./auth-store"
 
@@ -2200,7 +2200,7 @@ function handleSSEEvent(
       try {
         const parsed = JSON.parse(data)
         if (parsed.nodes && Array.isArray(parsed.nodes)) {
-          const planProjectId = nodeId.startsWith('plan-') ? nodeId.slice(5) : null
+          const planProjectId = planNodeIdToProjectId(nodeId)
           if (planProjectId) {
             const exec = get().executions.get(nodeId)
             applyPlanFromText(planProjectId, '', exec?.executionId || undefined, false, parsed)

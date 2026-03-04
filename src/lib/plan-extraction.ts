@@ -1,11 +1,17 @@
 import type { PlanNode, PlanEdge } from '@/types'
 import { usePlanStore } from '@/stores/plan-store'
 import { useProjectStore } from '@/stores/project-store'
+import { escapeHtml } from '@/lib/html-utils'
 import { extractPlanJsonFromText, type PlanJsonResult } from '@astro/core'
 
 // Re-export for backward compatibility
 export { extractPlanJsonFromText } from '@astro/core'
 export type { PlanJsonResult } from '@astro/core'
+
+/** Extract projectId from a `plan-<projectId>` node ID, or return null. */
+export function planNodeIdToProjectId(nodeId: string): string | null {
+  return nodeId.startsWith('plan-') ? nodeId.slice(5) : null
+}
 
 /**
  * Module-level Set to track processed executionIds for idempotency.
@@ -85,7 +91,7 @@ export function applyPlanFromText(
     type: (n.type as PlanNode['type']) || 'task',
     title: (n.title as string) || '',
     description: (n.description as string) || '',
-    content: n.description ? `<p>${n.description as string}</p>` : '',
+    content: n.description ? `<p>${escapeHtml(n.description as string)}</p>` : '',
     status: (n.status as PlanNode['status']) || 'planned',
     parentId: n.parentId ? resolveId(n.parentId as string) : null,
     dependencies: (n.dependencies as string[] || []).map(resolveId),
