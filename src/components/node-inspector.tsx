@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Link } from "react-router"
-import { FileText, XCircle, RotateCcw, X, Plus, Pencil, ArrowUpRight, Diamond } from "lucide-react"
+import { FileText, XCircle, RotateCcw, X, Plus, Pencil, ArrowUpRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -49,22 +49,26 @@ function useTaskRename(
 ) {
   const [isRenaming, setIsRenaming] = useState(false)
   const [editingValue, setEditingValue] = useState<string | null>(null)
+  const [prevNodeId, setPrevNodeId] = useState(node.id)
   const addToast = useToastStore((s) => s.add)
 
-  // Reset rename state when node changes
-  useEffect(() => {
+  // Reset rename state when node changes (React-recommended in-render pattern)
+  if (prevNodeId !== node.id) {
+    setPrevNodeId(node.id)
     setIsRenaming(false)
     setEditingValue(null)
-  }, [node.id])
+  }
 
-  // Lock input value when entering rename mode
-  useEffect(() => {
-    if (isRenaming && editingValue === null) {
-      setEditingValue(node.title)
-    } else if (!isRenaming) {
-      setEditingValue(null)
-    }
-  }, [isRenaming, editingValue, node.title])
+  // Wrap setIsRenaming to also manage editingValue
+  const startRenaming = useCallback(() => {
+    setIsRenaming(true)
+    setEditingValue(node.title)
+  }, [node.title])
+
+  const stopRenaming = useCallback(() => {
+    setIsRenaming(false)
+    setEditingValue(null)
+  }, [])
 
   // Add keyboard shortcut (F2) for rename
   useEffect(() => {
@@ -73,12 +77,12 @@ function useTaskRename(
       const isGuardOpen = options?.guardOpen ?? true
       if (e.key === 'F2' && !isRenaming && (!shouldGuard || isGuardOpen)) {
         e.preventDefault()
-        setIsRenaming(true)
+        startRenaming()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isRenaming, options?.guardOpen])
+  }, [isRenaming, options?.guardOpen, startRenaming])
 
   const handleRename = useCallback(async (newTitle: string) => {
     // Read fresh node from store to avoid stale closure
@@ -106,7 +110,7 @@ function useTaskRename(
       await dataClient.updateNode(node.id, { title: newTitle })
 
       // Close input on success
-      setIsRenaming(false)
+      stopRenaming()
     } catch (err) {
       // Revert optimistic update - only revert the title field to preserve concurrent updates
       const currentNodes = usePlanStore.getState().nodes
@@ -123,9 +127,9 @@ function useTaskRename(
       })
       // Keep input open so user can retry or cancel
     }
-  }, [node.id, onNodeUpdate, addToast])
+  }, [node.id, onNodeUpdate, addToast, stopRenaming])
 
-  return { isRenaming, setIsRenaming, editingValue, handleRename }
+  return { isRenaming, startRenaming, stopRenaming, editingValue, handleRename }
 }
 
 interface NodeInspectorProps {
@@ -233,22 +237,6 @@ export function NodeInspectorContent({
   const projectForLabels = useProjectStore((s) => s.projects.find((p) => p.id === node.projectId))
   const projectLabels = projectForLabels?.labels ?? []
 
-  // Milestone options: all milestone-type nodes in the same project
-  const milestoneOptions = useMemo(() => {
-    const milestones = allNodes
-      .filter(isLive)
-      .filter((n) => n.type === 'milestone' && n.projectId === node.projectId)
-      .map((n) => ({ id: n.id, label: n.title, icon: Diamond }))
-    return [{ id: 'none', label: 'No milestone' }, ...milestones]
-  }, [allNodes, node.projectId])
-
-  // Current milestone name for display
-  const currentMilestoneName = useMemo(() => {
-    if (!node.milestoneId) return null
-    const ms = allNodes.find((n) => n.id === node.milestoneId)
-    return ms?.title ?? null
-  }, [allNodes, node.milestoneId])
-
   const filteredCandidates = useMemo(() => {
     if (!addDepSearch) return addCandidates
     const q = addDepSearch.toLowerCase()
@@ -355,30 +343,6 @@ export function NodeInspectorContent({
           onOpenChange={setLabelManagerOpen}
           projectId={node.projectId}
         />
-
-        {/* Milestone (only for non-milestone nodes) */}
-        {node.type !== 'milestone' && (
-          <div className="flex items-center justify-between text-[13px]">
-            <span className="text-muted-foreground">Milestone</span>
-            <PropertyPicker
-              value={node.milestoneId ?? 'none'}
-              options={milestoneOptions}
-              title="Set milestone"
-              onSelect={(id) => handleUpdate({ milestoneId: id === 'none' ? undefined : id })}
-            >
-              <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-foreground">
-                {currentMilestoneName ? (
-                  <>
-                    <Diamond className="h-3.5 w-3.5 text-muted-foreground" />
-                    {currentMilestoneName}
-                  </>
-                ) : (
-                  "\u2014"
-                )}
-              </span>
-            </PropertyPicker>
-          </div>
-        )}
 
         {/* Dependencies */}
         <div className="flex flex-col gap-1.5">
@@ -557,7 +521,7 @@ export function NodeInspectorContent({
  */
 export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }) {
   const { open, onClose, node, onNodeUpdate, ...rest } = props
-  const { isRenaming, setIsRenaming, editingValue, handleRename } = useTaskRename(
+  const { isRenaming, startRenaming, stopRenaming, editingValue, handleRename } = useTaskRename(
     node,
     onNodeUpdate,
     { guardOpen: open }
@@ -572,19 +536,19 @@ export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }
               <InlineRenameInput
                 value={editingValue ?? node.title}
                 onSave={handleRename}
-                onCancel={() => setIsRenaming(false)}
+                onCancel={stopRenaming}
                 validate={validateTaskTitle}
                 className="text-base font-semibold"
               />
             ) : (
               <h3
                 className="font-semibold text-base truncate flex-1 pr-8 group/title cursor-text"
-                onDoubleClick={() => setIsRenaming(true)}
+                onDoubleClick={startRenaming}
               >
                 {node.title}
                 <Pencil
                   className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/title:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer"
-                  onClick={(e) => { e.stopPropagation(); setIsRenaming(true) }}
+                  onClick={(e) => { e.stopPropagation(); startRenaming() }}
                   aria-label="Rename task"
                 />
               </h3>
@@ -603,7 +567,7 @@ export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }
  */
 export function NodeInspectorSidebar(props: NodeInspectorProps) {
   const { node, onClose, onNodeUpdate, ...rest } = props
-  const { isRenaming, setIsRenaming, editingValue, handleRename } = useTaskRename(
+  const { isRenaming, startRenaming, stopRenaming, editingValue, handleRename } = useTaskRename(
     node,
     onNodeUpdate
   )
@@ -626,19 +590,19 @@ export function NodeInspectorSidebar(props: NodeInspectorProps) {
           <InlineRenameInput
             value={editingValue ?? node.title}
             onSave={handleRename}
-            onCancel={() => setIsRenaming(false)}
+            onCancel={stopRenaming}
             validate={validateTaskTitle}
             className="text-xl font-semibold font-serif"
           />
         ) : (
           <h3
             className="font-semibold text-xl text-foreground truncate font-serif group/title cursor-text"
-            onDoubleClick={() => setIsRenaming(true)}
+            onDoubleClick={startRenaming}
           >
             {node.title}
             <Pencil
               className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/title:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer"
-              onClick={(e) => { e.stopPropagation(); setIsRenaming(true) }}
+              onClick={(e) => { e.stopPropagation(); startRenaming() }}
               aria-label="Rename task"
             />
           </h3>

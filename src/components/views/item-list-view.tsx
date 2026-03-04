@@ -1,17 +1,5 @@
 import { useState, useCallback, useEffect, useRef, type ReactNode } from "react"
-import { ChevronRight, ArrowUp, ArrowDown, X, GripVertical } from "lucide-react"
-import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  useDroppable,
-  useDraggable,
-  pointerWithin,
-  type DragStartEvent,
-  type DragEndEvent,
-} from "@dnd-kit/core"
+import { ChevronRight, ArrowUp, ArrowDown, X } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
 import { PropertyPicker } from "@/components/property-picker"
@@ -74,8 +62,6 @@ interface ItemListViewProps<T> {
   onSort?: (sortKey: string) => void
   /** Render a mobile card for each item. When provided and screen < 640px, cards replace the table layout. */
   renderMobileItem?: (item: T) => ReactNode
-  /** Called when an item is dragged from one group to another. Enables group-aware DnD. */
-  onGroupDrop?: (itemId: string, sourceGroupKey: string, targetGroupKey: string) => void
 }
 
 function ColumnHeader<T>({
@@ -162,39 +148,6 @@ function ColumnHeader<T>({
   )
 }
 
-/** Wrapper that makes a group header a drop target */
-function DroppableGroup({ groupKey, children }: { groupKey: string; children: ReactNode }) {
-  const { setNodeRef, isOver } = useDroppable({ id: `group:${groupKey}` })
-  return (
-    <div ref={setNodeRef} className={cn(isOver && "ring-2 ring-primary/30 ring-inset rounded-sm")}>
-      {children}
-    </div>
-  )
-}
-
-/** Wrapper that makes a row draggable */
-function DraggableRow({ itemId, groupKey, children }: { itemId: string; groupKey: string; children: ReactNode }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `item:${itemId}`,
-    data: { itemId, groupKey },
-  })
-  return (
-    <div ref={setNodeRef} className={cn(isDragging && "opacity-30")}>
-      <div className="flex items-center">
-        <div
-          {...listeners}
-          {...attributes}
-          className="shrink-0 flex items-center justify-center w-5 cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <GripVertical className="h-3.5 w-3.5" />
-        </div>
-        <div className="flex-1 min-w-0">{children}</div>
-      </div>
-    </div>
-  )
-}
-
 export function ItemListView<T>({
   columns,
   groups,
@@ -212,7 +165,6 @@ export function ItemListView<T>({
   sortDirection,
   onSort,
   renderMobileItem,
-  onGroupDrop,
 }: ItemListViewProps<T>) {
   const isMobile = useMediaQuery("(max-width: 639px)")
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -326,41 +278,6 @@ export function ItemListView<T>({
 
   const clearSelection = useCallback(() => setSelected(new Set()), [])
 
-  // DnD state
-  const dndEnabled = !!onGroupDrop && groups.length > 1
-  const [draggedItemId, setDraggedItemId] = useState<string | null>(null)
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
-  )
-
-  const handleDragStart = useCallback((event: DragStartEvent) => {
-    const data = event.active.data.current as { itemId: string; groupKey: string } | undefined
-    if (data) setDraggedItemId(data.itemId)
-  }, [])
-
-  const handleDragEnd = useCallback((event: DragEndEvent) => {
-    setDraggedItemId(null)
-    if (!onGroupDrop) return
-    const { active, over } = event
-    if (!over) return
-
-    const activeData = active.data.current as { itemId: string; groupKey: string } | undefined
-    if (!activeData) return
-
-    // Extract target group key from droppable id (format: "group:KEY")
-    const overId = String(over.id)
-    if (!overId.startsWith("group:")) return
-    const targetGroupKey = overId.slice("group:".length)
-
-    if (activeData.groupKey !== targetGroupKey) {
-      onGroupDrop(activeData.itemId, activeData.groupKey, targetGroupKey)
-    }
-  }, [onGroupDrop])
-
-  const draggedItem = draggedItemId
-    ? groups.flatMap((g) => g.items).find((item) => getItemId(item) === draggedItemId)
-    : null
-
   const nameCol = columns.find((c) => c.id === "name")
   const otherCols = columns.filter((c) => c.id !== "name" && visibleColumns.includes(c.id))
   const allEmpty = groups.every((g) => g.items.length === 0)
@@ -368,128 +285,6 @@ export function ItemListView<T>({
 
   if (allEmpty && emptyState) {
     return <div className="flex-1 overflow-auto">{emptyState}</div>
-  }
-
-  function renderRow(item: T, groupKey: string, withDnd: boolean) {
-    const itemId = getItemId(item)
-    const isSelected = selected.has(itemId)
-    const isFocused = focusedId === itemId
-    const rowContent = (
-      <div
-        key={itemId}
-        ref={(el) => {
-          if (el) {
-            itemRefs.current.set(itemId, el)
-          } else {
-            itemRefs.current.delete(itemId)
-          }
-        }}
-        onClick={() => onItemClick?.(item)}
-        className={cn(
-          "flex flex-wrap sm:flex-nowrap items-center border-b border-border py-2.5 hover:bg-muted/30 transition-all duration-200",
-          withDnd ? "px-1 sm:px-1" : "px-6",
-          onItemClick && "cursor-pointer",
-          indentGroupedRows && hasMultipleGroups && showGroupHeaders && !withDnd && "pl-12",
-          isSelected && "bg-primary/5",
-          isFocused && "shadow-[0_0_0_2px_rgba(var(--primary),0.3)] bg-accent/20 scale-[1.005]",
-          getItemClass?.(item)
-        )}
-      >
-        {/* Checkbox */}
-        {selectable && (
-          <div
-            className={cn("w-8 shrink-0 flex items-center", indentGroupedRows && hasMultipleGroups && showGroupHeaders && !withDnd && "-ml-6")}
-            onClick={(e) => {
-              e.stopPropagation()
-              toggleItem(itemId, e.shiftKey)
-            }}
-          >
-            <Checkbox
-              checked={isSelected}
-              aria-label={`Select item`}
-              tabIndex={-1}
-              className="pointer-events-none"
-            />
-          </div>
-        )}
-
-        {/* Name column */}
-        <div className={cn("w-full sm:w-auto sm:min-w-[40%] flex items-center", nameCol?.width ?? "flex-1")}>
-          {renderItemName ? renderItemName(item) : nameCol?.render(item)}
-        </div>
-
-        {/* Other visible columns */}
-        <div className="flex items-center gap-2 sm:gap-0 flex-wrap sm:flex-nowrap w-full sm:w-auto sm:shrink sm:overflow-hidden mt-1 sm:mt-0">
-          {otherCols.map((col) => (
-            <div key={col.id} className={cn("flex items-center sm:justify-center sm:text-center shrink-0", col.width)}>
-              {col.render(item)}
-            </div>
-          ))}
-        </div>
-      </div>
-    )
-
-    if (withDnd) {
-      return (
-        <DraggableRow key={itemId} itemId={itemId} groupKey={groupKey}>
-          {rowContent}
-        </DraggableRow>
-      )
-    }
-    return rowContent
-  }
-
-  function renderGroups(withDnd: boolean) {
-    return groups.map((group) => {
-      const isCollapsed = collapsed.has(group.key)
-      const groupIds = group.items.map(getItemId)
-      const allGroupSelected = selectable && groupIds.length > 0 && groupIds.every((id) => selected.has(id))
-
-      const groupContent = (
-        <div key={group.key}>
-          {/* Group header */}
-          {showGroupHeaders && hasMultipleGroups && (
-            <div className="flex items-center gap-2 bg-muted px-6 h-8 w-full">
-              {selectable && (
-                <div className="w-8 shrink-0 flex items-center" onClick={(e) => e.stopPropagation()}>
-                  <Checkbox
-                    checked={allGroupSelected}
-                    onCheckedChange={() => toggleGroupItems(group.key)}
-                    aria-label={`Select all in ${group.label}`}
-                  />
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => toggleGroup(group.key)}
-                className="flex items-center gap-2 flex-1 text-left cursor-pointer hover:bg-muted/80 transition-colors"
-              >
-                <ChevronRight className={cn("h-4 w-4 text-muted-foreground transition-transform", !isCollapsed && "rotate-90")} />
-                {group.icon}
-                <span className="text-sm font-medium">{group.label}</span>
-                <span className="text-[13px] text-muted-foreground">{group.items.length}</span>
-                {group.meta}
-              </button>
-            </div>
-          )}
-
-          {/* Rows */}
-          {!isCollapsed && group.items.map((item) => renderRow(item, group.key, withDnd))}
-
-          {/* Footer */}
-          {!isCollapsed && footer?.(group.key)}
-        </div>
-      )
-
-      if (withDnd) {
-        return (
-          <DroppableGroup key={group.key} groupKey={group.key}>
-            {groupContent}
-          </DroppableGroup>
-        )
-      }
-      return groupContent
-    })
   }
 
   // Mobile card layout: render cards instead of the table when on small screens
@@ -605,31 +400,105 @@ export function ItemListView<T>({
       </div>
 
       {/* Body */}
-      {dndEnabled ? (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={pointerWithin}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          <div className="flex-1 overflow-auto">
-            {renderGroups(true)}
-          </div>
-          <DragOverlay dropAnimation={null}>
-            {draggedItem ? (
-              <div className="flex items-center border border-border bg-background shadow-lg rounded px-6 py-2.5 opacity-90">
-                <div className={cn(nameCol?.width ?? "flex-1")}>
-                  {renderItemName ? renderItemName(draggedItem) : nameCol?.render(draggedItem)}
+      <div className="flex-1 overflow-auto">
+        {groups.map((group) => {
+          const isCollapsed = collapsed.has(group.key)
+          const groupIds = group.items.map(getItemId)
+          const allGroupSelected = selectable && groupIds.length > 0 && groupIds.every((id) => selected.has(id))
+          return (
+            <div key={group.key}>
+              {/* Group header */}
+              {showGroupHeaders && hasMultipleGroups && (
+                <div className="flex items-center gap-2 bg-muted px-6 h-8 w-full">
+                  {selectable && (
+                    <div className="w-8 shrink-0 flex items-center" onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={allGroupSelected}
+                        onCheckedChange={() => toggleGroupItems(group.key)}
+                        aria-label={`Select all in ${group.label}`}
+                      />
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(group.key)}
+                    className="flex items-center gap-2 flex-1 text-left cursor-pointer hover:bg-muted/80 transition-colors"
+                  >
+                    <ChevronRight className={cn("h-4 w-4 text-muted-foreground transition-transform", !isCollapsed && "rotate-90")} />
+                    {group.icon}
+                    <span className="text-sm font-medium">{group.label}</span>
+                    <span className="text-[13px] text-muted-foreground">{group.items.length}</span>
+                    {group.meta}
+                  </button>
                 </div>
-              </div>
-            ) : null}
-          </DragOverlay>
-        </DndContext>
-      ) : (
-        <div className="flex-1 overflow-auto">
-          {renderGroups(false)}
-        </div>
-      )}
+              )}
+
+              {/* Rows (hidden when collapsed) */}
+              {!isCollapsed && group.items.map((item) => {
+                const itemId = getItemId(item)
+                const isSelected = selected.has(itemId)
+                const isFocused = focusedId === itemId
+                return (
+                  <div
+                    key={itemId}
+                    ref={(el) => {
+                      if (el) {
+                        itemRefs.current.set(itemId, el)
+                      } else {
+                        itemRefs.current.delete(itemId)
+                      }
+                    }}
+                    onClick={() => onItemClick?.(item)}
+                    className={cn(
+                      "flex flex-wrap sm:flex-nowrap items-center border-b border-border px-6 py-2.5 hover:bg-muted/30 transition-all duration-200",
+                      onItemClick && "cursor-pointer",
+                      indentGroupedRows && hasMultipleGroups && showGroupHeaders && "pl-12",
+                      isSelected && "bg-primary/5",
+                      isFocused && "shadow-[0_0_0_2px_rgba(var(--primary),0.3)] bg-accent/20 scale-[1.005]",
+                      getItemClass?.(item)
+                    )}
+                  >
+                    {/* Checkbox */}
+                    {selectable && (
+                      <div
+                        className={cn("w-8 shrink-0 flex items-center", indentGroupedRows && hasMultipleGroups && showGroupHeaders && "-ml-6")}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleItem(itemId, e.shiftKey)
+                        }}
+                      >
+                        <Checkbox
+                          checked={isSelected}
+                          aria-label={`Select item`}
+                          tabIndex={-1}
+                          className="pointer-events-none"
+                        />
+                      </div>
+                    )}
+
+                    {/* Name column — full width on mobile so title is always prominent */}
+                    <div className={cn("w-full sm:w-auto sm:min-w-[40%] flex items-center", nameCol?.width ?? "flex-1")}>
+                      {renderItemName ? renderItemName(item) : nameCol?.render(item)}
+                    </div>
+
+                    {/* Other visible columns — wrap below title on mobile, inline on desktop */}
+                    <div className="flex items-center gap-2 sm:gap-0 flex-wrap sm:flex-nowrap w-full sm:w-auto sm:shrink sm:overflow-hidden mt-1 sm:mt-0">
+                      {otherCols.map((col) => (
+                        <div key={col.id} className={cn("flex items-center sm:justify-center sm:text-center shrink-0", col.width)}>
+                          {col.render(item)}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+
+              {/* Footer (e.g. "Add task" row) — hidden when collapsed */}
+              {!isCollapsed && footer?.(group.key)}
+            </div>
+          )
+        })}
+      </div>
     </>
   )
 }
