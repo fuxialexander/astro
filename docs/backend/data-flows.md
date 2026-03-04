@@ -57,13 +57,19 @@ Agent Runner: packages/agent-runner
   ├─ Execute provider (Claude Code SDK, SLURM, etc.)
   └─ Stream events back to relay
   ↓
-Relay → Backend SSE Bridge
-  ├─ /api/events/stream (SSE endpoint)
-  └─ Event types: stdout, progress, tool_use, file_change, result
+Relay → Backend SSE Bridge (dual-path)
+  ├─ Path 1: dispatch.ts SSE stream (active execution, direct)
+  │   └─ Persists to streaming_events table (seq-indexed)
+  ├─ Path 2: /api/events/stream (global SSE, fallback after refresh)
+  │   └─ Deduplication via activeDispatchStreams guard
+  └─ Event types: init, session_init, text, tool_use, tool_result,
+     file_change, progress, result, approval_request, steer_message
   ↓
 Frontend: execution-store.ts
-  ├─ EventSource consumes SSE stream
+  ├─ Parses SSE via parseExecutionSSE()
   ├─ Updates UI (task-output-view, tool-trace-view)
+  ├─ On disconnect: catch-up from streaming_events DB
+  ├─ On page refresh: useRestoredExecution() 3-layer merge
   └─ On completion: updates plan-store node status
   ↓
 Backend: Result writeback
@@ -77,8 +83,9 @@ Backend: Result writeback
 **Key Points:**
 - **Context injection**: Every task gets vision doc + dependency context
 - **Workspace isolation**: Git worktrees prevent concurrent task conflicts
-- **Streaming events**: Real-time progress updates via SSE
+- **Streaming events**: Real-time progress via SSE; all structural events persisted to `streaming_events` table for reconnect/refresh recovery
 - **Automatic writeback**: Results stored in database after completion
+- **Future**: WebSocket transport will replace SSE (persistence layer unchanged). See [WebSocket Roadmap](../websocket.md)
 
 ## Real-time Sync Flow (Server Mode)
 

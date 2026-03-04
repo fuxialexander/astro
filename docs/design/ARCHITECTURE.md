@@ -439,8 +439,12 @@ The core workflow is identical in both modes — only transport security and per
 **HTTP REST**: CRUD operations, configuration, triggering actions.
 
 **SSE (Server-Sent Events)**: Two patterns:
-1. **Action SSE**: POST to `/api/agent/generate-plan`, `/api/dispatch/task`, etc. returns an SSE stream for that operation.
-2. **Event stream**: GET `/api/events/stream` — persistent SSE connection for real-time events (machine state, task progress, approvals).
+1. **Action SSE**: POST to `/api/agent/generate-plan`, `/api/dispatch/task`, etc. returns an SSE stream for that operation. Parsed via `parseExecutionSSE()` or `parseChatSSE()`.
+2. **Event stream**: GET `/api/events/stream` — persistent SSE connection for real-time events (machine state, task progress, approvals). Subscribes to both `ExecutionEventBus` and relay EventEmitter with deduplication via `activeDispatchStreams`.
+
+**Persistence layer** (transport-agnostic): All structural events persist to `streaming_events` table with monotonic `seq`. Enables reconnect catch-up (`GET /api/events/catch-up`), page-refresh recovery (`hydrateStreamingEvents()`), and merge with live events (`mergeHydratedAndLive()`). See [REFRESH_ROBUSTNESS.md](./REFRESH_ROBUSTNESS.md).
+
+**Future**: WebSocket (`GET /api/ws`) will replace SSE as primary transport. The persistence/catch-up/merge layer carries over unchanged. See [WebSocket Roadmap](../websocket.md).
 
 ### 6.2 Backend ↔ Relay
 
@@ -482,7 +486,9 @@ Agent Runner (via Relay)
 
 All events flow from agent runners through the relay to the `executionEventBus`, a Node.js `EventEmitter` singleton (survives tsx watch reloads via `globalThis`). There is no local provider path — all AI execution produces events via the relay.
 
-**Streaming event types:** `init`, `session_init`, `text`, `tool_use`, `tool_result`, `structured_output`, `file_change`, `progress`, `result`, `error`, `aborted`, `heartbeat`, `done`
+**Streaming event types:** `init`, `session_init`, `text`, `tool_use`, `tool_result`, `structured_output`, `file_change`, `progress`, `result`, `error`, `aborted`, `heartbeat`, `done`, `approval_request`, `approval_response`, `safety_prompt`, `safety_response`, `steer_message`
+
+**Event persistence:** All structural events are appended to the `streaming_events` table (append-only, seq-indexed) before being sent to clients. Text chunks are batched in-memory by `StreamingEventLog` and flushed before each structural event to preserve ordering. This persistence layer is **transport-agnostic** — it works identically whether events are delivered via SSE or WebSocket.
 
 ---
 
@@ -785,6 +791,8 @@ All blockers to horizontal scaling have been resolved. In-memory Maps that held 
 | Cross-instance relay | N/A | Postgres `LISTEN/NOTIFY` (future, not yet needed) | Deferred |
 
 **Running 2+ Fly.io machines is now safe.** The production WebAuthn auth bug (challenge on Machine A invisible to Machine B) is fixed.
+
+**Note on real-time transport and scaling:** The remaining instance-local state (`ExecutionEventBus`, relay EventEmitter subscriptions, `activeDispatchStreams`, `executionContextStore`) affects both SSE and WebSocket equally. Switching to WebSocket does not change the horizontal scaling story — both transports require the same cross-instance event broadcast solution (Redis pub/sub or Postgres LISTEN/NOTIFY). The persistence layer (`streaming_events` table, catch-up endpoint, hydration) is already transport-agnostic.
 
 ---
 
