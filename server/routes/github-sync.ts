@@ -225,6 +225,7 @@ async function syncIssuesForProject(
     // Check if a node with this github_issue_number already exists
     const [existing] = await db.select({
       id: planNodes.id,
+      clientId: planNodes.clientId,
       deletedAt: planNodes.deletedAt,
       deletionActionId: planNodes.deletionActionId
     })
@@ -245,8 +246,8 @@ async function syncIssuesForProject(
           .where(and(
             eq(planEdges.projectId, projectId),
             or(
-              eq(planEdges.source, existing.id),
-              eq(planEdges.target, existing.id)
+              eq(planEdges.sourceClientId, existing.clientId),
+              eq(planEdges.targetClientId, existing.clientId)
             ),
             isNotNull(planEdges.deletionActionId),
             eq(planEdges.deletionActionId, existing.deletionActionId)
@@ -255,7 +256,7 @@ async function syncIssuesForProject(
         if (edgesToResurrect.length > 0) {
           console.log(`[github] Resurrecting ${edgesToResurrect.length} edges for node ${existing.id}`);
           await db.update(planEdges)
-            .set({ deletedAt: null, deletionActionId: null, updatedAt: new Date() })
+            .set({ deletedAt: null, deletionActionId: null })
             .where(and(
               eq(planEdges.projectId, projectId),
               inArray(planEdges.id, edgesToResurrect.map(e => e.id))
