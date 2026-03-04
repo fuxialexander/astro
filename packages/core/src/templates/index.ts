@@ -69,15 +69,7 @@ export type {
 // ── Built-in Templates ──────────────────────────────────────────────────
 export {
   // Individual templates
-  webAppTemplate,
-  apiDevelopmentTemplate,
-  mlPipelineTemplate,
-  dataPipelineTemplate,
-  securityAuditTemplate,
-  paperToSlidesTemplate,
-  codeDocumentationTemplate,
-  literatureReviewTemplate,
-  benchmarkRunnerTemplate,
+  academicPresentationTemplate,
 
   // Collections
   BUILTIN_TEMPLATES,
