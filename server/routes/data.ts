@@ -15,6 +15,7 @@ import {
   activityEvents,
   teams,
   teamMembers,
+  projectMembers,
   toolTraces,
   fileChanges,
   blobs,
@@ -42,6 +43,19 @@ function teamScopeFilter(table: { teamId: typeof projects.teamId; ownerId: typeo
   )!
 }
 
+/**
+ * Build a project-scoped filter that extends teamScopeFilter with project_members access.
+ * Grants access if the user is a project member (regardless of team), in addition to
+ * the standard team-scope and legacy owner checks.
+ */
+function projectScopeFilter(user: AuthUser) {
+  return or(
+    eq(projects.teamId, user.teamId),
+    and(isNull(projects.teamId), eq(projects.ownerId, user.id)),
+    sql`${projects.id} IN (SELECT ${projectMembers.projectId} FROM ${projectMembers} WHERE ${projectMembers.userId} = ${user.id})`
+  )!
+}
+
 const app = new Hono()
 
 // Apply authentication middleware to all routes
@@ -51,7 +65,7 @@ app.use('/*', requireAuth)
 
 app.get('/projects', async (c) => {
   const user = c.get('user')! as AuthUser
-  const rows = await db.select().from(projects).where(teamScopeFilter(projects, user))
+  const rows = await db.select().from(projects).where(projectScopeFilter(user))
   return c.json(rows)
 })
 
@@ -172,7 +186,7 @@ app.get('/projects/:id', async (c) => {
   const user = c.get('user')! as AuthUser
   const projectId = c.req.param('id')
   const [row] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, projectId), projectScopeFilter(user))
   )
   if (!row) return c.json({ error: 'Not found' }, 404)
   return c.json(row)
@@ -184,7 +198,7 @@ app.patch('/projects/:id', async (c) => {
 
   // Verify team access first
   const [existing] = await db.select().from(projects).where(
-    and(eq(projects.id, id), teamScopeFilter(projects, user))
+    and(eq(projects.id, id), projectScopeFilter(user))
   )
   if (!existing) return c.json({ error: 'Not found' }, 404)
 
@@ -275,7 +289,7 @@ app.patch('/projects/:id', async (c) => {
     // Otherwise, preserve existing githubRepoId (e.g., when updating owner/repo without providing repoId)
   }
   await db.update(projects).set(patch).where(
-    and(eq(projects.id, id), teamScopeFilter(projects, user))
+    and(eq(projects.id, id), projectScopeFilter(user))
   )
   const [updated] = await db.select().from(projects).where(eq(projects.id, id))
   return c.json(updated)
@@ -287,7 +301,7 @@ app.delete('/projects/:id', async (c) => {
 
   // Verify team access before deletion
   const [existing] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, projectId), projectScopeFilter(user))
   )
   if (!existing) return c.json({ error: 'Not found' }, 404)
 
@@ -306,7 +320,7 @@ app.delete('/projects/:id', async (c) => {
   })
 
   await db.delete(projects).where(
-    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, projectId), projectScopeFilter(user))
   )
   return c.json({ ok: true })
 })
@@ -444,7 +458,7 @@ app.get('/plan', async (c) => {
   const user = c.get('user')! as AuthUser
 
   // Get team's projects
-  const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
+  const userProjects = await db.select().from(projects).where(projectScopeFilter(user))
   const projectIds = new Set(userProjects.map(p => p.id))
 
   // Get all nodes for user's projects
@@ -506,7 +520,7 @@ app.get('/plan/:projectId', async (c) => {
 
   // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, projectId), projectScopeFilter(user))
   )
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
@@ -568,7 +582,7 @@ app.put('/plan/:projectId', async (c) => {
 
   // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, projectId), projectScopeFilter(user))
   )
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
@@ -651,7 +665,7 @@ app.post('/plan/nodes', async (c) => {
 
   // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, body.projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, body.projectId), projectScopeFilter(user))
   )
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
@@ -717,7 +731,7 @@ app.patch('/plan/nodes/:id', async (c) => {
 
   // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, node.projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, node.projectId), projectScopeFilter(user))
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
@@ -867,7 +881,7 @@ app.delete('/plan/nodes/:id', async (c) => {
 
   // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, node.projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, node.projectId), projectScopeFilter(user))
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
@@ -885,7 +899,7 @@ app.post('/plan/edges', async (c) => {
 
   // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, body.projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, body.projectId), projectScopeFilter(user))
   )
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
@@ -909,7 +923,7 @@ app.delete('/plan/edges/:id', async (c) => {
 
   // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, edge.projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, edge.projectId), projectScopeFilter(user))
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
@@ -1336,7 +1350,7 @@ app.get('/executions', async (c) => {
   const user = c.get('user')! as AuthUser
 
   // Get team's projects
-  const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
+  const userProjects = await db.select().from(projects).where(projectScopeFilter(user))
   const projectIds = new Set(userProjects.map(p => p.id))
 
   if (projectIds.size === 0) {
@@ -1380,7 +1394,7 @@ app.post('/executions', async (c) => {
 
   // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, body.projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, body.projectId), projectScopeFilter(user))
   )
   if (!project) {
     return c.json({ error: 'Project not found or not authorized' }, 404)
@@ -1447,7 +1461,7 @@ app.delete('/executions/:nodeId', async (c) => {
   // Verify user has access to the project via team scope
   const projectId = nodeExecutions[0].projectId
   const [project] = await db.select({ id: projects.id }).from(projects)
-    .where(and(eq(projects.id, projectId), teamScopeFilter(projects, user)))
+    .where(and(eq(projects.id, projectId), projectScopeFilter(user)))
   if (!project) {
     return c.json({ error: 'Not authorized' }, 403)
   }
@@ -1479,7 +1493,7 @@ app.get('/tool-traces', async (c) => {
     .limit(1)
   if (execution?.projectId) {
     const [project] = await db.select({ id: projects.id }).from(projects)
-      .where(and(eq(projects.id, execution.projectId), teamScopeFilter(projects, user)))
+      .where(and(eq(projects.id, execution.projectId), projectScopeFilter(user)))
       .limit(1)
     if (!project) return c.json({ error: 'Not authorized' }, 403)
   }
@@ -1504,7 +1518,7 @@ app.get('/file-changes', async (c) => {
     .limit(1)
   if (execution?.projectId) {
     const [project] = await db.select({ id: projects.id }).from(projects)
-      .where(and(eq(projects.id, execution.projectId), teamScopeFilter(projects, user)))
+      .where(and(eq(projects.id, execution.projectId), projectScopeFilter(user)))
       .limit(1)
     if (!project) return c.json({ error: 'Not authorized' }, 403)
   }
@@ -1527,7 +1541,7 @@ app.get('/search', async (c) => {
   // Search projects
   const projectResults = await db.select().from(projects)
     .where(and(
-      teamScopeFilter(projects, user),
+      projectScopeFilter(user),
       or(
         sql`${projects.name} ILIKE ${pattern}`,
         sql`${projects.description} ILIKE ${pattern}`
@@ -1549,7 +1563,7 @@ app.get('/search', async (c) => {
     .innerJoin(projects, eq(planNodes.projectId, projects.id))
     .where(and(
       isNull(planNodes.deletedAt),
-      teamScopeFilter(projects, user),
+      projectScopeFilter(user),
       or(
         sql`${planNodes.title} ILIKE ${pattern}`,
         sql`${planNodes.description} ILIKE ${pattern}`
@@ -1568,7 +1582,7 @@ app.get('/search', async (c) => {
   }).from(taskExecutions)
     .innerJoin(projects, eq(taskExecutions.projectId, projects.id))
     .where(and(
-      teamScopeFilter(projects, user),
+      projectScopeFilter(user),
       or(
         sql`${taskExecutions.executionId} ILIKE ${pattern}`,
         sql`${taskExecutions.streamText} ILIKE ${pattern}`
@@ -1589,7 +1603,7 @@ app.get('/export', async (c) => {
   try {
     // Export all user data
     const [profile] = await db.select().from(userProfiles).where(eq(userProfiles.id, user.id))
-    const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
+    const userProjects = await db.select().from(projects).where(projectScopeFilter(user))
     const settings = await db.select().from(displaySettings).where(eq(displaySettings.userId, user.id))
     const usage = await db.select().from(usageMetrics).where(eq(usageMetrics.userId, user.id))
     const chatSessions = await db.select().from(taskChatSessions).where(eq(taskChatSessions.userId, user.id))
@@ -1960,7 +1974,7 @@ app.get('/comments', async (c) => {
 
   // Always verify project access (not just when comments exist)
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, projectId), projectScopeFilter(user))
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
@@ -1981,7 +1995,7 @@ app.post('/comments', async (c) => {
 
   // Verify project access
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, body.projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, body.projectId), projectScopeFilter(user))
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
