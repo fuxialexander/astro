@@ -5,7 +5,7 @@
  * The dispatch engine bridges the plan graph and agent execution.
  */
 
-import type { PlanNode, PlanEdge } from '../types.js'
+import type { PlanNode, PlanEdge, KnowledgeEntry } from '../types.js'
 import type { ProviderType } from '../types/relay.js'
 
 /** Minimal task result interface (formerly from providers/types.ts) */
@@ -168,6 +168,8 @@ export interface AssembledContext {
   resourcePaths?: string[]
   /** Additional environment variables */
   environmentVariables?: Record<string, string>
+  /** Project knowledge entries to inject into prompt */
+  knowledgeEntries?: KnowledgeEntry[]
 }
 
 /**
@@ -470,6 +472,8 @@ export interface DispatchEngineConfig {
   dryRunMode: boolean
   /** Maximum output size per dependency (chars) */
   maxDependencyOutputSize: number
+  /** Maximum total size of knowledge entries injected into prompt (chars) */
+  maxKnowledgeSize: number
   /** Poll interval for ready tasks (ms) */
   pollIntervalMs: number
   /** Machine selection policy for multi-machine environments */
@@ -489,6 +493,7 @@ export const DEFAULT_DISPATCH_CONFIG: DispatchEngineConfig = {
   retryDelayMax: 60000,
   dryRunMode: false,
   maxDependencyOutputSize: 10000,
+  maxKnowledgeSize: 8000,
   pollIntervalMs: 2000,
   machineSelectionPolicy: 'priority',
 }

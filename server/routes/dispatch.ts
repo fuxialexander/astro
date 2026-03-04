@@ -22,7 +22,7 @@ import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
-import { projects, planNodes, planNodeDependencies, blobs, environmentConfigs, userProfiles, taskExecutions, streamingEvents } from '../lib/db/schema.js'
+import { projects, planNodes, planNodeDependencies, blobs, environmentConfigs, userProfiles, taskExecutions, streamingEvents, projectKnowledge } from '../lib/db/schema.js'
 import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
@@ -665,6 +665,34 @@ async function dispatchViaRelay(
 
     if (visionDoc) {
       promptParts.push(`## Project Vision\n\n${visionDoc}`)
+    }
+
+    // Inject project knowledge entries (capped at 8000 chars, most recent first)
+    try {
+      const knowledgeRows = await (await db()).select().from(projectKnowledge).where(eq(projectKnowledge.projectId, projectId))
+      if (knowledgeRows.length > 0) {
+        const maxKnowledgeSize = 8000
+        // Sort by recency (most recent first)
+        const sorted = knowledgeRows.sort(
+          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        )
+        const entries: string[] = []
+        let totalSize = 0
+        for (const row of sorted) {
+          const source = row.sourceTaskTitle ? ` (from: "${row.sourceTaskTitle}")` : ''
+          const entryText = `### ${row.key}${source}\n\n${row.value}`
+          const entrySize = entryText.length
+          if (totalSize + entrySize > maxKnowledgeSize && entries.length > 0) break
+          entries.push(entryText)
+          totalSize += entrySize
+        }
+        if (entries.length > 0) {
+          promptParts.push(`## Project Knowledge\n\n${entries.join('\n\n')}`)
+        }
+      }
+    } catch (err) {
+      console.warn('[dispatch] Failed to fetch knowledge entries:', err)
+      // Non-fatal — continue without knowledge
     }
 
     if (dependencyOutputs.length > 0) {
