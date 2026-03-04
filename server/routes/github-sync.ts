@@ -805,6 +805,96 @@ app.get('/issues/search', async (c) => {
   }
 });
 
+// ── Sync Settings Endpoints ─────────────────────────────────────────
+
+/**
+ * GET /api/github/projects/:projectId/sync-settings
+ * Fetch per-project GitHub sync settings.
+ */
+app.get('/projects/:projectId/sync-settings', async (c) => {
+  const { projectId } = c.req.param();
+
+  const [project] = await db.select({
+    githubSyncSettings: projects.githubSyncSettings,
+    projectType: projects.projectType,
+  }).from(projects).where(eq(projects.id, projectId)).limit(1);
+
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
+  }
+
+  return c.json({ settings: project.githubSyncSettings ?? null });
+});
+
+// ── Save Sync Settings Endpoint ─────────────────────────────────────
+
+/**
+ * PUT /api/github/projects/:projectId/sync-settings
+ * Save per-project GitHub sync settings.
+ *
+ * Body: { settings: GitHubSyncSettings }
+ */
+app.put('/projects/:projectId/sync-settings', async (c) => {
+  const { projectId } = c.req.param();
+  const body = await c.req.json() as {
+    settings: {
+      enabled: boolean
+      direction: string
+      enabledFields: string[]
+      autoCreateDirection: string
+      labelMapping: Record<string, string>
+    }
+  };
+
+  if (!body.settings) {
+    return c.json({ error: 'settings object is required' }, 400);
+  }
+
+  const { settings } = body;
+
+  // Validate direction
+  const validDirections = ['github_to_astro', 'astro_to_github', 'bidirectional'];
+  if (!validDirections.includes(settings.direction)) {
+    return c.json({ error: `Invalid direction: ${settings.direction}` }, 400);
+  }
+
+  // Validate autoCreateDirection
+  const validAutoCreate = ['astro_to_github', 'github_to_astro', 'bidirectional', 'none'];
+  if (!validAutoCreate.includes(settings.autoCreateDirection)) {
+    return c.json({ error: `Invalid autoCreateDirection: ${settings.autoCreateDirection}` }, 400);
+  }
+
+  // Validate enabledFields
+  const validFields = ['title', 'description', 'status', 'priority', 'estimate', 'assignee', 'labels'];
+  for (const field of settings.enabledFields) {
+    if (!validFields.includes(field)) {
+      return c.json({ error: `Invalid field: ${field}` }, 400);
+    }
+  }
+
+  // Verify the project exists and is a GitHub project
+  const [project] = await db.select({
+    id: projects.id,
+    projectType: projects.projectType,
+  }).from(projects).where(eq(projects.id, projectId)).limit(1);
+
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
+  }
+
+  if (project.projectType !== 'github') {
+    return c.json({ error: 'Project is not a GitHub-linked project' }, 400);
+  }
+
+  // Save settings
+  await db.update(projects).set({
+    githubSyncSettings: settings,
+    updatedAt: new Date(),
+  }).where(eq(projects.id, projectId));
+
+  return c.json({ success: true });
+});
+
 // ── Field Sync Endpoint ──────────────────────────────────────────────
 
 /**

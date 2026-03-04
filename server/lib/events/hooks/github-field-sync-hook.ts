@@ -71,7 +71,7 @@ export async function syncNodeToGitHub(
     return { success: true } // No linked issue — nothing to sync
   }
 
-  // Look up the project for GitHub credentials
+  // Look up the project for GitHub credentials and sync settings
   const [project] = await db
     .select({
       ownerId: projects.ownerId,
@@ -79,6 +79,7 @@ export async function syncNodeToGitHub(
       githubOwner: projects.githubOwner,
       githubRepo: projects.githubRepo,
       projectType: projects.projectType,
+      githubSyncSettings: projects.githubSyncSettings,
     })
     .from(projects)
     .where(eq(projects.id, node.projectId))
@@ -91,6 +92,23 @@ export async function syncNodeToGitHub(
   if (!project.githubOwner || !project.githubRepo) {
     return { success: false, error: 'Project missing GitHub owner/repo' }
   }
+
+  // Check sync settings — respect enabled flag and direction
+  const syncSettings = project.githubSyncSettings as Record<string, unknown> | null
+  if (syncSettings) {
+    // If sync is disabled, skip
+    if (syncSettings.enabled === false) {
+      return { success: true }
+    }
+    // If direction is 'github_to_astro' only, skip Astro→GitHub push
+    if (syncSettings.direction === 'github_to_astro') {
+      return { success: true }
+    }
+  }
+
+  // Determine which fields are enabled for sync
+  const enabledFields = (syncSettings?.enabledFields as string[] | undefined) ??
+    ['title', 'status', 'priority', 'assignee', 'labels', 'estimate']
 
   const { githubOwner: owner, githubRepo: repo } = project
 
@@ -143,7 +161,7 @@ export async function syncNodeToGitHub(
     const currentIssue = await getGitHubIssue(accessToken, owner, repo, issueNumber)
 
     // ── Sync title ──
-    const shouldSyncTitle = !changedFields || changedFields.includes('title')
+    const shouldSyncTitle = enabledFields.includes('title') && (!changedFields || changedFields.includes('title'))
     if (shouldSyncTitle && node.title) {
       // Only update if title actually changed (avoid no-op API calls)
       if (!currentIssue || currentIssue.title !== node.title) {
@@ -157,7 +175,7 @@ export async function syncNodeToGitHub(
     }
 
     // ── Sync status → GitHub state ──
-    const shouldSyncStatus = !changedFields || changedFields.includes('status')
+    const shouldSyncStatus = enabledFields.includes('status') && (!changedFields || changedFields.includes('status'))
     if (shouldSyncStatus && node.status) {
       const ghState = astroStatusToGitHub(node.status)
 
@@ -179,8 +197,8 @@ export async function syncNodeToGitHub(
     }
 
     // ── Sync priority + estimate → labels ──
-    const shouldSyncPriority = !changedFields || changedFields.includes('priority')
-    const shouldSyncEstimate = !changedFields || changedFields.includes('estimate')
+    const shouldSyncPriority = enabledFields.includes('priority') && (!changedFields || changedFields.includes('priority'))
+    const shouldSyncEstimate = enabledFields.includes('estimate') && (!changedFields || changedFields.includes('estimate'))
 
     if ((shouldSyncPriority || shouldSyncEstimate) && currentIssue) {
       const desiredLabels: Array<{ name: string; color: string }> = []
@@ -211,7 +229,7 @@ export async function syncNodeToGitHub(
 
     // ── Sync assignee ──
     // Assignee is stored in metadata.assigneeUserId since there's no dedicated column
-    const shouldSyncAssignee = !changedFields || changedFields.includes('assignee')
+    const shouldSyncAssignee = enabledFields.includes('assignee') && (!changedFields || changedFields.includes('assignee'))
     const metadata = (node.metadata ?? {}) as Record<string, unknown>
     const assigneeUserId = metadata.assigneeUserId as string | undefined
     if (shouldSyncAssignee && assigneeUserId) {

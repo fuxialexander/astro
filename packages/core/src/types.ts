@@ -122,6 +122,30 @@ export interface TeamMember {
   joinedAt: Date;
 }
 
+// GitHub sync settings stored per-project
+export type GitHubSyncDirection = 'github_to_astro' | 'astro_to_github' | 'bidirectional'
+
+export interface GitHubSyncSettings {
+  /** Whether auto-sync is enabled */
+  enabled: boolean
+  /** Sync direction */
+  direction: GitHubSyncDirection
+  /** Which fields to sync (title, description, status, priority, assignee, labels, estimate) */
+  enabledFields: string[]
+  /** Auto-create direction for new issues */
+  autoCreateDirection: 'astro_to_github' | 'github_to_astro' | 'bidirectional' | 'none'
+  /** Custom priority→label name mapping (overrides defaults) */
+  labelMapping: Record<string, string>
+}
+
+export const DEFAULT_GITHUB_SYNC_SETTINGS: GitHubSyncSettings = {
+  enabled: true,
+  direction: 'bidirectional',
+  enabledFields: ['title', 'status', 'priority', 'assignee', 'labels', 'estimate'],
+  autoCreateDirection: 'github_to_astro',
+  labelMapping: {},
+}
+
 export type RemoteType = 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none'
 export type DeliveryMode = 'pr' | 'push' | 'branch' | 'copy' | 'direct'
 export type WorktreeStrategy = 'copy' | 'reference' | 'direct'
@@ -170,6 +194,7 @@ export interface Project {
   githubOwner?: string
   githubRepo?: string
   githubRepoId?: number
+  githubSyncSettings?: GitHubSyncSettings
   projectBranch?: string
   projectPrUrl?: string
   projectPrNumber?: number
