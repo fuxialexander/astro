@@ -713,6 +713,13 @@ export interface CreateDirectoryResponseMessage extends BaseMessage {
   error?: string;
 }
 
+/** Git pull request (relay → agent) - fire-and-forget, no response needed */
+export interface GitPullRequestMessage extends BaseMessage {
+  type: 'git_pull.request';
+  workingDirectory: string;
+  correlationId: string;
+}
+
 /** Sessions list request (relay → agent) - for discovering Claude Code sessions */
 export interface SessionsListRequestMessage extends BaseMessage {
   type: 'sessions_list.request';
@@ -870,6 +877,7 @@ export type RelayToAgentMessage =
   | GitInitRequestMessage
   | BranchListRequestMessage
   | CreateDirectoryRequestMessage
+  | GitPullRequestMessage
   | SessionsListRequestMessage
   | ErrorMessage;
 

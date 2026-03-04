@@ -55,6 +55,8 @@ export interface TaskCompletedEvent {
   result: TaskResult
   node: PlanNode
   project?: Project
+  /** Machine that executed the task (for relay-dispatched hooks like git-pull) */
+  machineId?: string
   timestamp: Date
 }
 
