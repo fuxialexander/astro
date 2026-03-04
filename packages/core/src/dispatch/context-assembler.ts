@@ -5,7 +5,7 @@
  * Gathers vision document, dependency outputs, and graph position.
  */
 
-import type { PlanNode, PlanEdge, Project } from '../types.js'
+import type { PlanNode, PlanEdge, Project, KnowledgeEntry } from '../types.js'
 import type {
   AssembledContext,
   DependencyOutput,
@@ -18,8 +18,8 @@ import type {
  * Assembles execution context for a task
  */
 export class ContextAssembler {
-  config: Pick<DispatchEngineConfig, 'maxDependencyOutputSize'>
-  constructor(config: Pick<DispatchEngineConfig, 'maxDependencyOutputSize'>) {
+  config: Pick<DispatchEngineConfig, 'maxDependencyOutputSize' | 'maxKnowledgeSize'>
+  constructor(config: Pick<DispatchEngineConfig, 'maxDependencyOutputSize' | 'maxKnowledgeSize'>) {
     this.config = config
   }
 
@@ -30,7 +30,8 @@ export class ContextAssembler {
     node: PlanNode,
     allNodes: PlanNode[],
     allEdges: PlanEdge[],
-    project?: Project
+    project?: Project,
+    knowledgeEntries?: KnowledgeEntry[]
   ): AssembledContext {
     const dependencyOutputs = this.gatherDependencyOutputs(node, allNodes)
     const graphPosition = this.calculateGraphPosition(node, allNodes, allEdges)
@@ -46,7 +47,34 @@ export class ContextAssembler {
       workingDirectory: projectDir ?? project?.repository,
       originalProjectDirectory: projectDir,
       resourcePaths: project?.resourcePaths,
+      knowledgeEntries: knowledgeEntries ? this.capKnowledgeEntries(knowledgeEntries) : undefined,
     }
+  }
+
+  /**
+   * Cap knowledge entries to fit within maxKnowledgeSize.
+   * Prioritizes most recent entries first.
+   */
+  private capKnowledgeEntries(entries: KnowledgeEntry[]): KnowledgeEntry[] {
+    const maxSize = this.config.maxKnowledgeSize
+    // Sort by recency (most recent first)
+    const sorted = [...entries].sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    )
+
+    const result: KnowledgeEntry[] = []
+    let totalSize = 0
+
+    for (const entry of sorted) {
+      const entrySize = entry.key.length + entry.value.length + (entry.sourceTaskTitle?.length ?? 0)
+      if (totalSize + entrySize > maxSize && result.length > 0) {
+        break // Stop adding entries once we exceed the cap (always include at least one)
+      }
+      result.push(entry)
+      totalSize += entrySize
+    }
+
+    return result
   }
 
   /**
@@ -322,6 +350,17 @@ export class ContextAssembler {
       parts.push(`## Agent Skills\n\n${skillPromptInjection}`)
     }
 
+    // Project knowledge
+    if (context.knowledgeEntries && context.knowledgeEntries.length > 0) {
+      const knowledgeSection = context.knowledgeEntries
+        .map((entry) => {
+          const source = entry.sourceTaskTitle ? ` (from: "${entry.sourceTaskTitle}")` : ''
+          return `### ${entry.key}${source}\n\n${entry.value}`
+        })
+        .join('\n\n')
+      parts.push(`## Project Knowledge\n\n${knowledgeSection}`)
+    }
+
     // Graph position context
     const positionContext = this.buildPositionContext(context.graphPosition)
     if (positionContext) {
@@ -416,9 +455,10 @@ Execute the task described above. Focus on completing the task thoroughly and co
  * Create a context assembler with default configuration
  */
 export function createContextAssembler(
-  config?: Partial<Pick<DispatchEngineConfig, 'maxDependencyOutputSize'>>
+  config?: Partial<Pick<DispatchEngineConfig, 'maxDependencyOutputSize' | 'maxKnowledgeSize'>>
 ): ContextAssembler {
   return new ContextAssembler({
     maxDependencyOutputSize: config?.maxDependencyOutputSize ?? 10000,
+    maxKnowledgeSize: config?.maxKnowledgeSize ?? 8000,
   })
 }
