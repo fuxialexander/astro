@@ -322,6 +322,7 @@ export interface UsageMetrics {
 export interface TaskExecution {
   nodeId: string;
   projectId: string;
+  userId?: string;
   executionId: string;
   status: 'pending' | 'running' | 'success' | 'failure' | 'cancelled';
   streamText: string;
