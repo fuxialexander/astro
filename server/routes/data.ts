@@ -2128,4 +2128,21 @@ app.delete('/environment-configs/:id', async (c) => {
   return c.json({ ok: true })
 })
 
+// ── Stats & Achievements ────────────────────────────────────────────
+
+app.get('/usage/history', async (c) => {
+  const userId = c.get('user')!.id
+  const weeks = parseInt(c.req.query('weeks') || '52', 10)
+  const { getUsageHistory } = await import('../lib/stats.js')
+  const data = await getUsageHistory(userId, Math.min(weeks, 104))
+  return c.json(data)
+})
+
+app.get('/stats/lifetime', async (c) => {
+  const userId = c.get('user')!.id
+  const { getFullStats } = await import('../lib/stats.js')
+  const data = await getFullStats(userId)
+  return c.json(data)
+})
+
 export const dataRoute = app

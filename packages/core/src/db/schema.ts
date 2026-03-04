@@ -903,6 +903,17 @@ export const sharedPlanComments = pgTable('shared_plan_comments', {
   index('shared_plan_comments_plan_id_idx').on(table.planId),
 ])
 
+// ── User Achievements ────────────────────────────────────────────
+// Tracks earned achievements with timestamps for the gamification system.
+export const userAchievements = pgTable('user_achievements', {
+  userId: uuid('user_id').notNull().references(() => userProfiles.id, { onDelete: 'cascade' }),
+  slug: text('slug').notNull(),
+  earnedAt: timestamp('earned_at', { withTimezone: true }).notNull().defaultNow(),
+  metadata: jsonb('metadata').notNull().default({}),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.userId, table.slug] }),
+}))
+
 // ── GitHub Sync Log ──────────────────────────────────────────────
 // Audit log for all GitHub sync operations (both directions).
 // Used by the sync health dashboard for monitoring and retry.
