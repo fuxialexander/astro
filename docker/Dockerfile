@@ -61,6 +61,13 @@ COPY --from=builder --chown=astro:astro /app/public/landing/about/index.html ./a
 # Supabase migrations (for reference / future use)
 COPY --from=builder --chown=astro:astro /app/supabase ./supabase
 
+# Recreate pnpm workspace symlink for @astro/core
+# Docker COPY may not preserve symlinks correctly across multi-stage builds
+RUN rm -rf node_modules/@astro/core && \
+    mkdir -p node_modules/@astro && \
+    ln -sf ../../packages/core node_modules/@astro/core && \
+    chown -h astro:astro node_modules/@astro/core
+
 ENV NODE_ENV=production \
     PORT=3001 \
     RELAY_PORT=3002
