@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { NavLink, useNavigate, useParams, useLocation } from "react-router"
-import { GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X, FlaskConical, PanelLeftClose, PanelLeft } from "lucide-react"
+import { GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X, FlaskConical, PanelLeftClose, PanelLeft, AlertCircle, LayoutTemplate } from "lucide-react"
 import { getFaIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
@@ -13,7 +13,7 @@ import { useUIStore } from "@/stores/ui-store"
 import { useSidebarStore } from "@/stores/sidebar-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useExecutionStore } from "@/stores/execution-store"
-import { useAgentStore } from "@/stores/agent-store"
+import { useRealtimeStore } from "@/stores/realtime-store"
 import { useAutoReveal } from "@/hooks/use-auto-reveal"
 import { isServerMode } from "@/lib/app-mode"
 import { TERMINAL_NODE_STATUSES } from "@/lib/status-config"
@@ -41,6 +41,7 @@ const iconMap: Record<string, typeof CheckSquare> = {
   Code,
   Sparkles,
   FlaskConical,
+  LayoutTemplate,
 }
 
 // Project color palette — Morandi muted tones
@@ -92,7 +93,17 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
 
   // Active task tracking for sidebar indicators
   const executions = useExecutionStore((s) => s.executions)
-  const agentSessions = useAgentStore((s) => s.sessions)
+
+  // Navigate to generation activity view if plan is actively generating, otherwise list view
+  const navigateToProject = useCallback((projectId: string) => {
+    const planExec = executions.get(`plan-${projectId}`)
+    const isGenerating = planExec?.status === "running" || planExec?.status === "pending"
+    if (isGenerating) {
+      navigate(`/plan?projectId=${projectId}`)
+    } else {
+      navigate(`/project/${projectId}/list`)
+    }
+  }, [executions, navigate])
 
   // O(1) lookup map for plan nodes by ID
   const planNodesById = useMemo(() => {
@@ -118,14 +129,6 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
       }
     }
 
-    // Count active and generated plan generations
-    for (const [projectId, session] of agentSessions) {
-      if (session.status === "active" || session.status === "generated") {
-        count++
-        running.add(projectId)
-      }
-    }
-
     // Also check node statuses for running tasks not in execution store
     for (const node of planNodes) {
       if ((node.status === "in_progress" || node.status === "dispatched") && !executions.has(node.id)) {
@@ -135,7 +138,17 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     }
 
     return { activeCount: count, projectsWithRunning: running }
-  }, [executions, agentSessions, planNodes, planNodesById])
+  }, [executions, planNodes, planNodesById])
+
+  // Count pending plan approvals for the Plan nav badge
+  const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
+  const pendingPlanApprovals = useMemo(() => {
+    let count = 0
+    for (const approval of dynamicApprovals.values()) {
+      if (approval.taskId.startsWith("plan-")) count++
+    }
+    return count
+  }, [dynamicApprovals])
 
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const longPressTimer = useRef<number | null>(null)
@@ -319,6 +332,18 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     [projects]
   )
 
+  // Shared handler for Plan click — resets to fresh input when already on /plan.
+  // Uses location.state to signal form reset even when URL doesn't change.
+  const handlePlanClick = useCallback((e?: React.MouseEvent) => {
+    e?.preventDefault()
+    if (location.pathname === "/plan") {
+      // Already on /plan — use a unique state key to force reset detection
+      navigate("/plan", { replace: true, state: { resetForm: Date.now() } })
+    } else {
+      navigate("/plan")
+    }
+  }, [location.pathname, navigate])
+
   return (
     <aside className={cn(
       "hidden md:flex h-full shrink-0 flex-col border-r border-border bg-card overflow-hidden",
@@ -413,7 +438,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
-                        onClick={() => navigate(item.to)}
+                        onClick={item.id === "plan" ? (e: React.MouseEvent) => handlePlanClick(e) : () => navigate(item.to)}
                         className={cn(
                           "flex items-center justify-center h-9 w-9 rounded-lg transition-colors relative",
                           isItemActive
@@ -426,6 +451,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                           <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center h-3.5 min-w-[14px] rounded-full bg-info text-[8px] font-bold text-white px-0.5">
                             {activeCount}
                           </span>
+                        )}
+                        {item.id === "plan" && pendingPlanApprovals > 0 && (
+                          <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-warning border-2 border-card" />
                         )}
                       </button>
                     </TooltipTrigger>
@@ -475,6 +503,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   <NavLink
                     to={item.to}
                     end
+                    onClick={item.id === "plan" ? (e: React.MouseEvent) => handlePlanClick(e) : undefined}
                     className={({ isActive }) =>
                       cn(
                         "flex items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-[15px] font-medium transition-colors",
@@ -510,6 +539,12 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                           <div className="absolute inset-0 rounded-full border border-info border-t-transparent animate-spin" />
                         </div>
                         {activeCount}
+                      </span>
+                    )}
+                    {item.id === "plan" && pendingPlanApprovals > 0 && (
+                      <span className="flex items-center gap-1.5 rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold text-warning">
+                        <AlertCircle className="h-3 w-3" />
+                        {pendingPlanApprovals}
                       </span>
                     )}
                   </NavLink>
@@ -561,7 +596,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <button
-                            onClick={() => navigate(`/project/${project.id}/list`)}
+                            onClick={() => navigateToProject(project.id)}
                             className={cn(
                               "flex items-center justify-center h-9 w-9 rounded-lg transition-colors relative",
                               isActive ? "bg-accent" : "hover:bg-muted/50"
@@ -608,7 +643,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                           e.stopPropagation()
                           setRenamingProjectId(project.id)
                         }}
-                        onClick={() => navigate(`/project/${project.id}/list`)}
+                        onClick={() => navigateToProject(project.id)}
                         className={cn(
                           "flex-1 text-sm truncate cursor-pointer",
                           isActive

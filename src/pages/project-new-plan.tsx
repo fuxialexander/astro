@@ -8,25 +8,33 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useSearchParams, useLocation } from "react-router"
-import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, AlertCircle, Info, Monitor, Bot, Clock, X, FileCode2, Layers } from "lucide-react"
+import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, AlertCircle, Info, Monitor, Bot, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
+import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSettingsStore, resolveModel, type ModelTier } from "@/stores/settings-store"
 import { useClaudeSessionsStore } from "@/stores/claude-sessions-store"
+import { useTemplateStore } from "@/stores/template-store"
 import { PlanChatPhase } from "@/components/plan-session/plan-chat-phase"
 import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
+import { TemplatePickerDialog } from "@/components/templates/template-picker-dialog"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { BranchSelector } from "@/components/branch-selector"
+import { AttachmentList } from "@/components/task-detail/attachment-list"
 import { useDirectoryDetection } from "@/hooks/use-directory-detection"
+import { dataClient } from "@/lib/data-client"
 import { requestNotificationPermission } from "@/lib/notifications"
+import { useToastStore } from "@/stores/toast-store"
 import { OnboardingHint } from "@/components/onboarding-hint"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
 import { deriveAvailableProviders, isProviderAvailable, PROVIDER_NAMES } from "@/components/execution/provider-utils"
+import type { TaskAttachment } from "@/types"
+import type { LaunchTemplateResult } from "@/lib/api-client"
 
 export function ProjectNewPlan() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -46,7 +54,27 @@ export function ProjectNewPlan() {
   const [selectedProvider, setSelectedProvider] = useState("")
   const [selectedModel, setSelectedModel] = useState("")
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false)
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
+  const [templateLaunching, setTemplateLaunching] = useState(false)
+  const [contextOpen, setContextOpen] = useState(false)
+  const [visionDoc, setVisionDoc] = useState("")
+  const [attachments, setAttachments] = useState<TaskAttachment[]>([])
+  const [pendingUploads, setPendingUploads] = useState(0)
   const modelTier: ModelTier = "large"
+
+  // Reset all form fields to initial state
+  const resetForm = useCallback(() => {
+    setDescription("")
+    setWorkingDir("")
+    setSelectedMachine(null)
+    setSelectedBranch("")
+    setSelectedProvider("")
+    setSelectedModel("")
+    setVisionDoc("")
+    setAttachments([])
+    setPendingUploads(0)
+    setContextOpen(false)
+  }, [])
 
   // Git detection (debounced)
   const { detection, isDetecting } = useDirectoryDetection(workingDir, selectedMachine?.machineId)
@@ -56,17 +84,31 @@ export function ProjectNewPlan() {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(projectIdParam)
 
 
+
   // Stores
   const startPlanSession = useExecutionStore((s) => s.startPlanSession)
+  const startPlanSessionForProject = useExecutionStore((s) => s.startPlanSessionForProject)
   const allExecutions = useExecutionStore((s) => s.executions)
   const execution = useExecutionStore((s) =>
     activeProjectId ? s.executions.get(`plan-${activeProjectId}`) : undefined
   )
   const allProjects = useProjectStore((s) => s.projects)
   const deleteProject = useProjectStore((s) => s.deleteProject)
+  const updateProject = useProjectStore((s) => s.updateProject)
   const project = useProjectStore((s) =>
     activeProjectId ? s.projects.find((p) => p.id === activeProjectId) : undefined
   )
+
+  // Detect existing project with zero plan nodes (for re-generation pre-fill)
+  const planNodes = usePlanStore((s) => s.nodes)
+  const existingProject = useProjectStore((s) =>
+    projectIdParam ? s.projects.find((p) => p.id === projectIdParam) : undefined
+  )
+  const existingProjectHasNoNodes = useMemo(() => {
+    if (!existingProject) return false
+    // Use .some() for early exit instead of .filter().length for O(1) best-case
+    return !planNodes.some((n) => n.projectId === existingProject.id && isLive(n))
+  }, [existingProject, planNodes])
 
   // Playground context: read project and execution data
   const playgroundProject = useProjectStore((s) =>
@@ -94,6 +136,10 @@ export function ProjectNewPlan() {
 
   // Sessions store (Claude Code sessions from connected machines)
   const loadSessions = useClaudeSessionsStore((s) => s.loadSessions)
+
+  // Template store
+  const templatesLoaded = useTemplateStore((s) => s.loaded)
+  const loadTemplates = useTemplateStore((s) => s.load)
 
   // View a past plan session — always open in chat phase
   const viewSession = useCallback((projectId: string) => {
@@ -132,6 +178,12 @@ export function ProjectNewPlan() {
     loadSessions()
   }, [loadSessions])
 
+  // Load templates for template picker
+  useEffect(() => {
+    if (!templatesLoaded) loadTemplates()
+  }, [templatesLoaded, loadTemplates])
+
+
   // Reset provider/model when machine changes and current provider isn't available
   useEffect(() => {
     if (selectedProvider && availableProviders.length > 0) {
@@ -154,6 +206,25 @@ export function ProjectNewPlan() {
       setActiveProjectId(projectIdParam)
     }
   }, [projectIdParam, activeProjectId])
+
+  // When projectId param is removed from URL (e.g., sidebar Plan click), reset to input phase
+  useEffect(() => {
+    if (!projectIdParam && activeProjectId) {
+      setActiveProjectId(null)
+      resetForm()
+    }
+  }, [projectIdParam, activeProjectId, resetForm])
+
+  // Detect sidebar reset signal via location.state (when already on /plan without query params)
+  const resetSignal = (location.state as { resetForm?: number } | null)?.resetForm
+  useEffect(() => {
+    if (resetSignal) {
+      setActiveProjectId(null)
+      resetForm()
+      // Clear the state so repeat clicks still trigger
+      window.history.replaceState({}, '', location.pathname + location.search)
+    }
+  }, [resetSignal, resetForm, location.pathname, location.search])
 
   // Determine machine name for display
   const machineName = (() => {
@@ -207,6 +278,45 @@ export function ProjectNewPlan() {
     }
   }, [fromPlaygroundId, playgroundProject?.defaultMachineId, allMachines])
 
+  // Pre-fill from existing project (re-generation flow: project exists with zero nodes)
+  const existingPrefilled = useRef<string | null>(null)
+  useEffect(() => {
+    if (!existingProject || !existingProjectHasNoNodes || fromPlaygroundId) return
+    // Skip if we already pre-filled for this specific project
+    if (existingPrefilled.current === existingProject.id) return
+    existingPrefilled.current = existingProject.id
+
+    // Pre-fill description from project name/description
+    if (existingProject.description) {
+      setDescription(existingProject.description)
+    } else if (existingProject.name) {
+      setDescription(existingProject.name)
+    }
+
+    // Pre-fill working directory
+    if (existingProject.workingDirectory) {
+      setWorkingDir(existingProject.workingDirectory)
+    }
+
+    // Pre-fill vision doc and auto-expand context section
+    if (existingProject.visionDoc) {
+      setVisionDoc(existingProject.visionDoc)
+      setContextOpen(true)
+    }
+  }, [existingProject, existingProjectHasNoNodes, fromPlaygroundId])
+
+  // Pre-fill machine for existing project (async — machines load after mount)
+  const existingMachinePrefilled = useRef<string | null>(null)
+  useEffect(() => {
+    if (!existingProject?.defaultMachineId || !existingProjectHasNoNodes || allMachines.length === 0 || fromPlaygroundId) return
+    if (existingMachinePrefilled.current === existingProject.id) return
+    const match = allMachines.find((m) => m.machineId === existingProject.defaultMachineId)
+    if (match) {
+      existingMachinePrefilled.current = existingProject.id
+      setSelectedMachine(match)
+    }
+  }, [existingProject?.id, existingProject?.defaultMachineId, existingProjectHasNoNodes, allMachines, fromPlaygroundId])
+
   // Build visionDoc from playground execution summary
   const playgroundVisionDoc = useMemo(() => {
     if (!fromPlaygroundId || !playgroundProject) return undefined
@@ -241,28 +351,211 @@ export function ProjectNewPlan() {
     return sections.join('\n')
   }, [fromPlaygroundId, playgroundProject, playgroundExecution])
 
+  // Attachment handlers
+  const handleAddAttachment = useCallback((attachment: TaskAttachment) => {
+    setAttachments((prev) => [...prev, attachment])
+  }, [])
+
+  const handleRemoveAttachment = useCallback((attachmentId: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== attachmentId))
+  }, [])
+
+  // Handle paste in goal textarea (image paste support)
+  // Uploads pasted images to persistent blob storage so URLs survive page refresh.
+  const handleGoalPaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = e.clipboardData?.files
+    if (!files || files.length === 0) return
+
+    // Check if any pasted items are files (images)
+    const imageFiles = Array.from(files).filter((f) => f.type.startsWith('image/'))
+    if (imageFiles.length === 0) return
+
+    e.preventDefault() // Prevent pasting file name as text
+
+    // Auto-expand context section to show pasted images
+    setContextOpen(true)
+
+    // Client-side size limit: 10MB per file to prevent slow uploads and backend quota issues
+    const MAX_IMAGE_SIZE = 10 * 1024 * 1024 // 10MB
+
+    // Upload each image to persistent blob storage, tracking pending count
+    for (const file of imageFiles) {
+      // Check file size before attempting upload
+      if (file.size > MAX_IMAGE_SIZE) {
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(1)
+        useToastStore.getState().add({
+          type: 'error',
+          title: 'Image too large',
+          description: `${file.name || 'Image'} is ${sizeMB}MB (max 10MB)`,
+        })
+        continue // Skip this file but process others
+      }
+
+      setPendingUploads((prev) => prev + 1)
+      const reader = new FileReader()
+      const filename = file.name || `pasted-image-${crypto.randomUUID()}.png`
+      reader.onload = async () => {
+        try {
+          const base64 = (reader.result as string).split(',')[1]
+          const blobId = await dataClient.uploadBlob(
+            base64,
+            file.type || 'image/png',
+            file.size,
+            filename,
+          )
+          const persistentUrl = dataClient.getBlobUrl(blobId)
+          const attachment: TaskAttachment = {
+            id: blobId,
+            name: filename,
+            url: persistentUrl,
+            mimeType: file.type || 'image/png',
+            size: file.size,
+            uploadedAt: new Date(),
+            thumbnailUrl: persistentUrl,
+          }
+          setAttachments((prev) => [...prev, attachment])
+        } catch (err) {
+          console.error('[plan-session] Failed to upload pasted image:', err)
+          useToastStore.getState().add({
+            type: 'error',
+            title: 'Upload failed',
+            description: 'Could not upload pasted image. Check your connection.',
+          })
+        } finally {
+          setPendingUploads((prev) => Math.max(0, prev - 1))
+        }
+      }
+      // Handle FileReader errors (e.g., file access denied, read failure)
+      reader.onerror = () => {
+        console.error('[plan-session] FileReader error for:', filename)
+        setPendingUploads((prev) => Math.max(0, prev - 1))
+        useToastStore.getState().add({
+          type: 'error',
+          title: 'Read failed',
+          description: `Could not read file: ${filename}`,
+        })
+      }
+      reader.readAsDataURL(file)
+    }
+  }, [])
+
   const customModelMap = useSettingsStore((s) => s.customModelMap)
 
+  // Whether we're re-generating for an existing project (pre-fill mode)
+  const isRegeneration = !!(existingProject && existingProjectHasNoNodes && !fromPlaygroundId)
+
+  // Handle template launch - starts plan generation SSE for the created project
+  const handleTemplateLaunch = useCallback(async (result: LaunchTemplateResult) => {
+    setTemplateLaunching(true)
+    setTemplatePickerOpen(false)
+
+    try {
+      const { project, planGenerationRequest } = result
+
+      // Add the created project to the store (it's already in DB, but not in local state)
+      useProjectStore.getState().addProject({
+        id: project.id,
+        name: project.name,
+        description: project.description as string || "",
+        visionDoc: planGenerationRequest.visionDoc || "",
+        status: "active",
+        projectType: "plan",
+        workingDirectory: planGenerationRequest.workingDirectory || undefined,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+
+      // Start plan generation SSE using the existing project
+      await startPlanSessionForProject(
+        project.id,
+        planGenerationRequest.description,
+        {
+          targetMachineId: planGenerationRequest.targetMachineId,
+          workingDirectory: planGenerationRequest.workingDirectory,
+          model: planGenerationRequest.model,
+          visionDoc: planGenerationRequest.visionDoc,
+        }
+      )
+
+      // Navigate to the chat phase
+      setActiveProjectId(project.id)
+      setSearchParams({ projectId: project.id })
+
+      useToastStore.getState().add({
+        type: "success",
+        title: "Project created from template",
+        description: `Starting plan generation for "${project.name}"...`,
+      })
+    } catch (error) {
+      console.error("[plan-session] Failed to start plan from template:", error)
+      useToastStore.getState().add({
+        type: "error",
+        title: "Template launch failed",
+        description: error instanceof Error ? error.message : "Failed to start plan generation",
+      })
+    } finally {
+      setTemplateLaunching(false)
+    }
+  }, [startPlanSessionForProject, setSearchParams])
+
   async function handleSubmit() {
-    if (!description.trim() || isSubmitting) return
+    if (!description.trim() || isSubmitting || pendingUploads > 0) return
     setIsSubmitting(true)
 
     try {
       const effectiveModel = selectedModel || resolveModel(modelTier, selectedProvider || undefined, customModelMap)
       // Use first line of description as project name (truncated)
       const firstLine = description.trim().split('\n')[0].slice(0, 80)
-      const { projectId } = await startPlanSession(
-        description.trim(),
-        firstLine,
-        {
-          targetMachineId: selectedMachine?.machineId,
-          workingDirectory: workingDir || undefined,
-          preferredProvider: selectedProvider || undefined,
-          model: effectiveModel,
-          visionDoc: playgroundVisionDoc,
-          baseBranch: effectiveBranch || undefined,
+
+      // Combine user-provided vision doc with playground context and attachment refs
+      const attachmentSection = attachments.length > 0
+        ? `## Attached Files\n${attachments.map((a) => `- [${a.name}](${a.url}) (${a.mimeType})`).join('\n')}`
+        : ''
+      const combinedVisionDoc = [playgroundVisionDoc, visionDoc.trim(), attachmentSection]
+        .filter(Boolean)
+        .join('\n\n') || undefined
+
+      let projectId: string
+
+      if (isRegeneration && existingProject) {
+        // Re-generation flow: use existing project, don't create a duplicate
+        // Await backend update before starting session to avoid stale context
+        const regenUpdates = {
+          description: description.trim(),
+          name: firstLine,
         }
-      )
+        updateProject(existingProject.id, regenUpdates) // optimistic local
+        await dataClient.updateProject(existingProject.id, regenUpdates) // await backend
+
+        const result = await startPlanSessionForProject(
+          existingProject.id,
+          description.trim(),
+          {
+            targetMachineId: selectedMachine?.machineId,
+            workingDirectory: workingDir || undefined,
+            preferredProvider: selectedProvider || undefined,
+            model: effectiveModel,
+            visionDoc: combinedVisionDoc,
+            baseBranch: effectiveBranch || undefined,
+          }
+        )
+        projectId = result.projectId
+      } else {
+        // Normal flow: create a new project + plan session
+        const result = await startPlanSession(
+          description.trim(),
+          firstLine,
+          {
+            targetMachineId: selectedMachine?.machineId,
+            workingDirectory: workingDir || undefined,
+            preferredProvider: selectedProvider || undefined,
+            model: effectiveModel,
+            visionDoc: combinedVisionDoc,
+            baseBranch: effectiveBranch || undefined,
+          }
+        )
+        projectId = result.projectId
+      }
 
       setActiveProjectId(projectId)
       setSearchParams({ projectId })
@@ -274,7 +567,10 @@ export function ProjectNewPlan() {
   }
 
   // ─── Chat Phase ─────────────────────────────────────────────────
-  if (activeProjectId && (execution || project)) {
+  // Skip chat phase for existing projects with no plan nodes and no execution (re-generation pre-fill).
+  // Once the user submits, execution becomes truthy and we enter chat phase normally.
+  const showInputForRegeneration = existingProjectHasNoNodes && !execution && !fromPlaygroundId
+  if (activeProjectId && (execution || project) && !showInputForRegeneration) {
     return (
       <div className="h-full">
         <PlanChatPhase
@@ -286,6 +582,13 @@ export function ProjectNewPlan() {
             backingRef.current = true
             setActiveProjectId(null)
             setSearchParams({})
+            resetForm()
+          }}
+          onNewPlan={() => {
+            backingRef.current = true
+            setActiveProjectId(null)
+            setSearchParams({})
+            resetForm()
           }}
         />
       </div>
@@ -297,9 +600,13 @@ export function ProjectNewPlan() {
     <div className="flex flex-col items-center justify-start min-h-full p-4 md:p-6 overflow-auto">
       <div className="w-full max-w-2xl">
         <div className="text-center mb-8 mt-4 md:mt-8">
-          <h1 className="text-xl md:text-2xl font-bold font-sans mb-2">Plan</h1>
+          <h1 className="text-xl md:text-2xl font-bold font-sans mb-2">
+            {isRegeneration ? "Regenerate Plan" : "Plan"}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Describe your goal in detail. Agent will build a plan with you collaboratively.
+            {isRegeneration
+              ? "Review and update your goal, then generate a fresh plan."
+              : "Describe your goal in detail. Agent will build a plan with you collaboratively."}
           </p>
         </div>
 
@@ -343,27 +650,43 @@ export function ProjectNewPlan() {
                   handleSubmit()
                 }
               }}
+              onPaste={handleGoalPaste}
               placeholder="What do you want to build or accomplish?"
               rows={5}
               autoFocus
               className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
             />
 
-            {/* OR divider + resume button */}
+            {/* OR divider + options */}
             <div className="px-4 pb-3">
               <div className="flex items-center gap-3 mb-2.5">
                 <div className="flex-1 h-px bg-border" />
                 <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">or</span>
                 <div className="flex-1 h-px bg-border" />
               </div>
-              <button
-                type="button"
-                onClick={() => setSessionPickerOpen(true)}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
-              >
-                <Layers className="h-3.5 w-3.5" />
-                Resume a previous session
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTemplatePickerOpen(true)}
+                  disabled={templateLaunching}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {templateLaunching ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <LayoutTemplate className="h-3.5 w-3.5" />
+                  )}
+                  {templateLaunching ? "Starting..." : "Start from Template"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSessionPickerOpen(true)}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                >
+                  <Layers className="h-3.5 w-3.5" />
+                  Resume Session
+                </button>
+              </div>
             </div>
           </div>
 
@@ -474,6 +797,76 @@ export function ProjectNewPlan() {
             </div>
           )}
 
+
+          {/* Add Context — collapsible section */}
+          <div className="flex flex-col">
+            <button
+              type="button"
+              onClick={() => setContextOpen(!contextOpen)}
+              className="flex items-center gap-1.5 text-left py-1.5 rounded transition-colors cursor-pointer group hover:bg-muted/30 -mx-1 px-1"
+            >
+              {contextOpen ? (
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              )}
+              <span className="text-xs text-muted-foreground font-medium">
+                Add Context
+              </span>
+              {(visionDoc.trim() || attachments.length > 0) && (
+                <span className="flex items-center gap-1 text-[10px] text-primary">
+                  {visionDoc.trim() && (
+                    <Badge variant="outline" className="text-[10px] py-0 px-1.5 h-4">
+                      <FileText className="h-2.5 w-2.5 mr-0.5" />
+                      Vision
+                    </Badge>
+                  )}
+                  {attachments.length > 0 && (
+                    <Badge variant="outline" className="text-[10px] py-0 px-1.5 h-4">
+                      <Paperclip className="h-2.5 w-2.5 mr-0.5" />
+                      {attachments.length}
+                    </Badge>
+                  )}
+                </span>
+              )}
+            </button>
+
+            {contextOpen && (
+              <div className="flex flex-col gap-4 mt-2 animate-reveal">
+                {/* Vision / Design Document */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <FileText className="h-3 w-3" />
+                    Vision / Design Document
+                  </label>
+                  <textarea
+                    value={visionDoc}
+                    onChange={(e) => setVisionDoc(e.target.value)}
+                    placeholder="Define the product vision, research question, or project context here. This will be provided to all agents working on this project as persistent context (skill.md)..."
+                    rows={6}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-y min-h-[100px]"
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    Markdown supported. Injected into every agent session as context.
+                  </p>
+                </div>
+
+                {/* Attachments */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Paperclip className="h-3 w-3" />
+                    Attachments
+                  </label>
+                  <AttachmentList
+                    attachments={attachments}
+                    onAdd={handleAddAttachment}
+                    onRemove={handleRemoveAttachment}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Submit button */}
           <div className="flex items-center justify-end gap-3">
             <p className="text-[10px] text-muted-foreground">
@@ -481,15 +874,17 @@ export function ProjectNewPlan() {
             </p>
             <Button
               onClick={handleSubmit}
-              disabled={!description.trim() || isSubmitting}
+              disabled={!description.trim() || isSubmitting || pendingUploads > 0}
               className="gap-2"
             >
               {isSubmitting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
+              ) : pendingUploads > 0 ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Sparkles className="h-4 w-4" />
               )}
-              {isSubmitting ? "Starting..." : "Start Planning"}
+              {isSubmitting ? "Starting..." : pendingUploads > 0 ? "Uploading images..." : isRegeneration ? "Regenerate Plan" : "Start Planning"}
             </Button>
           </div>
         </div>
@@ -598,6 +993,13 @@ export function ProjectNewPlan() {
           }}
           planSessions={planHistory}
           onSelectPlanSession={viewSession}
+        />
+
+        {/* Template picker dialog */}
+        <TemplatePickerDialog
+          open={templatePickerOpen}
+          onOpenChange={setTemplatePickerOpen}
+          onLaunchSuccess={handleTemplateLaunch}
         />
       </div>
     </div>

@@ -8,6 +8,7 @@
 
 import type { TaskActivityEvent } from '@/types'
 import type { StreamingEventRow } from '@/lib/api-client'
+import type { PlanJsonResult } from '@astro/core'
 
 export interface PendingApproval {
   executionId: string
@@ -15,6 +16,16 @@ export interface PendingApproval {
   question: string
   options: string[]
   machineId?: string
+  timestamp: Date
+}
+
+export interface PendingSafetyPrompt {
+  executionId: string
+  taskId: string
+  safetyTier: string
+  warning?: string
+  machineId?: string
+  options: Array<{ id: string; label: string; description?: string }>
   timestamp: Date
 }
 
@@ -39,7 +50,10 @@ export interface HydratedStreamData {
   }>
   // Pending approval requests (not yet answered)
   pendingApprovals: PendingApproval[]
-  // Metadata from session_init and result events
+  // Pending safety prompts (not yet responded to)
+  pendingSafetyPrompts: PendingSafetyPrompt[]
+  // Metadata from init, session_init and result events
+  machineId?: string
   status?: string
   output?: string
   error?: string
@@ -52,6 +66,7 @@ export interface HydratedStreamData {
   prNumber?: number
   deliveryStatus?: string
   summary?: string
+  planResult?: PlanJsonResult
 }
 
 let idCounter = 0
@@ -63,7 +78,11 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
   // Track approval requests and which have been answered
   const approvalRequests = new Map<string, PendingApproval>()
   const answeredApprovals = new Set<string>()
+  // Track safety prompts and which have been responded to
+  const safetyPromptRequests = new Map<string, PendingSafetyPrompt>()
+  const answeredSafetyPrompts = new Set<string>()
   let stdout = ''
+  let machineId: string | undefined
   let status: string | undefined
   let output: string | undefined
   let error: string | undefined
@@ -76,6 +95,7 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
   let prNumber: number | undefined
   let deliveryStatus: string | undefined
   let summary: string | undefined
+  let planResult: HydratedStreamData['planResult']
   // Map toolName → queue of unpaired tool_use IDs for matching with tool_result
   const unpairedToolUseIds = new Map<string, string[]>()
 
@@ -84,6 +104,10 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
     const timestamp = new Date(event.createdAt)
 
     switch (event.eventType) {
+      case 'init': {
+        machineId = (data.machineId as string) || undefined
+        break
+      }
       case 'text': {
         const text = (data.text as string) || ''
         stdout += text
@@ -164,6 +188,20 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
         progressMessage = (data.message as string) || undefined
         break
       }
+      case 'plan_result': {
+        // Keep first successful extraction — Haiku retry may produce a truncated result
+        if (!planResult) {
+          const nodes = data.nodes as Record<string, unknown>[] | undefined
+          if (nodes && Array.isArray(nodes)) {
+            planResult = {
+              projectName: (data.projectName as string) || undefined,
+              nodes,
+              edges: (data.edges as Record<string, unknown>[]) || [],
+            }
+          }
+        }
+        break
+      }
       case 'result': {
         status = (data.status as string) || undefined
         output = (data.output as string) || undefined
@@ -216,6 +254,33 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
         })
         break
       }
+      case 'error': {
+        error = (data.error as string) || 'Unknown error'
+        status = 'error'
+        activityEvents.push({
+          type: 'error' as const,
+          error,
+          timestamp,
+        })
+        break
+      }
+      case 'safety_prompt': {
+        // Key by executionId (one safety prompt per task at a time)
+        safetyPromptRequests.set(event.executionId, {
+          executionId: event.executionId,
+          taskId: event.executionId,
+          safetyTier: (data.safetyTier as string) || '',
+          warning: (data.warning as string) || undefined,
+          machineId: (data.machineId as string) || undefined,
+          options: (data.options as Array<{ id: string; label: string; description?: string }>) || [],
+          timestamp,
+        })
+        break
+      }
+      case 'safety_response': {
+        answeredSafetyPrompts.add(event.executionId)
+        break
+      }
     }
   }
 
@@ -223,5 +288,9 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
   const pendingApprovals = Array.from(approvalRequests.values())
     .filter(a => !answeredApprovals.has(a.requestId))
 
-  return { stdout, activityEvents, toolTraces, fileChanges, pendingApprovals, status, output, error, sessionId, model, progress, progressMessage, branchName, prUrl, prNumber, deliveryStatus, summary }
+  // Only include safety prompts that haven't been responded to
+  const pendingSafetyPrompts = Array.from(safetyPromptRequests.values())
+    .filter(s => !answeredSafetyPrompts.has(s.executionId))
+
+  return { stdout, activityEvents, toolTraces, fileChanges, pendingApprovals, pendingSafetyPrompts, machineId, status, output, error, sessionId, model, progress, progressMessage, branchName, prUrl, prNumber, deliveryStatus, summary, planResult }
 }

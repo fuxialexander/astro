@@ -71,6 +71,34 @@
       "when": 1772461172220,
       "tag": "0009_silly_leech",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1772469819695,
+      "tag": "0010_jazzy_wendigo",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1772503917952,
+      "tag": "0011_dusty_snowbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1772504776604,
+      "tag": "0012_marvelous_ultron",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1772596803415,
+      "tag": "0013_clear_shadowcat",
+      "breakpoints": true
     }
   ]
 }

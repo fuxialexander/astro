@@ -4,7 +4,7 @@
  * Shows project name, status badge, abort button, and optional machine/directory info.
  */
 
-import { Loader2, X, Laptop, CheckCircle2, AlertCircle, XCircle, ChevronLeft } from "lucide-react"
+import { Loader2, X, Laptop, CheckCircle2, AlertCircle, XCircle, ChevronLeft, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -17,6 +17,7 @@ interface PlanSessionHeaderProps {
   workingDirectory?: string
   onAbort: () => void
   onBack?: () => void
+  onNewPlan?: () => void
 }
 
 export function PlanSessionHeader({
@@ -26,6 +27,7 @@ export function PlanSessionHeader({
   workingDirectory,
   onAbort,
   onBack,
+  onNewPlan,
 }: PlanSessionHeaderProps) {
   const statusConfig: Record<PlanSessionStatus, { label: string; color: string; icon: React.ReactNode }> = {
     planning: {
@@ -87,6 +89,18 @@ export function PlanSessionHeader({
           )}
         </div>
       </div>
+
+      {onNewPlan && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onNewPlan}
+          className="text-muted-foreground hover:text-foreground shrink-0"
+        >
+          <Plus className="h-3.5 w-3.5 mr-1" />
+          New Plan
+        </Button>
+      )}
 
       {(status === 'planning' || status === 'waiting') && (
         <Button

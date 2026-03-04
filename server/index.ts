@@ -23,6 +23,7 @@ import githubRoute from './routes/github.js'
 import { wellKnownRoute } from './routes/well-known.js'
 import systemRoute from './routes/system.js'
 import { skillsRoute } from './routes/skills.js'
+import { templatesRoute } from './routes/templates.js'
 import { shareRoute } from './routes/share.js'
 import { connectedAccountsRoute } from './routes/connected-accounts.js'
 import { teamsRoute } from './routes/teams.js'
@@ -168,6 +169,7 @@ export function createApp() {
   app.route('/api/data', dataRoute)
   app.route('/api/system', systemRoute)
   app.route('/api/skills', skillsRoute)
+  app.route('/api/templates', templatesRoute)
   app.route('/api/observations', observationsRoute)
   app.route('/api/teams', teamsRoute)
 
@@ -253,6 +255,30 @@ async function start() {
     } catch (err) {
       console.error('[bootstrap] Local-mode bootstrap failed:', err)
     }
+  }
+
+  // Seed built-in skills from skills/ directory (runs in all modes)
+  let skillsBootstrapOk = false
+  try {
+    const { loadBuiltinSkillsFromDisk } = await import('./lib/load-builtin-skills.js')
+    const { bootstrapBuiltinSkills } = await import('./lib/db/bootstrap-skills.js')
+    const builtinSkills = loadBuiltinSkillsFromDisk()
+    await bootstrapBuiltinSkills(builtinSkills)
+    skillsBootstrapOk = true
+  } catch (err) {
+    console.error('[bootstrap] ⚠️  Built-in skills bootstrap FAILED — skills may be missing or outdated:', err)
+  }
+
+  // Load DB skills into in-memory skill-manager for prompt injection
+  try {
+    const { syncSkillsFromDb } = await import('./lib/db/bootstrap-skills.js')
+    const { skillManager } = await import('./lib/skill-manager.js')
+    await syncSkillsFromDb(skillManager)
+    if (!skillsBootstrapOk) {
+      console.warn('[bootstrap] ⚠️  Skills loaded from DB but bootstrap failed — some builtins may be stale')
+    }
+  } catch (err) {
+    console.error('[bootstrap] ⚠️  Skill-manager sync FAILED — prompt injection will return empty skills:', err)
   }
 
   console.log('[backend] initializing server (relay-only mode)...')

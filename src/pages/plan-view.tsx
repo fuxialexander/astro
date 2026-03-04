@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, FileText } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { ReplanDialog } from "@/components/replan-dialog"
@@ -24,6 +24,7 @@ import { ColorIconBadge } from "@/components/color-icon-picker"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { validateProjectName } from "@/lib/project-validation"
 import { OverviewTab } from "@/pages/project-overview"
+import { UseTemplateSheet } from "@/components/templates/use-template-sheet"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -31,6 +32,7 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore, type DisplaySettings, type ViewKey } from "@/stores/display-settings-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useExecutionStore, getProjectWorkingDir } from "@/stores/execution-store"
+import { useContentSaveStore } from "@/stores/content-save-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useUIStore } from "@/stores/ui-store"
@@ -739,6 +741,7 @@ function InlineListCreationRow({
 
 // --- Inline Empty State for List View ---
 function ListEmptyState({ projectId, columns }: { projectId: string; columns: ListColumn<PlanNode>[] }) {
+  const navigate = useNavigate()
   const displaySettings = useDisplaySettingsStore((s) => s.get("plan-list"))
 
   // Filter visible columns (but always show name for creation)
@@ -750,6 +753,18 @@ function ListEmptyState({ projectId, columns }: { projectId: string; columns: Li
 
   return (
     <div className="flex flex-col h-full">
+      {/* Generate with AI button */}
+      <div className="px-6 py-4">
+        <button
+          type="button"
+          onClick={() => navigate(`/plan?projectId=${projectId}`)}
+          className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 text-sm font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+        >
+          <Sparkles className="h-4 w-4" />
+          Generate with AI
+        </button>
+      </div>
+
       {/* Header row */}
       <div className="flex items-center gap-3 border-b border-border px-6 py-2 bg-muted/30">
         {visibleColumns.map((col) => (
@@ -801,6 +816,7 @@ export function PlanListView({
   const projects = useProjectStore((s) => s.projects)
   const displaySettings = useDisplaySettingsStore((s) => s.get(displayViewKey))
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
+  const flushPendingSaves = useContentSaveStore((s) => s.flushPendingSaves)
   const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
   const [labelManagerOpen, setLabelManagerOpen] = useState(false)
 
@@ -830,6 +846,20 @@ export function PlanListView({
       })
       return
     }
+
+    // Flush any pending content saves before execution
+    try {
+      await flushPendingSaves([node.id])
+    } catch (error) {
+      console.error('Failed to save task content before execution:', error)
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Failed to save changes',
+        description: 'Could not save task content before execution. Please try again.',
+      })
+      return
+    }
+
     const { startExecution } = useExecutionStore.getState()
     await startExecution(node.id, node.projectId)
     addActivity({
@@ -837,7 +867,7 @@ export function PlanListView({
       type: "task.started",
       title: `Executing task: ${node.title}`,
     })
-  }, [project, addActivity])
+  }, [project, addActivity, flushPendingSaves])
 
   const planBatchActions: BatchAction[] = useMemo(() => [
     {
@@ -864,6 +894,23 @@ export function PlanListView({
           })
           return
         }
+
+        // Flush pending saves for all selected tasks before execution
+        try {
+          await flushPendingSaves(ids)
+        } catch (error) {
+          console.error('Failed to save task content before execution:', error)
+          const description = error instanceof Error
+            ? error.message
+            : 'Could not save task content before execution. Please try again.'
+          useToastStore.getState().add({
+            type: 'error',
+            title: 'Failed to save changes',
+            description,
+          })
+          return
+        }
+
         const { startExecution } = useExecutionStore.getState()
         // Execute all selected tasks in parallel
         const executions = ids.map((id) => {
@@ -924,7 +971,7 @@ export function PlanListView({
         }
       },
     },
-  ], [removeNodes, planNodes, addActivity, projectId])
+  ], [removeNodes, planNodes, addActivity, projectId, flushPendingSaves, project])
 
   const allProjectNodes = useMemo(() => {
     // If nodes provided (cross-project mode), use those
@@ -1420,6 +1467,7 @@ export function PlanView() {
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
   const [visionOpen, setVisionOpen] = useState(false)
   const [replanOpen, setReplanOpen] = useState(false)
+  const [useTemplateOpen, setUseTemplateOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
   const chatPanelPosition = useUIStore((s) => s.chatPanelPosition)
   const isRightChat = chatPanelPosition === "right"
@@ -1593,9 +1641,18 @@ export function PlanView() {
 
         <div className="flex-1 min-w-0" />
 
-        {/* View mode toggle - right-aligned, only visible when Plan is active */}
+        {/* View mode toggle + Use Template - right-aligned, only visible when Plan is active */}
         {activeTab === "plan" && (
           <div className="hidden md:flex items-center gap-2 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setUseTemplateOpen(true)}
+              className="text-xs"
+            >
+              <FileText className="h-3.5 w-3.5 mr-1.5" />
+              Use Template
+            </Button>
             <DisplayPopover config={{
               ...(viewMode === "list" ? planListDisplayConfig
                 : viewMode === "timeline" ? planTimelineDisplayConfig
@@ -1739,6 +1796,13 @@ export function PlanView() {
 
       {/* Replan Dialog */}
       <ReplanDialog open={replanOpen} onOpenChange={setReplanOpen} project={project} />
+
+      {/* Use Template Sheet */}
+      <UseTemplateSheet
+        open={useTemplateOpen}
+        onOpenChange={setUseTemplateOpen}
+        projectId={project.id}
+      />
     </div>
   )
 }

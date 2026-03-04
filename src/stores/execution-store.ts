@@ -14,9 +14,25 @@ import { apiUrl } from "@/lib/api-url"
 import { useTaskChatStore } from "./task-chat-store"
 import { useSessionStore } from "./session-store"
 import { resolveWorkingDirectory, buildDependencyOutputs } from "@astro/core/dispatch"
-import { applyPlanFromText } from "@/lib/plan-extraction"
+import { applyPlanFromText, planNodeIdToProjectId } from "@/lib/plan-extraction"
 import { getSigningPrivateKey, signDispatchIntent, generateNonce, type DispatchSigningPayload } from "@/lib/dispatch-signing"
 import { useAuthStore } from "./auth-store"
+
+// ─── Page Unload Detection ────────────────────────────────────────────
+// `document.visibilityState` is unreliable during page refresh — it may
+// still be 'visible' when the fetch connection is dropped, causing the
+// SSE error handler to falsely mark running tasks as failed.
+// `beforeunload` fires deterministically BEFORE fetch connections die,
+// so this flag is always set in time.
+let isPageUnloading = false
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => { isPageUnloading = true })
+}
+
+/** True if the page is unloading or the tab is hidden — SSE errors in this state are not real failures. */
+function isPageUnloadingOrHidden(): boolean {
+  return isPageUnloading || (typeof document !== 'undefined' && document.visibilityState === 'hidden')
+}
 
 // Helper: Create auth headers for API requests
 async function getAuthHeaders(): Promise<HeadersInit> {
@@ -58,6 +74,27 @@ export function getProjectMachineLock(project: Project | undefined): {
   }
 
   return {}
+}
+
+// Dispatch field length limits — must match server-side Zod schema in dispatch.ts
+const MAX_DESCRIPTION_LENGTH = 200_000
+const MAX_VISIONDOC_LENGTH = 100_000
+
+/**
+ * Truncate a dispatch field if it exceeds the max length.
+ * Shows a warning toast so the user knows content was trimmed.
+ */
+function truncateDispatchField(value: string, maxLength: number, fieldLabel: string): string {
+  if (value.length <= maxLength) return value
+  const truncated = value.slice(0, maxLength)
+  const droppedChars = value.length - maxLength
+  useToastStore.getState().add({
+    type: "warning",
+    title: `${fieldLabel} truncated`,
+    description: `Input was ${value.length.toLocaleString()} characters — trimmed to ${maxLength.toLocaleString()} (${droppedChars.toLocaleString()} characters dropped). Consider splitting into smaller tasks.`,
+    duration: 10000,
+  })
+  return truncated
 }
 
 // Helper: Sign a dispatch intent if user has a signing key
@@ -220,6 +257,9 @@ interface ExecutionState {
       visionDoc?: string
       repository?: string
       baseBranch?: string
+      githubOwner?: string
+      githubRepo?: string
+      githubRepoId?: number
     }
   ) => Promise<{ projectId: string; nodeId: string }>
   cancelPlanSession: (projectId: string) => Promise<void>
@@ -408,6 +448,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       // Use the dispatch/task endpoint
       const headers = await getAuthHeaders()
       const signing = await buildDispatchSignature(nodeId, projectId, effectiveTargetMachineId)
+      const rawDescription = node.content ? stripHtml(node.content) : (node.description || node.title)
       const response = await fetch(apiUrl("/api/dispatch/task"), {
         method: "POST",
         headers,
@@ -415,10 +456,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           nodeId,
           projectId,
           title: node.title,
-          description: node.content ? stripHtml(node.content) : (node.description || node.title),
+          description: truncateDispatchField(rawDescription, MAX_DESCRIPTION_LENGTH, "Task description"),
           dependencies: node.dependencies,
           verification: node.verification,
-          visionDoc: project?.visionDoc,
+          visionDoc: project?.visionDoc ? truncateDispatchField(project.visionDoc, MAX_VISIONDOC_LENGTH, "Vision doc") : undefined,
           dependencyOutputs,
           preferredProvider: options?.preferredProvider,
           targetMachineId: effectiveTargetMachineId,
@@ -427,12 +468,12 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           workingDirectory: resolvedDir,
           computeBackend: options?.computeBackend,
           deliveryMode: project?.deliveryMode || undefined,
-          remoteType: project?.source?.remoteType,
-          agentDir: project?.agentDir,
-          worktreeStrategy: project?.worktreeStrategy,
+          remoteType: project?.source?.remoteType || undefined,
+          agentDir: project?.agentDir || undefined,
+          worktreeStrategy: project?.worktreeStrategy || undefined,
           useWorktree: options?.useWorktree,
           imageRefs: node.content ? extractBlobUrls(node.content) : undefined,
-          acceptanceCriteria: node.acceptanceCriteria,
+          acceptanceCriteria: node.acceptanceCriteria || undefined,
           ...signing,
         }),
         signal: abortController.signal,
@@ -440,7 +481,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
       if (!response.ok) {
         const errorBody = await response.json().catch(() => null)
-        const detail = errorBody?.error || errorBody?.details?.[0]?.message || ''
+        const zodDetail = errorBody?.details?.[0]?.message
+        const detail = zodDetail ? `${errorBody?.error}: ${zodDetail}` : (errorBody?.error || '')
         throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
       }
 
@@ -460,8 +502,11 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         planStore.updateNode(nodeId, { status: "planned" })
       } else {
         // Don't mark as failure if the page is unloading (refresh/navigate away)
-        // — the task is still running server-side, catch-up will reconcile on reload
-        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        // — the task is still running server-side, catch-up will reconcile on reload.
+        // Check `isPageUnloading` first: `beforeunload` fires before fetch connections
+        // are dropped, so this flag is reliable. `visibilityState` is a fallback but
+        // can still be 'visible' when the fetch errors out during refresh.
+        if (isPageUnloadingOrHidden()) {
           console.log('[execution] SSE interrupted by page unload, skipping failure marking')
           return
         }
@@ -975,6 +1020,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       repository: options?.repository,
       defaultMachineId: options?.targetMachineId,
       projectType: 'plan',
+      // Include GitHub metadata in initial project creation (avoids post-create PATCH race)
+      ...(options?.githubOwner ? { githubOwner: options.githubOwner } : {}),
+      ...(options?.githubRepo ? { githubRepo: options.githubRepo } : {}),
+      ...(options?.githubRepoId ? { githubRepoId: options.githubRepoId } : {}),
       ...(options?.baseBranch ? {
         source: {
           localPath: options?.workingDirectory || '',
@@ -1018,6 +1067,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     getAuthHeaders().then(async (headers) => {
       try {
         const signing = await buildDispatchSignature(nodeId, projectId, options?.targetMachineId)
+        const safeDescription = truncateDispatchField(description, MAX_DESCRIPTION_LENGTH, "Plan description")
         const response = await fetch(apiUrl("/api/dispatch/task"), {
           method: "POST",
           headers,
@@ -1025,10 +1075,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             nodeId,
             projectId,
             title: `Interactive planning: ${projectName || description.slice(0, 50)}`,
-            description,
+            description: safeDescription,
             dependencies: [],
             verification: "human",
-            visionDoc: options?.visionDoc,
+            visionDoc: options?.visionDoc ? truncateDispatchField(options.visionDoc, MAX_VISIONDOC_LENGTH, "Vision doc") : undefined,
             targetMachineId: options?.targetMachineId,
             model: options?.model,
             preferredProvider: options?.preferredProvider,
@@ -1041,7 +1091,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
         if (!response.ok) {
           const errorBody = await response.json().catch(() => null)
-          const detail = errorBody?.error || ""
+          const zodDetail = errorBody?.details?.[0]?.message
+          const detail = zodDetail ? `${errorBody?.error}: ${zodDetail}` : (errorBody?.error || "")
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 
@@ -1053,13 +1104,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             try {
               const exec = get().executions.get(nodeId)
               if (exec?.streamText) {
-                if (!exec.executionId) {
-                  console.warn(`[plan-session] Skipping plan extraction — executionId missing for node ${nodeId}`)
-                } else {
-                  const result = applyPlanFromText(projectId, exec.streamText, exec.executionId)
-                  if (result.applied) {
-                    console.log(`[plan-session] Plan extracted: ${result.nodeCount} nodes`)
-                  }
+                const result = applyPlanFromText(projectId, exec.streamText, exec.executionId || undefined)
+                if (result.applied) {
+                  console.log(`[plan-session] Plan extracted: ${result.nodeCount} nodes`)
                 }
               }
             } catch (e) {
@@ -1082,7 +1129,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         } else {
           // Don't mark as failure if the page is unloading (refresh/navigate away)
           // — the task is still running server-side, catch-up will reconcile on reload
-          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+          if (isPageUnloadingOrHidden()) {
             console.log('[plan-session] SSE interrupted by page unload, skipping failure marking')
             return
           }
@@ -1244,6 +1291,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     getAuthHeaders().then(async (headers) => {
       try {
         const signing = await buildDispatchSignature(nodeId, projectId, options?.targetMachineId)
+        const safeDescription = truncateDispatchField(description, MAX_DESCRIPTION_LENGTH, "Plan description")
         const response = await fetch(apiUrl("/api/dispatch/task"), {
           method: "POST",
           headers,
@@ -1251,14 +1299,14 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             nodeId,
             projectId,
             title: `Interactive planning: ${description.slice(0, 50)}`,
-            description,
+            description: safeDescription,
             dependencies: [],
             verification: "human",
-            visionDoc: options?.visionDoc,
+            visionDoc: options?.visionDoc ? truncateDispatchField(options.visionDoc, MAX_VISIONDOC_LENGTH, "Vision doc") : undefined,
             targetMachineId: options?.targetMachineId,
             model: options?.model,
             preferredProvider: options?.preferredProvider,
-            workingDirectory: options?.workingDirectory || project.workingDirectory,
+            workingDirectory: options?.workingDirectory || project.workingDirectory || undefined,
             isInteractivePlan: true,
             ...signing,
           }),
@@ -1267,7 +1315,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
         if (!response.ok) {
           const errorBody = await response.json().catch(() => null)
-          const detail = errorBody?.error || ""
+          const zodDetail = errorBody?.details?.[0]?.message
+          const detail = zodDetail ? `${errorBody?.error}: ${zodDetail}` : (errorBody?.error || "")
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 
@@ -1305,7 +1354,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           })
         } else {
           // Don't mark as failure if the page is unloading (refresh/navigate away)
-          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+          if (isPageUnloadingOrHidden()) {
             console.log('[plan-session-forProject] SSE interrupted by page unload, skipping failure marking')
             return
           }
@@ -1508,6 +1557,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     getAuthHeaders().then(async (headers) => {
       try {
         const signing = await buildDispatchSignature(nodeId, projectId, options.targetMachineId)
+        const safeDescription = truncateDispatchField(description, MAX_DESCRIPTION_LENGTH, "Playground description")
         const response = await fetch(apiUrl("/api/dispatch/task"), {
           method: "POST",
           headers,
@@ -1515,7 +1565,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             nodeId,
             projectId,
             title: `Playground: ${description.slice(0, 80)}`,
-            description,
+            description: safeDescription,
             dependencies: [],
             verification: "human",
             targetMachineId: options.targetMachineId,
@@ -1535,7 +1585,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
         if (!response.ok) {
           const errorBody = await response.json().catch(() => null)
-          const detail = errorBody?.error || ""
+          const zodDetail = errorBody?.details?.[0]?.message
+          const detail = zodDetail ? `${errorBody?.error}: ${zodDetail}` : (errorBody?.error || "")
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 
@@ -1553,6 +1604,12 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             return { executions: newExecutions }
           })
         } else {
+          // Don't mark as failure if the page is unloading (refresh/navigate away)
+          // — the task is still running server-side, catch-up will reconcile on reload
+          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+            console.log('[playground] SSE interrupted by page unload, skipping failure marking')
+            return
+          }
           const message = error instanceof Error ? error.message : "Unknown error"
           set((state) => {
             const newExecutions = new Map(state.executions)
@@ -1731,7 +1788,15 @@ function processCatchUpEvents(
 ) {
   for (const row of events) {
     try {
-      const data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+      // Text events are stored as { text: "..." } in the DB but the SSE handler
+      // expects a plain string. Extract the text field for text events to match
+      // the live SSE format (where data is msg.text, a plain string).
+      let data: string
+      if (row.eventType === 'text' && typeof row.data === 'object' && row.data !== null && 'text' in row.data) {
+        data = (row.data as { text: string }).text
+      } else {
+        data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+      }
       handleSSEEvent(row.eventType, data, nodeId, set, get, planStore)
       onResult?.(row.eventType, data)
     } catch (err) {
@@ -1867,7 +1932,8 @@ async function processSSEStreamWithReconnect(
     }
 
     // Exponential backoff: 1s, 2s, 4s, 8s, 16s
-    const backoffMs = RECONNECT_BACKOFF_BASE_MS * Math.pow(2, Math.min(retryCount - 1, 4))
+    // Use max(retryCount, 1) - 1 to ensure minimum backoff is 1000ms (not 500ms)
+    const backoffMs = RECONNECT_BACKOFF_BASE_MS * Math.pow(2, Math.min(Math.max(retryCount, 1) - 1, 4))
     await new Promise((resolve) => setTimeout(resolve, backoffMs))
   }
 
@@ -2296,6 +2362,23 @@ function handleSSEEvent(
       } catch {
         // Ignore parse errors
       }
+      break
+    }
+
+    // plan_result is only emitted for interactive planning sessions (nodeId: 'plan-<projectId>')
+    case "plan_result": {
+      try {
+        const parsed = JSON.parse(data)
+        if (parsed.nodes && Array.isArray(parsed.nodes)) {
+          const planProjectId = planNodeIdToProjectId(nodeId)
+          if (planProjectId) {
+            const exec = get().executions.get(nodeId)
+            applyPlanFromText(planProjectId, '', exec?.executionId || undefined, false, parsed)
+          } else {
+            console.warn(`[execution-store] plan_result received for non-plan node ${nodeId} — ignoring`)
+          }
+        }
+      } catch { /* fallback extraction on result event will handle it */ }
       break
     }
 

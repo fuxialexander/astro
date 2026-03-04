@@ -31,7 +31,6 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useMachinesStore } from "@/stores/machines-store"
-import { useAgentStore } from "@/stores/agent-store"
 import { cn } from "@/lib/utils"
 import { deliveryModeLabel, remoteTypeLabel } from "@/lib/project-source"
 import { dataClient } from "@/lib/data-client"
@@ -100,10 +99,6 @@ export function OverviewTab({
   const descriptionEditorRef = useRef<RichTextEditorRef>(null)
   const descriptionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Editor state is now managed by EditorOpenControls component
-
-  // Check if repo setup is in progress for this project
-  const generationSession = useAgentStore((s) => s.sessions.get(project.id))
-  const isRepoSetupInProgress = generationSession?.status === "active" && generationSession?.phase === "repo_setup"
 
   // Calculate real progress based on task completion
   const progress = useMemo(() => {
@@ -438,22 +433,8 @@ export function OverviewTab({
                 )}
               </div>
             )}
-            {/* Show loading state during repo setup */}
-            {!(project.workingDirectory || project.repository) && isRepoSetupInProgress && (
-              <div className="flex items-center gap-3 rounded-lg bg-primary/5 border border-primary/20 p-3 px-4">
-                <Loader2 className="h-[18px] w-[18px] text-primary animate-spin shrink-0" />
-                <div className="flex-1 flex flex-col gap-0.5">
-                  <span className="text-sm font-medium">Setting up working directory...</span>
-                  <span className="text-xs text-muted-foreground">
-                    {project.defaultMachineId
-                      ? `Creating project directory on ${defaultMachine?.name || 'remote machine'}`
-                      : "Creating project directory"}
-                  </span>
-                </div>
-              </div>
-            )}
-            {/* Show repository warning when NOT configured and NOT setting up */}
-            {!(project.workingDirectory || project.repository) && !isRepoSetupInProgress && (
+            {/* Show repository warning when NOT configured */}
+            {!(project.workingDirectory || project.repository) && (
               <div
                 className="flex items-center gap-3 rounded-lg bg-warning/10 border border-warning/20 p-3 px-4 cursor-pointer hover:bg-warning/15 transition-colors"
                 onClick={() => setRepoOpen(true)}

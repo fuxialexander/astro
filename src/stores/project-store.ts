@@ -56,8 +56,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         set({ projects: updated })
       }
     } catch (err) {
+      // Roll back optimistic update
+      set({ projects: get().projects.filter((p) => p.id !== project.id) })
       console.error('[project-store] Failed to sync project to backend:', err)
       useToastStore.getState().add({ type: 'error', title: 'Failed to save project', description: 'Project may be lost on refresh. Check your connection.' })
+      throw err
     }
   },
 

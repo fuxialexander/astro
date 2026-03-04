@@ -439,8 +439,12 @@ The core workflow is identical in both modes — only transport security and per
 **HTTP REST**: CRUD operations, configuration, triggering actions.
 
 **SSE (Server-Sent Events)**: Two patterns:
-1. **Action SSE**: POST to `/api/agent/generate-plan`, `/api/dispatch/task`, etc. returns an SSE stream for that operation.
-2. **Event stream**: GET `/api/events/stream` — persistent SSE connection for real-time events (machine state, task progress, approvals).
+1. **Action SSE**: POST to `/api/agent/generate-plan`, `/api/dispatch/task`, etc. returns an SSE stream for that operation. Parsed via `parseExecutionSSE()` or `parseChatSSE()`.
+2. **Event stream**: GET `/api/events/stream` — persistent SSE connection for real-time events (machine state, task progress, approvals). Subscribes to both `ExecutionEventBus` and relay EventEmitter with deduplication via `activeDispatchStreams`.
+
+**Persistence layer** (transport-agnostic): All structural events persist to `streaming_events` table with monotonic `seq`. Enables reconnect catch-up (`GET /api/events/catch-up`), page-refresh recovery (`hydrateStreamingEvents()`), and merge with live events (`mergeHydratedAndLive()`). See [REFRESH_ROBUSTNESS.md](./REFRESH_ROBUSTNESS.md).
+
+**Future**: WebSocket (`GET /api/ws`) will replace SSE as primary transport. The persistence/catch-up/merge layer carries over unchanged. See [WebSocket Roadmap](../websocket.md).
 
 ### 6.2 Backend ↔ Relay
 
@@ -482,7 +486,21 @@ Agent Runner (via Relay)
 
 All events flow from agent runners through the relay to the `executionEventBus`, a Node.js `EventEmitter` singleton (survives tsx watch reloads via `globalThis`). There is no local provider path — all AI execution produces events via the relay.
 
-**Streaming event types:** `init`, `session_init`, `text`, `tool_use`, `tool_result`, `structured_output`, `file_change`, `progress`, `result`, `error`, `aborted`, `heartbeat`, `done`
+**Streaming event types:** `init`, `session_init`, `text`, `tool_use`, `tool_result`, `structured_output`, `file_change`, `progress`, `result`, `error`, `aborted`, `heartbeat`, `done`, `approval_request`, `approval_response`, `safety_prompt`, `safety_response`, `steer_message`
+
+**Event persistence:** All structural events are appended to the `streaming_events` table (append-only, seq-indexed) before being sent to clients. Text chunks are batched in-memory by `StreamingEventLog` and flushed before each structural event to preserve ordering. This persistence layer is **transport-agnostic** — it works identically whether events are delivered via SSE or WebSocket.
+
+### 7.1 Three-Layer Recovery
+
+Streaming events are persisted to the `streaming_events` table (append-only, seq-indexed) to survive page refreshes, SSE disconnects, and tab switches. The recovery architecture has three layers:
+
+1. **Layer 1 — Live SSE**: `EventSource` → `realtime-store` / `execution-store` (in-memory, lost on refresh)
+2. **Layer 2 — `streaming_events` table**: Append-only DB log. Primary recovery path. Events written *before* SSE send, with the DB `seq` as the SSE event `id`.
+3. **Layer 3 — Observation fallback**: Langfuse trace → `observation-activity-bridge` (legacy data only, when `streaming_events` is empty)
+
+On page refresh, `useRestoredExecution` hydrates from Layer 2 via `/api/events/catch-up` (paginated, `hasMore` loop). On SSE reconnect, `RealtimeClient` uses exponential backoff (3s→60s cap, visibility-aware) and triggers catch-up hydration via `lastSeq` watermark. `mergeHydratedAndLive()` does timestamp-based merge of DB history with any live events that arrived before hydration completed.
+
+See `REFRESH_ROBUSTNESS.md` for the full persistence contract, invariants, and known gaps.
 
 ---
 
@@ -513,12 +531,13 @@ The `@` path completion feature in chat and task creation provides instant file 
 **Auto-refresh:** `useFileTreeRefresh` hook checks staleness (5-min TTL) per project page. `refreshAllFileTrees()` runs in background after projects load in DataLoader.
 **Fallback:** If no cached tree, `FileCompletionTextarea` falls back to debounced API call (150ms) on each keystroke after `@`.
 
-### 8.4 Approval System
+### 8.4 Approval & Safety System
 
-Dynamic tool-based approvals (`ask_user_question` MCP tool) + procedure-level approvals with SSE notifications.
+Dynamic tool-based approvals (`ask_user_question` MCP tool) + safety prompts for risky operations (e.g., uncommitted changes, parallel tasks).
 
-**Agent-side:** Claude SDK adapter intercepts `AskUserQuestion` tool calls via the approval hook, forwards to relay as `task.approval_request`.
-**Frontend-side:** Approval cards rendered in task detail view. User selects option → `POST /api/dispatch/steer` → relay → agent runner.
+**Agent-side:** Claude SDK adapter intercepts `AskUserQuestion` tool calls via the approval hook, forwards to relay as `task.approval_request`. Safety checks forward as `task.safety_prompt`.
+**Frontend-side:** Inline approval cards rendered in unified activity view. User selects option → `POST /api/dispatch/approval` → relay → agent runner. Safety decisions via `POST /api/dispatch/safety-decision`.
+**Persistence:** Both `approval_request`/`approval_response` and `safety_prompt`/`safety_response` events are persisted to `streaming_events`. On page refresh, hydration reconstructs pending dialogs with the correct `machineId` (recovered from the persisted `init` event). Answered approvals are deduplicated (invariant 9: preserve historical timeline, only `dynamicApprovals` map tracks pending state).
 
 ### 8.5 Observability
 
@@ -786,6 +805,8 @@ All blockers to horizontal scaling have been resolved. In-memory Maps that held 
 
 **Running 2+ Fly.io machines is now safe.** The production WebAuthn auth bug (challenge on Machine A invisible to Machine B) is fixed.
 
+**Note on real-time transport and scaling:** The remaining instance-local state (`ExecutionEventBus`, relay EventEmitter subscriptions, `activeDispatchStreams`, `executionContextStore`) affects both SSE and WebSocket equally. Switching to WebSocket does not change the horizontal scaling story — both transports require the same cross-instance event broadcast solution (Redis pub/sub or Postgres LISTEN/NOTIFY). The persistence layer (`streaming_events` table, catch-up endpoint, hydration) is already transport-agnostic.
+
 ---
 
 ## 14. Implementation Status
@@ -871,6 +892,7 @@ See `WORKSPACE_V2.md` for the complete design, including data model changes, API
 | `PACKAGE_ARCHITECTURE.md` | Monorepo package extraction: `@astro/core`, `@astroanywhere/cli`, dependency graph |
 | `CLI_PACKAGE.md` | CLI package design: TUI (Ink), commands, Zustand stores |
 | `WORKSPACE_V2.md` | Workspace model: `.astro/` agent dir, worktrees, delivery modes, directory detection |
+| `REFRESH_ROBUSTNESS.md` | Three-layer recovery architecture: SSE → streaming_events DB → observation fallback. Persistence contract, invariants, known gaps |
 
 ---
 

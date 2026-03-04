@@ -44,6 +44,7 @@ const generatePlanSchema = z.object({
   description: z.string().min(1).max(50000),
   visionDoc: z.string().max(100000).optional(),
   projectId: z.string().min(1).max(100),
+  streamId: z.string().max(200).optional(),
   model: z.string().max(100).optional(),
   providerId: z.string().max(100).optional(),
   workingDirectory: z.string().max(1000).refine(
@@ -442,8 +443,11 @@ agentRoute.post('/generate-plan', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400)
   }
 
-  const { description, visionDoc, projectId, model, workingDirectory, fileTree, keyFiles, targetMachineId, gitState } = body
+  const { description, visionDoc, projectId, model, workingDirectory, fileTree, keyFiles, targetMachineId, streamId, gitState } = body
   const taskId = `gen-${projectId}-${Date.now()}`
+  // persistId: stable identifier for streaming event persistence.
+  // Frontend supplies a stable streamId (no timestamp) so events survive reconnect/refresh.
+  const persistId = streamId || taskId
 
   // Verify project ownership
   const user = c.get('user') as AuthUser
@@ -486,7 +490,9 @@ agentRoute.post('/generate-plan', async (c) => {
 
   // Build the full plan prompt: system prompt + user description
   // Include available skills so the planner can create tasks that leverage them
-  const skillsSummary = skillManager.getSkillPromptInjection() || undefined
+  // Team-scoped: only inject builtins + user's team skills (prevents cross-team leakage).
+  // Pass null (not undefined) when teamId is absent to restrict to builtins only.
+  const skillsSummary = skillManager.getSkillPromptInjection(user.teamId ?? null) || undefined
   const systemPrompt = buildPlanSystemPrompt(visionDoc, repoContext, gitState, skillsSummary, githubContext)
   const fullPrompt = `${systemPrompt}\n\n---\n\n## User Request\n\n${description}\n\n---\n\nIMPORTANT: Respond with ONLY the JSON plan object. Start your response with { and end with }. No prose, no markdown fences, no explanation. The JSON must have "projectName", "nodes", and "edges" keys.`
 
@@ -521,13 +527,14 @@ agentRoute.post('/generate-plan', async (c) => {
       lastActivity = Date.now()
 
       // Persist result event
-      await streamingEventLog.append(taskId, 'result', { sessionId: taskId })
+      await streamingEventLog.append(persistId, 'result', { sessionId: taskId })
 
       // Try to extract plan from accumulated text
       if (!planResultSent && assistantText) {
         const parsed = extractPlanJson(assistantText)
         if (parsed) {
           planResultSent = true
+          await streamingEventLog.append(persistId, 'plan_result', parsed)
           stream.writeSSE({
             event: 'plan_result',
             data: JSON.stringify(parsed),
@@ -540,6 +547,7 @@ agentRoute.post('/generate-plan', async (c) => {
         const parsed = extractPlanJson(msg.result.output)
         if (parsed) {
           planResultSent = true
+          await streamingEventLog.append(persistId, 'plan_result', parsed)
           stream.writeSSE({
             event: 'plan_result',
             data: JSON.stringify(parsed),
@@ -593,7 +601,7 @@ agentRoute.post('/generate-plan', async (c) => {
       if (!alive || msg.output.taskId !== taskId) return
       lastActivity = Date.now()
       assistantText += msg.output.data
-      streamingEventLog.appendText(taskId, msg.output.data)
+      streamingEventLog.appendText(persistId, msg.output.data)
       stream.writeSSE({ event: 'text', data: msg.output.data }).catch(() => { alive = false })
     }
 
@@ -601,7 +609,7 @@ agentRoute.post('/generate-plan', async (c) => {
       if (!alive || msg.taskId !== taskId) return
       lastActivity = Date.now()
       assistantText += msg.text
-      streamingEventLog.appendText(taskId, msg.text)
+      streamingEventLog.appendText(persistId, msg.text)
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
     }
 
@@ -622,6 +630,7 @@ agentRoute.post('/generate-plan', async (c) => {
 
     // Track active stream to prevent double-persistence from events.ts
     activeDispatchStreams.add(taskId)
+    if (persistId !== taskId) activeDispatchStreams.add(persistId)
 
     const cleanup = () => {
       relayServer.off('task:result', onResult)
@@ -629,7 +638,15 @@ agentRoute.post('/generate-plan', async (c) => {
       relayServer.off('task:text', onText)
       relayServer.off('machine:disconnected', onMachineDisconnected)
       activeDispatchStreams.delete(taskId)
+      if (persistId !== taskId) activeDispatchStreams.delete(persistId)
     }
+
+    // Emit early session_init so the frontend knows the stable persistence key
+    await streamingEventLog.append(persistId, 'session_init', { streamId: persistId })
+    stream.writeSSE({
+      event: 'session_init',
+      data: JSON.stringify({ streamId: persistId }),
+    }).catch(() => { alive = false })
 
     // Extract authenticated user for machine ownership filtering
     const planUser = c.get('user') as { id: string } | undefined
@@ -667,7 +684,7 @@ agentRoute.post('/generate-plan', async (c) => {
       alive = false
       clearInterval(heartbeat)
       cleanup()
-      streamingEventLog.flushText(taskId).catch(() => {})
+      streamingEventLog.flushText(persistId).catch(() => {})
       // Task continues running on the agent runner — results arrive via relay → global SSE → realtime-store
     })
 

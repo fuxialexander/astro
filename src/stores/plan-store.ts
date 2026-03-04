@@ -227,7 +227,36 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         return true
       })
 
-      const nodes = apiNodes
+      // Deduplicate nodes: by ID first, then collapse truly identical nodes within
+      // the same project. Racing setProjectPlan calls (SSE vs WebSocket) can create
+      // nodes with different UUIDs but identical content. We match on
+      // projectId + type + title + description (first 500 chars) so that legitimately
+      // different tasks with the same title (e.g. "Write tests" for frontend vs backend)
+      // are preserved. Among duplicates, prefer the node with a server-assigned number.
+      const seenIds = new Set<string>()
+      const contentMap = new Map<string, PlanNode>()
+      const keepIds = new Set<string>()
+      for (const n of apiNodes) {
+        if (seenIds.has(n.id)) continue
+        seenIds.add(n.id)
+        const contentKey = `${n.projectId}::${n.type}::${n.title ?? ''}::${(n.description ?? '').slice(0, 500)}`
+        const existing = contentMap.get(contentKey)
+        if (existing) {
+          // Duplicate content — keep the node with a server-assigned number (lower wins)
+          const existingNum = existing.number ?? Infinity
+          const currentNum = n.number ?? Infinity
+          if (currentNum < existingNum) {
+            keepIds.delete(existing.id)
+            keepIds.add(n.id)
+            contentMap.set(contentKey, n)
+          }
+          // else: keep existing, skip current
+        } else {
+          contentMap.set(contentKey, n)
+          keepIds.add(n.id)
+        }
+      }
+      const nodes = apiNodes.filter((n) => keepIds.has(n.id))
 
       // Rebuild node.dependencies from edges (source of truth).
       // The server doesn't persist node.dependencies, so after a page refresh
@@ -408,6 +437,17 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
   setProjectPlan: (projectId, newNodes, newEdges) => {
     console.log(`[plan-store] setProjectPlan called: projectId=${projectId}, ${newNodes.length} nodes, ${newEdges.length} edges`)
+    // Guard: if the project already has nodes with the same titles (different UUIDs from a
+    // racing second call, e.g. SSE vs WebSocket), skip to keep the first set's IDs stable.
+    const existingProjectNodes = get().nodes.filter((n) => n.projectId === projectId)
+    if (existingProjectNodes.length > 0 && existingProjectNodes.length === newNodes.length) {
+      const existingTitles = new Set(existingProjectNodes.map((n) => n.title))
+      const allMatch = newNodes.every((n) => existingTitles.has(n.title))
+      if (allMatch) {
+        console.log(`[plan-store] Skipping duplicate setProjectPlan for ${projectId} — same ${newNodes.length} titles already exist`)
+        return
+      }
+    }
     // Numbers are assigned server-side — add optimistically without numbers
     const otherNodes = get().nodes.filter((n) => n.projectId !== projectId)
     const otherEdges = get().edges.filter((e) => {

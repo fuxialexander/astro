@@ -1,4 +1,5 @@
 import { useMemo, useCallback, useState, useRef, useEffect } from "react"
+import { useNavigate } from "react-router"
 import { stripHtml } from "@/lib/html-utils"
 import {
   ReactFlow,
@@ -12,14 +13,14 @@ import {
   type Connection,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
-import { LayoutGrid, Trash2, Play, X, CheckSquare, Square, PlayCircle, Plus, Minus, Maximize, ListPlus, Server, FolderOpen, AlertTriangle } from "lucide-react"
+import { LayoutGrid, Trash2, Play, X, CheckSquare, Square, PlayCircle, Plus, Minus, Maximize, ListPlus, Server, FolderOpen, AlertTriangle, Sparkles } from "lucide-react"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useActivityStore } from "@/stores/activity-store"
-import { useAgentStore } from "@/stores/agent-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useExecutionStore, canExecuteNode, getProjectWorkingDir } from "@/stores/execution-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
+import { useContentSaveStore } from "@/stores/content-save-store"
 import { useKeyboardNav } from "@/hooks/use-keyboard-nav"
 import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
 import { TaskNode } from "./task-node"
@@ -75,6 +76,7 @@ interface AddChildState {
 }
 
 function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanvasProps) {
+  const navigate = useNavigate()
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const rawPlanEdges = usePlanStore((s) => s.edges)
@@ -90,7 +92,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   const machines = useExecutionStore((s) => s.machines)
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
   const loadMachines = useExecutionStore((s) => s.loadMachines)
-  const isProjectGenerating = useAgentStore((s) => s.sessions.get(projectId)?.status === 'active')
+  const flushPendingSaves = useContentSaveStore((s) => s.flushPendingSaves)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const updateProject = useProjectStore((s) => s.updateProject)
   const graphDisplaySettings = useDisplaySettingsStore((s) => s.get("plan-graph"))
@@ -279,7 +281,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     }, 10)
   }, [checkedIds, removeNodes, projectNodes, addActivity, projectId, onNodeSelect, reorganizeProject, rfFitView])
 
-  const handleExecuteSelected = useCallback(() => {
+  const handleExecuteSelected = useCallback(async () => {
     if (checkedIds.size === 0) return
     if (!resolvedMachineId) {
       useToastStore.getState().add({
@@ -298,18 +300,33 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
     const nodesToExecute = projectNodes.filter(
       (n) => checkedIds.has(n.id) && canExecuteNode(n, allNodes, allEdges).ready
     )
+
+    // Flush pending saves for all nodes to execute
+    const nodeIds = nodesToExecute.map((n) => n.id)
+    try {
+      await flushPendingSaves(nodeIds)
+    } catch (error) {
+      console.error('Failed to save task content before execution:', error)
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Failed to save changes',
+        description: 'Could not save task content before execution. Please try again.',
+      })
+      return
+    }
+
     for (const node of nodesToExecute) {
       startExecution(node.id, projectId)
     }
     setCheckedIds(new Set())
-  }, [checkedIds, projectNodes, startExecution, projectId, project, resolvedMachineId])
+  }, [checkedIds, projectNodes, startExecution, projectId, project, resolvedMachineId, flushPendingSaves])
 
   const handleSelectAll = useCallback(() => {
     const allIds = new Set(projectNodes.map((n) => n.id))
     setCheckedIds(allIds)
   }, [projectNodes])
 
-  const handleExecuteAll = useCallback(() => {
+  const handleExecuteAll = useCallback(async () => {
     if (!resolvedMachineId) {
       useToastStore.getState().add({
         type: "warning",
@@ -323,8 +340,23 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
       setPathBrowserOpen(true)
       return
     }
+
+    // Flush pending saves for all project nodes before batch execution
+    const nodeIds = projectNodes.map((n) => n.id)
+    try {
+      await flushPendingSaves(nodeIds)
+    } catch (error) {
+      console.error('Failed to save task content before execution:', error)
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Failed to save changes',
+        description: 'Could not save task content before execution. Please try again.',
+      })
+      return
+    }
+
     executeAllProject(projectId)
-  }, [executeAllProject, projectId, project, resolvedMachineId])
+  }, [executeAllProject, projectId, project, resolvedMachineId, projectNodes, flushPendingSaves])
 
   const handleStopBatch = useCallback(() => {
     stopBatchExecution(projectId)
@@ -532,10 +564,30 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode }: PlanCanva
   }, [handleReorganize])
 
   // Show empty state when no nodes and not currently generating
-  if (projectNodes.length === 0 && !isProjectGenerating) {
+  if (projectNodes.length === 0) {
     return (
       <div ref={canvasRef} className="h-full w-full bg-background flex items-center justify-center p-8 relative">
         <div className="flex w-full max-w-[600px] flex-col gap-6">
+          {/* Generate with AI */}
+          <button
+            type="button"
+            onClick={() => navigate(`/plan?projectId=${projectId}`)}
+            className={cn(
+              "flex flex-col gap-3 rounded-xl border p-5 text-left transition-all",
+              "border-primary/30 bg-primary/5 hover:bg-primary/10 hover:border-primary/50"
+            )}
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                <Sparkles className="h-5 w-5 text-primary" />
+              </div>
+              <div className="flex-1">
+                <div className="text-base font-semibold text-primary">Generate with AI</div>
+                <div className="text-xs text-muted-foreground mt-0.5">Describe your goal and let AI create a plan</div>
+              </div>
+            </div>
+          </button>
+
           {/* Manual task creation */}
           <div className="flex flex-col gap-3">
             {!addChildState ? (

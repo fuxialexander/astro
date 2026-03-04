@@ -28,6 +28,7 @@ import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch } from '../lib/prompt-templates.js'
 import { skillManager } from '../lib/skill-manager.js'
+import { extractPlanJsonFromText, retryPlanExtractionWithHaiku } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup)
@@ -68,7 +69,7 @@ const dispatchTaskSchema = z.object({
   nodeId: z.string().min(1).max(100),
   projectId: z.string().min(1).max(100),
   title: z.string().min(1).max(1000).optional(),
-  description: z.string().min(1).max(50000).optional(),
+  description: z.string().min(1).max(200000).optional(),
   dependencies: z.array(z.string().max(100)).max(100).optional(),
   verification: z.enum(['auto', 'human']).optional(),
   visionDoc: z.string().max(100000).optional(),
@@ -148,15 +149,24 @@ dispatchRoute.use('/*', requireAuth)
  * All tasks are dispatched via relay to agent runners.
  */
 dispatchRoute.post('/task', async (c) => {
+  console.log(`[dispatch] POST /task received from ${c.req.header('x-forwarded-for') || 'unknown'}`)
   // Validate input
   let body: z.infer<typeof dispatchTaskSchema>
   try {
     const rawBody = await c.req.json()
+    // Convert null values to undefined — DB nullable columns return null,
+    // but Zod .optional() only accepts undefined. Belt-and-suspenders fix
+    // in case the client sends null for optional fields.
+    for (const key of Object.keys(rawBody)) {
+      if (rawBody[key] === null) rawBody[key] = undefined
+    }
     body = dispatchTaskSchema.parse(rawBody)
   } catch (err) {
     if (err instanceof z.ZodError) {
+      console.error('[dispatch] Zod validation failed:', JSON.stringify(err.issues))
       return c.json({ success: false, error: 'Invalid input', details: err.issues }, 400)
     }
+    console.error('[dispatch] JSON parse failed:', err instanceof Error ? err.message : String(err))
     return c.json({ success: false, error: 'Invalid JSON' }, 400)
   }
 
@@ -629,8 +639,16 @@ async function dispatchViaRelay(
   // Detect "Push to GitHub" task node — these get special dispatch instructions
   const isPushToGithub = !isInteractivePlan && /push\s+to\s+github|publish\s+to\s+github/i.test(title)
 
-  // Get available skills for prompt injection
-  const skillsInjection = skillManager.getSkillPromptInjection() || undefined
+  // Get available skills for prompt injection, filtered by team.
+  // CRITICAL: Must pass user's teamId to enforce team isolation. Without this,
+  // workspace skills from other teams could leak into the prompt, exposing
+  // proprietary instructions or internal workflows stored in skill config.
+  // requireAuth middleware guarantees `user` is non-null and provides teamId.
+  // In local mode (no auth), teamId is undefined — we pass null to explicitly
+  // request only global/builtin skills, preventing accidental cross-team leakage
+  // if local mode ever supports multiple teams.
+  const effectiveTeamId = user?.teamId ?? null
+  const skillsInjection = skillManager.getSkillPromptInjection(effectiveTeamId) || undefined
 
   if (isInteractivePlan) {
     // Use the dedicated interactive plan prompt as a system prompt.
@@ -1073,6 +1091,10 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     let lastActivity = Date.now()
     let resultSent = false
     let waitingForApproval = false
+    // Accumulated text from `text` events — used for plan extraction in onResult.
+    // msg.result.output is equivalent for completed sessions; accumulatedText is the
+    // fallback when the relay strips output from the result message.
+    let accumulatedText = ''
     const ACTIVITY_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000 // 5 days
 
     const onResult = async (msg: import('../types/relay.js').TaskResultMessage) => {
@@ -1111,6 +1133,31 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         deliveryError: msg.result.deliveryError,
         summary: msg.result.summary,
       }
+      // Server-side plan extraction for interactive plan sessions
+      if (isInteractivePlan) {
+        const textForExtraction = accumulatedText || msg.result.output || ''
+        const planJson = extractPlanJsonFromText(textForExtraction)
+        if (planJson) {
+          // Regex extraction succeeded — emit plan_result synchronously before result
+          const planSeq = await streamingEventLog.append(executionId, 'plan_result', planJson)
+          stream.writeSSE({ id: String(planSeq), event: 'plan_result', data: JSON.stringify(planJson) }).catch(() => { alive = false })
+        } else {
+          // Regex failed — fire-and-forget Haiku retry (does NOT block result event)
+          // Always persist to DB even if SSE stream is closed, so page-refresh recovery works.
+          retryPlanExtractionWithHaiku(textForExtraction, process.env.ANTHROPIC_API_KEY)
+            .then(retried => {
+              if (!retried) return
+              return streamingEventLog.append(executionId, 'plan_result', retried)
+                .then(seq => {
+                  if (alive) {
+                    stream.writeSSE({ id: String(seq), event: 'plan_result', data: JSON.stringify(retried) }).catch(() => {})
+                  }
+                })
+            })
+            .catch(e => console.error('[dispatch] Haiku retry failed:', e))
+        }
+      }
+
       // Persist result event (also flushes any pending text)
       const seq = await streamingEventLog.append(executionId, 'result', resultData)
 
@@ -1215,6 +1262,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       waitingForApproval = false
       // Buffer text for batch persistence (flushed when next structural event arrives)
       streamingEventLog.appendText(executionId, msg.text)
+      if (isInteractivePlan) accumulatedText += msg.text
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
       executionEventBus.emit('task:stdout', { output: { taskId: executionId, data: msg.text, stream: 'stdout', timestamp: new Date() } })
     }
@@ -1287,12 +1335,15 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       executionEventBus.emit('task:file_change', { taskId: executionId, path: msg.path, action: msg.action })
     }
 
-    const onMachineDisconnected = (disconnectedId: string) => {
+    const onMachineDisconnected = async (disconnectedId: string) => {
       if (!alive || disconnectedId !== machineId) return
       console.log(`[dispatch] Machine ${machineId} disconnected during task ${executionId}`)
+      const errorData = { error: 'Remote machine disconnected during task execution', recoverable: false }
+      const seq = await streamingEventLog.append(executionId, 'error', errorData)
       stream.writeSSE({
+        id: String(seq),
         event: 'error',
-        data: JSON.stringify({ error: 'Remote machine disconnected during task execution', recoverable: false }),
+        data: JSON.stringify(errorData),
       }).catch(() => {})
       stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
       alive = false
@@ -1307,10 +1358,13 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       streamingEventLog.append(executionId, 'approval_request', approvalData).catch(() => {})
     }
 
-    const onSafetyPrompt = (msg: { taskId: string; safetyTier: string; warning?: string; options: Array<{ id: string; label: string; description?: string }> }) => {
+    const onSafetyPrompt = (msg: { taskId: string; safetyTier: string; warning?: string; options: Array<{ id: string; label: string; description?: string }>; machineId?: string }) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
       waitingForApproval = true
+      // Persist safety_prompt so it survives page refresh
+      const safetyData = { safetyTier: msg.safetyTier, warning: msg.warning, options: msg.options, machineId: msg.machineId || machineId }
+      streamingEventLog.append(executionId, 'safety_prompt', safetyData).catch(() => {})
     }
 
     // Mark this task as having an active dispatch stream so events.ts
@@ -1345,26 +1399,32 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 
     if (!dispatched) {
       cleanup()
+      const errorData = { error: `Failed to dispatch to machine: ${machineId}`, recoverable: false }
+      const seq = await streamingEventLog.append(executionId, 'error', errorData)
       await stream.writeSSE({
+        id: String(seq),
         event: 'error',
-        data: JSON.stringify({ error: `Failed to dispatch to machine: ${machineId}` }),
+        data: JSON.stringify(errorData),
       })
       await stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) })
       return
     }
 
-    // Send init event
+    // Send init event (persist first so page-refresh hydration can recover machineId)
     const targetMachine = machineRegistry.get(machineId!)
+    const initData = {
+      executionId,
+      nodeId,
+      machineId,
+      providerId: preferredProvider || targetMachine?.providers[0]?.type,
+      providerName: preferredProvider || targetMachine?.providers[0]?.type,
+      computeBackend,
+    }
+    const initSeq = await streamingEventLog.append(executionId, 'init', initData)
     await stream.writeSSE({
+      id: String(initSeq),
       event: 'init',
-      data: JSON.stringify({
-        executionId,
-        nodeId,
-        machineId,
-        providerId: preferredProvider || targetMachine?.providers[0]?.type,
-        providerName: preferredProvider || targetMachine?.providers[0]?.type,
-        computeBackend,
-      }),
+      data: JSON.stringify(initData),
     })
 
     // Keepalive + activity timeout
@@ -1375,11 +1435,24 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         if (dispatchEngine.hasPendingApprovalForExecution(executionId) || waitingForApproval) {
           lastActivity = Date.now() // Reset timer while approval is pending
         } else if (!resultSent) {
-          stream.writeSSE({
-            event: 'error',
-            data: JSON.stringify({ error: 'Activity timeout — agent runner stopped responding', recoverable: false }),
-          }).catch(() => {})
-          stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+          const errorData = { error: 'Activity timeout — agent runner stopped responding', recoverable: false }
+          const sendDone = () => {
+            stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+          }
+          streamingEventLog.append(executionId, 'error', errorData).then((seq) => {
+            stream.writeSSE({
+              id: String(seq),
+              event: 'error',
+              data: JSON.stringify(errorData),
+            }).catch(() => {})
+            sendDone()
+          }).catch(() => {
+            stream.writeSSE({
+              event: 'error',
+              data: JSON.stringify(errorData),
+            }).catch(() => {})
+            sendDone()
+          })
           alive = false
           clearInterval(heartbeat)
           return
@@ -1393,7 +1466,9 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       clearInterval(heartbeat)
       cleanup()
       // Flush any buffered text before disconnect
-      streamingEventLog.flushText(executionId).catch(() => {})
+      streamingEventLog.flushText(executionId).catch((err) => {
+        console.error(`[dispatch] Failed to flush text on disconnect for ${executionId}:`, err)
+      })
       // Task continues running on the agent runner — results arrive via relay → global SSE → realtime-store
     })
 
@@ -1551,6 +1626,9 @@ dispatchRoute.post('/safety-decision', async (c) => {
       500
     )
   }
+
+  // Persist safety_response so hydration knows this prompt was answered
+  streamingEventLog.append(taskId, 'safety_response', { decision }).catch(() => {})
 
   // Cache safety approval for this working directory so subsequent tasks skip the prompt
   if (decision !== 'cancel') {

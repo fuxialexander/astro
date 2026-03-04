@@ -45,8 +45,9 @@ export interface OpenClawSkill {
   metadata?: OpenClawSkillMetadata
 
   // Astro-specific extensions
-  source: 'builtin' | 'workspace' | 'clawhub' | 'plugin'
+  source: 'builtin' | 'workspace' | 'clawhub' | 'plugin' | 'user'
   pluginId?: string                       // which plugin contributed this skill
   enabled: boolean
   config?: Record<string, unknown>        // per-skill config (env overrides, apiKey, etc.)
+  teamId?: string | null                  // team ownership (null = global builtin)
 }

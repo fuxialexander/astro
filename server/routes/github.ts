@@ -8,8 +8,8 @@ import { GitHubClient } from '../lib/github-client';
 import { githubStore } from '../lib/github-store';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
 import { db } from '../lib/db/index.js';
-import { projects, planNodes } from '../lib/db/schema.js';
-import { eq, and } from 'drizzle-orm';
+import { projects, planNodes, planEdges } from '../lib/db/schema.js';
+import { eq, and, or, isNotNull, inArray } from 'drizzle-orm';
 
 const app = new Hono();
 
@@ -314,7 +314,12 @@ async function syncIssuesForProject(
     };
 
     // Check if a node with this github_issue_number already exists
-    const [existing] = await db.select({ id: planNodes.id })
+    const [existing] = await db.select({
+      id: planNodes.id,
+      clientId: planNodes.clientId,
+      deletedAt: planNodes.deletedAt,
+      deletionActionId: planNodes.deletionActionId
+    })
       .from(planNodes)
       .where(and(
         eq(planNodes.projectId, projectId),
@@ -323,6 +328,35 @@ async function syncIssuesForProject(
       .limit(1);
 
     if (existing) {
+      // Resurrect edges if the node was soft-deleted
+      if (existing.deletedAt && existing.deletionActionId) {
+        console.log(`[github] Resurrecting soft-deleted node ${existing.id} for issue #${issue.number}`);
+
+        // Find edges that were deleted alongside this node
+        const edgesToResurrect = await db.select()
+          .from(planEdges)
+          .where(and(
+            eq(planEdges.projectId, projectId),
+            or(
+              eq(planEdges.sourceClientId, existing.clientId),
+              eq(planEdges.targetClientId, existing.clientId)
+            ),
+            isNotNull(planEdges.deletionActionId),
+            eq(planEdges.deletionActionId, existing.deletionActionId)
+          ));
+
+        // Resurrect the edges
+        if (edgesToResurrect.length > 0) {
+          console.log(`[github] Resurrecting ${edgesToResurrect.length} edges for node ${existing.id}`);
+          await db.update(planEdges)
+            .set({ deletedAt: null, deletionActionId: null })
+            .where(and(
+              eq(planEdges.projectId, projectId),
+              inArray(planEdges.id, edgesToResurrect.map(e => e.id))
+            ));
+        }
+      }
+
       // Fetch existing links to merge (preserve user-added links)
       const [existingNode] = await db.select({ links: planNodes.links })
         .from(planNodes)
@@ -341,6 +375,8 @@ async function syncIssuesForProject(
         githubIssueUrl: issue.html_url,
         links: mergedLinks,
         updatedAt: new Date(),
+        deletedAt: null, // Resurrect soft-deleted nodes
+        deletionActionId: null, // Clear deletion tracking on resurrection
       }).where(eq(planNodes.id, existing.id));
       updated++;
     } else {

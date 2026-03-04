@@ -63,11 +63,13 @@ export function BackendDetailDialog({
   }, [open, loaded, load])
 
   const config = backend ? getForBackend(backend.id, machineId) : undefined
+  const configId = config?.id
+  const configCustomContext = config?.customContext
 
   useEffect(() => {
-    if (config) setDraft(config.customContext)
+    if (configCustomContext !== undefined) setDraft(configCustomContext)
     else setDraft("")
-  }, [config?.id, config?.customContext])
+  }, [configId, configCustomContext])
 
   const handleCopy = () => {
     const fullContext = config?.customContext

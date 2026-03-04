@@ -102,7 +102,6 @@ All auth required. SSE-streaming endpoints return `text/event-stream`.
 
 | Method | Path | Streaming | Description |
 |--------|------|-----------|-------------|
-| POST | `/agent/generate-plan` | SSE | Generate AI plan |
 | POST | `/agent/chat` | SSE | General project chat |
 | POST | `/agent/plan-chat` | SSE | Plan-focused chat (defaults to haiku) |
 | POST | `/agent/task-chat` | SSE | Task-specific chat with execution context |
@@ -272,7 +271,7 @@ All auth required.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/events/stream` | SSE event stream (real-time relay bridge) |
-| GET | `/events/catch-up` | DB catch-up for missed streaming events |
+| GET | `/events/catch-up` | Paginated DB catch-up for missed streaming events. Query params: `executionIds` (comma-separated), `afterSeq` (cursor), `limit` (default 1000). Returns `{ events, lastSeq, hasMore }`. |
 
 ### Relay & Machines (15 endpoints) — `server/routes/relay.ts`
 
@@ -477,17 +476,25 @@ Astro uses three complementary real-time systems:
 
 ### Server-Sent Events (SSE)
 
-**Endpoint:** `GET /api/events/stream`
+**Two SSE patterns:**
 
-Primary channel for streaming execution and chat events from the server to the web client.
+1. **Action SSE**: `POST /api/dispatch/task`, `POST /api/agent/plan-chat`, etc. return an SSE stream for that operation. Frontend parses via `parseExecutionSSE()` or `parseChatSSE()`.
+2. **Global event stream**: `GET /api/events/stream` — persistent SSE connection for real-time events (machine state, task progress, approvals). Subscribes to both `ExecutionEventBus` and relay server EventEmitter.
 
-**Event types (execution):** `init`, `session_init`, `text`, `tool_use`, `tool_result`, `file_change`, `progress`, `result`, `error`, `aborted`, `heartbeat`, `done`
+**Dual-path deduplication:** When a dispatch bridge is active for a task, the global event stream skips relay-direct events for that task (via `activeDispatchStreams` guard) to avoid double-sending. After page refresh kills the dispatch bridge, the global stream picks up relay-direct events as fallback.
+
+
+**Event types (execution):** `init`, `session_init`, `text`, `tool_use`, `tool_result`, `file_change`, `progress`, `result`, `error`, `aborted`, `heartbeat`, `done`, `approval_request`, `approval_response`, `safety_prompt`, `safety_response`, `steer_message`
 
 **Event types (chat):** `text`, `tool_use`, `tool_result`, `session_init`, `plan_result`, `done`, `error`, `aborted`, `heartbeat`
 
-**Reconnect:** Client sends `Last-Event-ID` header or `?lastEventId=` query param. Server catches up from `streaming_events` DB table via `/api/events/catch-up`.
+**Persisted event types:** All structural events are written to the `streaming_events` table before being sent via SSE. The DB `seq` becomes the SSE `id`, enabling cursor-based catch-up. Non-persisted: `heartbeat` (keepalive), `done` (stream termination signal), `aborted` (client-side handler, cancellation flows through `result` with failure status).
+
+**Reconnect:** Client uses exponential backoff (3s→60s cap, visibility-aware). On reconnect, catches up via paginated `/api/events/catch-up` (loops until `hasMore=false`). `mergeHydratedAndLive()` merges DB history with live SSE events.
 
 **Auth:** JWT passed as `?token=` query param (EventSource limitation).
+
+**Future:** WebSocket (`GET /api/ws`) will replace SSE as the primary transport. The persistence layer (`streaming_events`, catch-up endpoint, hydrator, merge logic) is transport-agnostic and carries over unchanged. SSE will remain as fallback. See [WebSocket Roadmap](./websocket.md) and [GitHub Issue #513](https://github.com/fuxialexander/astro/issues/513).
 
 ### WebSocket Relay
 
@@ -496,6 +503,7 @@ The relay server (`server/lib/relay/`) provides bidirectional communication betw
 - Machines connect via WebSocket to the relay
 - API server dispatches tasks through the relay to connected machines
 - Results flow back through the relay to the API server → SSE → client
+- Relay also persists events to `streaming_events` table (with `_dbSeq` attached to emitted events)
 - See [Relay Protocol](./relay/protocol.md) for message types
 
 ### Supabase Realtime (Server Mode Only)
@@ -513,7 +521,7 @@ Current status of API capabilities needed for each client platform:
 |------------|-----|-----|-----------------|--------|--------|
 | Auth | Supabase JWT | Device auth | JWT / Device auth | JWT | Done |
 | Data CRUD | Full | Full (via device token) | Full | Full | Done |
-| SSE streaming | Full | Full | Full | Full | Done |
+| SSE streaming | Full | Full | Full | Full | Done (robust: persistence + catch-up + merge) |
 | Relay dispatch | Full | Via agent-runner | Via Tauri plugin | N/A | Done |
 | API versioning | N/A | Critical | Critical | Critical | Missing |
 | Pagination | N/A | Needed | Needed | Needed | Missing |
@@ -523,7 +531,7 @@ Current status of API capabilities needed for each client platform:
 | Webhooks | N/A | N/A | N/A | Nice | Missing |
 | OpenAPI spec | N/A | SDK gen | SDK gen | SDK gen | Missing |
 | Caching headers | N/A | Nice | Needed | Needed | Missing |
-| Client WebSocket | N/A | Nice | Needed | Needed | Missing |
+| Client WebSocket | N/A | Nice | Needed | Needed | Planned ([#513](https://github.com/fuxialexander/astro/issues/513)) |
 
 > For a detailed WebSocket migration plan, see [WebSocket Roadmap](./websocket.md).
 
