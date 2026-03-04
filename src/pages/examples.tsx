@@ -16,17 +16,15 @@ import { Card } from "@/components/ui/card"
  */
 export function Examples() {
   const templates = useTemplateStore((s) => s.templates)
-  const selectTemplate = useTemplateStore((s) => s.selectTemplate)
   const isLoading = useTemplateStore((s) => s.isLoading)
 
   const [pickerOpen, setPickerOpen] = useState(false)
   const [initialTemplateId, setInitialTemplateId] = useState<string | null>(null)
 
   const handleExampleClick = useCallback((templateId: string) => {
-    selectTemplate(templateId)
     setInitialTemplateId(templateId)
     setPickerOpen(true)
-  }, [selectTemplate])
+  }, [])
 
   return (
     <div className="flex flex-1 flex-col min-w-0 h-full">

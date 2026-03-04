@@ -56,18 +56,12 @@ const STEP_LABELS: Record<WizardStep, string> = {
 /**
  * TemplatePickerDialog - Multi-step wizard for template-based project creation
  *
- * Steps:
+ * Steps (full flow):
  * 1. Browse/search templates (TemplateGallery)
- * 2. Fill parameter form + project name + working directory (TemplateParameterForm)
- * 3. Optional preview (interpolated prompts from preview API)
- * 4. Launch button
+ * 2. Configure parameters + project name + working directory
+ * 3. Launch — create project and navigate to plan view
  *
- * Features:
- * - Back/forward navigation
- * - Progress indicator
- * - Validation at each step
- * - Auto-preview when parameters change
- * - Launch → navigate to project plan view
+ * When `skipBrowse` is true, starts directly at Configure (step 2).
  */
 export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, initialTemplateId, skipBrowse }: TemplatePickerDialogProps) {
   const navigate = useNavigate()
