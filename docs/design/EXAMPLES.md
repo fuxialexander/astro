@@ -503,7 +503,7 @@ Consult the \`my-example\` skill's SKILL.md for methodology.`,
 ```
 
 - **Templates system** (TEMPLATES.md): Handles the API, database, custom template CRUD, launch flow. Examples are built-in templates served through the same API.
-- **Skills system** (SKILLS.md): Manages the skill registry, prompt injection, collections. Example skills are loaded from `skills-catalog/` alongside other built-in skills.
+- **Skills system** (SKILLS.md): Manages the skill registry, prompt injection, collections. Example-paired skills are loaded from `skills-catalog/anthropic/` and seeded into the DB on startup. The Skills page is hidden from the sidebar; skills are now primarily used as agent context for examples.
 - **Plan generation**: Template prompts guide DAG structure; skill instructions guide individual task execution.
 
 ## 11. Key Files

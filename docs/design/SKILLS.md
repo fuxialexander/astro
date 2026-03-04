@@ -1,6 +1,12 @@
 # Skills System
 
-> Design document for Astro's skill registry — built-in skills, user-authored skills, community integration, and prompt injection.
+> Design document for Astro's skill registry — catalog skills for examples, compute backend skills (external), and prompt injection.
+
+> **Status (March 2026):** The Skills page has been hidden from the sidebar. Skills are now primarily used in two ways:
+> 1. **Example-paired skills** — SKILL.md files in `skills-catalog/anthropic/` that provide agent instructions for example templates (academic-presentation, academic-review, moat-fragility)
+> 2. **Compute backend skills** — Curated externally in [astro-anywhere/skills-lib](https://github.com/astro-anywhere/skills-lib) under `compute_backend/`. Linked from the Machine panel when K8s/SkyPilot is detected.
+>
+> The built-in skills directory (`skills/`) contains legacy compute backend skills (kubernetes-workflow, skypilot-workflow) that have been copied to skills-lib. The generic catalog skills (code-review, frontend-design, security-guidance) are being deprecated. User-authored skill creation is still functional but not surfaced in the UI.
 
 ## Overview
 
@@ -9,10 +15,10 @@ The Skills system provides a **database-backed, team-scoped registry** of reusab
 ### Design Goals
 
 1. **Declarative**: Skills are defined as SKILL.md files (YAML frontmatter + markdown body), not TypeScript code
-2. **Extensible**: Users create custom skills via paste-from-clipboard or future ClawHub import
-3. **Team-scoped**: Skills are isolated per team with RLS; built-in skills are shared globally
+2. **Example-integrated**: Example templates reference paired skills for comprehensive agent instructions
+3. **Team-scoped**: Skills are isolated per team with RLS; catalog/builtin skills are shared globally
 4. **Hot-reloadable**: Enable/disable skills without server restart; in-memory registry syncs on every mutation
-5. **OpenClaw-compatible**: Follows the ClawHub SKILL.md format for future community skill marketplace
+5. **Externally curated**: Compute backend skills live in [skills-lib](https://github.com/astro-anywhere/skills-lib), not in Astro
 
 ## Architecture
 

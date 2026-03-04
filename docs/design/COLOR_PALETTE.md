@@ -1,6 +1,6 @@
-# Color Palette — Morandi Design System
+# Color Palette — Design System
 
-Astro uses a **Morandi-inspired** color palette: low saturation, gray-mixed tones that convey quiet sophistication. Every color is a CSS custom property — components use semantic Tailwind classes (`text-info`, `bg-success`, etc.) and never reference raw hex values.
+Astro uses a **low-saturation** color palette: gray-mixed tones that convey quiet sophistication. Every color is a CSS custom property — components use semantic Tailwind classes (`text-info`, `bg-success`, etc.) and never reference raw hex values.
 
 ## Design Principles
 
