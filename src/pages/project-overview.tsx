@@ -17,6 +17,7 @@ import {
   RotateCcw,
   GitPullRequest,
   ListPlus,
+  Users,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -27,6 +28,7 @@ import { MilestoneDialog } from "@/components/milestone-dialog"
 import { MilestoneTaskPopover } from "@/components/milestone-task-popover"
 import { ActivityDialog } from "@/components/activity-dialog"
 import { LabelManagerDialog } from "@/components/label-manager-dialog"
+import { ProjectSharingDialog } from "@/components/project-sharing-dialog"
 import { RichTextEditor, type RichTextEditorRef } from "@/components/ui/rich-text-editor"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
@@ -98,6 +100,7 @@ export function OverviewTab({
   const [descriptionSaveStatus, setDescriptionSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
   const [sharing, setSharing] = useState(false)
   const [shareCopied, setShareCopied] = useState(false)
+  const [membersDialogOpen, setMembersDialogOpen] = useState(false)
   const descriptionEditorRef = useRef<RichTextEditorRef>(null)
   const descriptionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Editor state is now managed by EditorOpenControls component
@@ -242,6 +245,7 @@ export function OverviewTab({
       <RepoConfigDialog open={repoOpen} onOpenChange={setRepoOpen} project={project} />
       <ActivityDialog open={activityDialogOpen} onOpenChange={setActivityDialogOpen} projectId={project.id} />
       <LabelManagerDialog open={labelManagerOpen} onOpenChange={setLabelManagerOpen} projectId={project.id} />
+      <ProjectSharingDialog open={membersDialogOpen} onOpenChange={setMembersDialogOpen} projectId={project.id} />
       <MilestoneDialog
         open={milestoneDialogOpen}
         onOpenChange={setMilestoneDialogOpen}
@@ -524,6 +528,17 @@ export function OverviewTab({
                 <span className="text-xs text-muted-foreground">
                   {shareCopied ? "Anyone with the link can import this project" : "Create a shareable link to this plan"}
                 </span>
+              </div>
+            </div>
+            {/* Project members */}
+            <div
+              className="flex items-center gap-3 rounded-lg bg-muted p-3 px-4 cursor-pointer hover:bg-muted/80 transition-colors"
+              onClick={() => setMembersDialogOpen(true)}
+            >
+              <Users className="h-[18px] w-[18px] text-primary" />
+              <div className="flex-1 flex flex-col gap-0.5">
+                <span className="text-sm font-medium">Project Members</span>
+                <span className="text-xs text-muted-foreground">Manage who has access to this project</span>
               </div>
             </div>
           </div>

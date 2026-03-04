@@ -122,6 +122,21 @@ export interface TeamMember {
   joinedAt: Date;
 }
 
+export type ProjectMemberRole = 'owner' | 'editor' | 'viewer';
+
+export interface ProjectMember {
+  projectId: string;
+  userId: string;
+  role: ProjectMemberRole;
+  createdAt: Date;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    avatarUrl?: string;
+  } | null;
+}
+
 export type RemoteType = 'github' | 'gitlab' | 'bitbucket' | 'generic' | 'none'
 export type DeliveryMode = 'pr' | 'push' | 'branch' | 'copy' | 'direct'
 export type WorktreeStrategy = 'copy' | 'reference' | 'direct'

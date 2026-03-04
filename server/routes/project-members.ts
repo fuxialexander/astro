@@ -113,7 +113,7 @@ projectMembersRoute.get('/:projectId/members', async (c) => {
     user: profileMap.get(m.userId) ?? null,
   }))
 
-  return c.json({ members: enrichedMembers })
+  return c.json({ members: enrichedMembers, isOwner })
 })
 
 /**

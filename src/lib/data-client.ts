@@ -1,4 +1,4 @@
-import type { Project, PlanNode, PlanEdge, UserProfile, ApiKey, Initiative, TaskExecution, Team, TeamMember, NodeComment, EnvironmentConfig } from "@/types"
+import type { Project, PlanNode, PlanEdge, UserProfile, ApiKey, Initiative, TaskExecution, Team, TeamMember, NodeComment, EnvironmentConfig, ProjectMember, ProjectMemberRole } from "@/types"
 import type { DisplaySettings, ViewKey } from "@/stores/display-settings-store"
 import type { SessionMetrics } from "@/stores/usage-store"
 import type { TaskChatMessage, TaskChatSession } from "@/stores/task-chat-store"
@@ -763,5 +763,40 @@ export const dataClient = {
 
   async toggleCollection(collectionId: string): Promise<{ collectionId: string; enabled: boolean; skillCount: number }> {
     return put(`/api/skills/collections/${collectionId}/toggle`, {}) as Promise<{ collectionId: string; enabled: boolean; skillCount: number }>
+  },
+
+  // ── Project Members ─────────────────────────────────────────────
+
+  async getProjectMembers(projectId: string): Promise<{ members: ProjectMember[]; isOwner: boolean }> {
+    const data = await json<{ members: Record<string, unknown>[]; isOwner?: boolean }>(`/api/projects/${projectId}/members`)
+    const members = data.members.map(m => {
+      const r = snakeToCamel(m)
+      const user = r.user as Record<string, unknown> | null | undefined
+      return {
+        projectId: r.projectId as string,
+        userId: r.userId as string,
+        role: r.role as ProjectMemberRole,
+        createdAt: toDate(r.createdAt),
+        user: user ? {
+          id: user.id as string,
+          name: (user.name as string) ?? '',
+          email: (user.email as string) ?? '',
+          avatarUrl: user.avatarUrl as string | undefined,
+        } : null,
+      } as ProjectMember
+    })
+    return { members, isOwner: !!data.isOwner }
+  },
+
+  async addProjectMember(projectId: string, userId: string, role: ProjectMemberRole = 'viewer'): Promise<void> {
+    await post(`/api/projects/${projectId}/members`, { userId, role })
+  },
+
+  async removeProjectMember(projectId: string, userId: string): Promise<void> {
+    await del(`/api/projects/${projectId}/members/${userId}`)
+  },
+
+  async updateProjectMemberRole(projectId: string, userId: string, role: ProjectMemberRole): Promise<void> {
+    await patch(`/api/projects/${projectId}/members/${userId}`, { role })
   },
 }
