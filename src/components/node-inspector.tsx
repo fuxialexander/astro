@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Link } from "react-router"
-import { FileText, XCircle, RotateCcw, X, Plus, Pencil, ArrowUpRight } from "lucide-react"
+import { FileText, XCircle, RotateCcw, X, Plus, Pencil, ArrowUpRight, Diamond } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -233,6 +233,22 @@ export function NodeInspectorContent({
   const projectForLabels = useProjectStore((s) => s.projects.find((p) => p.id === node.projectId))
   const projectLabels = projectForLabels?.labels ?? []
 
+  // Milestone options: all milestone-type nodes in the same project
+  const milestoneOptions = useMemo(() => {
+    const milestones = allNodes
+      .filter(isLive)
+      .filter((n) => n.type === 'milestone' && n.projectId === node.projectId)
+      .map((n) => ({ id: n.id, label: n.title, icon: Diamond }))
+    return [{ id: 'none', label: 'No milestone' }, ...milestones]
+  }, [allNodes, node.projectId])
+
+  // Current milestone name for display
+  const currentMilestoneName = useMemo(() => {
+    if (!node.milestoneId) return null
+    const ms = allNodes.find((n) => n.id === node.milestoneId)
+    return ms?.title ?? null
+  }, [allNodes, node.milestoneId])
+
   const filteredCandidates = useMemo(() => {
     if (!addDepSearch) return addCandidates
     const q = addDepSearch.toLowerCase()
@@ -339,6 +355,30 @@ export function NodeInspectorContent({
           onOpenChange={setLabelManagerOpen}
           projectId={node.projectId}
         />
+
+        {/* Milestone (only for non-milestone nodes) */}
+        {node.type !== 'milestone' && (
+          <div className="flex items-center justify-between text-[13px]">
+            <span className="text-muted-foreground">Milestone</span>
+            <PropertyPicker
+              value={node.milestoneId ?? 'none'}
+              options={milestoneOptions}
+              title="Set milestone"
+              onSelect={(id) => handleUpdate({ milestoneId: id === 'none' ? undefined : id })}
+            >
+              <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-foreground">
+                {currentMilestoneName ? (
+                  <>
+                    <Diamond className="h-3.5 w-3.5 text-muted-foreground" />
+                    {currentMilestoneName}
+                  </>
+                ) : (
+                  "\u2014"
+                )}
+              </span>
+            </PropertyPicker>
+          </div>
+        )}
 
         {/* Dependencies */}
         <div className="flex flex-col gap-1.5">
