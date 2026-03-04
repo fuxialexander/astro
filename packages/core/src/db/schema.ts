@@ -905,3 +905,21 @@ export const sharedPlanComments = pgTable('shared_plan_comments', {
 }, (table) => [
   index('shared_plan_comments_plan_id_idx').on(table.planId),
 ])
+
+// ── GitHub Sync Log ──────────────────────────────────────────────
+// Audit log for all GitHub sync operations (both directions).
+// Used by the sync health dashboard for monitoring and retry.
+export const githubSyncLog = pgTable('github_sync_log', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull(),
+  nodeId: text('node_id'),                // clientId of the plan node (nullable for project-level ops)
+  direction: text('direction').notNull(),  // 'github_to_astro' | 'astro_to_github'
+  action: text('action').notNull(),        // 'create' | 'update' | 'close' | 'reopen' | 'comment' | 'label' | 'assign'
+  status: text('status').notNull(),        // 'success' | 'error'
+  errorMessage: text('error_message'),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>(), // extra context (issue number, field names, etc.)
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => [
+  index('github_sync_log_project_id_idx').on(table.projectId),
+  index('github_sync_log_created_at_idx').on(table.createdAt),
+])

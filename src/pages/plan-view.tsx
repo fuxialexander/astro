@@ -29,6 +29,7 @@ import { UseTemplateSheet } from "@/components/templates/use-template-sheet"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { PublishDialog } from "@/components/community/publish-dialog"
 import { GitHubSyncSettingsDialog } from "@/components/github-sync-settings-dialog"
+import { SyncHealthDot } from "@/components/github-sync-health"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
@@ -1792,30 +1793,33 @@ export function PlanView() {
               onViewAsChange: (v) => navigate(`/project/${project.id}/${v}`),
             }} />
             {canSyncGitHub ? (
-              <div className="flex items-center gap-0.5">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleSyncGitHub}
-                      disabled={syncing}
-                      className="text-xs rounded-l-full rounded-r-none border-r-0 pl-3 pr-2"
-                    >
-                      <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", syncing && "animate-spin")} />
-                      Sync
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Sync GitHub Issues</TooltipContent>
-                </Tooltip>
-                <GitHubSyncSettingsDialog
-                  project={project}
-                  trigger={
-                    <Button variant="outline" size="sm" className="rounded-l-none rounded-r-full border-l-0 px-1.5 h-8">
-                      <Settings2 className="h-3.5 w-3.5" />
-                    </Button>
-                  }
-                />
+              <div className="flex items-center gap-1.5">
+                <SyncHealthDot projectId={project?.id} className="mr-0.5" />
+                <div className="flex items-center gap-0">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleSyncGitHub}
+                        disabled={syncing}
+                        className="text-xs rounded-l-full rounded-r-none border-r-0 pl-3 pr-2"
+                      >
+                        <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", syncing && "animate-spin")} />
+                        Sync
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Sync GitHub Issues</TooltipContent>
+                  </Tooltip>
+                  <GitHubSyncSettingsDialog
+                    project={project}
+                    trigger={
+                      <Button variant="outline" size="sm" className="rounded-l-none rounded-r-full border-l-0 px-1.5 h-8">
+                        <Settings2 className="h-3.5 w-3.5" />
+                      </Button>
+                    }
+                  />
+                </div>
               </div>
             ) : canReplan ? (
               <Tooltip>
