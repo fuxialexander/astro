@@ -496,6 +496,28 @@ export async function resetTask(
   return response.json()
 }
 
+/**
+ * Bulk reset multiple task nodes for re-execution.
+ * Used during replan to reset all archived tasks at once.
+ */
+export async function bulkResetTasks(
+  nodeIds: string[],
+  projectId: string,
+): Promise<{ success: boolean; errors?: string[] }> {
+  const response = await fetch(apiUrl("/api/dispatch/bulk-reset"), {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ nodeIds, projectId }),
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`Bulk reset failed: ${response.status} ${text}`)
+  }
+
+  return response.json()
+}
+
 // ============================================================================
 // Streaming Events Catch-Up API
 // ============================================================================

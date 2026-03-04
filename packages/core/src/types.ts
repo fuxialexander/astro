@@ -34,6 +34,26 @@ export interface ExecutionSummary {
   followUps: string[];
 }
 
+/**
+ * Context from a previous plan execution used to inform replanning.
+ * Contains lessons learned, per-task execution summaries, and the
+ * user's description of what changed since the last run.
+ */
+export interface ReplanContext {
+  /** High-level summary of the previous plan and its outcome */
+  previousPlanSummary?: string;
+  /** Per-task lessons from the prior execution */
+  lessons: Array<{
+    taskTitle: string;
+    taskDescription: string;
+    status: 'success' | 'partial' | 'failure' | 'not_executed';
+    executionSummary?: string;
+    followUps?: string[];
+  }>;
+  /** User-provided description of what changed or why replanning is needed */
+  changeDescription?: string;
+}
+
 export interface SteerMessage {
   message: string;
   accepted?: boolean;

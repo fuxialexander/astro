@@ -123,6 +123,17 @@ const dispatchTaskSchema = z.object({
   }).optional(),
   resumeSessionId: z.string().max(200).optional(),
   forkSession: z.boolean().optional(),
+  replanContext: z.object({
+    previousPlanSummary: z.string().optional(),
+    lessons: z.array(z.object({
+      taskTitle: z.string(),
+      taskDescription: z.string(),
+      status: z.enum(['success', 'partial', 'failure', 'not_executed']),
+      executionSummary: z.string().optional(),
+      followUps: z.array(z.string()).optional(),
+    })),
+    changeDescription: z.string().optional(),
+  }).optional(),
 })
 
 const dispatchRoute = new Hono()
@@ -181,6 +192,7 @@ dispatchRoute.post('/task', async (c) => {
     dispatchSigningPayload,
     resumeSessionId,
     forkSession,
+    replanContext,
   } = body
 
   // These variables may be resolved from DB when not provided by the client
@@ -486,6 +498,7 @@ dispatchRoute.post('/task', async (c) => {
     dispatchSigningPayload,
     dryRun,
     nodeNumber,
+    replanContext,
   })
 })
 
@@ -530,6 +543,7 @@ async function dispatchViaRelay(
     dispatchSigningPayload?: { v: 1; nodeId: string; projectId: string; machineId: string; timestamp: string; nonce: string }
     dryRun?: boolean
     nodeNumber?: number | null
+    replanContext?: z.infer<typeof dispatchTaskSchema>['replanContext']
   }
 ) {
   // Derive Astro base URL: env var > request Origin header
@@ -571,6 +585,7 @@ async function dispatchViaRelay(
     dispatchSigningPayload,
     dryRun,
     nodeNumber,
+    replanContext,
   } = params
 
   // Compute short hex IDs early — needed for prompt building + relay dispatch
@@ -642,6 +657,7 @@ async function dispatchViaRelay(
       visionDoc: visionDoc || undefined,
       skillsSummary: skillsInjection,
       githubContext,
+      replanContext,
     })
     // The user prompt is just the description
     promptParts.push(description)
@@ -1891,7 +1907,7 @@ dispatchRoute.post('/reset', async (c) => {
   const errors: string[] = []
 
   // Load project to get GitHub owner/repo
-  const [project] = await db.select().from(projects).where(eq(projects.clientId, projectId)).limit(1)
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
 
   // Get GitHub token for the authenticated user (used for PR close + branch delete)
   const { githubStore } = await import('../lib/github-store.js')
@@ -2037,6 +2053,191 @@ dispatchRoute.post('/reset', async (c) => {
       branchDeleted: !!node.branchName,
       nodeReset: true,
     },
+  })
+})
+
+/**
+ * Bulk reset multiple plan nodes at once.
+ *
+ * For each node:
+ * 1. Close PR if it has one (via GitHub API)
+ * 2. Delete remote task branch if not a project branch (via GitHub API)
+ * 3. Send worktree cleanup command to relay for nodes with a machineId
+ * 4. Bulk-delete streaming_events rows for all node IDs
+ * 5. Bulk-delete taskExecutions rows for all node IDs
+ * 6. Reset all node fields and status back to 'planned'
+ *
+ * Individual node operations are wrapped in try/catch so one failure doesn't block others.
+ */
+const bulkResetSchema = z.object({
+  nodeIds: z.array(z.string().min(1).max(100)).min(1).max(500),
+  projectId: z.string().min(1).max(100),
+})
+
+dispatchRoute.post('/bulk-reset', async (c) => {
+  const rawBody = await c.req.json()
+  const parsed = bulkResetSchema.safeParse(rawBody)
+  if (!parsed.success) {
+    return c.json({ success: false, error: `Validation error: ${parsed.error.message}` }, 400)
+  }
+
+  const { nodeIds, projectId } = parsed.data
+  const user = c.get('user') as AuthUser | undefined
+  const userId = user?.id || LOCAL_USER_ID
+  const errors: string[] = []
+
+  // 1. Load all referenced plan nodes in a single query
+  const nodes = await db.select().from(planNodes).where(inArray(planNodes.clientId, nodeIds))
+  if (nodes.length === 0) {
+    return c.json({ success: false, error: 'No matching nodes found' }, 404)
+  }
+
+  // 2. Load the project to check for GitHub connection
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
+
+  // Get GitHub token for the authenticated user
+  const { githubStore } = await import('../lib/github-store.js')
+  const ghConnection = await githubStore.getConnection(userId)
+  const ghToken = ghConnection?.accessToken
+  const ghRepo = project?.githubOwner && project?.githubRepo
+    ? `${project.githubOwner}/${project.githubRepo}`
+    : null
+
+  // 3. For each node: close PR and delete remote branch
+  for (const node of nodes) {
+    // Close PR if exists
+    if (node.prNumber && ghRepo) {
+      if (!ghToken) {
+        errors.push(`No GitHub token — cannot close PR #${node.prNumber} for node ${node.clientId}`)
+      } else {
+        try {
+          const response = await fetch(
+            `https://api.github.com/repos/${ghRepo}/pulls/${node.prNumber}`,
+            {
+              method: 'PATCH',
+              headers: {
+                Authorization: `Bearer ${ghToken}`,
+                Accept: 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ state: 'closed' }),
+            },
+          )
+          if (response.ok) {
+            console.log(`[dispatch/bulk-reset] Closed PR #${node.prNumber} for node ${node.clientId}`)
+          } else {
+            const errText = await response.text()
+            console.warn(`[dispatch/bulk-reset] Failed to close PR #${node.prNumber}: ${response.status} ${errText}`)
+            errors.push(`Failed to close PR #${node.prNumber}: ${response.status}`)
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          console.error(`[dispatch/bulk-reset] Error closing PR #${node.prNumber}: ${msg}`)
+          errors.push(`Error closing PR #${node.prNumber}: ${msg}`)
+        }
+      }
+    }
+
+    // Delete remote TASK branch (never delete the project branch)
+    const isProjectBranch = node.branchName && project?.projectBranch && node.branchName === project.projectBranch
+    if (node.branchName && ghRepo && ghToken && !isProjectBranch) {
+      try {
+        const response = await fetch(
+          `https://api.github.com/repos/${ghRepo}/git/refs/heads/${node.branchName}`,
+          {
+            method: 'DELETE',
+            headers: {
+              Authorization: `Bearer ${ghToken}`,
+              Accept: 'application/vnd.github.v3+json',
+            },
+          },
+        )
+        if (response.ok || response.status === 422) {
+          console.log(`[dispatch/bulk-reset] Deleted remote branch ${node.branchName}`)
+        } else {
+          const errText = await response.text()
+          console.warn(`[dispatch/bulk-reset] Failed to delete branch ${node.branchName}: ${response.status} ${errText}`)
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.warn(`[dispatch/bulk-reset] Error deleting remote branch ${node.branchName}: ${msg}`)
+      }
+    }
+
+    // Send cleanup command to agent runner via relay
+    const targetMachineId = project?.defaultMachineId
+    if (targetMachineId && node.branchName) {
+      const sent = relayServer.cleanupTask(node.clientId, targetMachineId, node.branchName)
+      if (sent) {
+        console.log(`[dispatch/bulk-reset] Cleanup command sent to machine ${targetMachineId} for node ${node.clientId}`)
+      } else {
+        console.warn(`[dispatch/bulk-reset] Could not send cleanup to machine ${targetMachineId} for node ${node.clientId} (not connected)`)
+      }
+    }
+  }
+
+  // 4. Bulk-delete streaming_events for all node IDs
+  try {
+    // Find all execution IDs for these nodes
+    const nodeExecutions = await db.select({ executionId: taskExecutions.executionId })
+      .from(taskExecutions)
+      .where(inArray(taskExecutions.nodeClientId, nodeIds))
+
+    if (nodeExecutions.length > 0) {
+      const executionIds = nodeExecutions.map(e => e.executionId)
+
+      // Delete streaming events for these executions (FK constraint requires this first)
+      await db.delete(streamingEvents)
+        .where(inArray(streamingEvents.executionId, executionIds))
+
+      console.log(`[dispatch/bulk-reset] Deleted streaming events for ${executionIds.length} execution(s)`)
+    }
+  } catch (dbErr) {
+    const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
+    console.warn(`[dispatch/bulk-reset] Failed to delete streaming events: ${msg}`)
+    errors.push(`Failed to clean up streaming events: ${msg}`)
+  }
+
+  // 5. Bulk-delete taskExecutions for all node IDs
+  try {
+    await db.delete(taskExecutions)
+      .where(inArray(taskExecutions.nodeClientId, nodeIds))
+    console.log(`[dispatch/bulk-reset] Deleted task executions for ${nodeIds.length} node(s)`)
+  } catch (dbErr) {
+    const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
+    console.warn(`[dispatch/bulk-reset] Failed to delete task executions: ${msg}`)
+    errors.push(`Failed to clean up task executions: ${msg}`)
+  }
+
+  // 6. Bulk-reset all plan node fields and status
+  try {
+    await db.update(planNodes)
+      .set({
+        prUrl: null,
+        prNumber: null,
+        branchName: null,
+        commitBeforeSha: null,
+        commitAfterSha: null,
+        executionId: null,
+        executionOutput: null,
+        executionError: null,
+        executionStartedAt: null,
+        executionCompletedAt: null,
+        status: 'planned',
+        updatedAt: new Date(),
+      })
+      .where(inArray(planNodes.clientId, nodeIds))
+    console.log(`[dispatch/bulk-reset] Reset ${nodeIds.length} node(s) to planned state`)
+  } catch (dbErr) {
+    const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
+    console.error(`[dispatch/bulk-reset] Failed to reset nodes in DB: ${msg}`)
+    return c.json({ success: false, error: `Database update failed: ${msg}` }, 500)
+  }
+
+  return c.json({
+    success: true,
+    errors: errors.length > 0 ? errors : undefined,
+    nodesReset: nodeIds.length,
   })
 })
 

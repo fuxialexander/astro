@@ -583,7 +583,7 @@ export function PlanChatPhase({
             projectId={projectId}
             projectName={projectName}
             nodeCount={planNodes.length}
-            edgeCount={0}
+            edgeCount={planEdgeContext.length}
             milestoneNames={milestoneNames}
             status="success"
           />

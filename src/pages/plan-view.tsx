@@ -1,12 +1,14 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, Sparkles, FileText } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, FileText } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
+import { ReplanDialog } from "@/components/replan-dialog"
+import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { TaskRow } from "@/components/task-row"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { PlanCanvas } from "@/components/plan-graph/plan-canvas"
 import { ChatPanel } from "@/components/agent/chat-panel"
@@ -43,6 +45,8 @@ import { cn } from "@/lib/utils"
 import { splitTitleDescription } from "@/lib/text-utils"
 import { topologicalSortNodes } from "@/lib/graph-sort-utils"
 import { useFileTreeRefresh } from "@/hooks/use-file-tree-refresh"
+import { apiUrl } from "@/lib/api-url"
+import { getAccessToken } from "@/lib/supabase-client"
 import type { PlanNode, Priority, Project } from "@/types"
 
 type ViewMode = "graph" | "list" | "timeline" | "board"
@@ -1462,6 +1466,7 @@ export function PlanView() {
   }, [planNodes, handleNodeSelect])
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
   const [visionOpen, setVisionOpen] = useState(false)
+  const [replanOpen, setReplanOpen] = useState(false)
   const [useTemplateOpen, setUseTemplateOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
   const chatPanelPosition = useUIStore((s) => s.chatPanelPosition)
@@ -1521,6 +1526,33 @@ export function PlanView() {
 
   // Auto-fetch file tree in the background when stale or missing
   useFileTreeRefresh(project)
+
+  // Replan gate logic
+  const isGitHubProject = !!(project?.githubOwner && project?.githubRepo) || project?.source?.remoteType === 'github'
+  const liveNodes = useMemo(() => planNodes.filter(n => n.projectId === id), [planNodes, id])
+  const canReplan = liveNodes.length > 0 && !isGitHubProject
+  const canSyncGitHub = isGitHubProject
+
+  // GitHub issue sync handler
+  const [syncing, setSyncing] = useState(false)
+  const handleSyncGitHub = useCallback(async () => {
+    if (!project) return
+    setSyncing(true)
+    try {
+      const headers: Record<string, string> = {}
+      const token = await getAccessToken()
+      if (token) headers["Authorization"] = `Bearer ${token}`
+      const res = await fetch(apiUrl(`/api/github/projects/${project.id}/sync-issues`), { method: "POST", headers })
+      if (!res.ok) throw new Error("Failed to sync")
+      const data = await res.json()
+      await usePlanStore.getState().load()
+      useToastStore.getState().add({ type: "success", title: "Issues synced", description: `${data.created} new, ${data.updated} updated` })
+    } catch (err) {
+      useToastStore.getState().add({ type: "error", title: "Sync failed", description: err instanceof Error ? err.message : "Unknown error" })
+    } finally {
+      setSyncing(false)
+    }
+  }, [project])
 
   if (!project) {
     return (
@@ -1630,6 +1662,25 @@ export function PlanView() {
               activeViewAs: viewMode,
               onViewAsChange: (v) => navigate(`/project/${project.id}/${v}`),
             }} />
+            {canSyncGitHub ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" onClick={handleSyncGitHub} disabled={syncing}>
+                    <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Sync GitHub Issues</TooltipContent>
+              </Tooltip>
+            ) : canReplan ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" onClick={() => setReplanOpen(true)}>
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Regenerate Plan</TooltipContent>
+              </Tooltip>
+            ) : null}
           </div>
         )}
 
@@ -1671,6 +1722,23 @@ export function PlanView() {
                 </div>
               </>
             )}
+            {canSyncGitHub ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleSyncGitHub} disabled={syncing}>
+                  <RefreshCw className={cn("h-3.5 w-3.5 mr-2", syncing && "animate-spin")} />
+                  Sync GitHub Issues
+                </DropdownMenuItem>
+              </>
+            ) : canReplan ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setReplanOpen(true)}>
+                  <RefreshCw className="h-3.5 w-3.5 mr-2" />
+                  Regenerate Plan
+                </DropdownMenuItem>
+              </>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       </header>
@@ -1725,6 +1793,9 @@ export function PlanView() {
 
       {/* Vision Document Dialog */}
       <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />
+
+      {/* Replan Dialog */}
+      <ReplanDialog open={replanOpen} onOpenChange={setReplanOpen} project={project} />
 
       {/* Use Template Sheet */}
       <UseTemplateSheet

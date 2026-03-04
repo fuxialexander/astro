@@ -807,6 +807,7 @@ export function buildInteractivePlanPrompt(
     gitState?: GitStateForPrompt
     skillsSummary?: string
     githubContext?: GitHubContextForPrompt
+    replanContext?: import('./types.js').ReplanContext
   }
 ): string {
   const visionSection = options?.visionDoc
@@ -887,6 +888,43 @@ You MUST include a final task node titled "Push to GitHub" that:
     }
   }
 
+  // Build replan context section if available
+  let replanSection = ""
+  if (options?.replanContext) {
+    const rc = options.replanContext
+    const statusBadge = (s: string) => {
+      switch (s) {
+        case 'success': return '✅'
+        case 'partial': return '⚠️'
+        case 'failure': return '❌'
+        case 'not_executed': return '⏭️'
+        default: return '❓'
+      }
+    }
+    const parts: string[] = [`## Previous Plan — Lessons Learned\n\nThis is a **replan**. A previous plan was executed and the user wants to iterate. Use these lessons to build a better plan.\n`]
+    if (rc.previousPlanSummary) {
+      parts.push(`### Previous Plan Summary\n${rc.previousPlanSummary}\n`)
+    }
+    if (rc.changeDescription) {
+      parts.push(`### What Changed\n${rc.changeDescription}\n`)
+    }
+    if (rc.lessons.length > 0) {
+      parts.push(`### Per-Task Lessons\n`)
+      for (const lesson of rc.lessons) {
+        parts.push(`${statusBadge(lesson.status)} **${lesson.taskTitle}** — ${lesson.taskDescription}`)
+        if (lesson.executionSummary) {
+          parts.push(`  - Summary: ${lesson.executionSummary}`)
+        }
+        if (lesson.followUps && lesson.followUps.length > 0) {
+          parts.push(`  - Follow-ups: ${lesson.followUps.join('; ')}`)
+        }
+      }
+      parts.push('')
+    }
+    parts.push(`### Guidance for Replanning\n- Tasks that succeeded can be kept as-is or refined based on follow-ups.\n- Tasks that partially succeeded may need scope adjustment or splitting.\n- Failed tasks should be redesigned with a different approach.\n- Tasks not executed may still be relevant — evaluate based on the changed context.\n`)
+    replanSection = '\n' + parts.join('\n') + '\n'
+  }
+
   const hasCodebase = !!options?.repoContext
 
   return `You are an interactive project planning assistant. Your goal is to help the user create a detailed, actionable project plan through exploration and discussion.
@@ -895,7 +933,7 @@ You MUST include a final task node titled "Push to GitHub" that:
 <user_goal>
 ${description}
 </user_goal>
-${visionSection}${repoSection}${gitStateSection}${skillsSection}${githubSection}
+${visionSection}${replanSection}${repoSection}${gitStateSection}${skillsSection}${githubSection}
 ## Your Approach
 ${hasCodebase ? `
 1. **Quick survey of the codebase** — Get a high-level understanding first. Read READMEs, CLAUDE.md, package.json, and use Glob to see the directory/file tree structure. Do NOT dive into individual source files yet — just get the lay of the land.
