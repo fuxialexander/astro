@@ -432,6 +432,15 @@ export async function getTrending(): Promise<SharedPlanSummary[]> {
 }
 
 /**
+ * Get featured/curated plans.
+ * GET /api/community/plans/featured
+ */
+export async function getFeatured(): Promise<SharedPlanSummary[]> {
+  const response = await json<{ plans: Record<string, unknown>[] }>(`/api/community/plans/featured`)
+  return response.plans.map(mapSharedPlanSummary)
+}
+
+/**
  * Get available categories with plan counts.
  * GET /api/community/plans/categories
  */

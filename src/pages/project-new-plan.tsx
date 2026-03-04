@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
-import { useSearchParams, useLocation } from "react-router"
+import { useSearchParams, useLocation, useNavigate } from "react-router"
 import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, AlertCircle, Info, Monitor, Bot, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -22,6 +22,7 @@ import { useTemplateStore } from "@/stores/template-store"
 import { PlanChatPhase } from "@/components/plan-session/plan-chat-phase"
 import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
 import { TemplatePickerDialog } from "@/components/templates/template-picker-dialog"
+import { FeaturedTemplateChips } from "@/components/templates/featured-template-chips"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { BranchSelector } from "@/components/branch-selector"
 import { AttachmentList } from "@/components/task-detail/attachment-list"
@@ -40,9 +41,12 @@ export function ProjectNewPlan() {
   const [searchParams, setSearchParams] = useSearchParams()
   const projectIdParam = searchParams.get("projectId")
   const location = useLocation()
+  const navigate = useNavigate()
 
-  // Playground context from location state
-  const fromPlaygroundId = (location.state as { fromPlaygroundId?: string } | null)?.fromPlaygroundId
+  // Location state context
+  const locationState = location.state as { fromPlaygroundId?: string; initialTemplateId?: string } | null
+  const fromPlaygroundId = locationState?.fromPlaygroundId
+  const locationTemplateId = locationState?.initialTemplateId
 
   // Input phase state
   const [description, setDescription] = useState("")
@@ -55,6 +59,7 @@ export function ProjectNewPlan() {
   const [selectedModel, setSelectedModel] = useState("")
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false)
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
+  const [initialTemplateId, setInitialTemplateId] = useState<string | null>(null)
   const [templateLaunching, setTemplateLaunching] = useState(false)
   const [contextOpen, setContextOpen] = useState(false)
   const [visionDoc, setVisionDoc] = useState("")
@@ -183,6 +188,15 @@ export function ProjectNewPlan() {
     if (!templatesLoaded) loadTemplates()
   }, [templatesLoaded, loadTemplates])
 
+  // Auto-open template picker when navigating from dashboard with a template
+  useEffect(() => {
+    if (locationTemplateId && templatesLoaded) {
+      setInitialTemplateId(locationTemplateId)
+      setTemplatePickerOpen(true)
+      // Clear location state to avoid re-triggering on re-render
+      window.history.replaceState({}, '')
+    }
+  }, [locationTemplateId, templatesLoaded])
 
   // Reset provider/model when machine changes and current provider isn't available
   useEffect(() => {
@@ -657,6 +671,17 @@ export function ProjectNewPlan() {
               className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
             />
 
+            {/* Featured template chips */}
+            <div className="px-4 pb-1">
+              <FeaturedTemplateChips
+                onSelect={(templateId) => {
+                  setInitialTemplateId(templateId)
+                  setTemplatePickerOpen(true)
+                }}
+                onShowAll={() => navigate("/templates")}
+              />
+            </div>
+
             {/* OR divider + options */}
             <div className="px-4 pb-3">
               <div className="flex items-center gap-3 mb-2.5">
@@ -667,7 +692,10 @@ export function ProjectNewPlan() {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setTemplatePickerOpen(true)}
+                  onClick={() => {
+                    setInitialTemplateId(null)
+                    setTemplatePickerOpen(true)
+                  }}
                   disabled={templateLaunching}
                   className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -676,7 +704,7 @@ export function ProjectNewPlan() {
                   ) : (
                     <LayoutTemplate className="h-3.5 w-3.5" />
                   )}
-                  {templateLaunching ? "Starting..." : "Start from Template"}
+                  {templateLaunching ? "Starting..." : "Browse All Templates"}
                 </button>
                 <button
                   type="button"
@@ -998,7 +1026,11 @@ export function ProjectNewPlan() {
         {/* Template picker dialog */}
         <TemplatePickerDialog
           open={templatePickerOpen}
-          onOpenChange={setTemplatePickerOpen}
+          onOpenChange={(open) => {
+            setTemplatePickerOpen(open)
+            if (!open) setInitialTemplateId(null)
+          }}
+          initialTemplateId={initialTemplateId}
           onLaunchSuccess={handleTemplateLaunch}
         />
       </div>

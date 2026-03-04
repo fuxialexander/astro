@@ -3,10 +3,13 @@ import { formatDistanceToNow } from "date-fns"
 import { useNavigate } from "react-router"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { cn } from "@/lib/utils"
 import type { SharedPlanSummary } from "@/lib/community-client"
 
 interface PlanCardProps {
   plan: SharedPlanSummary
+  /** Highlight the card with a primary border accent */
+  featured?: boolean
 }
 
 /**
@@ -22,7 +25,7 @@ interface PlanCardProps {
  * - Hover effect with shadow transition
  * - Click navigation to plan detail page
  */
-export function PlanCard({ plan }: PlanCardProps) {
+export function PlanCard({ plan, featured }: PlanCardProps) {
   const navigate = useNavigate()
 
   // Node count is not available in summary view, will be shown as 0
@@ -34,7 +37,10 @@ export function PlanCard({ plan }: PlanCardProps) {
 
   return (
     <Card
-      className="cursor-pointer transition-shadow hover:shadow-md"
+      className={cn(
+        "cursor-pointer transition-shadow hover:shadow-md",
+        featured && "border-primary/30 bg-primary/[0.02]"
+      )}
       onClick={handleClick}
     >
       <CardHeader>

@@ -38,6 +38,8 @@ interface TemplatePickerDialogProps {
    * Use this when you want to handle the launch result (e.g., start SSE plan generation).
    */
   onLaunchSuccess?: (result: LaunchTemplateResult) => void
+  /** When set, auto-selects this template and skips to the configure step on open */
+  initialTemplateId?: string | null
 }
 
 type WizardStep = "browse" | "configure" | "preview" | "launch"
@@ -67,7 +69,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
  * - Auto-preview when parameters change
  * - Launch → navigate to project plan view
  */
-export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess }: TemplatePickerDialogProps) {
+export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, initialTemplateId }: TemplatePickerDialogProps) {
   const navigate = useNavigate()
 
   // Template store state
@@ -104,6 +106,15 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess }: Te
       reset()
     }
   }, [open, reset])
+
+  // Auto-select initial template when dialog opens with one specified
+  useEffect(() => {
+    if (open && initialTemplateId) {
+      selectTemplate(initialTemplateId)
+        .then(() => setCurrentStep("configure"))
+        .catch(() => { /* template store shows toast on failure */ })
+    }
+  }, [open, initialTemplateId, selectTemplate])
 
   // Auto-generate project name from template when template is selected
   useEffect(() => {

@@ -53,7 +53,7 @@ const defaultItems: SidebarItem[] = [
   { id: "active", to: "/active", icon: "Zap", label: "Active", visible: false, protected: false },
   { id: "workflows", to: "/workflows", icon: "BookOpen", label: "Workflows", visible: false, protected: false },
   { id: "initiatives", to: "/initiatives", icon: "Target", label: "Grand Plans", visible: false, protected: false },
-  { id: "skills", to: "/skills", icon: "Wrench", label: "Skills", visible: false, protected: false },
+  { id: "skills", to: "/skills", icon: "Wrench", label: "Skills", visible: true, protected: false },
 ]
 
 function mergeWithDefaults(stored: SidebarItem[]): SidebarItem[] {

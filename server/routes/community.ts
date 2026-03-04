@@ -313,6 +313,34 @@ app.get('/plans/trending', async (c) => {
   return c.json({ plans: trendingPlans })
 })
 
+// ── GET /api/community/plans/featured ─────────────────────────────────
+// Get featured/curated plans for showcase on dashboard and community page
+// NOTE: Must be registered BEFORE /plans/:id to avoid route shadowing
+app.get('/plans/featured', async (c) => {
+  const featuredPlans = await db.select({
+    id: sharedPlans.id,
+    title: sharedPlans.title,
+    description: sharedPlans.description,
+    authorName: sharedPlans.authorName,
+    category: sharedPlans.category,
+    tags: sharedPlans.tags,
+    starsCount: sharedPlans.starsCount,
+    forksCount: sharedPlans.forksCount,
+    createdAt: sharedPlans.createdAt,
+    executionSummary: sharedPlans.executionSummary,
+  })
+    .from(sharedPlans)
+    .where(and(
+      isNull(sharedPlans.deletedAt),
+      eq(sharedPlans.featured, true),
+      eq(sharedPlans.visibility, 'public')
+    ))
+    .orderBy(desc(sharedPlans.starsCount))
+    .limit(10)
+
+  return c.json({ plans: featuredPlans })
+})
+
 // ── GET /api/community/plans/categories ───────────────────────────────
 // Get distinct categories with counts
 // NOTE: Must be registered BEFORE /plans/:id to avoid route shadowing
