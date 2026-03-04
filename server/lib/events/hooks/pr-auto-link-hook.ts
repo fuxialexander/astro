@@ -13,12 +13,12 @@
 import type { AstroEvent, EventHook } from '../types.js'
 import { db } from '../../db/index.js'
 import { planNodes } from '../../db/schema.js'
-import { eq } from 'drizzle-orm'
+import { eq, and } from 'drizzle-orm'
 
 export const prAutoLinkHook: EventHook = async (event: AstroEvent) => {
   if (event.type !== 'pr.linked') return
 
-  const { nodeId, prNumber, prUrl, branchName, linkSource } = event
+  const { nodeId, projectId, prNumber, prUrl, branchName, linkSource } = event
 
   console.log(`[pr-auto-link] Linking PR to node ${nodeId}: prNumber=${prNumber}, branchName=${branchName}, source=${linkSource}`)
 
@@ -37,7 +37,7 @@ export const prAutoLinkHook: EventHook = async (event: AstroEvent) => {
       prNumber: planNodes.prNumber,
     })
       .from(planNodes)
-      .where(eq(planNodes.clientId, nodeId))
+      .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
       .limit(1)
 
     if (!existing) {
@@ -75,7 +75,7 @@ export const prAutoLinkHook: EventHook = async (event: AstroEvent) => {
 
     await db.update(planNodes)
       .set(updateSet)
-      .where(eq(planNodes.clientId, nodeId))
+      .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
 
     console.log(`[pr-auto-link] Successfully linked ${linkSource}: node=${nodeId}, pr=${prNumber ?? 'none'}, branch=${branchName ?? 'none'}`)
   } catch (dbError) {

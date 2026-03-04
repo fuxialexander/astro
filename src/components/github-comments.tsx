@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils'
 import { useGitHubCommentsStore } from '@/stores/github-comments-store'
 import { useGitHubStore } from '@/stores/github-store'
 import { StreamingMarkdown } from '@/components/ui/streaming-markdown'
-import type { GitHubComment, GitHubReviewThread, GitHubReviewComment } from '../../server/types/github'
+import type { GitHubComment, GitHubReviewThread, GitHubReviewComment } from '@/types'
 
 // ── Comment Reply Input ────────────────────────────────────────────────
 

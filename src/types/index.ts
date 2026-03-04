@@ -10,6 +10,8 @@ export type {
   GitHubRepoSelection,
   GitHubComment,
   GitHubCommentsResponse,
+  GitHubReviewComment,
+  GitHubReviewThread,
 } from '../../server/types/github';
 
 export type {

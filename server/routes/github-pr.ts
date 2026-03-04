@@ -54,9 +54,10 @@ app.post('/close-pr', async (c) => {
 
     if (!response.ok) {
       const errorBody = await response.text();
+      console.error('[github] close-pr API error:', errorBody);
       return c.json({
         success: false,
-        error: `GitHub API error ${response.status}: ${errorBody}`,
+        error: `GitHub API error: ${response.status}`,
       });
     }
 
@@ -189,9 +190,10 @@ app.post('/ensure-branch', async (c) => {
 
     if (!createRes.ok) {
       const errorBody = await createRes.text();
+      console.error('[github] create-branch error:', errorBody);
       return c.json({
         success: false,
-        error: `Failed to create branch: ${errorBody}`,
+        error: `Failed to create branch: ${createRes.status}`,
       });
     }
 

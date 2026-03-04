@@ -12,12 +12,17 @@ import { Hono } from 'hono';
 import authApp from './github-auth.js';
 import syncApp from './github-sync.js';
 import prApp from './github-pr.js';
+import { requireAuth, type AuthUser } from '../middleware/auth.js';
+import { githubStore } from '../lib/github-store.js';
 
 const app = new Hono();
 
 app.route('/', authApp);
 app.route('/', syncApp);
 app.route('/', prApp);
+
+// Apply auth middleware to all PR action routes defined below
+app.use('/pr/*', requireAuth);
 
 // ── PR action endpoints (review, merge, comment) ─────────────────────
 
@@ -115,9 +120,10 @@ app.post('/pr/:owner/:repo/:prNumber/review', async (c) => {
 
     if (!response.ok) {
       const errorBody = await response.text();
+      console.error('[github] API error:', errorBody);
       return c.json({
         success: false,
-        error: `GitHub API error ${response.status}: ${errorBody}`,
+        error: `GitHub API error: ${response.status}`,
       });
     }
 
@@ -186,9 +192,10 @@ app.post('/pr/:owner/:repo/:prNumber/merge', async (c) => {
 
     if (!prResponse.ok) {
       const errorBody = await prResponse.text();
+      console.error('[github] PR details fetch error:', errorBody);
       return c.json({
         success: false,
-        error: `Failed to fetch PR details: ${errorBody}`,
+        error: `Failed to fetch PR details: ${prResponse.status}`,
       });
     }
 
@@ -227,9 +234,10 @@ app.post('/pr/:owner/:repo/:prNumber/merge', async (c) => {
 
     if (!mergeResponse.ok) {
       const errorBody = await mergeResponse.text();
+      console.error('[github] Merge error:', errorBody);
       return c.json({
         success: false,
-        error: `GitHub merge error ${mergeResponse.status}: ${errorBody}`,
+        error: `GitHub merge error: ${mergeResponse.status}`,
       });
     }
 
@@ -292,9 +300,10 @@ app.post('/pr/:owner/:repo/:prNumber/comment', async (c) => {
 
     if (!response.ok) {
       const errorBody = await response.text();
+      console.error('[github] API error:', errorBody);
       return c.json({
         success: false,
-        error: `GitHub API error ${response.status}: ${errorBody}`,
+        error: `GitHub API error: ${response.status}`,
       });
     }
 
@@ -346,7 +355,8 @@ app.get('/pr/:owner/:repo/:prNumber', async (c) => {
 
     if (!prResponse.ok) {
       const errorBody = await prResponse.text();
-      return c.json({ error: `Failed to fetch PR: ${errorBody}` }, prResponse.status as 404 | 500);
+      console.error('[github] PR fetch error:', errorBody);
+      return c.json({ error: `Failed to fetch PR: ${prResponse.status}` }, prResponse.status as 404 | 500);
     }
 
     const prData = await prResponse.json();

@@ -19,6 +19,7 @@ import { NodeInspectorContent, NodeInspectorSheet } from "@/components/node-insp
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { ApprovalCard } from "@/components/approval-card"
 import { PrStatusCard } from "@/components/task-detail/pr-status-card"
+import { useGitHubStore } from "@/stores/github-store"
 import { statusBadgeVariants } from "@/lib/status-config"
 import { formatDuration } from "@/lib/date-utils"
 import { cn, getShortId } from "@/lib/utils"
@@ -49,6 +50,9 @@ export function TaskDetail() {
   const [isResetting, setIsResetting] = useState(false)
   const getPendingApprovalForNode = useExecutionStore((s) => s.getPendingApprovalForNode)
   const respondToApproval = useExecutionStore((s) => s.respondToApproval)
+
+  // GitHub user for self-approval guard
+  const currentUserLogin = useGitHubStore((s) => s.user?.login)
 
   // Mobile detection
   const isMobile = useMediaQuery("(max-width: 767px)")
@@ -298,6 +302,7 @@ export function TaskDetail() {
               repo={prRepo}
               prNumber={thePrNumber}
               prUrl={thePrUrl}
+              currentUserLogin={currentUserLogin}
             />
           </div>
         )
