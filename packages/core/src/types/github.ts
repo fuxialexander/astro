@@ -73,23 +73,21 @@ export interface GitHubRepoSelection {
 
 // ── GitHub Comments ──────────────────────────────────────────────
 
-/** Unified comment format for issue comments and PR review comments */
+/**
+ * A comment on a GitHub issue or PR (from the issues/comments API)
+ */
 export interface GitHubComment {
   id: number;
-  author: {
-    login: string;
-    avatar: string;
-  };
+  nodeId: string;
   body: string;
+  htmlUrl: string;
   createdAt: string;
   updatedAt: string;
-  type: 'issue_comment' | 'review_comment';
-  /** For threaded review comments — the parent comment ID */
-  inReplyTo?: number;
-  /** File path for PR review comments */
-  path?: string;
-  /** Line number for PR review comments */
-  line?: number;
+  user: {
+    login: string;
+    avatarUrl: string;
+    id: number;
+  };
 }
 
 /** Response from the comments API endpoint */
@@ -97,4 +95,39 @@ export interface GitHubCommentsResponse {
   comments: GitHubComment[];
   totalCount: number;
   etag?: string;
+}
+
+/**
+ * A PR review comment (inline code review, from the pulls/comments API)
+ */
+export interface GitHubReviewComment {
+  id: number;
+  nodeId: string;
+  body: string;
+  htmlUrl: string;
+  path: string;
+  line: number | null;
+  originalLine: number | null;
+  side: 'LEFT' | 'RIGHT';
+  diffHunk: string;
+  inReplyToId: number | null;
+  createdAt: string;
+  updatedAt: string;
+  user: {
+    login: string;
+    avatarUrl: string;
+    id: number;
+  };
+}
+
+/**
+ * A thread of review comments on a specific file/line
+ */
+export interface GitHubReviewThread {
+  /** The root comment ID for this thread */
+  rootCommentId: number;
+  path: string;
+  line: number | null;
+  diffHunk: string;
+  comments: GitHubReviewComment[];
 }

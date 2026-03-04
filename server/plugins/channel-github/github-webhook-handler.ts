@@ -9,6 +9,7 @@ import type { GitHubChannelConfig, InboundMessage, ChannelRouter } from '../../l
 import { postGitHubComment } from './github-api.js'
 import { astroEventTransport } from '../../lib/events/astro-event-transport.js'
 import { lookupGitHubProject } from '../../lib/github-store.js'
+import { githubCommentBus } from '../../lib/github-comment-bus.js'
 import { db } from '../../lib/db/index.js'
 import { planNodes } from '../../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
@@ -198,6 +199,26 @@ export async function handleIssueCommentEvent(
     createdAt: comment.created_at as string,
     updatedAt: comment.updated_at as string,
     type: 'issue_comment',
+  })
+
+  // Broadcast the new comment to connected SSE clients for real-time updates
+  githubCommentBus.emit({
+    owner,
+    repo: repoName,
+    number: issueNumber,
+    comment: {
+      id: commentId,
+      nodeId: (comment.node_id as string) ?? '',
+      body: commentBody,
+      htmlUrl: (comment.html_url as string) ?? '',
+      createdAt: (comment.created_at as string) ?? '',
+      updatedAt: (comment.updated_at as string) ?? '',
+      user: {
+        login: (sender?.login as string) ?? '',
+        avatarUrl: (sender?.avatar_url as string) ?? '',
+        id: (sender?.id as number) ?? 0,
+      },
+    },
   })
 
   // Only route @astro mentions to the channel router
