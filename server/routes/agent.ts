@@ -670,8 +670,8 @@ agentRoute.post('/chat', async (c) => {
     return c.json({ error: 'Project not found' }, 404)
   }
 
-  // Look up the project's working directory
-  const [project] = await db.select({ workingDirectory: projects.workingDirectory }).from(projects).where(eq(projects.id, projectId)).limit(1)
+  // Look up the project's working directory and default machine
+  const [project] = await db.select({ workingDirectory: projects.workingDirectory, defaultMachineId: projects.defaultMachineId }).from(projects).where(eq(projects.id, projectId)).limit(1)
 
   const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges)
 
@@ -688,6 +688,7 @@ agentRoute.post('/chat', async (c) => {
     messages: historyMessages,
     model: model || undefined,
     workingDirectory: project?.workingDirectory ?? undefined,
+    targetMachineId: project?.defaultMachineId ?? undefined,
     streamId,
   })
 })
@@ -713,8 +714,8 @@ agentRoute.post('/plan-chat', async (c) => {
     return c.json({ error: 'Project not found' }, 404)
   }
 
-  // Look up the project's working directory
-  const [project] = await db.select({ workingDirectory: projects.workingDirectory }).from(projects).where(eq(projects.id, projectId)).limit(1)
+  // Look up the project's working directory and default machine
+  const [project] = await db.select({ workingDirectory: projects.workingDirectory, defaultMachineId: projects.defaultMachineId }).from(projects).where(eq(projects.id, projectId)).limit(1)
 
   const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges)
 
@@ -731,6 +732,7 @@ agentRoute.post('/plan-chat', async (c) => {
     messages: historyMessages,
     model: model || 'haiku',  // Default to small model for plan chat
     workingDirectory: project?.workingDirectory ?? undefined,
+    targetMachineId: project?.defaultMachineId ?? undefined,
     streamId,
   })
 })
@@ -789,8 +791,8 @@ agentRoute.post('/task-chat', async (c) => {
     return c.json({ error: 'Project not found' }, 404)
   }
 
-  // Look up the project's working directory
-  const [project] = await db.select({ workingDirectory: projects.workingDirectory }).from(projects).where(eq(projects.id, projectId)).limit(1)
+  // Look up the project's working directory and default machine
+  const [project] = await db.select({ workingDirectory: projects.workingDirectory, defaultMachineId: projects.defaultMachineId }).from(projects).where(eq(projects.id, projectId)).limit(1)
 
   const systemPrompt = buildTaskChatSystemPrompt({
     taskTitle,
@@ -815,6 +817,7 @@ agentRoute.post('/task-chat', async (c) => {
     messages: historyMessages,
     model: model || undefined,
     workingDirectory: project?.workingDirectory ?? undefined,
+    targetMachineId: project?.defaultMachineId ?? undefined,
     // When we have a provider session ID, pass it so agent-runner can resume the Claude session
     resumeSessionId: existingSessionId || undefined,
     streamId,
