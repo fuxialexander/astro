@@ -720,6 +720,58 @@ export interface GitPullRequestMessage extends BaseMessage {
   correlationId: string;
 }
 
+/** File content request (relay → agent) - for reading remote files */
+export interface FileContentRequestMessage extends BaseMessage {
+  type: 'file_content.request';
+  correlationId: string;
+  path: string;
+}
+
+/** File content response (agent → relay) */
+export interface FileContentResponseMessage extends BaseMessage {
+  type: 'file_content.response';
+  correlationId: string;
+  path: string;
+  content?: string;
+  encoding?: 'utf-8' | 'base64';
+  mimeType?: string;
+  size?: number;
+  /** Chunked transfer fields */
+  chunked?: boolean;
+  chunkIndex?: number;
+  totalChunks?: number;
+  error?: string;
+}
+
+/** File upload request (relay → agent) - for writing remote files */
+export interface FileUploadRequestMessage extends BaseMessage {
+  type: 'file_upload.request';
+  correlationId: string;
+  destinationPath: string;
+  fileName: string;
+  size: number;
+  totalChunks: number;
+  overwrite?: boolean;
+}
+
+/** File upload chunk (relay → agent) */
+export interface FileUploadChunkMessage extends BaseMessage {
+  type: 'file_upload.chunk';
+  correlationId: string;
+  chunkIndex: number;
+  encoding: 'utf-8' | 'base64';
+  content: string;
+}
+
+/** File upload response (agent → relay) */
+export interface FileUploadResponseMessage extends BaseMessage {
+  type: 'file_upload.response';
+  correlationId: string;
+  success: boolean;
+  path?: string;
+  error?: string;
+}
+
 /** Sessions list request (relay → agent) - for discovering Claude Code sessions */
 export interface SessionsListRequestMessage extends BaseMessage {
   type: 'sessions_list.request';
@@ -845,6 +897,8 @@ export type AgentToRelayMessage =
   | TaskApprovalRequestMessage
   | HeartbeatPongMessage
   | FileListResponseMessage
+  | FileContentResponseMessage
+  | FileUploadResponseMessage
   | SlashCommandsResponseMessage
   | RepoDetectResponseMessage
   | GitInitResponseMessage
@@ -872,6 +926,9 @@ export type RelayToAgentMessage =
   | HeartbeatPingMessage
   | MachineRegisterAckMessage
   | FileListRequestMessage
+  | FileContentRequestMessage
+  | FileUploadRequestMessage
+  | FileUploadChunkMessage
   | SlashCommandsRequestMessage
   | RepoDetectRequestMessage
   | GitInitRequestMessage
