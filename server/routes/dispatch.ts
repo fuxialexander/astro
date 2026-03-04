@@ -1420,19 +1420,23 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           lastActivity = Date.now() // Reset timer while approval is pending
         } else if (!resultSent) {
           const errorData = { error: 'Activity timeout — agent runner stopped responding', recoverable: false }
+          const sendDone = () => {
+            stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+          }
           streamingEventLog.append(executionId, 'error', errorData).then((seq) => {
             stream.writeSSE({
               id: String(seq),
               event: 'error',
               data: JSON.stringify(errorData),
             }).catch(() => {})
+            sendDone()
           }).catch(() => {
             stream.writeSSE({
               event: 'error',
               data: JSON.stringify(errorData),
             }).catch(() => {})
+            sendDone()
           })
-          stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
           alive = false
           clearInterval(heartbeat)
           return

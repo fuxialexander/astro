@@ -516,8 +516,9 @@ export async function fetchStreamingEventsCatchUp(
   const allEvents: StreamingEventRow[] = []
   let currentSeq = afterSeq
 
-  // Paginate until all events are fetched
-  while (true) {
+  // Paginate until all events are fetched (cap at 50 pages to avoid infinite loops)
+  const MAX_PAGES = 50
+  for (let page_i = 0; page_i < MAX_PAGES; page_i++) {
     const params = new URLSearchParams({
       executionIds: executionIds.join(','),
       afterSeq: String(currentSeq),
