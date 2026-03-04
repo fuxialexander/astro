@@ -887,6 +887,24 @@ export const sharedPlanForks = pgTable('shared_plan_forks', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
+// ── Project Knowledge ────────────────────────────────────────────
+// Key-value knowledge entries extracted during task execution.
+// Supports upsert semantics via unique(project_id, key).
+export const projectKnowledge = pgTable('project_knowledge', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  key: text('key').notNull(), // semantic key like 'db_schema', 'api_endpoints'
+  value: text('value').notNull(), // the knowledge content
+  sourceNodeId: text('source_node_id'), // which task wrote this
+  sourceTaskTitle: text('source_task_title'),
+  milestoneId: text('milestone_id'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  unique('project_knowledge_project_id_key_unique').on(table.projectId, table.key),
+  index('project_knowledge_project_id_idx').on(table.projectId),
+])
+
 // ── Shared Plan Comments ──────────────────────────────────────────
 // Comments and replies on shared plans.
 export const sharedPlanComments = pgTable('shared_plan_comments', {
