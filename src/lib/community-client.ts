@@ -157,7 +157,7 @@ export interface ForkPlanResponse {
 
 /** Star status response */
 export interface StarStatusResponse {
-  isStarred: boolean
+  starred: boolean
   starsCount: number
 }
 

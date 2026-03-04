@@ -23,7 +23,8 @@ app.use('/*', requireAuth)
 // Publish a plan to the community marketplace
 app.post('/plans', async (c) => {
   const user = c.get('user')! as AuthUser
-  const body = await c.req.json()
+  let body: Record<string, unknown>
+  try { body = await c.req.json() } catch { return c.json({ error: 'Invalid JSON body' }, 400) }
 
   // Validate required fields
   if (!body.title || typeof body.title !== 'string' || !body.title.trim()) {
@@ -161,10 +162,11 @@ app.get('/plans', async (c) => {
   }
 
   if (search) {
-    // Full-text search on title and description
+    // Escape LIKE special characters to prevent wildcard injection
+    const escapedSearch = search.replace(/[%_\\]/g, '\\$&')
     conditions.push(or(
-      ilike(sharedPlans.title, `%${search}%`),
-      ilike(sharedPlans.description, `%${search}%`)
+      ilike(sharedPlans.title, `%${escapedSearch}%`),
+      ilike(sharedPlans.description, `%${escapedSearch}%`)
     )!)
   }
 
@@ -408,7 +410,8 @@ app.get('/plans/:id', async (c) => {
 app.put('/plans/:id', async (c) => {
   const user = c.get('user')! as AuthUser
   const planId = c.req.param('id')
-  const body = await c.req.json()
+  let body: Record<string, unknown>
+  try { body = await c.req.json() } catch { return c.json({ error: 'Invalid JSON body' }, 400) }
 
   // Fetch existing plan to check ownership
   const [existing] = await db.select({ authorId: sharedPlans.authorId })
@@ -977,7 +980,8 @@ app.get('/plans/:id/comments', async (c) => {
 app.post('/plans/:id/comments', async (c) => {
   const user = c.get('user')! as AuthUser
   const planId = c.req.param('id')
-  const body = await c.req.json()
+  let body: Record<string, unknown>
+  try { body = await c.req.json() } catch { return c.json({ error: 'Invalid JSON body' }, 400) }
 
   // Validate required fields
   if (!body.content || typeof body.content !== 'string' || !body.content.trim()) {
@@ -1042,19 +1046,22 @@ app.post('/plans/:id/comments', async (c) => {
     // Use fallback if profile fetch fails
   }
 
-  // Insert comment
-  const [comment] = await db.insert(sharedPlanComments).values({
-    planId,
-    authorId: user.id,
-    authorName,
-    content: body.content.trim(),
-    parentCommentId: body.parentCommentId || null,
-  }).returning()
+  // Insert comment and increment count atomically
+  const [comment] = await db.transaction(async (tx) => {
+    const [inserted] = await tx.insert(sharedPlanComments).values({
+      planId,
+      authorId: user.id,
+      authorName,
+      content: body.content.trim(),
+      parentCommentId: body.parentCommentId || null,
+    }).returning()
 
-  // Atomically increment commentsCount
-  await db.update(sharedPlans)
-    .set({ commentsCount: sql`${sharedPlans.commentsCount} + 1` })
-    .where(eq(sharedPlans.id, planId))
+    await tx.update(sharedPlans)
+      .set({ commentsCount: sql`${sharedPlans.commentsCount} + 1` })
+      .where(eq(sharedPlans.id, planId))
+
+    return [inserted]
+  })
 
   return c.json(comment, 201)
 })
@@ -1064,7 +1071,8 @@ app.post('/plans/:id/comments', async (c) => {
 app.put('/comments/:id', async (c) => {
   const user = c.get('user')! as AuthUser
   const commentId = c.req.param('id')
-  const body = await c.req.json()
+  let body: Record<string, unknown>
+  try { body = await c.req.json() } catch { return c.json({ error: 'Invalid JSON body' }, 400) }
 
   // Validate content
   if (!body.content || typeof body.content !== 'string' || !body.content.trim()) {
@@ -1130,15 +1138,16 @@ app.delete('/comments/:id', async (c) => {
     return c.json({ error: 'Only the author can delete this comment' }, 403)
   }
 
-  // Soft delete by setting deletedAt
-  await db.update(sharedPlanComments)
-    .set({ deletedAt: new Date() })
-    .where(eq(sharedPlanComments.id, commentId))
+  // Soft delete and decrement count atomically
+  await db.transaction(async (tx) => {
+    await tx.update(sharedPlanComments)
+      .set({ deletedAt: new Date() })
+      .where(eq(sharedPlanComments.id, commentId))
 
-  // Atomically decrement commentsCount
-  await db.update(sharedPlans)
-    .set({ commentsCount: sql`GREATEST(0, ${sharedPlans.commentsCount} - 1)` })
-    .where(eq(sharedPlans.id, existing.planId))
+    await tx.update(sharedPlans)
+      .set({ commentsCount: sql`GREATEST(0, ${sharedPlans.commentsCount} - 1)` })
+      .where(eq(sharedPlans.id, existing.planId))
+  })
 
   return c.json({ success: true })
 })
