@@ -48,6 +48,7 @@ import { mergeQueueHook } from './lib/events/hooks/merge-queue-hook.js'
 import { gitPullHook } from './lib/events/hooks/git-pull-hook.js'
 import { channelNotificationHook } from './lib/events/hooks/channel-notification-hook.js'
 import { githubIssueCloseHook } from './lib/events/hooks/github-issue-close-hook.js'
+import { githubFieldSyncHook } from './lib/events/hooks/github-field-sync-hook.js'
 import { prBodyUpdateHook } from './lib/events/hooks/pr-body-update-hook.js'
 import { projectCompletionHook } from './lib/events/hooks/project-completion-hook.js'
 import { prAutoLinkHook } from './lib/events/hooks/pr-auto-link-hook.js'
@@ -329,6 +330,7 @@ async function start() {
     astroEventTransport.registerHook('pr-creation', prCreationHook)
     astroEventTransport.registerHook('pr-body-update', prBodyUpdateHook)
     astroEventTransport.registerHook('github-issue-close', githubIssueCloseHook)
+    astroEventTransport.registerHook('github-field-sync', githubFieldSyncHook)
     astroEventTransport.registerHook('merge-queue', mergeQueueHook)
     astroEventTransport.registerHook('project-completion', projectCompletionHook)
     astroEventTransport.registerHook('git-pull', gitPullHook)

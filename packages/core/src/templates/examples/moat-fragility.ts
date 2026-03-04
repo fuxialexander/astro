@@ -1,0 +1,486 @@
+/**
+ * Example: Moat & Fragility Competitive Advantage Analysis
+ *
+ * Evaluates a company's competitive advantage through:
+ * 1. Quantitative CA Scoring (4 pillars, 1-5 scale)
+ * 2. Qualitative Moat Analysis (7 Powers framework)
+ * 3. Anti-Fragility Resilience Test (Taleb-inspired)
+ *
+ * Produces a structured PDF report (Markdown/HTML → PDF).
+ * User provides a ticker symbol; the system retrieves financials,
+ * analyzes competitive position, and generates the report.
+ */
+
+import type { UseCaseTemplate } from '../../types/use-case-template.js'
+
+export const moatFragilityTemplate: UseCaseTemplate = {
+  // ── Identity ──────────────────────────────────────────────────────────
+  id: 'astro/moat-fragility',
+  name: 'Moat & Fragility Analysis',
+  description:
+    'Evaluate a company\'s competitive advantage using a three-phase framework: quantitative CA scoring (market position, trend, pricing power, ROIC), qualitative moat analysis (7 Powers framework), and anti-fragility resilience testing (Taleb-inspired). Produces a structured PDF report with charts, scoring tables, and actionable insights.',
+  category: 'data-science',
+  version: '1.0.0',
+  icon: '📑',
+  tags: ['finance', 'investing', 'moat', 'competitive-advantage', 'equity', 'analysis', 'antifragile'],
+  maturity: 'stable',
+
+  // ── Parameters ────────────────────────────────────────────────────────
+
+  requiredParameters: [
+    {
+      id: 'tickerSymbol',
+      name: 'Ticker Symbol',
+      description:
+        'The stock ticker symbol of the company to analyze (e.g., AAPL, MSFT, GOOG). Used to retrieve financial data.',
+      type: 'string',
+      required: true,
+      placeholder: 'AAPL',
+      validation: {
+        min: 1,
+        max: 10,
+        pattern: '^[A-Z0-9.\\-]+$',
+        message: 'Enter a valid uppercase ticker symbol (e.g., AAPL, BRK.B)',
+      },
+      group: 'source',
+      order: 0,
+    },
+  ],
+
+  optionalParameters: [
+    // ── Source group ──
+    {
+      id: 'supplementaryDocs',
+      name: 'Supplementary Documents',
+      description:
+        'Optional path to a directory containing supplementary documents (10-K filings, earnings transcripts, research reports) in PDF, Markdown, or HTML format. These are used to enrich the qualitative analysis.',
+      type: 'string',
+      required: false,
+      placeholder: '/path/to/filings/',
+      group: 'source',
+      order: 1,
+    },
+    {
+      id: 'comparisonTickers',
+      name: 'Comparison Tickers',
+      description: 'Comma-separated competitor ticker symbols for relative analysis.',
+      type: 'string',
+      required: false,
+      placeholder: 'MSFT, GOOG, META',
+      group: 'source',
+      order: 2,
+    },
+
+    // ── Analysis group ──
+    {
+      id: 'analysisDepth',
+      name: 'Analysis Depth',
+      description: 'How thorough should the analysis be?',
+      type: 'select',
+      required: false,
+      default: 'comprehensive',
+      options: [
+        { label: 'Comprehensive', value: 'comprehensive', description: 'Full three-phase analysis with competitor comparison (~20-30 pages)' },
+        { label: 'Standard', value: 'standard', description: 'Complete analysis without competitor deep-dive (~12-18 pages)' },
+        { label: 'Quick Screen', value: 'quick', description: 'High-level scoring and key moat identification (~5-8 pages)' },
+      ],
+      group: 'analysis',
+      order: 0,
+    },
+    {
+      id: 'timeHorizon',
+      name: 'Analysis Time Horizon',
+      description: 'Historical data lookback and forward projection period.',
+      type: 'select',
+      required: false,
+      default: '5year',
+      options: [
+        { label: '3 Years', value: '3year', description: '3-year lookback + 2-year projection' },
+        { label: '5 Years', value: '5year', description: '5-year lookback + 3-year projection' },
+        { label: '10 Years', value: '10year', description: '10-year lookback + 5-year projection (most thorough)' },
+      ],
+      group: 'analysis',
+      order: 1,
+    },
+    {
+      id: 'sectorFocus',
+      name: 'Sector Context',
+      description: 'Sector-specific analysis lens to apply.',
+      type: 'select',
+      required: false,
+      default: 'auto',
+      options: [
+        { label: 'Auto-detect', value: 'auto', description: 'Automatically determine sector from ticker' },
+        { label: 'Technology', value: 'tech', description: 'SaaS metrics, R&D intensity, platform dynamics' },
+        { label: 'Consumer', value: 'consumer', description: 'Brand strength, retail metrics, market share' },
+        { label: 'Healthcare', value: 'healthcare', description: 'Pipeline analysis, regulatory moat, patent protection' },
+        { label: 'Financial Services', value: 'financial', description: 'NIM, AUM, regulatory capital, network effects' },
+      ],
+      group: 'analysis',
+      order: 2,
+    },
+
+    // ── Output group ──
+    {
+      id: 'reportStyle',
+      name: 'Report Style',
+      description: 'Visual style of the output report.',
+      type: 'select',
+      required: false,
+      default: 'professional',
+      options: [
+        { label: 'Professional', value: 'professional', description: 'Clean, institutional equity research style' },
+        { label: 'Executive Brief', value: 'executive', description: 'Concise, decision-focused format' },
+      ],
+      group: 'output',
+      order: 0,
+    },
+  ],
+
+  // ── Prompts ───────────────────────────────────────────────────────────
+
+  prompts: {
+    planGeneration: `You are a Senior Equity Analyst designing a comprehensive competitive advantage analysis pipeline.
+
+## Company Specification
+- Ticker Symbol: {{tickerSymbol}}
+- Comparison Tickers: {{comparisonTickers}}
+- Supplementary Documents: {{supplementaryDocs}}
+- Analysis Depth: {{analysisDepth}}
+- Time Horizon: {{timeHorizon}}
+- Sector Context: {{sectorFocus}}
+- Report Style: {{reportStyle}}
+
+## Skill Reference
+This project uses the \`moat-fragility\` skill. The skill's SKILL.md contains:
+- The complete CA Scoring methodology (4 pillars, 1-5 scale, 25% each)
+- The 7 Powers qualitative moat framework
+- The Anti-Fragility resilience test (Taleb-inspired)
+- Financial data retrieval guidelines
+- Report template with chart specifications
+- Scoring tables and interpretation guides
+
+**The SKILL.md is the single source of truth for scoring logic and report structure.**
+
+## Planning Guidelines
+
+Decompose this analysis into a DAG of tasks following the 3-phase framework:
+
+### Phase 1: Data Retrieval & Quantitative Scoring (CA Score)
+- Retrieve financial data for {{tickerSymbol}} (and comparison tickers if provided):
+  - Revenue (last N years based on time horizon)
+  - Market share / addressable market estimates
+  - ARPU and pricing trends (CAGR)
+  - ROIC vs. WACC (historical and projected)
+- If supplementary documents provided, parse them using appropriate tools:
+  - PDF files → use the PDF skill (Read tool on .pdf files)
+  - Other formats → read directly
+- Score each of the 4 CA pillars (1-5):
+  1. Market Position
+  2. Position Trend
+  3. Pricing Power (ARPU/CAGR)
+  4. Future ROIC
+- Calculate weighted CA Score (average of 4 pillars)
+
+### Phase 2: Qualitative Moat Analysis (7 Powers)
+- Analyze each of the 7 Powers:
+  1. Scale Economies — does unit cost decline with volume?
+  2. Network Effects — does value increase with users?
+  3. Counter-Positioning — is the incumbent unable to copy?
+  4. Switching Costs — how costly is it to switch?
+  5. Branding — does the brand command premium pricing?
+  6. Cornered Resource — any exclusive access to key assets?
+  7. Process Power — any proprietary operational excellence?
+- For each Power: provide 2-3 specific examples from 10-K, earnings calls, or public data
+- Rate moat strength: None / Narrow / Wide / Very Wide
+- Identify the primary moat source (top 1-2 powers)
+
+### Phase 3: Anti-Fragility Resilience Test
+- Skin in the Game: founder/insider ownership %, recent transactions
+- Financial Health: debt-to-equity, current ratio, cash reserves, free cash flow
+- Optionality: pivot potential, adjacent market opportunities, R&D optionality
+- Black Swan exposure: regulatory risk, key-person risk, concentration risk
+- Rate anti-fragility: Fragile / Robust / Anti-Fragile
+
+### Phase 4: Report Generation
+- Compile all analysis into structured report
+- Generate charts:
+  - Revenue & market share trend (line chart)
+  - ROIC vs. WACC (bar chart)
+  - CA Score radar chart (4 pillars)
+  - Moat strength heatmap
+- Write Executive Summary with overall assessment
+- Generate final PDF (Markdown/HTML → PDF via Playwright)
+
+### Parallelism
+- Phase 1 data retrieval must complete first
+- Phase 1 scoring, Phase 2, and Phase 3 can partially overlap
+- Phase 4 depends on all prior phases
+
+### Labels
+- l5=Research (financial analysis, moat assessment)
+- l1=Frontend (report generation, charts)
+
+### Verification
+- "auto" for data retrieval and report generation
+- "human" for final analysis quality review`,
+
+    taskExecution: `You are conducting a Moat & Fragility competitive advantage analysis.
+
+## Context
+- Ticker Symbol: {{tickerSymbol}}
+- Comparison Tickers: {{comparisonTickers}}
+- Analysis Depth: {{analysisDepth}}
+- Time Horizon: {{timeHorizon}}
+- Sector Context: {{sectorFocus}}
+
+## CRITICAL: Document Reading Tools
+
+If supplementary documents are provided:
+- **For PDF files**: You MUST use the PDF skill to read PDF documents. Use the Read tool on PDF files — it will render the PDF content for analysis. Reference: https://github.com/anthropics/skills/tree/main/skills/pdf
+- **For other formats**: Read directly with the Read tool.
+
+## Skill Reference
+Consult the \`moat-fragility\` skill's SKILL.md for:
+- CA Scoring rubric (4 pillars × 1-5 scale)
+- 7 Powers framework definitions and examples
+- Anti-Fragility assessment criteria
+- Financial ratio benchmarks
+- Report template and chart specifications
+
+## Data Retrieval Guidelines
+- Use publicly available financial data sources
+- For financial ratios, use the most recent annual report data
+- When exact data is unavailable, use reasonable estimates and clearly label them
+- Always cite data sources (10-K filings, earnings reports, analyst estimates)
+
+## Analysis Principles
+- Be evidence-based: every score must be justified with specific data points
+- Distinguish between current state and trajectory
+- Consider both bull and bear cases
+- Flag high-uncertainty assumptions explicitly
+- Compare to sector medians when possible`,
+
+    sharedContext: `Moat & Fragility Analysis shared context:
+
+## CA Scoring Framework (Phase 1)
+
+### 4 Pillars (25% weight each)
+
+**1. Market Position** (Current standing)
+| Score | Criteria |
+|-------|----------|
+| 5 | Dominant: >40% market share or clear #1 in category |
+| 4 | Strong: 20-40% share, top 3 position |
+| 3 | Moderate: 10-20% share, notable player |
+| 2 | Weak: 5-10% share, struggling for relevance |
+| 1 | Marginal: <5% share, at risk of irrelevance |
+
+**2. Position Trend** (Direction of momentum)
+| Score | Criteria |
+|-------|----------|
+| 5 | Accelerating gains: share growing >5% YoY |
+| 4 | Steady gains: share growing 2-5% YoY |
+| 3 | Stable: share ±2% YoY |
+| 2 | Declining: share shrinking 2-5% YoY |
+| 1 | Rapid decline: share shrinking >5% YoY |
+
+**3. Pricing Power** (ARPU trend / ability to raise prices)
+| Score | Criteria |
+|-------|----------|
+| 5 | Strong pricing power: ARPU CAGR >8%, can raise prices freely |
+| 4 | Good pricing power: ARPU CAGR 4-8% |
+| 3 | Neutral: ARPU roughly flat (0-4% CAGR) |
+| 2 | Weak: ARPU declining, competing on price |
+| 1 | No pricing power: race to bottom, commoditized |
+
+**4. Future ROIC** (Return on Invested Capital outlook)
+| Score | Criteria |
+|-------|----------|
+| 5 | Exceptional: ROIC >25% and expanding, far exceeds WACC |
+| 4 | Strong: ROIC 15-25%, comfortably above WACC |
+| 3 | Adequate: ROIC 8-15%, near or slightly above WACC |
+| 2 | Concerning: ROIC 3-8%, at or below WACC |
+| 1 | Destroying value: ROIC <3%, well below WACC |
+
+**CA Score** = Average of 4 pillar scores (1.0 – 5.0)
+- 4.0-5.0: Exceptional competitive advantage
+- 3.0-3.9: Solid competitive position
+- 2.0-2.9: Challenged position, needs improvement
+- 1.0-1.9: Weak position, at risk
+
+## 7 Powers Moat Framework (Phase 2)
+
+Based on Hamilton Helmer's "7 Powers":
+
+1. **Scale Economies**: Unit costs decline as volume increases. Barrier: smaller competitors can't match cost structure.
+2. **Network Effects**: Product value increases with number of users. Barrier: late entrants face empty-network problem.
+3. **Counter-Positioning**: Incumbent cannot respond without damaging existing business. Barrier: cannibalization dilemma.
+4. **Switching Costs**: Customer faces material costs to change providers. Barrier: lock-in through integration, data, or workflow.
+5. **Branding**: Business enjoys higher willingness-to-pay due to reputation. Barrier: decades of trust, emotional connection.
+6. **Cornered Resource**: Exclusive access to a valuable resource (talent, patent, license, data). Barrier: not available to competitors.
+7. **Process Power**: Proprietary operational excellence built over time. Barrier: not easily replicated or understood.
+
+### Moat Width Rating
+- **None**: No identifiable sustainable advantage
+- **Narrow**: 1 Power present, moderate strength
+- **Wide**: 2-3 Powers present, strong evidence
+- **Very Wide**: 3+ Powers present, dominant position with multiple reinforcing advantages
+
+## Anti-Fragility Test (Phase 3)
+
+Based on Nassim Taleb's "Antifragile" framework:
+
+**1. Skin in the Game**
+- Insider ownership >10%: Strong alignment
+- Insider ownership 3-10%: Moderate alignment
+- Insider ownership <3%: Weak alignment
+- Recent insider buying: Positive signal
+- Recent insider selling (non-scheduled): Negative signal
+
+**2. Financial Health**
+- Debt/Equity < 0.3: Fortress balance sheet
+- Debt/Equity 0.3-1.0: Healthy
+- Debt/Equity 1.0-2.0: Moderate leverage
+- Debt/Equity > 2.0: High leverage risk
+- Cash reserves: months of operating expenses covered
+- Free Cash Flow margin and consistency
+
+**3. Optionality**
+- Adjacent market opportunities (TAM expansion)
+- R&D as % of revenue (investment in future options)
+- Platform extensibility (can new products be built on existing infrastructure?)
+- Geographic expansion potential
+
+**4. Black Swan Exposure**
+- Regulatory risk (single jurisdiction, pending legislation)
+- Key-person dependency (founder-driven?)
+- Revenue concentration (top customer % of revenue)
+- Technology disruption risk
+- Geopolitical exposure
+
+### Anti-Fragility Rating
+- **Fragile**: High leverage, concentrated risk, no optionality, weak insider alignment
+- **Robust**: Healthy balance sheet, diversified, adequate alignment
+- **Anti-Fragile**: Low leverage, high optionality, strong insider alignment, benefits from volatility
+
+## Report Structure
+
+### Section 1: Executive Summary
+- Company name, ticker, sector, market cap
+- CA Score (X.X / 5.0) with traffic-light indicator
+- Moat Width (None / Narrow / Wide / Very Wide)
+- Anti-Fragility Rating (Fragile / Robust / Anti-Fragile)
+- 3-sentence verdict
+
+### Section 2: Quantitative Analysis (CA Score)
+- Company Overview table (Revenue, Market Share, ARPU, ROIC — N years)
+- Pillar-by-pillar scoring with justification
+- Revenue & market share trend chart
+- ROIC vs. WACC chart
+
+### Section 3: Qualitative Moat Analysis
+- Power-by-power assessment with examples
+- Moat strength heatmap
+- Primary moat source identification
+- Competitive positioning map
+
+### Section 4: Anti-Fragility Assessment
+- Skin in the Game analysis
+- Balance sheet health metrics
+- Optionality inventory
+- Risk factor catalog
+- Overall resilience rating
+
+### Section 5: Comparative Analysis (if comparison tickers provided)
+- Side-by-side CA Score comparison
+- Relative moat strength
+- Relative valuation context
+
+### Section 6: Conclusion & Recommendation
+- Overall assessment
+- Key risks to monitor
+- Catalysts to watch
+- Suggested follow-up research`,
+  },
+
+  // ── Output ────────────────────────────────────────────────────────────
+  outputFormat: {
+    type: 'free',
+    description:
+      'Structured competitive advantage report in PDF format. Includes quantitative scoring tables, moat analysis, anti-fragility assessment, and charts.',
+    example: `output/
+  report/
+    moat-analysis-AAPL.md     # Markdown report source
+    moat-analysis-AAPL.html   # HTML with embedded charts
+    moat-analysis-AAPL.pdf    # Final PDF via Playwright
+  data/
+    financials.md             # Retrieved financial data
+    comparison.md             # Competitor comparison data
+  charts/
+    revenue-trend.svg         # Revenue & market share chart
+    roic-wacc.svg             # ROIC vs WACC chart
+    ca-radar.svg              # CA Score radar chart
+    moat-heatmap.svg          # 7 Powers heatmap`,
+  },
+
+  // ── Parallelization ───────────────────────────────────────────────────
+  parallelization: {
+    maxConcurrentTasks: 4,
+    autoDispatch: true,
+    defaultPriority: 'normal',
+    retry: {
+      maxRetries: 2,
+      retryDelayMs: 5000,
+      exponentialBackoff: true,
+    },
+    machineSelectionPolicy: 'priority',
+  },
+
+  // ── Execution ─────────────────────────────────────────────────────────
+  execution: {
+    preferredModel: 'claude-sonnet-4-20250514',
+    maxTurns: 50,
+    maxBudgetPerTask: 5.0,
+    skills: ['moat-fragility'],
+    deliveryMode: 'branch',
+    skipSafetyCheck: false,
+    defaultVerification: 'mixed',
+  },
+
+  // ── Plan Hints ────────────────────────────────────────────────────────
+  planHints: {
+    targetNodeCount: { min: 6, max: 18 },
+    defaultEstimate: 'M',
+    suggestedMilestones: [
+      {
+        title: 'Financial Data Retrieved',
+        description: 'Revenue, market share, ARPU, and ROIC data collected for all tickers',
+      },
+      {
+        title: 'CA Score Calculated',
+        description: 'All 4 pillars scored (1-5), weighted CA Score computed',
+      },
+      {
+        title: 'Moat Analyzed',
+        description: '7 Powers assessment complete, moat width rated',
+      },
+      {
+        title: 'Anti-Fragility Assessed',
+        description: 'Skin in the Game, financial health, optionality, and risk factors evaluated',
+      },
+      {
+        title: 'Report Generated',
+        description: 'Final PDF report with charts, scoring tables, and recommendations',
+      },
+    ],
+    commonLabels: ['l5'],
+    preferParallelTasks: true,
+  },
+
+  // ── Relationships ─────────────────────────────────────────────────────
+  domains: ['data-engineering'],
+  recommendedSkills: ['moat-fragility'],
+  source: 'builtin',
+  enabled: true,
+}

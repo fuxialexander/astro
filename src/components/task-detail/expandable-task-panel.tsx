@@ -22,9 +22,11 @@ import { usePlanStore } from '@/stores/plan-store'
 import { useProjectStore } from '@/stores/project-store'
 import { statusBadgeVariants } from '@/lib/status-config'
 import { cn, getShortId } from '@/lib/utils'
+import { sanitizeHtml } from '@/lib/sanitize-html'
 import type { PlanNode, TaskAttachment, TaskLink } from '@/types'
 import { AttachmentList } from './attachment-list'
 import { LinkList } from './link-list'
+import { GitHubIssueActions } from './github-issue-actions'
 import { useRef } from 'react'
 
 export type PanelSize = 'split' | 'three-quarter' | 'full'
@@ -87,6 +89,8 @@ export function ExpandableTaskPanel({
     try {
       await updateNode(node.id, { content: draftContent })
       setHasChanges(false)
+    } catch (err) {
+      console.error('Failed to save task content:', err)
     } finally {
       setIsSaving(false)
     }
@@ -259,7 +263,7 @@ export function ExpandableTaskPanel({
                   Task Instructions
                 </h3>
                 {node.content ? (
-                  <div className="text-sm text-foreground prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: node.content }} />
+                  <div className="text-sm text-foreground prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: sanitizeHtml(node.content) }} />
                 ) : (
                   <p className="text-sm text-foreground whitespace-pre-wrap">{node.description}</p>
                 )}
@@ -322,6 +326,15 @@ export function ExpandableTaskPanel({
         </TabsContent>
 
         <TabsContent value="links" className="flex-1 m-0 min-h-0 overflow-auto p-4">
+          {/* GitHub issue actions */}
+          {project && project.projectType === 'github' && (
+            <div className="mb-4">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                GitHub
+              </h4>
+              <GitHubIssueActions node={node} project={project} />
+            </div>
+          )}
           <LinkList
             links={node.links || []}
             nodes={nodes}

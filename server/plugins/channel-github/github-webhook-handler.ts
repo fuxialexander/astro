@@ -3,6 +3,10 @@
  *
  * Dispatches incoming GitHub webhook events to appropriate handlers.
  * Chat-like interactions (@astro mentions) are routed through the channel router.
+ *
+ * Loop prevention: checks `syncSource` field on plan nodes before processing.
+ * If syncSource='sync', the change originated from Astro→GitHub sync and the
+ * webhook echo should be skipped to avoid infinite loops.
  */
 
 import type { GitHubChannelConfig, InboundMessage, ChannelRouter } from '../../lib/channel/channel-types.js'
@@ -10,12 +14,56 @@ import { postGitHubComment } from './github-api.js'
 import { astroEventTransport } from '../../lib/events/astro-event-transport.js'
 import { lookupGitHubProject } from '../../lib/github-store.js'
 import { githubCommentBus } from '../../lib/github-comment-bus.js'
+import { githubPrBus } from '../../lib/github-pr-bus.js'
 import { db } from '../../lib/db/index.js'
-import { planNodes } from '../../lib/db/schema.js'
+import { planNodes, projects } from '../../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
+import {
+  isSyncEcho,
+  githubStateToAstro,
+  githubLabelsToPriority,
+  resolveGitHubLoginToAstroUser,
+} from '../../lib/github-sync-utils.js'
+import type { GitHubSyncSettings } from '@astro/core/types'
+import { DEFAULT_GITHUB_SYNC_SETTINGS } from '@astro/core/types'
+import { logSyncOperation } from '../../lib/github-sync-logger.js'
+
+/**
+ * Load sync settings for a project, falling back to defaults.
+ */
+async function loadSyncSettings(projectId: string): Promise<GitHubSyncSettings> {
+  try {
+    const [project] = await db.select({
+      githubSyncSettings: projects.githubSyncSettings,
+    }).from(projects).where(eq(projects.id, projectId)).limit(1)
+
+    if (project?.githubSyncSettings) {
+      return { ...DEFAULT_GITHUB_SYNC_SETTINGS, ...(project.githubSyncSettings as GitHubSyncSettings) }
+    }
+  } catch {
+    // Fall through to defaults
+  }
+  return DEFAULT_GITHUB_SYNC_SETTINGS
+}
+
+/**
+ * Check if a specific field is enabled for sync in the given direction.
+ */
+function isFieldEnabled(settings: GitHubSyncSettings, field: string, direction: 'github_to_astro' | 'astro_to_github'): boolean {
+  if (!settings.enabled) return false
+  if (settings.direction !== 'bidirectional' && settings.direction !== direction) return false
+  return settings.enabledFields.includes(field)
+}
 
 /**
  * Handle `issues` webhook events.
+ *
+ * Enhanced with:
+ * - Loop prevention via syncSource check
+ * - Sync tracking (syncSource='github', githubSyncVersion increment)
+ * - Label→priority mapping for labeled/unlabeled events
+ * - Assignee mapping for assigned/unassigned events
+ * - State reason tracking (completed vs not_planned)
  */
 export async function handleIssueEvent(
   payload: Record<string, unknown>,
@@ -32,13 +80,65 @@ export async function handleIssueEvent(
     ?? await lookupGitHubProject(repoFullName)
   if (!projectId) return
 
+  // Load per-project sync settings
+  const syncSettings = await loadSyncSettings(projectId)
+
+  // If sync is disabled entirely, skip all issue events
+  if (!syncSettings.enabled) {
+    console.log(`[github-channel] Sync disabled for project ${projectId} — skipping issue event`)
+    return
+  }
+
+  // If direction is 'astro_to_github' only, skip GitHub→Astro sync
+  if (syncSettings.direction === 'astro_to_github') {
+    console.log(`[github-channel] Direction is astro_to_github only — skipping GitHub→Astro sync`)
+    return
+  }
+
   const issueNumber = issue.number as number
   const issueTitle = issue.title as string
   const issueBody = (issue.body as string) || ''
   const issueUrl = issue.html_url as string
+  const issueState = issue.state as string
+  const stateReason = issue.state_reason as string | undefined
+  const issueLabels = ((issue.labels as Array<Record<string, unknown>>) || []).map(
+    (l) => ({ name: l.name as string, color: l.color as string })
+  )
+  const issueAssignee = issue.assignee as Record<string, unknown> | null
+
+  // ── Loop prevention: check if this change originated from Astro sync ──
+  if (action !== 'opened') {
+    const [existingNode] = await db.select({
+      id: planNodes.id,
+      syncSource: planNodes.syncSource,
+    })
+      .from(planNodes)
+      .where(and(
+        eq(planNodes.projectId, projectId),
+        eq(planNodes.githubIssueNumber, issueNumber)
+      ))
+      .limit(1)
+
+    if (existingNode && isSyncEcho(existingNode.syncSource)) {
+      console.log(
+        `[github-channel] Skipping issue #${issueNumber} '${action}' event — ` +
+        `syncSource='sync' (echo from Astro→GitHub push)`
+      )
+      return
+    }
+  }
 
   switch (action) {
     case 'opened': {
+      // Check auto-create setting — skip if auto-create from GitHub is disabled
+      const autoCreate = syncSettings.autoCreateDirection
+      if (autoCreate !== 'github_to_astro' && autoCreate !== 'bidirectional') {
+        console.log(
+          `[github-channel] Auto-create from GitHub disabled (setting: ${autoCreate}) — skipping issue #${issueNumber}`
+        )
+        break
+      }
+
       // Check if already exists (idempotency)
       const [existing] = await db.select({ id: planNodes.id })
         .from(planNodes)
@@ -49,6 +149,19 @@ export async function handleIssueEvent(
         .limit(1)
 
       if (!existing) {
+        // Extract priority from labels if present (use custom mapping if configured)
+        const priority = githubLabelsToPriority(issueLabels, syncSettings.labelMapping)
+
+        // Resolve assignee if present → store in metadata
+        let assigneeMetadata: Record<string, unknown> | undefined
+        if (issueAssignee) {
+          const login = issueAssignee.login as string
+          const userId = await resolveGitHubLoginToAstroUser(login)
+          if (userId) {
+            assigneeMetadata = { githubAssignee: login, assigneeUserId: userId }
+          }
+        }
+
         await db.insert(planNodes).values({
           projectId,
           clientId: `gh-issue-${issueNumber}`,
@@ -59,35 +172,71 @@ export async function handleIssueEvent(
           verification: 'human',
           githubIssueNumber: issueNumber,
           githubIssueUrl: issueUrl,
+          syncSource: 'github',
+          githubSyncVersion: 1,
+          githubSyncedAt: new Date(),
+          ...(priority ? { priority } : {}),
+          ...(assigneeMetadata ? { metadata: assigneeMetadata } : {}),
           links: [{ id: `gh-${issueNumber}`, type: 'github_issue', url: issueUrl, title: issueTitle, state: 'open', number: issueNumber }],
+        })
+        await logSyncOperation({
+          projectId,
+          nodeId: `gh-issue-${issueNumber}`,
+          direction: 'github_to_astro',
+          action: 'create',
+          status: 'success',
+          metadata: { issueNumber, issueTitle },
         })
       }
       break
     }
     case 'closed': {
-      // Merge links to preserve user-added entries
-      const [closedNode] = await db.select({ id: planNodes.id, links: planNodes.links })
+      if (!isFieldEnabled(syncSettings, 'status', 'github_to_astro')) break
+      const astroStatus = githubStateToAstro(issueState, stateReason)
+
+      const [closedNode] = await db.select({
+        id: planNodes.id,
+        links: planNodes.links,
+        githubSyncVersion: planNodes.githubSyncVersion,
+      })
         .from(planNodes)
         .where(and(eq(planNodes.projectId, projectId), eq(planNodes.githubIssueNumber, issueNumber)))
         .limit(1)
+
       if (closedNode) {
         const existingLinks = (closedNode.links ?? []) as Array<{ id: string; type: string; url: string; title: string; state?: string; number?: number; targetId?: string }>
         const ghLink = { id: `gh-${issueNumber}`, type: 'github_issue', url: issueUrl, title: issueTitle, state: 'closed', number: issueNumber }
         const mergedLinks = [...existingLinks.filter((l) => l.id !== ghLink.id), ghLink]
         await db.update(planNodes).set({
-          status: 'completed',
+          status: astroStatus,
           links: mergedLinks,
+          syncSource: 'github',
+          githubSyncVersion: (closedNode.githubSyncVersion ?? 0) + 1,
+          githubSyncedAt: new Date(),
           updatedAt: new Date(),
         }).where(eq(planNodes.id, closedNode.id))
+        await logSyncOperation({
+          projectId,
+          nodeId: closedNode.id,
+          direction: 'github_to_astro',
+          action: 'close',
+          status: 'success',
+          metadata: { issueNumber, stateReason },
+        })
       }
       break
     }
     case 'reopened': {
-      // Merge links to preserve user-added entries
-      const [reopenedNode] = await db.select({ id: planNodes.id, links: planNodes.links })
+      if (!isFieldEnabled(syncSettings, 'status', 'github_to_astro')) break
+      const [reopenedNode] = await db.select({
+        id: planNodes.id,
+        links: planNodes.links,
+        githubSyncVersion: planNodes.githubSyncVersion,
+      })
         .from(planNodes)
         .where(and(eq(planNodes.projectId, projectId), eq(planNodes.githubIssueNumber, issueNumber)))
         .limit(1)
+
       if (reopenedNode) {
         const existingLinks = (reopenedNode.links ?? []) as Array<{ id: string; type: string; url: string; title: string; state?: string; number?: number; targetId?: string }>
         const ghLink = { id: `gh-${issueNumber}`, type: 'github_issue', url: issueUrl, title: issueTitle, state: 'open', number: issueNumber }
@@ -95,24 +244,142 @@ export async function handleIssueEvent(
         await db.update(planNodes).set({
           status: 'planned',
           links: mergedLinks,
+          syncSource: 'github',
+          githubSyncVersion: (reopenedNode.githubSyncVersion ?? 0) + 1,
+          githubSyncedAt: new Date(),
           updatedAt: new Date(),
         }).where(eq(planNodes.id, reopenedNode.id))
+        await logSyncOperation({
+          projectId,
+          nodeId: reopenedNode.id,
+          direction: 'github_to_astro',
+          action: 'reopen',
+          status: 'success',
+          metadata: { issueNumber },
+        })
       }
       break
     }
     case 'edited': {
-      await db.update(planNodes).set({
-        title: issueTitle,
-        description: issueBody,
-        updatedAt: new Date(),
-      }).where(and(
-        eq(planNodes.projectId, projectId),
-        eq(planNodes.githubIssueNumber, issueNumber)
-      ))
+      // GitHub owns body/description, shared ownership of title (last-write-wins)
+      const titleEnabled = isFieldEnabled(syncSettings, 'title', 'github_to_astro')
+      const descEnabled = isFieldEnabled(syncSettings, 'description', 'github_to_astro')
+      if (!titleEnabled && !descEnabled) break
+
+      const [editedNode] = await db.select({
+        id: planNodes.id,
+        githubSyncVersion: planNodes.githubSyncVersion,
+      })
+        .from(planNodes)
+        .where(and(
+          eq(planNodes.projectId, projectId),
+          eq(planNodes.githubIssueNumber, issueNumber)
+        ))
+        .limit(1)
+
+      if (editedNode) {
+        await db.update(planNodes).set({
+          ...(titleEnabled ? { title: issueTitle } : {}),
+          ...(descEnabled ? { description: issueBody } : {}),
+          syncSource: 'github',
+          githubSyncVersion: (editedNode.githubSyncVersion ?? 0) + 1,
+          githubSyncedAt: new Date(),
+          updatedAt: new Date(),
+        }).where(eq(planNodes.id, editedNode.id))
+        await logSyncOperation({
+          projectId,
+          nodeId: editedNode.id,
+          direction: 'github_to_astro',
+          action: 'update',
+          status: 'success',
+          metadata: { issueNumber, fields: [titleEnabled && 'title', descEnabled && 'description'].filter(Boolean) },
+        })
+      }
+      break
+    }
+    case 'labeled':
+    case 'unlabeled': {
+      if (!isFieldEnabled(syncSettings, 'priority', 'github_to_astro')) break
+      // Sync priority labels from GitHub → Astro (use custom mapping if configured)
+      const priority = githubLabelsToPriority(issueLabels, syncSettings.labelMapping)
+      const [labeledNode] = await db.select({
+        id: planNodes.id,
+        githubSyncVersion: planNodes.githubSyncVersion,
+      })
+        .from(planNodes)
+        .where(and(
+          eq(planNodes.projectId, projectId),
+          eq(planNodes.githubIssueNumber, issueNumber)
+        ))
+        .limit(1)
+
+      if (labeledNode) {
+        await db.update(planNodes).set({
+          ...(priority !== null ? { priority } : {}),
+          syncSource: 'github',
+          githubSyncVersion: (labeledNode.githubSyncVersion ?? 0) + 1,
+          githubSyncedAt: new Date(),
+          updatedAt: new Date(),
+        }).where(eq(planNodes.id, labeledNode.id))
+        await logSyncOperation({
+          projectId,
+          nodeId: labeledNode.id,
+          direction: 'github_to_astro',
+          action: 'label',
+          status: 'success',
+          metadata: { issueNumber, action, priority },
+        })
+      }
+      break
+    }
+    case 'assigned':
+    case 'unassigned': {
+      if (!isFieldEnabled(syncSettings, 'assignee', 'github_to_astro')) break
+      // Map GitHub assignee → Astro user via githubConnections
+      // Store in metadata since there's no dedicated assigneeId column
+      let assigneeMetadata: Record<string, unknown> = {}
+      if (issueAssignee) {
+        const login = issueAssignee.login as string
+        const userId = await resolveGitHubLoginToAstroUser(login)
+        assigneeMetadata = {
+          githubAssignee: login,
+          ...(userId ? { assigneeUserId: userId } : {}),
+        }
+      }
+
+      const [assignedNode] = await db.select({
+        id: planNodes.id,
+        githubSyncVersion: planNodes.githubSyncVersion,
+        metadata: planNodes.metadata,
+      })
+        .from(planNodes)
+        .where(and(
+          eq(planNodes.projectId, projectId),
+          eq(planNodes.githubIssueNumber, issueNumber)
+        ))
+        .limit(1)
+
+      if (assignedNode) {
+        const existingMetadata = (assignedNode.metadata ?? {}) as Record<string, unknown>
+        await db.update(planNodes).set({
+          metadata: { ...existingMetadata, ...assigneeMetadata },
+          syncSource: 'github',
+          githubSyncVersion: (assignedNode.githubSyncVersion ?? 0) + 1,
+          githubSyncedAt: new Date(),
+          updatedAt: new Date(),
+        }).where(eq(planNodes.id, assignedNode.id))
+        await logSyncOperation({
+          projectId,
+          nodeId: assignedNode.id,
+          direction: 'github_to_astro',
+          action: 'assign',
+          status: 'success',
+          metadata: { issueNumber, action, assignee: issueAssignee ? (issueAssignee.login as string) : null },
+        })
+      }
       break
     }
     default:
-      // labeled/unlabeled etc. — skip for initial implementation
       break
   }
 }
@@ -449,6 +716,26 @@ export async function handlePullRequestEvent(
     }).where(eq(planNodes.id, linkedNode.id))
 
     console.log(`[github-channel] Updated githubPrData on node ${linkedNode.clientId} for PR #${prNumber}`)
+
+    // Broadcast PR state change to connected SSE clients
+    const [prOwner, prRepoName] = repoFullName.split('/')
+    githubPrBus.emitPrChange({
+      owner: prOwner,
+      repo: prRepoName,
+      prNumber,
+      changeType: 'pr_state',
+      data: {
+        title: prData.title,
+        state: prData.mergedAt ? 'merged' : prData.closedAt ? 'closed' : 'open',
+        branchName: prData.branch,
+        draft: prData.draft,
+        additions: prData.diffStats?.additions,
+        deletions: prData.diffStats?.deletions,
+        changedFiles: prData.diffStats?.changedFiles,
+        ciStatus: ciStatus as string,
+        reviewStatus: prData.reviewStatus,
+      },
+    })
   }
 
   const prBody = (pr.body as string) || ''
@@ -478,6 +765,19 @@ export async function handlePullRequestEvent(
             linkSource: 'auto-branch',
             timestamp: new Date(),
           })
+          // Broadcast branch linking event
+          const [branchOwner, branchRepoName] = repoFullName.split('/')
+          githubPrBus.emitPrChange({
+            owner: branchOwner,
+            repo: branchRepoName,
+            prNumber,
+            changeType: 'branch_linked',
+            data: {
+              nodeId: nodeIdFromBranch,
+              branchName: headRef || '',
+              linkSource: 'auto-branch',
+            },
+          })
           break
         }
       }
@@ -501,6 +801,19 @@ export async function handlePullRequestEvent(
             branchName: headRef || '',
             linkSource: 'auto-body-reference',
             timestamp: new Date(),
+          })
+          // Broadcast branch linking event
+          const [bodyOwner, bodyRepoName] = repoFullName.split('/')
+          githubPrBus.emitPrChange({
+            owner: bodyOwner,
+            repo: bodyRepoName,
+            prNumber,
+            changeType: 'branch_linked',
+            data: {
+              nodeId: bodyNodeId,
+              branchName: headRef || '',
+              linkSource: 'auto-body-reference',
+            },
           })
         }
       }
@@ -759,6 +1072,19 @@ export async function handleCheckRunEvent(
       }).where(eq(planNodes.id, linkedNode.id))
 
       console.log(`[github-channel] Updated CI status to "${ciStatus}" on node ${linkedNode.clientId} (check: ${checkName}, ${updatedCheckRuns.length} total)`)
+
+      // Broadcast CI status change to connected SSE clients
+      const [ciOwner, ciRepoName] = repoFullName.split('/')
+      githubPrBus.emitPrChange({
+        owner: ciOwner,
+        repo: ciRepoName,
+        prNumber,
+        changeType: 'ci_status',
+        data: {
+          ciStatus,
+          checkRuns: updatedCheckRuns,
+        },
+      })
     } catch (err) {
       // TODO: implement dead-letter queue for failed webhook DB writes
       console.error(`[github-channel] Failed to update CI status on node ${linkedNode.clientId}:`, {
@@ -838,6 +1164,19 @@ export async function handlePullRequestReviewEvent(
     }).where(eq(planNodes.id, linkedNode.id))
 
     console.log(`[github-channel] Updated review status to "${reviewStatus}" on node ${linkedNode.clientId} (reviewer: ${reviewer}, ${states.length} total)`)
+
+    // Broadcast review status change to connected SSE clients
+    const [revOwner, revRepoName] = repoFullName!.split('/')
+    githubPrBus.emitPrChange({
+      owner: revOwner,
+      repo: revRepoName,
+      prNumber,
+      changeType: 'review_status',
+      data: {
+        reviewStatus,
+        reviewerStates,
+      },
+    })
   } catch (err) {
     // TODO: implement dead-letter queue for failed webhook DB writes
     console.error(`[github-channel] Failed to update review status on node ${linkedNode.clientId}:`, {

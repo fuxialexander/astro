@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, FileText, Globe, GitFork, X } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, FileText, Globe, GitFork, X, Settings2 } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { ReplanDialog } from "@/components/replan-dialog"
@@ -28,6 +28,8 @@ import { OverviewTab } from "@/pages/project-overview"
 import { UseTemplateSheet } from "@/components/templates/use-template-sheet"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { PublishDialog } from "@/components/community/publish-dialog"
+import { GitHubSyncSettingsDialog } from "@/components/github-sync-settings-dialog"
+import { SyncHealthDot } from "@/components/github-sync-health"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
@@ -1628,7 +1630,6 @@ export function PlanView() {
   // Close detail panel when switching view modes.
   // This effect legitimately syncs UI state (selectedNode) when the derived
   // viewMode changes from URL navigation. The guard avoids no-op renders.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setSelectedNode(null) }, [viewMode])
 
   // Handle decompose: open chat with pre-filled message
@@ -1791,14 +1792,34 @@ export function PlanView() {
               onViewAsChange: (v) => navigate(`/project/${project.id}/${v}`),
             }} />
             {canSyncGitHub ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" onClick={handleSyncGitHub} disabled={syncing}>
-                    <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Sync GitHub Issues</TooltipContent>
-              </Tooltip>
+              <div className="flex items-center gap-1.5">
+                <SyncHealthDot projectId={project?.id} className="mr-0.5" />
+                <div className="flex items-center gap-0">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleSyncGitHub}
+                        disabled={syncing}
+                        className="text-xs rounded-l-full rounded-r-none border-r-0 pl-3 pr-2"
+                      >
+                        <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", syncing && "animate-spin")} />
+                        Sync
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Sync GitHub Issues</TooltipContent>
+                  </Tooltip>
+                  <GitHubSyncSettingsDialog
+                    project={project}
+                    trigger={
+                      <Button variant="outline" size="sm" className="rounded-l-none rounded-r-full border-l-0 px-1.5 h-8">
+                        <Settings2 className="h-3.5 w-3.5" />
+                      </Button>
+                    }
+                  />
+                </div>
+              </div>
             ) : canReplan ? (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1857,6 +1878,15 @@ export function PlanView() {
                   <RefreshCw className={cn("h-3.5 w-3.5 mr-2", syncing && "animate-spin")} />
                   Sync GitHub Issues
                 </DropdownMenuItem>
+                <GitHubSyncSettingsDialog
+                  project={project}
+                  trigger={
+                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                      <Settings2 className="h-3.5 w-3.5 mr-2" />
+                      Sync Settings
+                    </DropdownMenuItem>
+                  }
+                />
               </>
             ) : canReplan ? (
               <>

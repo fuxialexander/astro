@@ -707,10 +707,21 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       return { batchExecutions: newBatch }
     })
 
-    // Dispatch all ready nodes in parallel
-    for (const node of readyNodes) {
-      get().startExecution(node.id, projectId, options)
-    }
+    // Dispatch ready nodes with staggered delay (15s between each) to avoid
+    // overwhelming the system when many tasks become ready simultaneously
+    const STAGGER_DELAY_MS = 15_000
+    readyNodes.forEach((node, index) => {
+      if (index === 0) {
+        get().startExecution(node.id, projectId, options)
+      } else {
+        setTimeout(() => {
+          // Check batch is still active before dispatching
+          if (get().batchExecutions.get(projectId)?.active) {
+            get().startExecution(node.id, projectId, options)
+          }
+        }, index * STAGGER_DELAY_MS)
+      }
+    })
   },
 
   stopBatchExecution: (projectId: string) => {

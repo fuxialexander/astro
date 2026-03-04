@@ -5,7 +5,7 @@
  * and task detail views can share the same rendering components.
  */
 
-import React, { useState } from "react"
+import React, { useState, useRef, useCallback } from "react"
 import {
   Loader2,
   CheckCircle2,
@@ -22,15 +22,19 @@ import {
   MessageSquare,
   FileCode,
   ExternalLink,
+  Reply,
+  Send,
+  MessageCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { TaskActivityEvent, ExecutionSummary } from "@/types"
 import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
+import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface DisplayBlock {
-  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment'
+  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment' | 'branch_linked'
   events: TaskActivityEvent[]
 }
 
@@ -169,6 +173,11 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
         flushText()
         flushTools()
         blocks.push({ type: 'github_comment', events: [event] })
+        break
+      case 'branch_linked':
+        flushText()
+        flushTools()
+        blocks.push({ type: 'branch_linked', events: [event] })
         break
     }
   }
@@ -639,10 +648,72 @@ export function MutationBlock({
   )
 }
 
-export function GitHubCommentBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'github_comment' }> }) {
+interface GitHubCommentBlockProps {
+  event: Extract<TaskActivityEvent, { type: 'github_comment' }>
+  /** GitHub context for reply functionality — omit to disable replies */
+  githubContext?: {
+    owner: string
+    repo: string
+    number: number
+  }
+}
+
+export function GitHubCommentBlock({ event, githubContext }: GitHubCommentBlockProps) {
   const [expanded, setExpanded] = useState(false)
+  const [showReply, setShowReply] = useState(false)
+  const [replyText, setReplyText] = useState('')
+  const [replySending, setReplySending] = useState(false)
+  const [replyError, setReplyError] = useState<string | null>(null)
+  const replyRef = useRef<HTMLTextAreaElement>(null)
   const isReviewComment = event.commentType === 'review_comment'
   const timeAgo = formatRelativeTime(event.timestamp)
+
+  const postComment = useGitHubCommentsStore((s) => s.postComment)
+  const postReviewReply = useGitHubCommentsStore((s) => s.postReviewReply)
+
+  const handleReply = useCallback(async () => {
+    if (!replyText.trim() || !githubContext || replySending) return
+    setReplySending(true)
+    setReplyError(null)
+
+    try {
+      if (isReviewComment) {
+        await postReviewReply(
+          githubContext.owner,
+          githubContext.repo,
+          githubContext.number,
+          replyText.trim(),
+          event.commentId,
+        )
+      } else {
+        // For issue comments, post as a new comment (GitHub doesn't have threaded issue comments)
+        await postComment(
+          githubContext.owner,
+          githubContext.repo,
+          githubContext.number,
+          replyText.trim(),
+        )
+      }
+      setReplyText('')
+      setShowReply(false)
+    } catch (err) {
+      setReplyError(err instanceof Error ? err.message : 'Failed to post reply')
+    } finally {
+      setReplySending(false)
+    }
+  }, [replyText, githubContext, replySending, isReviewComment, postComment, postReviewReply, event.commentId])
+
+  const handleReplyKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      handleReply()
+    }
+    if (e.key === 'Escape') {
+      setShowReply(false)
+      setReplyText('')
+      setReplyError(null)
+    }
+  }, [handleReply])
 
   return (
     <div className="mx-4 my-1.5">
@@ -735,6 +806,257 @@ export function GitHubCommentBlock({ event }: { event: Extract<TaskActivityEvent
               )}
             </>
           )}
+        </div>
+
+        {/* Reply button + inline reply form */}
+        {githubContext && (
+          <div className="border-t border-muted">
+            {!showReply ? (
+              <button
+                onClick={() => {
+                  setShowReply(true)
+                  // Focus textarea after mount
+                  requestAnimationFrame(() => replyRef.current?.focus())
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer w-full"
+              >
+                <Reply className="h-3 w-3" />
+                Reply
+              </button>
+            ) : (
+              <div className="px-3 py-2 space-y-2">
+                <textarea
+                  ref={replyRef}
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  onKeyDown={handleReplyKeyDown}
+                  placeholder={isReviewComment ? "Reply to review comment..." : "Write a reply..."}
+                  rows={2}
+                  disabled={replySending}
+                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
+                />
+                {replyError && (
+                  <p className="text-[10px] text-destructive">{replyError}</p>
+                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">
+                    {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to send · Esc to cancel
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => {
+                        setShowReply(false)
+                        setReplyText('')
+                        setReplyError(null)
+                      }}
+                      disabled={replySending}
+                      className="text-[11px] text-muted-foreground hover:text-foreground px-2 py-1 rounded transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleReply}
+                      disabled={!replyText.trim() || replySending}
+                      className={cn(
+                        "flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded transition-colors cursor-pointer",
+                        "bg-primary text-primary-foreground hover:bg-primary/90",
+                        "disabled:opacity-50 disabled:cursor-not-allowed"
+                      )}
+                    >
+                      {replySending ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Send className="h-3 w-3" />
+                      )}
+                      {replySending ? 'Sending...' : 'Reply'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Branch auto-linking notification — shown when a PR is auto-linked
+ * to a plan node via branch name or body reference.
+ */
+export function BranchLinkedBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'branch_linked' }> }) {
+  return (
+    <div className="flex items-center gap-2 mx-4 my-1.5 px-3 py-2 rounded-md bg-primary/5 border border-primary/20 text-xs">
+      <GitBranch className="h-3.5 w-3.5 text-primary shrink-0" />
+      <span className="text-foreground">
+        PR <a
+          href={event.prUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-primary hover:underline"
+        >#{event.prNumber}</a> linked via {event.linkSource === 'auto-branch' ? 'branch name' : 'body reference'}
+      </span>
+      <span className="text-muted-foreground font-mono text-[10px] truncate">{event.branchName}</span>
+    </div>
+  )
+}
+
+/**
+ * Optimistic comment displayed while posting (before webhook confirmation).
+ */
+export function OptimisticCommentBlock({ body, sending }: { body: string; sending: boolean }) {
+  return (
+    <div className="mx-4 my-1.5">
+      <div className={cn(
+        "rounded-lg border overflow-hidden",
+        sending ? "border-primary/30 bg-primary/5" : "border-muted bg-muted/20"
+      )}>
+        <div className="flex items-center gap-2 px-3 py-2 bg-muted/30">
+          <div className="h-5 w-5 rounded-full bg-primary/20 shrink-0 flex items-center justify-center">
+            <MessageCircle className="h-3 w-3 text-primary" />
+          </div>
+          <span className="text-xs font-medium text-foreground">You</span>
+          {sending && (
+            <span className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground">
+              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+              Sending...
+            </span>
+          )}
+        </div>
+        <div className="px-3 py-2">
+          <StreamingMarkdown
+            content={body}
+            className="text-xs leading-relaxed"
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Composer for creating a new top-level comment on a GitHub issue/PR.
+ */
+export function NewCommentComposer({ githubContext }: {
+  githubContext: { owner: string; repo: string; number: number }
+}) {
+  const [showComposer, setShowComposer] = useState(false)
+  const [body, setBody] = useState('')
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const postComment = useGitHubCommentsStore((s) => s.postComment)
+
+  const handlePost = useCallback(async () => {
+    if (!body.trim() || sending) return
+    setSending(true)
+    setError(null)
+
+    try {
+      await postComment(
+        githubContext.owner,
+        githubContext.repo,
+        githubContext.number,
+        body.trim(),
+      )
+      setBody('')
+      setShowComposer(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to post comment')
+    } finally {
+      setSending(false)
+    }
+  }, [body, sending, postComment, githubContext])
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      handlePost()
+    }
+    if (e.key === 'Escape') {
+      setShowComposer(false)
+      setBody('')
+      setError(null)
+    }
+  }, [handlePost])
+
+  if (!showComposer) {
+    return (
+      <div className="mx-4 my-2">
+        <button
+          onClick={() => {
+            setShowComposer(true)
+            requestAnimationFrame(() => textareaRef.current?.focus())
+          }}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer px-3 py-2 rounded-lg border border-dashed border-muted hover:border-muted-foreground/30 w-full"
+        >
+          <MessageCircle className="h-3.5 w-3.5" />
+          New comment on GitHub
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mx-4 my-2">
+      <div className="rounded-lg border border-muted bg-muted/20 overflow-hidden">
+        <div className="flex items-center gap-2 px-3 py-2 bg-muted/30">
+          <MessageCircle className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-xs font-medium text-foreground">New comment</span>
+          <span className="text-[10px] text-muted-foreground">
+            on #{githubContext.number}
+          </span>
+        </div>
+        <div className="px-3 py-2 space-y-2">
+          <textarea
+            ref={textareaRef}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Write a comment... (Markdown supported)"
+            rows={3}
+            disabled={sending}
+            className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
+          />
+          {error && (
+            <p className="text-[10px] text-destructive">{error}</p>
+          )}
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-muted-foreground">
+              {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to send · Esc to cancel
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => {
+                  setShowComposer(false)
+                  setBody('')
+                  setError(null)
+                }}
+                disabled={sending}
+                className="text-[11px] text-muted-foreground hover:text-foreground px-2 py-1 rounded transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePost}
+                disabled={!body.trim() || sending}
+                className={cn(
+                  "flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded transition-colors cursor-pointer",
+                  "bg-primary text-primary-foreground hover:bg-primary/90",
+                  "disabled:opacity-50 disabled:cursor-not-allowed"
+                )}
+              >
+                {sending ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Send className="h-3 w-3" />
+                )}
+                {sending ? 'Posting...' : 'Comment'}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

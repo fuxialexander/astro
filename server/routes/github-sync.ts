@@ -9,8 +9,8 @@ import { githubStore } from '../lib/github-store';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
 import { sanitizeGitHubName } from '@astro/core/prompt-templates';
 import { db } from '../lib/db/index.js';
-import { projects, planNodes, planEdges } from '../lib/db/schema.js';
-import { eq, and, or, isNotNull, inArray } from 'drizzle-orm';
+import { projects, planNodes, planEdges, githubSyncLog } from '../lib/db/schema.js';
+import { eq, and, or, isNotNull, inArray, gte, desc, count } from 'drizzle-orm';
 import { marked } from 'marked';
 
 /** Convert GitHub issue body (markdown) to HTML for the tiptap `content` field. */
@@ -18,6 +18,7 @@ function githubMarkdownToHtml(body: string | null | undefined): string | null {
   if (!body) return null;
   return marked.parse(body, { async: false, gfm: true, breaks: true }) as string;
 }
+
 
 const app = new Hono();
 
@@ -492,6 +493,564 @@ app.get('/projects', async (c) => {
     ));
 
   return c.json({ projects: rows });
+});
+
+// ── Issue creation, linking, and search endpoints ─────────────────────
+
+/** Map Astro priority to GitHub labels */
+function priorityToGitHubLabel(priority?: string): string | null {
+  switch (priority) {
+    case 'urgent': return 'P0';
+    case 'high': return 'P1';
+    case 'medium': return 'P2';
+    case 'low': return 'P3';
+    default: return null;
+  }
+}
+
+/**
+ * POST /api/github/issues
+ * Create a GitHub issue from an Astro task node
+ */
+app.post('/issues', async (c) => {
+  const user = c.get('user') as AuthUser;
+  const body = await c.req.json();
+  const { nodeId, projectId } = body as { nodeId: string; projectId: string };
+
+  if (!nodeId || !projectId) {
+    return c.json({ error: 'nodeId and projectId are required' }, 400);
+  }
+
+  // Look up project (must be github-linked, team-scoped)
+  const [project] = await db.select()
+    .from(projects)
+    .where(and(
+      eq(projects.id, projectId),
+      eq(projects.teamId, user.teamId)
+    ))
+    .limit(1);
+
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
+  }
+
+  if (project.projectType !== 'github' || !project.githubOwner || !project.githubRepo) {
+    return c.json({ error: 'Project is not a GitHub-linked project' }, 400);
+  }
+
+  // Look up node
+  const [node] = await db.select()
+    .from(planNodes)
+    .where(and(
+      eq(planNodes.id, nodeId),
+      eq(planNodes.projectId, projectId)
+    ))
+    .limit(1);
+
+  if (!node) {
+    return c.json({ error: 'Task node not found' }, 404);
+  }
+
+  if (node.githubIssueNumber) {
+    return c.json({ error: `Task already linked to GitHub issue #${node.githubIssueNumber}` }, 409);
+  }
+
+  // Resolve token
+  const tokenResult = await resolveGitHubToken(
+    project.githubOwner,
+    project.githubRepo,
+    user.id,
+    user.teamId ?? null,
+  );
+
+  if (!tokenResult) {
+    return c.json({ error: 'No GitHub token available for this repository' }, 401);
+  }
+
+  // Build labels (include priority label if applicable)
+  const labels: string[] = [];
+  const priorityLabel = priorityToGitHubLabel(node.priority ?? undefined);
+  if (priorityLabel) labels.push(priorityLabel);
+
+  try {
+    const issue = await githubClient.createIssue(
+      tokenResult.token,
+      project.githubOwner,
+      project.githubRepo,
+      {
+        title: node.title,
+        body: node.description || '',
+        labels,
+      }
+    );
+
+    // Build link entry
+    const linkEntry = {
+      id: `gh-${issue.number}`,
+      type: 'github_issue',
+      url: issue.html_url,
+      title: issue.title,
+      state: issue.state,
+      number: issue.number,
+    };
+
+    // Merge into existing links
+    const existingLinks = (node.links ?? []) as Array<{ id: string; type: string; url: string; title: string; state?: string; number?: number; targetId?: string }>;
+    const mergedLinks = [
+      ...existingLinks.filter((l) => l.id !== linkEntry.id),
+      linkEntry,
+    ];
+
+    // Update node with GitHub issue data + sync tracking
+    await db.update(planNodes).set({
+      githubIssueNumber: issue.number,
+      githubIssueUrl: issue.html_url,
+      links: mergedLinks,
+      githubSyncedAt: new Date(),
+      githubSyncVersion: (node.githubSyncVersion ?? 0) + 1,
+      syncSource: 'user',
+      updatedAt: new Date(),
+    }).where(eq(planNodes.id, nodeId));
+
+    return c.json({
+      issue: {
+        number: issue.number,
+        title: issue.title,
+        url: issue.html_url,
+        state: issue.state,
+      },
+    }, 201);
+  } catch (err) {
+    console.error(`[github] Failed to create issue for node ${nodeId}:`, err);
+    return c.json({ error: 'Failed to create GitHub issue' }, 500);
+  }
+});
+
+/**
+ * POST /api/github/issues/link
+ * Link an existing GitHub issue to an Astro task node
+ */
+app.post('/issues/link', async (c) => {
+  const user = c.get('user') as AuthUser;
+  const body = await c.req.json();
+  const { nodeId, projectId, issueNumber, issueUrl, issueTitle } = body as {
+    nodeId: string;
+    projectId: string;
+    issueNumber: number;
+    issueUrl: string;
+    issueTitle: string;
+  };
+
+  if (!nodeId || !projectId || !issueNumber || !issueUrl) {
+    return c.json({ error: 'nodeId, projectId, issueNumber, and issueUrl are required' }, 400);
+  }
+
+  // Look up project (team-scoped)
+  const [project] = await db.select()
+    .from(projects)
+    .where(and(
+      eq(projects.id, projectId),
+      eq(projects.teamId, user.teamId)
+    ))
+    .limit(1);
+
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
+  }
+
+  // Look up node
+  const [node] = await db.select()
+    .from(planNodes)
+    .where(and(
+      eq(planNodes.id, nodeId),
+      eq(planNodes.projectId, projectId)
+    ))
+    .limit(1);
+
+  if (!node) {
+    return c.json({ error: 'Task node not found' }, 404);
+  }
+
+  // Build link entry
+  const linkEntry = {
+    id: `gh-${issueNumber}`,
+    type: 'github_issue',
+    url: issueUrl,
+    title: issueTitle || `Issue #${issueNumber}`,
+    state: 'open',
+    number: issueNumber,
+  };
+
+  // Merge into existing links
+  const existingLinks = (node.links ?? []) as Array<{ id: string; type: string; url: string; title: string; state?: string; number?: number; targetId?: string }>;
+  const mergedLinks = [
+    ...existingLinks.filter((l) => l.id !== linkEntry.id),
+    linkEntry,
+  ];
+
+  await db.update(planNodes).set({
+    githubIssueNumber: issueNumber,
+    githubIssueUrl: issueUrl,
+    links: mergedLinks,
+    githubSyncedAt: new Date(),
+    githubSyncVersion: (node.githubSyncVersion ?? 0) + 1,
+    syncSource: 'user',
+    updatedAt: new Date(),
+  }).where(eq(planNodes.id, nodeId));
+
+  return c.json({ success: true });
+});
+
+/**
+ * POST /api/github/issues/unlink
+ * Unlink a GitHub issue from an Astro task node
+ */
+app.post('/issues/unlink', async (c) => {
+  const user = c.get('user') as AuthUser;
+  const body = await c.req.json();
+  const { nodeId, projectId } = body as { nodeId: string; projectId: string };
+
+  if (!nodeId || !projectId) {
+    return c.json({ error: 'nodeId and projectId are required' }, 400);
+  }
+
+  // Look up project (team-scoped)
+  const [project] = await db.select({ id: projects.id })
+    .from(projects)
+    .where(and(
+      eq(projects.id, projectId),
+      eq(projects.teamId, user.teamId)
+    ))
+    .limit(1);
+
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
+  }
+
+  // Look up node
+  const [node] = await db.select()
+    .from(planNodes)
+    .where(and(
+      eq(planNodes.id, nodeId),
+      eq(planNodes.projectId, projectId)
+    ))
+    .limit(1);
+
+  if (!node) {
+    return c.json({ error: 'Task node not found' }, 404);
+  }
+
+  // Remove GitHub issue links from links array
+  const existingLinks = (node.links ?? []) as Array<{ id: string; type: string; url: string; title: string; state?: string; number?: number; targetId?: string }>;
+  const filteredLinks = existingLinks.filter(
+    (l) => !(l.type === 'github_issue' && l.id === `gh-${node.githubIssueNumber}`)
+  );
+
+  await db.update(planNodes).set({
+    githubIssueNumber: null,
+    githubIssueUrl: null,
+    links: filteredLinks,
+    githubSyncedAt: new Date(),
+    githubSyncVersion: (node.githubSyncVersion ?? 0) + 1,
+    syncSource: 'user',
+    updatedAt: new Date(),
+  }).where(eq(planNodes.id, nodeId));
+
+  return c.json({ success: true });
+});
+
+/**
+ * GET /api/github/issues/search
+ * Search issues in the linked GitHub repo for a project
+ */
+app.get('/issues/search', async (c) => {
+  const user = c.get('user') as AuthUser;
+  const projectId = c.req.query('projectId');
+  const query = c.req.query('q') || '';
+
+  if (!projectId) {
+    return c.json({ error: 'projectId query param is required' }, 400);
+  }
+
+  // Look up project
+  const [project] = await db.select()
+    .from(projects)
+    .where(and(
+      eq(projects.id, projectId),
+      eq(projects.teamId, user.teamId)
+    ))
+    .limit(1);
+
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
+  }
+
+  if (project.projectType !== 'github' || !project.githubOwner || !project.githubRepo) {
+    return c.json({ error: 'Project is not a GitHub-linked project' }, 400);
+  }
+
+  // Resolve token
+  const tokenResult = await resolveGitHubToken(
+    project.githubOwner,
+    project.githubRepo,
+    user.id,
+    user.teamId ?? null,
+  );
+
+  if (!tokenResult) {
+    return c.json({ error: 'No GitHub token available for this repository' }, 401);
+  }
+
+  try {
+    const issues = await githubClient.searchIssues(
+      tokenResult.token,
+      project.githubOwner,
+      project.githubRepo,
+      { query, state: 'open', perPage: 20 }
+    );
+    return c.json({ issues });
+  } catch (err) {
+    console.error(`[github] Issue search failed:`, err);
+    return c.json({ error: 'Failed to search issues' }, 500);
+  }
+});
+
+// ── Sync Settings Endpoints ─────────────────────────────────────────
+
+/**
+ * GET /api/github/projects/:projectId/sync-settings
+ * Fetch per-project GitHub sync settings.
+ */
+app.get('/projects/:projectId/sync-settings', async (c) => {
+  const user = c.get('user') as AuthUser;
+  const { projectId } = c.req.param();
+
+  const [project] = await db.select({
+    githubSyncSettings: projects.githubSyncSettings,
+    projectType: projects.projectType,
+  }).from(projects).where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId))).limit(1);
+
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
+  }
+
+  return c.json({ settings: project.githubSyncSettings ?? null });
+});
+
+// ── Save Sync Settings Endpoint ─────────────────────────────────────
+
+/**
+ * PUT /api/github/projects/:projectId/sync-settings
+ * Save per-project GitHub sync settings.
+ *
+ * Body: { settings: GitHubSyncSettings }
+ */
+app.put('/projects/:projectId/sync-settings', async (c) => {
+  const { projectId } = c.req.param();
+  const body = await c.req.json() as {
+    settings: {
+      enabled: boolean
+      direction: string
+      enabledFields: string[]
+      autoCreateDirection: string
+      labelMapping: Record<string, string>
+    }
+  };
+
+  if (!body.settings) {
+    return c.json({ error: 'settings object is required' }, 400);
+  }
+
+  const { settings } = body;
+
+  // Validate direction
+  const validDirections = ['github_to_astro', 'astro_to_github', 'bidirectional'];
+  if (!validDirections.includes(settings.direction)) {
+    return c.json({ error: `Invalid direction: ${settings.direction}` }, 400);
+  }
+
+  // Validate autoCreateDirection
+  const validAutoCreate = ['astro_to_github', 'github_to_astro', 'bidirectional', 'none'];
+  if (!validAutoCreate.includes(settings.autoCreateDirection)) {
+    return c.json({ error: `Invalid autoCreateDirection: ${settings.autoCreateDirection}` }, 400);
+  }
+
+  // Validate enabledFields
+  const validFields = ['title', 'description', 'status', 'priority', 'estimate', 'assignee', 'labels'];
+  for (const field of settings.enabledFields) {
+    if (!validFields.includes(field)) {
+      return c.json({ error: `Invalid field: ${field}` }, 400);
+    }
+  }
+
+  // Verify the project exists, belongs to the team, and is a GitHub project
+  const user = c.get('user') as AuthUser;
+  const [project] = await db.select({
+    id: projects.id,
+    projectType: projects.projectType,
+  }).from(projects).where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId))).limit(1);
+
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
+  }
+
+  if (project.projectType !== 'github') {
+    return c.json({ error: 'Project is not a GitHub-linked project' }, 400);
+  }
+
+  // Save settings
+  await db.update(projects).set({
+    githubSyncSettings: settings,
+    updatedAt: new Date(),
+  }).where(eq(projects.id, projectId));
+
+  return c.json({ success: true });
+});
+
+// ── Field Sync Endpoint ──────────────────────────────────────────────
+
+/**
+ * POST /api/github/issues/sync-fields
+ * Manually trigger Astro→GitHub field sync for a specific plan node.
+ *
+ * Body: { nodeId: string, changedFields?: string[] }
+ *
+ * Used when users update fields in the Astro UI (title, status, priority, etc.)
+ * and the change needs to be pushed to the linked GitHub issue.
+ */
+app.post('/issues/sync-fields', async (c) => {
+  const user = c.get('user') as AuthUser;
+  const body = await c.req.json() as {
+    nodeId: string;
+    changedFields?: string[];
+  };
+
+  if (!body.nodeId) {
+    return c.json({ error: 'nodeId is required' }, 400);
+  }
+
+  // Verify the node belongs to a project owned by the user's team
+  const [node] = await db.select({
+    clientId: planNodes.clientId,
+    projectId: planNodes.projectId,
+  }).from(planNodes)
+    .innerJoin(projects, eq(projects.id, planNodes.projectId))
+    .where(and(
+      eq(planNodes.clientId, body.nodeId),
+      eq(projects.teamId, user.teamId),
+    )).limit(1);
+
+  if (!node) {
+    return c.json({ error: 'Node not found or access denied' }, 404);
+  }
+
+  // Dynamic import to avoid circular dependency at module load time
+  const { syncNodeToGitHub } = await import('../lib/events/hooks/github-field-sync-hook.js');
+
+  const result = await syncNodeToGitHub(body.nodeId, {
+    changedFields: body.changedFields,
+  });
+
+  if (result.success) {
+    return c.json({ success: true });
+  } else {
+    return c.json({ error: result.error || 'Sync failed' }, 500);
+  }
+});
+
+// ── Sync Health Dashboard ─────────────────────────────────────────
+
+/**
+ * GET /api/github/sync-health?projectId=X
+ * Returns aggregated sync health stats for a project.
+ */
+app.get('/sync-health', async (c) => {
+  const projectId = c.req.query('projectId');
+  if (!projectId) {
+    return c.json({ error: 'projectId is required' }, 400);
+  }
+
+  const now = new Date();
+  const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  try {
+    // Total syncs in last 24h with success/error breakdown
+    const statsRows = await db
+      .select({
+        status: githubSyncLog.status,
+        total: count(),
+      })
+      .from(githubSyncLog)
+      .where(and(
+        eq(githubSyncLog.projectId, projectId),
+        gte(githubSyncLog.createdAt, twentyFourHoursAgo)
+      ))
+      .groupBy(githubSyncLog.status);
+
+    let successCount = 0;
+    let errorCount = 0;
+    for (const row of statsRows) {
+      if (row.status === 'success') successCount = Number(row.total);
+      if (row.status === 'error') errorCount = Number(row.total);
+    }
+
+    // Last successful sync
+    const [lastSuccess] = await db
+      .select({ createdAt: githubSyncLog.createdAt })
+      .from(githubSyncLog)
+      .where(and(
+        eq(githubSyncLog.projectId, projectId),
+        eq(githubSyncLog.status, 'success')
+      ))
+      .orderBy(desc(githubSyncLog.createdAt))
+      .limit(1);
+
+    // Recent errors (last 10)
+    const recentErrors = await db
+      .select({
+        id: githubSyncLog.id,
+        nodeId: githubSyncLog.nodeId,
+        direction: githubSyncLog.direction,
+        action: githubSyncLog.action,
+        errorMessage: githubSyncLog.errorMessage,
+        metadata: githubSyncLog.metadata,
+        createdAt: githubSyncLog.createdAt,
+      })
+      .from(githubSyncLog)
+      .where(and(
+        eq(githubSyncLog.projectId, projectId),
+        eq(githubSyncLog.status, 'error')
+      ))
+      .orderBy(desc(githubSyncLog.createdAt))
+      .limit(10);
+
+    // Compute health status
+    const totalRecent = successCount + errorCount;
+    let health: 'healthy' | 'degraded' | 'failing' | 'unknown' = 'unknown';
+    if (totalRecent === 0) {
+      health = 'unknown';
+    } else if (errorCount === 0) {
+      health = 'healthy';
+    } else if (errorCount < totalRecent) {
+      health = 'degraded';
+    } else {
+      health = 'failing';
+    }
+
+    return c.json({
+      health,
+      lastSuccessAt: lastSuccess?.createdAt?.toISOString() ?? null,
+      stats24h: {
+        total: totalRecent,
+        success: successCount,
+        errors: errorCount,
+      },
+      recentErrors,
+    });
+  } catch (err) {
+    console.error('[github-sync] sync-health query failed:', err);
+    return c.json({ error: 'Failed to fetch sync health' }, 500);
+  }
 });
 
 export default app;

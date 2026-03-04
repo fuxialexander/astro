@@ -601,6 +601,110 @@ export class GitHubClient {
   }
 
   /**
+   * Create a new issue in a repository
+   */
+  async createIssue(
+    accessToken: string,
+    owner: string,
+    repo: string,
+    options: {
+      title: string;
+      body?: string;
+      labels?: string[];
+      assignees?: string[];
+    }
+  ): Promise<{
+    number: number;
+    title: string;
+    html_url: string;
+    state: string;
+  }> {
+    const response = await fetch(`${this.baseUrl}/repos/${owner}/${repo}/issues`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        title: options.title,
+        body: options.body || '',
+        labels: options.labels || [],
+        assignees: options.assignees || [],
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`GitHub API error ${response.status}: ${errorBody}`);
+    }
+
+    const data = await response.json();
+    return {
+      number: data.number,
+      title: data.title,
+      html_url: data.html_url,
+      state: data.state,
+    };
+  }
+
+  /**
+   * Search issues in a repository by query string
+   */
+  async searchIssues(
+    accessToken: string,
+    owner: string,
+    repo: string,
+    options: { query?: string; state?: 'open' | 'closed' | 'all'; perPage?: number } = {}
+  ): Promise<Array<{
+    number: number;
+    title: string;
+    state: string;
+    html_url: string;
+    labels: Array<{ name: string; color: string }>;
+  }>> {
+    const { query, state = 'open', perPage = 20 } = options;
+
+    // Use GitHub search API for query, or list API for browsing
+    if (query && query.trim()) {
+      const searchQuery = `${query} repo:${owner}/${repo} is:issue state:${state}`;
+      const params = new URLSearchParams({
+        q: searchQuery,
+        per_page: perPage.toString(),
+        sort: 'updated',
+        order: 'desc',
+      });
+
+      const response = await fetch(`${this.baseUrl}/search/issues?${params}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`GitHub API error: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return (data.items || [])
+        .filter((item: Record<string, unknown>) => !item.pull_request)
+        .map((item: Record<string, unknown>) => ({
+          number: item.number as number,
+          title: item.title as string,
+          state: item.state as string,
+          html_url: item.html_url as string,
+          labels: ((item.labels as Array<Record<string, unknown>>) || []).map(
+            (l) => ({ name: l.name as string, color: l.color as string })
+          ),
+        }));
+    }
+
+    // No query — just list recent issues
+    return this.listIssues(accessToken, owner, repo, { state, perPage });
+  }
+
+  /**
    * Fetch issue comments for a given issue/PR number.
    * Uses conditional requests (ETag/If-None-Match) for efficient polling.
    */

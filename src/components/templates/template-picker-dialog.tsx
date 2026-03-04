@@ -22,7 +22,6 @@ import {
   ArrowRight,
   Loader2,
   Rocket,
-  FolderOpen,
 } from "lucide-react"
 import type { UseCaseTemplateSummary } from "@astro/core/templates"
 import type { LaunchTemplateResult } from "@/lib/api-client"
@@ -302,30 +301,17 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="working-directory" className="text-sm font-medium">
-                    Working Directory (optional)
+                    Working Directory
                   </Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="working-directory"
-                      type="text"
-                      value={workingDirectory}
-                      onChange={(e) => setWorkingDirectory(e.target.value)}
-                      placeholder="/path/to/project"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        // In a real implementation, this would open a directory picker
-                        console.log("Directory picker not yet implemented")
-                      }}
-                    >
-                      <FolderOpen className="h-4 w-4" />
-                    </Button>
-                  </div>
+                  <Input
+                    id="working-directory"
+                    type="text"
+                    value={workingDirectory}
+                    onChange={(e) => setWorkingDirectory(e.target.value)}
+                    placeholder="/path/to/project"
+                  />
                   <p className="text-xs text-muted-foreground">
-                    If not specified, a default directory will be used
+                    You can also set this on the plan page after selecting a machine
                   </p>
                 </div>
               </div>
@@ -334,7 +320,6 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
             {/* Template Parameters */}
             {allParameters.length > 0 && (
               <div className="space-y-4">
-                <h3 className="text-sm font-semibold">Template Parameters</h3>
                 <TemplateParameterForm
                   parameters={allParameters}
                   values={parameterValues}
@@ -375,7 +360,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
               </div>
               {workingDirectory && (
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">Directory:</span>
+                  <span className="text-muted-foreground">Working Directory:</span>
                   <span className="font-medium font-mono text-[10px]">
                     {workingDirectory}
                   </span>
