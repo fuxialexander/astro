@@ -49,4 +49,5 @@ export {
   sharedPlanStars,
   sharedPlanForks,
   sharedPlanComments,
+  projectKnowledge,
 } from '../../../packages/core/src/db/schema.js'
