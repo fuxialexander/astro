@@ -350,34 +350,8 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   },
 
   respondToDynamicApproval: async (taskId: string, requestId: string, answer: string) => {
-    // taskId is actually the executionId - find the nodeId first
-    const planStore = usePlanStore.getState()
-    const node = planStore.nodes.find((n) => n.executionId === taskId)
-
-    // Resolve machineId: prefer the machineId from the approval event (set by relay),
-    // then fall back to plan node / execution store lookup
     const approval = get().dynamicApprovals.get(requestId)
-    let machineId: string | undefined = approval?.machineId
-    if (!machineId && node) {
-      const execution = useExecutionStore.getState().getExecution(node.id)
-      machineId = execution?.machineId
-    }
-    if (!machineId) {
-      // Fall back: search all executions for matching executionId
-      const execStore = useExecutionStore.getState()
-      for (const exec of execStore.executions.values()) {
-        if (exec.executionId === taskId && exec.machineId) {
-          machineId = exec.machineId
-          break
-        }
-      }
-    }
-
-    if (!machineId) {
-      // Fall back to TaskStream machineId (recovered from hydrated init event)
-      const stream = get().taskStreams.get(taskId)
-      machineId = stream?.machineId
-    }
+    const machineId = resolveMachineId(taskId, approval?.machineId, get)
     if (!machineId) {
       // Remove from pending so dialog doesn't stay stuck
       set((state) => {
@@ -441,34 +415,8 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   },
 
   respondToSafetyPrompt: async (taskId: string, decision: string) => {
-    // taskId is the executionId — find the nodeId to look up machineId
-    const planStore = usePlanStore.getState()
-    const node = planStore.nodes.find((n) => n.executionId === taskId)
-
-    // Resolve machineId: prefer the machineId from the safety prompt event (set by relay),
-    // then fall back to execution store lookup
     const safetyPrompt = get().safetyPrompts.get(taskId)
-    let machineId: string | undefined = safetyPrompt?.machineId
-    if (!machineId && node) {
-      const execution = useExecutionStore.getState().getExecution(node.id)
-      machineId = execution?.machineId
-    }
-    if (!machineId) {
-      // Fall back: search all executions for matching executionId
-      const execStore = useExecutionStore.getState()
-      for (const exec of execStore.executions.values()) {
-        if (exec.executionId === taskId && exec.machineId) {
-          machineId = exec.machineId
-          break
-        }
-      }
-    }
-
-    if (!machineId) {
-      // Fall back to TaskStream machineId (recovered from hydrated init event)
-      const stream = get().taskStreams.get(taskId)
-      machineId = stream?.machineId
-    }
+    const machineId = resolveMachineId(taskId, safetyPrompt?.machineId, get)
     if (!machineId) {
       // Remove from map so the dialog doesn't get stuck
       set((state) => {
@@ -573,7 +521,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
             // append only genuinely new live events after the hydrated base. This prevents
             // discarding historical events (e.g. approval_responses) when a race between
             // SSE reconnect and catch-up hydration causes `existing` to be partially populated.
-            const mergedActivity = mergeHydratedAndLive(hydrated.activityEvents, existing.activityEvents)
+            const mergedActivity = mergeByTimestamp(hydrated.activityEvents, existing.activityEvents)
             const mergedToolTraces = mergeByTimestamp(hydrated.toolTraces, existing.toolTraces)
             const mergedFileChanges = mergeByTimestamp(hydrated.fileChanges, existing.fileChanges)
             streams.set(execId, {
@@ -647,6 +595,33 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   },
 }))
 
+/**
+ * Resolve machineId for a task through a 4-step fallback chain:
+ * 1. Provided machineId (from event)
+ * 2. Execution store via plan node lookup
+ * 3. Iteration through all executions
+ * 4. TaskStream machineId (from hydrated init event)
+ */
+function resolveMachineId(taskId: string, eventMachineId: string | undefined, getState: () => RealtimeState): string | undefined {
+  if (eventMachineId) return eventMachineId
+
+  const planStore = usePlanStore.getState()
+  const node = planStore.nodes.find((n) => n.executionId === taskId)
+  if (node) {
+    const execution = useExecutionStore.getState().getExecution(node.id)
+    if (execution?.machineId) return execution.machineId
+  }
+
+  const execStore = useExecutionStore.getState()
+  for (const exec of execStore.executions.values()) {
+    if (exec.executionId === taskId && exec.machineId) {
+      return exec.machineId
+    }
+  }
+
+  return getState().taskStreams.get(taskId)?.machineId
+}
+
 function createEmptyTaskStream(taskId: string): TaskStream {
   return {
     taskId,
@@ -660,39 +635,9 @@ function createEmptyTaskStream(taskId: string): TaskStream {
 }
 
 /**
- * Merge hydrated activity events (full DB history) with live events that may have
- * arrived via SSE before hydration completed. Uses the hydrated set as the base
- * and appends only live events that are genuinely new (after the last hydrated event).
- * This prevents losing historical events like approval_responses when SSE races
- * ahead of catch-up hydration during page refresh.
- */
-function mergeHydratedAndLive(
-  hydrated: TaskActivityEvent[],
-  live: TaskActivityEvent[],
-): TaskActivityEvent[] {
-  if (live.length === 0) return hydrated
-  if (hydrated.length === 0) return live
-
-  // Use the last hydrated event's timestamp as the cutoff.
-  // Live events with timestamps after this are genuinely new.
-  const lastHydratedTime = hydrated.length > 0
-    ? new Date(hydrated[hydrated.length - 1].timestamp).getTime()
-    : 0
-
-  // Only keep live events that arrived after the hydrated timeline
-  // (with 1s tolerance to avoid edge-case duplicates from clock skew)
-  const newLiveEvents = live.filter(
-    e => new Date(e.timestamp).getTime() > lastHydratedTime + 1000
-  )
-
-  return newLiveEvents.length > 0
-    ? [...hydrated, ...newLiveEvents]
-    : hydrated
-}
-
-/**
- * Generic timestamp-based merge for arrays with a `timestamp` field.
- * Hydrated (DB history) forms the base; live events after the cutoff are appended.
+ * Timestamp-based merge: hydrated (DB history) forms the base; live events
+ * that arrived after the last hydrated event are appended. 1s tolerance
+ * avoids edge-case duplicates from clock skew.
  */
 function mergeByTimestamp<T extends { timestamp: Date }>(
   hydrated: T[],
@@ -701,9 +646,7 @@ function mergeByTimestamp<T extends { timestamp: Date }>(
   if (live.length === 0) return hydrated
   if (hydrated.length === 0) return live
 
-  const lastHydratedTime = hydrated.length > 0
-    ? new Date(hydrated[hydrated.length - 1].timestamp).getTime()
-    : 0
+  const lastHydratedTime = new Date(hydrated[hydrated.length - 1].timestamp).getTime()
 
   const newLiveItems = live.filter(
     item => new Date(item.timestamp).getTime() > lastHydratedTime + 1000

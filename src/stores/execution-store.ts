@@ -29,6 +29,11 @@ if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', () => { isPageUnloading = true })
 }
 
+/** True if the page is unloading or the tab is hidden — SSE errors in this state are not real failures. */
+function isPageUnloadingOrHidden(): boolean {
+  return isPageUnloading || (typeof document !== 'undefined' && document.visibilityState === 'hidden')
+}
+
 // Helper: Create auth headers for API requests
 async function getAuthHeaders(): Promise<HeadersInit> {
   const token = await getAccessToken()
@@ -487,7 +492,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         // Check `isPageUnloading` first: `beforeunload` fires before fetch connections
         // are dropped, so this flag is reliable. `visibilityState` is a fallback but
         // can still be 'visible' when the fetch errors out during refresh.
-        if (isPageUnloading || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) {
+        if (isPageUnloadingOrHidden()) {
           console.log('[execution] SSE interrupted by page unload, skipping failure marking')
           return
         }
@@ -1109,7 +1114,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         } else {
           // Don't mark as failure if the page is unloading (refresh/navigate away)
           // — the task is still running server-side, catch-up will reconcile on reload
-          if (isPageUnloading || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) {
+          if (isPageUnloadingOrHidden()) {
             console.log('[plan-session] SSE interrupted by page unload, skipping failure marking')
             return
           }
@@ -1334,7 +1339,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           })
         } else {
           // Don't mark as failure if the page is unloading (refresh/navigate away)
-          if (isPageUnloading || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) {
+          if (isPageUnloadingOrHidden()) {
             console.log('[plan-session-forProject] SSE interrupted by page unload, skipping failure marking')
             return
           }

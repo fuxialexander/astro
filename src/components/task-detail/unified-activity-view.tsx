@@ -121,15 +121,17 @@ export function UnifiedActivityView({
   // Group events for display
   const displayBlocks = useMemo(() => groupActivityEvents(allActivityEvents), [allActivityEvents])
 
-  // Answered approvals (from activity events)
-  const answeredRequestIds = useMemo(() => {
+  // Pre-build approval response lookup (answered set + response map) to avoid O(n) scans in render
+  const { answeredRequestIds, approvalResponseMap } = useMemo(() => {
     const ids = new Set<string>()
+    const responses = new Map<string, Extract<TaskActivityEvent, { type: 'approval_response' }>>()
     for (const event of allActivityEvents) {
       if (event.type === 'approval_response') {
         ids.add(event.requestId)
+        responses.set(event.requestId, event)
       }
     }
-    return ids
+    return { answeredRequestIds: ids, approvalResponseMap: responses }
   }, [allActivityEvents])
 
   async function handleApprovalResponse(requestId: string, answer: string) {
@@ -568,10 +570,7 @@ export function UnifiedActivityView({
             case 'approval_request': {
               const event = block.events[0] as Extract<TaskActivityEvent, { type: 'approval_request' }>
               const isAnswered = answeredRequestIds.has(event.requestId)
-              const responseEvent = allActivityEvents.find(
-                (e): e is Extract<TaskActivityEvent, { type: 'approval_response' }> =>
-                  e.type === 'approval_response' && e.requestId === event.requestId
-              )
+              const responseEvent = approvalResponseMap.get(event.requestId)
               return (
                 <InlineApprovalCard
                   key={i}

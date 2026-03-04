@@ -515,6 +515,7 @@ export async function fetchStreamingEventsCatchUp(
 ): Promise<{ events: StreamingEventRow[]; lastSeq: number }> {
   const allEvents: StreamingEventRow[] = []
   let currentSeq = afterSeq
+  const headers = await authHeaders()
 
   // Paginate until all events are fetched (cap at 50 pages to avoid infinite loops)
   const MAX_PAGES = 50
@@ -525,7 +526,7 @@ export async function fetchStreamingEventsCatchUp(
       limit: String(limit),
     })
     const response = await fetch(apiUrl(`/api/events/catch-up?${params}`), {
-      headers: await authHeaders(),
+      headers,
     })
     if (!response.ok) {
       return { events: allEvents, lastSeq: currentSeq }
