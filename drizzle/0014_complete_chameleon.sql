@@ -1,25 +1,18 @@
-CREATE TABLE "custom_templates" (
+CREATE TABLE "github_app_installations" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"name" text NOT NULL,
-	"description" text DEFAULT '' NOT NULL,
-	"category" text DEFAULT 'custom' NOT NULL,
-	"version" text DEFAULT '1.0.0' NOT NULL,
-	"icon" text,
-	"tags" text[] DEFAULT '{}' NOT NULL,
-	"maturity" text DEFAULT 'stable' NOT NULL,
-	"enabled" boolean DEFAULT true NOT NULL,
-	"required_parameters" jsonb DEFAULT '[]'::jsonb NOT NULL,
-	"optional_parameters" jsonb DEFAULT '[]'::jsonb NOT NULL,
-	"prompts" jsonb NOT NULL,
-	"execution" jsonb,
-	"parallelization" jsonb,
-	"plan_hints" jsonb,
-	"source_project_id" uuid,
-	"author_id" uuid NOT NULL,
+	"installation_id" integer NOT NULL,
+	"user_id" uuid NOT NULL,
 	"team_id" uuid,
+	"account_login" text NOT NULL,
+	"account_type" text DEFAULT 'Organization' NOT NULL,
+	"account_avatar_url" text,
+	"app_id" integer,
+	"repository_selection" text DEFAULT 'all' NOT NULL,
+	"repos" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"permissions" jsonb DEFAULT '{}'::jsonb NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
-	CONSTRAINT "custom_templates_name_author_id_unique" UNIQUE("name","author_id")
+	CONSTRAINT "github_app_installations_installation_id_unique" UNIQUE("installation_id")
 );
 --> statement-breakpoint
 CREATE TABLE "shared_plan_comments" (
@@ -77,9 +70,8 @@ CREATE TABLE "shared_plans" (
 	"deleted_at" timestamp
 );
 --> statement-breakpoint
-ALTER TABLE "custom_templates" ADD CONSTRAINT "custom_templates_source_project_id_projects_id_fk" FOREIGN KEY ("source_project_id") REFERENCES "public"."projects"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "custom_templates" ADD CONSTRAINT "custom_templates_author_id_user_profiles_id_fk" FOREIGN KEY ("author_id") REFERENCES "public"."user_profiles"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "custom_templates" ADD CONSTRAINT "custom_templates_team_id_teams_id_fk" FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "plan_nodes" ADD COLUMN "github_pr_data" jsonb;--> statement-breakpoint
+ALTER TABLE "plan_nodes" ADD COLUMN "github_comments" jsonb DEFAULT '[]'::jsonb;--> statement-breakpoint
 ALTER TABLE "shared_plan_comments" ADD CONSTRAINT "shared_plan_comments_plan_id_shared_plans_id_fk" FOREIGN KEY ("plan_id") REFERENCES "public"."shared_plans"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "shared_plan_comments" ADD CONSTRAINT "shared_plan_comments_author_id_user_profiles_id_fk" FOREIGN KEY ("author_id") REFERENCES "public"."user_profiles"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "shared_plan_forks" ADD CONSTRAINT "shared_plan_forks_source_plan_id_shared_plans_id_fk" FOREIGN KEY ("source_plan_id") REFERENCES "public"."shared_plans"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -89,13 +81,8 @@ ALTER TABLE "shared_plan_stars" ADD CONSTRAINT "shared_plan_stars_user_id_user_p
 ALTER TABLE "shared_plan_stars" ADD CONSTRAINT "shared_plan_stars_plan_id_shared_plans_id_fk" FOREIGN KEY ("plan_id") REFERENCES "public"."shared_plans"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "shared_plans" ADD CONSTRAINT "shared_plans_author_id_user_profiles_id_fk" FOREIGN KEY ("author_id") REFERENCES "public"."user_profiles"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "shared_plans" ADD CONSTRAINT "shared_plans_team_id_teams_id_fk" FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "custom_templates_author_id_idx" ON "custom_templates" USING btree ("author_id");--> statement-breakpoint
-CREATE INDEX "custom_templates_team_id_idx" ON "custom_templates" USING btree ("team_id");--> statement-breakpoint
-CREATE INDEX "custom_templates_category_idx" ON "custom_templates" USING btree ("category");--> statement-breakpoint
-CREATE INDEX "custom_templates_enabled_idx" ON "custom_templates" USING btree ("enabled");--> statement-breakpoint
 CREATE INDEX "shared_plan_comments_plan_id_idx" ON "shared_plan_comments" USING btree ("plan_id");--> statement-breakpoint
 CREATE INDEX "shared_plans_category_idx" ON "shared_plans" USING btree ("category");--> statement-breakpoint
 CREATE INDEX "shared_plans_stars_count_idx" ON "shared_plans" USING btree ("stars_count" DESC NULLS LAST);--> statement-breakpoint
 CREATE INDEX "shared_plans_created_at_idx" ON "shared_plans" USING btree ("created_at" DESC NULLS LAST);--> statement-breakpoint
-CREATE INDEX "shared_plans_author_id_idx" ON "shared_plans" USING btree ("author_id");--> statement-breakpoint
-ALTER TABLE "skills" ADD CONSTRAINT "skills_builtin_null_ownership" CHECK ("skills"."source" != 'builtin' OR ("skills"."team_id" IS NULL AND "skills"."author_id" IS NULL));
+CREATE INDEX "shared_plans_author_id_idx" ON "shared_plans" USING btree ("author_id");

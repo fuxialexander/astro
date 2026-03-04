@@ -621,7 +621,8 @@ app.post('/plans/:id/fork', async (c) => {
           dueDate: (node.dueDate as string) || null,
           estimate: (node.estimate as string) || null,
           milestoneId: (node.milestoneId as string) || null,
-          position: (node.position as { x: number; y: number }) || { x: 0, y: 0 },
+          positionX: ((node.position as { x: number; y: number })?.x) ?? 0,
+          positionY: ((node.position as { x: number; y: number })?.y) ?? 0,
           createdAt: now,
           updatedAt: now,
         }))

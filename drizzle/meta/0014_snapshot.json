@@ -1,6 +1,6 @@
 {
-  "id": "dd54ce47-1377-4c6a-ab79-9404501175c1",
-  "prevId": "4a90e546-8d3d-40ea-950c-4b94ccf3dfa4",
+  "id": "e4c54523-4c16-4403-b72c-67c2796d5289",
+  "prevId": "1d28d8b6-86bb-4173-83f3-1554e62dff80",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1077,6 +1077,112 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.github_app_installations": {
+      "name": "github_app_installations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "installation_id": {
+          "name": "installation_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "team_id": {
+          "name": "team_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "account_login": {
+          "name": "account_login",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "account_type": {
+          "name": "account_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Organization'"
+        },
+        "account_avatar_url": {
+          "name": "account_avatar_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "app_id": {
+          "name": "app_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "repository_selection": {
+          "name": "repository_selection",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'all'"
+        },
+        "repos": {
+          "name": "repos",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "permissions": {
+          "name": "permissions",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "github_app_installations_installation_id_unique": {
+          "name": "github_app_installations_installation_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "installation_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.github_connections": {
       "name": "github_connections",
       "schema": "",
@@ -2138,6 +2244,19 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "github_pr_data": {
+          "name": "github_pr_data",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "github_comments": {
+          "name": "github_comments",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'[]'::jsonb"
         },
         "deleted_at": {
           "name": "deleted_at",
