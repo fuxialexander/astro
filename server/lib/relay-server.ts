@@ -38,6 +38,9 @@ import {
   type MachineInfo,
   type ProviderType,
   type ClaudeCodeSessionInfo,
+  // File content & upload types
+  type FileContentResponseMessage,
+  type FileUploadResponseMessage,
   // Session attachment types (MCP bridge)
   type SessionAttachMessage,
   type SessionAttachAckMessage,
@@ -301,6 +304,36 @@ interface AgentRunnerFileListResponseMessage {
   };
 }
 
+/** Agent runner's file content response message format */
+interface AgentRunnerFileContentResponseMessage {
+  type: 'file_content_response';
+  timestamp: string;
+  payload: {
+    correlationId: string;
+    path: string;
+    content?: string;
+    encoding?: 'utf-8' | 'base64';
+    mimeType?: string;
+    size?: number;
+    chunked?: boolean;
+    chunkIndex?: number;
+    totalChunks?: number;
+    error?: string;
+  };
+}
+
+/** Agent runner's file upload response message format */
+interface AgentRunnerFileUploadResponseMessage {
+  type: 'file_upload_response';
+  timestamp: string;
+  payload: {
+    correlationId: string;
+    success: boolean;
+    path?: string;
+    error?: string;
+  };
+}
+
 /** Directory entry info */
 interface DirectoryEntry {
   name: string;
@@ -526,6 +559,8 @@ export interface RelayServerEvents {
   'session:event': (sessionId: string, taskId: string, event: SessionEvent) => void;
   'file_list:response': (data: { correlationId: string; files: string[] }) => void;
   'directory_list:response': (data: { correlationId: string; path: string; entries: DirectoryEntry[]; error?: string; homeDirectory?: string }) => void;
+  'file_content:response': (data: { correlationId: string; path: string; content?: string; encoding?: string; mimeType?: string; size?: number; chunked?: boolean; chunkIndex?: number; totalChunks?: number; error?: string }) => void;
+  'file_upload:response': (data: { correlationId: string; success: boolean; path?: string; error?: string }) => void;
   'create_directory:response': (data: { correlationId: string; success: boolean; path?: string; error?: string }) => void;
   'repo_setup:response': (data: { correlationId: string; result: RepoSetupRelayResult }) => void;
   'slash_commands:response': (data: { correlationId: string; commands: Array<{ name: string; description: string }> }) => void;
@@ -945,6 +980,24 @@ export class RelayServer extends EventEmitter {
 
       case 'directory_list_response':
         this.handleAgentRunnerDirectoryListResponse(message as unknown as AgentRunnerDirectoryListResponseMessage);
+        break;
+
+      // File content response from agent runner (for reading remote files)
+      case 'file_content.response':
+        this.handleFileContentResponse(message as unknown as FileContentResponseMessage);
+        break;
+
+      case 'file_content_response':
+        this.handleAgentRunnerFileContentResponse(message as unknown as AgentRunnerFileContentResponseMessage);
+        break;
+
+      // File upload response from agent runner (for writing remote files)
+      case 'file_upload.response':
+        this.handleFileUploadResponse(message as unknown as FileUploadResponseMessage);
+        break;
+
+      case 'file_upload_response':
+        this.handleAgentRunnerFileUploadResponse(message as unknown as AgentRunnerFileUploadResponseMessage);
         break;
 
       // Create directory response from agent runner
@@ -2155,6 +2208,161 @@ export class RelayServer extends EventEmitter {
       entries: message.payload.entries,
       error: message.payload.error,
       homeDirectory: message.payload.homeDirectory,
+    });
+  }
+
+  // ============================================================================
+  // File Content Handlers (for reading remote files)
+  // ============================================================================
+
+  /**
+   * Request file content from a connected machine
+   */
+  requestFileContent(machineId: string, path: string, correlationId: string): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.error(`[relay] Machine ${machineId} not found for file content request`);
+      return false;
+    }
+
+    // Send in agent-runner's expected format
+    const msg = {
+      type: 'file_content_request',
+      timestamp: new Date().toISOString(),
+      payload: { path, correlationId },
+    };
+
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    socket.send(JSON.stringify(msg));
+    return true;
+  }
+
+  /**
+   * Handle file_content.response (dot notation)
+   */
+  private handleFileContentResponse(message: FileContentResponseMessage): void {
+    this.emit('file_content:response', {
+      correlationId: message.correlationId!,
+      path: message.path,
+      content: message.content,
+      encoding: message.encoding,
+      mimeType: message.mimeType,
+      size: message.size,
+      chunked: message.chunked,
+      chunkIndex: message.chunkIndex,
+      totalChunks: message.totalChunks,
+      error: message.error,
+    });
+  }
+
+  /**
+   * Handle agent runner's file_content_response format
+   */
+  private handleAgentRunnerFileContentResponse(message: AgentRunnerFileContentResponseMessage): void {
+    this.emit('file_content:response', {
+      correlationId: message.payload.correlationId,
+      path: message.payload.path,
+      content: message.payload.content,
+      encoding: message.payload.encoding,
+      mimeType: message.payload.mimeType,
+      size: message.payload.size,
+      chunked: message.payload.chunked,
+      chunkIndex: message.payload.chunkIndex,
+      totalChunks: message.payload.totalChunks,
+      error: message.payload.error,
+    });
+  }
+
+  // ============================================================================
+  // File Upload Handlers (for writing remote files)
+  // ============================================================================
+
+  /**
+   * Request file upload to a connected machine
+   */
+  requestFileUpload(
+    machineId: string,
+    destinationPath: string,
+    fileName: string,
+    size: number,
+    totalChunks: number,
+    overwrite: boolean,
+    correlationId: string,
+  ): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.error(`[relay] Machine ${machineId} not found for file upload request`);
+      return false;
+    }
+
+    const msg = {
+      type: 'file_upload_request',
+      timestamp: new Date().toISOString(),
+      payload: { destinationPath, fileName, size, totalChunks, overwrite, correlationId },
+    };
+
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    socket.send(JSON.stringify(msg));
+    return true;
+  }
+
+  /**
+   * Send a file upload chunk to a connected machine
+   */
+  sendFileUploadChunk(
+    machineId: string,
+    correlationId: string,
+    chunkIndex: number,
+    encoding: 'utf-8' | 'base64',
+    content: string,
+  ): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.error(`[relay] Machine ${machineId} not found for file upload chunk`);
+      return false;
+    }
+
+    const msg = {
+      type: 'file_upload_chunk',
+      timestamp: new Date().toISOString(),
+      payload: { correlationId, chunkIndex, encoding, content },
+    };
+
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    socket.send(JSON.stringify(msg));
+    return true;
+  }
+
+  /**
+   * Handle file_upload.response (dot notation)
+   */
+  private handleFileUploadResponse(message: FileUploadResponseMessage): void {
+    this.emit('file_upload:response', {
+      correlationId: message.correlationId!,
+      success: message.success,
+      path: message.path,
+      error: message.error,
+    });
+  }
+
+  /**
+   * Handle agent runner's file_upload_response format
+   */
+  private handleAgentRunnerFileUploadResponse(message: AgentRunnerFileUploadResponseMessage): void {
+    this.emit('file_upload:response', {
+      correlationId: message.payload.correlationId,
+      success: message.payload.success,
+      path: message.payload.path,
+      error: message.payload.error,
     });
   }
 
