@@ -587,6 +587,25 @@ export const githubConnections = pgTable('github_connections', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
+// ── GitHub App Installations ─────────────────────────────────────
+// GitHub App installation records, linked to users and optionally teams.
+// Supports team-level access grants with per-installation repo selection.
+export const githubAppInstallations = pgTable('github_app_installations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  installationId: integer('installation_id').notNull().unique(),
+  userId: uuid('user_id').notNull(),         // who installed / linked it
+  teamId: uuid('team_id'),                   // optional team link
+  accountLogin: text('account_login').notNull(),
+  accountType: text('account_type').notNull().default('Organization'), // 'Organization' | 'User'
+  accountAvatarUrl: text('account_avatar_url'),
+  appId: integer('app_id'),
+  repositorySelection: text('repository_selection').notNull().default('all'), // 'all' | 'selected'
+  repos: jsonb('repos').$type<{ id: number; name: string; full_name: string; private: boolean }[]>().notNull().default([]),
+  permissions: jsonb('permissions').$type<Record<string, string>>().notNull().default({}),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
 // ── Encrypted API Keys ──────────────────────────────────────────
 // Client-side encrypted API keys for external services (Web Crypto API).
 export const encryptedApiKeys = pgTable('encrypted_api_keys', {

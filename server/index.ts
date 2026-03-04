@@ -20,6 +20,7 @@ import { repoRoute } from './routes/repo.js'
 import { dataRoute } from './routes/data.js'
 import { notificationsRoute } from './routes/notifications.js'
 import githubRoute from './routes/github.js'
+import githubAppRoute from './routes/github-app.js'
 import { wellKnownRoute } from './routes/well-known.js'
 import systemRoute from './routes/system.js'
 import { skillsRoute } from './routes/skills.js'
@@ -180,6 +181,7 @@ export function createApp() {
   if (!isLocalModeEnv()) {
     app.route('/api/notifications', notificationsRoute)
     app.route('/api/github', githubRoute)
+    app.route('/api/github-app', githubAppRoute)
     app.route('/api/share', shareRoute)
     app.route('/api/connected-accounts', connectedAccountsRoute)
   }
