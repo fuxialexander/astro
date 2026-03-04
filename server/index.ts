@@ -159,6 +159,21 @@ export function createApp() {
     }))
   }
 
+  // Community write endpoints rate limiter (60 req/15min per IP) - bypassed in test mode
+  // Covers star, comment, publish, fork operations to prevent abuse
+  if (!isTest()) {
+    app.use('/api/community/plans/*', async (c, next) => {
+      // Only rate-limit write operations (POST/PUT/DELETE)
+      if (c.req.method === 'GET') return next()
+      return rateLimiter({
+        windowMs: 15 * 60 * 1000, // 15 minutes
+        limit: 60,
+        standardHeaders: 'draft-7',
+        keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
+      })(c, next)
+    })
+  }
+
   // Routes that work in both local and server mode
   app.route('/.well-known', wellKnownRoute)
   app.route('/api', healthRoute)
