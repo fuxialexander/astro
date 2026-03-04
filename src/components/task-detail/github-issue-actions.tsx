@@ -27,6 +27,8 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { usePlanStore } from '@/stores/plan-store'
 import { cn } from '@/lib/utils'
+import { apiUrl } from '@/lib/api-url'
+import { getAccessToken } from '@/lib/supabase-client'
 import type { PlanNode, Project } from '@/types'
 
 interface GitHubIssueActionsProps {
@@ -61,9 +63,13 @@ export function GitHubIssueActions({ node, project }: GitHubIssueActionsProps) {
     setIsCreating(true)
     setError(null)
     try {
-      const res = await fetch('/api/github/issues', {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      const token = await getAccessToken()
+      if (token) headers['Authorization'] = `Bearer ${token}`
+
+      const res = await fetch(apiUrl('/api/github/issues'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           nodeId: node.id,
           projectId: project.id,
@@ -104,9 +110,13 @@ export function GitHubIssueActions({ node, project }: GitHubIssueActionsProps) {
     setIsLinking(true)
     setError(null)
     try {
-      const res = await fetch('/api/github/issues/link', {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      const token = await getAccessToken()
+      if (token) headers['Authorization'] = `Bearer ${token}`
+
+      const res = await fetch(apiUrl('/api/github/issues/link'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           nodeId: node.id,
           projectId: project.id,
@@ -155,9 +165,13 @@ export function GitHubIssueActions({ node, project }: GitHubIssueActionsProps) {
     setIsUnlinking(true)
     setError(null)
     try {
-      const res = await fetch('/api/github/issues/unlink', {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      const token = await getAccessToken()
+      if (token) headers['Authorization'] = `Bearer ${token}`
+
+      const res = await fetch(apiUrl('/api/github/issues/unlink'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           nodeId: node.id,
           projectId: project.id,
@@ -191,7 +205,11 @@ export function GitHubIssueActions({ node, project }: GitHubIssueActionsProps) {
       const params = new URLSearchParams({ projectId: project.id })
       if (q) params.set('q', q)
 
-      const res = await fetch(`/api/github/issues/search?${params}`)
+      const searchHeaders: Record<string, string> = {}
+      const searchToken = await getAccessToken()
+      if (searchToken) searchHeaders['Authorization'] = `Bearer ${searchToken}`
+
+      const res = await fetch(apiUrl(`/api/github/issues/search?${params}`), { headers: searchHeaders })
       if (!res.ok) {
         throw new Error('Failed to search issues')
       }
@@ -371,19 +389,22 @@ export function GitHubIssueActions({ node, project }: GitHubIssueActionsProps) {
                     </div>
                     {issue.labels.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-1">
-                        {issue.labels.slice(0, 3).map((label) => (
+                        {issue.labels.slice(0, 3).map((label) => {
+                          const safeColor = /^[0-9a-fA-F]{6}$/.test(label.color) ? label.color : '888888'
+                          return (
                           <Badge
                             key={label.name}
                             variant="outline"
                             className="text-[10px] py-0"
                             style={{
-                              borderColor: `#${label.color}40`,
-                              color: `#${label.color}`,
+                              borderColor: `#${safeColor}40`,
+                              color: `#${safeColor}`,
                             }}
                           >
                             {label.name}
                           </Badge>
-                        ))}
+                          )
+                        })}
                       </div>
                     )}
                   </div>

@@ -22,6 +22,7 @@ import { usePlanStore } from '@/stores/plan-store'
 import { useProjectStore } from '@/stores/project-store'
 import { statusBadgeVariants } from '@/lib/status-config'
 import { cn, getShortId } from '@/lib/utils'
+import { sanitizeHtml } from '@/lib/sanitize-html'
 import type { PlanNode, TaskAttachment, TaskLink } from '@/types'
 import { AttachmentList } from './attachment-list'
 import { LinkList } from './link-list'
@@ -88,6 +89,8 @@ export function ExpandableTaskPanel({
     try {
       await updateNode(node.id, { content: draftContent })
       setHasChanges(false)
+    } catch (err) {
+      console.error('Failed to save task content:', err)
     } finally {
       setIsSaving(false)
     }
@@ -260,7 +263,7 @@ export function ExpandableTaskPanel({
                   Task Instructions
                 </h3>
                 {node.content ? (
-                  <div className="text-sm text-foreground prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: node.content }} />
+                  <div className="text-sm text-foreground prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: sanitizeHtml(node.content) }} />
                 ) : (
                   <p className="text-sm text-foreground whitespace-pre-wrap">{node.description}</p>
                 )}

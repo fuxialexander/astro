@@ -23,7 +23,8 @@ export function useSyncHealth(projectId: string | undefined) {
       const token = await getAccessToken()
       if (token) headers['Authorization'] = `Bearer ${token}`
 
-      const res = await fetch(apiUrl(`/api/github/sync-health?projectId=${projectId}`), { headers })
+      const params = new URLSearchParams({ projectId })
+      const res = await fetch(apiUrl(`/api/github/sync-health?${params}`), { headers })
       if (!res.ok) throw new Error('Failed to fetch sync health')
       const json = await res.json() as SyncHealthData
       setData(json)
@@ -35,11 +36,12 @@ export function useSyncHealth(projectId: string | undefined) {
   }, [projectId])
 
   useEffect(() => {
+    if (!projectId) return
     fetchHealth()
     // Auto-refresh every 60s
     const interval = setInterval(fetchHealth, 60_000)
     return () => clearInterval(interval)
-  }, [fetchHealth])
+  }, [fetchHealth, projectId])
 
   return { data, loading, error, refresh: fetchHealth }
 }

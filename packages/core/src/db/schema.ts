@@ -1,5 +1,6 @@
 import { pgTable, text, integer, real, uuid, timestamp, boolean, date, jsonb, primaryKey, unique, index, uniqueIndex, check } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
+import type { GitHubSyncSettings } from '../types.js'
 
 // ── Projects ──────────────────────────────────────────────────────────
 export const projects = pgTable('projects', {
@@ -34,11 +35,7 @@ export const projects = pgTable('projects', {
   githubRepo: text('github_repo'),
   githubRepoId: integer('github_repo_id'),
   references: jsonb('references').default([]),
-  githubSyncSettings: jsonb('github_sync_settings').$type<{
-    enabledFields: string[]       // which plan_node fields to sync (e.g. ['title','description','status'])
-    autoCreateDirection: 'astro_to_github' | 'github_to_astro' | 'bidirectional' | 'none'
-    labelMapping: Record<string, string>  // astro label id → github label name
-  }>(),
+  githubSyncSettings: jsonb('github_sync_settings').$type<GitHubSyncSettings>(),
   projectBranch: text('project_branch'),
   projectPrUrl: text('project_pr_url'),
   projectPrNumber: integer('project_pr_number'),
@@ -160,7 +157,7 @@ export const planNodes = pgTable('plan_nodes', {
     type: 'issue_comment' | 'review_comment';
     inReplyTo?: number; path?: string; line?: number;
   }>>().default([]),
-  githubSyncedAt: timestamp('github_synced_at'),
+  githubSyncedAt: timestamp('github_synced_at', { withTimezone: true }),
   githubSyncVersion: integer('github_sync_version').default(0),
   syncSource: text('sync_source'),  // 'user' | 'github' | 'sync' — prevents infinite sync loops
   deletedAt: timestamp('deleted_at'),
@@ -911,14 +908,14 @@ export const sharedPlanComments = pgTable('shared_plan_comments', {
 // Used by the sync health dashboard for monitoring and retry.
 export const githubSyncLog = pgTable('github_sync_log', {
   id: uuid('id').primaryKey().defaultRandom(),
-  projectId: uuid('project_id').notNull(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   nodeId: text('node_id'),                // clientId of the plan node (nullable for project-level ops)
   direction: text('direction').notNull(),  // 'github_to_astro' | 'astro_to_github'
   action: text('action').notNull(),        // 'create' | 'update' | 'close' | 'reopen' | 'comment' | 'label' | 'assign'
   status: text('status').notNull(),        // 'success' | 'error'
   errorMessage: text('error_message'),
   metadata: jsonb('metadata').$type<Record<string, unknown>>(), // extra context (issue number, field names, etc.)
-  createdAt: timestamp('created_at').notNull().defaultNow(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index('github_sync_log_project_id_idx').on(table.projectId),
   index('github_sync_log_created_at_idx').on(table.createdAt),

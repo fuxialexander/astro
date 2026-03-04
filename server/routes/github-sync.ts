@@ -812,12 +812,13 @@ app.get('/issues/search', async (c) => {
  * Fetch per-project GitHub sync settings.
  */
 app.get('/projects/:projectId/sync-settings', async (c) => {
+  const user = c.get('user') as AuthUser;
   const { projectId } = c.req.param();
 
   const [project] = await db.select({
     githubSyncSettings: projects.githubSyncSettings,
     projectType: projects.projectType,
-  }).from(projects).where(eq(projects.id, projectId)).limit(1);
+  }).from(projects).where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId))).limit(1);
 
   if (!project) {
     return c.json({ error: 'Project not found' }, 404);
@@ -872,11 +873,12 @@ app.put('/projects/:projectId/sync-settings', async (c) => {
     }
   }
 
-  // Verify the project exists and is a GitHub project
+  // Verify the project exists, belongs to the team, and is a GitHub project
+  const user = c.get('user') as AuthUser;
   const [project] = await db.select({
     id: projects.id,
     projectType: projects.projectType,
-  }).from(projects).where(eq(projects.id, projectId)).limit(1);
+  }).from(projects).where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId))).limit(1);
 
   if (!project) {
     return c.json({ error: 'Project not found' }, 404);
@@ -907,6 +909,7 @@ app.put('/projects/:projectId/sync-settings', async (c) => {
  * and the change needs to be pushed to the linked GitHub issue.
  */
 app.post('/issues/sync-fields', async (c) => {
+  const user = c.get('user') as AuthUser;
   const body = await c.req.json() as {
     nodeId: string;
     changedFields?: string[];
@@ -914,6 +917,21 @@ app.post('/issues/sync-fields', async (c) => {
 
   if (!body.nodeId) {
     return c.json({ error: 'nodeId is required' }, 400);
+  }
+
+  // Verify the node belongs to a project owned by the user's team
+  const [node] = await db.select({
+    clientId: planNodes.clientId,
+    projectId: planNodes.projectId,
+  }).from(planNodes)
+    .innerJoin(projects, eq(projects.id, planNodes.projectId))
+    .where(and(
+      eq(planNodes.clientId, body.nodeId),
+      eq(projects.teamId, user.teamId),
+    )).limit(1);
+
+  if (!node) {
+    return c.json({ error: 'Node not found or access denied' }, 404);
   }
 
   // Dynamic import to avoid circular dependency at module load time
