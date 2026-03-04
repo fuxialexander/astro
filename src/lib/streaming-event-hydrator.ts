@@ -19,6 +19,16 @@ export interface PendingApproval {
   timestamp: Date
 }
 
+export interface PendingSafetyPrompt {
+  executionId: string
+  taskId: string
+  safetyTier: string
+  warning?: string
+  machineId?: string
+  options: Array<{ id: string; label: string; description?: string }>
+  timestamp: Date
+}
+
 export interface HydratedStreamData {
   stdout: string
   activityEvents: TaskActivityEvent[]
@@ -40,7 +50,10 @@ export interface HydratedStreamData {
   }>
   // Pending approval requests (not yet answered)
   pendingApprovals: PendingApproval[]
-  // Metadata from session_init and result events
+  // Pending safety prompts (not yet responded to)
+  pendingSafetyPrompts: PendingSafetyPrompt[]
+  // Metadata from init, session_init and result events
+  machineId?: string
   status?: string
   output?: string
   error?: string
@@ -65,7 +78,11 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
   // Track approval requests and which have been answered
   const approvalRequests = new Map<string, PendingApproval>()
   const answeredApprovals = new Set<string>()
+  // Track safety prompts and which have been responded to
+  const safetyPromptRequests = new Map<string, PendingSafetyPrompt>()
+  const answeredSafetyPrompts = new Set<string>()
   let stdout = ''
+  let machineId: string | undefined
   let status: string | undefined
   let output: string | undefined
   let error: string | undefined
@@ -87,6 +104,10 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
     const timestamp = new Date(event.createdAt)
 
     switch (event.eventType) {
+      case 'init': {
+        machineId = (data.machineId as string) || undefined
+        break
+      }
       case 'text': {
         const text = (data.text as string) || ''
         stdout += text
@@ -233,6 +254,33 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
         })
         break
       }
+      case 'error': {
+        error = (data.error as string) || 'Unknown error'
+        status = 'error'
+        activityEvents.push({
+          type: 'error' as const,
+          error,
+          timestamp,
+        })
+        break
+      }
+      case 'safety_prompt': {
+        // Key by executionId (one safety prompt per task at a time)
+        safetyPromptRequests.set(event.executionId, {
+          executionId: event.executionId,
+          taskId: event.executionId,
+          safetyTier: (data.safetyTier as string) || '',
+          warning: (data.warning as string) || undefined,
+          machineId: (data.machineId as string) || undefined,
+          options: (data.options as Array<{ id: string; label: string; description?: string }>) || [],
+          timestamp,
+        })
+        break
+      }
+      case 'safety_response': {
+        answeredSafetyPrompts.add(event.executionId)
+        break
+      }
     }
   }
 
@@ -240,5 +288,9 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
   const pendingApprovals = Array.from(approvalRequests.values())
     .filter(a => !answeredApprovals.has(a.requestId))
 
-  return { stdout, activityEvents, toolTraces, fileChanges, pendingApprovals, status, output, error, sessionId, model, progress, progressMessage, branchName, prUrl, prNumber, deliveryStatus, summary, planResult }
+  // Only include safety prompts that haven't been responded to
+  const pendingSafetyPrompts = Array.from(safetyPromptRequests.values())
+    .filter(s => !answeredSafetyPrompts.has(s.executionId))
+
+  return { stdout, activityEvents, toolTraces, fileChanges, pendingApprovals, pendingSafetyPrompts, machineId, status, output, error, sessionId, model, progress, progressMessage, branchName, prUrl, prNumber, deliveryStatus, summary, planResult }
 }

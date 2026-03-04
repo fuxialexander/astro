@@ -511,21 +511,34 @@ export interface StreamingEventRow {
 export async function fetchStreamingEventsCatchUp(
   executionIds: string[],
   afterSeq: number,
-  limit = 1000,
+  limit = 2000,
 ): Promise<{ events: StreamingEventRow[]; lastSeq: number }> {
-  const params = new URLSearchParams({
-    executionIds: executionIds.join(','),
-    afterSeq: String(afterSeq),
-    limit: String(limit),
-  })
-  const response = await fetch(apiUrl(`/api/events/catch-up?${params}`), {
-    headers: await authHeaders(),
-  })
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => 'Unknown error')
-    throw new Error(`Failed to fetch streaming events catch-up: ${response.status} ${response.statusText} - ${errorText}`)
+  const allEvents: StreamingEventRow[] = []
+  let currentSeq = afterSeq
+  const headers = await authHeaders()
+
+  // Paginate until all events are fetched (cap at 50 pages to avoid infinite loops)
+  const MAX_PAGES = 50
+  for (let page_i = 0; page_i < MAX_PAGES; page_i++) {
+    const params = new URLSearchParams({
+      executionIds: executionIds.join(','),
+      afterSeq: String(currentSeq),
+      limit: String(limit),
+    })
+    const response = await fetch(apiUrl(`/api/events/catch-up?${params}`), {
+      headers,
+    })
+    if (!response.ok) {
+      return { events: allEvents, lastSeq: currentSeq }
+    }
+    const page = await response.json() as { events: StreamingEventRow[]; lastSeq: number; hasMore?: boolean }
+    allEvents.push(...page.events)
+    currentSeq = page.lastSeq
+
+    if (!page.hasMore || page.events.length === 0) break
   }
-  return response.json()
+
+  return { events: allEvents, lastSeq: currentSeq }
 }
 
 /**

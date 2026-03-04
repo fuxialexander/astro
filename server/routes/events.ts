@@ -537,6 +537,9 @@ eventsRoute.get('/stream', async (c) => {
       clearInterval(heartbeat)
       throttle.shutdown()
 
+      // Flush any buffered text from relay-direct fallback path (GAP-9 fix)
+      streamingEventLog.flushAll().catch(() => {})
+
       relayServer.off('task:result', onTaskResult)
       relayServer.off('task:steer_ack', onTaskSteerAck)
       relayServer.off('task:approval_request', onTaskApprovalRequest)
@@ -601,8 +604,9 @@ eventsRoute.get('/catch-up', async (c) => {
 
   const events = await streamingEventLog.getAfter(executionIds, afterSeq, limit)
   const lastSeq = events.length > 0 ? events[events.length - 1].seq : afterSeq
+  const hasMore = events.length >= limit
 
-  return c.json({ events, lastSeq })
+  return c.json({ events, lastSeq, hasMore })
 })
 
 export { eventsRoute }

@@ -271,7 +271,7 @@ All auth required.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/events/stream` | SSE event stream (real-time relay bridge) |
-| GET | `/events/catch-up` | DB catch-up for missed streaming events |
+| GET | `/events/catch-up` | Paginated DB catch-up for missed streaming events. Query params: `executionIds` (comma-separated), `afterSeq` (cursor), `limit` (default 1000). Returns `{ events, lastSeq, hasMore }`. |
 
 ### Relay & Machines (15 endpoints) — `server/routes/relay.ts`
 
@@ -482,6 +482,7 @@ Astro uses three complementary real-time systems:
 2. **Global event stream**: `GET /api/events/stream` — persistent SSE connection for real-time events (machine state, task progress, approvals). Subscribes to both `ExecutionEventBus` and relay server EventEmitter.
 
 **Dual-path deduplication:** When a dispatch bridge is active for a task, the global event stream skips relay-direct events for that task (via `activeDispatchStreams` guard) to avoid double-sending. After page refresh kills the dispatch bridge, the global stream picks up relay-direct events as fallback.
+
 
 **Event types (execution):** `init`, `session_init`, `text`, `tool_use`, `tool_result`, `file_change`, `progress`, `result`, `error`, `aborted`, `heartbeat`, `done`, `approval_request`, `approval_response`, `safety_prompt`, `safety_response`, `steer_message`
 

@@ -32,6 +32,7 @@ import {
   ChatAssistantBlock,
   SummaryCard,
 } from "@/components/activity-blocks"
+import { InlineApprovalCard } from "@/components/plan-session/inline-approval-card"
 import { useRestoredExecution } from "@/hooks/use-restored-execution"
 import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
 
@@ -67,6 +68,7 @@ export function UnifiedActivityView({
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const addSteerMessage = useRealtimeStore((s) => s.addSteerMessage)
   const updateSteerMessage = useRealtimeStore((s) => s.updateSteerMessage)
+  const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
   const model = useSettingsStore((s) => s.model)
 
   // Session store actions
@@ -118,6 +120,24 @@ export function UnifiedActivityView({
 
   // Group events for display
   const displayBlocks = useMemo(() => groupActivityEvents(allActivityEvents), [allActivityEvents])
+
+  // Pre-build approval response lookup (answered set + response map) to avoid O(n) scans in render
+  const { answeredRequestIds, approvalResponseMap } = useMemo(() => {
+    const ids = new Set<string>()
+    const responses = new Map<string, Extract<TaskActivityEvent, { type: 'approval_response' }>>()
+    for (const event of allActivityEvents) {
+      if (event.type === 'approval_response') {
+        ids.add(event.requestId)
+        responses.set(event.requestId, event)
+      }
+    }
+    return { answeredRequestIds: ids, approvalResponseMap: responses }
+  }, [allActivityEvents])
+
+  async function handleApprovalResponse(requestId: string, answer: string) {
+    if (!executionId) return
+    await respondToDynamicApproval(executionId, requestId, answer)
+  }
 
   // Fallback: if no activity events, render plain text
   const outputText = execution?.streamText || taskStream?.stdout || node.executionOutput || ""
@@ -547,6 +567,26 @@ export function UnifiedActivityView({
               return <ChatUserBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_user' }>} />
             case 'chat_assistant':
               return <ChatAssistantBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_assistant' }>} />
+            case 'approval_request': {
+              const event = block.events[0] as Extract<TaskActivityEvent, { type: 'approval_request' }>
+              const isAnswered = answeredRequestIds.has(event.requestId)
+              const responseEvent = approvalResponseMap.get(event.requestId)
+              return (
+                <InlineApprovalCard
+                  key={i}
+                  requestId={event.requestId}
+                  question={event.question}
+                  options={event.options}
+                  answered={isAnswered}
+                  answer={responseEvent?.answer}
+                  autoApproved={responseEvent?.autoApproved}
+                  onRespond={handleApprovalResponse}
+                />
+              )
+            }
+            case 'approval_response':
+              // Already rendered inline with the request
+              return null
             default:
               return null
           }

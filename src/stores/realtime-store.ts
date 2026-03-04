@@ -350,29 +350,8 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   },
 
   respondToDynamicApproval: async (taskId: string, requestId: string, answer: string) => {
-    // taskId is actually the executionId - find the nodeId first
-    const planStore = usePlanStore.getState()
-    const node = planStore.nodes.find((n) => n.executionId === taskId)
-
-    // Resolve machineId: prefer the machineId from the approval event (set by relay),
-    // then fall back to plan node / execution store lookup
     const approval = get().dynamicApprovals.get(requestId)
-    let machineId: string | undefined = approval?.machineId
-    if (!machineId && node) {
-      const execution = useExecutionStore.getState().getExecution(node.id)
-      machineId = execution?.machineId
-    }
-    if (!machineId) {
-      // Fall back: search all executions for matching executionId
-      const execStore = useExecutionStore.getState()
-      for (const exec of execStore.executions.values()) {
-        if (exec.executionId === taskId && exec.machineId) {
-          machineId = exec.machineId
-          break
-        }
-      }
-    }
-
+    const machineId = resolveMachineId(taskId, approval?.machineId, get)
     if (!machineId) {
       // Remove from pending so dialog doesn't stay stuck
       set((state) => {
@@ -436,29 +415,8 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   },
 
   respondToSafetyPrompt: async (taskId: string, decision: string) => {
-    // taskId is the executionId — find the nodeId to look up machineId
-    const planStore = usePlanStore.getState()
-    const node = planStore.nodes.find((n) => n.executionId === taskId)
-
-    // Resolve machineId: prefer the machineId from the safety prompt event (set by relay),
-    // then fall back to execution store lookup
     const safetyPrompt = get().safetyPrompts.get(taskId)
-    let machineId: string | undefined = safetyPrompt?.machineId
-    if (!machineId && node) {
-      const execution = useExecutionStore.getState().getExecution(node.id)
-      machineId = execution?.machineId
-    }
-    if (!machineId) {
-      // Fall back: search all executions for matching executionId
-      const execStore = useExecutionStore.getState()
-      for (const exec of execStore.executions.values()) {
-        if (exec.executionId === taskId && exec.machineId) {
-          machineId = exec.machineId
-          break
-        }
-      }
-    }
-
+    const machineId = resolveMachineId(taskId, safetyPrompt?.machineId, get)
     if (!machineId) {
       // Remove from map so the dialog doesn't get stuck
       set((state) => {
@@ -505,8 +463,11 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   hydrateFromCatchUp: async (executionIds: string[], afterSeq = 0) => {
     if (executionIds.length === 0) return
     try {
-      const { events } = await fetchStreamingEventsCatchUp(executionIds, afterSeq)
+      const { events, lastSeq: newSeq } = await fetchStreamingEventsCatchUp(executionIds, afterSeq)
       if (events.length === 0) return
+
+      // Update realtimeClient.lastSeq so next reconnect doesn't re-fetch these events
+      realtimeClient.lastSeq = newSeq
 
       // Group events by executionId and hydrate into task streams
       const byExecution = new Map<string, typeof events>()
@@ -542,6 +503,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
           if (hydrated.model) metadata.model = hydrated.model
           if (hydrated.progress !== undefined) metadata.progress = hydrated.progress
           if (hydrated.progressMessage) metadata.progressMessage = hydrated.progressMessage
+          if (hydrated.machineId) metadata.machineId = hydrated.machineId
 
           if (isReconnect) {
             // Append caught-up events to fill the gap from network blip
@@ -554,20 +516,21 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               fileChanges: [...existing.fileChanges, ...hydrated.fileChanges],
             })
           } else {
-            // Full hydration: prefer existing live data if present
+            // Full hydration (page refresh): hydrated events are the complete history
+            // from the DB. If some live events arrived via SSE before hydration completed,
+            // append only genuinely new live events after the hydrated base. This prevents
+            // discarding historical events (e.g. approval_responses) when a race between
+            // SSE reconnect and catch-up hydration causes `existing` to be partially populated.
+            const mergedActivity = mergeByTimestamp(hydrated.activityEvents, existing.activityEvents)
+            const mergedToolTraces = mergeByTimestamp(hydrated.toolTraces, existing.toolTraces)
+            const mergedFileChanges = mergeByTimestamp(hydrated.fileChanges, existing.fileChanges)
             streams.set(execId, {
               ...existing,
               ...metadata,
-              stdout: existing.stdout || hydrated.stdout,
-              activityEvents: existing.activityEvents.length > 0
-                ? existing.activityEvents
-                : hydrated.activityEvents,
-              toolTraces: existing.toolTraces.length > 0
-                ? existing.toolTraces
-                : hydrated.toolTraces,
-              fileChanges: existing.fileChanges.length > 0
-                ? existing.fileChanges
-                : hydrated.fileChanges,
+              stdout: hydrated.stdout || existing.stdout,
+              activityEvents: mergedActivity,
+              toolTraces: mergedToolTraces,
+              fileChanges: mergedFileChanges,
             })
           }
         }
@@ -575,8 +538,10 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       })
 
       // Reconstruct dynamicApprovals from pending approval_request events
+      // and safetyPrompts from pending safety_prompt events
       set((state) => {
         const newApprovals = new Map(state.dynamicApprovals)
+        const newSafetyPrompts = new Map(state.safetyPrompts)
         for (const [execId] of byExecution) {
           const hydrated = hydratedByExecution.get(execId)!
           for (const approval of hydrated.pendingApprovals) {
@@ -589,8 +554,18 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               timestamp: approval.timestamp,
             })
           }
+          for (const safetyPrompt of hydrated.pendingSafetyPrompts) {
+            newSafetyPrompts.set(safetyPrompt.taskId, {
+              taskId: safetyPrompt.taskId,
+              safetyTier: safetyPrompt.safetyTier,
+              warning: safetyPrompt.warning,
+              machineId: safetyPrompt.machineId,
+              options: safetyPrompt.options,
+              timestamp: safetyPrompt.timestamp,
+            })
+          }
         }
-        return { dynamicApprovals: newApprovals }
+        return { dynamicApprovals: newApprovals, safetyPrompts: newSafetyPrompts }
       })
 
       // Reconcile plan nodes and execution store with hydrated result data
@@ -620,6 +595,33 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
   },
 }))
 
+/**
+ * Resolve machineId for a task through a 4-step fallback chain:
+ * 1. Provided machineId (from event)
+ * 2. Execution store via plan node lookup
+ * 3. Iteration through all executions
+ * 4. TaskStream machineId (from hydrated init event)
+ */
+function resolveMachineId(taskId: string, eventMachineId: string | undefined, getState: () => RealtimeState): string | undefined {
+  if (eventMachineId) return eventMachineId
+
+  const planStore = usePlanStore.getState()
+  const node = planStore.nodes.find((n) => n.executionId === taskId)
+  if (node) {
+    const execution = useExecutionStore.getState().getExecution(node.id)
+    if (execution?.machineId) return execution.machineId
+  }
+
+  const execStore = useExecutionStore.getState()
+  for (const exec of execStore.executions.values()) {
+    if (exec.executionId === taskId && exec.machineId) {
+      return exec.machineId
+    }
+  }
+
+  return getState().taskStreams.get(taskId)?.machineId
+}
+
 function createEmptyTaskStream(taskId: string): TaskStream {
   return {
     taskId,
@@ -630,6 +632,29 @@ function createEmptyTaskStream(taskId: string): TaskStream {
     steerMessages: [],
     activityEvents: [],
   }
+}
+
+/**
+ * Timestamp-based merge: hydrated (DB history) forms the base; live events
+ * that arrived after the last hydrated event are appended. 1s tolerance
+ * avoids edge-case duplicates from clock skew.
+ */
+function mergeByTimestamp<T extends { timestamp: Date }>(
+  hydrated: T[],
+  live: T[],
+): T[] {
+  if (live.length === 0) return hydrated
+  if (hydrated.length === 0) return live
+
+  const lastHydratedTime = new Date(hydrated[hydrated.length - 1].timestamp).getTime()
+
+  const newLiveItems = live.filter(
+    item => new Date(item.timestamp).getTime() > lastHydratedTime + 1000
+  )
+
+  return newLiveItems.length > 0
+    ? [...hydrated, ...newLiveItems]
+    : hydrated
 }
 
 /**
@@ -1364,22 +1389,28 @@ function handleRealtimeEvent(
           timestamp,
         })
 
-        // Also push approval_request activity event into task stream
-        // Remove stale approval_request events for the same task first
+        // Push approval_request activity event into task stream.
+        // Do NOT remove previous approval_request events — they are historical
+        // timeline entries that the UI needs to render answered approvals.
+        // Only the dynamicApprovals map (above) tracks the "pending" state.
         const streams = new Map(state.taskStreams)
         const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
-        stream.activityEvents = [
-          ...stream.activityEvents.filter(
-            e => !(e.type === 'approval_request' && e.requestId !== requestId)
-          ),
-          {
-            type: 'approval_request' as const,
-            requestId,
-            question,
-            options,
-            timestamp,
-          },
-        ]
+        // Deduplicate: skip if this exact requestId is already in the stream (e.g., from hydration)
+        const alreadyExists = stream.activityEvents.some(
+          e => e.type === 'approval_request' && e.requestId === requestId
+        )
+        if (!alreadyExists) {
+          stream.activityEvents = [
+            ...stream.activityEvents,
+            {
+              type: 'approval_request' as const,
+              requestId,
+              question,
+              options,
+              timestamp,
+            },
+          ]
+        }
         streams.set(taskId, stream)
 
         return { dynamicApprovals: newApprovals, taskStreams: streams }
