@@ -22,6 +22,7 @@ export type AstroEvent =
   | MergeQueueFailedEvent
   | MergeQueueSucceededEvent
   | ProjectCompletedEvent
+  | PrLinkedEvent
 
 export interface TaskStartedEvent {
   type: 'task.started'
@@ -139,6 +140,22 @@ export interface ProjectCompletedEvent {
   projectBranch: string
   projectPrUrl?: string
   projectPrNumber?: number
+  timestamp: Date
+}
+
+/**
+ * Linking source describes how a PR/branch was linked to a plan node.
+ */
+export type PrLinkSource = 'auto-branch' | 'auto-body-reference' | 'manual'
+
+export interface PrLinkedEvent {
+  type: 'pr.linked'
+  nodeId: string
+  projectId: string
+  prNumber?: number
+  prUrl?: string
+  branchName?: string
+  linkSource: PrLinkSource
   timestamp: Date
 }
 

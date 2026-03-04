@@ -90,5 +90,16 @@ export const sseNotificationHook: EventHook = async (event) => {
         mergedSha: event.mergedSha,
       })
       break
+
+    case 'pr.linked':
+      executionEventBus.emit('pr:linked', {
+        nodeId: event.nodeId,
+        projectId: event.projectId,
+        prNumber: event.prNumber,
+        prUrl: event.prUrl,
+        branchName: event.branchName,
+        linkSource: event.linkSource,
+      })
+      break
   }
 }

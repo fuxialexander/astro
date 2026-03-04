@@ -701,6 +701,57 @@ export async function commentOnPr(
   }
 }
 
+/**
+ * Manually link a GitHub PR to a plan node.
+ */
+export async function linkPrToNode(
+  nodeId: string,
+  projectId: string,
+  prNumber: number,
+  prUrl: string,
+  branchName?: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch(apiUrl("/api/github/pr/link"), {
+      method: "POST",
+      headers: await authHeaders(),
+      body: JSON.stringify({ nodeId, projectId, prNumber, prUrl, branchName }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      return { success: false, error: data.error || `Server error: ${res.status}` }
+    }
+    return { success: true }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+/**
+ * Fetch all plan nodes in a project that have PR/branch links.
+ */
+export async function fetchPrLinks(
+  projectId: string,
+): Promise<Array<{
+  clientId: string
+  title: string
+  status: string
+  branchName: string | null
+  prUrl: string | null
+  prNumber: number | null
+  mergeQueueStatus: string | null
+}>> {
+  const res = await fetch(apiUrl(`/api/github/pr/links/${projectId}`), {
+    headers: await authHeaders(),
+  })
+  if (!res.ok) throw new Error(`Failed to fetch PR links: ${res.status}`)
+  const data = await res.json()
+  return data.links
+}
+
 // Provider status types
 export interface ProviderStatusResult {
   total: number
