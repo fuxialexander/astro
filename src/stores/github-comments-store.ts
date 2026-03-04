@@ -311,57 +311,89 @@ export const useGitHubCommentsStore = create<CommentsState>((set, get) => ({
     }))
 
     const url = apiUrl(`/api/github/comments-stream/${owner}/${repo}/${number}`)
+    const MAX_RECONNECT_RETRIES = 5
+    const RECONNECT_BACKOFF_BASE_MS = 1000
 
-    // Connect to SSE stream
+    // Connect to SSE stream with reconnection
     const connect = async () => {
-      try {
-        const headers = await authHeaders()
-        const response = await fetch(url, {
-          headers: { ...headers, Accept: 'text/event-stream' },
-          signal: controller.signal,
-        })
+      let retryCount = 0
 
-        if (!response.ok || !response.body) return
+      while (!controller.signal.aborted) {
+        try {
+          const headers = await authHeaders()
+          const response = await fetch(url, {
+            headers: { ...headers, Accept: 'text/event-stream' },
+            signal: controller.signal,
+          })
 
-        const reader = response.body.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
+          if (!response.ok || !response.body) {
+            throw new Error(`SSE connect failed: HTTP ${response.status}`)
+          }
 
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
+          // Connection succeeded — reset retry count
+          retryCount = 0
 
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() ?? ''
+          const reader = response.body.getReader()
+          const decoder = new TextDecoder()
+          let buffer = ''
 
-          let currentEvent = ''
-          let currentData = ''
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
 
-          for (const line of lines) {
-            if (line.startsWith('event: ')) {
-              currentEvent = line.slice(7)
-            } else if (line.startsWith('data: ')) {
-              currentData = line.slice(6)
-            } else if (line === '' && currentEvent && currentData) {
-              if (currentEvent === 'comment') {
-                try {
-                  const raw = JSON.parse(currentData) as Record<string, unknown>
-                  const comment = normalizeComment(raw)
-                  get().addWebhookComment(owner, repo, number, comment)
-                } catch {
-                  // Skip malformed events
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() ?? ''
+
+            let currentEvent = ''
+            let currentData = ''
+
+            for (const line of lines) {
+              if (line.startsWith('event: ')) {
+                currentEvent = line.slice(7)
+              } else if (line.startsWith('data: ')) {
+                currentData = line.slice(6)
+              } else if (line === '' && currentEvent && currentData) {
+                if (currentEvent === 'comment') {
+                  try {
+                    const raw = JSON.parse(currentData) as Record<string, unknown>
+                    const comment = normalizeComment(raw)
+                    get().addWebhookComment(owner, repo, number, comment)
+                  } catch {
+                    // Skip malformed events
+                  }
                 }
+                currentEvent = ''
+                currentData = ''
               }
-              currentEvent = ''
-              currentData = ''
             }
           }
+
+          // Stream ended (server closed) — fall through to reconnect
+        } catch (err) {
+          if (err instanceof Error && err.name === 'AbortError') return
+          console.warn('[github-comments] SSE stream error:', err)
         }
-      } catch (err) {
-        // AbortError is expected on cleanup
-        if (err instanceof Error && err.name === 'AbortError') return
-        console.warn('[github-comments] SSE stream error:', err)
+
+        // Skip reconnect if page is hidden or already aborted
+        if (controller.signal.aborted) return
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+
+        retryCount++
+        if (retryCount > MAX_RECONNECT_RETRIES) {
+          console.warn(`[github-comments] Max reconnect retries (${MAX_RECONNECT_RETRIES}) reached for ${key}`)
+          return
+        }
+
+        // Exponential backoff: 1s → 2s → 4s → 8s → 16s
+        const backoffMs = RECONNECT_BACKOFF_BASE_MS * Math.pow(2, Math.min(retryCount - 1, 4))
+        console.log(`[github-comments] Reconnecting ${key} in ${backoffMs}ms (attempt ${retryCount}/${MAX_RECONNECT_RETRIES})`)
+        await new Promise(resolve => setTimeout(resolve, backoffMs))
+
+        // Re-fetch all comments to catch up on anything missed during disconnect
+        if (!controller.signal.aborted) {
+          await get().fetchComments(owner, repo, number).catch(() => {})
+        }
       }
     }
 
