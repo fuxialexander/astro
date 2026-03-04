@@ -210,3 +210,22 @@ Not all frontend state survives refresh. By design, some data is ephemeral:
 | SSE connection state | No | Reconnects automatically |
 
 See `FRONTEND_EPHEMERAL_CACHE.md` for the ephemeral cache design rationale.
+
+---
+
+## 11. WebSocket Migration Compatibility
+
+The three-layer recovery architecture is **transport-agnostic**. When the frontend transport migrates from SSE to WebSocket (see [WebSocket Roadmap](../websocket.md), [#513](https://github.com/fuxialexander/astro/issues/513)):
+
+| Component | Impact |
+|-----------|--------|
+| `streaming_events` table | **None** — writes happen in dispatch/relay, not transport |
+| `StreamingEventLog` | **None** — append/flush logic unchanged |
+| `GET /api/events/catch-up` | **None** — HTTP endpoint, used by both SSE and WS reconnect |
+| `hydrateStreamingEvents()` | **None** — converts DB rows to typed state |
+| `mergeHydratedAndLive()` | **None** — timestamp-based merge, transport-agnostic |
+| `useRestoredExecution` | **None** — 3-source fallback works with any live event source |
+| `RealtimeClient` | **Refactored** — transport abstraction (`WsTransport` primary, `SseTransport` fallback) |
+| Reconnect flow | **Enhanced** — WS `resume` message as fast first-pass, then same DB catch-up as fallback |
+
+The `seq`-based cursor system maps directly: SSE `id:` field → WS message `id` field, both containing the `streaming_events.seq` value. The `lastSeq` tracking, catch-up pagination, and merge logic all carry over unchanged.

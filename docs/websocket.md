@@ -31,7 +31,7 @@ Astro has three real-time systems, none of which provide a bidirectional browser
 | One-way (server → client) | Approvals, steering, cancellation require separate `fetch()` POST calls | Bidirectional on single connection |
 | 6 connections per origin (HTTP/1.1) | Multiple tabs compete with API calls | Single multiplexed connection |
 | No binary support | Can't stream file previews, images | Binary frames supported |
-| Reconnection is primitive | Fixed 3s retry, no exponential backoff, no server-side session resumption | Protocol-level reconnect with session ID |
+| Reconnection is primitive | `Last-Event-ID` + DB catch-up works but requires separate HTTP endpoint | Protocol-level `resume` message on same connection; DB catch-up as fallback |
 | Mobile background handling | iOS kills long-lived HTTP connections in background; `EventSource` has no lifecycle hooks | WebSocket has clear close/reconnect lifecycle; iOS `URLSessionWebSocketTask` integrates with background modes |
 | No heartbeat negotiation | Fixed 15s server-side interval, no client ACK | Ping/pong with configurable interval |
 
@@ -405,9 +405,11 @@ injectWebSocket(server)
 | Concern | Approach |
 |---------|----------|
 | Max connections per instance | `ws` library handles thousands; Fly.io machine memory is the limit |
-| Horizontal scaling | Same Redis pub/sub pattern as relay — broadcast events across instances |
+| Horizontal scaling | Same constraints as current SSE — see note below |
 | Connection draining on deploy | Fly.io sends `SIGTERM`; close WebSockets with code `1001` (Going Away), clients reconnect to new instance |
 | Memory per connection | ~20KB per WebSocket (ws library) + session state; budget 50K connections per 256MB instance |
+
+**Scaling note:** WebSocket has the same horizontal scaling story as the current SSE architecture. Both depend on instance-local state: `ExecutionEventBus` (EventEmitter), `relayServer` event subscriptions, `activeDispatchStreams` (Set), and `executionContextStore` (Map). Multi-instance deployment requires the same Redis pub/sub or Postgres `LISTEN/NOTIFY` solution regardless of transport. The persistence layer (`streaming_events` table, catch-up endpoint, hydrator, merge logic) is fully transport-agnostic and works unchanged with both SSE and WebSocket. See [ARCHITECTURE.md §13.3](./design/ARCHITECTURE.md) for the current scaling status.
 
 ## Migration Checklist
 
@@ -433,6 +435,41 @@ injectWebSocket(server)
 - [ ] Set up CI to generate Swift/Kotlin types from schema
 - [ ] Test with iOS `URLSessionWebSocketTask` and Android `OkHttp`
 
+## Trade-off Analysis
+
+### Advantages
+
+| Advantage | Detail |
+|-----------|--------|
+| **Security** | JWT moves from URL query param to first WS message — no longer in server logs, Referer headers, browser history |
+| **Lower action latency** | Steer/approval/cancel sent on existing connection (~0ms setup) vs separate `fetch()` POST (~50-100ms TCP+TLS) |
+| **Connection efficiency** | Single multiplexed connection vs HTTP/1.1's 6-connection limit (1 EventSource + N fetch-SSE + API calls) |
+| **Stream multiplexing** | Concurrent AI streams (plan chat + task execution + playground) on one connection via `requestId` correlation |
+| **Mobile native support** | iOS `URLSessionWebSocketTask` (built-in), Android `OkHttp` WebSocket (mature); no native `EventSource` on either |
+| **Lifecycle management** | Explicit close/open events + ping/pong; mobile OS keeps WS alive longer than idle HTTP connections |
+| **Bidirectional by design** | Eliminates dual-path architecture (dispatch SSE + `activeDispatchStreams` dedup + `ExecutionEventBus` bridge) |
+
+### Disadvantages
+
+| Disadvantage | Detail |
+|--------------|--------|
+| **Migration complexity** | Must maintain SSE + WS code paths simultaneously during transition; two server-side consumers of the same EventEmitter |
+| **Corporate proxy/CDN issues** | Some proxies strip `Upgrade: websocket` headers; SSE works everywhere over plain HTTP |
+| **Server-side session state** | WS requires per-connection session tracking and auth state; SSE is stateless per request |
+| **Debugging** | SSE is readable in Network tab as plain text; WS frames require dedicated inspector, binary frames are opaque |
+| **Memory overhead** | ~20KB per WS connection (ws library) + session state vs lighter SSE response streams |
+| **No gain for some flows** | Plan chat (simple fetch-SSE) and one-turn summaries (REST) don't meaningfully benefit |
+
+### What is NOT a disadvantage
+
+**Horizontal scaling** — WebSocket has the same scaling constraints as the current SSE architecture. Both depend on instance-local `EventEmitter` state (`ExecutionEventBus`, `relayServer`). Multi-instance requires Redis pub/sub regardless of transport. The persistence layer (`streaming_events`, catch-up, hydration) is transport-agnostic.
+
+**Recovery/robustness** — The three-layer recovery system from PR #510 (live stream → `streaming_events` DB catch-up → observation fallback) works unchanged with WebSocket. The `resume` message adds a faster first-pass before falling back to the same HTTP catch-up endpoint.
+
+### When to migrate
+
+The strongest arguments for WS are **mobile support** and **JWT-in-URL elimination**. If mobile is not imminent and JWT exposure is acceptable, the current SSE design with PR #510's robustness layer is already solid. Migrate when mobile becomes a real requirement.
+
 ## Related Documentation
 
 - [API Surface & Roadmap](./api.md) — Full endpoint inventory, conventions, multi-platform roadmap
@@ -440,3 +477,5 @@ injectWebSocket(server)
 - [Realtime Sync](./features/realtime-sync.md) — Supabase Realtime (DB CDC, separate from this)
 - [ARCHITECTURE](./design/ARCHITECTURE.md) — System structure and protocols
 - [TAURI_APP](./design/TAURI_APP.md) — Desktop app, which will also benefit from WebSocket
+- [Refresh Robustness](./design/REFRESH_ROBUSTNESS.md) — Three-layer recovery architecture (transport-agnostic)
+- [GitHub Issue #513](https://github.com/fuxialexander/astro/issues/513) — WebSocket migration tracking with flow diagrams
