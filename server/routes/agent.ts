@@ -5,6 +5,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { mkdirSync } from 'fs'
 import { buildPlanSystemPrompt, buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, buildTitleGenerationPrompt, buildRefinementPrompt, buildLabelSuggestionPrompt, PLAN_GRAPH_SCHEMA } from '../lib/prompt-templates.js'
+import { extractPlanJsonFromText } from '@astro/core'
 import type { GitHubContextForPrompt } from '../lib/prompt-templates.js'
 import { skillManager } from '../lib/skill-manager.js'
 import { readRepoContext } from '../lib/repo-context.js'
@@ -373,57 +374,8 @@ async function executeViaRelay(opts: {
   })
 }
 
-/**
- * Extract a plan JSON object from accumulated assistant text.
- * Handles multi-turn conversations where the JSON may appear in the last message
- * mixed with prose or wrapped in code fences.
- */
-function extractPlanJson(text: string): Record<string, unknown> | null {
-  // Try code fence extraction first
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
-  if (fenceMatch) {
-    try {
-      const parsed = JSON.parse(fenceMatch[1].trim())
-      if (parsed.nodes && parsed.edges) return parsed
-    } catch { /* continue */ }
-  }
-
-  // Find the last complete JSON object containing nodes and edges
-  let lastValidPlan: Record<string, unknown> | null = null
-  let searchFrom = 0
-
-  while (true) {
-    const start = text.indexOf('{', searchFrom)
-    if (start === -1) break
-
-    let depth = 0
-    let end = -1
-    for (let i = start; i < text.length; i++) {
-      if (text[i] === '{') depth++
-      else if (text[i] === '}') {
-        depth--
-        if (depth === 0) {
-          end = i
-          break
-        }
-      }
-    }
-
-    if (end === -1) break
-
-    const candidate = text.slice(start, end + 1)
-    try {
-      const parsed = JSON.parse(candidate)
-      if (parsed && typeof parsed === 'object' && parsed.nodes && parsed.edges) {
-        lastValidPlan = parsed
-      }
-    } catch { /* not valid JSON, skip */ }
-
-    searchFrom = start + 1
-  }
-
-  return lastValidPlan
-}
+// Plan extraction uses the shared extractPlanJsonFromText from @astro/core
+// (imported above) to ensure consistent behavior between server and client.
 
 const agentRoute = new Hono()
 
@@ -531,7 +483,7 @@ agentRoute.post('/generate-plan', async (c) => {
 
       // Try to extract plan from accumulated text
       if (!planResultSent && assistantText) {
-        const parsed = extractPlanJson(assistantText)
+        const parsed = extractPlanJsonFromText(assistantText)
         if (parsed) {
           planResultSent = true
           await streamingEventLog.append(persistId, 'plan_result', parsed)
@@ -544,7 +496,7 @@ agentRoute.post('/generate-plan', async (c) => {
 
       // Also check the result output for plan JSON
       if (!planResultSent && msg.result.output) {
-        const parsed = extractPlanJson(msg.result.output)
+        const parsed = extractPlanJsonFromText(msg.result.output)
         if (parsed) {
           planResultSent = true
           await streamingEventLog.append(persistId, 'plan_result', parsed)
