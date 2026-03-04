@@ -807,6 +807,7 @@ async function autoDispatchDownstream(projectId: string, completedNodeId: string
     .map(e => e.targetClientId)
 
   const COMPLETED_STATUSES = ['completed', 'auto_verified']
+  const readyIds: string[] = []
 
   for (const downId of downstreamIds) {
     const downNode = allNodes.find(n => n.clientId === downId)
@@ -820,9 +821,22 @@ async function autoDispatchDownstream(projectId: string, completedNodeId: string
     })
 
     if (allDepsMet) {
-      executionEventBus.emit('task:ready', { nodeId: downId, projectId })
+      readyIds.push(downId)
     }
   }
+
+  // Stagger task:ready events with 15s delay between each to avoid
+  // overwhelming the system when many downstream tasks become ready at once
+  const STAGGER_DELAY_MS = 15_000
+  readyIds.forEach((downId, index) => {
+    if (index === 0) {
+      executionEventBus.emit('task:ready', { nodeId: downId, projectId })
+    } else {
+      setTimeout(() => {
+        executionEventBus.emit('task:ready', { nodeId: downId, projectId })
+      }, index * STAGGER_DELAY_MS)
+    }
+  })
 }
 
 /**
