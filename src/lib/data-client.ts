@@ -354,6 +354,21 @@ export const dataClient = {
     await post(`${BASE}/usage/increment`, metrics)
   },
 
+  async getUsageHistory(weeks: number = 52): Promise<Array<{ date: string; tasksCompleted: number; totalCostUsd: number }>> {
+    return json<Array<{ date: string; tasksCompleted: number; totalCostUsd: number }>>(`${BASE}/usage/history?weeks=${weeks}`)
+  },
+
+  async getLifetimeStats(): Promise<{
+    stats: Record<string, unknown>
+    achievements: Array<{ slug: string; earnedAt: string; metadata: Record<string, unknown> }>
+    xp: number
+    level: number
+    levelTitle: string
+    nextLevelXp: number
+  }> {
+    return json(`${BASE}/stats/lifetime`)
+  },
+
   // ── Chat ────────────────────────────────────────────────────────────
   async getAllChats(): Promise<Record<string, { session: TaskChatSession; messages: TaskChatMessage[] }>> {
     type RawEntry = { session: Record<string, unknown>; messages: Record<string, unknown>[] }

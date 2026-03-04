@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { stripHtml } from "@/lib/html-utils"
 import { Link, useNavigate } from "react-router"
 import {
@@ -35,9 +35,13 @@ import { useUsageStore } from "@/stores/usage-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useTemplateStore } from "@/stores/template-store"
+import { useStatsStore } from "@/stores/stats-store"
 import type { UseCaseTemplateSummary } from "@astro/core/templates"
 import { ApprovalCard } from "@/components/approval-card"
 import { InlineApprovalCard } from "@/components/plan-session/inline-approval-card"
+import { ActivityHeatmap } from "@/components/dashboard/activity-heatmap"
+import { BragStats } from "@/components/dashboard/brag-stats"
+import { AchievementsPanel } from "@/components/dashboard/achievements-panel"
 import { cn } from "@/lib/utils"
 import { formatRelativeTime } from "@/lib/date-utils"
 
@@ -86,7 +90,18 @@ export function Dashboard() {
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
   const templates = useTemplateStore((s) => s.templates)
   const templateStoreLoaded = useTemplateStore((s) => s.loaded)
+  const heatmapData = useStatsStore((s) => s.heatmapData)
+  const stats = useStatsStore((s) => s.stats)
+  const achievements = useStatsStore((s) => s.achievements)
+  const levelInfo = useStatsStore((s) => s.levelInfo)
+  const statsLoaded = useStatsStore((s) => s.statsLoaded)
+  const loadAll = useStatsStore((s) => s.loadAll)
   const navigate = useNavigate()
+
+  // Load stats on mount
+  useEffect(() => {
+    loadAll()
+  }, [loadAll])
 
 
   const activeTasks = nodes.filter(
@@ -188,6 +203,18 @@ export function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Activity Heatmap */}
+      <Card className="rounded-2xl shadow">
+        <CardContent className="p-4 md:p-5">
+          <ActivityHeatmap data={heatmapData} />
+        </CardContent>
+      </Card>
+
+      {/* Brag Stats + Level */}
+      {stats && statsLoaded && (
+        <BragStats stats={stats} levelInfo={levelInfo} />
+      )}
 
       {/* Get Started Section — shown for new users with 0-2 projects */}
       {showGetStarted && (
@@ -657,6 +684,15 @@ export function Dashboard() {
           </Card>
         </div>
       </div>
+
+      {/* Achievements Panel */}
+      {statsLoaded && (
+        <Card className="rounded-2xl shadow">
+          <CardContent className="px-4 py-2 md:px-5">
+            <AchievementsPanel achievements={achievements} />
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
