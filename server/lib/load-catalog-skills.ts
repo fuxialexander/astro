@@ -30,9 +30,6 @@ const REPO_ROOT = join(__dirname, '..', '..')
  *     COLLECTION.yaml
  *     frontend-design/SKILL.md
  *     code-review/SKILL.md
- *   celltype/
- *     COLLECTION.yaml
- *     celltype-toolbox/SKILL.md
  *     ...
  * ```
  */
