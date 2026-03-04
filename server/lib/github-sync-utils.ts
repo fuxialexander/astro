@@ -85,27 +85,55 @@ export function getAllPriorityLabelNames(): string[] {
 
 /**
  * Get the GitHub label for an Astro priority level.
+ * If a custom labelMapping is provided, it overrides the default label names.
  */
 export function priorityToGitHubLabel(
-  priority: string | undefined
+  priority: string | undefined,
+  labelMapping?: Record<string, string>
 ): { name: string; color: string } | null {
   if (!priority) return null
-  return PRIORITY_LABELS[priority.toLowerCase()] ?? null
+  const key = priority.toLowerCase()
+  const base = PRIORITY_LABELS[key]
+  if (!base) return null
+
+  // If there's a custom mapping for this priority, use it (keep default color)
+  if (labelMapping?.[key]) {
+    return { name: labelMapping[key], color: base.color }
+  }
+
+  return base
 }
 
 /**
  * Extract Astro priority from GitHub labels.
  * Returns the first matching priority label found.
+ * Checks custom labelMapping first (if provided), then falls back to defaults.
  */
 export function githubLabelsToPriority(
-  labels: Array<{ name: string }>
+  labels: Array<{ name: string }>,
+  labelMapping?: Record<string, string>
 ): string | null {
-  for (const label of labels) {
-    for (const [priority, config] of Object.entries(PRIORITY_LABELS)) {
-      if (label.name === config.name) {
-        return priority
+  // Build a reverse mapping: label name → priority key
+  // Custom mappings take precedence
+  const reverseLookup = new Map<string, string>()
+
+  // Add default mappings
+  for (const [priority, config] of Object.entries(PRIORITY_LABELS)) {
+    reverseLookup.set(config.name, priority)
+  }
+
+  // Override with custom mappings
+  if (labelMapping) {
+    for (const [priority, labelName] of Object.entries(labelMapping)) {
+      if (labelName) {
+        reverseLookup.set(labelName, priority)
       }
     }
+  }
+
+  for (const label of labels) {
+    const match = reverseLookup.get(label.name)
+    if (match) return match
   }
   return null
 }

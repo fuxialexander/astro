@@ -5,12 +5,13 @@
  * auto-create behavior, and label mapping.
  */
 
-import { useState, useCallback } from 'react'
-import { Settings2 } from 'lucide-react'
+import { useState, useCallback, useMemo } from 'react'
+import { Settings2, RotateCcw } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
@@ -45,6 +46,16 @@ const AUTO_CREATE_OPTIONS = [
   { value: 'bidirectional', label: 'Both directions' },
   { value: 'none', label: 'Disabled' },
 ] as const
+
+/** Default priority → GitHub label name mapping */
+const DEFAULT_PRIORITY_LABELS: Record<string, string> = {
+  urgent: 'priority: urgent',
+  high: 'priority: high',
+  medium: 'priority: medium',
+  low: 'priority: low',
+}
+
+const PRIORITY_KEYS = ['urgent', 'high', 'medium', 'low'] as const
 
 interface GitHubSyncSettingsDialogProps {
   project: Project
@@ -246,6 +257,14 @@ export function GitHubSyncSettingsDialog({ project, trigger }: GitHubSyncSetting
               </SelectContent>
             </Select>
           </div>
+
+          {/* Label Mapping */}
+          {settings.enabledFields.includes('priority') && (
+            <LabelMappingEditor
+              labelMapping={settings.labelMapping}
+              onChange={(labelMapping) => setSettings((prev) => ({ ...prev, labelMapping }))}
+            />
+          )}
         </div>
         )}
 
@@ -261,5 +280,82 @@ export function GitHubSyncSettingsDialog({ project, trigger }: GitHubSyncSetting
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+// ── Label Mapping Editor ─────────────────────────────────────────────
+
+interface LabelMappingEditorProps {
+  labelMapping: Record<string, string>
+  onChange: (mapping: Record<string, string>) => void
+}
+
+function LabelMappingEditor({ labelMapping, onChange }: LabelMappingEditorProps) {
+  // Merge defaults with user overrides so every priority key has a value
+  const effectiveMapping = useMemo(() => {
+    const merged: Record<string, string> = {}
+    for (const key of PRIORITY_KEYS) {
+      merged[key] = labelMapping[key] ?? DEFAULT_PRIORITY_LABELS[key]
+    }
+    return merged
+  }, [labelMapping])
+
+  const hasCustomMapping = useMemo(
+    () => PRIORITY_KEYS.some((k) => labelMapping[k] && labelMapping[k] !== DEFAULT_PRIORITY_LABELS[k]),
+    [labelMapping]
+  )
+
+  const handleChange = useCallback(
+    (key: string, value: string) => {
+      const next = { ...labelMapping }
+      if (value === DEFAULT_PRIORITY_LABELS[key] || value === '') {
+        delete next[key]
+      } else {
+        next[key] = value
+      }
+      onChange(next)
+    },
+    [labelMapping, onChange]
+  )
+
+  const handleReset = useCallback(() => {
+    onChange({})
+  }, [onChange])
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <div>
+          <Label className="text-sm font-medium">Priority label mapping</Label>
+          <p className="text-xs text-muted-foreground">
+            GitHub label names for each Astro priority level
+          </p>
+        </div>
+        {hasCustomMapping && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleReset}>
+                <RotateCcw className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Reset to defaults</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+      <div className="space-y-1.5">
+        {PRIORITY_KEYS.map((key) => (
+          <div key={key} className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground w-14 capitalize shrink-0">{key}</span>
+            <span className="text-xs text-muted-foreground shrink-0">→</span>
+            <Input
+              value={effectiveMapping[key]}
+              onChange={(e) => handleChange(key, e.target.value)}
+              placeholder={DEFAULT_PRIORITY_LABELS[key]}
+              className="h-7 text-xs"
+            />
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
