@@ -92,11 +92,13 @@ export function PRReviewThreads({
   }, [owner, repo, prNumber, threads.length, loading, fetchReviewComments])
 
   // Auto-expand when scrollToThreadId changes
+  const shouldExpand = scrollToThreadId != null
   useEffect(() => {
-    if (scrollToThreadId != null) {
+    if (shouldExpand) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setExpanded(true)
     }
-  }, [scrollToThreadId])
+  }, [shouldExpand])
 
   const totalComments = threads.reduce((sum, t) => sum + t.comments.length, 0)
 

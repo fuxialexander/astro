@@ -1630,7 +1630,6 @@ export function PlanView() {
   // Close detail panel when switching view modes.
   // This effect legitimately syncs UI state (selectedNode) when the derived
   // viewMode changes from URL navigation. The guard avoids no-op renders.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setSelectedNode(null) }, [viewMode])
 
   // Handle decompose: open chat with pre-filled message
