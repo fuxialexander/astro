@@ -39,6 +39,7 @@ import { useMachinesStore } from "@/stores/machines-store"
 import { useGitHubStore } from "@/stores/github-store"
 import { useApiKeysStore } from "@/stores/api-keys-store"
 import { useSettingsStore, defaultModelTierMap, type ModelTier } from "@/stores/settings-store"
+import { useSidebarStore } from "@/stores/sidebar-store"
 import { useToastStore } from "@/stores/toast-store"
 import { getSupabase } from "@/lib/supabase-client"
 import { apiUrl } from "@/lib/api-url"
@@ -199,6 +200,7 @@ function GeneralContent() {
   const [displayNames, setDisplayNames] = useState("username")
   const [firstDay, setFirstDay] = useState("sunday")
   const [keyboardShortcuts, setKeyboardShortcuts] = useState(true)
+  const setEditing = useSidebarStore((s) => s.setEditing)
 
   return (
     <div className="flex flex-col gap-8">
@@ -252,7 +254,7 @@ function GeneralContent() {
             label="App sidebar"
             description="Customize sidebar item visibility and order"
           >
-            <button className="text-sm text-primary hover:underline">Customize</button>
+            <button className="text-sm text-primary hover:underline" onClick={() => setEditing(true)}>Customize</button>
           </SettingsRow>
           <SettingsRow
             label="Enable keyboard shortcuts"
