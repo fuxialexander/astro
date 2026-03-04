@@ -197,20 +197,26 @@ app.get('/callback', async (c) => {
     return c.redirect(`${frontendUrl}/settings?github-app=uninstalled`);
   }
 
-  // Fetch details from GitHub API (if credentials are available)
+  // Verify installation details from GitHub API (requires App credentials)
   const details = await fetchInstallationDetails(Number(installationId));
 
-  // Build once; reuse in both .values() and .onConflictDoUpdate() to avoid duplication.
+  if (!details) {
+    // Cannot verify the installation_id without App credentials.
+    // Reject to prevent accepting an unverified installation_id.
+    console.error('[github-app] Cannot verify installation — GITHUB_APP_ID/GITHUB_APP_PRIVATE_KEY not configured');
+    return c.redirect(`${frontendUrl}/settings?github-app=error&reason=app_not_configured`);
+  }
+
   const installData = {
     installationId: Number(installationId),
     userId,
-    accountLogin: details?.accountLogin ?? `installation-${installationId}`,
-    accountType: details?.accountType ?? 'Organization',
-    accountAvatarUrl: details?.accountAvatarUrl ?? null,
-    appId: details?.appId ?? null,
-    repositorySelection: details?.repositorySelection ?? 'all',
-    repos: details?.repos ?? [],
-    permissions: details?.permissions ?? {},
+    accountLogin: details.accountLogin,
+    accountType: details.accountType,
+    accountAvatarUrl: details.accountAvatarUrl ?? null,
+    appId: details.appId ?? null,
+    repositorySelection: details.repositorySelection,
+    repos: details.repos,
+    permissions: details.permissions,
   };
 
   await db

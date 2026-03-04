@@ -26,6 +26,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './ui/dialog';
 import { useGitHubAppStore, type GitHubAppInstallation } from '@/stores/github-app-store';
 import { useTeamStore } from '@/stores/team-store';
 import { GitHubAppInstallButton } from './github-app-install-button';
@@ -41,6 +49,7 @@ function InstallationRow({
   const [expanded, setExpanded] = useState(false);
   const [linking, setLinking] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
 
   const handleLinkTeam = async (teamId: string) => {
     setLinking(true);
@@ -49,13 +58,7 @@ function InstallationRow({
   };
 
   const handleRemove = async () => {
-    if (
-      !window.confirm(
-        `Remove GitHub App installation for "${installation.accountLogin}"? ` +
-          `This only removes it from Astro — the app stays installed on GitHub.`
-      )
-    )
-      return;
+    setConfirmRemoveOpen(false);
     setRemoving(true);
     await unlink(installation.installationId);
     setRemoving(false);
@@ -122,7 +125,7 @@ function InstallationRow({
             variant="ghost"
             size="icon"
             className="h-7 w-7 text-destructive hover:text-destructive"
-            onClick={handleRemove}
+            onClick={() => setConfirmRemoveOpen(true)}
             disabled={removing}
             aria-label="Remove installation"
           >
@@ -134,6 +137,26 @@ function InstallationRow({
           </Button>
         </div>
       </div>
+
+      <Dialog open={confirmRemoveOpen} onOpenChange={setConfirmRemoveOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove installation</DialogTitle>
+            <DialogDescription>
+              Remove GitHub App installation for &ldquo;{installation.accountLogin}&rdquo;?
+              This only removes it from Astro &mdash; the app stays installed on GitHub.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmRemoveOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleRemove}>
+              Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Expanded details */}
       {expanded && (

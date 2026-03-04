@@ -7,15 +7,20 @@
  */
 
 import { create } from 'zustand'
-import type { GitHubComment, GitHubReviewComment, GitHubReviewThread } from '../../server/types/github'
+import type { GitHubComment, GitHubReviewComment, GitHubReviewThread } from '@/types'
 import { apiUrl } from '@/lib/api-url'
 import { getAccessToken } from '@/lib/supabase-client'
+import { getActiveTeamId } from '@/lib/api-client'
 
 async function authHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = {}
   const token = await getAccessToken()
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
+  }
+  const teamId = getActiveTeamId()
+  if (teamId) {
+    headers['X-Team-Id'] = teamId
   }
   return headers
 }

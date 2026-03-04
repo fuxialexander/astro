@@ -24,7 +24,6 @@ import {
   ShieldCheck,
   ShieldAlert,
   ShieldQuestion,
-  MessageSquare,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -32,114 +31,20 @@ import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { PlanNode } from "@/types"
 import { apiUrl } from "@/lib/api-url"
+import {
+  type PrCheckRun,
+  type PrReview,
+  type PrData,
+  getCheckIcon,
+  getReviewStateLabel,
+  getOverallCiStatus,
+  getOverallReviewStatus,
+  deduplicateReviewsByUser,
+  formatCheckDuration,
+} from "@/lib/github-pr-utils"
 
-// ─── Types ──────────────────────────────────────────────────────────
-
-export interface PrCheckRun {
-  name: string
-  status: "queued" | "in_progress" | "completed"
-  conclusion: "success" | "failure" | "neutral" | "cancelled" | "timed_out" | "action_required" | "skipped" | null
-  startedAt?: string
-  completedAt?: string
-  htmlUrl?: string
-}
-
-export interface PrReview {
-  user: {
-    login: string
-    avatarUrl?: string
-  }
-  state: "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED" | "PENDING" | "DISMISSED"
-  submittedAt?: string
-}
-
-export interface PrData {
-  title: string
-  number: number
-  state: "open" | "closed" | "merged"
-  htmlUrl: string
-  branchName?: string
-  baseBranch?: string
-  additions?: number
-  deletions?: number
-  changedFiles?: number
-  checks?: PrCheckRun[]
-  reviews?: PrReview[]
-  draft?: boolean
-  mergeable?: boolean
-  updatedAt?: string
-}
-
-// ─── Helpers ────────────────────────────────────────────────────────
-
-function getCheckIcon(status: PrCheckRun["status"], conclusion: PrCheckRun["conclusion"]) {
-  if (status !== "completed") {
-    if (status === "in_progress") return { icon: Loader2, color: "text-warning", animate: true, label: "Running" }
-    return { icon: Clock, color: "text-muted-foreground", animate: false, label: "Queued" }
-  }
-  switch (conclusion) {
-    case "success":
-      return { icon: Check, color: "text-success", animate: false, label: "Passed" }
-    case "failure":
-      return { icon: X, color: "text-error", animate: false, label: "Failed" }
-    case "skipped":
-    case "neutral":
-      return { icon: Circle, color: "text-muted-foreground", animate: false, label: conclusion === "skipped" ? "Skipped" : "Neutral" }
-    case "cancelled":
-    case "timed_out":
-      return { icon: X, color: "text-warning", animate: false, label: conclusion === "cancelled" ? "Cancelled" : "Timed out" }
-    default:
-      return { icon: Clock, color: "text-muted-foreground", animate: false, label: "Pending" }
-  }
-}
-
-function getReviewIcon(state: PrReview["state"]) {
-  switch (state) {
-    case "APPROVED":
-      return { icon: ShieldCheck, color: "text-success", label: "Approved" }
-    case "CHANGES_REQUESTED":
-      return { icon: ShieldAlert, color: "text-error", label: "Changes requested" }
-    case "COMMENTED":
-      return { icon: MessageSquare, color: "text-muted-foreground", label: "Commented" }
-    case "PENDING":
-      return { icon: ShieldQuestion, color: "text-warning", label: "Pending review" }
-    case "DISMISSED":
-      return { icon: ShieldQuestion, color: "text-muted-foreground", label: "Dismissed" }
-  }
-}
-
-function getOverallCiStatus(checks: PrCheckRun[]): "success" | "failure" | "pending" | "none" {
-  if (checks.length === 0) return "none"
-  if (checks.some(c => c.conclusion === "failure")) return "failure"
-  if (checks.some(c => c.status !== "completed")) return "pending"
-  return "success"
-}
-
-function getOverallReviewStatus(reviews: PrReview[]): "approved" | "changes_requested" | "pending" | "none" {
-  if (reviews.length === 0) return "none"
-  // Deduplicate: only keep the latest review per user
-  const latestByUser = new Map<string, PrReview>()
-  for (const r of reviews) {
-    const existing = latestByUser.get(r.user.login)
-    if (!existing || (r.submittedAt && existing.submittedAt && r.submittedAt > existing.submittedAt)) {
-      latestByUser.set(r.user.login, r)
-    }
-  }
-  const latestReviews = Array.from(latestByUser.values())
-  if (latestReviews.some(r => r.state === "CHANGES_REQUESTED")) return "changes_requested"
-  if (latestReviews.some(r => r.state === "APPROVED")) return "approved"
-  return "pending"
-}
-
-function formatCheckDuration(startedAt?: string, completedAt?: string): string | null {
-  if (!startedAt || !completedAt) return null
-  const ms = new Date(completedAt).getTime() - new Date(startedAt).getTime()
-  if (ms < 1000) return "<1s"
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s`
-  const m = Math.floor(ms / 60_000)
-  const s = Math.round((ms % 60_000) / 1000)
-  return `${m}m${s > 0 ? ` ${s}s` : ""}`
-}
+// Re-export types for consumers that import from this file
+export type { PrCheckRun, PrReview, PrData }
 
 // ─── Component ──────────────────────────────────────────────────────
 
@@ -254,15 +159,7 @@ export function PrStatusCard({ node, prData: externalPrData, owner, repo, classN
   const ciStatus = getOverallCiStatus(checks)
   const reviewStatus = getOverallReviewStatus(reviews)
 
-  // Deduplicate reviews by user (keep latest)
-  const latestReviewsByUser = new Map<string, PrReview>()
-  for (const r of reviews) {
-    const existing = latestReviewsByUser.get(r.user.login)
-    if (!existing || (r.submittedAt && existing.submittedAt && r.submittedAt > existing.submittedAt)) {
-      latestReviewsByUser.set(r.user.login, r)
-    }
-  }
-  const uniqueReviews = Array.from(latestReviewsByUser.values())
+  const uniqueReviews = deduplicateReviewsByUser(reviews)
 
   return (
     <div className={cn("mx-4 my-2 rounded-lg border border-border bg-card/50 overflow-hidden", className)}>
@@ -400,7 +297,7 @@ export function PrStatusCard({ node, prData: externalPrData, owner, repo, classN
                     </div>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <span>{review.user.login}: {getReviewIcon(review.state).label}</span>
+                    <span>{review.user.login}: {getReviewStateLabel(review.state).label}</span>
                   </TooltipContent>
                 </Tooltip>
               ))}
@@ -417,7 +314,10 @@ export function PrStatusCard({ node, prData: externalPrData, owner, repo, classN
         <div className="border-t border-border/50 bg-muted/10 px-3 py-2 space-y-1">
           {checks.map((check, i) => {
             const status = getCheckIcon(check.status, check.conclusion)
-            const StatusIcon = status.icon
+            const StatusIcon = status.label === "Running" ? Loader2 :
+              status.label === "Queued" || status.label === "Pending" ? Clock :
+              status.label === "Passed" ? Check :
+              status.label === "Skipped" || status.label === "Neutral" ? Circle : X
             const duration = formatCheckDuration(check.startedAt, check.completedAt)
 
             return (

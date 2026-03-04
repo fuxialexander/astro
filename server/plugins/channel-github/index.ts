@@ -26,6 +26,22 @@ import {
 
 let pluginConfig: GitHubChannelConfig | null = null
 
+// Track processed webhook deliveries to prevent replay attacks.
+// TTL: 10 minutes. Cleanup runs on each new delivery.
+const processedDeliveries = new Map<string, number>()
+const DELIVERY_TTL_MS = 10 * 60 * 1000
+
+function trackDelivery(deliveryId: string): boolean {
+  const now = Date.now()
+  // Cleanup expired entries
+  for (const [id, timestamp] of processedDeliveries) {
+    if (now - timestamp > DELIVERY_TTL_MS) processedDeliveries.delete(id)
+  }
+  if (processedDeliveries.has(deliveryId)) return false
+  processedDeliveries.set(deliveryId, now)
+  return true
+}
+
 function loadConfig(): GitHubChannelConfig | null {
   const webhookSecret = process.env.GITHUB_CHANNEL_WEBHOOK_SECRET
   const authToken = process.env.GITHUB_CHANNEL_AUTH_TOKEN
@@ -74,6 +90,12 @@ function createRoutes(config: GitHubChannelConfig): Hono {
 
     if (!verifyHmacSignature(body, signature, config.webhookSecret, { prefix: 'sha256=' })) {
       return c.json({ error: 'Invalid signature' }, 401)
+    }
+
+    // Deduplicate webhook deliveries via X-GitHub-Delivery header
+    const deliveryId = c.req.header('X-GitHub-Delivery')
+    if (deliveryId && !trackDelivery(deliveryId)) {
+      return c.json({ ok: true }) // idempotent — already processed
     }
 
     // Respond 200 immediately, process async

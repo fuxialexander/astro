@@ -11,7 +11,7 @@ let _activeTeamId: string | undefined
 export function setActiveTeamId(teamId: string | undefined) {
   _activeTeamId = teamId
 }
-function getActiveTeamId(): string | undefined {
+export function getActiveTeamId(): string | undefined {
   return _activeTeamId
 }
 
