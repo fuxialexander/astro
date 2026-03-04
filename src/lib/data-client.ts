@@ -4,6 +4,7 @@ import type { SessionMetrics } from "@/stores/usage-store"
 import type { TaskChatMessage, TaskChatSession } from "@/stores/task-chat-store"
 import type { Activity } from "@/stores/activity-store"
 import type { SkillRow } from "@/stores/skill-store"
+import type { KnowledgeEntry } from "@/stores/knowledge-store"
 import type { SkillCollectionManifest } from "@/types/skill"
 import { getAccessToken } from "./supabase-client"
 import { snakeToCamel } from "./utils"
@@ -570,6 +571,29 @@ export const dataClient = {
 
   async clearProjectActivities(projectId: string): Promise<void> {
     await del(`${BASE}/activities/${projectId}`)
+  },
+
+  // ── Knowledge ────────────────────────────────────────────────────────
+  async listKnowledge(projectId: string): Promise<KnowledgeEntry[]> {
+    const rows = await json<Record<string, unknown>[]>(`${BASE}/knowledge?projectId=${encodeURIComponent(projectId)}`)
+    return rows.map((row) => {
+      const r = snakeToCamel(row)
+      return {
+        id: r.id as string,
+        projectId: r.projectId as string,
+        key: r.key as string,
+        value: r.value as string,
+        sourceNodeId: (r.sourceNodeId as string) ?? undefined,
+        sourceTaskTitle: (r.sourceTaskTitle as string) ?? undefined,
+        milestoneId: (r.milestoneId as string) ?? undefined,
+        createdAt: toDate(r.createdAt),
+        updatedAt: toDate(r.updatedAt),
+      } as KnowledgeEntry
+    })
+  },
+
+  async deleteKnowledge(id: string): Promise<void> {
+    await del(`${BASE}/knowledge/${id}`)
   },
 
   // ── Teams (uses /api/teams, not /api/data) ─────────────────────────
