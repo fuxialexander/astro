@@ -6,7 +6,7 @@
  * After page refresh (events lost), reconstructs them from persisted observation data.
  */
 
-import { useMemo, useEffect, useState, useRef } from "react"
+import { useMemo, useEffect, useRef } from "react"
 import type { TaskExecution, TaskActivityEvent, ToolTrace, FileChange } from "@/types"
 import type { TaskStream } from "@/stores/realtime-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
@@ -30,12 +30,6 @@ export function useRestoredExecution(
   taskStream?: TaskStream,
   _isRunning?: boolean, // eslint-disable-line @typescript-eslint/no-unused-vars -- kept for API compat; may be used for future optimizations
 ): RestoredExecution {
-  const [restoredData, setRestoredData] = useState<{
-    activityEvents: TaskActivityEvent[]
-    toolTraces: ToolTrace[]
-    fileChanges: FileChange[]
-  } | null>(null)
-
   // Merge live events from execution + realtime stores
   const liveActivityEvents = useMemo(() => {
     const execEvents = execution?.activityEvents || []
@@ -116,6 +110,14 @@ export function useRestoredExecution(
   const traceLoading = useObservationStore((s) => s.isLoading(executionId))
   const traceError = useObservationStore((s) => s.errors.get(executionId))
 
+  // Use primitive length values as stable effect dependencies.
+  // The exec/taskStream objects are recreated on every Zustand store update —
+  // even when their contents haven't changed — so using them directly as deps
+  // causes effects to re-run on every realtime event, which can cascade into
+  // an infinite render loop (React error #185).
+  const execActivityEventsLength = execution?.activityEvents?.length ?? 0
+  const taskStreamEventLength = taskStream?.activityEvents?.length ?? 0
+
   // Fetch observations when needed:
   // - No live events in memory (post-refresh or completed execution)
   // - Has executionId to query
@@ -126,12 +128,12 @@ export function useRestoredExecution(
     console.log('[use-restored] fetch check:', {
       executionId: executionId || '(empty)',
       hasLiveEvents,
-      execEventsLen: execution?.activityEvents?.length ?? 'undef',
-      streamEventsLen: taskStream?.activityEvents?.length ?? 'undef',
+      execEventsLen: execActivityEventsLength,
+      streamEventsLen: taskStreamEventLength,
     })
     if (!executionId || hasLiveEvents) return
     // If streaming events catch-up produced data, skip observation fetch
-    if (taskStream && taskStream.activityEvents.length > 0) {
+    if (taskStreamEventLength > 0) {
       console.log('[use-restored] streaming catch-up has data, skipping observation fetch')
       return
     }
@@ -143,38 +145,33 @@ export function useRestoredExecution(
     }
     console.log('[use-restored] fetching trace for', executionId)
     fetchTrace(executionId)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- execution?.activityEvents?.length is only used in debug log; hasLiveEvents already captures it transitively
-  }, [executionId, hasLiveEvents, fetchTrace, getTrace, taskStream])
+  }, [executionId, hasLiveEvents, fetchTrace, getTrace, execActivityEventsLength, taskStreamEventLength])
 
-  // Reconstruct from trace when available
+  // Reconstruct activity from trace when available.
+  // Using useMemo instead of useState+useEffect avoids calling setState
+  // inside an effect, which caused React error #185 (too many re-renders).
+  // The execution?.activityEvents dependency was the culprit: Zustand
+  // recreates the execution object on every realtime store update, making
+  // execution.activityEvents a new array reference even when empty. Using
+  // the length (a primitive) as the dep keeps the memo stable.
   const trace = useObservationStore((s) => s.traces.get(executionId))
-  useEffect(() => {
-    if (!trace) return
-    console.log('[use-restored] trace available:', {
-      executionId,
-      turns: trace.turns.length,
-      events: trace.events.length,
-    })
-    // Only clear restored data when live events from the primary execution store
-    // arrive (the per-dispatch SSE events that were never lost).
-    // Don't clear for realtime-store-only events — those need to be merged.
-    const execEvents = execution?.activityEvents || []
-    if (execEvents.length > 0) {
-      console.log('[use-restored] clearing restored data — exec store has', execEvents.length, 'events')
-      setRestoredData(null)
-      return
-    }
+  const restoredFromTrace = useMemo(() => {
+    // When exec-store events are available, Case 1 handles rendering —
+    // no need to reconstruct from trace.
+    if (!trace || execActivityEventsLength > 0) return null
+
     const result = reconstructActivityFromTrace(trace)
     console.log('[use-restored] reconstructed:', {
+      executionId,
       activityEvents: result.activityEvents.length,
       toolTraces: result.toolTraces.length,
       fileChanges: result.fileChanges.length,
     })
-    setRestoredData(result)
-  }, [trace, executionId, execution?.activityEvents])
+    return result
+  }, [trace, executionId, execActivityEventsLength])
 
   // Determine what to return based on data availability
-  const hasExecStoreEvents = (execution?.activityEvents?.length || 0) > 0
+  const hasExecStoreEvents = execActivityEventsLength > 0
 
   // Case 1: Primary execution store has events (original tab, no refresh)
   // → use live data exclusively (restored data not needed)
@@ -189,34 +186,34 @@ export function useRestoredExecution(
 
   // Case 2: Post-refresh with restored data — merge restored history with
   // any new live events from the realtime store (global SSE after reconnect)
-  if (restoredData) {
+  if (restoredFromTrace) {
     const streamEvents = taskStream?.activityEvents || []
-    console.log('[use-restored] Case 2: restored=%d stream=%d', restoredData.activityEvents.length, streamEvents.length)
+    console.log('[use-restored] Case 2: restored=%d stream=%d', restoredFromTrace.activityEvents.length, streamEvents.length)
     if (streamEvents.length > 0) {
       // Merge: restored history + new realtime events, sorted by timestamp.
       // Only include stream events strictly newer than the last restored event
       // to prevent duplicates in the merged array.
-      const restoredEndTime = restoredData.activityEvents.length > 0
-        ? new Date(restoredData.activityEvents[restoredData.activityEvents.length - 1].timestamp).getTime()
+      const restoredEndTime = restoredFromTrace.activityEvents.length > 0
+        ? new Date(restoredFromTrace.activityEvents[restoredFromTrace.activityEvents.length - 1].timestamp).getTime()
         : 0
       const newStreamEvents = streamEvents.filter(
         e => new Date(e.timestamp).getTime() > restoredEndTime
       )
-      const mergedEvents = [...restoredData.activityEvents, ...newStreamEvents]
+      const mergedEvents = [...restoredFromTrace.activityEvents, ...newStreamEvents]
       mergedEvents.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 
       return {
         activityEvents: mergedEvents,
-        toolTraces: restoredData.toolTraces,
-        fileChanges: liveFileChanges.length > 0 ? liveFileChanges : restoredData.fileChanges,
+        toolTraces: restoredFromTrace.toolTraces,
+        fileChanges: liveFileChanges.length > 0 ? liveFileChanges : restoredFromTrace.fileChanges,
         isRestoring: false,
       }
     }
 
     return {
-      activityEvents: restoredData.activityEvents,
-      toolTraces: restoredData.toolTraces,
-      fileChanges: restoredData.fileChanges,
+      activityEvents: restoredFromTrace.activityEvents,
+      toolTraces: restoredFromTrace.toolTraces,
+      fileChanges: restoredFromTrace.fileChanges,
       isRestoring: false,
     }
   }
