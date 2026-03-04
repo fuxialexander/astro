@@ -73,7 +73,6 @@ export {
   apiDevelopmentTemplate,
   mlPipelineTemplate,
   dataPipelineTemplate,
-  drugDiscoveryTemplate,
   securityAuditTemplate,
   paperToSlidesTemplate,
   codeDocumentationTemplate,

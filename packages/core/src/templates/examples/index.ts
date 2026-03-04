@@ -12,7 +12,6 @@
  * - software-development: web-app, api-development
  * - data-science: data-pipeline
  * - machine-learning: ml-pipeline, benchmark-runner
- * - computational-biology: drug-discovery
  * - security: security-audit
  * - research-analysis: paper-to-slides, literature-review
  * - documentation: code-documentation
@@ -20,7 +19,6 @@
 
 export { webAppTemplate } from './web-app.js'
 export { mlPipelineTemplate } from './ml-pipeline.js'
-export { drugDiscoveryTemplate } from './drug-discovery.js'
 export { apiDevelopmentTemplate } from './api-development.js'
 export { securityAuditTemplate } from './security-audit.js'
 export { dataPipelineTemplate } from './data-pipeline.js'
@@ -31,7 +29,6 @@ export { benchmarkRunnerTemplate } from './benchmark-runner.js'
 
 import { webAppTemplate } from './web-app.js'
 import { mlPipelineTemplate } from './ml-pipeline.js'
-import { drugDiscoveryTemplate } from './drug-discovery.js'
 import { apiDevelopmentTemplate } from './api-development.js'
 import { securityAuditTemplate } from './security-audit.js'
 import { dataPipelineTemplate } from './data-pipeline.js'
@@ -47,7 +44,6 @@ export const BUILTIN_TEMPLATES: UseCaseTemplate[] = [
   apiDevelopmentTemplate,
   mlPipelineTemplate,
   dataPipelineTemplate,
-  drugDiscoveryTemplate,
   securityAuditTemplate,
   paperToSlidesTemplate,
   codeDocumentationTemplate,
@@ -60,7 +56,6 @@ export const TEMPLATES_BY_CATEGORY: Record<string, UseCaseTemplate[]> = {
   'software-development': [webAppTemplate, apiDevelopmentTemplate],
   'data-science': [dataPipelineTemplate],
   'machine-learning': [mlPipelineTemplate, benchmarkRunnerTemplate],
-  'computational-biology': [drugDiscoveryTemplate],
   'security': [securityAuditTemplate],
   'research-analysis': [paperToSlidesTemplate, literatureReviewTemplate],
   'documentation': [codeDocumentationTemplate],
