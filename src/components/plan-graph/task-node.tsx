@@ -5,6 +5,9 @@ import { cn } from "@/lib/utils"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
 import { usePlanStore } from "@/stores/plan-store"
+import { useExecutionStore } from "@/stores/execution-store"
+import { useUserProfileStore } from "@/stores/user-profile-store"
+import { formatRelativeTime } from "@/lib/date-utils"
 
 const statusConfig: Record<string, { bg: string; border: string; dotColor: string }> = {
   planned: { bg: "bg-card", border: "border-border", dotColor: "bg-muted-foreground" },
@@ -92,6 +95,23 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
   )
   const progress = taskStream?.progress ?? 0
   const isRunning = data.status === "in_progress" || data.status === "dispatched"
+
+  // Execution attribution: "Ran by [name], [time ago]"
+  const execution = useExecutionStore((s) => s.executions.get(id))
+  const currentUserId = useUserProfileStore((s) => s.profile.id)
+  const currentUserName = useUserProfileStore((s) => s.profile.name)
+  const hasExecution = !!execution && (execution.status === "success" || execution.status === "failure" || execution.status === "cancelled")
+  const attribution = (() => {
+    if (!hasExecution || !execution) return null
+    const time = execution.completedAt ?? execution.startedAt
+    if (!time) return null
+    const timeAgo = formatRelativeTime(time)
+    let name = "Unknown"
+    if (execution.userId) {
+      name = execution.userId === currentUserId ? (currentUserName || "You") : "Team member"
+    }
+    return { name, timeAgo }
+  })()
 
   // Priority dot for urgent/high
   const showPriorityDot = data.priority === "urgent" || data.priority === "high"
@@ -231,10 +251,11 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
   return (
     <div
       className={cn(
-        "relative flex items-center gap-2.5 border px-3 shadow-sm transition-all duration-200",
+        "relative flex border px-3 shadow-sm transition-all duration-200",
         highlight.bg,
         highlight.border,
-        "h-[44px] w-[180px] rounded-xl",
+        "w-[180px] rounded-xl",
+        attribution ? "flex-col justify-center gap-0.5 h-[54px]" : "items-center gap-2.5 h-[44px]",
         data.status === "pruned" && "opacity-50",
         isOverdue && "border-l-error border-l-[3px]",
         isChecked && "ring-2 ring-primary ring-offset-1 ring-offset-background",
@@ -304,72 +325,82 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         </div>
       )}
 
-      {/* Status dot / Selection checkbox */}
-      {showCheckbox ? (
-        <button
-          type="button"
-          onClick={handleCheckboxClick}
-          className={cn(
-            "relative z-10 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-[1.5px] transition-colors cursor-pointer p-1 -m-1",
-            isChecked
-              ? "border-primary bg-primary text-primary-foreground"
-              : "border-muted-foreground/40 bg-transparent hover:border-primary/60"
-          )}
-        >
-          {isChecked && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
-        </button>
-      ) : (
-        <span className={cn("h-2 w-2 rounded-full shrink-0 relative z-10", highlight.dotColor)} />
-      )}
+      {/* Title row */}
+      <div className="flex items-center gap-2.5 min-w-0">
+        {/* Status dot / Selection checkbox */}
+        {showCheckbox ? (
+          <button
+            type="button"
+            onClick={handleCheckboxClick}
+            className={cn(
+              "relative z-10 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-[1.5px] transition-colors cursor-pointer p-1 -m-1",
+              isChecked
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-muted-foreground/40 bg-transparent hover:border-primary/60"
+            )}
+          >
+            {isChecked && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
+          </button>
+        ) : (
+          <span className={cn("h-2 w-2 rounded-full shrink-0 relative z-10", highlight.dotColor)} />
+        )}
 
-      <span className={cn(
-        "truncate text-xs font-medium relative z-10",
-        data.status === "pruned" ? "text-muted-foreground line-through" : "text-foreground"
-      )}>
-        {data.number != null && <span className="text-muted-foreground mr-1">#{data.number}</span>}
-        {data.title}
-      </span>
-
-      {/* GitHub issue badge */}
-      {data.githubIssueNumber && (
-        <a
-          href={data.githubIssueUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[10px] font-medium text-muted-foreground hover:text-primary relative z-10 shrink-0"
-          onClick={(e) => e.stopPropagation()}
-          title={`GitHub Issue #${data.githubIssueNumber}`}
-        >
-          #{data.githubIssueNumber}
-        </a>
-      )}
-
-      {/* Progress percentage for running tasks */}
-      {isRunning && progress > 0 && (
-        <span className="text-[10px] font-medium text-info relative z-10 ml-auto">
-          {progress}%
+        <span className={cn(
+          "truncate text-xs font-medium relative z-10",
+          data.status === "pruned" ? "text-muted-foreground line-through" : "text-foreground"
+        )}>
+          {data.number != null && <span className="text-muted-foreground mr-1">#{data.number}</span>}
+          {data.title}
         </span>
-      )}
 
-      {/* Merge queue status badge */}
-      {data.mergeQueueStatus && (
-        <span className="relative z-10 ml-auto shrink-0" title={`Merge queue: ${data.mergeQueueStatus}`}>
-          {data.mergeQueueStatus === 'queued' && <GitMerge className="h-3 w-3 text-info" />}
-          {data.mergeQueueStatus === 'testing' && <Loader2 className="h-3 w-3 text-warning animate-spin" />}
-          {data.mergeQueueStatus === 'merged' && <CheckCircle2 className="h-3 w-3 text-success" />}
-          {data.mergeQueueStatus === 'failed' && <XCircle className="h-3 w-3 text-error" />}
-        </span>
-      )}
+        {/* GitHub issue badge */}
+        {data.githubIssueNumber && (
+          <a
+            href={data.githubIssueUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] font-medium text-muted-foreground hover:text-primary relative z-10 shrink-0"
+            onClick={(e) => e.stopPropagation()}
+            title={`GitHub Issue #${data.githubIssueNumber}`}
+          >
+            #{data.githubIssueNumber}
+          </a>
+        )}
 
-      {/* PR indicator */}
-      {data.prUrl && !data.mergeQueueStatus && (
-        <GitPullRequest className="h-3 w-3 shrink-0 text-primary relative z-10 ml-auto" />
-      )}
+        {/* Progress percentage for running tasks */}
+        {isRunning && progress > 0 && (
+          <span className="text-[10px] font-medium text-info relative z-10 ml-auto">
+            {progress}%
+          </span>
+        )}
 
-      {/* Auto-PR indicator - shows when autoPr is enabled but no PR exists yet */}
-      {data.autoPr && !data.prUrl && !data.mergeQueueStatus && (
-        <span className="relative z-10 ml-auto shrink-0" title="Auto-PR enabled">
-          <GitPullRequestCreateArrow className="h-3 w-3 text-info" />
+        {/* Merge queue status badge */}
+        {data.mergeQueueStatus && (
+          <span className="relative z-10 ml-auto shrink-0" title={`Merge queue: ${data.mergeQueueStatus}`}>
+            {data.mergeQueueStatus === 'queued' && <GitMerge className="h-3 w-3 text-info" />}
+            {data.mergeQueueStatus === 'testing' && <Loader2 className="h-3 w-3 text-warning animate-spin" />}
+            {data.mergeQueueStatus === 'merged' && <CheckCircle2 className="h-3 w-3 text-success" />}
+            {data.mergeQueueStatus === 'failed' && <XCircle className="h-3 w-3 text-error" />}
+          </span>
+        )}
+
+        {/* PR indicator */}
+        {data.prUrl && !data.mergeQueueStatus && (
+          <GitPullRequest className="h-3 w-3 shrink-0 text-primary relative z-10 ml-auto" />
+        )}
+
+        {/* Auto-PR indicator - shows when autoPr is enabled but no PR exists yet */}
+        {data.autoPr && !data.prUrl && !data.mergeQueueStatus && (
+          <span className="relative z-10 ml-auto shrink-0" title="Auto-PR enabled">
+            <GitPullRequestCreateArrow className="h-3 w-3 text-info" />
+          </span>
+        )}
+      </div>
+
+      {/* Execution attribution line */}
+      {attribution && (
+        <span className="truncate text-[9px] text-muted-foreground/70 relative z-10 pl-[18px] leading-tight">
+          {attribution.name} · {attribution.timeAgo}
         </span>
       )}
 
