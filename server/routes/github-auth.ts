@@ -81,14 +81,20 @@ app.post('/connect', async (c) => {
 
 /**
  * GET /api/github/callback
- * Handle GitHub OAuth callback
+ * Handle GitHub OAuth callback.
+ *
+ * Three scenarios:
+ *   1. OAuth + install (first time): code + installation_id + state
+ *   2. Install only (already authorized): installation_id + state (no code)
+ *   3. Plain OAuth (no App): code + state
  */
 app.get('/callback', async (c) => {
   const code = c.req.query('code');
   const state = c.req.query('state');
+  const installationId = c.req.query('installation_id');
 
-  if (!code || !state) {
-    return c.json({ error: 'Missing code or state' }, 400);
+  if (!state) {
+    return c.json({ error: 'Missing state parameter' }, 400);
   }
 
   // Verify CSRF state
@@ -97,43 +103,42 @@ app.get('/callback', async (c) => {
     return c.json({ error: 'Invalid or expired state' }, 400);
   }
 
+  const frontendUrl = process.env.FRONTEND_URL || process.env.VITE_FRONTEND_URL || 'http://localhost:5173';
+
   try {
-    // Exchange code for access token
-    const tokenResponse = await githubClient.getAccessToken(code);
-
-    // Get user info
-    const user = await githubClient.getUser(tokenResponse.access_token);
-
-    // Store connection
-    await githubStore.setConnection(userId, {
-      userId,
-      accessToken: tokenResponse.access_token,
-      scope: tokenResponse.scope,
-      connectedAt: new Date().toISOString(),
-      user,
-    });
-
-    // If GitHub App installation was combined with OAuth (the "Request user
-    // authorization during installation" flow), save the installation too.
-    const installationId = c.req.query('installation_id');
+    let oauthSuffix = '';
     let installSuffix = '';
+
+    // Step 1: Exchange OAuth code if present
+    if (code) {
+      const tokenResponse = await githubClient.getAccessToken(code);
+      const user = await githubClient.getUser(tokenResponse.access_token);
+
+      await githubStore.setConnection(userId, {
+        userId,
+        accessToken: tokenResponse.access_token,
+        scope: tokenResponse.scope,
+        connectedAt: new Date().toISOString(),
+        user,
+      });
+      oauthSuffix = 'github=connected';
+    }
+
+    // Step 2: Save installation if present (with or without OAuth code)
     if (installationId) {
       try {
         await saveInstallation(Number(installationId), userId);
-        installSuffix = `&github-app=installed&installation_id=${installationId}`;
+        installSuffix = `github-app=installed&installation_id=${installationId}`;
       } catch (err) {
         console.error('[github-auth] Failed to save installation during OAuth:', err);
-        // Don't fail the whole flow — OAuth succeeded, installation can be retried
-        installSuffix = '&github-app=error&reason=install_save_failed';
+        installSuffix = 'github-app=error&reason=install_save_failed';
       }
     }
 
-    // Redirect to frontend settings page with success
-    const frontendUrl = process.env.FRONTEND_URL || process.env.VITE_FRONTEND_URL || 'http://localhost:5173';
-    return c.redirect(`${frontendUrl}/settings?github=connected${installSuffix}`);
+    const params = [oauthSuffix, installSuffix].filter(Boolean).join('&');
+    return c.redirect(`${frontendUrl}/settings${params ? `?${params}` : ''}`);
   } catch (error) {
     console.error('GitHub OAuth callback error:', error);
-    const frontendUrl = process.env.FRONTEND_URL || process.env.VITE_FRONTEND_URL || 'http://localhost:5173';
     return c.redirect(`${frontendUrl}/settings?github=error`);
   }
 });
