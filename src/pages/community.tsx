@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback } from "react"
-import { Search, ChevronLeft, ChevronRight, Globe, FileText, Edit2, Trash2, Star, GitFork } from "lucide-react"
+import { Search, ChevronLeft, ChevronRight, Globe, FileText, Edit2, Trash2, Star, GitFork, Sparkles } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { useCommunityStore } from "@/stores/community-store"
 import { useToastStore } from "@/stores/toast-store"
-import { updatePublishedPlan, deletePublishedPlan } from "@/lib/community-client"
+import { updatePublishedPlan, deletePublishedPlan, getFeatured } from "@/lib/community-client"
 import type { SharedPlanSummary } from "@/lib/community-client"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -167,6 +167,7 @@ export function Community() {
   const [searchInput, setSearchInput] = useState(filters.search || "")
   const [searchDebounceTimer, setSearchDebounceTimer] = useState<NodeJS.Timeout | null>(null)
   const [activeTab, setActiveTab] = useState<"browse" | "my-plans">("browse")
+  const [featuredPlans, setFeaturedPlans] = useState<SharedPlanSummary[]>([])
 
   // Edit dialog state
   const [editDialogOpen, setEditDialogOpen] = useState(false)
@@ -176,10 +177,13 @@ export function Community() {
   const [editVisibility, setEditVisibility] = useState<"public" | "team" | "unlisted">("public")
   const [isSavingEdit, setIsSavingEdit] = useState(false)
 
-  // Fetch initial plans and my plans on mount
+  // Fetch initial plans, my plans, and featured on mount
   useEffect(() => {
     fetchPlans()
     fetchMyPlans()
+    getFeatured().then(setFeaturedPlans).catch((err) => {
+      console.error('[Community] Failed to load featured plans:', err)
+    })
   }, [fetchPlans, fetchMyPlans])
 
   // Debounced search handler
@@ -342,6 +346,21 @@ export function Community() {
 
             {/* Browse Tab */}
             <TabsContent value="browse" className="space-y-6">
+              {/* Featured Plans Section */}
+              {featuredPlans.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-primary" />
+                    <h2 className="text-base font-semibold">Featured Plans</h2>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {featuredPlans.slice(0, 3).map((plan) => (
+                      <PlanCard key={plan.id} plan={plan} featured />
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Search and Sort Controls */}
               <div className="flex flex-col sm:flex-row gap-4">
                 {/* Search Input */}

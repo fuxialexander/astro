@@ -841,8 +841,9 @@ export const sharedPlans = pgTable('shared_plans', {
   forksCount: integer('forks_count').notNull().default(0),
   commentsCount: integer('comments_count').notNull().default(0),
 
-  // Visibility
+  // Visibility & curation
   visibility: text('visibility').notNull().default('public'), // 'public' | 'team' | 'unlisted'
+  featured: boolean('featured').notNull().default(false),
   teamId: uuid('team_id').references(() => teams.id, { onDelete: 'set null' }),
 
   // Timestamps
@@ -854,6 +855,7 @@ export const sharedPlans = pgTable('shared_plans', {
   index('shared_plans_stars_count_idx').on(table.starsCount.desc()),
   index('shared_plans_created_at_idx').on(table.createdAt.desc()),
   index('shared_plans_author_id_idx').on(table.authorId),
+  index('shared_plans_featured_idx').on(table.featured),
 ])
 
 // ── Shared Plan Stars ─────────────────────────────────────────────
