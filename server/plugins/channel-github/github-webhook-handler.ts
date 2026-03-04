@@ -3,6 +3,10 @@
  *
  * Dispatches incoming GitHub webhook events to appropriate handlers.
  * Chat-like interactions (@astro mentions) are routed through the channel router.
+ *
+ * Loop prevention: checks `syncSource` field on plan nodes before processing.
+ * If syncSource='sync', the change originated from Astro→GitHub sync and the
+ * webhook echo should be skipped to avoid infinite loops.
  */
 
 import type { GitHubChannelConfig, InboundMessage, ChannelRouter } from '../../lib/channel/channel-types.js'
@@ -13,9 +17,22 @@ import { githubCommentBus } from '../../lib/github-comment-bus.js'
 import { db } from '../../lib/db/index.js'
 import { planNodes } from '../../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
+import {
+  isSyncEcho,
+  githubStateToAstro,
+  githubLabelsToPriority,
+  resolveGitHubLoginToAstroUser,
+} from '../../lib/github-sync-utils.js'
 
 /**
  * Handle `issues` webhook events.
+ *
+ * Enhanced with:
+ * - Loop prevention via syncSource check
+ * - Sync tracking (syncSource='github', githubSyncVersion increment)
+ * - Label→priority mapping for labeled/unlabeled events
+ * - Assignee mapping for assigned/unassigned events
+ * - State reason tracking (completed vs not_planned)
  */
 export async function handleIssueEvent(
   payload: Record<string, unknown>,
@@ -36,6 +53,34 @@ export async function handleIssueEvent(
   const issueTitle = issue.title as string
   const issueBody = (issue.body as string) || ''
   const issueUrl = issue.html_url as string
+  const issueState = issue.state as string
+  const stateReason = issue.state_reason as string | undefined
+  const issueLabels = ((issue.labels as Array<Record<string, unknown>>) || []).map(
+    (l) => ({ name: l.name as string, color: l.color as string })
+  )
+  const issueAssignee = issue.assignee as Record<string, unknown> | null
+
+  // ── Loop prevention: check if this change originated from Astro sync ──
+  if (action !== 'opened') {
+    const [existingNode] = await db.select({
+      id: planNodes.id,
+      syncSource: planNodes.syncSource,
+    })
+      .from(planNodes)
+      .where(and(
+        eq(planNodes.projectId, projectId),
+        eq(planNodes.githubIssueNumber, issueNumber)
+      ))
+      .limit(1)
+
+    if (existingNode && isSyncEcho(existingNode.syncSource)) {
+      console.log(
+        `[github-channel] Skipping issue #${issueNumber} '${action}' event — ` +
+        `syncSource='sync' (echo from Astro→GitHub push)`
+      )
+      return
+    }
+  }
 
   switch (action) {
     case 'opened': {
@@ -49,6 +94,19 @@ export async function handleIssueEvent(
         .limit(1)
 
       if (!existing) {
+        // Extract priority from labels if present
+        const priority = githubLabelsToPriority(issueLabels)
+
+        // Resolve assignee if present → store in metadata
+        let assigneeMetadata: Record<string, unknown> | undefined
+        if (issueAssignee) {
+          const login = issueAssignee.login as string
+          const userId = await resolveGitHubLoginToAstroUser(login)
+          if (userId) {
+            assigneeMetadata = { githubAssignee: login, assigneeUserId: userId }
+          }
+        }
+
         await db.insert(planNodes).values({
           projectId,
           clientId: `gh-issue-${issueNumber}`,
@@ -59,35 +117,53 @@ export async function handleIssueEvent(
           verification: 'human',
           githubIssueNumber: issueNumber,
           githubIssueUrl: issueUrl,
+          syncSource: 'github',
+          githubSyncVersion: 1,
+          githubSyncedAt: new Date(),
+          ...(priority ? { priority } : {}),
+          ...(assigneeMetadata ? { metadata: assigneeMetadata } : {}),
           links: [{ id: `gh-${issueNumber}`, type: 'github_issue', url: issueUrl, title: issueTitle, state: 'open', number: issueNumber }],
         })
       }
       break
     }
     case 'closed': {
-      // Merge links to preserve user-added entries
-      const [closedNode] = await db.select({ id: planNodes.id, links: planNodes.links })
+      const astroStatus = githubStateToAstro(issueState, stateReason)
+
+      const [closedNode] = await db.select({
+        id: planNodes.id,
+        links: planNodes.links,
+        githubSyncVersion: planNodes.githubSyncVersion,
+      })
         .from(planNodes)
         .where(and(eq(planNodes.projectId, projectId), eq(planNodes.githubIssueNumber, issueNumber)))
         .limit(1)
+
       if (closedNode) {
         const existingLinks = (closedNode.links ?? []) as Array<{ id: string; type: string; url: string; title: string; state?: string; number?: number; targetId?: string }>
         const ghLink = { id: `gh-${issueNumber}`, type: 'github_issue', url: issueUrl, title: issueTitle, state: 'closed', number: issueNumber }
         const mergedLinks = [...existingLinks.filter((l) => l.id !== ghLink.id), ghLink]
         await db.update(planNodes).set({
-          status: 'completed',
+          status: astroStatus,
           links: mergedLinks,
+          syncSource: 'github',
+          githubSyncVersion: (closedNode.githubSyncVersion ?? 0) + 1,
+          githubSyncedAt: new Date(),
           updatedAt: new Date(),
         }).where(eq(planNodes.id, closedNode.id))
       }
       break
     }
     case 'reopened': {
-      // Merge links to preserve user-added entries
-      const [reopenedNode] = await db.select({ id: planNodes.id, links: planNodes.links })
+      const [reopenedNode] = await db.select({
+        id: planNodes.id,
+        links: planNodes.links,
+        githubSyncVersion: planNodes.githubSyncVersion,
+      })
         .from(planNodes)
         .where(and(eq(planNodes.projectId, projectId), eq(planNodes.githubIssueNumber, issueNumber)))
         .limit(1)
+
       if (reopenedNode) {
         const existingLinks = (reopenedNode.links ?? []) as Array<{ id: string; type: string; url: string; title: string; state?: string; number?: number; targetId?: string }>
         const ghLink = { id: `gh-${issueNumber}`, type: 'github_issue', url: issueUrl, title: issueTitle, state: 'open', number: issueNumber }
@@ -95,24 +171,104 @@ export async function handleIssueEvent(
         await db.update(planNodes).set({
           status: 'planned',
           links: mergedLinks,
+          syncSource: 'github',
+          githubSyncVersion: (reopenedNode.githubSyncVersion ?? 0) + 1,
+          githubSyncedAt: new Date(),
           updatedAt: new Date(),
         }).where(eq(planNodes.id, reopenedNode.id))
       }
       break
     }
     case 'edited': {
-      await db.update(planNodes).set({
-        title: issueTitle,
-        description: issueBody,
-        updatedAt: new Date(),
-      }).where(and(
-        eq(planNodes.projectId, projectId),
-        eq(planNodes.githubIssueNumber, issueNumber)
-      ))
+      // GitHub owns body/description, shared ownership of title (last-write-wins)
+      const [editedNode] = await db.select({
+        id: planNodes.id,
+        githubSyncVersion: planNodes.githubSyncVersion,
+      })
+        .from(planNodes)
+        .where(and(
+          eq(planNodes.projectId, projectId),
+          eq(planNodes.githubIssueNumber, issueNumber)
+        ))
+        .limit(1)
+
+      if (editedNode) {
+        await db.update(planNodes).set({
+          title: issueTitle,
+          description: issueBody,
+          syncSource: 'github',
+          githubSyncVersion: (editedNode.githubSyncVersion ?? 0) + 1,
+          githubSyncedAt: new Date(),
+          updatedAt: new Date(),
+        }).where(eq(planNodes.id, editedNode.id))
+      }
+      break
+    }
+    case 'labeled':
+    case 'unlabeled': {
+      // Sync priority labels from GitHub → Astro
+      const priority = githubLabelsToPriority(issueLabels)
+      const [labeledNode] = await db.select({
+        id: planNodes.id,
+        githubSyncVersion: planNodes.githubSyncVersion,
+      })
+        .from(planNodes)
+        .where(and(
+          eq(planNodes.projectId, projectId),
+          eq(planNodes.githubIssueNumber, issueNumber)
+        ))
+        .limit(1)
+
+      if (labeledNode) {
+        await db.update(planNodes).set({
+          ...(priority !== null ? { priority } : {}),
+          syncSource: 'github',
+          githubSyncVersion: (labeledNode.githubSyncVersion ?? 0) + 1,
+          githubSyncedAt: new Date(),
+          updatedAt: new Date(),
+        }).where(eq(planNodes.id, labeledNode.id))
+      }
+      break
+    }
+    case 'assigned':
+    case 'unassigned': {
+      // Map GitHub assignee → Astro user via githubConnections
+      // Store in metadata since there's no dedicated assigneeId column
+      let assigneeMetadata: Record<string, unknown> = {}
+      if (issueAssignee) {
+        const login = issueAssignee.login as string
+        const userId = await resolveGitHubLoginToAstroUser(login)
+        assigneeMetadata = {
+          githubAssignee: login,
+          ...(userId ? { assigneeUserId: userId } : {}),
+        }
+      }
+
+      const [assignedNode] = await db.select({
+        id: planNodes.id,
+        githubSyncVersion: planNodes.githubSyncVersion,
+        metadata: planNodes.metadata,
+      })
+        .from(planNodes)
+        .where(and(
+          eq(planNodes.projectId, projectId),
+          eq(planNodes.githubIssueNumber, issueNumber)
+        ))
+        .limit(1)
+
+      if (assignedNode) {
+        const existingMetadata = (assignedNode.metadata ?? {}) as Record<string, unknown>
+        await db.update(planNodes).set({
+          metadata: { ...existingMetadata, ...assigneeMetadata },
+          syncSource: 'github',
+          githubSyncVersion: (assignedNode.githubSyncVersion ?? 0) + 1,
+          githubSyncedAt: new Date(),
+          updatedAt: new Date(),
+        }).where(eq(planNodes.id, assignedNode.id))
+      }
       break
     }
     default:
-      // labeled/unlabeled etc. — skip for initial implementation
       break
   }
 }
