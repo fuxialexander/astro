@@ -1354,6 +1354,7 @@ app.get('/executions', async (c) => {
       executionId: exec.executionId,
       nodeId: exec.nodeClientId,
       projectId: exec.projectId,
+      userId: exec.userId,
       status: exec.status,
       streamText: exec.streamText,
       error: exec.error,
@@ -1390,6 +1391,7 @@ app.post('/executions', async (c) => {
     executionId: body.executionId,
     nodeClientId: body.nodeId,
     projectId: body.projectId,
+    userId: user.id,
     status: body.status || 'pending',
     streamText: body.streamText || '',
     error: body.error || null,
@@ -1558,6 +1560,7 @@ app.get('/search', async (c) => {
   const executionResults = await db.select({
     executionId: taskExecutions.executionId,
     projectId: taskExecutions.projectId,
+    userId: taskExecutions.userId,
     nodeId: taskExecutions.nodeId,
     status: taskExecutions.status,
     startedAt: taskExecutions.startedAt,
