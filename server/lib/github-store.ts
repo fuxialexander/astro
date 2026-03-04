@@ -1,41 +1,75 @@
 /**
  * GitHub Store — Database-backed persistence for GitHub OAuth connections
  *
- * OAuth states remain in-memory (ephemeral, 10-min TTL).
+ * OAuth states use HMAC-signed tokens (stateless) so they survive redeploys.
  * Connections and repo selections are persisted via Drizzle ORM.
  */
 
+import { createHmac, randomBytes } from 'crypto';
 import type { GitHubConnection, GitHubRepoSelection, GitHubRepo } from '../types/github';
 import { db } from './db/index.js';
 import { githubConnections, projects } from './db/schema.js';
 import { eq, and } from 'drizzle-orm';
 
-class GitHubStore {
-  // OAuth states are ephemeral — in-memory is fine for single-instance.
-  // TODO: migrate to DB-backed state for multi-instance deployment
-  private oauthStates = new Map<string, { userId: string; expiresAt: number }>();
+/** Secret used to sign OAuth state tokens. Falls back to a random per-process key. */
+const STATE_SECRET = process.env.GITHUB_STATE_SECRET || process.env.RELAY_JWT_SECRET || randomBytes(32).toString('hex');
 
+/**
+ * Create an HMAC-signed OAuth state token encoding the userId and expiry.
+ * Format: `nonce.userId.expiresAt.signature`
+ */
+function createSignedState(userId: string, ttlMs = 600_000): string {
+  const nonce = randomBytes(16).toString('hex');
+  const expiresAt = Date.now() + ttlMs;
+  const payload = `${nonce}.${userId}.${expiresAt}`;
+  const sig = createHmac('sha256', STATE_SECRET).update(payload).digest('hex');
+  return `${payload}.${sig}`;
+}
+
+/**
+ * Verify and extract userId from an HMAC-signed state token.
+ * Returns userId if valid and not expired, null otherwise.
+ */
+function verifySignedState(state: string): string | null {
+  const parts = state.split('.');
+  if (parts.length !== 4) return null;
+
+  const [nonce, userId, expiresAtStr, sig] = parts;
+  const payload = `${nonce}.${userId}.${expiresAtStr}`;
+  const expectedSig = createHmac('sha256', STATE_SECRET).update(payload).digest('hex');
+
+  // Timing-safe comparison
+  if (sig.length !== expectedSig.length) return null;
+  const a = Buffer.from(sig, 'hex');
+  const b = Buffer.from(expectedSig, 'hex');
+  if (a.length !== b.length) return null;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) {
+    mismatch |= a[i] ^ b[i];
+  }
+  if (mismatch !== 0) return null;
+
+  const expiresAt = parseInt(expiresAtStr, 10);
+  if (isNaN(expiresAt) || Date.now() > expiresAt) return null;
+
+  return userId;
+}
+
+class GitHubStore {
   /**
-   * Store OAuth state for CSRF protection
+   * Create a signed OAuth state token for CSRF protection.
+   * Stateless — no server-side storage needed, survives redeploys.
    */
-  setOAuthState(state: string, userId: string, ttlMs = 600000): void {
-    this.oauthStates.set(state, {
-      userId,
-      expiresAt: Date.now() + ttlMs,
-    });
+  setOAuthState(_state: string, userId: string, ttlMs = 600_000): string {
+    // Ignore the passed-in state; generate a signed one instead.
+    return createSignedState(userId, ttlMs);
   }
 
   /**
-   * Verify and consume OAuth state
+   * Verify and extract userId from a signed OAuth state token.
    */
   verifyOAuthState(state: string): string | null {
-    const data = this.oauthStates.get(state);
-    if (!data || data.expiresAt < Date.now()) {
-      this.oauthStates.delete(state);
-      return null;
-    }
-    this.oauthStates.delete(state);
-    return data.userId;
+    return verifySignedState(state);
   }
 
   /**

@@ -7,7 +7,6 @@
  */
 
 import { Hono } from 'hono';
-import { randomBytes } from 'crypto';
 import { GitHubClient } from '../lib/github-client';
 import { githubStore } from '../lib/github-store';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
@@ -62,9 +61,8 @@ app.post('/connect', async (c) => {
 
   const userId = (c.get('user') as AuthUser).id;
 
-  // Generate CSRF state token
-  const state = randomBytes(32).toString('hex');
-  githubStore.setOAuthState(state, userId);
+  // Generate signed CSRF state token (stateless, survives redeploys)
+  const state = githubStore.setOAuthState('', userId);
 
   // If a GitHub App is configured, send users to the App install page which
   // also handles OAuth ("Request user authorization during installation").

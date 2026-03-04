@@ -10,28 +10,14 @@
  */
 
 import { Hono } from 'hono';
-import { randomBytes } from 'crypto';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
 import { db } from '../lib/db/index.js';
 import { githubAppInstallations, teamMembers } from '../lib/db/schema.js';
 import { eq, and, or, inArray } from 'drizzle-orm';
 import { getFrontendUrl } from '../lib/environment.js';
+import { githubStore } from '../lib/github-store.js';
 
 const app = new Hono();
-
-// In-memory state store for CSRF protection (ephemeral, 10-min TTL).
-const installStates = new Map<string, { userId: string; expiresAt: number }>();
-
-function setInstallState(state: string, userId: string): void {
-  installStates.set(state, { userId, expiresAt: Date.now() + 600_000 });
-}
-
-function verifyInstallState(state: string): string | null {
-  const entry = installStates.get(state);
-  installStates.delete(state); // consume once
-  if (!entry || entry.expiresAt < Date.now()) return null;
-  return entry.userId;
-}
 
 // Auth on all routes except the callback (which comes from GitHub redirect).
 app.use('/*', async (c, next) => {
@@ -189,8 +175,9 @@ app.get('/install-url', async (c) => {
   }
 
   const userId = (c.get('user') as AuthUser).id;
-  const state = randomBytes(32).toString('hex');
-  setInstallState(state, userId);
+  // Use githubStore so the state is found when GitHub redirects to /api/github/callback
+  // (GitHub App with "OAuth during installation" uses the OAuth Callback URL)
+  const state = githubStore.setOAuthState('', userId);
 
   const installUrl = `https://github.com/apps/${getAppSlug()}/installations/new?state=${state}`;
   return c.json({ installUrl });
@@ -212,7 +199,7 @@ app.get('/callback', async (c) => {
     return c.redirect(`${frontendUrl}/settings?github-app=error&reason=missing_params`);
   }
 
-  const userId = verifyInstallState(state);
+  const userId = githubStore.verifyOAuthState(state);
   if (!userId) {
     return c.redirect(`${frontendUrl}/settings?github-app=error&reason=invalid_state`);
   }
