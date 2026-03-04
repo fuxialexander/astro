@@ -34,7 +34,7 @@ import { useMachinesStore } from "@/stores/machines-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { PlaygroundHeader } from "@/components/playground/playground-header"
-import { PlaygroundFileSidebar } from "@/components/playground/playground-file-sidebar"
+import { FileBrowser } from "@/components/file-browser"
 import { InlineApprovalCard } from "@/components/plan-session/inline-approval-card"
 import {
   groupActivityEvents,
@@ -508,7 +508,7 @@ export function Playground() {
       case 'steer':
         return <SteerBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'steer' }>} />
       case 'file_change':
-        return <FileChangeBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'file_change' }>} />
+        return <FileChangeBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'file_change' }>} onFileSelect={() => setFileSidebarOpen(true)} />
       case 'error':
         return <ErrorBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'error' }>} />
       case 'chat_user':
@@ -710,7 +710,7 @@ export function Playground() {
                 <SheetTitle>Files</SheetTitle>
               </SheetHeader>
               {execution?.machineId && (project?.workingDirectory || workingDir) && (
-                <PlaygroundFileSidebar
+                <FileBrowser
                   machineId={execution.machineId}
                   machineName={machineName}
                   workingDirectory={project?.workingDirectory || workingDir}
@@ -722,7 +722,7 @@ export function Playground() {
           </Sheet>
         ) : (
           fileSidebarOpen && execution?.machineId && (project?.workingDirectory || workingDir) && (
-            <PlaygroundFileSidebar
+            <FileBrowser
               machineId={execution.machineId}
               machineName={machineName}
               workingDirectory={project?.workingDirectory || workingDir}
