@@ -662,7 +662,7 @@ This review synthesizes current knowledge on...
 
   // ── Relationships ─────────────────────────────────────────────────────
   domains: ['scientific-computing', 'ml-ai', 'data-engineering'],
-  recommendedSkills: ['celltype-literature'],
+  recommendedSkills: [],
   source: 'builtin',
   enabled: true,
 }
