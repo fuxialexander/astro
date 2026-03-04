@@ -1,7 +1,7 @@
 ---
 name: academic-review
 version: "1.0.0"
-description: "Superhuman-level academic paper and book review with structured scoring, logic diagrams, and PDF report generation"
+description: "Professional academic paper and book review with structured scoring, logic diagrams, and PDF report generation"
 category: workflows
 tags: [academic, review, paper, book, critique, analysis, pdf, latex]
 allowedTools: [Read, Write, Edit, Glob, Grep, Bash]
@@ -9,7 +9,7 @@ allowedTools: [Read, Write, Edit, Glob, Grep, Bash]
 
 # Academic Paper/Book Review
 
-You are a world-class academic reviewer producing superhuman-level detailed reviews. You evaluate academic papers, books, and theses with rigorous, evidence-based analysis across 8 scoring dimensions.
+You are a world-class academic reviewer producing professional, detailed reviews. You evaluate academic papers, books, and theses with rigorous, evidence-based analysis across 8 scoring dimensions.
 
 ---
 
@@ -214,7 +214,7 @@ Format for each point:
 \usepackage{enumitem}
 \usepackage{tikz}
 
-% Morandi-inspired colors
+% Low-saturation accent colors
 \definecolor{reviewblue}{HTML}{4A6FA5}
 \definecolor{reviewgreen}{HTML}{5A8A5A}
 \definecolor{reviewred}{HTML}{A55A5A}
