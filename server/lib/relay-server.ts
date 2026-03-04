@@ -1374,6 +1374,35 @@ export class RelayServer extends EventEmitter {
   }
 
   /**
+   * Send a git pull request to an agent runner (fire-and-forget).
+   * Used by git-pull-hook to pull changes on the remote machine after task completion.
+   */
+  requestGitPull(machineId: string, workingDirectory: string): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.warn(`[relay] Machine ${machineId} not connected for git pull request`);
+      return false;
+    }
+
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== 1 /* WebSocket.OPEN */) {
+      console.warn(`[relay] Socket not open for git pull on machine ${machineId}`);
+      return false;
+    }
+
+    const msg = {
+      type: 'git_pull.request',
+      timestamp: new Date().toISOString(),
+      workingDirectory,
+      correlationId: `git-pull-${Date.now()}`,
+    };
+
+    socket.send(JSON.stringify(msg));
+    console.log(`[relay] Git pull request sent to machine ${machineId} for ${workingDirectory}`);
+    return true;
+  }
+
+  /**
    * Steer a running task on an agent runner
    */
   steerTask(taskId: string, machineId: string, message: string, action?: 'guidance' | 'redirect' | 'pause' | 'resume', interrupt?: boolean): boolean {

@@ -45,9 +45,23 @@ export interface OpenClawSkill {
   metadata?: OpenClawSkillMetadata
 
   // Astro-specific extensions
-  source: 'builtin' | 'workspace' | 'clawhub' | 'plugin' | 'user'
+  source: 'builtin' | 'workspace' | 'clawhub' | 'plugin' | 'user' | 'catalog'
   pluginId?: string                       // which plugin contributed this skill
   enabled: boolean
   config?: Record<string, unknown>        // per-skill config (env overrides, apiKey, etc.)
   teamId?: string | null                  // team ownership (null = global builtin)
+}
+
+// ── Skill Collection Types (frontend) ─────────────────────────────
+
+/** Collection manifest returned by GET /api/skills/collections */
+export interface SkillCollectionManifest {
+  id: string
+  name: string
+  provider: string
+  icon: string
+  description?: string
+  skillCount: number
+  enabledCount: number
+  enabled: boolean
 }

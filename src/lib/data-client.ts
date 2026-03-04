@@ -4,6 +4,7 @@ import type { SessionMetrics } from "@/stores/usage-store"
 import type { TaskChatMessage, TaskChatSession } from "@/stores/task-chat-store"
 import type { Activity } from "@/stores/activity-store"
 import type { SkillRow } from "@/stores/skill-store"
+import type { SkillCollectionManifest } from "@/types/skill"
 import { getAccessToken } from "./supabase-client"
 import { snakeToCamel } from "./utils"
 import { apiUrl } from "./api-url"
@@ -752,5 +753,15 @@ export const dataClient = {
     const mapped = mapSkillRow(row)
     if (row._warning) return { ...mapped, _warning: row._warning as string }
     return mapped
+  },
+
+  // ── Skill Collections ─────────────────────────────────────────────
+  async listCollections(): Promise<SkillCollectionManifest[]> {
+    const data = await json<{ collections: SkillCollectionManifest[] }>('/api/skills/collections')
+    return data.collections ?? []
+  },
+
+  async toggleCollection(collectionId: string): Promise<{ collectionId: string; enabled: boolean; skillCount: number }> {
+    return put(`/api/skills/collections/${collectionId}/toggle`, {}) as Promise<{ collectionId: string; enabled: boolean; skillCount: number }>
   },
 }

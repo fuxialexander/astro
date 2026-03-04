@@ -28,4 +28,34 @@ export interface BuiltinSkillDefinition {
   tags: string[]
   /** Tools the skill is allowed to use */
   allowedTools: AllowedTool[]
+  /** Exclude from auto-injection into agent prompts (default false) */
+  disableModelInvocation?: boolean
+  /** Expose as slash command (default true) */
+  userInvocable?: boolean
+}
+
+// ── Catalog Collection Types ──────────────────────────────────────
+
+/**
+ * COLLECTION.yaml manifest for a skill catalog collection.
+ */
+export interface CatalogCollectionManifest {
+  /** Unique collection identifier (directory name, e.g. 'anthropic') */
+  id: string
+  /** Display name (e.g. 'Claude Official') */
+  name: string
+  /** Provider organization name */
+  provider: string
+  /** Lucide icon name */
+  icon: string
+  /** Brief description of the collection */
+  description?: string
+}
+
+/**
+ * A loaded catalog collection with its manifest and parsed skills.
+ */
+export interface CatalogCollection {
+  manifest: CatalogCollectionManifest
+  skills: BuiltinSkillDefinition[]
 }
