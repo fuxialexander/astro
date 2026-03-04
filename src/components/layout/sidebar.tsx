@@ -557,15 +557,22 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
             )
           })}
 
-          {/* Edit mode toggle button (expanded only) */}
-          {isEditing && !collapsed && (
+          {/* Edit mode: Done button / Normal mode: Customize link */}
+          {!collapsed && (isEditing ? (
             <button
               onClick={() => setEditing(false)}
               className="mt-2 rounded-[10px] px-3.5 py-2.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
             >
               Done
             </button>
-          )}
+          ) : sidebarItems.some((item) => !item.visible) && (
+            <button
+              onClick={() => setEditing(true)}
+              className="mt-1 px-3.5 py-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+            >
+              Customize sidebar...
+            </button>
+          ))}
         </nav>
 
         {/* Projects Section */}
