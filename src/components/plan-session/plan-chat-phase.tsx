@@ -241,10 +241,15 @@ export function PlanChatPhase({
 
     const sid = chatSession.id
 
-    // Generate a stable per-turn streamId for event persistence and catch-up
-    const turnStreamId = `plan-chat-${projectId}-${Date.now()}`
+    // Reuse the original executionId as the streamId so chat follow-up events
+    // are persisted alongside the plan generation's events. Fall back to a new
+    // ephemeral ID only when there is no prior execution (first interaction).
+    const turnStreamId = executionId || `plan-chat-${projectId}-${Date.now()}`
     useAgentStore.getState().updateInteractiveSession(projectId, { streamId: turnStreamId, lastSeq: 0 })
     chatStreamRef.current = { streamId: turnStreamId, lastSeq: 0 }
+
+    // Emit a chat_turn_start marker so hydration can delineate execution vs chat events
+    pushChatEvent({ type: 'chat_turn_start', message: text, timestamp: new Date() })
 
     // Add user message as activity event for display
     pushChatEvent({ type: 'chat_user', message: text, timestamp: new Date() })

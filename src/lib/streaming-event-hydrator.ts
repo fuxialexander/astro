@@ -281,6 +281,16 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
         answeredSafetyPrompts.add(event.executionId)
         break
       }
+      case 'chat_turn_start': {
+        // Marker event delineating execution events from chat follow-up events.
+        // Emitted as an activity event so downstream consumers can distinguish turns.
+        activityEvents.push({
+          type: 'chat_turn_start',
+          message: (data.message as string) || '',
+          timestamp,
+        })
+        break
+      }
     }
   }
 

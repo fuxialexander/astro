@@ -675,8 +675,10 @@ agentRoute.post('/chat', async (c) => {
 
   const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges)
 
-  // Persist user message for catch-up hydration
-  await streamingEventLog.append(streamId || taskId, 'steer_message', { message })
+  // Persist chat turn marker and user message for catch-up hydration
+  const persistId = streamId || taskId
+  await streamingEventLog.append(persistId, 'chat_turn_start', { message, timestamp: new Date().toISOString() })
+  await streamingEventLog.append(persistId, 'steer_message', { message })
 
   return streamChatViaRelay(c, {
     taskId,
@@ -719,8 +721,10 @@ agentRoute.post('/plan-chat', async (c) => {
 
   const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges)
 
-  // Persist user message for catch-up hydration
-  await streamingEventLog.append(streamId || taskId, 'steer_message', { message })
+  // Persist chat turn marker and user message for catch-up hydration
+  const planChatPersistId = streamId || taskId
+  await streamingEventLog.append(planChatPersistId, 'chat_turn_start', { message, timestamp: new Date().toISOString() })
+  await streamingEventLog.append(planChatPersistId, 'steer_message', { message })
 
   return streamChatViaRelay(c, {
     taskId,
@@ -804,8 +808,10 @@ agentRoute.post('/task-chat', async (c) => {
     prUrl: prUrl || undefined,
   })
 
-  // Persist user message for catch-up hydration
-  await streamingEventLog.append(streamId || taskId, 'steer_message', { message })
+  // Persist chat turn marker and user message for catch-up hydration
+  const taskChatPersistId = streamId || taskId
+  await streamingEventLog.append(taskChatPersistId, 'chat_turn_start', { message, timestamp: new Date().toISOString() })
+  await streamingEventLog.append(taskChatPersistId, 'steer_message', { message })
 
   return streamChatViaRelay(c, {
     taskId,

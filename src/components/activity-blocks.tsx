@@ -170,6 +170,11 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
         flushTools()
         blocks.push({ type: 'github_comment', events: [event] })
         break
+      case 'chat_turn_start':
+        // Marker event for hydration delineation — flush buffers but don't render
+        flushText()
+        flushTools()
+        break
     }
   }
 

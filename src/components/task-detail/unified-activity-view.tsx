@@ -371,9 +371,14 @@ export function UnifiedActivityView({
     // Store in session for conversation history (sent to backend on subsequent turns)
     addMessage(sid, { role: "user", content: text })
 
-    // Generate a stable per-turn streamId for event persistence and catch-up
-    const turnStreamId = `task-chat-${node.id}-${Date.now()}`
+    // Reuse the original executionId as the streamId so chat follow-up events
+    // are persisted alongside the execution's events. Fall back to a new ephemeral
+    // ID only when there is no prior execution (first interaction).
+    const turnStreamId = executionId || `task-chat-${node.id}-${Date.now()}`
     chatStreamRef.current = { streamId: turnStreamId, lastSeq: 0 }
+
+    // Emit a chat_turn_start marker so hydration can delineate execution vs chat events
+    pushChatEvent({ type: 'chat_turn_start', message: text, timestamp: new Date() })
 
     setIsChatStreaming(true)
     abortRef.current = new AbortController()
