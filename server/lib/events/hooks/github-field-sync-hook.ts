@@ -111,6 +111,9 @@ export async function syncNodeToGitHub(
   const enabledFields = (syncSettings?.enabledFields as string[] | undefined) ??
     ['title', 'status', 'priority', 'assignee', 'labels', 'estimate']
 
+  // Custom label mapping for priority labels
+  const labelMapping = (syncSettings?.labelMapping as Record<string, string> | undefined) ?? {}
+
   const { githubOwner: owner, githubRepo: repo } = project
 
   // Resolve GitHub token
@@ -207,7 +210,7 @@ export async function syncNodeToGitHub(
 
       if (shouldSyncPriority) {
         managedPrefixes.push('priority:')
-        const priorityLabel = priorityToGitHubLabel(node.priority ?? undefined)
+        const priorityLabel = priorityToGitHubLabel(node.priority ?? undefined, labelMapping)
         if (priorityLabel) desiredLabels.push(priorityLabel)
       }
 

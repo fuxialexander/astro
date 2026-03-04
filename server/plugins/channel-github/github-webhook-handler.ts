@@ -129,6 +129,15 @@ export async function handleIssueEvent(
 
   switch (action) {
     case 'opened': {
+      // Check auto-create setting — skip if auto-create from GitHub is disabled
+      const autoCreate = syncSettings.autoCreateDirection
+      if (autoCreate !== 'github_to_astro' && autoCreate !== 'bidirectional') {
+        console.log(
+          `[github-channel] Auto-create from GitHub disabled (setting: ${autoCreate}) — skipping issue #${issueNumber}`
+        )
+        break
+      }
+
       // Check if already exists (idempotency)
       const [existing] = await db.select({ id: planNodes.id })
         .from(planNodes)
@@ -139,8 +148,8 @@ export async function handleIssueEvent(
         .limit(1)
 
       if (!existing) {
-        // Extract priority from labels if present
-        const priority = githubLabelsToPriority(issueLabels)
+        // Extract priority from labels if present (use custom mapping if configured)
+        const priority = githubLabelsToPriority(issueLabels, syncSettings.labelMapping)
 
         // Resolve assignee if present → store in metadata
         let assigneeMetadata: Record<string, unknown> | undefined
@@ -290,8 +299,8 @@ export async function handleIssueEvent(
     case 'labeled':
     case 'unlabeled': {
       if (!isFieldEnabled(syncSettings, 'priority', 'github_to_astro')) break
-      // Sync priority labels from GitHub → Astro
-      const priority = githubLabelsToPriority(issueLabels)
+      // Sync priority labels from GitHub → Astro (use custom mapping if configured)
+      const priority = githubLabelsToPriority(issueLabels, syncSettings.labelMapping)
       const [labeledNode] = await db.select({
         id: planNodes.id,
         githubSyncVersion: planNodes.githubSyncVersion,
