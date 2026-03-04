@@ -56,7 +56,7 @@ import { Playground } from "@/pages/playground"
 import { ShareImport } from "@/pages/share-import"
 import { Skills } from "@/pages/skills"
 import { SkillNew } from "@/pages/skill-new"
-import { Templates } from "@/pages/templates"
+import { Examples } from "@/pages/examples"
 import { Community } from "@/pages/community"
 import { CommunityPlanDetail } from "@/pages/community-plan-detail"
 
@@ -343,7 +343,8 @@ export default function App() {
                 <Route path="workflows" element={<Workflows />} />
                 <Route path="skills" element={<Skills />} />
                 <Route path="skills/new" element={<SkillNew />} />
-                <Route path="templates" element={<Templates />} />
+                <Route path="examples" element={<Examples />} />
+                <Route path="templates" element={<Navigate to="/examples" replace />} />
                 <Route path="community" element={<Community />} />
                 <Route path="community/plans/:id" element={<CommunityPlanDetail />} />
                 <Route path="share/:id" element={<ShareImport />} />

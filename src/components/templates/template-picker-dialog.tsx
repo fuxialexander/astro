@@ -14,14 +14,12 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { TemplateGallery } from "./template-gallery"
 import { TemplateParameterForm } from "./template-parameter-form"
-import { TemplatePreview } from "./template-preview"
 import { useTemplateStore } from "@/stores/template-store"
 import { useToastStore } from "@/stores/toast-store"
 import { cn } from "@/lib/utils"
 import {
   ArrowLeft,
   ArrowRight,
-  Check,
   Loader2,
   Rocket,
   FolderOpen,
@@ -40,16 +38,18 @@ interface TemplatePickerDialogProps {
   onLaunchSuccess?: (result: LaunchTemplateResult) => void
   /** When set, auto-selects this template and skips to the configure step on open */
   initialTemplateId?: string | null
+  /** When true, start directly at Configure step (skip Browse) */
+  skipBrowse?: boolean
 }
 
-type WizardStep = "browse" | "configure" | "preview" | "launch"
+type WizardStep = "browse" | "configure" | "launch"
 
-const STEP_ORDER: WizardStep[] = ["browse", "configure", "preview", "launch"]
+const FULL_STEP_ORDER: WizardStep[] = ["browse", "configure", "launch"]
+const SKIP_BROWSE_STEP_ORDER: WizardStep[] = ["configure", "launch"]
 
 const STEP_LABELS: Record<WizardStep, string> = {
-  browse: "Browse Templates",
+  browse: "Browse Examples",
   configure: "Configure Parameters",
-  preview: "Preview",
   launch: "Ready to Launch",
 }
 
@@ -69,7 +69,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
  * - Auto-preview when parameters change
  * - Launch → navigate to project plan view
  */
-export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, initialTemplateId }: TemplatePickerDialogProps) {
+export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, initialTemplateId, skipBrowse }: TemplatePickerDialogProps) {
   const navigate = useNavigate()
 
   // Template store state
@@ -78,19 +78,21 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
   const selectedTemplate = useTemplateStore((s) => s.selectedTemplate)
   const parameterValues = useTemplateStore((s) => s.parameterValues)
   const validationErrors = useTemplateStore((s) => s.validationErrors)
-  const previewResult = useTemplateStore((s) => s.previewResult)
   const isLoading = useTemplateStore((s) => s.isLoading)
 
   // Store actions
   const selectTemplate = useTemplateStore((s) => s.selectTemplate)
   const setParameterValue = useTemplateStore((s) => s.setParameterValue)
   const validateParameters = useTemplateStore((s) => s.validateParameters)
-  const previewTemplate = useTemplateStore((s) => s.previewTemplate)
   const launchTemplate = useTemplateStore((s) => s.launchTemplate)
   const reset = useTemplateStore((s) => s.reset)
 
+  // Determine step order based on skipBrowse prop
+  const stepOrder = skipBrowse ? SKIP_BROWSE_STEP_ORDER : FULL_STEP_ORDER
+  const firstStep = stepOrder[0]
+
   // Local wizard state
-  const [currentStep, setCurrentStep] = useState<WizardStep>("browse")
+  const [currentStep, setCurrentStep] = useState<WizardStep>(firstStep)
   const [projectName, setProjectName] = useState("")
   const [workingDirectory, setWorkingDirectory] = useState("")
   const [isLaunching, setIsLaunching] = useState(false)
@@ -99,13 +101,13 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
   useEffect(() => {
     if (!open) {
       // Reset on close
-      setCurrentStep("browse")
+      setCurrentStep(firstStep)
       setProjectName("")
       setWorkingDirectory("")
       setIsLaunching(false)
       reset()
     }
-  }, [open, reset])
+  }, [open, reset, firstStep])
 
   // Auto-select initial template when dialog opens with one specified
   useEffect(() => {
@@ -144,8 +146,8 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
 
   // Validate and move to next step
   const handleNext = useCallback(async () => {
-    const stepIndex = STEP_ORDER.indexOf(currentStep)
-    const nextStep = STEP_ORDER[stepIndex + 1]
+    const stepIndex = stepOrder.indexOf(currentStep)
+    const nextStep = stepOrder[stepIndex + 1]
 
     // Validation before moving forward
     if (currentStep === "configure") {
@@ -169,24 +171,24 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
         })
         return
       }
-
-      // Fetch preview for next step
-      await previewTemplate()
     }
 
     if (nextStep) {
       setCurrentStep(nextStep)
     }
-  }, [currentStep, validateParameters, projectName, previewTemplate])
+  }, [currentStep, stepOrder, validateParameters, projectName])
 
   // Handle back navigation
   const handleBack = useCallback(() => {
-    const stepIndex = STEP_ORDER.indexOf(currentStep)
-    const prevStep = STEP_ORDER[stepIndex - 1]
+    const stepIndex = stepOrder.indexOf(currentStep)
+    const prevStep = stepOrder[stepIndex - 1]
     if (prevStep) {
       setCurrentStep(prevStep)
+    } else if (skipBrowse) {
+      // When browse is skipped, going back from first step closes the dialog
+      onOpenChange(false)
     }
-  }, [currentStep])
+  }, [currentStep, stepOrder, skipBrowse, onOpenChange])
 
   // Handle launch
   const handleLaunch = useCallback(async () => {
@@ -233,7 +235,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
   ])
 
   // Calculate progress
-  const progressPercentage = ((STEP_ORDER.indexOf(currentStep) + 1) / STEP_ORDER.length) * 100
+  const progressPercentage = ((stepOrder.indexOf(currentStep) + 1) / stepOrder.length) * 100
 
   // Check if can proceed to next step
   const canProceed = () => {
@@ -242,8 +244,6 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
         return !!selectedTemplate
       case "configure":
         return !!projectName.trim() && validationErrors.length === 0
-      case "preview":
-        return !!previewResult
       case "launch":
         return true
       default:
@@ -354,29 +354,6 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
         )
       }
 
-      case "preview":
-        if (!previewResult) {
-          return (
-            <div className="h-[500px] flex flex-col items-center justify-center gap-3">
-              {isLoading ? (
-                <>
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground">Generating preview...</p>
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Preview not available. Click back to configure parameters.
-                </p>
-              )}
-            </div>
-          )
-        }
-        return (
-          <div className="max-h-[500px] overflow-y-auto pr-2">
-            <TemplatePreview preview={previewResult} />
-          </div>
-        )
-
       case "launch":
         return (
           <div className="h-[500px] flex flex-col items-center justify-center gap-6 text-center">
@@ -434,7 +411,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
           <div className="flex items-center justify-between text-xs">
             <span className="font-medium text-foreground">{STEP_LABELS[currentStep]}</span>
             <span className="text-muted-foreground">
-              Step {STEP_ORDER.indexOf(currentStep) + 1} of {STEP_ORDER.length}
+              Step {stepOrder.indexOf(currentStep) + 1} of {stepOrder.length}
             </span>
           </div>
           <Progress value={progressPercentage} className="h-1" />
@@ -446,7 +423,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
         {/* Footer with navigation buttons */}
         <DialogFooter className="flex items-center justify-between sm:justify-between">
           <div>
-            {currentStep !== "browse" && (
+            {(currentStep !== firstStep || skipBrowse) && (
               <Button
                 type="button"
                 variant="outline"
@@ -497,11 +474,6 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                       Loading...
-                    </>
-                  ) : currentStep === "preview" ? (
-                    <>
-                      <Check className="h-4 w-4 mr-2" />
-                      Continue
                     </>
                   ) : (
                     <>

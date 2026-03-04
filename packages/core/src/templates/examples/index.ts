@@ -1,64 +1,27 @@
 /**
  * Built-in Use Case Template Examples
  *
- * These templates demonstrate the UseCaseTemplate schema for different
- * domains and use cases. They serve as:
+ * Curated example templates available to all Astro users.
+ * Currently features a single polished example: Academic Paper Presentation.
  *
- * 1. Reference implementations for template authors
- * 2. Built-in templates available to all Astro users
- * 3. Test fixtures for template validation and rendering
- *
- * Template Categories:
- * - software-development: web-app, api-development
- * - data-science: data-pipeline
- * - machine-learning: ml-pipeline, benchmark-runner
- * - security: security-audit
- * - research-analysis: paper-to-slides, literature-review
- * - documentation: code-documentation
+ * Note: Previous templates (web-app, ml-pipeline, etc.) remain on disk
+ * but are not imported. They can be restored by re-adding their imports
+ * and entries to BUILTIN_TEMPLATES.
  */
 
-export { webAppTemplate } from './web-app.js'
-export { mlPipelineTemplate } from './ml-pipeline.js'
-export { apiDevelopmentTemplate } from './api-development.js'
-export { securityAuditTemplate } from './security-audit.js'
-export { dataPipelineTemplate } from './data-pipeline.js'
-export { paperToSlidesTemplate } from './paper-to-slides.js'
-export { codeDocumentationTemplate } from './code-documentation.js'
-export { literatureReviewTemplate } from './literature-review.js'
-export { benchmarkRunnerTemplate } from './benchmark-runner.js'
+export { academicPresentationTemplate } from './academic-presentation.js'
 
-import { webAppTemplate } from './web-app.js'
-import { mlPipelineTemplate } from './ml-pipeline.js'
-import { apiDevelopmentTemplate } from './api-development.js'
-import { securityAuditTemplate } from './security-audit.js'
-import { dataPipelineTemplate } from './data-pipeline.js'
-import { paperToSlidesTemplate } from './paper-to-slides.js'
-import { codeDocumentationTemplate } from './code-documentation.js'
-import { literatureReviewTemplate } from './literature-review.js'
-import { benchmarkRunnerTemplate } from './benchmark-runner.js'
+import { academicPresentationTemplate } from './academic-presentation.js'
 import type { UseCaseTemplate } from '../../types/use-case-template.js'
 
 /** All built-in templates */
 export const BUILTIN_TEMPLATES: UseCaseTemplate[] = [
-  webAppTemplate,
-  apiDevelopmentTemplate,
-  mlPipelineTemplate,
-  dataPipelineTemplate,
-  securityAuditTemplate,
-  paperToSlidesTemplate,
-  codeDocumentationTemplate,
-  literatureReviewTemplate,
-  benchmarkRunnerTemplate,
+  academicPresentationTemplate,
 ]
 
 /** Templates grouped by category */
 export const TEMPLATES_BY_CATEGORY: Record<string, UseCaseTemplate[]> = {
-  'software-development': [webAppTemplate, apiDevelopmentTemplate],
-  'data-science': [dataPipelineTemplate],
-  'machine-learning': [mlPipelineTemplate, benchmarkRunnerTemplate],
-  'security': [securityAuditTemplate],
-  'research-analysis': [paperToSlidesTemplate, literatureReviewTemplate],
-  'documentation': [codeDocumentationTemplate],
+  'research-analysis': [academicPresentationTemplate],
 }
 
 /** Get a template by ID */
