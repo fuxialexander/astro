@@ -333,15 +333,10 @@ describe('POST /api/community/plans/:id/fork', () => {
 
 describe('GET /api/community/plans/trending', () => {
   it('returns trending plans (not captured by :id route)', async () => {
-    // Trending uses LN() which may not be in all PGlite versions;
-    // just verify the route resolves (not 404 or caught by :id)
     const res = await request('/api/community/plans/trending')
-    // Accept 200 or 500 (if LN unsupported) — but NOT 404
-    expect(res.status).not.toBe(404)
-    if (res.status === 200) {
-      const body = await res.json() as { plans: unknown[] }
-      expect(Array.isArray(body.plans)).toBe(true)
-    }
+    expect(res.status).toBe(200)
+    const body = await res.json() as { plans: unknown[] }
+    expect(Array.isArray(body.plans)).toBe(true)
   })
 })
 

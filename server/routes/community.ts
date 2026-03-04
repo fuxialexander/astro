@@ -248,6 +248,24 @@ app.get('/plans/trending', async (c) => {
     and(eq(sharedPlans.visibility, 'unlisted'), eq(sharedPlans.authorId, user.id))
   )!
 
+  // Trending score expression: stars_7d * 2 + forks_7d * 3 + log(total_stars + 1)
+  // Extracted so the same expression can be reused in ORDER BY
+  const trendingScoreExpr = sql<number>`(
+    (
+      SELECT COUNT(*)::int
+      FROM ${sharedPlanStars}
+      WHERE ${sharedPlanStars.planId} = ${sharedPlans.id}
+        AND ${sharedPlanStars.createdAt} >= ${sevenDaysAgo}
+    ) * 2
+    + (
+      SELECT COUNT(*)::int
+      FROM ${sharedPlanForks}
+      WHERE ${sharedPlanForks.sourcePlanId} = ${sharedPlans.id}
+        AND ${sharedPlanForks.createdAt} >= ${sevenDaysAgo}
+    ) * 3
+    + LN(${sharedPlans.starsCount} + 1)
+  )`
+
   // Query trending plans with weighted score
   const trendingPlans = await db.select({
     id: sharedPlans.id,
@@ -281,22 +299,7 @@ app.get('/plans/trending', async (c) => {
       WHERE ${sharedPlanForks.sourcePlanId} = ${sharedPlans.id}
         AND ${sharedPlanForks.createdAt} >= ${sevenDaysAgo}
     )`,
-    // Calculate trending score: stars_7d * 2 + forks_7d * 3 + log(total_stars + 1)
-    trendingScore: sql<number>`(
-      (
-        SELECT COUNT(*)::int
-        FROM ${sharedPlanStars}
-        WHERE ${sharedPlanStars.planId} = ${sharedPlans.id}
-          AND ${sharedPlanStars.createdAt} >= ${sevenDaysAgo}
-      ) * 2
-      + (
-        SELECT COUNT(*)::int
-        FROM ${sharedPlanForks}
-        WHERE ${sharedPlanForks.sourcePlanId} = ${sharedPlans.id}
-          AND ${sharedPlanForks.createdAt} >= ${sevenDaysAgo}
-      ) * 3
-      + LN(${sharedPlans.starsCount} + 1)
-    )`,
+    trendingScore: trendingScoreExpr,
   })
     .from(sharedPlans)
     .leftJoin(userProfiles, eq(sharedPlans.authorId, userProfiles.id))
@@ -304,7 +307,7 @@ app.get('/plans/trending', async (c) => {
       isNull(sharedPlans.deletedAt),
       visibilityConditions
     ))
-    .orderBy(sql`trending_score DESC`)
+    .orderBy(desc(trendingScoreExpr))
     .limit(20)
 
   return c.json({ plans: trendingPlans })
