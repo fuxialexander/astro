@@ -18,5 +18,6 @@ export { BranchManager, createBranchManager, type BranchInfo } from './branch-ma
 export type {
   NodeUpdateCallback,
   PlanGraphProvider,
+  KnowledgeProvider,
   ExecutionCallback,
 } from './dispatch-engine.js'
