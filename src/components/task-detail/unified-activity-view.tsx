@@ -33,6 +33,7 @@ import {
   SummaryCard,
   GitHubCommentBlock,
   NewCommentComposer,
+  BranchLinkedBlock,
 } from "@/components/activity-blocks"
 import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 import { InlineApprovalCard } from "@/components/plan-session/inline-approval-card"
@@ -660,6 +661,8 @@ export function UnifiedActivityView({
             }
             case 'github_comment':
               return <GitHubCommentBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'github_comment' }>} githubContext={githubContext} />
+            case 'branch_linked':
+              return <BranchLinkedBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'branch_linked' }>} />
             default:
               return null
           }
