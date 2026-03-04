@@ -1527,8 +1527,9 @@ export function PlanView() {
   // Auto-fetch file tree in the background when stale or missing
   useFileTreeRefresh(project)
 
-  // Replan gate logic
-  const isGitHubProject = !!(project?.githubOwner && project?.githubRepo) || project?.source?.remoteType === 'github'
+  // Replan gate logic — only treat as GitHub project if projectType is 'github'
+  // (projects converted from GitHub tasks keep githubOwner/githubRepo but have projectType 'plan')
+  const isGitHubProject = project?.projectType === 'github' && !!(project?.githubOwner && project?.githubRepo)
   const liveNodes = useMemo(() => planNodes.filter(n => n.projectId === id), [planNodes, id])
   const canReplan = liveNodes.length > 0 && !isGitHubProject
   const canSyncGitHub = isGitHubProject
