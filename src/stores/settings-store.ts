@@ -88,7 +88,7 @@ interface SettingsState {
   setDefaultProvider: (provider: string) => void
   setEditorType: (type: 'cursor' | 'vscode') => void
   setYoloMode: (enabled: boolean) => void
-  setCustomModel: (tier: ModelTier, provider: string, model: string) => void
+  setCustomModel: (tier: ModelTier, provider: string, model: string) => Promise<void>
   removeCustomModel: (tier: ModelTier, provider: string) => void
   /** Resolve current tier to a model ID for the given provider */
   getModelForProvider: (provider?: string) => string
@@ -215,7 +215,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     // Re-resolve current model if affected
     const currentModel = resolveModel(modelTier, defaultProvider || "claude-sdk", next)
     set({ customModelMap: next, model: currentModel })
-    dataClient.updateSettings({ customModelMap: JSON.stringify(next), model: currentModel }).catch(() => {})
+    return dataClient.updateSettings({ customModelMap: JSON.stringify(next), model: currentModel })
   },
 
   removeCustomModel: (tier, provider) => {
