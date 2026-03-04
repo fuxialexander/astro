@@ -47,6 +47,7 @@ Every structural SSE event is written to `streaming_events` *before* being sent 
 | `steer_message` | Yes | `message`, `action`, `interrupt` |
 | `heartbeat` | No | SSE keepalive only |
 | `error` | Yes | `error`, `recoverable` |
+| `aborted` | No | Client-side handler only; cancellation flows through `result` with failure status |
 | `done` | No | Stream termination signal only |
 | `safety_prompt` | Yes | `safetyTier`, `warning`, `options`, `machineId` |
 | `safety_response` | Yes | `decision` |
