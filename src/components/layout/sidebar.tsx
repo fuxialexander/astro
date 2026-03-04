@@ -208,7 +208,11 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     setDraggedIndex(null)
   }
 
-  const visibleItems = sidebarItems.filter((item) => item.visible)
+  const visibleItems = sidebarItems.filter((item) => {
+    // Hide Community nav item in local mode
+    if (item.id === 'community' && !showAuth) return false
+    return item.visible
+  })
 
   const calculateProgress = (projectId: string): number => {
     const projectTasks = planNodes.filter(

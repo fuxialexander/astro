@@ -29,6 +29,7 @@ import { templatesRoute } from './routes/templates.js'
 import { shareRoute } from './routes/share.js'
 import { connectedAccountsRoute } from './routes/connected-accounts.js'
 import { teamsRoute } from './routes/teams.js'
+import { communityRoute } from './routes/community.js'
 import { runMigrations } from './lib/db/migrate.js'
 import { closeDb } from '../packages/core/src/db/index.js'
 import { relayServer } from './lib/relay-server.js'
@@ -158,6 +159,24 @@ export function createApp() {
     }))
   }
 
+  // Community write endpoints rate limiter (60 req/15min per IP) - bypassed in test mode
+  // Covers star, comment, publish, fork operations to prevent abuse
+  if (!isTest()) {
+    const communityRateLimiter = rateLimiter({
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      limit: 60,
+      standardHeaders: 'draft-7',
+      keyGenerator: (c) => c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown',
+    })
+    // Cover both exact path (POST /plans) and sub-paths (/plans/:id/star, etc.)
+    for (const path of ['/api/community/plans', '/api/community/plans/*']) {
+      app.use(path, async (c, next) => {
+        if (c.req.method === 'GET') return next()
+        return communityRateLimiter(c, next)
+      })
+    }
+  }
+
   // Routes that work in both local and server mode
   app.route('/.well-known', wellKnownRoute)
   app.route('/api', healthRoute)
@@ -175,6 +194,7 @@ export function createApp() {
   app.route('/api/templates', templatesRoute)
   app.route('/api/observations', observationsRoute)
   app.route('/api/teams', teamsRoute)
+  app.route('/api/community', communityRoute)
 
   // Auth routes are always mounted (endpoints guard themselves with isLocalMode())
   app.route('/api/auth', authRoute)
