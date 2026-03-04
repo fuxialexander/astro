@@ -9,8 +9,8 @@ import { githubStore } from '../lib/github-store';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
 import { sanitizeGitHubName } from '@astro/core/prompt-templates';
 import { db } from '../lib/db/index.js';
-import { projects, planNodes, planEdges } from '../lib/db/schema.js';
-import { eq, and, or, isNotNull, inArray } from 'drizzle-orm';
+import { projects, planNodes, planEdges, githubSyncLog } from '../lib/db/schema.js';
+import { eq, and, or, isNotNull, inArray, gte, desc, count } from 'drizzle-orm';
 
 const app = new Hono();
 
@@ -927,6 +927,101 @@ app.post('/issues/sync-fields', async (c) => {
     return c.json({ success: true });
   } else {
     return c.json({ error: result.error || 'Sync failed' }, 500);
+  }
+});
+
+// ── Sync Health Dashboard ─────────────────────────────────────────
+
+/**
+ * GET /api/github/sync-health?projectId=X
+ * Returns aggregated sync health stats for a project.
+ */
+app.get('/sync-health', async (c) => {
+  const projectId = c.req.query('projectId');
+  if (!projectId) {
+    return c.json({ error: 'projectId is required' }, 400);
+  }
+
+  const now = new Date();
+  const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  try {
+    // Total syncs in last 24h with success/error breakdown
+    const statsRows = await db
+      .select({
+        status: githubSyncLog.status,
+        total: count(),
+      })
+      .from(githubSyncLog)
+      .where(and(
+        eq(githubSyncLog.projectId, projectId),
+        gte(githubSyncLog.createdAt, twentyFourHoursAgo)
+      ))
+      .groupBy(githubSyncLog.status);
+
+    let successCount = 0;
+    let errorCount = 0;
+    for (const row of statsRows) {
+      if (row.status === 'success') successCount = Number(row.total);
+      if (row.status === 'error') errorCount = Number(row.total);
+    }
+
+    // Last successful sync
+    const [lastSuccess] = await db
+      .select({ createdAt: githubSyncLog.createdAt })
+      .from(githubSyncLog)
+      .where(and(
+        eq(githubSyncLog.projectId, projectId),
+        eq(githubSyncLog.status, 'success')
+      ))
+      .orderBy(desc(githubSyncLog.createdAt))
+      .limit(1);
+
+    // Recent errors (last 10)
+    const recentErrors = await db
+      .select({
+        id: githubSyncLog.id,
+        nodeId: githubSyncLog.nodeId,
+        direction: githubSyncLog.direction,
+        action: githubSyncLog.action,
+        errorMessage: githubSyncLog.errorMessage,
+        metadata: githubSyncLog.metadata,
+        createdAt: githubSyncLog.createdAt,
+      })
+      .from(githubSyncLog)
+      .where(and(
+        eq(githubSyncLog.projectId, projectId),
+        eq(githubSyncLog.status, 'error')
+      ))
+      .orderBy(desc(githubSyncLog.createdAt))
+      .limit(10);
+
+    // Compute health status
+    const totalRecent = successCount + errorCount;
+    let health: 'healthy' | 'degraded' | 'failing' | 'unknown' = 'unknown';
+    if (totalRecent === 0) {
+      health = 'unknown';
+    } else if (errorCount === 0) {
+      health = 'healthy';
+    } else if (errorCount < totalRecent) {
+      health = 'degraded';
+    } else {
+      health = 'failing';
+    }
+
+    return c.json({
+      health,
+      lastSuccessAt: lastSuccess?.createdAt?.toISOString() ?? null,
+      stats24h: {
+        total: totalRecent,
+        success: successCount,
+        errors: errorCount,
+      },
+      recentErrors,
+    });
+  } catch (err) {
+    console.error('[github-sync] sync-health query failed:', err);
+    return c.json({ error: 'Failed to fetch sync health' }, 500);
   }
 });
 

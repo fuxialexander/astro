@@ -25,6 +25,7 @@ import {
 } from '../../lib/github-sync-utils.js'
 import type { GitHubSyncSettings } from '@astro/core/types'
 import { DEFAULT_GITHUB_SYNC_SETTINGS } from '@astro/core/types'
+import { logSyncOperation } from '../../lib/github-sync-logger.js'
 
 /**
  * Load sync settings for a project, falling back to defaults.
@@ -168,6 +169,14 @@ export async function handleIssueEvent(
           ...(assigneeMetadata ? { metadata: assigneeMetadata } : {}),
           links: [{ id: `gh-${issueNumber}`, type: 'github_issue', url: issueUrl, title: issueTitle, state: 'open', number: issueNumber }],
         })
+        await logSyncOperation({
+          projectId,
+          nodeId: `gh-issue-${issueNumber}`,
+          direction: 'github_to_astro',
+          action: 'create',
+          status: 'success',
+          metadata: { issueNumber, issueTitle },
+        })
       }
       break
     }
@@ -196,6 +205,14 @@ export async function handleIssueEvent(
           githubSyncedAt: new Date(),
           updatedAt: new Date(),
         }).where(eq(planNodes.id, closedNode.id))
+        await logSyncOperation({
+          projectId,
+          nodeId: closedNode.id,
+          direction: 'github_to_astro',
+          action: 'close',
+          status: 'success',
+          metadata: { issueNumber, stateReason },
+        })
       }
       break
     }
@@ -222,6 +239,14 @@ export async function handleIssueEvent(
           githubSyncedAt: new Date(),
           updatedAt: new Date(),
         }).where(eq(planNodes.id, reopenedNode.id))
+        await logSyncOperation({
+          projectId,
+          nodeId: reopenedNode.id,
+          direction: 'github_to_astro',
+          action: 'reopen',
+          status: 'success',
+          metadata: { issueNumber },
+        })
       }
       break
     }
@@ -251,6 +276,14 @@ export async function handleIssueEvent(
           githubSyncedAt: new Date(),
           updatedAt: new Date(),
         }).where(eq(planNodes.id, editedNode.id))
+        await logSyncOperation({
+          projectId,
+          nodeId: editedNode.id,
+          direction: 'github_to_astro',
+          action: 'update',
+          status: 'success',
+          metadata: { issueNumber, fields: [titleEnabled && 'title', descEnabled && 'description'].filter(Boolean) },
+        })
       }
       break
     }
@@ -278,6 +311,14 @@ export async function handleIssueEvent(
           githubSyncedAt: new Date(),
           updatedAt: new Date(),
         }).where(eq(planNodes.id, labeledNode.id))
+        await logSyncOperation({
+          projectId,
+          nodeId: labeledNode.id,
+          direction: 'github_to_astro',
+          action: 'label',
+          status: 'success',
+          metadata: { issueNumber, action, priority },
+        })
       }
       break
     }
@@ -317,6 +358,14 @@ export async function handleIssueEvent(
           githubSyncedAt: new Date(),
           updatedAt: new Date(),
         }).where(eq(planNodes.id, assignedNode.id))
+        await logSyncOperation({
+          projectId,
+          nodeId: assignedNode.id,
+          direction: 'github_to_astro',
+          action: 'assign',
+          status: 'success',
+          metadata: { issueNumber, action, assignee: issueAssignee ? (issueAssignee.login as string) : null },
+        })
       }
       break
     }

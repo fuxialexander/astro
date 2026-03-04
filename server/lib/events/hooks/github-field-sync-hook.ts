@@ -30,6 +30,7 @@ import {
   resolveAstroUserToGitHubLogin,
   SYNC_SOURCE_RESET_DELAY_MS,
 } from '../../github-sync-utils.js'
+import { logSyncOperation } from '../../github-sync-logger.js'
 
 const LOG_PREFIX = '[github-field-sync]'
 
@@ -249,10 +250,32 @@ export async function syncNodeToGitHub(
       `(version: ${newVersion}, fields: ${changedFields?.join(', ') || 'all'})`
     )
 
+    await logSyncOperation({
+      projectId: node.projectId,
+      nodeId,
+      direction: 'astro_to_github',
+      action: changedFields?.includes('status')
+        ? (node.status === 'completed' || node.status === 'pruned' ? 'close' : 'update')
+        : 'update',
+      status: 'success',
+      metadata: { issueNumber, fields: changedFields ?? ['all'], version: newVersion },
+    })
+
     return { success: true }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error(`${LOG_PREFIX} Sync failed for node '${nodeId}':`, msg)
+
+    await logSyncOperation({
+      projectId: node.projectId,
+      nodeId,
+      direction: 'astro_to_github',
+      action: 'update',
+      status: 'error',
+      errorMessage: msg,
+      metadata: { issueNumber, fields: changedFields ?? ['all'] },
+    })
+
     return { success: false, error: msg }
   }
 }

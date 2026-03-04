@@ -18,8 +18,10 @@ import { useToastStore } from '@/stores/toast-store'
 import { useProjectStore } from '@/stores/project-store'
 import { apiUrl } from '@/lib/api-url'
 import { getAccessToken } from '@/lib/supabase-client'
+import { cn } from '@/lib/utils'
 import type { Project, GitHubSyncSettings, GitHubSyncDirection } from '@astro/core/types'
 import { DEFAULT_GITHUB_SYNC_SETTINGS } from '@astro/core/types'
+import { SyncHealthDashboard } from './github-sync-health'
 
 const SYNCABLE_FIELDS = [
   { id: 'title', label: 'Title' },
@@ -53,6 +55,7 @@ interface GitHubSyncSettingsDialogProps {
 export function GitHubSyncSettingsDialog({ project, trigger }: GitHubSyncSettingsDialogProps) {
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [activeTab, setActiveTab] = useState<'settings' | 'health'>('settings')
   const updateProject = useProjectStore((s) => s.updateProject)
 
   // Merge project settings with defaults
@@ -129,13 +132,43 @@ export function GitHubSyncSettingsDialog({ project, trigger }: GitHubSyncSetting
       </DialogTrigger>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
-          <DialogTitle>GitHub Sync Settings</DialogTitle>
+          <DialogTitle>GitHub Sync</DialogTitle>
           <DialogDescription>
-            Configure how tasks sync between Astro and{' '}
-            <span className="font-medium">{project.githubOwner}/{project.githubRepo}</span>
+            {project.githubOwner}/{project.githubRepo}
           </DialogDescription>
         </DialogHeader>
 
+        {/* Tab bar */}
+        <div className="flex gap-1 border-b">
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={cn(
+              'px-3 py-1.5 text-sm font-medium border-b-2 transition-colors -mb-px',
+              activeTab === 'settings'
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            )}
+          >
+            Settings
+          </button>
+          <button
+            onClick={() => setActiveTab('health')}
+            className={cn(
+              'px-3 py-1.5 text-sm font-medium border-b-2 transition-colors -mb-px',
+              activeTab === 'health'
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            )}
+          >
+            Sync Health
+          </button>
+        </div>
+
+        {activeTab === 'health' ? (
+          <div className="py-2">
+            <SyncHealthDashboard projectId={project.id} />
+          </div>
+        ) : (
         <div className="space-y-6 py-4">
           {/* Enable/Disable toggle */}
           <div className="flex items-center justify-between">
@@ -214,7 +247,9 @@ export function GitHubSyncSettingsDialog({ project, trigger }: GitHubSyncSetting
             </Select>
           </div>
         </div>
+        )}
 
+        {activeTab === 'settings' && (
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
             Cancel
@@ -223,6 +258,7 @@ export function GitHubSyncSettingsDialog({ project, trigger }: GitHubSyncSetting
             {saving ? 'Saving...' : 'Save Settings'}
           </Button>
         </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   )
