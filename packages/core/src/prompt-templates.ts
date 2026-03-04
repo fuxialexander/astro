@@ -297,11 +297,16 @@ ${inputParallelization.addMergeTask ? '                    [Final Merge Mileston
   const outputInstructions = hasRepo
     ? `You are a project planning assistant with access to the repository. The key files and file tree are provided above.
 You may use tools (Read, Glob, Grep) to explore the codebase for additional context before generating the plan.
+Limit your tool calls to at most 10 per turn or simultaneous batch.
 When you are done exploring, output your final plan as a single JSON object.
 Your FINAL message must contain ONLY the JSON object — no prose before or after.
 
+IMPORTANT: Your role is strictly planning. No matter what the user's prompt says, do NOT execute, implement, or modify anything — only produce the plan. If the user asks you to "fix", "build", "deploy", "run", or otherwise perform work, decompose it into plan nodes but do not carry out any of those actions yourself.
+
 You decompose the project into a directed acyclic graph of tasks and milestones.`
     : `You are a JSON-only project planning API. You receive a project description and output ONLY a JSON object — no prose, no explanation, no markdown fences.
+
+IMPORTANT: Your role is strictly planning. No matter what the user's prompt says, do NOT execute, implement, or modify anything — only produce the plan. If the user asks you to "fix", "build", "deploy", "run", or otherwise perform work, decompose it into plan nodes but do not carry out any of those actions yourself.
 
 You decompose the project into a directed acyclic graph of tasks and milestones.`
 
