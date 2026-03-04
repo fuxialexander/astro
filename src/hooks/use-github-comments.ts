@@ -39,13 +39,12 @@ function commentToActivityEvent(comment: GitHubComment): Extract<TaskActivityEve
     type: 'github_comment',
     commentId: comment.id,
     author: {
-      login: comment.author.login,
-      avatar: comment.author.avatar,
+      login: comment.user.login,
+      avatar: comment.user.avatarUrl,
     },
     body: comment.body,
-    commentType: comment.type,
-    path: comment.path,
-    line: comment.line,
+    commentType: 'issue_comment',
+    url: comment.htmlUrl,
     timestamp: new Date(comment.createdAt),
   }
 }

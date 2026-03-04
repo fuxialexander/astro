@@ -38,10 +38,14 @@ import {
 import { useToastStore } from "@/stores/toast-store"
 import {
   fetchPrDetails,
+  fetchPrChecks,
+  fetchPrReviews,
   submitPrReview,
   mergePr,
   commentOnPr,
   type PrDetails,
+  type PrChecksResult,
+  type PrReviewsResult,
   type PrReviewEvent,
   type PrMergeMethod,
 } from "@/lib/api-client"
@@ -65,6 +69,8 @@ export function PrStatusCard({
 }: PrStatusCardProps) {
   const addToast = useToastStore((s) => s.add)
   const [prDetails, setPrDetails] = useState<PrDetails | null>(null)
+  const [checksResult, setChecksResult] = useState<PrChecksResult | null>(null)
+  const [reviewsResult, setReviewsResult] = useState<PrReviewsResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -84,8 +90,14 @@ export function PrStatusCard({
     setLoading(true)
     setError(null)
     try {
-      const details = await fetchPrDetails(owner, repo, prNumber)
+      const [details, checks, reviews] = await Promise.all([
+        fetchPrDetails(owner, repo, prNumber),
+        fetchPrChecks(owner, repo, prNumber).catch(() => null),
+        fetchPrReviews(owner, repo, prNumber).catch(() => null),
+      ])
       setPrDetails(details)
+      setChecksResult(checks)
+      setReviewsResult(reviews)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setError(msg)
@@ -99,11 +111,11 @@ export function PrStatusCard({
   }, [loadPrDetails])
 
   // Derived state
-  const pr = prDetails?.pr
-  const reviews = prDetails?.reviews || []
-  const checks = prDetails?.checks || []
+  const pr = prDetails
+  const reviews = reviewsResult?.reviews || []
+  const checks = checksResult?.checks || []
 
-  const isOwnPr = currentUserLogin && pr?.user === currentUserLogin
+  const isOwnPr = currentUserLogin && pr?.user?.login === currentUserLogin
   const isMerged = pr?.merged === true
   const isClosed = pr?.state === 'closed' && !isMerged
   const isOpen = pr?.state === 'open'
@@ -111,13 +123,13 @@ export function PrStatusCard({
 
   // Check status aggregation
   const totalChecks = checks.length
-  const passingChecks = checks.filter((c) => c.conclusion === 'success').length
-  const failingChecks = checks.filter((c) => c.conclusion === 'failure').length
-  const pendingChecks = checks.filter((c) => c.status === 'in_progress' || c.status === 'queued' || !c.conclusion).length
+  const passingChecks = checks.filter((c: { conclusion: string | null }) => c.conclusion === 'success').length
+  const failingChecks = checks.filter((c: { conclusion: string | null }) => c.conclusion === 'failure').length
+  const pendingChecks = checks.filter((c: { status: string; conclusion: string | null }) => c.status === 'in_progress' || c.status === 'queued' || !c.conclusion).length
 
   // Review status
-  const approvedReviews = reviews.filter((r) => r.state === 'APPROVED')
-  const changesRequestedReviews = reviews.filter((r) => r.state === 'CHANGES_REQUESTED')
+  const approvedReviews = reviews.filter((r: { state: string }) => r.state === 'APPROVED')
+  const changesRequestedReviews = reviews.filter((r: { state: string }) => r.state === 'CHANGES_REQUESTED')
   const hasApproval = approvedReviews.length > 0
   const hasChangesRequested = changesRequestedReviews.length > 0
 
@@ -287,12 +299,12 @@ export function PrStatusCard({
             <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
               <span>#{prNumber}</span>
               <span>·</span>
-              <span>{pr.headBranch} → {pr.baseBranch}</span>
+              <span>{pr.branch} → {pr.baseBranch}</span>
               <span>·</span>
-              <span className="text-success">+{pr.additions}</span>
-              <span className="text-destructive">-{pr.deletions}</span>
+              <span className="text-success">+{pr.diffStats.additions}</span>
+              <span className="text-destructive">-{pr.diffStats.deletions}</span>
               <span>·</span>
-              <span>{pr.changedFiles} file{pr.changedFiles !== 1 ? 's' : ''}</span>
+              <span>{pr.diffStats.changedFiles} file{pr.diffStats.changedFiles !== 1 ? 's' : ''}</span>
             </div>
           </div>
           <Badge
@@ -483,9 +495,9 @@ export function PrStatusCard({
               <span className="font-medium">{selectedMergeMethod}</span> strategy?
               {pr && (
                 <span className="block mt-1 text-muted-foreground">
-                  {pr.headBranch} → {pr.baseBranch} · {pr.changedFiles} file{pr.changedFiles !== 1 ? 's' : ''} ·{" "}
-                  <span className="text-success">+{pr.additions}</span>{" "}
-                  <span className="text-destructive">-{pr.deletions}</span>
+                  {pr.branch} → {pr.baseBranch} · {pr.diffStats.changedFiles} file{pr.diffStats.changedFiles !== 1 ? 's' : ''} ·{" "}
+                  <span className="text-success">+{pr.diffStats.additions}</span>{" "}
+                  <span className="text-destructive">-{pr.diffStats.deletions}</span>
                 </span>
               )}
             </DialogDescription>
