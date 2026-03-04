@@ -4,12 +4,12 @@
 
 import { Hono } from 'hono';
 import { randomUUID } from 'crypto';
-import { GitHubClient } from '../lib/github-client';
+import { GitHubClient, resolveGitHubToken } from '../lib/github-client';
 import { githubStore } from '../lib/github-store';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
 import { db } from '../lib/db/index.js';
-import { projects, planNodes } from '../lib/db/schema.js';
-import { eq, and } from 'drizzle-orm';
+import { projects, planNodes, planEdges } from '../lib/db/schema.js';
+import { eq, and, or, isNotNull, inArray } from 'drizzle-orm';
 
 const app = new Hono();
 
@@ -214,7 +214,11 @@ async function syncIssuesForProject(
     };
 
     // Check if a node with this github_issue_number already exists
-    const [existing] = await db.select({ id: planNodes.id })
+    const [existing] = await db.select({
+      id: planNodes.id,
+      deletedAt: planNodes.deletedAt,
+      deletionActionId: planNodes.deletionActionId
+    })
       .from(planNodes)
       .where(and(
         eq(planNodes.projectId, projectId),
@@ -223,6 +227,33 @@ async function syncIssuesForProject(
       .limit(1);
 
     if (existing) {
+      // Resurrect edges if the node was soft-deleted
+      if (existing.deletedAt && existing.deletionActionId) {
+        console.log(`[github] Resurrecting soft-deleted node ${existing.id} for issue #${issue.number}`);
+
+        const edgesToResurrect = await db.select()
+          .from(planEdges)
+          .where(and(
+            eq(planEdges.projectId, projectId),
+            or(
+              eq(planEdges.source, existing.id),
+              eq(planEdges.target, existing.id)
+            ),
+            isNotNull(planEdges.deletionActionId),
+            eq(planEdges.deletionActionId, existing.deletionActionId)
+          ));
+
+        if (edgesToResurrect.length > 0) {
+          console.log(`[github] Resurrecting ${edgesToResurrect.length} edges for node ${existing.id}`);
+          await db.update(planEdges)
+            .set({ deletedAt: null, deletionActionId: null, updatedAt: new Date() })
+            .where(and(
+              eq(planEdges.projectId, projectId),
+              inArray(planEdges.id, edgesToResurrect.map(e => e.id))
+            ));
+        }
+      }
+
       // Fetch existing links to merge (preserve user-added links)
       const [existingNode] = await db.select({ links: planNodes.links })
         .from(planNodes)
@@ -241,6 +272,8 @@ async function syncIssuesForProject(
         githubIssueUrl: issue.html_url,
         links: mergedLinks,
         updatedAt: new Date(),
+        deletedAt: null,
+        deletionActionId: null,
       }).where(eq(planNodes.id, existing.id));
       updated++;
     } else {
@@ -317,10 +350,15 @@ app.post('/projects', async (c) => {
     teamId: user.teamId,
   }).returning();
 
-  // Trigger initial issue sync
+  // Trigger initial issue sync — prefer installation token over user OAuth
   let syncStats = { created: 0, updated: 0, total: 0 };
   try {
-    syncStats = await syncIssuesForProject(projectId, owner, repo, connection.accessToken);
+    const tokenResult = await resolveGitHubToken(owner, repo, user.id, user.teamId ?? null);
+    const syncToken = tokenResult?.token ?? connection.accessToken;
+    if (tokenResult) {
+      console.log(`[github] Issue sync using ${tokenResult.type} token (${tokenResult.source}) for ${owner}/${repo}`);
+    }
+    syncStats = await syncIssuesForProject(projectId, owner, repo, syncToken);
   } catch (err) {
     console.error(`[github] Initial issue sync failed for ${owner}/${repo}:`, err);
   }
@@ -357,18 +395,30 @@ app.post('/projects/:projectId/sync-issues', async (c) => {
     return c.json({ error: 'Project is missing GitHub owner/repo configuration' }, 400);
   }
 
-  // Get GitHub connection
-  const connection = await githubStore.getConnection(user.id);
-  if (!connection) {
-    return c.json({ error: 'GitHub not connected' }, 401);
+  // Resolve GitHub token via the unified priority chain (installation → env → OAuth)
+  const tokenResult = await resolveGitHubToken(
+    project.githubOwner,
+    project.githubRepo,
+    user.id,
+    user.teamId ?? null,
+  );
+
+  if (!tokenResult) {
+    const connection = await githubStore.getConnection(user.id);
+    if (!connection) {
+      return c.json({ error: 'GitHub not connected. Connect your GitHub account or configure a GitHub App.' }, 401);
+    }
+    return c.json({ error: 'No GitHub token available for this repository' }, 401);
   }
+
+  console.log(`[github] Issue sync using ${tokenResult.type} token (${tokenResult.source}) for ${project.githubOwner}/${project.githubRepo}`);
 
   try {
     const stats = await syncIssuesForProject(
       projectId,
       project.githubOwner,
       project.githubRepo,
-      connection.accessToken
+      tokenResult.token,
     );
     return c.json(stats);
   } catch (err) {
