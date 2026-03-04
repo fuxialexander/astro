@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react"
+import { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import { stripHtml } from "@/lib/html-utils"
 import {
   Send,
@@ -39,6 +39,7 @@ import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 import { InlineApprovalCard } from "@/components/plan-session/inline-approval-card"
 import { PrStatusCard } from "@/components/pr-status-card"
 import type { PrData, PrCheckRun, PrReview } from "@/components/pr-status-card"
+import { PRReviewThreads } from "@/components/pr-review-threads"
 import { useRestoredExecution } from "@/hooks/use-restored-execution"
 import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
 
@@ -91,6 +92,20 @@ export function UnifiedActivityView({
     const cleanup = subscribeToStream(githubContext.owner, githubContext.repo, githubContext.number)
     return cleanup
   }, [githubContext, subscribeToStream])
+
+  // Review threads for thread count in PrStatusCard
+  const reviewThreadsKey = githubContext ? `${githubContext.owner}/${githubContext.repo}/${githubContext.number}` : ""
+  const reviewThreads = useGitHubCommentsStore((s) => reviewThreadsKey ? (s.reviewThreads[reviewThreadsKey] ?? []) : [])
+  const reviewCommentCount = reviewThreads.reduce((sum, t) => sum + t.comments.length, 0)
+  const [scrollToReviewThreadId] = useState<number | null>(null)
+
+  const handleReviewCommentsClick = useCallback(() => {
+    // Scroll to the review threads section
+    const el = document.getElementById("pr-review-threads")
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" })
+    }
+  }, [])
 
   const addSteerMessage = useRealtimeStore((s) => s.addSteerMessage)
   const updateSteerMessage = useRealtimeStore((s) => s.updateSteerMessage)
@@ -561,6 +576,8 @@ export function UnifiedActivityView({
             node={node}
             owner={githubOwner}
             repo={githubRepo}
+            reviewCommentCount={reviewCommentCount}
+            onReviewCommentsClick={handleReviewCommentsClick}
           />
         )}
 
@@ -656,6 +673,8 @@ export function UnifiedActivityView({
                   prData={prDataFromEvent}
                   owner={githubOwner}
                   repo={githubRepo}
+                  reviewCommentCount={reviewCommentCount}
+                  onReviewCommentsClick={handleReviewCommentsClick}
                 />
               )
             }
@@ -692,6 +711,16 @@ export function UnifiedActivityView({
             <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
             <span className="text-xs text-muted-foreground">Thinking...</span>
           </div>
+        )}
+
+        {/* PR Review Comment Threads — shown when node has a linked PR */}
+        {githubContext && node.prNumber && (
+          <PRReviewThreads
+            owner={githubContext.owner}
+            repo={githubContext.repo}
+            prNumber={githubContext.number}
+            scrollToThreadId={scrollToReviewThreadId}
+          />
         )}
 
         {/* New GitHub comment composer — shown when there's a linked issue/PR */}
