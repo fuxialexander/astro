@@ -31,6 +31,7 @@ import {
   ChatUserBlock,
   ChatAssistantBlock,
   SummaryCard,
+  GitHubCommentBlock,
 } from "@/components/activity-blocks"
 import { InlineApprovalCard } from "@/components/plan-session/inline-approval-card"
 import { PrStatusCard } from "@/components/pr-status-card"
@@ -637,6 +638,8 @@ export function UnifiedActivityView({
                 />
               )
             }
+            case 'github_comment':
+              return <GitHubCommentBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'github_comment' }>} />
             default:
               return null
           }

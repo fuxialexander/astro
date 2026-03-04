@@ -305,6 +305,7 @@ export type TaskActivityEvent =
   | { type: 'approval_response'; requestId: string; question: string; answer: string; autoApproved?: boolean; timestamp: Date }
   | { type: 'mutation'; nodeUpdates: Array<{ nodeId: string; [key: string]: unknown }>; edgeOps: Array<{ action: string; source: string; target: string; type?: string }>; newNodes: Array<{ title: string; description: string; type?: string; id?: string }>; timestamp: Date }
   | { type: 'pr_status'; prNumber: number; prUrl: string; title?: string; state?: 'open' | 'closed' | 'merged'; branchName?: string; baseBranch?: string; additions?: number; deletions?: number; changedFiles?: number; draft?: boolean; checks?: Array<{ name: string; status: string; conclusion: string | null; startedAt?: string; completedAt?: string; htmlUrl?: string }>; reviews?: Array<{ user: { login: string; avatarUrl?: string }; state: string; submittedAt?: string }>; timestamp: Date }
+  | { type: 'github_comment'; commentId: number; author: { login: string; avatar: string }; body: string; commentType: 'issue_comment' | 'review_comment'; path?: string; line?: number; url?: string; timestamp: Date }
 
 // Usage metrics from provider execution
 export interface UsageMetrics {

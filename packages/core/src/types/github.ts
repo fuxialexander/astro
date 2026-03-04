@@ -70,3 +70,31 @@ export interface GitHubRepoSelection {
   repos: GitHubRepo[];
   lastSyncedAt: string;
 }
+
+// ── GitHub Comments ──────────────────────────────────────────────
+
+/** Unified comment format for issue comments and PR review comments */
+export interface GitHubComment {
+  id: number;
+  author: {
+    login: string;
+    avatar: string;
+  };
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  type: 'issue_comment' | 'review_comment';
+  /** For threaded review comments — the parent comment ID */
+  inReplyTo?: number;
+  /** File path for PR review comments */
+  path?: string;
+  /** Line number for PR review comments */
+  line?: number;
+}
+
+/** Response from the comments API endpoint */
+export interface GitHubCommentsResponse {
+  comments: GitHubComment[];
+  totalCount: number;
+  etag?: string;
+}

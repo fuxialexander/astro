@@ -19,6 +19,9 @@ import {
   Pencil,
   GitBranch,
   PlusCircle,
+  MessageSquare,
+  FileCode,
+  ExternalLink,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { TaskActivityEvent, ExecutionSummary } from "@/types"
@@ -27,7 +30,7 @@ import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface DisplayBlock {
-  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status'
+  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment'
   events: TaskActivityEvent[]
 }
 
@@ -161,6 +164,11 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
         flushText()
         flushTools()
         blocks.push({ type: 'pr_status', events: [event] })
+        break
+      case 'github_comment':
+        flushText()
+        flushTools()
+        blocks.push({ type: 'github_comment', events: [event] })
         break
     }
   }
@@ -629,4 +637,124 @@ export function MutationBlock({
       ))}
     </div>
   )
+}
+
+export function GitHubCommentBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'github_comment' }> }) {
+  const [expanded, setExpanded] = useState(false)
+  const isReviewComment = event.commentType === 'review_comment'
+  const timeAgo = formatRelativeTime(event.timestamp)
+
+  return (
+    <div className="mx-4 my-1.5">
+      <div className="rounded-lg border border-muted bg-muted/20 overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center gap-2 px-3 py-2 bg-muted/30">
+          {event.author.avatar ? (
+            <img
+              src={event.author.avatar}
+              alt={event.author.login}
+              className="h-5 w-5 rounded-full shrink-0"
+            />
+          ) : (
+            <div className="h-5 w-5 rounded-full bg-muted-foreground/20 shrink-0" />
+          )}
+          <span className="text-xs font-medium text-foreground">{event.author.login}</span>
+          <span className="text-[10px] text-muted-foreground">{timeAgo}</span>
+
+          {/* Comment type badge */}
+          <span className={cn(
+            "ml-auto flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium",
+            isReviewComment
+              ? "bg-purple-500/10 text-purple-600 dark:text-purple-400"
+              : "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+          )}>
+            {isReviewComment ? (
+              <><FileCode className="h-2.5 w-2.5" /> review</>
+            ) : (
+              <><MessageSquare className="h-2.5 w-2.5" /> comment</>
+            )}
+          </span>
+
+          {/* "via GitHub" badge */}
+          <span className="flex items-center gap-1 text-[10px] text-muted-foreground/70 font-medium">
+            via GitHub
+          </span>
+
+          {event.url && (
+            <a
+              href={event.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-muted-foreground/50 hover:text-foreground transition-colors"
+              title="View on GitHub"
+            >
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+        </div>
+
+        {/* File context for review comments */}
+        {isReviewComment && event.path && (
+          <div className="flex items-center gap-1.5 px-3 py-1 bg-muted/20 border-t border-muted text-[11px] font-mono text-muted-foreground">
+            <FileCode className="h-3 w-3 shrink-0" />
+            <span className="truncate">{event.path}</span>
+            {event.line != null && (
+              <span className="text-muted-foreground/70 shrink-0">L{event.line}</span>
+            )}
+          </div>
+        )}
+
+        {/* Comment body */}
+        <div className="px-3 py-2">
+          {event.body.length > 200 && !expanded ? (
+            <>
+              <StreamingMarkdown
+                content={event.body.slice(0, 200) + '...'}
+                className="text-xs leading-relaxed"
+              />
+              <button
+                onClick={() => setExpanded(true)}
+                className="text-[11px] text-primary hover:underline mt-1 cursor-pointer"
+              >
+                Show more
+              </button>
+            </>
+          ) : (
+            <>
+              <StreamingMarkdown
+                content={event.body}
+                className="text-xs leading-relaxed"
+              />
+              {event.body.length > 200 && expanded && (
+                <button
+                  onClick={() => setExpanded(false)}
+                  className="text-[11px] text-primary hover:underline mt-1 cursor-pointer"
+                >
+                  Show less
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Format a Date into a relative time string (e.g., "2m ago", "3h ago").
+ */
+function formatRelativeTime(date: Date): string {
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffSec = Math.floor(diffMs / 1000)
+
+  if (diffSec < 60) return 'just now'
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin}m ago`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${diffHr}h ago`
+  const diffDays = Math.floor(diffHr / 24)
+  if (diffDays < 30) return `${diffDays}d ago`
+  return date.toLocaleDateString()
 }
