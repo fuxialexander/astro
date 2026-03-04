@@ -32,7 +32,9 @@ import {
   ChatAssistantBlock,
   SummaryCard,
   GitHubCommentBlock,
+  NewCommentComposer,
 } from "@/components/activity-blocks"
+import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 import { InlineApprovalCard } from "@/components/plan-session/inline-approval-card"
 import { PrStatusCard } from "@/components/pr-status-card"
 import type { PrData, PrCheckRun, PrReview } from "@/components/pr-status-card"
@@ -71,6 +73,24 @@ export function UnifiedActivityView({
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const githubOwner = project?.githubOwner
   const githubRepo = project?.githubRepo
+
+  // GitHub comment context for reply functionality and new comment composer
+  const githubCommentNumber = node.prNumber ?? node.githubIssueNumber
+  const githubContext = useMemo(() => {
+    if (githubOwner && githubRepo && githubCommentNumber) {
+      return { owner: githubOwner, repo: githubRepo, number: githubCommentNumber }
+    }
+    return undefined
+  }, [githubOwner, githubRepo, githubCommentNumber])
+
+  // Subscribe to real-time GitHub comment stream
+  const subscribeToStream = useGitHubCommentsStore((s) => s.subscribeToStream)
+  useEffect(() => {
+    if (!githubContext) return
+    const cleanup = subscribeToStream(githubContext.owner, githubContext.repo, githubContext.number)
+    return cleanup
+  }, [githubContext, subscribeToStream])
+
   const addSteerMessage = useRealtimeStore((s) => s.addSteerMessage)
   const updateSteerMessage = useRealtimeStore((s) => s.updateSteerMessage)
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
@@ -639,7 +659,7 @@ export function UnifiedActivityView({
               )
             }
             case 'github_comment':
-              return <GitHubCommentBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'github_comment' }>} />
+              return <GitHubCommentBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'github_comment' }>} githubContext={githubContext} />
             default:
               return null
           }
@@ -669,6 +689,11 @@ export function UnifiedActivityView({
             <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
             <span className="text-xs text-muted-foreground">Thinking...</span>
           </div>
+        )}
+
+        {/* New GitHub comment composer — shown when there's a linked issue/PR */}
+        {githubContext && displayBlocks.some(b => b.type === 'github_comment') && (
+          <NewCommentComposer githubContext={githubContext} />
         )}
 
         {/* Completion footer */}
