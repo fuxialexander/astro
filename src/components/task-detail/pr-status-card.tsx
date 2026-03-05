@@ -73,7 +73,8 @@ export function PrStatusCard({
   currentUserLogin,
 }: PrStatusCardProps) {
   const addToast = useToastStore((s) => s.add)
-  const { connected, user: ghUser } = useGitHubStore()
+  const connected = useGitHubStore((s) => s.connected)
+  const ghUser = useGitHubStore((s) => s.user)
   const [prDetails, setPrDetails] = useState<PrDetails | null>(null)
   const [descriptionExpanded, setDescriptionExpanded] = useState(false)
   const [checksResult, setChecksResult] = useState<PrChecksResult | null>(null)
