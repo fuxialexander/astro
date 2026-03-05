@@ -83,6 +83,7 @@ export function Dashboard() {
   const getExecution = useExecutionStore((s) => s.getExecution)
   const executionsLoaded = useExecutionStore((s) => s.loaded)
   const resetExecution = useExecutionStore((s) => s.resetExecution)
+  const allExecutions = useExecutionStore((s) => s.executions)
   const [resettingId, setResettingId] = useState<string | null>(null)
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
@@ -200,8 +201,29 @@ export function Dashboard() {
         costUsd: undefined as number | undefined,
       }))
 
-    return [...executionTasks, ...planningSessions]
-  }, [nodes, taskStreams, projects, machines, agentSessions])
+    // Active playground sessions
+    const playgroundTasks = [...allExecutions.values()]
+      .filter((e) => (e.status === "running" || e.status === "pending") && e.nodeId.startsWith("playground-"))
+      .map((exec) => {
+        const project = projects.find((p) => p.id === exec.projectId)
+        const machine = machines.get(project?.defaultMachineId || "")
+        return {
+          id: exec.nodeId,
+          title: project?.name || "Playground",
+          projectId: exec.projectId,
+          projectName: project?.name || "Playground",
+          projectColor: undefined as string | undefined,
+          machineName: machine?.name || machine?.machineId || "local",
+          machineId: project?.defaultMachineId || "local",
+          startedAt: exec.startedAt ? new Date(exec.startedAt).getTime() : Date.now(),
+          progress: 0,
+          progressMessage: exec.status === "pending" ? "Starting..." : undefined,
+          costUsd: undefined as number | undefined,
+        }
+      })
+
+    return [...executionTasks, ...planningSessions, ...playgroundTasks]
+  }, [nodes, taskStreams, projects, machines, agentSessions, allExecutions])
 
   const timelineMachines = useMemo(
     () => [...new Set(activeTasksWithContext.map((t) => t.machineName))],
