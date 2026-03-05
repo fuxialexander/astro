@@ -96,7 +96,7 @@
     "hono": "^4.11.7",
     "hono-rate-limiter": "^0.5.3",
     "ink": "^6.8.0",
-    "ioredis": "^5.9.2",
+    "ioredis": "^5.10.0",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.569.0",
     "marked": "^17.0.3",
