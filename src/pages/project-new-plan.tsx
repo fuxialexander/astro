@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useSearchParams, useLocation, useNavigate } from "react-router"
-import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, Info, Monitor, Bot, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate } from "lucide-react"
+import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, Info, Monitor, Bot, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
@@ -68,6 +68,7 @@ export function ProjectNewPlan() {
   const [visionDoc, setVisionDoc] = useState("")
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
   const [pendingUploads, setPendingUploads] = useState(0)
+  const [autoExecute, setAutoExecute] = useState(true)
   const modelTier: ModelTier = "large"
 
   // Reset all form fields to initial state
@@ -96,6 +97,7 @@ export function ProjectNewPlan() {
   // Stores
   const startPlanSession = useExecutionStore((s) => s.startPlanSession)
   const startPlanSessionForProject = useExecutionStore((s) => s.startPlanSessionForProject)
+  const setStoreAutoExecute = useExecutionStore((s) => s.setAutoExecute)
   const allExecutions = useExecutionStore((s) => s.executions)
   const execution = useExecutionStore((s) =>
     activeProjectId ? s.executions.get(`plan-${activeProjectId}`) : undefined
@@ -618,6 +620,11 @@ export function ProjectNewPlan() {
         projectId = result.projectId
       }
 
+      // Register auto-execute if YOLO mode is on
+      if (autoExecute) {
+        setStoreAutoExecute(projectId, true)
+      }
+
       setActiveProjectId(projectId)
       setSearchParams({ projectId })
     } catch (error) {
@@ -938,8 +945,21 @@ export function ProjectNewPlan() {
             )}
           </div>
 
-          {/* Submit button */}
+          {/* Submit button + YOLO toggle */}
           <div className="flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setAutoExecute(!autoExecute)}
+              title={autoExecute ? "YOLO mode: plan will auto-execute all steps" : "Plan only: you'll review the plan before executing"}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                autoExecute
+                  ? "bg-primary/15 text-primary border border-primary/30"
+                  : "bg-muted/50 text-muted-foreground border border-border"
+              }`}
+            >
+              <Zap className={`h-3.5 w-3.5 ${autoExecute ? "fill-primary" : ""}`} />
+              YOLO
+            </button>
             <p className="text-[10px] text-muted-foreground">
               Cmd+Enter to submit
             </p>
