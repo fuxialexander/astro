@@ -214,6 +214,17 @@ export function Playground() {
 
   const isRunning = execution?.status === "pending" || execution?.status === "running"
 
+  // Timeout warning — show if running but no init event received within 30s
+  const [showTimeout, setShowTimeout] = useState(false)
+  useEffect(() => {
+    if (!isRunning || execution?.executionId) {
+      setShowTimeout(false)
+      return
+    }
+    const timer = setTimeout(() => setShowTimeout(true), 30_000)
+    return () => clearTimeout(timer)
+  }, [isRunning, execution?.executionId])
+
   // Get or create a chat session for this playground
   const playgroundNodeId = activeProjectId ? `playground-${activeProjectId}` : ''
   const allSessions = useSessionStore((s) => s.sessions)
@@ -619,8 +630,23 @@ export function Playground() {
             )}
 
             {displayBlocks.length === 0 && execution?.status !== "failure" && (
-              <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-                {isRunning ? "Starting session..." : isRestoring ? (
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-sm text-muted-foreground">
+                {isRunning ? (
+                  <>
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Starting session...
+                    </span>
+                    {showTimeout && (
+                      <div className="text-center max-w-sm px-4">
+                        <p className="text-xs text-warning font-medium mb-1">Taking longer than expected</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          The agent may be busy or unreachable. Check if the machine is connected in Environments, or try a different machine.
+                        </p>
+                      </div>
+                    )}
+                  </>
+                ) : isRestoring ? (
                   <span className="flex items-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     Loading activity...

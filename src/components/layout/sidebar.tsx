@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { NavLink, useNavigate, useParams, useLocation } from "react-router"
-import { GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X, FlaskConical, PanelLeftClose, PanelLeft, AlertCircle, LayoutTemplate } from "lucide-react"
+import { GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X, FlaskConical, PanelLeftClose, PanelLeft, AlertCircle, LayoutTemplate, ChevronRight, ChevronDown, MessageSquare } from "lucide-react"
 import { getFaIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
@@ -343,6 +343,14 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     () => projects.filter(p => p.status === 'active' && p.projectType !== 'playground'),
     [projects]
   )
+
+  const playgroundSessions = useMemo(
+    () => projects
+      .filter(p => p.projectType === 'playground')
+      .sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()),
+    [projects]
+  )
+  const [playgroundExpanded, setPlaygroundExpanded] = useState(false)
 
   // Shared handler for Plan click — resets to fresh input when already on /plan.
   // Uses location.state to signal form reset even when URL doesn't change.
@@ -702,6 +710,62 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                 )
               })}
             </div>
+          </div>
+        )}
+
+        {/* Playground Sessions */}
+        {playgroundSessions.length > 0 && !collapsed && (
+          <div className="flex flex-col gap-1 pb-6 font-primary px-5">
+            <button
+              onClick={() => setPlaygroundExpanded(!playgroundExpanded)}
+              className="flex items-center gap-1 text-xs font-medium tracking-[0.5px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {playgroundExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              PLAYGROUND ({playgroundSessions.length})
+            </button>
+            {playgroundExpanded && (
+              <div className="flex flex-col gap-0.5 max-h-[200px] overflow-y-auto">
+                {playgroundSessions.map((session) => {
+                  const isActive = location.pathname === "/playground" && new URLSearchParams(location.search).get("projectId") === session.id
+                  const exec = executions.get(`playground-${session.id}`)
+                  const isRunning = exec?.status === "running" || exec?.status === "pending"
+                  return (
+                    <button
+                      key={session.id}
+                      onClick={() => navigate(`/playground?projectId=${session.id}`)}
+                      className={cn(
+                        "flex items-center gap-2 rounded-lg px-3 py-1.5 text-left transition-colors",
+                        isActive ? "bg-accent" : "hover:bg-muted/50"
+                      )}
+                    >
+                      <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className={cn(
+                        "flex-1 text-xs truncate",
+                        isActive ? "text-accent-foreground font-medium" : "text-muted-foreground"
+                      )}>
+                        {session.name.replace(/^Playground:\s*/, '').slice(0, 40)}
+                      </span>
+                      {isRunning && <Loader2 className="h-3 w-3 text-info animate-spin shrink-0" />}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+        {playgroundSessions.length > 0 && collapsed && (
+          <div className="flex justify-center pb-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => navigate("/playground")}
+                  className="flex items-center justify-center h-9 w-9 rounded-lg hover:bg-muted/50 transition-colors"
+                >
+                  <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Playground Sessions ({playgroundSessions.length})</TooltipContent>
+            </Tooltip>
           </div>
         )}
       </div>
