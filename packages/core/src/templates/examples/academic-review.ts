@@ -24,7 +24,7 @@ export const academicReviewTemplate: UseCaseTemplate = {
   name: 'Academic Paper/Book Review',
   description:
     'Generate a superhuman-level detailed review of academic papers or books. Produces a structured PDF report covering comprehension, logical flow diagrams, novelty analysis with literature comparison, technical rigor assessment, and comprehensive merits/shortcomings evaluation. Supports PDF, LaTeX, Markdown, and Word inputs.',
-  category: 'research-analysis',
+  category: 'research',
   version: '1.0.0',
   icon: '📖',
   tags: ['review', 'academic', 'paper', 'book', 'critique', 'analysis', 'pdf', 'latex', 'docx'],
@@ -120,7 +120,7 @@ export const academicReviewTemplate: UseCaseTemplate = {
       description: 'Select specific areas to emphasize in the review. All areas are covered regardless, but selected areas receive deeper treatment.',
       type: 'multi-select',
       required: false,
-      default: [],
+      default: ['novelty', 'math', 'experiments', 'writing'],
       options: [
         { label: 'Novelty & Originality', value: 'novelty', description: 'Deep dive into what is truly new vs. incremental' },
         { label: 'Mathematical Rigor', value: 'math', description: 'Proof correctness, derivation validity, statistical soundness' },

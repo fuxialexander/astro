@@ -19,7 +19,7 @@ export const moatFragilityTemplate: UseCaseTemplate = {
   name: 'Moat & Fragility Analysis',
   description:
     'Evaluate a company\'s competitive advantage using a three-phase framework: quantitative CA scoring (market position, trend, pricing power, ROIC), qualitative moat analysis (7 Powers framework), and anti-fragility resilience testing (Taleb-inspired). Produces a structured PDF report with charts, scoring tables, and actionable insights.',
-  category: 'data-science',
+  category: 'finance',
   version: '1.0.0',
   icon: '📑',
   tags: ['finance', 'investing', 'moat', 'competitive-advantage', 'equity', 'analysis', 'antifragile'],
@@ -93,7 +93,7 @@ export const moatFragilityTemplate: UseCaseTemplate = {
       description: 'Historical data lookback and forward projection period.',
       type: 'select',
       required: false,
-      default: '5year',
+      default: '10year',
       options: [
         { label: '3 Years', value: '3year', description: '3-year lookback + 2-year projection' },
         { label: '5 Years', value: '5year', description: '5-year lookback + 3-year projection' },

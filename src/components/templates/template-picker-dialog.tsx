@@ -279,6 +279,13 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
 
         return (
           <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
+            {/* Template Description */}
+            {selectedTemplate.description && (
+              <div className="px-4 py-3 rounded-lg border border-border bg-muted/20 text-sm text-muted-foreground leading-relaxed">
+                {selectedTemplate.description}
+              </div>
+            )}
+
             {/* Project Configuration */}
             <div className="space-y-4 p-4 rounded-lg border border-border bg-muted/30">
               <h3 className="text-sm font-semibold flex items-center gap-2">

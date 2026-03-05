@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+.pnpm-store/
 
 # Fly.io setup (contains secrets)
 scripts/setup-fly.sh

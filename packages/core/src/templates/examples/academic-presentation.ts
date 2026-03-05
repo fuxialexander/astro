@@ -18,7 +18,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
   name: 'Academic Paper Presentation',
   description:
     'Convert academic papers into polished slides (PDF), blog posts (Markdown), and conference posters (PDF). Uses HTML-based rendering with a low-saturation color palette, Playwright for PDF generation, and SVG figure generation. Supports multiple papers, customizable audience levels, and multiple output formats.',
-  category: 'research-analysis',
+  category: 'research',
   version: '1.0.0',
   icon: '🎓',
   tags: ['arxiv', 'presentation', 'academic', 'paper', 'slides', 'blog', 'poster', 'pdf', 'html'],
@@ -34,7 +34,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
         'Path to a directory containing PDF files, OR arXiv links (one per line). When PDFs are provided, the PDF skill is used to extract content. For arXiv links, LaTeX source or HTML is fetched automatically.',
       type: 'textarea',
       required: true,
-      placeholder: '/path/to/papers/\nhttps://arxiv.org/abs/XXXX.XXXXX',
+      placeholder: '/path/to/papers/  or  https://arxiv.org/abs/XXXX.XXXXX',
       validation: {
         min: 1,
         message: 'Provide a PDF directory path or arXiv URL(s)',
@@ -48,7 +48,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
       description: 'Which deliverables to generate from the paper(s). Select one or more.',
       type: 'multi-select',
       required: true,
-      default: ['slides'],
+      default: ['slides', 'blog-post', 'poster'],
       options: [
         { label: 'Slides (PDF)', value: 'slides', description: 'HTML slides rendered to PDF via Playwright. 5 layout types with low-saturation palette.' },
         { label: 'Blog Post (Markdown)', value: 'blog-post', description: 'Detailed or succinct Markdown blog post with citations and figures.' },
@@ -93,7 +93,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
       description: 'Approximate number of content slides.',
       type: 'select',
       required: false,
-      default: 'standard',
+      default: 'detailed',
       options: [
         { label: 'Brief (8-12)', value: 'brief', description: 'Lightning talk / overview — key contributions only' },
         { label: 'Standard (15-25)', value: 'standard', description: 'Conference talk — covers all major sections' },
@@ -126,7 +126,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
       description: 'Light or dark color scheme for slides.',
       type: 'select',
       required: false,
-      default: 'light',
+      default: 'both',
       options: [
         { label: 'Light', value: 'light', description: 'Light background with soft accent colors' },
         { label: 'Dark', value: 'dark', description: 'Dark background with soft accent colors' },

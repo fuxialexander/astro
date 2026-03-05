@@ -48,6 +48,8 @@ export type UseCaseCategory =
   | 'machine-learning'
   | 'devops-infrastructure'
   | 'research-analysis'
+  | 'research'
+  | 'finance'
   | 'documentation'
   | 'testing-qa'
   | 'security'

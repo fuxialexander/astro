@@ -209,8 +209,20 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
     })
     try {
       const result = await getTemplate(id)
+      // Populate default values from parameter definitions
+      const defaults: Record<string, unknown> = {}
+      const allParams = [
+        ...(result.template.requiredParameters ?? []),
+        ...(result.template.optionalParameters ?? []),
+      ]
+      for (const param of allParams) {
+        if (param.default !== undefined) {
+          defaults[param.id] = param.default
+        }
+      }
       set({
         selectedTemplate: result.template,
+        parameterValues: defaults,
         isLoading: false,
       })
     } catch (err) {
