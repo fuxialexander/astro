@@ -191,10 +191,9 @@ export function checkAchievements(
     if (def.statKey === null) {
       switch (def.slug) {
         case 'perfect_day':
-          // Handled server-side via usage_metrics query
+          // Approximation: completed tasks with zero failures across all days
           if (stats.bestDayTasks > 0 && stats.maxFailedInDay === 0) {
-            // Approximation: if they've completed tasks and never had failures in a day
-            // The actual check is more nuanced (per-day), handled in server
+            newlyEarned.push(def.slug)
           }
           break
         case 'streak_longest':

@@ -14,6 +14,7 @@
  */
 
 import { EventEmitter } from 'node:events'
+import { createRequire } from 'node:module'
 import type {
   ChannelNotification,
   OutboundResponse,
@@ -179,9 +180,9 @@ export class OpenClawChannelAdapter extends EventEmitter {
       if (this.createWebSocket) {
         this.ws = this.createWebSocket(this.config.gatewayUrl)
       } else {
-        // Dynamic import to avoid bundling ws in environments that don't need it
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const WebSocket = require('ws') as typeof import('ws').default
+        // Dynamic require to avoid bundling ws in environments that don't need it
+        const esmRequire = createRequire(import.meta.url)
+        const WebSocket = esmRequire('ws') as typeof import('ws').default
         this.ws = new WebSocket(this.config.gatewayUrl) as unknown as IWebSocket
       }
 
