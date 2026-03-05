@@ -2431,6 +2431,20 @@ function handleSSEEvent(
           return { executions: newExecutions }
         })
 
+        // Notify when a planning session finishes
+        if (nodeId.startsWith('plan-')) {
+          const planProjectId = planNodeIdToProjectId(nodeId)
+          const planProject = planProjectId ? useProjectStore.getState().projects.find((p) => p.id === planProjectId) : null
+          useToastStore.getState().add({
+            type: isSuccess ? 'success' : 'error',
+            title: isSuccess ? 'Planning complete' : 'Planning failed',
+            description: planProject
+              ? (isSuccess ? `Plan for "${planProject.name}" is ready.` : `Plan for "${planProject.name}" failed.`)
+              : (isSuccess ? 'Plan generation has finished.' : 'Plan generation failed.'),
+            duration: 6000,
+          })
+        }
+
         // Accumulate metrics in usage store
         if (metrics) {
           useUsageStore.getState().addTaskMetrics(metrics, isSuccess)
@@ -2809,7 +2823,9 @@ export function canExecuteNode(node: PlanNode, allNodes: PlanNode[], edges?: Pla
   }
 
   const pendingDependencies: string[] = []
-  const completedStatuses: PlanNode["status"][] = ["completed", "auto_verified"]
+  // Include awaiting_judgment as "done" for dependency purposes — these tasks
+  // have finished execution and shouldn't block downstream work in batch mode.
+  const completedStatuses: PlanNode["status"][] = ["completed", "auto_verified", "awaiting_judgment"]
 
   for (const depId of upstreamIds) {
     const depNode = projectNodes.find((n) => n.id === depId)

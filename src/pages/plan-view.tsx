@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, Globe, GitFork, X, Settings2 } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, Globe, GitFork, X, Settings2, PlayCircle, Square } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { ReplanDialog } from "@/components/replan-dialog"
@@ -886,6 +886,9 @@ export function PlanListView({
   const displaySettings = useDisplaySettingsStore((s) => s.get(displayViewKey))
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
   const flushPendingSaves = useContentSaveStore((s) => s.flushPendingSaves)
+  const executeAllProject = useExecutionStore((s) => s.executeAllProject)
+  const stopBatchExecution = useExecutionStore((s) => s.stopBatchExecution)
+  const batchExecution = useExecutionStore((s) => s.batchExecutions.get(projectId))
   const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
   const [labelManagerOpen, setLabelManagerOpen] = useState(false)
 
@@ -1279,6 +1282,45 @@ export function PlanListView({
     }
   }, [displaySettings.orderBy, displaySettings.orderDirection, updateDisplaySettings, displayViewKey])
 
+  const isBatchActive = batchExecution?.active ?? false
+  const plannedCount = allProjectNodes.filter((n) => n.status === "planned" && n.type !== "milestone").length
+  const executingCount = allProjectNodes.filter((n) => (n.status === "dispatched" || n.status === "in_progress") && n.type !== "milestone").length
+
+  const handleExecuteAll = useCallback(async () => {
+    if (!project?.defaultMachineId) {
+      useToastStore.getState().add({
+        type: "warning",
+        title: "No machine connected",
+        description: "Connect a machine in Environments before executing tasks.",
+      })
+      return
+    }
+    const dirCheck = getProjectWorkingDir(project)
+    if (!dirCheck.ok) {
+      useToastStore.getState().add({
+        type: "warning",
+        title: "No working directory",
+        description: "Set a working directory in the project settings before executing tasks.",
+      })
+      return
+    }
+
+    const nodeIds = allProjectNodes.map((n) => n.id)
+    try {
+      await flushPendingSaves(nodeIds)
+    } catch (error) {
+      console.error('Failed to save task content before execution:', error)
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Failed to save changes',
+        description: 'Could not save task content before execution. Please try again.',
+      })
+      return
+    }
+
+    executeAllProject(projectId)
+  }, [executeAllProject, projectId, project, allProjectNodes, flushPendingSaves])
+
   // Show empty state if no tasks (with column headers)
   if (tasks.length === 0) {
     return <ListEmptyState projectId={projectId} columns={columns} />
@@ -1288,6 +1330,38 @@ export function PlanListView({
   const visibleColumnsWithName = displaySettings.visibleProperties?.includes("name")
     ? displaySettings.visibleProperties
     : ["name", ...(displaySettings.visibleProperties || [])]
+
+  const executeAllButton = isBatchActive ? (
+    <div className="flex items-center gap-2">
+      <div className="relative flex h-2 w-2">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+      </div>
+      <span className="text-xs font-medium text-foreground">
+        Executing{executingCount > 0 ? ` (${executingCount} running` : ""}
+        {plannedCount > 0 ? `, ${plannedCount} queued)` : executingCount > 0 ? ")" : "..."}
+      </span>
+      <button
+        type="button"
+        onClick={() => stopBatchExecution(projectId)}
+        title="Stop queuing new tasks (running tasks will finish)"
+        className="flex h-6 items-center gap-1 rounded-md border border-destructive/30 bg-destructive/5 px-2 text-[11px] font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+      >
+        <Square className="h-3 w-3" />
+        Stop
+      </button>
+    </div>
+  ) : plannedCount > 0 ? (
+    <button
+      type="button"
+      onClick={handleExecuteAll}
+      title={`Execute all ${plannedCount} planned tasks in dependency order`}
+      className="flex h-7 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-2.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+    >
+      <PlayCircle className="h-3.5 w-3.5" />
+      Execute All ({plannedCount})
+    </button>
+  ) : null
 
   return (
     <>
@@ -1300,6 +1374,7 @@ export function PlanListView({
       )}
       <ItemListView
         columns={columns}
+        headerActions={executeAllButton}
         groups={groups}
         visibleColumns={visibleColumnsWithName}
         onItemClick={(node) => onNodeSelect(node)}
