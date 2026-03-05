@@ -28,6 +28,7 @@ import { skillsRoute } from './routes/skills.js'
 import { templatesRoute } from './routes/templates.js'
 import { shareRoute } from './routes/share.js'
 import { connectedAccountsRoute } from './routes/connected-accounts.js'
+import { openClawChannel } from './lib/channel/adapters/openclaw-channel.js'
 import { teamsRoute } from './routes/teams.js'
 import { communityRoute } from './routes/community.js'
 import { runMigrations } from './lib/db/migrate.js'
@@ -200,6 +201,9 @@ export function createApp() {
   // Auth routes are always mounted (endpoints guard themselves with isLocalMode())
   app.route('/api/auth', authRoute)
 
+  // Connected accounts — needed in all modes for OpenClaw channel config
+  app.route('/api/connected-accounts', connectedAccountsRoute)
+
   // Server-only routes (require Supabase Auth)
   if (!isLocalModeEnv()) {
     app.route('/api/notifications', notificationsRoute)
@@ -207,7 +211,6 @@ export function createApp() {
     app.route('/api/github-app', githubAppRoute)
     app.route('/api/github/pr', githubPrRoute)
     app.route('/api/share', shareRoute)
-    app.route('/api/connected-accounts', connectedAccountsRoute)
   }
 
   // Landing page route
@@ -441,6 +444,13 @@ async function start() {
   console.log('[dispatch] Initializing dispatch engine...')
   dispatchEngine.start()
   console.log('[dispatch] Dispatch engine started')
+
+  // Start OpenClaw channel adapter (non-blocking, optional)
+  if (!isTest()) {
+    openClawChannel.start().catch((err) => {
+      console.warn('[openclaw] Failed to start channel adapter:', err)
+    })
+  }
 
   // Start cleanup scheduler (disabled in test mode and local/PGlite mode)
   if (!isTest() && !isLocalModeEnv()) {

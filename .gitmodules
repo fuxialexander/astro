@@ -4,3 +4,6 @@
 [submodule "packages/cli"]
 	path = packages/cli
 	url = git@github.com:astro-anywhere/cli.git
+[submodule "packages/openclaw-plugin"]
+	path = packages/openclaw-plugin
+	url = git@github.com:astro-anywhere/openclaw-plugin.git
