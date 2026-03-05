@@ -93,7 +93,7 @@ export const moatFragilityTemplate: UseCaseTemplate = {
       description: 'Historical data lookback and forward projection period.',
       type: 'select',
       required: false,
-      default: '5year',
+      default: '10year',
       options: [
         { label: '3 Years', value: '3year', description: '3-year lookback + 2-year projection' },
         { label: '5 Years', value: '5year', description: '5-year lookback + 3-year projection' },

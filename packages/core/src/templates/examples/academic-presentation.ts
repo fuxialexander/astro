@@ -48,7 +48,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
       description: 'Which deliverables to generate from the paper(s). Select one or more.',
       type: 'multi-select',
       required: true,
-      default: ['slides'],
+      default: ['slides', 'blog-post', 'poster'],
       options: [
         { label: 'Slides (PDF)', value: 'slides', description: 'HTML slides rendered to PDF via Playwright. 5 layout types with low-saturation palette.' },
         { label: 'Blog Post (Markdown)', value: 'blog-post', description: 'Detailed or succinct Markdown blog post with citations and figures.' },
@@ -93,7 +93,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
       description: 'Approximate number of content slides.',
       type: 'select',
       required: false,
-      default: 'standard',
+      default: 'detailed',
       options: [
         { label: 'Brief (8-12)', value: 'brief', description: 'Lightning talk / overview — key contributions only' },
         { label: 'Standard (15-25)', value: 'standard', description: 'Conference talk — covers all major sections' },
@@ -126,7 +126,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
       description: 'Light or dark color scheme for slides.',
       type: 'select',
       required: false,
-      default: 'light',
+      default: 'both',
       options: [
         { label: 'Light', value: 'light', description: 'Light background with soft accent colors' },
         { label: 'Dark', value: 'dark', description: 'Dark background with soft accent colors' },

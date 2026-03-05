@@ -194,10 +194,10 @@ Advanced Options (optional parameters) are collapsed by default. The count label
 
 | Parameter | Default | Prompt placeholder |
 |-----------|---------|-------------------|
-| `deliverables` | `['slides']` | `{{deliverables}}` |
-| `slideCount` | `'standard'` (15-25 slides) | `{{slideCount}}` |
+| `deliverables` | `['slides', 'blog-post', 'poster']` | `{{deliverables}}` |
+| `slideCount` | `'detailed'` (30-45 slides) | `{{slideCount}}` |
 | `targetAudience` | `'researcher'` | `{{targetAudience}}` |
-| `slideTheme` | `'light'` | `{{slideTheme}}` |
+| `slideTheme` | `'both'` (light + dark) | `{{slideTheme}}` |
 | `blogStyle` | `'detailed'` | `{{blogStyle}}` |
 | `posterOrientation` | `'portrait'` | `{{posterOrientation}}` |
 | `githubUrl` | — (no default) | `{{githubUrl}}` |
@@ -211,7 +211,7 @@ Advanced Options (optional parameters) are collapsed by default. The count label
 | `sourceFormat` | `'pdf'` | `{{sourceFormat}}` |
 | `reviewDepth` | `'comprehensive'` | `{{reviewDepth}}` |
 | `reviewerExpertise` | `'expert'` | `{{reviewerExpertise}}` |
-| `focusAreas` | `[]` (none) | `{{focusAreas}}` |
+| `focusAreas` | `['novelty', 'math', 'experiments', 'writing']` (all) | `{{focusAreas}}` |
 | `reportFormat` | `'latex-pdf'` | `{{reportFormat}}` |
 | `includeDiagrams` | `'yes'` | `{{includeDiagrams}}` |
 | `literatureSearch` | `'enabled'` | `{{literatureSearch}}` |
@@ -222,7 +222,7 @@ Advanced Options (optional parameters) are collapsed by default. The count label
 | Parameter | Default | Prompt placeholder |
 |-----------|---------|-------------------|
 | `analysisDepth` | `'comprehensive'` | `{{analysisDepth}}` |
-| `timeHorizon` | `'5year'` | `{{timeHorizon}}` |
+| `timeHorizon` | `'10year'` (most thorough) | `{{timeHorizon}}` |
 | `sectorFocus` | `'auto'` | `{{sectorFocus}}` |
 | `reportStyle` | `'professional'` | `{{reportStyle}}` |
 | `supplementaryDocs` | — (no default) | `{{supplementaryDocs}}` |

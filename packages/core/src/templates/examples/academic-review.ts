@@ -120,7 +120,7 @@ export const academicReviewTemplate: UseCaseTemplate = {
       description: 'Select specific areas to emphasize in the review. All areas are covered regardless, but selected areas receive deeper treatment.',
       type: 'multi-select',
       required: false,
-      default: [],
+      default: ['novelty', 'math', 'experiments', 'writing'],
       options: [
         { label: 'Novelty & Originality', value: 'novelty', description: 'Deep dive into what is truly new vs. incremental' },
         { label: 'Mathematical Rigor', value: 'math', description: 'Proof correctness, derivation validity, statistical soundness' },
