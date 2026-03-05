@@ -4,8 +4,8 @@
   "description": "Mission control for the AI age",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#050510",
-  "theme_color": "#050510",
+  "background_color": "#0C0C0E",
+  "theme_color": "#0C0C0E",
   "icons": [
     {
       "src": "/icon-192.png",

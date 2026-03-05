@@ -67,6 +67,18 @@ function applyTheme(theme: Theme, customThemes: ThemeDefinition[]) {
     }
   }
 
+  // Update the title bar / theme-color meta tag to match the active background
+  const resolvedDark = root.classList.contains("dark")
+  const themeColorMetas = document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')
+  if (themeColorMetas.length >= 2) {
+    // Two media-conditional tags: override both so the active one wins
+    for (const meta of themeColorMetas) {
+      meta.setAttribute("content", resolvedDark ? "#0C0C0E" : "#FFFFFF")
+    }
+  } else if (themeColorMetas.length === 1) {
+    themeColorMetas[0].setAttribute("content", resolvedDark ? "#0C0C0E" : "#FFFFFF")
+  }
+
   localStorage.setItem("astro-theme", theme)
 }
 
