@@ -95,7 +95,7 @@ export function applyPlanFromText(
     status: (n.status as PlanNode['status']) || 'planned',
     parentId: n.parentId ? resolveId(n.parentId as string) : null,
     dependencies: (n.dependencies as string[] || []).map(resolveId),
-    verification: (n.verification as PlanNode['verification']) || 'human',
+    verification: (n.verification as PlanNode['verification']) || 'auto',
     position: (n.position as { x: number; y: number }) || { x: 40, y: 40 },
     startDate: n.startDate as string | undefined,
     endDate: n.endDate as string | undefined,

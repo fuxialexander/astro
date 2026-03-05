@@ -77,6 +77,8 @@ interface ItemListViewProps<T> {
   renderMobileItem?: (item: T) => ReactNode
   /** Called when an item is dragged from one group to another. Enables group-aware DnD. */
   onGroupDrop?: (itemId: string, sourceGroupKey: string, targetGroupKey: string) => void
+  /** Optional actions rendered at the right end of the column header row */
+  headerActions?: ReactNode
 }
 
 function ColumnHeader<T>({
@@ -214,6 +216,7 @@ export function ItemListView<T>({
   onSort,
   renderMobileItem,
   onGroupDrop,
+  headerActions,
 }: ItemListViewProps<T>) {
   const isMobile = useMediaQuery("(max-width: 639px)")
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
@@ -609,6 +612,11 @@ export function ItemListView<T>({
             />
           ))}
         </div>
+        {headerActions && (
+          <div className="ml-auto shrink-0 flex items-center">
+            {headerActions}
+          </div>
+        )}
       </div>
 
       {/* Body */}
