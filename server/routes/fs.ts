@@ -211,6 +211,348 @@ async function requestCreateDirectory(
   })
 }
 
+// ============================================================================
+// File Content (Download / Preview)
+// ============================================================================
+
+/** Response type for file content */
+interface FileContentResult {
+  content: Buffer
+  mimeType: string
+  size: number
+  error?: string
+}
+
+const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
+
+/**
+ * Validate that a path is absolute (starts with / or drive letter on Windows)
+ */
+function validateAbsolutePath(path: string): boolean {
+  return path.startsWith('/') || /^[A-Za-z]:[/\\]/.test(path)
+}
+
+/**
+ * GET /content?machineId=yyy&path=/some/file&download=true
+ *
+ * Reads file content from a remote machine via relay.
+ * Supports inline preview (default) or download mode.
+ * Supports Range header for partial content (e.g., PDF streaming).
+ */
+fsRoute.get('/content', async (c) => {
+  const machineId = c.req.query('machineId')
+  const filePath = c.req.query('path')
+  const download = c.req.query('download') === 'true'
+
+  if (!machineId) {
+    return c.json({ error: 'machineId is required' }, 400)
+  }
+
+  if (!filePath) {
+    return c.json({ error: 'path is required' }, 400)
+  }
+
+  if (!validateAbsolutePath(filePath)) {
+    return c.json({ error: 'path must be an absolute path' }, 400)
+  }
+
+  try {
+    const result = await requestFileContent(machineId, filePath)
+
+    if (result.error) {
+      return c.json({ error: result.error }, result.error.includes('not found') ? 404 : 500)
+    }
+
+    const fileName = filePath.split('/').pop() || 'file'
+    const disposition = download ? `attachment; filename="${fileName}"` : 'inline'
+
+    // Handle Range header for partial content
+    const rangeHeader = c.req.header('Range')
+    if (rangeHeader && result.content.length > 0) {
+      const match = rangeHeader.match(/bytes=(\d+)-(\d*)/)
+      if (match) {
+        const start = parseInt(match[1], 10)
+        const end = match[2] ? parseInt(match[2], 10) : result.content.length - 1
+        const clampedEnd = Math.min(end, result.content.length - 1)
+
+        if (start > clampedEnd || start >= result.content.length) {
+          return new Response(null, {
+            status: 416,
+            headers: {
+              'Content-Range': `bytes */${result.content.length}`,
+            },
+          })
+        }
+
+        const slice = result.content.subarray(start, clampedEnd + 1)
+        return new Response(slice, {
+          status: 206,
+          headers: {
+            'Content-Type': result.mimeType,
+            'Content-Disposition': disposition,
+            'Content-Length': String(slice.length),
+            'Content-Range': `bytes ${start}-${clampedEnd}/${result.content.length}`,
+            'Accept-Ranges': 'bytes',
+          },
+        })
+      }
+    }
+
+    return new Response(result.content, {
+      status: 200,
+      headers: {
+        'Content-Type': result.mimeType,
+        'Content-Disposition': disposition,
+        'Content-Length': String(result.content.length),
+        'Accept-Ranges': 'bytes',
+      },
+    })
+  } catch (error) {
+    console.error('[fs] Error reading file content:', error)
+    return c.json({ error: 'Failed to read file content' }, 500)
+  }
+})
+
+/**
+ * Request file content from a remote machine via relay.
+ * Handles chunked responses — collects all chunks before returning.
+ */
+async function requestFileContent(
+  machineId: string,
+  path: string,
+): Promise<FileContentResult> {
+  const correlationId = crypto.randomUUID()
+
+  return new Promise<FileContentResult>((resolve) => {
+    const timeout = setTimeout(() => {
+      relayServer.removeListener('file_content:response', handler)
+      resolve({ content: Buffer.alloc(0), mimeType: 'application/octet-stream', size: 0, error: 'Request timed out' })
+    }, 30000) // 30 second timeout for file transfer
+
+    // Collect chunks for chunked transfers
+    const chunks: Map<number, string> = new Map()
+    let totalChunks = 1
+    let encoding: string = 'utf-8'
+    let mimeType: string = 'application/octet-stream'
+    let totalSize: number = 0
+
+    function handler(data: {
+      correlationId: string
+      path: string
+      content?: string
+      encoding?: string
+      mimeType?: string
+      size?: number
+      chunked?: boolean
+      chunkIndex?: number
+      totalChunks?: number
+      error?: string
+    }) {
+      if (data.correlationId !== correlationId) return
+
+      // Error response
+      if (data.error) {
+        clearTimeout(timeout)
+        relayServer.removeListener('file_content:response', handler)
+        resolve({ content: Buffer.alloc(0), mimeType: 'application/octet-stream', size: 0, error: data.error })
+        return
+      }
+
+      if (data.mimeType) mimeType = data.mimeType
+      if (data.encoding) encoding = data.encoding
+      if (data.size) totalSize = data.size
+
+      if (data.chunked && data.totalChunks && data.totalChunks > 1) {
+        // Chunked response
+        totalChunks = data.totalChunks
+        if (data.content && data.chunkIndex !== undefined) {
+          chunks.set(data.chunkIndex, data.content)
+        }
+
+        // Check if all chunks received
+        if (chunks.size >= totalChunks) {
+          clearTimeout(timeout)
+          relayServer.removeListener('file_content:response', handler)
+
+          // Reassemble chunks in order
+          const orderedContent = Array.from({ length: totalChunks }, (_, i) => chunks.get(i) || '').join('')
+          const buffer = encoding === 'base64'
+            ? Buffer.from(orderedContent, 'base64')
+            : Buffer.from(orderedContent, 'utf-8')
+
+          resolve({ content: buffer, mimeType, size: totalSize || buffer.length })
+        }
+      } else {
+        // Single response (non-chunked)
+        clearTimeout(timeout)
+        relayServer.removeListener('file_content:response', handler)
+
+        const buffer = data.content
+          ? (encoding === 'base64' ? Buffer.from(data.content, 'base64') : Buffer.from(data.content, 'utf-8'))
+          : Buffer.alloc(0)
+
+        resolve({ content: buffer, mimeType, size: totalSize || buffer.length })
+      }
+    }
+
+    relayServer.on('file_content:response', handler)
+
+    const sent = relayServer.requestFileContent(machineId, path, correlationId)
+    if (!sent) {
+      clearTimeout(timeout)
+      relayServer.removeListener('file_content:response', handler)
+      resolve({ content: Buffer.alloc(0), mimeType: 'application/octet-stream', size: 0, error: 'Machine not connected' })
+    }
+  })
+}
+
+// ============================================================================
+// File Upload
+// ============================================================================
+
+/** Response type for file upload */
+interface FileUploadResult {
+  success: boolean
+  path?: string
+  size?: number
+  error?: string
+  conflict?: boolean
+}
+
+const CHUNK_SIZE = 1024 * 1024 // 1MB chunks
+
+/**
+ * POST /content
+ *
+ * Uploads a file to a remote machine via relay.
+ * Accepts multipart/form-data with fields: machineId, destinationPath, file, overwrite
+ * Files are split into ~1MB chunks and sent sequentially.
+ */
+fsRoute.post('/content', async (c) => {
+  try {
+    const body = await c.req.parseBody()
+    const machineId = body['machineId'] as string | undefined
+    const destinationPath = body['destinationPath'] as string | undefined
+    const overwrite = body['overwrite'] === 'true'
+    const file = body['file']
+
+    if (!machineId) {
+      return c.json({ error: 'machineId is required' }, 400)
+    }
+
+    if (!destinationPath) {
+      return c.json({ error: 'destinationPath is required' }, 400)
+    }
+
+    if (!validateAbsolutePath(destinationPath)) {
+      return c.json({ error: 'destinationPath must be an absolute path' }, 400)
+    }
+
+    if (!file || !(file instanceof File)) {
+      return c.json({ error: 'file is required (multipart form field)' }, 400)
+    }
+
+    // Validate file size
+    if (file.size > MAX_FILE_SIZE) {
+      return c.json({ error: `File too large. Maximum size is ${MAX_FILE_SIZE / (1024 * 1024)}MB` }, 413)
+    }
+
+    const fileBuffer = Buffer.from(await file.arrayBuffer())
+    const fileName = file.name || 'upload'
+
+    const result = await requestFileUpload(machineId, destinationPath, fileName, fileBuffer, overwrite)
+
+    if (!result.success) {
+      const status = result.conflict ? 409 : 500
+      return c.json({ error: result.error, conflict: result.conflict }, status)
+    }
+
+    return c.json({ success: true, path: result.path, size: result.size })
+  } catch (error) {
+    console.error('[fs] Error uploading file:', error)
+    return c.json({ error: 'Failed to upload file' }, 500)
+  }
+})
+
+/**
+ * Upload a file to a remote machine via relay.
+ * Splits the file into chunks and sends them sequentially.
+ */
+async function requestFileUpload(
+  machineId: string,
+  destinationPath: string,
+  fileName: string,
+  fileBuffer: Buffer,
+  overwrite: boolean,
+): Promise<FileUploadResult> {
+  const correlationId = crypto.randomUUID()
+  const totalChunks = Math.max(1, Math.ceil(fileBuffer.length / CHUNK_SIZE))
+
+  return new Promise<FileUploadResult>((resolve) => {
+    const timeout = setTimeout(() => {
+      relayServer.removeListener('file_upload:response', handler)
+      resolve({ success: false, error: 'Upload timed out' })
+    }, 60000) // 60 second timeout for uploads
+
+    function handler(data: { correlationId: string; success: boolean; path?: string; error?: string }) {
+      if (data.correlationId !== correlationId) return
+      clearTimeout(timeout)
+      relayServer.removeListener('file_upload:response', handler)
+
+      if (!data.success) {
+        const isConflict = data.error?.toLowerCase().includes('exists') || data.error?.toLowerCase().includes('conflict')
+        resolve({ success: false, error: data.error, conflict: isConflict })
+        return
+      }
+
+      resolve({ success: true, path: data.path, size: fileBuffer.length })
+    }
+
+    relayServer.on('file_upload:response', handler)
+
+    // Step 1: Send the upload request
+    const sent = relayServer.requestFileUpload(
+      machineId,
+      destinationPath,
+      fileName,
+      fileBuffer.length,
+      totalChunks,
+      overwrite,
+      correlationId,
+    )
+
+    if (!sent) {
+      clearTimeout(timeout)
+      relayServer.removeListener('file_upload:response', handler)
+      resolve({ success: false, error: 'Machine not connected' })
+      return
+    }
+
+    // Step 2: Send chunks sequentially
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE
+      const end = Math.min(start + CHUNK_SIZE, fileBuffer.length)
+      const chunk = fileBuffer.subarray(start, end)
+      const base64Content = chunk.toString('base64')
+
+      const chunkSent = relayServer.sendFileUploadChunk(
+        machineId,
+        correlationId,
+        i,
+        'base64',
+        base64Content,
+      )
+
+      if (!chunkSent) {
+        clearTimeout(timeout)
+        relayServer.removeListener('file_upload:response', handler)
+        resolve({ success: false, error: 'Lost connection during upload' })
+        return
+      }
+    }
+  })
+}
+
 /**
  * Request file list from a remote machine via relay
  */

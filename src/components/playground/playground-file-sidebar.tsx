@@ -1,4 +1,9 @@
 /**
+ * @deprecated Use `FileBrowser` from `@/components/file-browser` instead.
+ * This component is kept for backward compatibility but is no longer used
+ * in new code paths. The FileBrowser component provides upload, drag-and-drop,
+ * hidden file filtering, file-type icons, and preview panel features.
+ *
  * Playground File Sidebar
  *
  * Inline file explorer panel adapted from RemotePathBrowser.
