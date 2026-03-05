@@ -319,45 +319,18 @@ export function BackendDetailDialog({
 // Skills-lib hint per backend type
 // ---------------------------------------------------------------------------
 
-const SKILLS_LIB_BASE = "https://github.com/astro-anywhere/skills-lib/blob/main"
-
-const BACKEND_SKILL_LINKS: Record<string, { path: string; label: string }> = {
-  "k8s-exec": { path: "compute_backend/kubernetes-workflow/SKILL.md", label: "Kubernetes workflow skill" },
-  "slurm": { path: "compute_backend/skypilot-workflow/SKILL.md", label: "SkyPilot/SLURM workflow skill" },
-}
-
-function SkillsLibHint({ backendId }: { backendId: string }) {
-  const link = BACKEND_SKILL_LINKS[backendId]
-  if (link) {
-    return (
-      <p className="text-[11px] text-muted-foreground">
-        For a curated set of agent instructions, see the{" "}
-        <a
-          href={`${SKILLS_LIB_BASE}/${link.path}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary hover:underline"
-        >
-          {link.label}
-        </a>
-        {" "}— copy it into custom instructions above to use it.
-      </p>
-    )
-  }
-
-  // Docker, SSH, and other backends: generic hint
+function SkillsLibHint({ backendId: _ }: { backendId: string }) {
   return (
     <p className="text-[11px] text-muted-foreground">
-      Want smarter agent behavior for this environment? Add your own instructions above, or browse{" "}
+      To help agents understand your compute backend, consider adding a SKILL.md. See{" "}
       <a
-        href={`${SKILLS_LIB_BASE}/compute_backend`}
+        href="https://github.com/astro-anywhere/skills-lib/tree/main/compute_backend"
         target="_blank"
         rel="noopener noreferrer"
         className="text-primary hover:underline"
       >
-        curated skills
-      </a>
-      {" "}for inspiration.
+        examples
+      </a>.
     </p>
   )
 }
