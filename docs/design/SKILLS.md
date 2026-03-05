@@ -1,12 +1,12 @@
 # Skills System
 
-> Design document for Astro's skill registry — catalog skills for examples, compute backend skills (external), and prompt injection.
+> Design document for Astro's skill registry — built-in skills for examples and compute backends, with prompt injection at dispatch time.
 
-> **Status (March 2026):** The Skills page has been hidden from the sidebar. Skills are now primarily used in two ways:
-> 1. **Example-paired skills** — SKILL.md files in `skills-catalog/anthropic/` that provide agent instructions for example templates (academic-presentation, academic-review, moat-fragility)
-> 2. **Compute backend skills** — Curated externally in [astro-anywhere/skills-lib](https://github.com/astro-anywhere/skills-lib) under `compute_backend/`. Linked from the Machine panel when K8s/SkyPilot is detected.
+> **Status (March 2026):** Skills are a backend-only system with no dedicated UI page. The Skills page and catalog infrastructure have been removed. Five built-in skills ship in `skills/`:
+> - **Example-paired** (3): `academic-presentation`, `academic-review`, `moat-fragility` — referenced by example templates
+> - **Compute backend** (2): `kubernetes-workflow`, `skypilot-workflow` — infrastructure workflow guides
 >
-> The built-in skills directory (`skills/`) contains legacy compute backend skills (kubernetes-workflow, skypilot-workflow) that have been copied to skills-lib. The generic catalog skills (code-review, frontend-design, security-guidance) are being deprecated. User-authored skill creation is still functional but not surfaced in the UI.
+> Skills are seeded into the DB on server startup, injected into agent prompts at dispatch time, and manageable via Settings > Skills (toggle on/off). The Environments page shows hints encouraging users to explore skills when K8s or SkyPilot backends are detected.
 
 ## Overview
 
@@ -68,9 +68,9 @@ The Skills system provides a **database-backed, team-scoped registry** of reusab
 | File | Purpose |
 |------|---------|
 | `packages/core/src/db/schema.ts` | `skills` table definition (columns, indexes, constraints) |
-| `packages/core/src/skills/types.ts` | `BuiltinSkillDefinition`, `OpenClawSkill` interfaces |
+| `packages/core/src/skills/types.ts` | `BuiltinSkillDefinition` interface |
 | `packages/core/src/skills/builtin-parser.ts` | Pure parser: SKILL.md → `BuiltinSkillDefinition` |
-| `packages/core/src/skill-parser.ts` | OpenClaw parser: SKILL.md → `OpenClawSkill` (user/community) |
+| `packages/core/src/skill-parser.ts` | OpenClaw parser: SKILL.md → `OpenClawSkill` (workspace skills) |
 | `packages/core/src/skill-injector.ts` | Pure function: skills → XML prompt injection string |
 | `packages/core/src/db/bootstrap-skills.ts` | Seeds built-in skills into DB on server startup |
 | `server/lib/load-builtin-skills.ts` | Reads `skills/*/SKILL.md` from disk |
@@ -306,12 +306,15 @@ A skill is injected into the prompt only when **all** of these are true:
 
 ## Built-in Skills
 
-### Current Built-ins
+### Current Built-ins (5 total)
 
-| Skill | Category | Description |
-|-------|----------|-------------|
-| `kubernetes-workflow` | tools | Kubernetes cluster operations: pods, deployments, multi-node training, GPU scheduling |
-| `skypilot-workflow` | tools | SkyPilot cloud job management: distributed training, spot instances, multi-cloud |
+| Skill | Category | Used By | Description |
+|-------|----------|---------|-------------|
+| `academic-presentation` | workflows | examples | Academic presentation generation from research papers |
+| `academic-review` | workflows | examples | Peer review with structured feedback |
+| `moat-fragility` | workflows | examples | Competitive moat analysis and fragility assessment |
+| `kubernetes-workflow` | tools | environments hint | Kubernetes cluster operations: pods, deployments, multi-node training, GPU scheduling |
+| `skypilot-workflow` | tools | environments hint | SkyPilot cloud job management: distributed training, spot instances, multi-cloud |
 
 ### Adding a New Built-in Skill
 
@@ -380,46 +383,25 @@ For complex frontmatter needs, consider upgrading to a full YAML parser (`js-yam
 
 ---
 
-## Community & Marketplace Design
-
-### ClawHub Integration (Planned)
-
-The skills system is designed for future integration with **ClawHub**, an open skill marketplace:
-
-```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   ClawHub    │────▶│  Astro API   │────▶│  skills DB   │
-│  Registry    │     │  POST /api/  │     │  source=     │
-│  (5,700+     │     │  skills      │     │  'clawhub'   │
-│   skills)    │     │              │     │              │
-└──────────────┘     └──────────────┘     └──────────────┘
-```
-
-**Import flow** (planned):
-1. User browses ClawHub catalog in Astro UI
-2. Selects a skill → Astro fetches the SKILL.md from ClawHub API
-3. Parsed via `parseSkillMd(content, 'clawhub')` → stored with `source='clawhub'`, `sourceUrl` set
-4. Skill appears in user's team skill list, toggleable like any other skill
-
-**OpenClaw compatibility**:
-- The `OpenClawSkill` interface aligns with ClawHub's SKILL.md format
-- Extension fields (`userInvocable`, `disableModelInvocation`, `metadata`) are stored in the `config` JSONB column
-- The frontend `parseSkillMd()` already handles ClawHub-format SKILL.md files
+## Workspace & External Skills
 
 ### Workspace Skills
 
-Users can create team-local skills today:
+Users can create team-local skills via Settings > Skills:
 
 1. **Paste SKILL.md** — Copy a SKILL.md from any source, paste into the Skills settings textarea
-2. **Manual creation** — Fill in name, description, and instructions via the UI form
-3. **Team sharing** — All skills with `source='workspace'` are visible to the entire team
+2. **Team sharing** — All skills with `source='workspace'` are visible to the entire team
 
 ### Skill Versioning
 
 - Built-in skills track version in the SKILL.md frontmatter
 - The bootstrap process compares all fields (version, description, instructions, category, tags, allowedTools) to detect changes
 - Only writes to DB when content actually changed (avoids `updatedAt` churn)
-- Community skills will track `sourceUrl` for update-from-upstream workflows
+
+### External Skill Repos
+
+- [astro-anywhere/skills-lib](https://github.com/astro-anywhere/skills-lib) — curated skills for compute backends and DSPy workflows
+- Skills can be ported by copying their SKILL.md into `skills/{name}/SKILL.md`
 
 ---
 
@@ -504,16 +486,7 @@ Tracks: [feat: Skills UI, Lifecycle, Cross-Machine Sync, and Community Sharing](
 | Auto-seeding on server startup | Done | #346 |
 | Prompt injection via `skillManager` | Done | #346 |
 
-**Remaining from skills-lib**: 4 more skills to port from [`astro-anywhere/skills-lib`](https://github.com/astro-anywhere/skills-lib):
-
-| Skill | Category | Status |
-|-------|----------|--------|
-| `dspy-rag-pipeline` | tools | Not yet ported |
-| `dspy-react-agent-builder` | tools | Not yet ported |
-| `dspy-signature-designer` | tools | Not yet ported |
-| `skill-onboarder` | tools | Not yet ported |
-
-These can be ported by copying their SKILL.md from skills-lib into `skills/{name}/SKILL.md`. The bootstrap process will pick them up automatically.
+**Note**: The `skills-catalog/` directory and catalog infrastructure (collection manifests, catalog bootstrap) have been removed. All skills now live in `skills/`. The external [astro-anywhere/skills-lib](https://github.com/astro-anywhere/skills-lib) repo contains additional skills (dspy-*, skill-onboarder) that can be ported if needed by copying their SKILL.md into `skills/{name}/SKILL.md`.
 
 ### Phase 1: Database + API + Basic UI — COMPLETE
 
@@ -529,169 +502,19 @@ These can be ported by copying their SKILL.md from skills-lib into `skills/{name
 | Test suite (78+ tests) | Done | #343 |
 | SKILL.md refactor (TS → files) | Done | #346 |
 
-### Phase 2: Skill Creation + Editing — NOT STARTED
+### Future Considerations
 
-**Goal**: Make it easy for users to create, customize, and iterate on skills without manually writing SKILL.md files.
+The following features may be revisited if user demand warrants:
 
-#### 2a. Chat-Based Skill Creation
-
-A dedicated `/skills/new` route with a two-panel layout:
-
-```
-┌──────────────────────┬──────────────────────┐
-│   Chat Panel         │   Live Preview       │
-│                      │                      │
-│ "Create a skill for  │ # Docker Compose     │
-│  managing Docker     │ ## Goal              │
-│  Compose stacks"     │ Manage multi-container│
-│                      │ Docker applications   │
-│ AI generates SKILL.md│                      │
-│ iteratively via chat │ ## Instructions      │
-│                      │ 1. docker compose up │
-│ [Save Skill]         │ ...                  │
-└──────────────────────┴──────────────────────┘
-```
-
-**Implementation**:
-- New route: `src/pages/skill-create.tsx`
-- Reuse `ChatPanel` component with a skill-creation system prompt
-- AI streams SKILL.md content → live-parsed via `parseSkillMd()` → rendered in preview
-- "Save" button calls `POST /api/skills` with the generated content
-- The system prompt for skill creation should include examples from existing builtins
-
-**Estimated scope**: ~500 LOC frontend, ~100 LOC new API endpoint for skill-focused chat
-
-#### 2b. Chat-Based Skill Editing
-
-Same layout but pre-loaded with an existing skill:
-- Route: `/skills/:id/edit`
-- Chat context includes the skill's current instructions
-- User can say "add error handling for timeout cases" → AI patches the SKILL.md
-- Diff view shows changes before saving
-
-#### 2c. GitHub URL Import
-
-- User pastes a GitHub URL to a SKILL.md file
-- Backend fetches raw content via `gh api` or raw.githubusercontent.com
-- Parsed and stored as `source='workspace'`, `sourceUrl` set for update tracking
-- Endpoint: `POST /api/skills/import` with `{ url: string }`
-
-#### 2d. Per-Skill Configuration
-
-- Skill-specific config editor in the detail dialog
-- For skills with `metadata.openclaw.primaryEnv`, show an API key input field
-- For K8s skill: namespace, PVC name, container image overrides
-- Stored in `config` JSONB column, injected as `<config>` block alongside skill instructions
-
-### Phase 3: Cross-Machine Sync — NOT STARTED
-
-**Goal**: Skills created on one machine are available on all connected machines.
-
-```
-┌─────────────┐    relay     ┌─────────────┐
-│  Machine A  │◄────────────►│  Machine B  │
-│  (laptop)   │  skills.sync │  (HPC node) │
-│             │              │             │
-│ ~/.astro/   │              │ ~/.astro/   │
-│   skills/   │              │   skills/   │
-└─────────────┘              └─────────────┘
-        │                          │
-        └──────────┬───────────────┘
-                   ▼
-          ┌──────────────┐
-          │  Astro Server │
-          │  skills table │
-          │  (source of   │
-          │   truth)      │
-          └──────────────┘
-```
-
-**Implementation**:
-
-1. **Relay messages** (in `packages/agent-runner`):
-   - `skills.sync.request` — server sends full skill list to machine
-   - `skills.sync.response` — machine confirms receipt
-   - `skills.report` — machine reports locally-discovered skills (from `~/.claude/skills/`)
-
-2. **Agent-runner integration**:
-   - On connect, agent-runner receives `skills.sync.request` with all enabled skills
-   - Writes to `~/.astro/skills/{name}/SKILL.md` on the machine
-   - On startup, scans local `~/.astro/skills/` and reports via `skills.report`
-   - Local-only skills (not in DB) are uploaded to server as `source='workspace'`
-
-3. **Conflict resolution**:
-   - Server DB is authoritative for `source='builtin'` and `source='workspace'`
-   - Local machine skills override server versions if `version` is higher
-   - Last-write-wins for same-version conflicts (with `updatedAt` timestamp)
-
-4. **Auto-detection** (from issue #224 Phase 0):
-   - Agent-runner detects available backends: `kubectl` → K8s skill, `sky --version` → SkyPilot
-   - Only syncs skills whose requirements are met on the target machine
-   - Uses `metadata.openclaw.requires.bins` to gate sync per machine
-
-**Estimated scope**: ~300 LOC relay protocol, ~200 LOC agent-runner, ~100 LOC server sync endpoint
-
-### Phase 4: Community Sharing — NOT STARTED
-
-**Goal**: Users can share skills with the community and import skills from others.
-
-#### 4a. Share Dialog
-
-- "Share" button on team-owned skills opens a dialog
-- Sanitizes skill content: strips `config` (may contain API keys), team-specific paths
-- Generates a shareable SKILL.md blob or URL
-- Option to publish to skills-lib repo via PR (authenticated GitHub push)
-
-#### 4b. Community Skill Browser
-
-```
-┌─────────────────────────────────────────────────┐
-│  Community Skills                    Search: [ ] │
-│                                                  │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐       │
-│  │ Docker   │ │ Terraform│ │ AWS CLI  │       │
-│  │ Compose  │ │ Workflow │ │ Workflow │       │
-│  │ ★ 42     │ │ ★ 38    │ │ ★ 27    │       │
-│  │ [Install]│ │ [Install]│ │ [Install]│       │
-│  └──────────┘ └──────────┘ └──────────┘       │
-└─────────────────────────────────────────────────┘
-```
-
-**Two sources**:
-1. **skills-lib repo** — curated, quality-tested skills maintained by the Astro team
-2. **ClawHub** — open marketplace (5,700+ skills), fetched via API
-
-**Implementation**:
-- New tab in Skills settings: "Community"
-- Backend: `GET /api/skills/community?source=skills-lib|clawhub&search=...`
-- For skills-lib: fetch from GitHub API (`astro-anywhere/skills-lib/skills/`)
-- For ClawHub: integrate with ClawHub API (when available)
-- Install = `POST /api/skills` with `source='clawhub'` + `sourceUrl`
-- Track installed version for one-click updates
-
-#### 4c. Skill Stars/Forks
-
-- `stars_count` column already in schema (from issue #224 proposal)
-- Fork = copy community skill to team workspace, `source` changes to `workspace`
-- Maintain `sourceUrl` link back to original for attribution
-
-### Phase 5: Advanced Visualization — NOT STARTED
-
-**Goal**: Help users discover, organize, and understand their skill portfolio.
-
-1. **Category dashboard** — Skill counts by category with visual grouping
-2. **Tag cloud** — Tag-based filtering and discovery across all skills
-3. **Usage analytics** — Which skills are actually used in dispatches (requires audit logging in `machine_usage_logs` — add `active_skills TEXT[]` column)
-4. **Dependency graph** — Show which skills reference other skills or share tool requirements
-5. **Skill health** — Flag skills whose requirements aren't met on any connected machine
+- **Workspace skills**: Users can already paste SKILL.md content via Settings > Skills to create team-local skills (`source='workspace'`). No dedicated UI page currently.
+- **Cross-machine sync**: Skills synced to connected machines via relay protocol. Would require agent-runner integration.
+- **Community skill sharing**: A community skill browser (ClawHub integration or skills-lib fetch). Currently low priority — community focus is on plan sharing.
+- **Auto-detection**: Agent-runner detects K8s/SkyPilot on machines and auto-enables relevant skills.
 
 ### Timeline Summary
 
-| Phase | Scope | Status | Dependencies |
-|-------|-------|--------|-------------|
-| Phase 0 | Built-in skills integration | **Complete** | — |
-| Phase 1 | DB + API + UI | **Complete** | — |
-| Phase 2 | Creation + editing | Not started | Phase 1 |
-| Phase 3 | Cross-machine sync | Not started | Phase 1, agent-runner relay |
-| Phase 4 | Community sharing | Not started | Phase 2, skills-lib publish |
-| Phase 5 | Visualization | Not started | Phase 4 (stars), Phase 3 (health) |
+| Phase | Scope | Status |
+|-------|-------|--------|
+| Phase 0 | Built-in skills (SKILL.md → DB → prompt) | **Complete** |
+| Phase 1 | DB + API + Settings UI | **Complete** |
+| Catalog removal | Skills page, catalog infrastructure removed | **Complete** |

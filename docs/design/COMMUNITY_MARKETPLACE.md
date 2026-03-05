@@ -274,8 +274,8 @@ Community features require authentication and are unavailable in local mode (PGl
 │  Publish button ────── isServerMode() ──── hidden in local mode     │
 │  (plan-view.tsx)                                                     │
 │                                                                      │
-│  Dashboard CTA ─────── isServerMode() ──── hidden in local mode     │
-│  "Browse Community"                                                  │
+│  Dashboard ────────── No community CTA ─── "Get Started" card        │
+│                       removed; replaced by guided product tour       │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
