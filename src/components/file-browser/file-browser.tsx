@@ -553,12 +553,20 @@ export function FileBrowser({
               const entryIndex = directories.length + index
               const FileIcon = getFileIcon(entry.name)
               return (
-                <button
+                <div
                   key={entry.path}
+                  role="button"
+                  tabIndex={0}
                   data-entry-index={entryIndex}
                   onClick={() => handleEntryClick(entry)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault()
+                      handleEntryClick(entry)
+                    }
+                  }}
                   className={cn(
-                    "group w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-muted/50 transition-colors",
+                    "group w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-muted/50 transition-colors cursor-pointer",
                     selectedIndex === entryIndex && "bg-primary/10"
                   )}
                 >
@@ -573,7 +581,7 @@ export function FileBrowser({
                     useLocal={useLocal}
                     onPreview={setPreviewPath}
                   />
-                </button>
+                </div>
               )
             })}
           </div>

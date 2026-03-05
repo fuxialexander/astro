@@ -22,6 +22,8 @@ import {
   Globe,
   ArrowRight,
   LayoutTemplate,
+  Flame,
+  Code2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -42,6 +44,7 @@ import { InlineApprovalCard } from "@/components/plan-session/inline-approval-ca
 import { ActivityHeatmap } from "@/components/dashboard/activity-heatmap"
 import { BragStats } from "@/components/dashboard/brag-stats"
 import { AchievementsPanel } from "@/components/dashboard/achievements-panel"
+import { formatCompactNumber } from "@astro/core/achievements"
 import { cn } from "@/lib/utils"
 import { formatRelativeTime } from "@/lib/date-utils"
 
@@ -162,58 +165,84 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* Stats Row - 3 compact widgets */}
-      <div className="grid grid-cols-3 gap-2 md:gap-4">
-        {/* Needs Attention */}
-        <Card className="w-full rounded-2xl shadow cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=awaiting_judgment")}>
-          <CardContent className="flex items-center gap-2 p-2.5 md:justify-between md:p-6">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-warning shrink-0 md:order-2 md:h-12 md:w-12 md:rounded-xl">
-              <Eye className="h-4 w-4 text-warning-foreground md:h-6 md:w-6" />
-            </div>
-            <div className="flex flex-col min-w-0">
-              <p className="text-[11px] text-muted-foreground truncate md:text-sm">Attention</p>
-              <p className="text-lg font-bold md:text-[32px]">{pendingDecisions}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Active Tasks */}
-        <Card className="w-full rounded-2xl shadow cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=in_progress")}>
-          <CardContent className="flex items-center gap-2 p-2.5 md:justify-between md:p-6">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-info shrink-0 md:order-2 md:h-12 md:w-12 md:rounded-xl">
-              <Activity className="h-4 w-4 text-info-foreground md:h-6 md:w-6" />
-            </div>
-            <div className="flex flex-col min-w-0">
-              <p className="text-[11px] text-muted-foreground truncate md:text-sm">Active</p>
-              <p className="text-lg font-bold md:text-[32px]">{activeTasks}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Completed Today */}
-        <Card className="w-full rounded-2xl shadow cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=completed")}>
-          <CardContent className="flex items-center gap-2 p-2.5 md:justify-between md:p-6">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-success shrink-0 md:order-2 md:h-12 md:w-12 md:rounded-xl">
-              <CircleCheck className="h-4 w-4 text-success-foreground md:h-6 md:w-6" />
-            </div>
-            <div className="flex flex-col min-w-0">
-              <p className="text-[11px] text-muted-foreground truncate md:text-sm">Done</p>
-              <p className="text-lg font-bold md:text-[32px]">{completedToday}</p>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Stats Row - compact inline widgets */}
+      <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+        <button
+          onClick={() => navigate("/tasks?status=awaiting_judgment")}
+          className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 hover:border-warning/60 transition-colors cursor-pointer bg-background"
+        >
+          <Eye className="h-3.5 w-3.5 text-warning" />
+          <span className="text-xs text-muted-foreground">Attention</span>
+          <span className="text-sm font-bold">{pendingDecisions}</span>
+        </button>
+        <button
+          onClick={() => navigate("/tasks?status=in_progress")}
+          className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 hover:border-info/60 transition-colors cursor-pointer bg-background"
+        >
+          <Activity className="h-3.5 w-3.5 text-info" />
+          <span className="text-xs text-muted-foreground">Active</span>
+          <span className="text-sm font-bold">{activeTasks}</span>
+        </button>
+        <button
+          onClick={() => navigate("/tasks?status=completed")}
+          className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 hover:border-success/60 transition-colors cursor-pointer bg-background"
+        >
+          <CircleCheck className="h-3.5 w-3.5 text-success" />
+          <span className="text-xs text-muted-foreground">Done</span>
+          <span className="text-sm font-bold">{completedToday}</span>
+        </button>
       </div>
 
-      {/* Activity Heatmap */}
-      <Card className="rounded-2xl shadow">
-        <CardContent className="p-4 md:p-5">
-          <ActivityHeatmap data={heatmapData} />
-        </CardContent>
-      </Card>
+      {/* Activity Heatmap + Key Stats Row */}
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 md:gap-4">
+        <Card className="rounded-2xl shadow">
+          <CardContent className="p-4 md:p-5">
+            <ActivityHeatmap data={heatmapData} />
+          </CardContent>
+        </Card>
 
-      {/* Brag Stats + Level */}
+        {stats && statsLoaded && (
+          <div className="flex flex-row md:flex-col gap-2 md:w-[160px]">
+            <Card className="flex-1 rounded-xl">
+              <CardContent className="flex items-center gap-2.5 p-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-900/40">
+                  <Flame className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-[11px] text-muted-foreground">Streak</span>
+                  <span className="text-base font-bold leading-tight">{stats.currentStreak}d</span>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="flex-1 rounded-xl">
+              <CardContent className="flex items-center gap-2.5 p-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/40">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-[11px] text-muted-foreground">Tasks Done</span>
+                  <span className="text-base font-bold leading-tight">{formatCompactNumber(stats.totalTasksCompleted)}</span>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="flex-1 rounded-xl">
+              <CardContent className="flex items-center gap-2.5 p-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/40">
+                  <Code2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-[11px] text-muted-foreground">Lines Added</span>
+                  <span className="text-base font-bold leading-tight">{formatCompactNumber(stats.totalLinesAdded)}</span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </div>
+
+      {/* Remaining Stats + Level */}
       {stats && statsLoaded && (
-        <BragStats stats={stats} levelInfo={levelInfo} />
+        <BragStats stats={stats} levelInfo={levelInfo} showOnlyExtras />
       )}
 
       {/* Get Started Section — shown for new users with 0-2 projects */}

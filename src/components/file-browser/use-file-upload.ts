@@ -190,6 +190,9 @@ export function useFileUpload({
   const abortControllers = useRef<Map<string, AbortController>>(new Map())
   // Track whether we're currently processing the queue
   const isProcessing = useRef(false)
+  // Mirror uploads state in a ref so processQueue can read current values
+  const uploadsRef = useRef<UploadFileEntry[]>([])
+  uploadsRef.current = uploads
 
   const isUploading = uploads.some((u) => u.status === "uploading" || u.status === "pending")
 
@@ -204,19 +207,16 @@ export function useFileUpload({
     try {
       // Keep processing while there are pending uploads
       while (true) {
-        // Get next pending upload
-        let nextUpload: UploadFileEntry | undefined
-        setUploads((prev) => {
-          nextUpload = prev.find((u) => u.status === "pending")
-          if (nextUpload) {
-            return prev.map((u) =>
-              u.id === nextUpload!.id ? { ...u, status: "uploading" as const } : u
-            )
-          }
-          return prev
-        })
-
+        // Read current uploads from ref to avoid stale closure
+        const nextUpload = uploadsRef.current.find((u) => u.status === "pending")
         if (!nextUpload) break
+
+        // Mark as uploading
+        setUploads((prev) =>
+          prev.map((u) =>
+            u.id === nextUpload.id ? { ...u, status: "uploading" as const } : u
+          )
+        )
 
         const uploadId = nextUpload.id
         const file = nextUpload.file
