@@ -8,14 +8,13 @@
  */
 
 import { Hono } from 'hono'
-import { eq, and, or, isNull, sql } from 'drizzle-orm'
+import { eq, and, or, isNull } from 'drizzle-orm'
 import { db } from '../lib/db/index.js'
-import { syncSkillById, syncSkillsFromDb } from '../lib/db/bootstrap-skills.js'
+import { syncSkillById } from '../lib/db/bootstrap-skills.js'
 import { skillManager } from '../lib/skill-manager.js'
 import { skills } from '../lib/db/schema.js'
 import { errorMessage } from '../lib/error-utils.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
-import { loadCatalogCollectionsFromDisk } from '../lib/load-catalog-skills.js'
 
 const skillsRoute = new Hono()
 
@@ -136,108 +135,27 @@ function skillTeamScopeFilter(user: AuthUser) {
 }
 
 /**
- * List all catalog collections with manifest + skill count + enabled state.
+ * List all catalog collections.
  *
  * GET /api/skills/collections
  *
- * Registered BEFORE /:id routes so Hono matches this path first.
+ * Returns empty — catalog collections have been consolidated into built-in skills.
+ * Endpoint kept for backward compatibility with frontend.
  */
 skillsRoute.get('/collections', async (c) => {
-  try {
-    // Load collection manifests from disk
-    const collections = loadCatalogCollectionsFromDisk()
-
-    // Query DB for catalog skills to compute enabled state per collection
-    const catalogRows = await db.select({
-      name: skills.name,
-      enabled: skills.enabled,
-      config: skills.config,
-    }).from(skills).where(eq(skills.source, 'catalog'))
-
-    // Build a map of collectionId → { total, enabled }
-    const collectionStats = new Map<string, { total: number; enabled: number }>()
-    for (const row of catalogRows) {
-      const config = (row.config ?? {}) as Record<string, unknown>
-      const cid = config.collectionId as string | undefined
-      if (!cid) continue
-      const stats = collectionStats.get(cid) ?? { total: 0, enabled: 0 }
-      stats.total++
-      if (row.enabled) stats.enabled++
-      collectionStats.set(cid, stats)
-    }
-
-    const result = collections.map((c) => {
-      const stats = collectionStats.get(c.manifest.id)
-      return {
-        ...c.manifest,
-        skillCount: stats?.total ?? c.skills.length,
-        enabledCount: stats?.enabled ?? 0,
-        enabled: (stats?.enabled ?? 0) > 0,
-      }
-    })
-
-    return c.json({ collections: result })
-  } catch (e) {
-    console.error('[skills] GET /collections error:', e)
-    return c.json({ error: errorMessage(e) }, 500)
-  }
+  return c.json({ collections: [] })
 })
 
 /**
  * Toggle all skills in a catalog collection on/off.
  *
  * PUT /api/skills/collections/:collectionId/toggle
+ *
+ * No-op — catalog collections have been consolidated into built-in skills.
+ * Endpoint kept for backward compatibility.
  */
 skillsRoute.put('/collections/:collectionId/toggle', async (c) => {
-  try {
-    const collectionId = c.req.param('collectionId')
-
-    // Find all catalog skills belonging to this collection
-    const collectionSkills = await db.select({
-      id: skills.id,
-      enabled: skills.enabled,
-      config: skills.config,
-    }).from(skills).where(
-      and(
-        eq(skills.source, 'catalog'),
-        sql`${skills.config}->>'collectionId' = ${collectionId}`
-      )
-    )
-
-    if (collectionSkills.length === 0) {
-      return c.json({ error: `No catalog skills found for collection "${collectionId}"` }, 404)
-    }
-
-    // Determine toggle direction: if any are enabled, disable all; otherwise enable all
-    const anyEnabled = collectionSkills.some((s) => s.enabled)
-    const newEnabled = !anyEnabled
-
-    await db.update(skills).set({
-      enabled: newEnabled,
-      updatedAt: new Date(),
-    }).where(
-      and(
-        eq(skills.source, 'catalog'),
-        sql`${skills.config}->>'collectionId' = ${collectionId}`
-      )
-    )
-
-    // Full sync to update in-memory skill manager
-    try {
-      await syncSkillsFromDb(skillManager)
-    } catch {
-      // best-effort
-    }
-
-    return c.json({
-      collectionId,
-      enabled: newEnabled,
-      skillCount: collectionSkills.length,
-    })
-  } catch (e) {
-    console.error('[skills] PUT /collections/:collectionId/toggle error:', e)
-    return c.json({ error: errorMessage(e) }, 500)
-  }
+  return c.json({ error: 'Catalog collections are no longer supported' }, 410)
 })
 
 /**

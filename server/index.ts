@@ -295,15 +295,6 @@ async function start() {
     console.error('[bootstrap] ⚠️  Built-in skills bootstrap FAILED — skills may be missing or outdated:', err)
   }
 
-  // Seed catalog skills from skills-catalog/ directory (runs in all modes)
-  try {
-    const { loadCatalogCollectionsFromDisk } = await import('./lib/load-catalog-skills.js')
-    const { bootstrapCatalogSkills } = await import('./lib/db/bootstrap-catalog.js')
-    const collections = loadCatalogCollectionsFromDisk()
-    await bootstrapCatalogSkills(collections)
-  } catch (err) {
-    console.error('[bootstrap] ⚠️  Catalog skills bootstrap FAILED — catalog collections may be missing:', err)
-  }
 
   // Load DB skills into in-memory skill-manager for prompt injection
   try {

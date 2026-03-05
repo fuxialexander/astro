@@ -34,28 +34,3 @@ export interface BuiltinSkillDefinition {
   userInvocable?: boolean
 }
 
-// ── Catalog Collection Types ──────────────────────────────────────
-
-/**
- * COLLECTION.yaml manifest for a skill catalog collection.
- */
-export interface CatalogCollectionManifest {
-  /** Unique collection identifier (directory name, e.g. 'anthropic') */
-  id: string
-  /** Display name (e.g. 'Claude Official') */
-  name: string
-  /** Provider organization name */
-  provider: string
-  /** Lucide icon name */
-  icon: string
-  /** Brief description of the collection */
-  description?: string
-}
-
-/**
- * A loaded catalog collection with its manifest and parsed skills.
- */
-export interface CatalogCollection {
-  manifest: CatalogCollectionManifest
-  skills: BuiltinSkillDefinition[]
-}
