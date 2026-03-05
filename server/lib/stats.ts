@@ -8,14 +8,14 @@ import { db } from './db/index.js'
 import {
   usageMetrics,
   taskExecutions,
-  fileChanges,
+  streamingEvents,
   planNodes,
   sharedPlans,
   sharedPlanStars,
   projects,
   userAchievements,
 } from './db/schema.js'
-import { eq, and, sql, desc, gte, count, sum } from 'drizzle-orm'
+import { eq, and, sql, desc, gte, count } from 'drizzle-orm'
 import {
   type LifetimeStats,
   checkAchievements,
@@ -117,13 +117,19 @@ export async function computeLifetimeStats(userId: string): Promise<LifetimeStat
       .where(eq(usageMetrics.userId, userId))
       .orderBy(desc(usageMetrics.sessionDate)),
 
-    // Total lines added from file_changes
+    // Total lines added from streaming_events (file_change events store linesAdded in JSON data)
     db.select({
-      total: sum(fileChanges.linesAdded),
+      total: sql<string>`COALESCE(SUM((${streamingEvents.data}->>'linesAdded')::int), 0)`,
     })
-      .from(fileChanges)
-      .innerJoin(taskExecutions, eq(fileChanges.executionId, taskExecutions.executionId))
-      .where(eq(taskExecutions.projectId, sql`ANY(SELECT id FROM projects WHERE owner_id = ${userId})`)),
+      .from(streamingEvents)
+      .innerJoin(taskExecutions, eq(streamingEvents.executionId, taskExecutions.executionId))
+      .where(
+        and(
+          eq(streamingEvents.eventType, 'file_change'),
+          sql`${taskExecutions.projectId} IN (SELECT id FROM projects WHERE owner_id = ${userId})`,
+          sql`${streamingEvents.data}->>'linesAdded' IS NOT NULL`
+        )
+      ),
 
     // PRs merged: plan_nodes with prUrl set and status completed
     db.select({ count: count() })
@@ -312,14 +318,25 @@ export interface EarnedAchievement {
 }
 
 export async function checkAndAwardAchievements(userId: string): Promise<EarnedAchievement[]> {
-  // Fetch existing achievements
-  const existing = await db.select({
-    slug: userAchievements.slug,
-    earnedAt: userAchievements.earnedAt,
-    metadata: userAchievements.metadata,
-  })
-    .from(userAchievements)
-    .where(eq(userAchievements.userId, userId))
+  // Fetch existing achievements (table may not exist if migration hasn't been applied)
+  let existing: { slug: string; earnedAt: Date; metadata: unknown }[]
+  try {
+    existing = await db.select({
+      slug: userAchievements.slug,
+      earnedAt: userAchievements.earnedAt,
+      metadata: userAchievements.metadata,
+    })
+      .from(userAchievements)
+      .where(eq(userAchievements.userId, userId))
+  } catch (err) {
+    // Table doesn't exist yet — return empty achievements
+    const code = (err as { code?: string }).code
+    if (code === '42P01') {
+      console.warn('[stats] user_achievements table does not exist — skipping achievement check')
+      return []
+    }
+    throw err
+  }
 
   const alreadyEarned = new Set(existing.map(e => e.slug))
 
@@ -330,14 +347,24 @@ export async function checkAndAwardAchievements(userId: string): Promise<EarnedA
   // Bulk insert newly earned achievements
   if (newSlugs.length > 0) {
     const now = new Date()
-    await db.insert(userAchievements).values(
-      newSlugs.map(slug => ({
-        userId,
-        slug,
-        earnedAt: now,
-        metadata: {},
+    try {
+      await db.insert(userAchievements).values(
+        newSlugs.map(slug => ({
+          userId,
+          slug,
+          earnedAt: now,
+          metadata: {},
+        }))
+      ).onConflictDoNothing()
+    } catch (err) {
+      const code = (err as { code?: string }).code
+      if (code === '42P01') return existing.map(e => ({
+        slug: e.slug,
+        earnedAt: e.earnedAt.toISOString(),
+        metadata: (e.metadata || {}) as Record<string, unknown>,
       }))
-    ).onConflictDoNothing()
+      throw err
+    }
   }
 
   // Return all achievements (existing + new)
