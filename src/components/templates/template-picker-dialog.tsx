@@ -38,7 +38,19 @@ import {
   Sparkles,
 } from "lucide-react"
 import type { UseCaseTemplateSummary } from "@astro/core/templates"
+import { previewTemplate as previewTemplateApi } from "@/lib/api-client"
 import type { LaunchTemplateResult } from "@/lib/api-client"
+
+/** Data passed to the Plan page to pre-fill form fields from a template */
+export interface TemplatePrefillData {
+  description: string
+  projectName: string
+  visionDoc?: string
+  machineId?: string
+  workingDirectory?: string
+  preferredProvider?: string
+  model?: string
+}
 
 interface TemplatePickerDialogProps {
   open: boolean
@@ -49,6 +61,12 @@ interface TemplatePickerDialogProps {
    * Use this when you want to handle the launch result (e.g., start SSE plan generation).
    */
   onLaunchSuccess?: (result: LaunchTemplateResult) => void
+  /**
+   * Optional callback to pre-fill the Plan page form instead of launching.
+   * When provided (typically with skipBrowse), the dialog resolves template
+   * parameters and passes the prefill data without creating a project.
+   */
+  onPrefillPlan?: (data: TemplatePrefillData) => void
   /** When set, auto-selects this template and skips to the configure step on open */
   initialTemplateId?: string | null
   /** When true, start directly at Configure step (skip Browse) */
@@ -76,7 +94,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
  *
  * When `skipBrowse` is true, starts directly at Configure (step 2).
  */
-export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, initialTemplateId, skipBrowse }: TemplatePickerDialogProps) {
+export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, onPrefillPlan, initialTemplateId, skipBrowse }: TemplatePickerDialogProps) {
   const navigate = useNavigate()
 
   // Template store state
@@ -368,6 +386,40 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
     if (!valid) return
     await handleLaunch()
   }, [validateConfigStep, handleLaunch])
+
+  // Prefill plan: preview template to resolve description, then pass to Plan page
+  const handlePrefillPlan = useCallback(async () => {
+    if (!selectedTemplate || !onPrefillPlan) return
+    const valid = await validateConfigStep()
+    if (!valid) return
+
+    setIsLaunching(true)
+    try {
+      const preview = await previewTemplateApi(selectedTemplate.id, parameterValues)
+      const visionDoc = buildVisionDoc()
+      const effectiveModel = selectedModel || resolveModel(modelTier, selectedProvider || undefined, customModelMap)
+
+      onPrefillPlan({
+        description: preview.interpolatedPrompts.planGeneration,
+        projectName,
+        visionDoc: visionDoc || preview.interpolatedPrompts.sharedContext || undefined,
+        machineId: selectedMachine?.machineId,
+        workingDirectory: workingDirectory || undefined,
+        preferredProvider: selectedProvider || undefined,
+        model: effectiveModel,
+      })
+      onOpenChange(false)
+    } catch (error) {
+      console.error("Preview failed:", error)
+      useToastStore.getState().add({
+        type: "error",
+        title: "Preview failed",
+        description: error instanceof Error ? error.message : "Failed to resolve template",
+      })
+    } finally {
+      setIsLaunching(false)
+    }
+  }, [selectedTemplate, parameterValues, onPrefillPlan, validateConfigStep, buildVisionDoc, projectName, workingDirectory, selectedMachine?.machineId, selectedProvider, selectedModel, customModelMap, onOpenChange])
 
   // Calculate progress
   const progressPercentage = ((stepOrder.indexOf(currentStep) + 1) / stepOrder.length) * 100
@@ -715,7 +767,9 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
             {currentStep === "launch" || (skipBrowse && currentStep === "configure") ? (
               <Button
                 type="button"
-                onClick={skipBrowse && currentStep === "configure" ? handleDirectLaunch : handleLaunch}
+                onClick={skipBrowse && currentStep === "configure"
+                  ? (onPrefillPlan ? handlePrefillPlan : handleDirectLaunch)
+                  : handleLaunch}
                 disabled={isLaunching || !canProceed()}
               >
                 {isLaunching ? (

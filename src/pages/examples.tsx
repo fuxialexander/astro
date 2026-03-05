@@ -1,11 +1,10 @@
 import { useState, useCallback } from "react"
 import { useNavigate } from "react-router"
 import { BookOpen } from "lucide-react"
-import { TemplatePickerDialog } from "@/components/templates/template-picker-dialog"
+import { TemplatePickerDialog, type TemplatePrefillData } from "@/components/templates/template-picker-dialog"
 import { useTemplateStore } from "@/stores/template-store"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Card } from "@/components/ui/card"
-import type { LaunchTemplateResult } from "@/lib/api-client"
 
 /**
  * Examples Page
@@ -29,9 +28,9 @@ export function Examples() {
     setPickerOpen(true)
   }, [])
 
-  const handleLaunchSuccess = useCallback((result: LaunchTemplateResult) => {
-    // Navigate to Plan page with the launch result — auto-starts plan generation
-    navigate("/plan", { state: { templateLaunchResult: result } })
+  const handlePrefillPlan = useCallback((data: TemplatePrefillData) => {
+    // Navigate to Plan page with prefill data — user reviews and clicks "Start Planning"
+    navigate("/plan", { state: { templatePrefill: data } })
   }, [navigate])
 
   return (
@@ -101,7 +100,7 @@ export function Examples() {
           setPickerOpen(open)
           if (!open) setInitialTemplateId(null)
         }}
-        onLaunchSuccess={handleLaunchSuccess}
+        onPrefillPlan={handlePrefillPlan}
         initialTemplateId={initialTemplateId}
         skipBrowse
       />

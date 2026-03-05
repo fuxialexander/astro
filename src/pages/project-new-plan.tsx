@@ -35,6 +35,7 @@ import { cn } from "@/lib/utils"
 import { deriveAvailableProviders, isProviderAvailable, PROVIDER_NAMES } from "@/components/execution/provider-utils"
 import type { TaskAttachment } from "@/types"
 import type { LaunchTemplateResult } from "@/lib/api-client"
+import type { TemplatePrefillData } from "@/components/templates/template-picker-dialog"
 
 export function ProjectNewPlan() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -43,10 +44,11 @@ export function ProjectNewPlan() {
   const navigate = useNavigate()
 
   // Location state context
-  const locationState = location.state as { fromPlaygroundId?: string; initialTemplateId?: string; templateLaunchResult?: LaunchTemplateResult } | null
+  const locationState = location.state as { fromPlaygroundId?: string; initialTemplateId?: string; templateLaunchResult?: LaunchTemplateResult; templatePrefill?: TemplatePrefillData } | null
   const fromPlaygroundId = locationState?.fromPlaygroundId
   const locationTemplateId = locationState?.initialTemplateId
   const templateLaunchFromExamples = locationState?.templateLaunchResult
+  const templatePrefill = locationState?.templatePrefill
 
   // Input phase state
   const [description, setDescription] = useState("")
@@ -331,6 +333,36 @@ export function ProjectNewPlan() {
       setSelectedMachine(match)
     }
   }, [existingProject?.id, existingProject?.defaultMachineId, existingProjectHasNoNodes, allMachines, fromPlaygroundId])
+
+  // Pre-fill form from template (Examples page → Plan page handoff)
+  const templatePrefilled = useRef(false)
+  useEffect(() => {
+    if (!templatePrefill || templatePrefilled.current) return
+    templatePrefilled.current = true
+
+    setDescription(templatePrefill.description)
+    if (templatePrefill.workingDirectory) setWorkingDir(templatePrefill.workingDirectory)
+    if (templatePrefill.preferredProvider) setSelectedProvider(templatePrefill.preferredProvider)
+    if (templatePrefill.model) setSelectedModel(templatePrefill.model)
+    if (templatePrefill.visionDoc) {
+      setVisionDoc(templatePrefill.visionDoc)
+      setContextOpen(true)
+    }
+
+    // Clear location state so refreshing doesn't re-trigger
+    window.history.replaceState({}, '')
+  }, [templatePrefill])
+
+  // Pre-fill machine from template (async — machines load after mount)
+  const templateMachinePrefilled = useRef(false)
+  useEffect(() => {
+    if (!templatePrefill?.machineId || templateMachinePrefilled.current || allMachines.length === 0) return
+    const match = allMachines.find((m) => m.machineId === templatePrefill.machineId)
+    if (match) {
+      templateMachinePrefilled.current = true
+      setSelectedMachine(match)
+    }
+  }, [templatePrefill?.machineId, allMachines])
 
   // Build visionDoc from playground execution summary
   const playgroundVisionDoc = useMemo(() => {
