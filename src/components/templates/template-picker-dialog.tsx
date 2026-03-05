@@ -164,12 +164,22 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
         })
         return
       }
+
+      // Validate working directory
+      if (!workingDirectory.trim()) {
+        useToastStore.getState().add({
+          type: "error",
+          title: "Working directory required",
+          description: "Please specify a working directory where results will be saved",
+        })
+        return
+      }
     }
 
     if (nextStep) {
       setCurrentStep(nextStep)
     }
-  }, [currentStep, stepOrder, validateParameters, projectName])
+  }, [currentStep, stepOrder, validateParameters, projectName, workingDirectory])
 
   // Handle back navigation
   const handleBack = useCallback(() => {
@@ -236,7 +246,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
       case "browse":
         return !!selectedTemplate
       case "configure":
-        return !!projectName.trim() && validationErrors.length === 0
+        return !!projectName.trim() && !!workingDirectory.trim() && validationErrors.length === 0
       case "launch":
         return true
       default:
@@ -308,7 +318,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="working-directory" className="text-sm font-medium">
-                    Working Directory
+                    Working Directory <span className="text-red-500">*</span>
                   </Label>
                   <Input
                     id="working-directory"
@@ -316,9 +326,10 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
                     value={workingDirectory}
                     onChange={(e) => setWorkingDirectory(e.target.value)}
                     placeholder="/path/to/project"
+                    className={cn(!workingDirectory.trim() && "border-red-500")}
                   />
                   <p className="text-xs text-muted-foreground">
-                    You can also set this on the plan page after selecting a machine
+                    Results will be saved inside this directory (e.g. <code className="text-[10px] bg-muted px-1 py-0.5 rounded">{workingDirectory || '/path/to/project'}/output/</code>)
                   </p>
                 </div>
               </div>
