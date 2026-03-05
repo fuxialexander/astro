@@ -43,9 +43,10 @@ export function ProjectNewPlan() {
   const navigate = useNavigate()
 
   // Location state context
-  const locationState = location.state as { fromPlaygroundId?: string; initialTemplateId?: string } | null
+  const locationState = location.state as { fromPlaygroundId?: string; initialTemplateId?: string; templateLaunchResult?: LaunchTemplateResult } | null
   const fromPlaygroundId = locationState?.fromPlaygroundId
   const locationTemplateId = locationState?.initialTemplateId
+  const templateLaunchFromExamples = locationState?.templateLaunchResult
 
   // Input phase state
   const [description, setDescription] = useState("")
@@ -60,6 +61,7 @@ export function ProjectNewPlan() {
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
   const [initialTemplateId, setInitialTemplateId] = useState<string | null>(null)
   const [templateLaunching, setTemplateLaunching] = useState(false)
+  const [examplesAutoLaunching, setExamplesAutoLaunching] = useState(false)
   const [contextOpen, setContextOpen] = useState(false)
   const [visionDoc, setVisionDoc] = useState("")
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
@@ -511,6 +513,19 @@ export function ProjectNewPlan() {
     }
   }, [startPlanSessionForProject, setSearchParams])
 
+  // Auto-launch from Examples page (templateLaunchResult passed via location state)
+  const templateLaunchHandled = useRef(false)
+  useEffect(() => {
+    if (!templateLaunchFromExamples || templateLaunchHandled.current) return
+    templateLaunchHandled.current = true
+    setExamplesAutoLaunching(true)
+    handleTemplateLaunch(templateLaunchFromExamples).finally(() => {
+      setExamplesAutoLaunching(false)
+      // Clear location state so refreshing doesn't re-trigger
+      window.history.replaceState({}, '')
+    })
+  }, [templateLaunchFromExamples, handleTemplateLaunch])
+
   async function handleSubmit() {
     if (!description.trim() || isSubmitting || pendingUploads > 0) return
     setIsSubmitting(true)
@@ -604,6 +619,16 @@ export function ProjectNewPlan() {
             resetForm()
           }}
         />
+      </div>
+    )
+  }
+
+  // ─── Auto-launching from Examples ───────────────────────────────
+  if (examplesAutoLaunching) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center gap-4">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Starting plan from example...</p>
       </div>
     )
   }
