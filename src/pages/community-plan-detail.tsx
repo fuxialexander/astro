@@ -6,10 +6,13 @@ import {
   ReactFlowProvider,
   Background,
   BackgroundVariant,
+  ConnectionLineType,
   type Node,
   type Edge,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
+import { TaskNode } from "@/components/plan-graph/task-node"
+import { DeletableEdge } from "@/components/plan-graph/deletable-edge"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { formatDistanceToNow } from "date-fns"
@@ -239,41 +242,49 @@ function PlanNodeList({ nodes, edges }: { nodes: Array<Record<string, unknown>>;
 
 // ── Read-Only Plan Graph View ──────────────────────────────────────────
 
-const readOnlyNodeStyle: React.CSSProperties = {
-  padding: "8px 12px",
-  borderRadius: 8,
-  border: "1px solid var(--border)",
-  background: "var(--card)",
-  fontSize: 12,
-  fontWeight: 500,
-  color: "var(--foreground)",
-  maxWidth: 200,
-  textAlign: "center" as const,
-  whiteSpace: "nowrap" as const,
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-}
+// Reuse the same node/edge types as the project graph for visual consistency
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const readOnlyNodeTypes = { task: TaskNode as any }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const readOnlyEdgeTypes = { deletable: DeletableEdge as any }
 
 function ReadOnlyPlanGraphInner({ nodes, edges }: { nodes: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>> }) {
   const rfNodes: Node[] = useMemo(() =>
     nodes.map((n) => ({
       id: n.id as string,
       position: (n.position as { x: number; y: number }) || { x: 0, y: 0 },
-      data: { label: (n.title as string) || "Untitled" },
-      style: readOnlyNodeStyle,
-      type: "default",
+      type: "task",
+      data: {
+        title: (n.title as string) || "Untitled",
+        description: (n.description as string) || "",
+        status: (n.status as string) || "planned",
+        nodeType: (n.type as string) || "task",
+        priority: (n.priority as string) || undefined,
+        readOnly: true,
+      },
     })),
     [nodes]
   )
 
   const rfEdges: Edge[] = useMemo(() =>
-    edges.map((e) => ({
-      id: (e.id as string) || `${e.source}-${e.target}`,
-      source: e.source as string,
-      target: e.target as string,
-      style: { stroke: "#94A3B8", strokeWidth: 2 },
-    })),
-    [edges]
+    edges.map((e) => {
+      const targetNode = nodes.find((n) => (n.id as string) === (e.target as string))
+      const status = (targetNode?.status as string) || "planned"
+      const edgeColor = (() => {
+        if (status === "completed" || status === "auto_verified") return "#22C55E"
+        if (status === "in_progress" || status === "dispatched") return "#F97316"
+        return "#94A3B8"
+      })()
+      return {
+        id: (e.id as string) || `${e.source}-${e.target}`,
+        source: e.source as string,
+        target: e.target as string,
+        type: "deletable",
+        data: { readOnly: true },
+        style: { stroke: edgeColor, strokeWidth: 2.5, strokeLinecap: "round" as const },
+      }
+    }),
+    [edges, nodes]
   )
 
   if (nodes.length === 0) {
@@ -289,6 +300,9 @@ function ReadOnlyPlanGraphInner({ nodes, edges }: { nodes: Array<Record<string, 
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
+        nodeTypes={readOnlyNodeTypes}
+        edgeTypes={readOnlyEdgeTypes}
+        connectionLineType={ConnectionLineType.SmoothStep}
         fitView
         fitViewOptions={{ padding: 0.3 }}
         proOptions={{ hideAttribution: true }}
