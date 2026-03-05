@@ -170,49 +170,50 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
     [setParameterValue]
   )
 
+  // Shared validation for the configure step
+  const validateConfigStep = useCallback(async (): Promise<boolean> => {
+    const isValid = await validateParameters()
+    if (!isValid) {
+      useToastStore.getState().add({
+        type: "error",
+        title: "Validation failed",
+        description: "Please fix the parameter errors before continuing",
+      })
+      return false
+    }
+    if (!projectName.trim()) {
+      useToastStore.getState().add({
+        type: "error",
+        title: "Project name required",
+        description: "Please enter a name for your project",
+      })
+      return false
+    }
+    if (!workingDirectory.trim()) {
+      useToastStore.getState().add({
+        type: "error",
+        title: "Working directory required",
+        description: "Please specify a working directory where results will be saved",
+      })
+      return false
+    }
+    return true
+  }, [validateParameters, projectName, workingDirectory])
+
   // Validate and move to next step
   const handleNext = useCallback(async () => {
     const stepIndex = stepOrder.indexOf(currentStep)
     const nextStep = stepOrder[stepIndex + 1]
 
-    // Validation before moving forward
     if (currentStep === "configure") {
-      // Validate parameters
-      const isValid = await validateParameters()
-      if (!isValid) {
-        useToastStore.getState().add({
-          type: "error",
-          title: "Validation failed",
-          description: "Please fix the parameter errors before continuing",
-        })
-        return
-      }
-
-      // Validate project name
-      if (!projectName.trim()) {
-        useToastStore.getState().add({
-          type: "error",
-          title: "Project name required",
-          description: "Please enter a name for your project",
-        })
-        return
-      }
-
-      // Validate working directory
-      if (!workingDirectory.trim()) {
-        useToastStore.getState().add({
-          type: "error",
-          title: "Working directory required",
-          description: "Please specify a working directory where results will be saved",
-        })
-        return
-      }
+      const valid = await validateConfigStep()
+      if (!valid) return
     }
 
     if (nextStep) {
       setCurrentStep(nextStep)
     }
-  }, [currentStep, stepOrder, validateParameters, projectName, workingDirectory])
+  }, [currentStep, stepOrder, validateConfigStep])
 
   // Handle back navigation
   const handleBack = useCallback(() => {
@@ -270,6 +271,13 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
     onLaunchSuccess,
     navigate,
   ])
+
+  // Direct launch from configure step (skipBrowse mode — validates then launches)
+  const handleDirectLaunch = useCallback(async () => {
+    const valid = await validateConfigStep()
+    if (!valid) return
+    await handleLaunch()
+  }, [validateConfigStep, handleLaunch])
 
   // Calculate progress
   const progressPercentage = ((stepOrder.indexOf(currentStep) + 1) / stepOrder.length) * 100
@@ -477,22 +485,26 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>Create Project from Template</DialogTitle>
+          <DialogTitle>{skipBrowse ? "Configure Example" : "Create Project from Template"}</DialogTitle>
           <DialogDescription>
-            Choose a template and configure it to quickly start your project
+            {skipBrowse
+              ? "Set your machine and working directory, then enter Plan Mode"
+              : "Choose a template and configure it to quickly start your project"}
           </DialogDescription>
         </DialogHeader>
 
-        {/* Progress indicator */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-medium text-foreground">{STEP_LABELS[currentStep]}</span>
-            <span className="text-muted-foreground">
-              Step {stepOrder.indexOf(currentStep) + 1} of {stepOrder.length}
-            </span>
+        {/* Progress indicator — only show for multi-step flow */}
+        {!skipBrowse && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium text-foreground">{STEP_LABELS[currentStep]}</span>
+              <span className="text-muted-foreground">
+                Step {stepOrder.indexOf(currentStep) + 1} of {stepOrder.length}
+              </span>
+            </div>
+            <Progress value={progressPercentage} className="h-1" />
           </div>
-          <Progress value={progressPercentage} className="h-1" />
-        </div>
+        )}
 
         {/* Step content */}
         <div className="flex-1 min-h-0">{renderStepContent()}</div>
@@ -513,10 +525,10 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
             )}
           </div>
           <div className="flex gap-2">
-            {currentStep === "launch" ? (
+            {currentStep === "launch" || (skipBrowse && currentStep === "configure") ? (
               <Button
                 type="button"
-                onClick={handleLaunch}
+                onClick={skipBrowse && currentStep === "configure" ? handleDirectLaunch : handleLaunch}
                 disabled={isLaunching || !canProceed()}
               >
                 {isLaunching ? (
@@ -527,7 +539,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
                 ) : (
                   <>
                     <Rocket className="h-4 w-4 mr-2" />
-                    Launch Project
+                    {skipBrowse ? "Enter Plan Mode" : "Launch Project"}
                   </>
                 )}
               </Button>

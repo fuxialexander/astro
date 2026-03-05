@@ -1,9 +1,11 @@
 import { useState, useCallback } from "react"
+import { useNavigate } from "react-router"
 import { BookOpen } from "lucide-react"
 import { TemplatePickerDialog } from "@/components/templates/template-picker-dialog"
 import { useTemplateStore } from "@/stores/template-store"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Card } from "@/components/ui/card"
+import type { LaunchTemplateResult } from "@/lib/api-client"
 
 /**
  * Examples Page
@@ -15,6 +17,7 @@ import { Card } from "@/components/ui/card"
  * at the Configure step (skipping the Browse step).
  */
 export function Examples() {
+  const navigate = useNavigate()
   const templates = useTemplateStore((s) => s.templates)
   const isLoading = useTemplateStore((s) => s.isLoading)
 
@@ -25,6 +28,10 @@ export function Examples() {
     setInitialTemplateId(templateId)
     setPickerOpen(true)
   }, [])
+
+  const handleLaunchSuccess = useCallback((result: LaunchTemplateResult) => {
+    navigate("/plan", { state: { templateLaunchResult: result } })
+  }, [navigate])
 
   return (
     <div className="flex flex-1 flex-col min-w-0 h-full">
@@ -93,6 +100,7 @@ export function Examples() {
           setPickerOpen(open)
           if (!open) setInitialTemplateId(null)
         }}
+        onLaunchSuccess={handleLaunchSuccess}
         initialTemplateId={initialTemplateId}
         skipBrowse
       />
