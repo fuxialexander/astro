@@ -233,7 +233,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
     setIsLaunching(true)
     try {
       // Call the store's launch method which returns the result
-      const result = await launchTemplate(projectName, workingDirectory || undefined)
+      const result = await launchTemplate(projectName, workingDirectory || undefined, selectedMachine?.machineId)
 
       if (result) {
         // Close dialog
