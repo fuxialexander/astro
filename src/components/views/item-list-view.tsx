@@ -612,7 +612,7 @@ export function ItemListView<T>({
             />
           ))}
         </div>
-        {headerActions && (
+        {headerActions && !someSelected && (
           <div className="ml-auto shrink-0 flex items-center">
             {headerActions}
           </div>
