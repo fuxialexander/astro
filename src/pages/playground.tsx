@@ -552,7 +552,6 @@ export function Playground() {
       default:
         return null
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- inputRef is stable
   }, [displayBlocks.length, isRunning, isChatStreaming, answeredRequestIds, allActivityEvents, handleApprovalResponse])
 
   // Go back to landing phase
