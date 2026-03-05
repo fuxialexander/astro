@@ -149,8 +149,8 @@ export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine }
                     type="button"
                     className={`flex items-center justify-between rounded-lg p-2.5 w-full text-left transition-colors ${
                       isDefault
-                        ? "bg-primary/10 ring-1 ring-primary/30"
-                        : "bg-muted hover:bg-muted/80"
+                        ? "bg-primary/15 ring-2 ring-primary/50 dark:bg-primary/20 dark:ring-primary/40"
+                        : "bg-muted/50 hover:bg-muted/80"
                     }`}
                     onClick={() => setDefaultProvider(isDefault ? "" : p.type)}
                   >
@@ -167,7 +167,7 @@ export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine }
                         <span className="text-xs text-muted-foreground">{p.currentTasks}/{p.maxConcurrentTasks} tasks</span>
                       )}
                       {isDefault ? (
-                        <Badge className="text-[10px] bg-primary/20 text-primary border-0">Default</Badge>
+                        <Badge className="text-[10px] bg-primary/25 text-primary font-semibold border-0 dark:bg-primary/30">Default</Badge>
                       ) : (
                         <Badge variant={p.status === "available" ? "success" : "warning"} className="text-[10px]">
                           {p.status === "available" ? "Ready" : "Unavailable"}
@@ -188,8 +188,8 @@ export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine }
                     type="button"
                     className={`flex items-center justify-between rounded-lg p-2.5 w-full text-left transition-colors ${
                       isDefault
-                        ? "bg-primary/10 ring-1 ring-primary/30"
-                        : "bg-muted hover:bg-muted/80"
+                        ? "bg-primary/15 ring-2 ring-primary/50 dark:bg-primary/20 dark:ring-primary/40"
+                        : "bg-muted/50 hover:bg-muted/80"
                     }`}
                     onClick={() => setDefaultProvider(isDefault ? "" : p)}
                   >
@@ -198,7 +198,7 @@ export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine }
                       <span className="text-sm font-medium">{providerDisplayName[p] ?? p}</span>
                     </div>
                     {isDefault ? (
-                      <Badge className="text-[10px] bg-primary/20 text-primary border-0">Default</Badge>
+                      <Badge className="text-[10px] bg-primary/25 text-primary font-semibold border-0 dark:bg-primary/30">Default</Badge>
                     ) : (
                       <Badge variant="secondary" className="text-[10px]">
                         {isOnline ? "Detected" : "Last known"}
