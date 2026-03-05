@@ -28,6 +28,7 @@ import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.
 import { isServerMode } from '../lib/app-mode.js'
 import { getServiceClient } from '../lib/supabase.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
+import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import { extractRepoInfo } from '../lib/git-url-utils.js'
 
 /**
@@ -796,7 +797,7 @@ app.patch('/plan/nodes/:id', async (c) => {
 /**
  * Find downstream nodes whose dependencies are all completed, emit task:ready SSE events.
  */
-async function autoDispatchDownstream(projectId: string, completedNodeId: string): Promise<void> {
+export async function autoDispatchDownstream(projectId: string, completedNodeId: string): Promise<void> {
   const allNodes = await db.select().from(planNodes)
     .where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
   const allEdges = await db.select().from(planEdges)
@@ -825,16 +826,22 @@ async function autoDispatchDownstream(projectId: string, completedNodeId: string
     }
   }
 
-  // Stagger task:ready events with 15s delay between each to avoid
+  // Stagger dispatch with 15s delay between each to avoid
   // overwhelming the system when many downstream tasks become ready at once
   const STAGGER_DELAY_MS = 15_000
   readyIds.forEach((downId, index) => {
-    if (index === 0) {
+    const dispatch = () => {
+      // Server-side dispatch (works even if browser disconnected)
+      serverSideDispatch(downId, projectId).catch((err) => {
+        console.error('[data] Server-side dispatch failed for', downId, ':', err)
+      })
+      // Still emit for UI notification
       executionEventBus.emit('task:ready', { nodeId: downId, projectId })
+    }
+    if (index === 0) {
+      dispatch()
     } else {
-      setTimeout(() => {
-        executionEventBus.emit('task:ready', { nodeId: downId, projectId })
-      }, index * STAGGER_DELAY_MS)
+      setTimeout(dispatch, index * STAGGER_DELAY_MS)
     }
   })
 }

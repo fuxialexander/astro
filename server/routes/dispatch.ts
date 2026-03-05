@@ -30,6 +30,7 @@ import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch } fro
 import { skillManager } from '../lib/skill-manager.js'
 import { extractPlanJsonFromText, retryPlanExtractionWithHaiku } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
+import { autoDispatchDownstream } from './data.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup)
 const dispatchedTaskDirs = new Map<string, string>()  // taskId → workingDirectory
@@ -1238,6 +1239,14 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         .set(nodePatch)
         .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
         .execute()
+        .then(() => {
+          // Auto-dispatch downstream tasks server-side (works even if browser disconnected)
+          if (finalNodeStatus === 'auto_verified') {
+            autoDispatchDownstream(projectId, nodeId).catch((err) => {
+              console.error('[dispatch] Auto-dispatch downstream failed:', err)
+            })
+          }
+        })
         .catch((err: unknown) => {
           console.error('[dispatch] Error persisting execution result to plan node:', err)
         })

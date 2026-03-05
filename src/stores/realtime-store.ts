@@ -1501,16 +1501,8 @@ function handleRealtimeEvent(
     }
 
     case 'task:ready': {
-      const nodeId = data.nodeId as string
-      const projectId = data.projectId as string
-
-      addActivity(set, 'info', `Auto-dispatching downstream task`)
-
-      // Dispatch with a small delay to avoid dispatching during SSE handler
-      setTimeout(() => {
-        const executionStore = useExecutionStore.getState()
-        executionStore.startExecution(nodeId, projectId)
-      }, 500)
+      addActivity(set, 'info', `Downstream task dispatching server-side`)
+      // Server handles dispatch — frontend just tracks status via SSE
       break
     }
   }

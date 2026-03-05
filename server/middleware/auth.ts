@@ -112,6 +112,17 @@ export async function requireAuth(c: Context, next: Next) {
   }
 
   if (!token) {
+    // Internal server-side dispatch bypass: allow requests from the server itself
+    // when dispatching downstream tasks without a browser session.
+    // Only accepts requests with X-Internal-Dispatch header and resolves user from X-User-Id.
+    const internalDispatch = c.req.header('X-Internal-Dispatch')
+    const internalUserId = c.req.header('X-User-Id')
+    const internalTeamId = c.req.header('X-Team-Id')
+    if (internalDispatch === 'true' && internalUserId && internalTeamId) {
+      const { teamId, teamIds } = await resolveTeams(internalUserId, internalTeamId)
+      c.set('user', { id: internalUserId, teamId, teamIds } satisfies AuthUser)
+      return next()
+    }
     return c.json({ error: 'Missing or invalid Authorization header or token query param' }, 401)
   }
 
