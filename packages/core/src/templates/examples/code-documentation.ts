@@ -16,7 +16,7 @@ import type { UseCaseTemplate } from '../../types/use-case-template.js'
 
 export const codeDocumentationTemplate: UseCaseTemplate = {
   // ── Identity ──────────────────────────────────────────────────────────
-  id: 'astro/code-documentation',
+  id: 'astro--code-documentation',
   name: 'Code Documentation Generator',
   description:
     'Generate comprehensive documentation for any GitHub repository. Analyzes code structure, extracts API signatures, and produces a complete documentation suite including API reference, architecture overview, getting started guide, and tutorials. Outputs markdown files suitable for static site generators (Docusaurus, VitePress, MkDocs).',

@@ -9,7 +9,7 @@ import type { UseCaseTemplate } from '../../types/use-case-template.js'
 
 export const mlPipelineTemplate: UseCaseTemplate = {
   // ── Identity ──────────────────────────────────────────────────────────
-  id: 'astro/ml-pipeline',
+  id: 'astro--ml-pipeline',
   name: 'ML Training Pipeline',
   description:
     'Machine learning training pipeline covering data preparation, model architecture, training loop, evaluation, and experiment tracking. Supports GPU-aware task dispatch, SLURM/Docker execution strategies, and structured experiment results.',

@@ -9,7 +9,7 @@ import type { UseCaseTemplate } from '../../types/use-case-template.js'
 
 export const apiDevelopmentTemplate: UseCaseTemplate = {
   // ── Identity ──────────────────────────────────────────────────────────
-  id: 'astro/api-development',
+  id: 'astro--api-development',
   name: 'API Development',
   description:
     'Backend API development covering endpoint design, data models, authentication, validation, error handling, and comprehensive API testing. Supports REST with OpenAPI specification or GraphQL with schema-first design.',

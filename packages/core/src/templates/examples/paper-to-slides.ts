@@ -18,7 +18,7 @@ import type { UseCaseTemplate } from '../../types/use-case-template.js'
 
 export const paperToSlidesTemplate: UseCaseTemplate = {
   // ── Identity ──────────────────────────────────────────────────────────
-  id: 'astro/paper-to-slides',
+  id: 'astro--paper-to-slides',
   name: 'Paper to Slides',
   description:
     'Convert academic papers into polished Slidev presentation decks. Fetches arXiv LaTeX/PDF or GitHub repositories, analyzes paper structure, extracts key equations and figures, and generates a modular slide deck with per-section slides, speaker notes, and LaTeX math rendering. Supports customizable audience levels, slide counts, and visual themes.',

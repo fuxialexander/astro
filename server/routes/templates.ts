@@ -515,7 +515,7 @@ templatesRoute.get('/:id', async (c) => {
   const user = c.get('user')! as AuthUser
   const templateId = c.req.param('id')
 
-  // Decode URL-encoded template IDs (e.g., "astro%2Fweb-app" -> "astro/web-app")
+  // Decode URL-encoded template IDs (e.g., "custom%2Fuuid" -> "custom/uuid")
   const decodedId = decodeURIComponent(templateId)
 
   // Check if this is a custom template

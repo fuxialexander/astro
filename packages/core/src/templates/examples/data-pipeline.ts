@@ -9,7 +9,7 @@ import type { UseCaseTemplate } from '../../types/use-case-template.js'
 
 export const dataPipelineTemplate: UseCaseTemplate = {
   // ── Identity ──────────────────────────────────────────────────────────
-  id: 'astro/data-pipeline',
+  id: 'astro--data-pipeline',
   name: 'Data Pipeline',
   description:
     'ETL/ELT data pipeline covering data ingestion, transformation, validation, and loading. Supports batch and streaming architectures with orchestration setup (Airflow, Prefect) and data quality monitoring.',
