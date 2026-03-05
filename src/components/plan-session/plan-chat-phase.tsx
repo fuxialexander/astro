@@ -16,7 +16,6 @@ import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { usePlanStore } from "@/stores/plan-store"
-import { useAgentStore } from "@/stores/agent-store"
 import { planChatWithAgent, fetchStreamingEventsCatchUp, replayChatCatchUpEvents, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import {
   groupActivityEvents,
@@ -37,6 +36,7 @@ import { PlanSessionHeader } from "./plan-session-header"
 import type { TaskActivityEvent } from "@/types"
 import { useRestoredExecution } from "@/hooks/use-restored-execution"
 import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
+import { useChatActivityEvents } from "@/hooks/use-chat-activity-events"
 import { Link } from "react-router"
 
 interface PlanChatPhaseProps {
@@ -151,7 +151,7 @@ export function PlanChatPhase({
     isRunning,
   )
 
-  // Chat stream events (proper text/tool_use/tool_result tracking)
+  // Chat stream events (proper text/tool_use/tool_result tracking for live streaming)
   const {
     chatEventsRef,
     chatEventsVersion,
@@ -160,40 +160,21 @@ export function PlanChatPhase({
     chatToolCounterRef,
   } = useChatStreamEvents()
 
-  // Restore chat events from persisted session messages after page refresh.
-  // On a live session, chatEventsRef is populated by pushChatEvent during streaming.
-  // After refresh, the ref is empty — reconstruct display events from the session
-  // messages that were already saved to the DB via addMessage().
-  useEffect(() => {
-    if (!sessionsLoaded) return
-    if (!chatSession) return
-    if (chatEventsRef.current.length > 0) return // already populated (live session)
-    const messages = chatSession.messages
-    if (!messages || messages.length === 0) return
+  // Hydrate chat events from streaming_events DB after page refresh
+  const sessionMessages = useMemo(() => chatSession?.messages || [], [chatSession?.messages])
+  const { activityEvents: hydratedChatEvents } = useChatActivityEvents(
+    chatSession?.id,
+    sessionMessages,
+    isChatStreaming,
+  )
 
-    const restoredChatEvents: TaskActivityEvent[] = messages
-      .filter((m) => m.role === 'user' || m.role === 'assistant')
-      .map((m) => {
-        const ts = m.timestamp instanceof Date ? m.timestamp : new Date(m.timestamp)
-        if (m.role === 'user') {
-          return { type: 'chat_user' as const, message: m.content, timestamp: ts }
-        } else {
-          return { type: 'chat_assistant' as const, content: m.content, timestamp: ts }
-        }
-      })
-
-    if (restoredChatEvents.length > 0) {
-      chatEventsRef.current = restoredChatEvents
-      flushChatEvents()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- chatEventsRef is a stable ref; sessionsLoaded+chatSession drive restoration
-  }, [sessionsLoaded, chatSession, flushChatEvents])
-
+  // Merge: during live streaming use chatEventsRef; after refresh use hydrated events
   const allActivityEvents: TaskActivityEvent[] = useMemo(() => {
     void chatEventsVersion // re-compute when chat events change
-    return [...activityEvents, ...chatEventsRef.current]
+    const chatEvents = chatEventsRef.current.length > 0 ? chatEventsRef.current : hydratedChatEvents
+    return [...activityEvents, ...chatEvents]
   // eslint-disable-next-line react-hooks/exhaustive-deps -- chatEventsRef is a stable ref
-  }, [activityEvents, chatEventsVersion])
+  }, [activityEvents, chatEventsVersion, hydratedChatEvents])
 
   // Group events for display
   const displayBlocks = useMemo(() => groupActivityEvents(allActivityEvents), [allActivityEvents])
@@ -272,9 +253,8 @@ export function PlanChatPhase({
 
     const sid = chatSession.id
 
-    // Generate a stable per-turn streamId for event persistence and catch-up
-    const turnStreamId = `plan-chat-${projectId}-${Date.now()}`
-    useAgentStore.getState().updateInteractiveSession(projectId, { streamId: turnStreamId, lastSeq: 0 })
+    // Use stable session ID as streamId so all turns persist under one key
+    const turnStreamId = sid
     chatStreamRef.current = { streamId: turnStreamId, lastSeq: 0 }
 
     // Add user message as activity event for display

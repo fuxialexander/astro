@@ -285,6 +285,9 @@ async function streamChatViaRelay(
           return
         }
       }
+      // Flush buffered text to DB periodically so catch-up hydration has recent data
+      // (text is normally only flushed on structural events like tool_use or result)
+      streamingEventLog.flushText(persistId).catch(() => {})
       stream.writeSSE({ event: 'heartbeat', data: '' }).catch(() => { alive = false; clearInterval(heartbeat) })
     }, 15000)
 

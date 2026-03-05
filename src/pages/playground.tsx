@@ -59,6 +59,7 @@ import { deriveAvailableProviders, PROVIDER_NAMES } from "@/components/execution
 import type { TaskActivityEvent } from "@/types"
 import { useRestoredExecution } from "@/hooks/use-restored-execution"
 import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
+import { useChatActivityEvents } from "@/hooks/use-chat-activity-events"
 
 // Identify playground projects by the projectType field (persisted) or execution key (in-memory fallback)
 function isPlaygroundProject(project: { projectType?: string; id: string }, executions: Map<string, unknown>): boolean {
@@ -252,7 +253,7 @@ export function Playground() {
     isRunning,
   )
 
-  // Chat stream events (proper text/tool_use/tool_result tracking)
+  // Chat stream events (proper text/tool_use/tool_result tracking for live streaming)
   const {
     chatEventsRef,
     chatEventsVersion,
@@ -261,11 +262,21 @@ export function Playground() {
     chatToolCounterRef,
   } = useChatStreamEvents()
 
+  // Hydrate chat events from streaming_events DB after page refresh
+  const playgroundSessionMessages = useMemo(() => chatSession?.messages || [], [chatSession?.messages])
+  const { activityEvents: hydratedChatEvents } = useChatActivityEvents(
+    chatSession?.id,
+    playgroundSessionMessages,
+    isChatStreaming,
+  )
+
+  // Merge: during live streaming use chatEventsRef; after refresh use hydrated events
   const allActivityEvents: TaskActivityEvent[] = useMemo(() => {
     void chatEventsVersion
-    return [...activityEvents, ...chatEventsRef.current]
+    const chatEvents = chatEventsRef.current.length > 0 ? chatEventsRef.current : hydratedChatEvents
+    return [...activityEvents, ...chatEvents]
   // eslint-disable-next-line react-hooks/exhaustive-deps -- chatEventsRef is a stable ref
-  }, [activityEvents, chatEventsVersion])
+  }, [activityEvents, chatEventsVersion, hydratedChatEvents])
 
   const displayBlocks = useMemo(() => groupActivityEvents(allActivityEvents), [allActivityEvents])
 
@@ -418,6 +429,7 @@ export function Playground() {
         {
           message: text,
           sessionId: chatSession.providerSessionId,
+          streamId: sid,
           nodeId: playgroundNodeId,
           projectId: activeProjectId,
           taskTitle: sessionTitle,
