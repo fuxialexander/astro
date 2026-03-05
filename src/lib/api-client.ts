@@ -1115,6 +1115,7 @@ export interface LaunchTemplateParams {
   /** Optional vision doc override (e.g. combined skill instructions) */
   visionDoc?: string
   model?: string
+  preferredProvider?: string
   fileTree?: string[]
   keyFiles?: {
     claudeMd?: string
@@ -1154,6 +1155,7 @@ export interface LaunchTemplateResult {
     description: string
     visionDoc: string
     model?: string
+    preferredProvider?: string
     workingDirectory?: string
     targetMachineId?: string
     fileTree?: string[]

@@ -361,8 +361,9 @@ const launchTemplateSchema = z.object({
   // When provided, this becomes the project's visionDoc instead of the interpolated template prompt
   visionDoc: z.string().max(500000).optional(),
 
-  // Model preferences
+  // Model / provider preferences
   model: z.string().max(100).optional(),
+  preferredProvider: z.string().max(100).optional(),
 
   // Repository context (sent from client)
   fileTree: z.array(z.string().max(1000)).max(10000).optional(),
@@ -759,6 +760,7 @@ templatesRoute.post('/:id/launch', async (c) => {
     description: fullDescription,
     visionDoc: fullDescription,
     model: body.model,
+    preferredProvider: body.preferredProvider,
     workingDirectory: body.workingDirectory,
     targetMachineId: body.targetMachineId,
     fileTree: body.fileTree,

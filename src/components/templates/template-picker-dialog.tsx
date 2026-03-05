@@ -18,6 +18,8 @@ import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { useTemplateStore } from "@/stores/template-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
+import { useSettingsStore, resolveModel, type ModelTier } from "@/stores/settings-store"
+import { deriveAvailableProviders, isProviderAvailable, PROVIDER_NAMES } from "@/components/execution/provider-utils"
 import { apiUrl } from "@/lib/api-url"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
@@ -26,6 +28,7 @@ import { cn } from "@/lib/utils"
 import {
   ArrowLeft,
   ArrowRight,
+  Bot,
   ChevronDown,
   ChevronRight,
   FolderOpen,
@@ -117,13 +120,42 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
   const stepOrder = skipBrowse ? SKIP_BROWSE_STEP_ORDER : FULL_STEP_ORDER
   const firstStep = stepOrder[0]
 
+  // Provider state
+  const globalProviders = useExecutionStore((s) => s.providers)
+  const providersLoaded = useExecutionStore((s) => s.providersLoaded)
+  const loadProviders = useExecutionStore((s) => s.loadProviders)
+  const customModelMap = useSettingsStore((s) => s.customModelMap)
+  const modelTier: ModelTier = "large"
+
   // Local wizard state
   const [currentStep, setCurrentStep] = useState<WizardStep>(firstStep)
   const [projectName, setProjectName] = useState("")
   const [workingDirectory, setWorkingDirectory] = useState("")
   const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
+  const [selectedProvider, setSelectedProvider] = useState("")
+  const [selectedModel, setSelectedModel] = useState("")
   const [showPathBrowser, setShowPathBrowser] = useState(false)
   const [isLaunching, setIsLaunching] = useState(false)
+
+  const availableProviders = useMemo(
+    () => deriveAvailableProviders(selectedMachine?.providers, globalProviders),
+    [selectedMachine?.providers, globalProviders]
+  )
+
+  // Load providers on mount
+  useEffect(() => {
+    if (!providersLoaded) loadProviders()
+  }, [providersLoaded, loadProviders])
+
+  // Reset provider/model when machine changes and current provider isn't available
+  useEffect(() => {
+    if (selectedProvider && availableProviders.length > 0) {
+      if (!isProviderAvailable(selectedProvider, availableProviders)) {
+        setSelectedProvider("")
+        setSelectedModel("")
+      }
+    }
+  }, [selectedMachine?.machineId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Skill state — fetched from recommended skills, editable by user
   const [skillInstructions, setSkillInstructions] = useState<Record<string, string>>({})
@@ -171,6 +203,8 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
       setProjectName("")
       setWorkingDirectory("")
       setSelectedMachine(null)
+      setSelectedProvider("")
+      setSelectedModel("")
       setShowPathBrowser(false)
       setIsLaunching(false)
       reset()
@@ -284,8 +318,9 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
     setIsLaunching(true)
     try {
       const visionDoc = buildVisionDoc()
+      const effectiveModel = selectedModel || resolveModel(modelTier, selectedProvider || undefined, customModelMap)
       // Call the store's launch method which returns the result
-      const result = await launchTemplate(projectName, workingDirectory || undefined, selectedMachine?.machineId, visionDoc)
+      const result = await launchTemplate(projectName, workingDirectory || undefined, selectedMachine?.machineId, visionDoc, selectedProvider || undefined, effectiveModel)
 
       if (result) {
         // Close dialog
@@ -317,6 +352,9 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
     projectName,
     workingDirectory,
     selectedMachine?.machineId,
+    selectedProvider,
+    selectedModel,
+    customModelMap,
     launchTemplate,
     onOpenChange,
     onLaunchSuccess,
@@ -487,6 +525,47 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
                   </div>
                 )}
 
+                {/* Provider selector — shown when providers are available */}
+                {availableProviders.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">AI Provider</Label>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedProvider(""); setSelectedModel("") }}
+                        className={cn(
+                          "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
+                          !selectedProvider
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border hover:bg-muted"
+                        )}
+                      >
+                        <Bot className="h-3 w-3" />
+                        Auto
+                      </button>
+                      {availableProviders.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedProvider(selectedProvider === p.id ? "" : p.id)
+                            setSelectedModel("")
+                          }}
+                          className={cn(
+                            "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
+                            selectedProvider === p.id
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border hover:bg-muted"
+                          )}
+                        >
+                          <Bot className="h-3 w-3" />
+                          {PROVIDER_NAMES[p.id] || p.name || p.id}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Working directory — only shown when a machine is selected */}
                 {selectedMachine && (
                 <div className="space-y-2">
@@ -564,6 +643,12 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-muted-foreground">Machine:</span>
                   <span className="font-medium">{selectedMachine.name}</span>
+                </div>
+              )}
+              {selectedProvider && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Provider:</span>
+                  <span className="font-medium">{PROVIDER_NAMES[selectedProvider] || selectedProvider}</span>
                 </div>
               )}
               {workingDirectory && (
