@@ -677,12 +677,12 @@ export function Playground() {
               </div>
             )}
 
-            {/* Original prompt bubble */}
-            {sessionTitle && (
+            {/* Original prompt bubble — only show if project has a real name (not the fallback) */}
+            {project?.name && (
               <div className="flex flex-col items-end gap-1 px-4 py-1.5">
                 <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">You</span>
                 <div className="group/prompt relative rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground max-w-[80%]">
-                  <p className="whitespace-pre-wrap">{sessionTitle}</p>
+                  <p className="whitespace-pre-wrap">{project.name}</p>
                   {!isRunning && (
                     <button
                       onClick={handleRetry}
