@@ -15,10 +15,6 @@ import {
   Scissors,
   Loader2,
   ClipboardCheck,
-  Sparkles,
-  Globe,
-  LayoutTemplate,
-  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -30,9 +26,7 @@ import { useRealtimeStore, type ActivityEvent } from "@/stores/realtime-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useAgentStore } from "@/stores/agent-store"
-import { useTemplateStore } from "@/stores/template-store"
 import { useStatsStore } from "@/stores/stats-store"
-import type { UseCaseTemplateSummary } from "@astro/core/templates"
 import { ApprovalCard } from "@/components/approval-card"
 import { InlineApprovalCard } from "@/components/plan-session/inline-approval-card"
 import { ActivityOverview } from "@/components/dashboard/activity-overview"
@@ -45,8 +39,6 @@ import { ProjectHealthCard } from "@/components/dashboard/project-health-card"
 import { formatCompactNumber } from "@astro/core/achievements"
 import { cn } from "@/lib/utils"
 import { formatRelativeTime } from "@/lib/date-utils"
-
-const DISMISSED_KEY = "astro:getting-started-dismissed"
 
 const activityIcons: Record<string, { icon: typeof Activity; color: string }> = {
   success: { icon: CheckCircle2, color: "text-success" },
@@ -88,8 +80,6 @@ export function Dashboard() {
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
   const agentSessions = useAgentStore((s) => s.sessions)
-  const templates = useTemplateStore((s) => s.templates)
-  const templateStoreLoaded = useTemplateStore((s) => s.loaded)
   const heatmapData = useStatsStore((s) => s.heatmapData)
   const stats = useStatsStore((s) => s.stats)
   const achievements = useStatsStore((s) => s.achievements)
@@ -98,10 +88,6 @@ export function Dashboard() {
   const loadAll = useStatsStore((s) => s.loadAll)
   const navigate = useNavigate()
   const attentionRef = useRef<HTMLDivElement>(null)
-
-  const [getStartedDismissed, setGetStartedDismissed] = useState(() => {
-    try { return localStorage.getItem(DISMISSED_KEY) === "1" } catch { return false }
-  })
 
   useEffect(() => { loadAll() }, [loadAll])
 
@@ -121,7 +107,6 @@ export function Dashboard() {
 
   const pendingNodes = nodes.filter((n) => n.status === "awaiting_judgment" || n.status === "awaiting_approval")
   const activeProjects = projects.filter((p) => p.status === "active")
-  const showGetStarted = projects.length <= 2 && !getStartedDismissed
 
   const recentProjects = useMemo(() => {
     return [...activeProjects]
@@ -129,27 +114,6 @@ export function Dashboard() {
       .slice(0, 3)
   }, [activeProjects])
   const hasAttention = pendingNodes.length > 0 || dynamicApprovals.size > 0
-
-  const featuredTemplates = useMemo(() => {
-    if (!templateStoreLoaded || !showGetStarted) return []
-    const stable = templates.filter(
-      (t) => t.maturity === 'stable' && t.source === 'builtin'
-    )
-    const seen = new Set<string>()
-    const diverse: UseCaseTemplateSummary[] = []
-    for (const t of stable) {
-      if (!seen.has(t.category)) {
-        seen.add(t.category)
-        diverse.push(t)
-      }
-    }
-    return diverse.slice(0, 5)
-  }, [templates, templateStoreLoaded, showGetStarted])
-
-  function dismissGetStarted() {
-    setGetStartedDismissed(true)
-    try { localStorage.setItem(DISMISSED_KEY, "1") } catch { /* noop */ }
-  }
 
   const machineList = useMemo(() => Array.from(machines.values()), [machines])
 
@@ -314,42 +278,6 @@ export function Dashboard() {
           }
         }}
       />
-
-      {/* ── Get Started ── */}
-      {showGetStarted && (
-        <div className="relative rounded-xl border border-primary/10 bg-gradient-to-r from-primary/[0.03] to-transparent p-5">
-          <button
-            onClick={dismissGetStarted}
-            className="absolute top-3 right-3 p-1 rounded-md hover:bg-muted/60 transition-colors text-muted-foreground/40 hover:text-foreground"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-primary/70" />
-              <span className="text-[13px] font-semibold">Get Started</span>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              {featuredTemplates.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => navigate('/plan', { state: { initialTemplateId: t.id } })}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border/60 bg-background hover:border-primary/25 hover:bg-primary/[0.02] transition-all cursor-pointer text-xs"
-                >
-                  {t.icon ? <span className="text-sm">{t.icon}</span> : <LayoutTemplate className="h-3 w-3 text-muted-foreground/50" />}
-                  <span className="font-medium">{t.name}</span>
-                </button>
-              ))}
-              <Button size="sm" variant="outline" asChild className="h-7 text-xs border-border/60">
-                <Link to="/plan"><Plus className="h-3 w-3" /> Blank Plan</Link>
-              </Button>
-              <Button size="sm" variant="ghost" asChild className="h-7 text-xs text-muted-foreground/60">
-                <Link to="/community"><Globe className="h-3 w-3" /> Community</Link>
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── TIER 2: Attention cards ── */}
       <div ref={attentionRef}>
