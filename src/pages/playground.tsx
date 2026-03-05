@@ -337,6 +337,7 @@ export function Playground() {
           workingDirectory: workingDir.trim(),
           preferredProvider: selectedProvider || undefined,
           model: effectiveModel,
+          selectedBackends: selectedBackends.length > 0 ? selectedBackends : undefined,
         }
       )
 
@@ -347,7 +348,7 @@ export function Playground() {
     } finally {
       setIsSubmitting(false)
     }
-  }, [description, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, getModelForProvider, startPlaygroundSession, setSearchParams])
+  }, [description, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, selectedBackends, getModelForProvider, startPlaygroundSession, setSearchParams])
 
   // Fork a Claude Code session
   const handleForkSession = useCallback(async (session: ClaudeCodeSession) => {

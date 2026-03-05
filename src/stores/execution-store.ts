@@ -311,6 +311,7 @@ interface ExecutionState {
       preferredProvider?: string
       resumeSessionId?: string
       forkSession?: boolean
+      selectedBackends?: string[]
     }
   ) => Promise<{ projectId: string; nodeId: string }>
   cancelPlaygroundSession: (projectId: string) => Promise<void>
@@ -1553,6 +1554,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       workingDirectory: options.workingDirectory,
       defaultMachineId: options.targetMachineId,
       projectType: 'playground',
+      ...(options.selectedBackends?.length && { computeBackends: options.selectedBackends }),
     } as Project)
 
     const nodeId = `playground-${projectId}`
