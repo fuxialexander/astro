@@ -22,6 +22,7 @@ import {
   Clock,
   Sparkles,
   X,
+  Pencil,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -535,7 +536,7 @@ export function Playground() {
       case 'error':
         return <ErrorBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'error' }>} />
       case 'chat_user':
-        return <ChatUserBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_user' }>} />
+        return <ChatUserBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_user' }>} onEdit={!isRunning && !isChatStreaming ? (msg) => { setInput(msg); inputRef.current?.focus() } : undefined} />
       case 'chat_assistant':
         return <ChatAssistantBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_assistant' }>} />
       case 'approval_request': {
@@ -574,6 +575,21 @@ export function Playground() {
     setFileSidebarOpen(false)
   }, [setSearchParams])
 
+  // Edit & Retry: go back to landing with the session's details pre-filled
+  const handleRetry = useCallback(() => {
+    if (!project) return
+    setDescription(project.name || "")
+    setWorkingDir(project.workingDirectory || "")
+    if (execution?.machineId) {
+      const machine = allMachines.find((m) => m.machineId === execution.machineId)
+      if (machine) setSelectedMachine(machine)
+    }
+    backingRef.current = true
+    setActiveProjectId(null)
+    setSearchParams({})
+    setInput("")
+    setFileSidebarOpen(false)
+  }, [project, execution?.machineId, allMachines, setSearchParams])
 
   // View a past session
   const viewSession = useCallback((projectId: string) => {
@@ -622,8 +638,8 @@ export function Playground() {
             fileSidebarOpen={fileSidebarOpen}
             onBack={handleBack}
             onAbort={() => cancelPlaygroundSession(activeProjectId)}
+            onRetry={handleRetry}
             onToggleFileSidebar={() => setFileSidebarOpen(!fileSidebarOpen)}
-
           />
 
           {/* Activity Timeline — always visible (playground IS the activity view) */}
@@ -664,6 +680,25 @@ export function Playground() {
                     Loading activity...
                   </span>
                 ) : "No activity yet"}
+              </div>
+            )}
+
+            {/* Original prompt bubble */}
+            {project?.name && (
+              <div className="flex flex-col items-end gap-1 px-4 py-1.5">
+                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">You</span>
+                <div className="group/prompt relative rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground max-w-[80%]">
+                  <p className="whitespace-pre-wrap">{project.name}</p>
+                  {!isRunning && (
+                    <button
+                      onClick={handleRetry}
+                      className="absolute -left-8 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/prompt:opacity-60 hover:!opacity-100 transition-opacity text-muted-foreground hover:text-foreground cursor-pointer"
+                      title="Edit & retry"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 

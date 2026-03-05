@@ -4,7 +4,7 @@
  * Compact header bar showing session title, machine info, status, and controls.
  */
 
-import { ArrowLeft, Loader2, X, Laptop, CheckCircle2, AlertCircle, FolderOpen, StopCircle } from "lucide-react"
+import { ArrowLeft, Loader2, X, Laptop, CheckCircle2, AlertCircle, FolderOpen, StopCircle, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -18,6 +18,7 @@ interface PlaygroundHeaderProps {
   fileSidebarOpen: boolean
   onBack: () => void
   onAbort: () => void
+  onRetry?: () => void
   onToggleFileSidebar: () => void
 }
 
@@ -29,6 +30,7 @@ export function PlaygroundHeader({
   fileSidebarOpen,
   onBack,
   onAbort,
+  onRetry,
   onToggleFileSidebar,
 }: PlaygroundHeaderProps) {
   const statusConfig: Record<PlaygroundStatus, { label: string; color: string; icon: React.ReactNode }> = {
@@ -112,6 +114,19 @@ export function PlaygroundHeader({
         >
           <X className="h-3.5 w-3.5 mr-1" />
           <span className="hidden md:inline">Stop</span>
+        </Button>
+      )}
+
+      {(status === 'stopped' || status === 'error' || status === 'completed') && onRetry && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onRetry}
+          className="shrink-0 h-8 gap-1.5"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          <span className="hidden md:inline">Edit & Retry</span>
+          <span className="md:hidden">Retry</span>
         </Button>
       )}
     </div>

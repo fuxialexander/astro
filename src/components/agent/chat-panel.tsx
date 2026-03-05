@@ -1038,7 +1038,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
             case 'error':
               return <ErrorBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'error' }>} />
             case 'chat_user':
-              return <ChatUserBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_user' }>} />
+              return <ChatUserBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_user' }>} onEdit={!isStreaming ? (msg) => setInput(msg) : undefined} />
             case 'chat_assistant':
               return (
                 <ChatAssistantBlock
