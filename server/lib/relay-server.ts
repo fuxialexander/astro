@@ -1092,6 +1092,27 @@ export class RelayServer extends EventEmitter {
         console.log(`[relay] Safety response ack received for task ${(message as { payload?: { taskId?: string } }).payload?.taskId ?? 'unknown'}`);
         break;
 
+      // Channel relay messages (agent runner → relay → channel adapter)
+      case 'channel_notification_ack':
+      case 'channel.notification.ack':
+        this.emit('channel:notification_ack', (message as { payload?: { correlationId?: string; success?: boolean; error?: string } }).payload);
+        break;
+
+      case 'channel_response_ack':
+      case 'channel.response.ack':
+        this.emit('channel:response_ack', (message as { payload?: { correlationId?: string; success?: boolean; error?: string } }).payload);
+        break;
+
+      case 'channel_approval_response':
+      case 'channel.approval_response':
+        this.emit('channel:approval_response', (message as { payload?: { correlationId?: string; approvalId?: string; response?: string } }).payload);
+        break;
+
+      case 'channel_inbound':
+      case 'channel.inbound':
+        this.emit('channel:inbound', (message as { payload?: Record<string, unknown> }).payload);
+        break;
+
       default:
         console.warn(`[relay] Unknown message type: ${(message as { type: string }).type}`);
         this.sendError(socket, 'UNKNOWN_MESSAGE', `Unknown message type: ${(message as { type: string }).type}`);
@@ -1737,7 +1758,7 @@ export class RelayServer extends EventEmitter {
         hostname: resources.hostname,
         platform: resources.platform,
         providers: providers.map((p) => ({
-          type: (['claude-code', 'claude-sdk', 'codex', 'aws', 'gcp'].includes(p.type) ? p.type : 'custom') as ProviderType,
+          type: (['claude-code', 'claude-sdk', 'codex', 'aws', 'gcp', 'openclaw'].includes(p.type) ? p.type : 'custom') as ProviderType,
           version: p.version || undefined,
           status: p.available ? 'available' : 'unavailable',
           maxConcurrentTasks: p.capabilities.maxConcurrentTasks,
@@ -2891,6 +2912,91 @@ export class RelayServer extends EventEmitter {
         attachedAt: s.attachedAt,
         eventCount: s.eventCount,
       }));
+  }
+
+  // ============================================================================
+  // Channel Relay (server <-> agent runner <-> OpenClaw gateway)
+  // ============================================================================
+
+  /**
+   * Send a notification through an agent runner's OpenClaw bridge
+   */
+  sendChannelNotification(machineId: string, correlationId: string, notification: {
+    type: string;
+    projectId: string;
+    summary: string;
+    astroUrl?: string;
+    to?: string;
+    metadata?: Record<string, unknown>;
+  }): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection?.socket || connection.socket.readyState !== WebSocket.OPEN) return false;
+
+    connection.socket.send(JSON.stringify({
+      type: 'channel_notification',
+      timestamp: new Date().toISOString(),
+      payload: { correlationId, notification },
+    }));
+    return true;
+  }
+
+  /**
+   * Send a chat response through an agent runner's OpenClaw bridge
+   */
+  sendChannelResponse(machineId: string, correlationId: string, response: {
+    text: string;
+    channelId: string;
+    threadId?: string;
+    to?: string;
+    metadata?: Record<string, unknown>;
+  }): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection?.socket || connection.socket.readyState !== WebSocket.OPEN) return false;
+
+    connection.socket.send(JSON.stringify({
+      type: 'channel_response',
+      timestamp: new Date().toISOString(),
+      payload: { correlationId, response },
+    }));
+    return true;
+  }
+
+  /**
+   * Send an approval request through an agent runner's OpenClaw bridge
+   */
+  sendChannelApprovalRequest(machineId: string, correlationId: string, opts: {
+    approvalId: string;
+    projectId: string;
+    taskId: string;
+    question: string;
+    options?: string[];
+    to?: string;
+  }): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection?.socket || connection.socket.readyState !== WebSocket.OPEN) return false;
+
+    connection.socket.send(JSON.stringify({
+      type: 'channel_approval_request',
+      timestamp: new Date().toISOString(),
+      payload: { correlationId, ...opts },
+    }));
+    return true;
+  }
+
+  /**
+   * Find a connected machine with the openclaw provider
+   */
+  findOpenClawMachine(userId?: string): string | null {
+    const machines = machineRegistry.getByProvider('openclaw' as import('../types/relay.js').ProviderType);
+    if (machines.length === 0) return null;
+
+    // Prefer user-owned machine if userId provided
+    if (userId) {
+      const userMachine = machines.find(m => m.userId === userId);
+      if (userMachine) return userMachine.machineId;
+    }
+
+    return machines[0].machineId;
   }
 }
 

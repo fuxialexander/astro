@@ -798,6 +798,82 @@ export interface SessionsListResponseMessage extends BaseMessage {
   error?: string;
 }
 
+// --- Channel relay messages (server <-> agent runner <-> OpenClaw) ---
+
+/** Send notification through OpenClaw (relay → agent) */
+export interface ChannelNotificationMessage extends BaseMessage {
+  type: 'channel.notification';
+  correlationId: string;
+  notification: {
+    type: string;
+    projectId: string;
+    summary: string;
+    astroUrl?: string;
+    to?: string;
+    metadata?: Record<string, unknown>;
+  };
+}
+
+/** Notification delivery acknowledgment (agent → relay) */
+export interface ChannelNotificationAckMessage extends BaseMessage {
+  type: 'channel.notification.ack';
+  correlationId: string;
+  success: boolean;
+  error?: string;
+}
+
+/** Send chat response through OpenClaw (relay → agent) */
+export interface ChannelResponseMessage extends BaseMessage {
+  type: 'channel.response';
+  correlationId: string;
+  response: {
+    text: string;
+    channelId: string;
+    threadId?: string;
+    to?: string;
+    metadata?: Record<string, unknown>;
+  };
+}
+
+/** Response delivery acknowledgment (agent → relay) */
+export interface ChannelResponseAckMessage extends BaseMessage {
+  type: 'channel.response.ack';
+  correlationId: string;
+  success: boolean;
+  error?: string;
+}
+
+/** Request user approval through OpenClaw (relay → agent) */
+export interface ChannelApprovalRequestMessage extends BaseMessage {
+  type: 'channel.approval_request';
+  correlationId: string;
+  approvalId: string;
+  projectId: string;
+  taskId: string;
+  question: string;
+  options?: string[];
+}
+
+/** User responded to approval via OpenClaw (agent → relay) */
+export interface ChannelApprovalResponseMessage extends BaseMessage {
+  type: 'channel.approval_response';
+  correlationId: string;
+  approvalId: string;
+  response: string;
+}
+
+/** Unprompted inbound message from user via OpenClaw (agent → relay) */
+export interface ChannelInboundMessage extends BaseMessage {
+  type: 'channel.inbound';
+  sourceMessageId: string;
+  text: string;
+  senderId: string;
+  senderName: string;
+  channelId: string;
+  threadId?: string;
+  metadata?: Record<string, unknown>;
+}
+
 /** Error message */
 export interface ErrorMessage extends BaseMessage {
   type: 'error';
