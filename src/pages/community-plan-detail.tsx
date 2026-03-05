@@ -478,11 +478,11 @@ export function CommunityPlanDetail() {
         .filter(Boolean)
       await updatePlan(id, {
         title: editTitle.trim() || plan.title,
-        description: editDescription.trim() || undefined,
-        visionDoc: editVisionDoc.trim() || undefined,
-        customizationNotes: editCustomizationNotes.trim() || undefined,
+        description: editDescription.trim(),
+        visionDoc: editVisionDoc.trim(),
+        customizationNotes: editCustomizationNotes.trim(),
         category: editCategory.trim() || undefined,
-        tags: tags.length > 0 ? tags : undefined,
+        tags,
       })
       setIsEditMode(false)
       useToastStore.getState().add({
