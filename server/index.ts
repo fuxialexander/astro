@@ -201,7 +201,7 @@ export function createApp() {
   // Auth routes are always mounted (endpoints guard themselves with isLocalMode())
   app.route('/api/auth', authRoute)
 
-  // Connected accounts — available in all modes (OpenClaw local gateway needs it)
+  // Connected accounts — needed in all modes for OpenClaw channel config
   app.route('/api/connected-accounts', connectedAccountsRoute)
 
   // Server-only routes (require Supabase Auth)

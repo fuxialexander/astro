@@ -195,7 +195,7 @@ describe('OpenClawChannelAdapter', () => {
       expect(auth.token).toBe('test-api-key')
 
       const client = connectReq!.params.client as Record<string, unknown>
-      expect(client.id).toBe('astro')
+      expect(client.id).toBe('gateway-client')
       expect(client.mode).toBe('backend')
     })
 

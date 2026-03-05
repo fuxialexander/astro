@@ -392,7 +392,7 @@ export class OpenClawChannelAdapter extends EventEmitter {
         minProtocol: PROTOCOL_VERSION,
         maxProtocol: PROTOCOL_VERSION,
         client: {
-          id: 'astro',
+          id: 'gateway-client',
           version: 'dev',
           platform: process.platform,
           mode: 'backend',
