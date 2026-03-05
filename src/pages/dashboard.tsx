@@ -29,12 +29,14 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useRealtimeStore, type ActivityEvent } from "@/stores/realtime-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore } from "@/stores/execution-store"
+import { useAgentStore } from "@/stores/agent-store"
 import { useTemplateStore } from "@/stores/template-store"
 import { useStatsStore } from "@/stores/stats-store"
 import type { UseCaseTemplateSummary } from "@astro/core/templates"
 import { ApprovalCard } from "@/components/approval-card"
 import { InlineApprovalCard } from "@/components/plan-session/inline-approval-card"
 import { ActivityOverview } from "@/components/dashboard/activity-overview"
+import { BragStats } from "@/components/dashboard/brag-stats"
 import { AchievementsPanel } from "@/components/dashboard/achievements-panel"
 import { CommandStrip } from "@/components/dashboard/command-strip"
 import { MachineFleetPanel } from "@/components/dashboard/machine-fleet-panel"
@@ -84,6 +86,7 @@ export function Dashboard() {
   const [resettingId, setResettingId] = useState<string | null>(null)
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
+  const agentSessions = useAgentStore((s) => s.sessions)
   const templates = useTemplateStore((s) => s.templates)
   const templateStoreLoaded = useTemplateStore((s) => s.loaded)
   const heatmapData = useStatsStore((s) => s.heatmapData)
@@ -155,8 +158,9 @@ export function Dashboard() {
     })),
   [machineList])
 
-  const activeTasksWithContext = useMemo(() =>
-    nodes
+  const activeTasksWithContext = useMemo(() => {
+    // Running execution tasks
+    const executionTasks = nodes
       .filter((n) => n.status === "in_progress" || n.status === "dispatched")
       .map((node) => {
         const stream = taskStreams.get(node.id)
@@ -177,8 +181,27 @@ export function Dashboard() {
           progressMessage: stream?.progressMessage,
           costUsd: undefined as number | undefined,
         }
-      }),
-  [nodes, taskStreams, projects, machines])
+      })
+
+    // Active planning sessions (generating plans)
+    const planningSessions = Array.from(agentSessions.values())
+      .filter((s) => s.status === "active")
+      .map((session) => ({
+        id: `plan-${session.projectId}`,
+        title: `Planning: ${session.projectName}`,
+        projectId: session.projectId,
+        projectName: session.projectName,
+        projectColor: undefined as string | undefined,
+        machineName: "planner",
+        machineId: "planner",
+        startedAt: session.startedAt,
+        progress: session.phase === "generating" ? 50 : session.phase === "repo_setup" ? 10 : 0,
+        progressMessage: session.phase === "generating" ? "Generating plan..." : session.phase === "repo_setup" ? "Setting up..." : undefined,
+        costUsd: undefined as number | undefined,
+      }))
+
+    return [...executionTasks, ...planningSessions]
+  }, [nodes, taskStreams, projects, machines, agentSessions])
 
   const timelineMachines = useMemo(
     () => [...new Set(activeTasksWithContext.map((t) => t.machineName))],
@@ -640,7 +663,12 @@ export function Dashboard() {
         )}
       </div>
 
-      {/* ── TIER 6: Achievements (collapsed) ── */}
+      {/* ── TIER 6: Brag Stats ── */}
+      {stats && levelInfo && statsLoaded && (
+        <BragStats stats={stats} levelInfo={levelInfo} />
+      )}
+
+      {/* ── TIER 7: Achievements (collapsed) ── */}
       {statsLoaded && (
         <div className="rounded-xl glass-panel-subtle px-5 py-1.5">
           <AchievementsPanel achievements={achievements} />

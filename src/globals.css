@@ -169,7 +169,7 @@
     0 4px 24px -4px rgba(0, 0, 0, 0.08);
 }
 
-:root .glass-panel {
+:root:not(.dark) .glass-panel {
   background: linear-gradient(
     135deg,
     rgba(255, 255, 255, 0.7) 0%,
@@ -189,7 +189,7 @@
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-:root .glass-panel-subtle {
+:root:not(.dark) .glass-panel-subtle {
   background: rgba(255, 255, 255, 0.5);
   border: 1px solid rgba(0, 0, 0, 0.04);
 }
@@ -248,7 +248,7 @@
   animation: shimmer-slide 4s ease-in-out infinite;
 }
 
-:root .glass-shimmer {
+:root:not(.dark) .glass-shimmer {
   background-image: linear-gradient(
     110deg,
     transparent 25%,
