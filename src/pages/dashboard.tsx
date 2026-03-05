@@ -605,7 +605,7 @@ export function Dashboard() {
           {/* Task timeline (right column, expands) */}
           <div className="flex-1 min-w-0">
             <h2 className="text-[11px] font-semibold tracking-wide text-muted-foreground/60 uppercase mb-3">Running Tasks</h2>
-            <div className="rounded-xl glass-panel p-4 overflow-hidden">
+            <div className="rounded-xl glass-panel p-3">
               <TaskTimeline tasks={activeTasksWithContext} machines={timelineMachines} />
             </div>
           </div>

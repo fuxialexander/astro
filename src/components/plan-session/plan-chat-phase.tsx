@@ -193,12 +193,14 @@ export function PlanChatPhase({
   const milestoneNames = planNodes.filter((n) => n.type === "milestone").map((n) => n.title)
 
   // Compute status for header
+  // If execution succeeded but no plan was extracted, the model likely asked
+  // clarification questions — show "waiting for input" so the user knows to respond.
   const headerStatus = !execution
     ? 'stopped' as const
     : execution.status === "cancelled"
       ? 'stopped' as const
       : execution.status === "success" || execution.status === "failure"
-        ? (execution.error ? 'error' as const : 'completed' as const)
+        ? (execution.error ? 'error' as const : !hasPlan ? 'waiting' as const : 'completed' as const)
         : pendingApprovals.length > 0
           ? 'waiting' as const
           : 'planning' as const
@@ -622,7 +624,7 @@ export function PlanChatPhase({
                 handleSend()
               }
             }}
-            placeholder={isRunning ? "Guide the planning session..." : "Ask about this plan..."}
+            placeholder={isRunning ? "Guide the planning session..." : !hasPlan && headerStatus === 'waiting' ? "Answer the questions or provide more details..." : "Ask about this plan..."}
             rows={1}
             className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
           />
