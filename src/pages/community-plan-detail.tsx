@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useParams, useNavigate, Link } from "react-router"
-import { ArrowLeft, Star, GitFork, Download, Calendar, User, Tag, Layers, FileText, MessageSquare, Edit2, Trash2 } from "lucide-react"
+import { ArrowLeft, Star, GitFork, Download, Calendar, User, Tag, Layers, FileText, MessageSquare, Edit2, Trash2, Globe } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { formatDistanceToNow } from "date-fns"
@@ -14,6 +14,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
+import { isLocalMode } from "@/lib/app-mode"
+import { EmptyState } from "@/components/ui/empty-state"
 
 interface CommentItemProps {
   id: string
@@ -255,6 +257,18 @@ export function CommunityPlanDetail() {
     }
     return acc
   }, {} as Record<string, typeof comments>)
+
+  if (isLocalMode()) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center">
+        <EmptyState
+          icon={Globe}
+          title="Community requires server mode"
+          description="Community features are available when running Astro in server mode with authentication."
+        />
+      </div>
+    )
+  }
 
   if (isLoading && !plan) {
     return (

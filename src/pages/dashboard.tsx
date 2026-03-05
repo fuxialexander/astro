@@ -18,10 +18,6 @@ import {
   Scissors,
   Loader2,
   ClipboardCheck,
-  Sparkles,
-  Globe,
-  ArrowRight,
-  LayoutTemplate,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -34,8 +30,6 @@ import { useRealtimeStore, type ActivityEvent } from "@/stores/realtime-store"
 import { useUsageStore } from "@/stores/usage-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore } from "@/stores/execution-store"
-import { useTemplateStore } from "@/stores/template-store"
-import type { UseCaseTemplateSummary } from "@astro/core/templates"
 import { ApprovalCard } from "@/components/approval-card"
 import { InlineApprovalCard } from "@/components/plan-session/inline-approval-card"
 import { cn } from "@/lib/utils"
@@ -84,8 +78,6 @@ export function Dashboard() {
   const [resettingId, setResettingId] = useState<string | null>(null)
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
-  const templates = useTemplateStore((s) => s.templates)
-  const templateStoreLoaded = useTemplateStore((s) => s.loaded)
   const navigate = useNavigate()
 
 
@@ -101,25 +93,6 @@ export function Dashboard() {
 
   const pendingNodes = nodes.filter((n) => n.status === "awaiting_judgment" || n.status === "awaiting_approval")
   const activeProjects = projects.filter((p) => p.status === "active")
-  const showGetStarted = projects.length <= 2
-
-  // Featured templates for Get Started section
-  const featuredTemplates = useMemo(() => {
-    if (!templateStoreLoaded || !showGetStarted) return []
-    const stable = templates.filter(
-      (t) => t.maturity === 'stable' && t.source === 'builtin'
-    )
-    // Pick diverse categories
-    const seen = new Set<string>()
-    const diverse: UseCaseTemplateSummary[] = []
-    for (const t of stable) {
-      if (!seen.has(t.category)) {
-        seen.add(t.category)
-        diverse.push(t)
-      }
-    }
-    return diverse.slice(0, 5)
-  }, [templates, templateStoreLoaded, showGetStarted])
 
   return (
     <div className="flex flex-col gap-4 p-4 md:gap-6 md:p-8">
@@ -188,55 +161,6 @@ export function Dashboard() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Get Started Section — shown for new users with 0-2 projects */}
-      {showGetStarted && (
-        <Card className="rounded-2xl shadow border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
-          <CardContent className="p-5 md:p-6">
-            <div className="flex flex-col gap-4">
-              <div className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-primary" />
-                <h2 className="text-base font-semibold">Get Started with Astro</h2>
-              </div>
-
-              {featuredTemplates.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {featuredTemplates.map((t) => (
-                    <button
-                      key={t.id}
-                      onClick={() => navigate('/plan', { state: { initialTemplateId: t.id } })}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-background hover:border-primary/40 hover:bg-primary/5 transition-all cursor-pointer text-xs"
-                    >
-                      {t.icon ? (
-                        <span className="text-sm">{t.icon}</span>
-                      ) : (
-                        <LayoutTemplate className="h-3 w-3 text-muted-foreground" />
-                      )}
-                      <span className="font-medium">{t.name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <div className="flex items-center gap-3 flex-wrap">
-                <Button size="sm" asChild className="min-h-9">
-                  <Link to="/plan">
-                    <Sparkles className="h-3.5 w-3.5" />
-                    Start Planning
-                    <ArrowRight className="h-3.5 w-3.5" />
-                  </Link>
-                </Button>
-                <Button variant="outline" size="sm" asChild className="min-h-9">
-                  <Link to="/community">
-                    <Globe className="h-3.5 w-3.5" />
-                    Browse Community Plans
-                  </Link>
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Content Columns */}
       <div className="flex flex-col gap-4 md:flex-row md:gap-6 flex-1">

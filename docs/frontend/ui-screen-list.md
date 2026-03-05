@@ -7,8 +7,9 @@ Complete set of UI screens for Astro, organized by functional area.
 ## 1. Global Navigation & Shell
 
 ### 1.1 App Shell
-- **Sidebar** — Nav items: Dashboard, Projects, My Tasks, Environments, Agents, Initiatives, Workflows, Settings. User profile section. "Local Mode" badge when in local mode. Collapsible.
+- **Sidebar** — Nav items: Dashboard, Projects, My Tasks, Environments, Agents, Initiatives, Workflows, Settings. User profile section. "Local Mode" badge when in local mode. Collapsible. Each item has `data-tour-id` attribute for guided tour.
 - **Command Palette** (Cmd+K) — Universal search, navigation, theme toggle, project search
+- **Product Tour** (driver.js) — First-run guided tour highlighting sidebar items. 5 steps in server mode, 4 in local mode (Community skipped). Fires once per browser via `localStorage`. Component: `src/components/product-tour.tsx`.
 
 ---
 
@@ -235,6 +236,8 @@ Team invitation acceptance:
 | `/agents` | Agents | Agent monitoring |
 | `/initiatives` | Initiatives | Initiative grouping |
 | `/workflows` | Workflows | Workflow guide |
+| `/community` | Community | Browse/search shared plans (server mode only) |
+| `/community/:id` | CommunityPlanDetail | Plan detail with fork/star/comments (server mode only) |
 | `/settings` | Settings | Multi-tab settings |
 | `/plugins/*` | PluginRoutes | Plugin pages |
 | `/welcome` | Welcome | Onboarding (standalone) |

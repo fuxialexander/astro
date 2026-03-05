@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
 import { PlanCard } from "@/components/community/plan-card"
+import { isLocalMode } from "@/lib/app-mode"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
@@ -319,6 +320,23 @@ export function Community() {
   const handleUnpublish = async () => {
     // Refresh my plans after unpublish
     await fetchMyPlans()
+  }
+
+  if (isLocalMode()) {
+    return (
+      <div className="flex flex-1 flex-col min-w-0 h-full">
+        <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
+          <h1 className="text-xl font-primary font-semibold">Community Plans</h1>
+        </div>
+        <div className="flex-1 overflow-auto p-6">
+          <EmptyState
+            icon={Globe}
+            title="Community requires server mode"
+            description="Community features are available when running Astro in server mode with authentication."
+          />
+        </div>
+      </div>
+    )
   }
 
   return (
