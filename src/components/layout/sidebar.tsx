@@ -150,6 +150,14 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     return count
   }, [dynamicApprovals])
 
+  // Count actionable items for Dashboard badge (pending decisions + dynamic approvals)
+  const dashboardAttentionCount = useMemo(() => {
+    const pendingDecisionNodes = planNodes.filter(
+      (n) => n.status === "awaiting_judgment" || n.status === "awaiting_approval"
+    ).length
+    return pendingDecisionNodes + dynamicApprovals.size
+  }, [planNodes, dynamicApprovals])
+
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const longPressTimer = useRef<number | null>(null)
   const [showHint, setShowHint] = useState(() => !localStorage.getItem("sidebar-hint-dismissed"))
@@ -460,6 +468,11 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                         {item.id === "plan" && pendingPlanApprovals > 0 && (
                           <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-warning border-2 border-card" />
                         )}
+                        {item.id === "dashboard" && dashboardAttentionCount > 0 && (
+                          <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center h-3.5 min-w-[14px] rounded-full bg-warning text-[8px] font-bold text-white px-0.5">
+                            {dashboardAttentionCount}
+                          </span>
+                        )}
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="right">{item.label}</TooltipContent>
@@ -551,6 +564,12 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                       <span className="flex items-center gap-1.5 rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold text-warning">
                         <AlertCircle className="h-3 w-3" />
                         {pendingPlanApprovals}
+                      </span>
+                    )}
+                    {item.id === "dashboard" && dashboardAttentionCount > 0 && (
+                      <span className="flex items-center gap-1.5 rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold text-warning">
+                        <AlertCircle className="h-3 w-3" />
+                        {dashboardAttentionCount}
                       </span>
                     )}
                   </NavLink>

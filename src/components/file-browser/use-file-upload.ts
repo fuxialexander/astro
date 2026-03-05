@@ -21,7 +21,6 @@ import type { DirectoryEntry } from "./use-file-browser"
 // ---------------------------------------------------------------------------
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
-const CHUNK_SIZE = 1 * 1024 * 1024 // 1MB
 
 // ---------------------------------------------------------------------------
 // Types
@@ -85,10 +84,10 @@ export interface ValidationError {
 }
 
 // ---------------------------------------------------------------------------
-// Upload API (chunked)
+// Upload API — single POST with XHR for progress tracking
 // ---------------------------------------------------------------------------
 
-async function uploadChunked(
+async function uploadWithProgress(
   machineId: string,
   destinationPath: string,
   file: File,
@@ -97,79 +96,60 @@ async function uploadChunked(
   abortSignal: AbortSignal
 ): Promise<{ success: boolean; path?: string; error?: string }> {
   const token = await getAccessToken()
-  const headers: HeadersInit = {}
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`
-  }
 
-  const totalSize = file.size
-  // For small files, upload in one shot
-  if (totalSize <= CHUNK_SIZE) {
-    const formData = new FormData()
-    formData.append("machineId", machineId)
-    formData.append("destinationPath", destinationPath)
-    formData.append("file", file)
-    formData.append("overwrite", overwrite ? "true" : "false")
+  const formData = new FormData()
+  formData.append("machineId", machineId)
+  formData.append("destinationPath", destinationPath)
+  formData.append("file", file)
+  formData.append("overwrite", overwrite ? "true" : "false")
 
-    const response = await fetch(apiUrl("/api/fs/content"), {
-      method: "POST",
-      headers,
-      body: formData,
-      signal: abortSignal,
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+
+    // Track upload progress
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable) {
+        // Upload progress = data sent to server (0-90%)
+        // Reserve 10% for server-side relay processing
+        onProgress(Math.round((e.loaded / e.total) * 90))
+      }
     })
 
-    onProgress(100)
-
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}))
-      throw new Error(body.error || `Upload failed: ${response.statusText}`)
-    }
-
-    return response.json()
-  }
-
-  // Chunked upload for larger files
-  let offset = 0
-  let chunkIndex = 0
-  const totalChunks = Math.ceil(totalSize / CHUNK_SIZE)
-
-  while (offset < totalSize) {
-    if (abortSignal.aborted) {
-      throw new Error("Upload cancelled")
-    }
-
-    const end = Math.min(offset + CHUNK_SIZE, totalSize)
-    const chunk = file.slice(offset, end)
-    const chunkFile = new File([chunk], file.name, { type: file.type })
-
-    const formData = new FormData()
-    formData.append("machineId", machineId)
-    formData.append("destinationPath", destinationPath)
-    formData.append("file", chunkFile)
-    formData.append("overwrite", overwrite || chunkIndex > 0 ? "true" : "false")
-    formData.append("offset", String(offset))
-    formData.append("totalSize", String(totalSize))
-    formData.append("chunkIndex", String(chunkIndex))
-    formData.append("totalChunks", String(totalChunks))
-
-    const response = await fetch(apiUrl("/api/fs/content"), {
-      method: "POST",
-      headers,
-      body: formData,
-      signal: abortSignal,
+    xhr.addEventListener("load", () => {
+      onProgress(100)
+      try {
+        const body = JSON.parse(xhr.responseText)
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(body)
+        } else {
+          reject(new Error(body.error || `Upload failed: ${xhr.statusText}`))
+        }
+      } catch {
+        reject(new Error(`Upload failed: ${xhr.statusText}`))
+      }
     })
 
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}))
-      throw new Error(body.error || `Upload failed at chunk ${chunkIndex}: ${response.statusText}`)
+    xhr.addEventListener("error", () => {
+      reject(new Error("Upload failed: network error"))
+    })
+
+    xhr.addEventListener("abort", () => {
+      reject(new Error("Upload cancelled"))
+    })
+
+    // Handle abort signal
+    const onAbort = () => xhr.abort()
+    abortSignal.addEventListener("abort", onAbort)
+    xhr.addEventListener("loadend", () => {
+      abortSignal.removeEventListener("abort", onAbort)
+    })
+
+    xhr.open("POST", apiUrl("/api/fs/content"))
+    if (token) {
+      xhr.setRequestHeader("Authorization", `Bearer ${token}`)
     }
-
-    offset = end
-    chunkIndex++
-    onProgress(Math.round((offset / totalSize) * 100))
-  }
-
-  return { success: true, path: destinationPath }
+    xhr.send(formData)
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -226,7 +206,7 @@ export function useFileUpload({
         abortControllers.current.set(uploadId, abortController)
 
         try {
-          await uploadChunked(
+          await uploadWithProgress(
             machineId,
             destinationPath,
             file,

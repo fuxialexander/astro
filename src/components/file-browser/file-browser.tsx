@@ -23,7 +23,7 @@ import {
   X,
   Upload,
   Eye,
-  EyeOff,
+  Download,
   FileText,
   FileCode,
   FileImage,
@@ -42,6 +42,9 @@ import { useFileBrowser, type DirectoryEntry } from "./use-file-browser"
 import { FileActionsMenu } from "./file-actions-menu"
 import { useFileUpload } from "./use-file-upload"
 import { UploadManager } from "./upload-manager"
+import { FilePreview } from "./file-preview"
+import { getFileCategory } from "./file-type-utils"
+import { downloadFile } from "./download-utils"
 
 // ---------------------------------------------------------------------------
 // Props
@@ -159,6 +162,8 @@ export function FileBrowser({
   const [activeEditor, setActiveEditor] = useState<EditorType>(initialEditorType)
   const [useLocal, setUseLocal] = useState(true)
   const [isDragOver, setIsDragOver] = useState(false)
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
+  const [menuOpenIndex, setMenuOpenIndex] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const machine = { name: machineName, hostname: machineHostname }
 
@@ -169,14 +174,12 @@ export function FileBrowser({
     loading,
     error,
     selectedIndex,
-    showHiddenFiles,
     previewPath,
     listRef,
     navigateTo,
     goUp,
     goHome,
     refresh,
-    toggleHiddenFiles,
     setPreviewPath,
     handleKeyDown: hookKeyDown,
     breadcrumbs,
@@ -226,7 +229,13 @@ export function FileBrowser({
       onFileSelect(entry.path)
       return
     }
-    // Default: open in editor
+    // Image/PDF/markdown/code files → preview instead of opening editor
+    const category = getFileCategory(entry.name)
+    if (category !== "download-only") {
+      setPreviewPath(entry.path)
+      return
+    }
+    // Fallback: open in editor for unsupported preview types
     const forceLocal = useLocal ? true : ("remote" as const)
     const url = buildFileUrlSync(
       entry.path,
@@ -240,9 +249,27 @@ export function FileBrowser({
     }
   }
 
+  const handleNavigate = useCallback(
+    (targetPath: string) => {
+      setPreviewPath(null)
+      navigateTo(targetPath)
+    },
+    [navigateTo, setPreviewPath]
+  )
+
+  const handleGoUp = useCallback(() => {
+    setPreviewPath(null)
+    goUp()
+  }, [goUp, setPreviewPath])
+
+  const handleGoHome = useCallback(() => {
+    setPreviewPath(null)
+    goHome()
+  }, [goHome, setPreviewPath])
+
   const handleEntryClick = (entry: DirectoryEntry) => {
     if (entry.isDirectory) {
-      navigateTo(entry.path)
+      handleNavigate(entry.path)
     } else {
       handleFileClick(entry)
     }
@@ -348,7 +375,7 @@ export function FileBrowser({
 
       {/* Header */}
       {!embedded && (
-        <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-border shrink-0">
+        <div className="flex items-center gap-1.5 px-2 py-2 md:py-1.5 border-b border-border shrink-0">
           <EditorOpenControls
             path={path}
             machine={machine}
@@ -360,85 +387,72 @@ export function FileBrowser({
           <Button
             variant="ghost"
             size="icon"
-            className="h-6 w-6"
-            onClick={toggleHiddenFiles}
-            title={showHiddenFiles ? "Hide hidden files" : "Show hidden files"}
-          >
-            {showHiddenFiles ? (
-              <EyeOff className="h-3 w-3" />
-            ) : (
-              <Eye className="h-3 w-3" />
-            )}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
+            className="h-8 w-8 md:h-6 md:w-6"
             onClick={handleUploadClick}
             disabled={isUploading}
             title="Upload files"
           >
-            <Upload className={cn("h-3 w-3", isUploading && "animate-pulse")} />
+            <Upload className={cn("h-4 w-4 md:h-3 md:w-3", isUploading && "animate-pulse")} />
           </Button>
           <Button
             variant="ghost"
             size="icon"
-            className="h-6 w-6"
+            className="h-8 w-8 md:h-6 md:w-6"
             onClick={refresh}
             disabled={loading}
             title="Refresh"
           >
-            <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
+            <RefreshCw className={cn("h-4 w-4 md:h-3 md:w-3", loading && "animate-spin")} />
           </Button>
           {onClose && (
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6"
+              className="h-8 w-8 md:h-6 md:w-6"
               onClick={onClose}
               title="Close"
             >
-              <X className="h-3 w-3" />
+              <X className="h-4 w-4 md:h-3 md:w-3" />
             </Button>
           )}
         </div>
       )}
 
       {/* Breadcrumbs */}
-      <div className="flex items-center gap-0.5 px-2 py-1.5 text-[11px] overflow-x-auto border-b border-border shrink-0">
+      <div className="flex items-center gap-1 px-2 py-2 md:py-1.5 text-xs md:text-[11px] overflow-x-auto border-b border-border bg-muted/40 shrink-0">
         <button
-          onClick={goHome}
-          className="px-1 py-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground shrink-0"
+          onClick={handleGoHome}
+          className="p-1 rounded hover:bg-accent text-foreground/60 hover:text-foreground shrink-0"
           title="Go to working directory"
         >
-          <Home className="h-3 w-3" />
+          <Home className="h-3.5 w-3.5 md:h-3 md:w-3" />
         </button>
         {path !== "/" && (
           <button
-            onClick={goUp}
-            className="px-1 py-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground shrink-0"
+            onClick={handleGoUp}
+            className="p-1 rounded hover:bg-accent text-foreground/60 hover:text-foreground shrink-0"
           >
-            <ArrowUp className="h-3 w-3" />
+            <ArrowUp className="h-3.5 w-3.5 md:h-3 md:w-3" />
           </button>
         )}
-        <div className="flex items-center gap-0 overflow-x-auto">
+        <div className="flex items-center gap-0 overflow-x-auto min-w-0">
           {breadcrumbs.slice(-3).map((segment, index) => {
             const fullIndex = breadcrumbs.length - 3 + index
             const actualIndex = Math.max(0, fullIndex)
             return (
               <div key={`${actualIndex}-${segment}`} className="flex items-center shrink-0">
                 {index > 0 && (
-                  <ChevronRight className="h-2.5 w-2.5 text-muted-foreground" />
+                  <ChevronRight className="h-3 w-3 md:h-2.5 md:w-2.5 text-foreground/40" />
                 )}
                 <button
                   onClick={() =>
-                    navigateTo("/" + breadcrumbs.slice(0, actualIndex + 1).join("/"))
+                    handleNavigate("/" + breadcrumbs.slice(0, actualIndex + 1).join("/"))
                   }
                   className={cn(
-                    "px-1 py-0.5 rounded hover:bg-muted transition-colors truncate max-w-[80px]",
+                    "px-1.5 py-0.5 rounded hover:bg-accent truncate max-w-[100px] md:max-w-[80px]",
                     actualIndex === breadcrumbs.length - 1
                       ? "text-foreground font-medium"
-                      : "text-muted-foreground hover:text-foreground"
+                      : "text-foreground/60 hover:text-foreground"
                   )}
                 >
                   {segment}
@@ -454,62 +468,41 @@ export function FileBrowser({
             <Button
               variant="ghost"
               size="icon"
-              className="h-5 w-5"
-              onClick={toggleHiddenFiles}
-              title={showHiddenFiles ? "Hide hidden files" : "Show hidden files"}
-            >
-              {showHiddenFiles ? (
-                <EyeOff className="h-2.5 w-2.5" />
-              ) : (
-                <Eye className="h-2.5 w-2.5" />
-              )}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-5 w-5"
+              className="h-7 w-7 md:h-5 md:w-5"
               onClick={handleUploadClick}
               disabled={isUploading}
               title="Upload files"
             >
-              <Upload className={cn("h-2.5 w-2.5", isUploading && "animate-pulse")} />
+              <Upload className={cn("h-3.5 w-3.5 md:h-2.5 md:w-2.5", isUploading && "animate-pulse")} />
             </Button>
             <Button
               variant="ghost"
               size="icon"
-              className="h-5 w-5"
+              className="h-7 w-7 md:h-5 md:w-5"
               onClick={refresh}
               disabled={loading}
               title="Refresh"
             >
-              <RefreshCw className={cn("h-2.5 w-2.5", loading && "animate-spin")} />
+              <RefreshCw className={cn("h-3.5 w-3.5 md:h-2.5 md:w-2.5", loading && "animate-spin")} />
             </Button>
           </div>
         )}
       </div>
 
-      {/* Preview indicator */}
+      {/* Preview panel — replaces file listing when active */}
       {previewPath && (
-        <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border text-[11px] shrink-0">
-          <Eye className="h-3 w-3 text-muted-foreground" />
-          <span className="truncate text-muted-foreground">
-            {previewPath.split("/").pop()}
-          </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-4 w-4 ml-auto"
-            onClick={() => setPreviewPath(null)}
-          >
-            <X className="h-2.5 w-2.5" />
-          </Button>
-        </div>
+        <FilePreview
+          machineId={machineId}
+          filePath={previewPath}
+          onClose={() => setPreviewPath(null)}
+          className="flex-1 min-h-0"
+        />
       )}
 
-      {/* File listing */}
+      {/* File listing — hidden when preview is active */}
       <div
         ref={listRef}
-        className="flex-1 overflow-y-auto"
+        className={cn("flex-1 overflow-y-auto", previewPath && "hidden")}
         onKeyDown={handleKeyDown}
         tabIndex={0}
       >
@@ -538,19 +531,23 @@ export function FileBrowser({
                 key={entry.path}
                 data-entry-index={index}
                 onClick={() => handleEntryClick(entry)}
+                onMouseEnter={() => setHoveredIndex(index)}
+                onMouseLeave={() => setHoveredIndex(null)}
                 className={cn(
-                  "group w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-muted/50 transition-colors",
-                  selectedIndex === index && "bg-primary/10"
+                  "w-full flex items-center gap-2.5 md:gap-2 px-3 py-2.5 md:py-1.5 text-left active:bg-accent",
+                  selectedIndex === index && "bg-primary/10",
+                  hoveredIndex === index && "bg-accent"
                 )}
               >
-                <Folder className="h-3.5 w-3.5 text-primary shrink-0" />
-                <span className="text-xs truncate flex-1">{entry.name}</span>
+                <Folder className="h-4 w-4 md:h-3.5 md:w-3.5 text-primary shrink-0" />
+                <span className="text-sm md:text-xs truncate flex-1">{entry.name}</span>
               </button>
             ))}
 
             {/* Files */}
             {files.map((entry, index) => {
               const entryIndex = directories.length + index
+              const isHovered = hoveredIndex === entryIndex
               const FileIcon = getFileIcon(entry.name)
               return (
                 <div
@@ -559,6 +556,10 @@ export function FileBrowser({
                   tabIndex={0}
                   data-entry-index={entryIndex}
                   onClick={() => handleEntryClick(entry)}
+                  onMouseEnter={() => setHoveredIndex(entryIndex)}
+                  onMouseLeave={() => {
+                    if (menuOpenIndex !== entryIndex) setHoveredIndex(null)
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault()
@@ -566,21 +567,65 @@ export function FileBrowser({
                     }
                   }}
                   className={cn(
-                    "group w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-muted/50 transition-colors cursor-pointer",
-                    selectedIndex === entryIndex && "bg-primary/10"
+                    "w-full flex items-center gap-2.5 md:gap-2 px-3 py-2.5 md:py-1.5 text-left active:bg-accent cursor-pointer",
+                    selectedIndex === entryIndex && "bg-primary/10",
+                    isHovered && "bg-accent"
                   )}
                 >
-                  <FileIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <span className="text-xs truncate flex-1 text-muted-foreground">
+                  <FileIcon className="h-4 w-4 md:h-3.5 md:w-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-sm md:text-xs truncate flex-1 text-muted-foreground">
                     {entry.name}
                   </span>
-                  <FileActionsMenu
-                    filePath={entry.path}
-                    machineId={machineId}
-                    machine={machine}
-                    useLocal={useLocal}
-                    onPreview={setPreviewPath}
-                  />
+                  {/* Desktop: action buttons visible on hover */}
+                  {isHovered && (
+                    <div className="hidden md:flex items-center gap-0.5 shrink-0">
+                      <button
+                        className="p-0.5 rounded hover:bg-muted"
+                        title="Preview"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setPreviewPath(entry.path)
+                        }}
+                      >
+                        <Eye className="h-3 w-3 text-muted-foreground" />
+                      </button>
+                      <button
+                        className="p-0.5 rounded hover:bg-muted"
+                        title="Download"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          downloadFile(machineId, entry.path)
+                        }}
+                      >
+                        <Download className="h-3 w-3 text-muted-foreground" />
+                      </button>
+                      <FileActionsMenu
+                        filePath={entry.path}
+                        machineId={machineId}
+                        machine={machine}
+                        useLocal={useLocal}
+                        onPreview={setPreviewPath}
+                        onOpenChange={(open) => {
+                          setMenuOpenIndex(open ? entryIndex : null)
+                          if (!open) setHoveredIndex(null)
+                        }}
+                      />
+                    </div>
+                  )}
+                  {/* Mobile: always-visible three-dot menu */}
+                  <div className="flex md:hidden shrink-0">
+                    <FileActionsMenu
+                      filePath={entry.path}
+                      machineId={machineId}
+                      machine={machine}
+                      useLocal={useLocal}
+                      onPreview={setPreviewPath}
+                      onOpenChange={(open) => {
+                        setMenuOpenIndex(open ? entryIndex : null)
+                        if (!open) setHoveredIndex(null)
+                      }}
+                    />
+                  </div>
                 </div>
               )
             })}

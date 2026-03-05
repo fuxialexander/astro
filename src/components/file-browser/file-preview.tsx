@@ -17,7 +17,8 @@ import { useState, useCallback } from "react"
 import { X, Maximize2, Minimize2, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { getFileCategory, buildContentUrl, type FileCategory } from "./file-type-utils"
+import { getFileCategory, type FileCategory } from "./file-type-utils"
+import { downloadFile } from "./download-utils"
 import { ImageViewer } from "./viewers/image-viewer"
 import { PdfViewer } from "./viewers/pdf-viewer"
 import { CodeViewer } from "./viewers/code-viewer"
@@ -81,14 +82,10 @@ export function FilePreview({
   const category = getFileCategory(filename)
 
   const handleDownload = useCallback(() => {
-    const url = buildContentUrl(machineId, filePath, true)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-  }, [machineId, filePath, filename])
+    downloadFile(machineId, filePath).catch(() => {
+      // Download error handled silently — browser will show failure
+    })
+  }, [machineId, filePath])
 
   // -----------------------------------------------------------------------
   // Expanded (full-screen overlay) mode

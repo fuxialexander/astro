@@ -22,8 +22,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
 import { buildFileUrlSync } from "@/lib/path-utils"
-import { apiUrl } from "@/lib/api-url"
 import { useToastStore } from "@/stores/toast-store"
+import { downloadFile } from "./download-utils"
 
 interface FileActionsMenuProps {
   /** Absolute file path */
@@ -66,13 +66,12 @@ export function FileActionsMenu({
     setOpen(false)
   }
 
-  const handleDownload = () => {
-    const params = new URLSearchParams({
-      machineId,
-      path: filePath,
-      download: "true",
-    })
-    window.open(apiUrl(`/api/fs/content?${params}`), "_blank")
+  const handleDownload = async () => {
+    try {
+      await downloadFile(machineId, filePath)
+    } catch {
+      addToast({ type: "error", title: "Download failed" })
+    }
     setOpen(false)
   }
 
@@ -129,7 +128,7 @@ export function FileActionsMenu({
           <Button
             variant="ghost"
             size="icon"
-            className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+            className="h-5 w-5 shrink-0"
             onClick={(e) => e.stopPropagation()}
           >
             <MoreHorizontal className="h-3 w-3" />
