@@ -32,23 +32,20 @@ export function useChatActivityEvents(
   )
   const hydrateFromCatchUp = useRealtimeStore((s) => s.hydrateFromCatchUp)
 
-  // Track which streamId we've attempted catch-up for
-  const catchUpAttempted = useRef<string | null>(null)
+  // Track which streamId we've hydrated to prevent duplicate calls.
+  // We intentionally skip the `hasEvents` guard that was here before — during
+  // live streaming a `steer_message` (user message) is persisted immediately
+  // *before* the assistant response starts, so `taskStream.activityEvents` may
+  // contain stale partial data from a previous render.  Relying on that guard
+  // caused hydration to be skipped entirely after a mid-stream page refresh.
+  const hydratedRef = useRef<string | null>(null)
 
-  // On mount / session switch: hydrate from streaming_events if no live events
   useEffect(() => {
     if (!streamId) return
-    const hasEvents = taskStream && taskStream.activityEvents.length > 0
-    if (hasEvents) return
-    if (catchUpAttempted.current === streamId) return
-    catchUpAttempted.current = streamId
+    if (hydratedRef.current === streamId) return
+    hydratedRef.current = streamId
     hydrateFromCatchUp([streamId], 0)
-  }, [streamId, taskStream, hydrateFromCatchUp])
-
-  // Reset catch-up tracking when session switches
-  useEffect(() => {
-    catchUpAttempted.current = null
-  }, [streamId])
+  }, [streamId, hydrateFromCatchUp])
 
   // Build the activity events list
   const activityEvents: TaskActivityEvent[] = useMemo(() => {
