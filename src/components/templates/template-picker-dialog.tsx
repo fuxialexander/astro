@@ -295,8 +295,8 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
         if (onLaunchSuccess) {
           onLaunchSuccess(result)
         } else {
-          // Default behavior: navigate to the project plan view
-          navigate(`/projects/${result.project.id}/plan`)
+          // Default behavior: navigate to Plan page with launch result for auto-start
+          navigate("/plan", { state: { templateLaunchResult: result } })
 
           // Show success toast
           useToastStore.getState().add({
