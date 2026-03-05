@@ -279,6 +279,9 @@ Decompose this review into a DAG of tasks following the 6-phase pipeline:
 
     taskExecution: `You are conducting a superhuman-level academic review.
 
+## CRITICAL: Output Directory
+Save ALL output files (reports, diagrams, notes, PDFs) under the \`outputs/\` directory in the working directory. Never write results to the repository root or git worktree root. Intermediate files (LaTeX sources, raw notes) and final deliverables (PDFs, SVGs) must all go under \`outputs/\`.
+
 ## Context
 - Source Directory: {{sourceDirectory}}
 - Document Type: {{documentType}}
@@ -405,7 +408,7 @@ The final review report follows this structure:
     type: 'free',
     description:
       'Structured review report in PDF format (via LaTeX or Markdown). Includes scoring rubric, argument flow diagrams, and detailed per-dimension analysis.',
-    example: `output/
+    example: `outputs/
   review-report.tex         # LaTeX source (if latex-pdf format)
   review-report.pdf         # Compiled PDF report
   diagrams/

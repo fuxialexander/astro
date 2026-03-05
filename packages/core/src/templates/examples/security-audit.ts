@@ -142,6 +142,9 @@ IMPORTANT: Security audits should be methodical. Prefer sequential execution for
 
     taskExecution: `You are conducting a security audit of: {{targetDescription}}.
 
+## CRITICAL: Output Directory
+Save ALL output files (audit reports, finding logs, remediation guides) under the \`outputs/\` directory in the working directory. Never write results to the repository root or git worktree root.
+
 Current audit scope: {{auditScope}}.
 
 Security analysis guidelines:

@@ -184,6 +184,9 @@ Decompose this ML pipeline into a DAG of tasks and milestones:
 
     taskExecution: `You are implementing part of an ML training pipeline: {{experimentName}}.
 
+## CRITICAL: Output Directory
+Save ALL output files (model checkpoints, training curves, configs, plots) under the \`outputs/\` directory in the working directory. Never write results to the repository root or git worktree root. Intermediate artifacts (checkpoints, logs) and final deliverables (trained models, plots) must all go under \`outputs/\`.
+
 Framework: {{framework}}. Task type: {{task}}.
 
 Follow these ML engineering standards:

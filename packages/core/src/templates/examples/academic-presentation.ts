@@ -259,6 +259,9 @@ For **poster** (when selected):
 
     taskExecution: `You are generating academic presentation deliverables from a research paper.
 
+## CRITICAL: Output Directory
+Save ALL output files (slides, blog posts, posters, figures, PDFs) under the \`outputs/\` directory in the working directory. Never write results to the repository root or git worktree root. Intermediate source files (HTML, Markdown) and final deliverables (PDFs) must all go under \`outputs/\`.
+
 ## Context
 - Paper Source: {{paperSource}}
 - Code Repository: {{githubUrl}}
@@ -358,7 +361,7 @@ This task uses the \`academic-presentation\` skill. Consult the skill's SKILL.md
     type: 'free',
     description:
       'Multiple output formats depending on selected deliverables: HTML slides rendered to PDF, Markdown blog post, HTML poster rendered to PDF. All outputs placed in a structured directory.',
-    example: `output/
+    example: `outputs/
   slides/
     slide-01-title.html
     slide-02-motivation.html
