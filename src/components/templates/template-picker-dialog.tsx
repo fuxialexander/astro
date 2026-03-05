@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { useNavigate } from "react-router"
 import {
   Dialog,
@@ -14,12 +14,19 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { TemplateGallery } from "./template-gallery"
 import { TemplateParameterForm } from "./template-parameter-form"
+import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { useTemplateStore } from "@/stores/template-store"
 import { useToastStore } from "@/stores/toast-store"
+import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
+import { useMachinesStore } from "@/stores/machines-store"
+import { useRealtimeStore } from "@/stores/realtime-store"
+import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
 import {
   ArrowLeft,
   ArrowRight,
+  FolderOpen,
+  Laptop,
   Loader2,
   Rocket,
 } from "lucide-react"
@@ -80,6 +87,28 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
   const launchTemplate = useTemplateStore((s) => s.launchTemplate)
   const reset = useTemplateStore((s) => s.reset)
 
+  // Machine state
+  const machines = useExecutionStore((s) => s.machines)
+  const registeredMachines = useMachinesStore((s) => s.machines)
+  const realtimeMachines = useRealtimeStore((s) => s.machines)
+  const allMachines = useMemo<MachineInfo[]>(() => [
+    ...machines,
+    ...Array.from(realtimeMachines.values()).map((m) => ({
+      machineId: m.machineId,
+      name: m.name,
+      status: 'online' as const,
+      providers: m.providers.map((p) => ({ type: p.type, status: p.status })),
+    })),
+    ...registeredMachines
+      .filter((rm) => !machines.some((m) => m.machineId === rm.id))
+      .map((rm) => ({
+        machineId: rm.id,
+        name: rm.name,
+        status: 'offline' as const,
+        providers: [],
+      })),
+  ].filter((m, i, arr) => arr.findIndex((a) => a.machineId === m.machineId) === i), [machines, realtimeMachines, registeredMachines])
+
   // Determine step order based on skipBrowse prop
   const stepOrder = skipBrowse ? SKIP_BROWSE_STEP_ORDER : FULL_STEP_ORDER
   const firstStep = stepOrder[0]
@@ -88,6 +117,8 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
   const [currentStep, setCurrentStep] = useState<WizardStep>(firstStep)
   const [projectName, setProjectName] = useState("")
   const [workingDirectory, setWorkingDirectory] = useState("")
+  const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null)
+  const [showPathBrowser, setShowPathBrowser] = useState(false)
   const [isLaunching, setIsLaunching] = useState(false)
 
   // Reset wizard state when dialog opens/closes
@@ -97,6 +128,8 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
       setCurrentStep(firstStep)
       setProjectName("")
       setWorkingDirectory("")
+      setSelectedMachine(null)
+      setShowPathBrowser(false)
       setIsLaunching(false)
       reset()
     }
@@ -200,7 +233,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
     setIsLaunching(true)
     try {
       // Call the store's launch method which returns the result
-      const result = await launchTemplate(projectName, workingDirectory || undefined)
+      const result = await launchTemplate(projectName, workingDirectory || undefined, selectedMachine?.machineId)
 
       if (result) {
         // Close dialog
@@ -231,6 +264,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
     selectedTemplate,
     projectName,
     workingDirectory,
+    selectedMachine?.machineId,
     launchTemplate,
     onOpenChange,
     onLaunchSuccess,
@@ -316,18 +350,58 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
                     className={cn(!projectName.trim() && "border-red-500")}
                   />
                 </div>
+                {/* Machine selector */}
+                {(isServerMode() || allMachines.length > 0) && (
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Machine</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {allMachines.map((m) => (
+                        <button
+                          key={m.machineId}
+                          type="button"
+                          onClick={() => setSelectedMachine(
+                            selectedMachine?.machineId === m.machineId ? null : m
+                          )}
+                          className={cn(
+                            "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
+                            selectedMachine?.machineId === m.machineId
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border hover:bg-muted"
+                          )}
+                        >
+                          <Laptop className="h-3 w-3" />
+                          {m.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Working directory */}
                 <div className="space-y-2">
                   <Label htmlFor="working-directory" className="text-sm font-medium">
                     Working Directory <span className="text-red-500">*</span>
                   </Label>
-                  <Input
-                    id="working-directory"
-                    type="text"
-                    value={workingDirectory}
-                    onChange={(e) => setWorkingDirectory(e.target.value)}
-                    placeholder="/path/to/project"
-                    className={cn(!workingDirectory.trim() && "border-red-500")}
-                  />
+                  <div className="flex items-center gap-2">
+                    {selectedMachine && (
+                      <button
+                        type="button"
+                        onClick={() => setShowPathBrowser(true)}
+                        title="Browse directories"
+                        className="shrink-0 rounded-md border border-border p-1.5 hover:bg-muted transition-colors cursor-pointer text-muted-foreground hover:text-foreground"
+                      >
+                        <FolderOpen className="h-4 w-4" />
+                      </button>
+                    )}
+                    <Input
+                      id="working-directory"
+                      type="text"
+                      value={workingDirectory}
+                      onChange={(e) => setWorkingDirectory(e.target.value)}
+                      placeholder={selectedMachine ? "/path/to/project" : "Select a machine to browse directories"}
+                      className={cn("flex-1 font-mono text-xs", !workingDirectory.trim() && "border-red-500")}
+                    />
+                  </div>
                   <p className="text-xs text-muted-foreground">
                     Results will be saved inside this directory (e.g. <code className="text-[10px] bg-muted px-1 py-0.5 rounded">{workingDirectory || '/path/to/project'}/output/</code>)
                   </p>
@@ -376,6 +450,12 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
                   {Object.keys(parameterValues).length} configured
                 </span>
               </div>
+              {selectedMachine && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Machine:</span>
+                  <span className="font-medium">{selectedMachine.name}</span>
+                </div>
+              )}
               {workingDirectory && (
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-muted-foreground">Working Directory:</span>
@@ -484,6 +564,18 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
           </div>
         </DialogFooter>
       </DialogContent>
+
+      {/* Remote path browser dialog */}
+      {selectedMachine && (
+        <RemotePathBrowser
+          open={showPathBrowser}
+          onOpenChange={setShowPathBrowser}
+          machineId={selectedMachine.machineId}
+          machineName={selectedMachine.name}
+          currentPath={workingDirectory || undefined}
+          onSelect={(path) => setWorkingDirectory(path)}
+        />
+      )}
     </Dialog>
   )
 }

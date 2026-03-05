@@ -60,7 +60,7 @@ interface TemplateStore {
   previewTemplate: () => Promise<void>
 
   // Launch
-  launchTemplate: (projectName: string, workDir?: string) => Promise<LaunchTemplateResult | undefined>
+  launchTemplate: (projectName: string, workDir?: string, targetMachineId?: string) => Promise<LaunchTemplateResult | undefined>
 
   // Custom template CRUD
   createCustomTemplate: (input: CustomTemplateInput) => Promise<string | undefined>
@@ -327,7 +327,7 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
    * @param workDir - Optional working directory override
    * @returns The launch result with project details, or undefined on error
    */
-  launchTemplate: async (projectName: string, workDir?: string) => {
+  launchTemplate: async (projectName: string, workDir?: string, targetMachineId?: string) => {
     const { selectedTemplate, parameterValues } = get()
     if (!selectedTemplate) {
       useToastStore.getState().add({
@@ -344,6 +344,7 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
         parameters: parameterValues,
         projectName,
         workingDirectory: workDir,
+        targetMachineId,
       }
       const result = await launchTemplate(selectedTemplate.id, params)
 
