@@ -201,6 +201,9 @@ export function createApp() {
   // Auth routes are always mounted (endpoints guard themselves with isLocalMode())
   app.route('/api/auth', authRoute)
 
+  // Connected accounts — available in all modes (OpenClaw local gateway needs it)
+  app.route('/api/connected-accounts', connectedAccountsRoute)
+
   // Server-only routes (require Supabase Auth)
   if (!isLocalModeEnv()) {
     app.route('/api/notifications', notificationsRoute)
@@ -208,7 +211,6 @@ export function createApp() {
     app.route('/api/github-app', githubAppRoute)
     app.route('/api/github/pr', githubPrRoute)
     app.route('/api/share', shareRoute)
-    app.route('/api/connected-accounts', connectedAccountsRoute)
   }
 
   // Landing page route
