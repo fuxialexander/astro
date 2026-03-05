@@ -1151,6 +1151,20 @@ function ConnectedAccountsContent() {
         mappingLabel="Team ID → Project"
         mappingKeyPlaceholder="TEAM-123"
       />
+
+      {/* OpenClaw */}
+      <ChannelAccountCard
+        channel="openclaw"
+        icon={Zap}
+        title="OpenClaw"
+        description="Connect to an OpenClaw gateway for notifications and chat."
+        fields={[
+          { key: 'gatewayUrl', label: 'Gateway URL', placeholder: 'ws://localhost:18789', type: 'text', required: true },
+          { key: 'apiKey', label: 'API Key (Optional)', placeholder: 'Gateway auth token', type: 'password', required: false },
+        ]}
+        mappingLabel="Channel → Project"
+        mappingKeyPlaceholder="channel-id"
+      />
     </div>
   )
 }

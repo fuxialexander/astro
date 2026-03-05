@@ -31,15 +31,16 @@ function maskCredentials(creds: Record<string, unknown>): Record<string, unknown
   return masked
 }
 
-type ChannelType = 'slack' | 'telegram' | 'github_webhook' | 'linear'
+type ChannelType = 'slack' | 'telegram' | 'github_webhook' | 'linear' | 'openclaw'
 
-const VALID_CHANNELS: ChannelType[] = ['slack', 'telegram', 'github_webhook', 'linear']
+const VALID_CHANNELS: ChannelType[] = ['slack', 'telegram', 'github_webhook', 'linear', 'openclaw']
 
 const REQUIRED_FIELDS: Record<ChannelType, string[]> = {
   slack: ['botToken', 'signingSecret'],
   telegram: ['botToken'],
   github_webhook: ['authToken', 'webhookSecret'],
   linear: ['apiToken', 'webhookSecret'],
+  openclaw: ['gatewayUrl'],
 }
 
 // ── Routes ──────────────────────────────────────────────────────────
@@ -279,6 +280,47 @@ app.post('/:id/test', async (c) => {
           }
         }
         return c.json({ success: false, message: 'Linear auth failed' })
+      }
+
+      case 'openclaw': {
+        // Test gateway reachability by connecting via WebSocket and waiting for challenge
+        const gatewayUrl = creds.gatewayUrl
+        const { createRequire } = await import('node:module')
+        const esmRequire = createRequire(import.meta.url)
+        const WebSocket = esmRequire('ws') as typeof import('ws').default
+        const result = await new Promise<{ success: boolean; message: string }>((resolve) => {
+          const timeout = setTimeout(() => {
+            ws.close()
+            resolve({ success: false, message: 'Gateway connection timed out (5s)' })
+          }, 5_000)
+          let ws: InstanceType<typeof WebSocket>
+          try {
+            ws = new WebSocket(gatewayUrl)
+          } catch (err) {
+            clearTimeout(timeout)
+            resolve({ success: false, message: `Failed to connect: ${(err as Error).message}` })
+            return
+          }
+          ws.on('message', (data: unknown) => {
+            try {
+              const frame = JSON.parse(String(data)) as { type?: string; event?: string }
+              if (frame.type === 'event' && frame.event === 'connect.challenge') {
+                clearTimeout(timeout)
+                ws.close()
+                resolve({ success: true, message: `Gateway reachable at ${gatewayUrl} (protocol v3)` })
+              }
+            } catch { /* ignore non-JSON */ }
+          })
+          ws.on('error', (err: Error) => {
+            clearTimeout(timeout)
+            ws.close()
+            resolve({ success: false, message: `WebSocket error: ${err.message}` })
+          })
+          ws.on('close', () => {
+            clearTimeout(timeout)
+          })
+        })
+        return c.json(result)
       }
 
       default:

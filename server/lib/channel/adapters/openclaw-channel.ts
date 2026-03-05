@@ -24,6 +24,7 @@ import { createRequire } from 'node:module'
 import type {
   ChannelNotification,
   OutboundResponse,
+  InboundMessage,
   OpenClawChannelConfig,
 } from '../channel-types.js'
 import { formatForChannel } from '../channel-formatter.js'
@@ -147,6 +148,47 @@ export class OpenClawChannelAdapter extends EventEmitter {
     }
 
     channelRouter.registerResponseSender('openclaw', (r) => this.sendResponse(r))
+
+    // Route inbound chat messages to the channel router
+    this.on('inbound', async (payload: Record<string, unknown>) => {
+      const projectId = this.resolveProjectId(payload.channelId as string | undefined)
+      if (!projectId) return
+
+      const message: InboundMessage = {
+        sourceMessageId: (payload.messageId as string) ?? String(Date.now()),
+        channel: 'openclaw',
+        text: (payload.text as string) ?? '',
+        sender: {
+          id: (payload.senderId as string) ?? 'unknown',
+          name: (payload.senderName as string) ?? 'unknown',
+        },
+        conversationRef: {
+          channelId: (payload.channelId as string) ?? '',
+          threadId: payload.threadId as string | undefined,
+          metadata: payload.metadata as Record<string, unknown> | undefined,
+        },
+        projectId,
+      }
+
+      try {
+        const response = await channelRouter.routeMessage(message)
+        await this.sendResponse(response)
+      } catch (err) {
+        console.error('[openclaw] Failed to route inbound message:', err)
+      }
+    })
+
+    // Route approval responses to the dispatch engine
+    this.on('approval-response', async ({ approvalId, response }: { approvalId: string; response: string }) => {
+      try {
+        const { dispatchEngine } = await import('../../dispatch/index.js')
+        const approved = response.toLowerCase() === 'yes' || response.toLowerCase() === 'approve'
+        await dispatchEngine.respondToApproval(approvalId, approved, response)
+      } catch {
+        // Approval may not exist in dispatch engine (e.g., already resolved)
+      }
+    })
+
     console.log(`[openclaw] Adapter started, gateway=${this.config.gatewayUrl}`)
   }
 
@@ -408,7 +450,10 @@ export class OpenClawChannelAdapter extends EventEmitter {
         const approvalId = frame.payload.approvalId as string | undefined
         const response = frame.payload.response as string | undefined
         if (approvalId && response) {
+          // Route to local pending approval (if this adapter sent it)
           this.resolveApproval(approvalId, response)
+          // Also route to dispatch engine for channel-notification-originated approvals
+          this.emit('approval-response', { approvalId, response })
         }
         break
       }
@@ -489,6 +534,13 @@ export class OpenClawChannelAdapter extends EventEmitter {
     clearTimeout(pending.timeoutId)
     this.pendingApprovals.delete(approvalId)
     pending.resolve(response)
+  }
+
+  // ─── Helpers ──────────────────────────────────────────────────
+
+  private resolveProjectId(channelId: string | undefined): string | null {
+    if (!channelId || !this.config?.channelMappings) return null
+    return this.config.channelMappings[channelId] ?? null
   }
 
   // ─── Message Formatting ────────────────────────────────────────
