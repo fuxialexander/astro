@@ -345,7 +345,7 @@ function toSummary(template: UseCaseTemplate): UseCaseTemplateSummary {
 
 const launchTemplateSchema = z.object({
   // Parameters to pass to the template
-  parameters: z.record(z.unknown()).default({}),
+  parameters: z.record(z.string(), z.unknown()).default({}),
 
   // Optional project configuration overrides
   projectName: z.string().max(200).optional(),
@@ -514,7 +514,6 @@ templatesRoute.get('/categories', async (c) => {
 templatesRoute.get('/:id', async (c) => {
   const user = c.get('user')! as AuthUser
   const templateId = c.req.param('id')
-
   // Decode URL-encoded template IDs (e.g., "custom%2Fuuid" -> "custom/uuid")
   const decodedId = decodeURIComponent(templateId)
 
@@ -865,7 +864,7 @@ templatesRoute.post('/:id/apply', async (c) => {
   // Parse request body
   const applySchema = z.object({
     projectId: z.string(),
-    parameters: z.record(z.unknown()),
+    parameters: z.record(z.string(), z.unknown()),
   })
 
   let body: z.infer<typeof applySchema>
