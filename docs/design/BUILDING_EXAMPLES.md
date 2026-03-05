@@ -86,6 +86,155 @@ Agent executes with project-specific context
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+### Parameter → Prompt Transformation
+
+Template parameters are **not** passed as structured data to the AI. They are interpolated into prompt text via mustache-style `{{paramName}}` placeholders, then the entire rendered string becomes the project's `visionDoc`.
+
+#### Pipeline
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  1. User fills parameter form                                    │
+│                                                                  │
+│     parameterValues (Zustand store):                             │
+│     {                                                            │
+│       paperSource: "https://arxiv.org/abs/2401.12345",           │
+│       deliverables: ["slides", "blog-post"],                     │
+│       slideCount: "standard",    ← from default                  │
+│       targetAudience: "researcher", ← from default               │
+│       ...                                                        │
+│     }                                                            │
+└────────────────────────┬─────────────────────────────────────────┘
+                         │
+                         ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  2. POST /api/templates/:id/launch                               │
+│                                                                  │
+│     Backend receives { parameters, projectName, workDir }        │
+└────────────────────────┬─────────────────────────────────────────┘
+                         │
+                         ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  3. validateParameters(template, params)                         │
+│                                                                  │
+│     - Iterates all required + optional parameters                │
+│     - If value provided → validate type, pattern, range          │
+│     - If no value + has default → use default                    │
+│     - If required + no value + no default → error                │
+│     - Output: resolvedParameters (clean Record<string, ...>)     │
+│                                                                  │
+│     server/routes/templates.ts:60-129                            │
+└────────────────────────┬─────────────────────────────────────────┘
+                         │
+                         ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  4. interpolatePrompt(planGeneration, resolvedParams)            │
+│                                                                  │
+│     Template prompt:                                             │
+│       "- Paper Source: {{paperSource}}"                           │
+│       "- Deliverables: {{deliverables}}"                         │
+│       "- Slide Count: {{slideCount}}"                            │
+│                                                                  │
+│     After interpolation:                                         │
+│       "- Paper Source: https://arxiv.org/abs/2401.12345"         │
+│       "- Deliverables: slides, blog-post"                        │
+│       "- Slide Count: standard"                                  │
+│                                                                  │
+│     Arrays are joined with ", ". All values become strings.      │
+│                                                                  │
+│     server/routes/templates.ts:309-317                           │
+└────────────────────────┬─────────────────────────────────────────┘
+                         │
+                         ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  5. Prepend sharedContext (if present)                            │
+│                                                                  │
+│     fullDescription =                                            │
+│       sharedContext          ← color palette, slide layouts, etc. │
+│       + "\n\n---\n\n"                                            │
+│       + interpolated plan prompt                                 │
+│                                                                  │
+│     server/routes/templates.ts:707-709                           │
+└────────────────────────┬─────────────────────────────────────────┘
+                         │
+                         ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  6. Create project with visionDoc = fullDescription              │
+│                                                                  │
+│     The entire rendered prompt is stored as visionDoc.           │
+│     User can view/edit it in the project overview.               │
+│                                                                  │
+│     server/routes/templates.ts:723                               │
+└────────────────────────┬─────────────────────────────────────────┘
+                         │
+                         ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  7. Frontend calls /api/agent/generate-plan                      │
+│                                                                  │
+│     planGenerationRequest = {                                    │
+│       projectId,                                                 │
+│       description: fullDescription,                              │
+│       visionDoc: fullDescription                                 │
+│     }                                                            │
+│                                                                  │
+│     Claude receives the full prompt with all parameter values    │
+│     baked into the text. It never sees the parameter schema.     │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+#### Default Values & Advanced Options
+
+Each parameter can define a `default` value. When the user selects a template, all defaults are populated into the form immediately (`template-store.ts:selectTemplate`). The user sees pre-selected values and only changes what they need.
+
+Advanced Options (optional parameters) are collapsed by default. The count label reflects only **currently visible** parameters — parameters hidden by `visibleWhen` conditions are excluded from the count.
+
+#### Default Values by Template
+
+**Academic Presentation** (`astro/academic-presentation`)
+
+| Parameter | Default | Prompt placeholder |
+|-----------|---------|-------------------|
+| `deliverables` | `['slides']` | `{{deliverables}}` |
+| `slideCount` | `'standard'` (15-25 slides) | `{{slideCount}}` |
+| `targetAudience` | `'researcher'` | `{{targetAudience}}` |
+| `slideTheme` | `'light'` | `{{slideTheme}}` |
+| `blogStyle` | `'detailed'` | `{{blogStyle}}` |
+| `posterOrientation` | `'portrait'` | `{{posterOrientation}}` |
+| `githubUrl` | — (no default) | `{{githubUrl}}` |
+| `customRequirements` | — (no default) | `{{customRequirements}}` |
+
+**Academic Review** (`astro/academic-review`)
+
+| Parameter | Default | Prompt placeholder |
+|-----------|---------|-------------------|
+| `documentType` | `'paper'` | `{{documentType}}` |
+| `sourceFormat` | `'pdf'` | `{{sourceFormat}}` |
+| `reviewDepth` | `'comprehensive'` | `{{reviewDepth}}` |
+| `reviewerExpertise` | `'expert'` | `{{reviewerExpertise}}` |
+| `focusAreas` | `[]` (none) | `{{focusAreas}}` |
+| `reportFormat` | `'latex-pdf'` | `{{reportFormat}}` |
+| `includeDiagrams` | `'yes'` | `{{includeDiagrams}}` |
+| `literatureSearch` | `'enabled'` | `{{literatureSearch}}` |
+| `targetVenue` | — (no default) | `{{targetVenue}}` |
+
+**Moat & Fragility** (`astro/moat-fragility`)
+
+| Parameter | Default | Prompt placeholder |
+|-----------|---------|-------------------|
+| `analysisDepth` | `'comprehensive'` | `{{analysisDepth}}` |
+| `timeHorizon` | `'5year'` | `{{timeHorizon}}` |
+| `sectorFocus` | `'auto'` | `{{sectorFocus}}` |
+| `reportStyle` | `'professional'` | `{{reportStyle}}` |
+| `supplementaryDocs` | — (no default) | `{{supplementaryDocs}}` |
+| `comparisonTickers` | — (no default) | `{{comparisonTickers}}` |
+
+#### Visibility Conditions
+
+Some parameters are conditionally visible based on other parameter values:
+
+- Academic Presentation: `slideCount`, `targetAudience`, `slideTheme` only visible when `deliverables` contains `'slides'`. `blogStyle` visible when `deliverables` contains `'blog-post'`. `posterOrientation` visible when `deliverables` contains `'poster'`.
+- Academic Review and Moat & Fragility: No conditional visibility — all optional parameters are always visible.
+
 ### Deduplication at Dispatch
 
 When a project's `visionDoc` was loaded from a SKILL.md (e.g., `academic-presentation`), the dispatch route should **skip** injecting that same skill via `SkillManager.getSkillPromptInjection()`. This avoids sending duplicate instructions.
