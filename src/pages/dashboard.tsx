@@ -1,61 +1,67 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { stripHtml } from "@/lib/html-utils"
 import { Link, useNavigate } from "react-router"
 import {
   Plus,
-  Eye,
   Activity,
-  CircleCheck,
   Check,
   FileText,
   Monitor,
   CheckCircle2,
   XCircle,
-  Folder,
   Zap,
   AlertCircle,
   RotateCcw,
   Scissors,
   Loader2,
   ClipboardCheck,
+  Sparkles,
+  Globe,
+  LayoutTemplate,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { StatusBadge } from "@/components/ui/status-badge"
-import { EmptyState } from "@/components/ui/empty-state"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useRealtimeStore, type ActivityEvent } from "@/stores/realtime-store"
-import { useUsageStore } from "@/stores/usage-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore } from "@/stores/execution-store"
+import { useTemplateStore } from "@/stores/template-store"
+import { useStatsStore } from "@/stores/stats-store"
+import type { UseCaseTemplateSummary } from "@astro/core/templates"
 import { ApprovalCard } from "@/components/approval-card"
 import { InlineApprovalCard } from "@/components/plan-session/inline-approval-card"
+import { ActivityOverview } from "@/components/dashboard/activity-overview"
+import { AchievementsPanel } from "@/components/dashboard/achievements-panel"
+import { CommandStrip } from "@/components/dashboard/command-strip"
+import { MachineFleetPanel } from "@/components/dashboard/machine-fleet-panel"
+import { TaskTimeline } from "@/components/dashboard/task-timeline"
+import { ProjectHealthCard } from "@/components/dashboard/project-health-card"
+import { formatCompactNumber } from "@astro/core/achievements"
 import { cn } from "@/lib/utils"
 import { formatRelativeTime } from "@/lib/date-utils"
 
-const activityIcons: Record<string, { icon: typeof Activity; bg: string; color: string }> = {
-  success: { icon: CheckCircle2, bg: "bg-success/10", color: "text-success" },
-  failure: { icon: XCircle, bg: "bg-error/10", color: "text-error" },
-  progress: { icon: Activity, bg: "bg-info/10", color: "text-info" },
-  machine: { icon: Monitor, bg: "bg-primary/10", color: "text-primary" },
-  file_change: { icon: FileText, bg: "bg-warning/10", color: "text-warning" },
+const DISMISSED_KEY = "astro:getting-started-dismissed"
+
+const activityIcons: Record<string, { icon: typeof Activity; color: string }> = {
+  success: { icon: CheckCircle2, color: "text-success" },
+  failure: { icon: XCircle, color: "text-error" },
+  progress: { icon: Activity, color: "text-info" },
+  machine: { icon: Monitor, color: "text-primary" },
+  file_change: { icon: FileText, color: "text-warning" },
 }
 
 function ActivityItem({ event }: { event: ActivityEvent }) {
   const config = activityIcons[event.type] || activityIcons.progress
   const Icon = config.icon
-
   return (
-    <div className="flex items-center gap-3 py-2">
-      <div className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-full", config.bg)}>
-        <Icon className={cn("h-3.5 w-3.5", config.color)} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs truncate">{event.text}</p>
-      </div>
-      <span className="text-[11px] text-muted-foreground shrink-0">{formatRelativeTime(event.timestamp)}</span>
+    <div className="flex items-center gap-2.5 py-1.5 group">
+      <Icon className={cn("h-3 w-3 shrink-0 opacity-60 group-hover:opacity-100 transition-opacity", config.color)} />
+      <p className="text-[11px] truncate flex-1 min-w-0 text-muted-foreground group-hover:text-foreground transition-colors">{event.text}</p>
+      <span className="text-[10px] text-muted-foreground/40 shrink-0">{formatRelativeTime(event.timestamp)}</span>
     </div>
   )
 }
@@ -67,8 +73,8 @@ export function Dashboard() {
   const updateNode = usePlanStore((s) => s.updateNode)
   const machines = useRealtimeStore((s) => s.machines)
   const activityFeed = useRealtimeStore((s) => s.activityFeed)
+  const taskStreams = useRealtimeStore((s) => s.taskStreams)
   const connected = useRealtimeStore((s) => s.connected)
-  const sessionMetrics = useUsageStore((s) => s.sessionMetrics)
   const profile = useUserProfileStore((s) => s.profile)
   const pendingApprovals = useExecutionStore((s) => s.pendingApprovals)
   const respondToApproval = useExecutionStore((s) => s.respondToApproval)
@@ -78,14 +84,25 @@ export function Dashboard() {
   const [resettingId, setResettingId] = useState<string | null>(null)
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
+  const templates = useTemplateStore((s) => s.templates)
+  const templateStoreLoaded = useTemplateStore((s) => s.loaded)
+  const heatmapData = useStatsStore((s) => s.heatmapData)
+  const stats = useStatsStore((s) => s.stats)
+  const achievements = useStatsStore((s) => s.achievements)
+  const levelInfo = useStatsStore((s) => s.levelInfo)
+  const statsLoaded = useStatsStore((s) => s.statsLoaded)
+  const loadAll = useStatsStore((s) => s.loadAll)
   const navigate = useNavigate()
+  const attentionRef = useRef<HTMLDivElement>(null)
 
+  const [getStartedDismissed, setGetStartedDismissed] = useState(() => {
+    try { return localStorage.getItem(DISMISSED_KEY) === "1" } catch { return false }
+  })
+
+  useEffect(() => { loadAll() }, [loadAll])
 
   const activeTasks = nodes.filter(
     (n) => n.status === "in_progress" || n.status === "dispatched"
-  ).length
-  const completedToday = nodes.filter(
-    (n) => n.status === "completed" || n.status === "auto_verified"
   ).length
   const pendingDecisions = nodes.filter(
     (n) => n.status === "awaiting_judgment" || n.status === "awaiting_approval"
@@ -93,93 +110,212 @@ export function Dashboard() {
 
   const pendingNodes = nodes.filter((n) => n.status === "awaiting_judgment" || n.status === "awaiting_approval")
   const activeProjects = projects.filter((p) => p.status === "active")
+  const showGetStarted = projects.length <= 2 && !getStartedDismissed
+
+  const recentProjects = useMemo(() => {
+    return [...activeProjects]
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, 3)
+  }, [activeProjects])
+  const hasAttention = pendingNodes.length > 0 || dynamicApprovals.size > 0
+
+  const featuredTemplates = useMemo(() => {
+    if (!templateStoreLoaded || !showGetStarted) return []
+    const stable = templates.filter(
+      (t) => t.maturity === 'stable' && t.source === 'builtin'
+    )
+    const seen = new Set<string>()
+    const diverse: UseCaseTemplateSummary[] = []
+    for (const t of stable) {
+      if (!seen.has(t.category)) {
+        seen.add(t.category)
+        diverse.push(t)
+      }
+    }
+    return diverse.slice(0, 5)
+  }, [templates, templateStoreLoaded, showGetStarted])
+
+  function dismissGetStarted() {
+    setGetStartedDismissed(true)
+    try { localStorage.setItem(DISMISSED_KEY, "1") } catch { /* noop */ }
+  }
+
+  const machineList = useMemo(() => Array.from(machines.values()), [machines])
+
+  // ── Data transformations for new components ──
+
+  const machineFleetData = useMemo(() =>
+    machineList.map((m) => ({
+      machineId: m.machineId,
+      name: m.name || m.machineId,
+      cpuPercent: m.load.cpuPercent,
+      memoryPercent: m.load.memoryPercent,
+      activeTasks: m.load.activeTasks,
+      connected: m.connectionStatus === "connected",
+    })),
+  [machineList])
+
+  const activeTasksWithContext = useMemo(() =>
+    nodes
+      .filter((n) => n.status === "in_progress" || n.status === "dispatched")
+      .map((node) => {
+        const stream = taskStreams.get(node.id)
+        const project = projects.find((p) => p.id === node.projectId)
+        const machine = machines.get(node.machineId || "")
+        return {
+          id: node.id,
+          title: node.title,
+          projectId: node.projectId,
+          projectName: project?.name || "Unknown",
+          projectColor: project?.color,
+          machineName: machine?.name || machine?.machineId || "local",
+          machineId: node.machineId || "local",
+          startedAt: node.executionStartedAt
+            ? new Date(node.executionStartedAt).getTime()
+            : Date.now() - 60000,
+          progress: stream?.progress ?? 0,
+          progressMessage: stream?.progressMessage,
+          costUsd: undefined as number | undefined,
+        }
+      }),
+  [nodes, taskStreams, projects, machines])
+
+  const timelineMachines = useMemo(
+    () => [...new Set(activeTasksWithContext.map((t) => t.machineName))],
+    [activeTasksWithContext],
+  )
+
+  const projectHealth = useMemo(() =>
+    recentProjects.map((project) => {
+      const pNodes = nodes.filter((n) => n.projectId === project.id)
+      const completed = pNodes.filter((n) => ["completed", "auto_verified"].includes(n.status)).length
+      const inProgress = pNodes.filter((n) => ["in_progress", "dispatched"].includes(n.status)).length
+      const planned = pNodes.filter((n) => n.status === "planned").length
+      const awaiting = pNodes.filter((n) => ["awaiting_judgment", "awaiting_approval"].includes(n.status)).length
+      const pruned = pNodes.filter((n) => n.status === "pruned").length
+
+      // Build velocity data from heatmap (last 30 days, project-agnostic for now)
+      const velocityData = heatmapData.slice(-30).map((d) => d.tasksCompleted)
+      const totalCost = heatmapData.reduce((s, d) => s + d.totalCostUsd, 0)
+
+      return {
+        project,
+        completed,
+        inProgress,
+        planned,
+        awaiting,
+        pruned,
+        total: pNodes.length,
+        costUsd: totalCost / Math.max(1, activeProjects.length),
+        velocityData,
+      }
+    }),
+  [recentProjects, nodes, heatmapData, activeProjects.length])
+
+  const hourlyPulse = useMemo(() => {
+    const now = Date.now()
+    return Array.from({ length: 24 }, (_, i) => {
+      const hourStart = now - (23 - i) * 3600000
+      const hourEnd = hourStart + 3600000
+      return activityFeed.filter((e) => {
+        const t = e.timestamp.getTime()
+        return t >= hourStart && t < hourEnd
+      }).length
+    })
+  }, [activityFeed])
+
+  const todayCost = useMemo(() => {
+    if (heatmapData.length === 0) return 0
+    const today = new Date().toISOString().slice(0, 10)
+    return heatmapData.find((d) => d.date === today)?.totalCostUsd ?? 0
+  }, [heatmapData])
+
+  // Time-aware greeting
+  const greeting = useMemo(() => {
+    const h = new Date().getHours()
+    if (h < 12) return "Good morning"
+    if (h < 17) return "Good afternoon"
+    return "Good evening"
+  }, [])
 
   return (
-    <div className="flex flex-col gap-4 p-4 md:gap-6 md:p-8">
-      {/* Header Row */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-xl font-primary font-semibold">
-            Good morning{profile.name && !profile.name.includes("@") ? `, ${profile.name}` : ""}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            You have {pendingDecisions} pending decision{pendingDecisions !== 1 ? "s" : ""} and{" "}
-            {activeTasks} active task{activeTasks !== 1 ? "s" : ""}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 md:gap-3">
-          <Button asChild className="min-h-11">
-            <Link to="/projects">
-              <Plus className="h-4 w-4" />
-              New Project
-            </Link>
-          </Button>
-          <Button variant="outline" asChild className="min-h-11">
-            <Link to="/settings">Settings</Link>
-          </Button>
-        </div>
+    <div className="flex flex-col gap-6 p-6 md:px-10 md:py-8 max-w-[1100px] mx-auto w-full animate-stagger">
+
+      {/* ── TIER 0: Greeting ── */}
+      <div className="flex flex-col gap-0.5">
+        <h1 className="text-2xl md:text-[28px] font-secondary font-light tracking-wide leading-tight">
+          {greeting}{profile.name && !profile.name.includes("@") ? `, ${profile.name}` : ""}
+        </h1>
       </div>
 
-      {/* Stats Row - 3 compact widgets */}
-      <div className="grid grid-cols-3 gap-2 md:gap-4">
-        {/* Needs Attention */}
-        <Card className="w-full rounded-2xl shadow cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=awaiting_judgment")}>
-          <CardContent className="flex items-center gap-2 p-2.5 md:justify-between md:p-6">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-warning shrink-0 md:order-2 md:h-12 md:w-12 md:rounded-xl">
-              <Eye className="h-4 w-4 text-warning-foreground md:h-6 md:w-6" />
-            </div>
-            <div className="flex flex-col min-w-0">
-              <p className="text-[11px] text-muted-foreground truncate md:text-sm">Attention</p>
-              <p className="text-lg font-bold md:text-[32px]">{pendingDecisions}</p>
-            </div>
-          </CardContent>
-        </Card>
+      {/* ── TIER 1: Command Strip (sticky) ── */}
+      <CommandStrip
+        approvalCount={pendingDecisions}
+        hourlyPulse={hourlyPulse}
+        todayCost={todayCost}
+        connected={connected}
+        onApprovalClick={() => {
+          if (hasAttention) {
+            attentionRef.current?.scrollIntoView({ behavior: "smooth" })
+          } else {
+            navigate("/tasks?status=awaiting_judgment")
+          }
+        }}
+      />
 
-        {/* Active Tasks */}
-        <Card className="w-full rounded-2xl shadow cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=in_progress")}>
-          <CardContent className="flex items-center gap-2 p-2.5 md:justify-between md:p-6">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-info shrink-0 md:order-2 md:h-12 md:w-12 md:rounded-xl">
-              <Activity className="h-4 w-4 text-info-foreground md:h-6 md:w-6" />
-            </div>
-            <div className="flex flex-col min-w-0">
-              <p className="text-[11px] text-muted-foreground truncate md:text-sm">Active</p>
-              <p className="text-lg font-bold md:text-[32px]">{activeTasks}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Completed Today */}
-        <Card className="w-full rounded-2xl shadow cursor-pointer hover:border-primary/40 transition-colors" onClick={() => navigate("/tasks?status=completed")}>
-          <CardContent className="flex items-center gap-2 p-2.5 md:justify-between md:p-6">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-success shrink-0 md:order-2 md:h-12 md:w-12 md:rounded-xl">
-              <CircleCheck className="h-4 w-4 text-success-foreground md:h-6 md:w-6" />
-            </div>
-            <div className="flex flex-col min-w-0">
-              <p className="text-[11px] text-muted-foreground truncate md:text-sm">Done</p>
-              <p className="text-lg font-bold md:text-[32px]">{completedToday}</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Content Columns */}
-      <div className="flex flex-col gap-4 md:flex-row md:gap-6 flex-1">
-        {/* Left Column: My Attention */}
-        <div className="flex flex-1 flex-col gap-3 md:gap-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold md:text-lg">My Attention</h2>
-            <Button variant="outline" size="sm" asChild className="min-h-9">
-              <Link to="/tasks">View All</Link>
-            </Button>
-          </div>
+      {/* ── Get Started ── */}
+      {showGetStarted && (
+        <div className="relative rounded-xl border border-primary/10 bg-gradient-to-r from-primary/[0.03] to-transparent p-5">
+          <button
+            onClick={dismissGetStarted}
+            className="absolute top-3 right-3 p-1 rounded-md hover:bg-muted/60 transition-colors text-muted-foreground/40 hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
           <div className="flex flex-col gap-3">
-            {/* Dynamic approvals from running agents (AskUserQuestion) */}
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary/70" />
+              <span className="text-[13px] font-semibold">Get Started</span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {featuredTemplates.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => navigate('/plan', { state: { initialTemplateId: t.id } })}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border/60 bg-background hover:border-primary/25 hover:bg-primary/[0.02] transition-all cursor-pointer text-xs"
+                >
+                  {t.icon ? <span className="text-sm">{t.icon}</span> : <LayoutTemplate className="h-3 w-3 text-muted-foreground/50" />}
+                  <span className="font-medium">{t.name}</span>
+                </button>
+              ))}
+              <Button size="sm" variant="outline" asChild className="h-7 text-xs border-border/60">
+                <Link to="/plan"><Plus className="h-3 w-3" /> Blank Plan</Link>
+              </Button>
+              <Button size="sm" variant="ghost" asChild className="h-7 text-xs text-muted-foreground/60">
+                <Link to="/community"><Globe className="h-3 w-3" /> Community</Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── TIER 2: Attention cards ── */}
+      <div ref={attentionRef}>
+        {hasAttention ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-[13px] font-semibold tracking-wide">Needs Your Attention</h2>
+              <Button variant="ghost" size="sm" asChild className="h-6 text-[11px] text-muted-foreground/60 px-2">
+                <Link to="/tasks">View All</Link>
+              </Button>
+            </div>
+
             {Array.from(dynamicApprovals.values()).map((approval) => (
-              <Card key={approval.requestId} className="rounded-2xl shadow-lg">
+              <Card key={approval.requestId} className="rounded-xl border-border/60">
                 <CardContent className="p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Zap className="h-4 w-4 text-info" />
-                    <span className="text-xs font-semibold text-info">Agent Question</span>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Zap className="h-3.5 w-3.5 text-info" />
+                    <span className="text-[11px] font-semibold text-info">Agent Question</span>
                   </div>
                   <InlineApprovalCard
                     requestId={approval.requestId}
@@ -194,393 +330,322 @@ export function Dashboard() {
               </Card>
             ))}
 
-            {pendingNodes.length > 0 || dynamicApprovals.size > 0 ? (
-              pendingNodes.map((node) => {
-                const project = projects.find((p) => p.id === node.projectId)
-                // Check if this node has a pending approval request
-                const approval = Array.from(pendingApprovals.values()).find(
-                  (a) => a.nodeId === node.id
-                )
+            {pendingNodes.map((node) => {
+              const project = projects.find((p) => p.id === node.projectId)
+              const approval = Array.from(pendingApprovals.values()).find((a) => a.nodeId === node.id)
 
-                // If awaiting approval, show ApprovalCard
-                if (node.status === "awaiting_approval" && approval) {
-                  return (
-                    <ApprovalCard
-                      key={node.id}
-                      approval={approval}
-                      onRespond={respondToApproval}
-                    />
-                  )
-                }
+              if (node.status === "awaiting_approval" && approval) {
+                return <ApprovalCard key={node.id} approval={approval} onRespond={respondToApproval} />
+              }
 
-                // Otherwise, show judgment card
-                const execution = getExecution(node.id)
-                const summary = execution?.summary
-                const error = node.executionError || execution?.error
+              const execution = getExecution(node.id)
+              const summary = execution?.summary
+              const error = node.executionError || execution?.error
+              const isLoadingExecution = !executionsLoaded && !execution
 
-                // Check if we're still loading executions data
-                const isLoadingExecution = !executionsLoaded && !execution
+              return (
+                <Card key={node.id} className="rounded-xl border-border/60">
+                  <CardContent className="flex flex-col gap-0 p-0">
+                    <div className="flex flex-col gap-2.5 p-4">
+                      <div className="flex items-center justify-between">
+                        <StatusBadge status="awaiting" />
+                        <span className="text-[11px] text-muted-foreground/60">{project?.name}</span>
+                      </div>
+                      <Link to={`/project/${node.projectId}/task/${node.id}`} className="text-sm font-semibold text-foreground hover:text-primary transition-colors">
+                        {node.title}
+                      </Link>
+                      <p className="text-xs text-muted-foreground/70 line-clamp-2">{node.content ? stripHtml(node.content) : node.description}</p>
 
-                return (
-                  <Card key={node.id} className="rounded-2xl shadow-lg">
-                    <CardContent className="flex flex-col gap-0 p-0">
-                      {/* Card Header */}
-                      <div className="flex flex-col gap-3 p-5">
-                        <div className="flex items-center justify-between">
-                          <StatusBadge status="awaiting" />
-                          <span className="text-xs text-muted-foreground">
-                            {project?.name}
-                          </span>
+                      {isLoadingExecution ? (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground/60">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <span>Loading...</span>
                         </div>
-                        <Link to={`/project/${node.projectId}/task/${node.id}`} className="text-base font-semibold text-foreground hover:underline">
-                          {node.title}
-                        </Link>
-                        <p className="text-sm text-muted-foreground line-clamp-2">{node.content ? stripHtml(node.content) : node.description}</p>
-
-                        {/* Summary or Error or Loading */}
-                        {isLoadingExecution ? (
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            <span>Loading execution data...</span>
+                      ) : summary ? (
+                        <div className={cn(
+                          "rounded-lg border p-3",
+                          summary.status === 'success' ? "border-success/20 bg-success/[0.03]" :
+                          summary.status === 'partial' ? "border-warning/20 bg-warning/[0.03]" :
+                          "border-error/20 bg-error/[0.03]"
+                        )}>
+                          <div className="flex items-center gap-2 mb-1">
+                            <Badge variant={summary.status === 'success' ? 'success' : summary.status === 'partial' ? 'warning' : 'destructive'} className="text-[10px]">
+                              {summary.status}
+                            </Badge>
+                            {summary.filesChanged.length > 0 && (
+                              <span className="text-[10px] text-muted-foreground/50">
+                                {summary.filesChanged.length} file{summary.filesChanged.length !== 1 ? 's' : ''}
+                              </span>
+                            )}
                           </div>
-                        ) : summary ? (
-                          <div className={cn(
-                            "rounded-lg border p-3.5",
-                            summary.status === 'success' ? "border-success/30 bg-success/5" :
-                            summary.status === 'partial' ? "border-warning/30 bg-warning/5" :
-                            "border-error/30 bg-error/5"
-                          )}>
-                            <div className="flex items-center gap-2 mb-1.5">
-                              <Badge variant={summary.status === 'success' ? 'success' : summary.status === 'partial' ? 'warning' : 'destructive'} className="text-[10px]">
-                                {summary.status}
-                              </Badge>
-                              {summary.filesChanged.length > 0 && (
-                                <span className="text-[10px] text-muted-foreground">
-                                  {summary.filesChanged.length} file{summary.filesChanged.length !== 1 ? 's' : ''} changed
-                                </span>
-                              )}
-                            </div>
-                            {summary.keyFindings && summary.keyFindings.length > 0 ? (
-                              <ul className="space-y-1">
-                                {summary.keyFindings.map((finding, i) => (
-                                  <li key={i} className="flex items-start gap-1.5 text-sm text-foreground">
-                                    <span className="text-muted-foreground mt-0.5 shrink-0">•</span>
-                                    <span>{finding}</span>
-                                  </li>
+                          {summary.keyFindings && summary.keyFindings.length > 0 ? (
+                            <ul className="space-y-0.5">
+                              {summary.keyFindings.map((finding, i) => (
+                                <li key={i} className="flex items-start gap-1.5 text-xs text-foreground/80">
+                                  <span className="text-muted-foreground/40 mt-0.5 shrink-0">-</span>
+                                  <span>{finding}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-xs text-foreground/80">{summary.workCompleted}</p>
+                          )}
+                          {summary.followUps.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-border/30">
+                              <span className="text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wide">Follow-ups</span>
+                              <ul className="mt-1 space-y-0.5">
+                                {summary.followUps.map((f, i) => (
+                                  <li key={i} className="text-[11px] text-muted-foreground/60">- {f}</li>
                                 ))}
                               </ul>
-                            ) : (
-                              <p className="text-sm text-foreground">{summary.workCompleted}</p>
-                            )}
-                            {summary.followUps.length > 0 && (
-                              <div className="mt-2 pt-2 border-t border-border/50">
-                                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Follow-ups</span>
-                                <ul className="mt-1 space-y-0.5">
-                                  {summary.followUps.map((f, i) => (
-                                    <li key={i} className="text-xs text-muted-foreground">• {f}</li>
+                            </div>
+                          )}
+                        </div>
+                      ) : error ? (
+                        <div className="rounded-lg border border-error/20 bg-error/[0.03] p-3">
+                          <div className="flex items-start gap-2">
+                            <AlertCircle className="h-3.5 w-3.5 text-error/70 mt-0.5 shrink-0" />
+                            <p className="text-xs text-error/80 line-clamp-3">{error}</p>
+                          </div>
+                        </div>
+                      ) : executionsLoaded && execution && (execution.status === 'pending' || execution.status === 'running') ? (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground/60">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <span>Generating summary...</span>
+                        </div>
+                      ) : executionsLoaded && execution ? (
+                        <div className="rounded-lg border border-border/30 p-3">
+                          <p className="text-[11px] text-muted-foreground/60 line-clamp-3">{node.executionOutput || execution.streamText || 'No output captured.'}</p>
+                        </div>
+                      ) : executionsLoaded && !execution ? (
+                        <div className="rounded-lg border border-warning/20 bg-warning/[0.03] p-3">
+                          <div className="flex items-start gap-2">
+                            <AlertCircle className="h-3.5 w-3.5 text-warning/70 mt-0.5 shrink-0" />
+                            <p className="text-xs text-warning/80">Execution data not found.</p>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {execution?.planTodos && execution.planTodos.length > 0 && (
+                        <div className="rounded-lg border border-info/20 bg-info/[0.03] p-3">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <FileText className="h-3.5 w-3.5 text-info/70" />
+                            <span className="text-[11px] font-semibold text-info">Plan Todos</span>
+                          </div>
+                          <ul className="space-y-1">
+                            {execution.planTodos.map((todo, i) => (
+                              <li key={i} className="flex items-start gap-2 text-xs">
+                                {todo.status === 'completed' ? (
+                                  <Check className="h-3 w-3 text-success mt-0.5 shrink-0" />
+                                ) : todo.status === 'in_progress' ? (
+                                  <Loader2 className="h-3 w-3 text-info mt-0.5 shrink-0 animate-spin" />
+                                ) : (
+                                  <div className="h-3 w-3 mt-0.5 shrink-0 rounded-full border border-muted-foreground/30" />
+                                )}
+                                <span className={cn(
+                                  todo.status === 'completed' ? 'text-muted-foreground/50 line-through' : 'text-foreground/80'
+                                )}>{todo.content}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {execution?.planQuestions && execution.planQuestions.length > 0 && (
+                        <div className="rounded-lg border border-primary/20 bg-primary/[0.03] p-3">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <AlertCircle className="h-3.5 w-3.5 text-primary/70" />
+                            <span className="text-[11px] font-semibold text-primary">Questions</span>
+                          </div>
+                          <ul className="space-y-1.5">
+                            {execution.planQuestions.map((q, i) => (
+                              <li key={i} className="text-xs">
+                                <p className="font-medium text-foreground/80 mb-0.5">{q.question}</p>
+                                <ul className="ml-3 space-y-0.5">
+                                  {q.options.map((opt, j) => (
+                                    <li key={j} className="text-muted-foreground/60">- {opt}</li>
                                   ))}
                                 </ul>
-                              </div>
-                            )}
-                          </div>
-                        ) : error ? (
-                          <div className="rounded-lg border border-error/30 bg-error/5 p-3.5">
-                            <div className="flex items-start gap-2">
-                              <AlertCircle className="h-4 w-4 text-error mt-0.5 shrink-0" />
-                              <p className="text-sm text-error line-clamp-3">{error}</p>
-                            </div>
-                          </div>
-                        ) : executionsLoaded && execution && (execution.status === 'pending' || execution.status === 'running') ? (
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            <span>Generating summary...</span>
-                          </div>
-                        ) : executionsLoaded && execution ? (
-                          <div className="rounded-lg border p-3.5">
-                            <p className="text-xs text-muted-foreground line-clamp-4">{node.executionOutput || execution.streamText || 'No output captured.'}</p>
-                          </div>
-                        ) : executionsLoaded && !execution ? (
-                          <div className="rounded-lg border border-warning/30 bg-warning/5 p-3.5">
-                            <div className="flex items-start gap-2">
-                              <AlertCircle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
-                              <p className="text-sm text-warning">Execution data not found. The task may have completed before execution tracking was enabled.</p>
-                            </div>
-                          </div>
-                        ) : null}
-
-                        {/* Plan Mode Data: Todos */}
-                        {execution?.planTodos && execution.planTodos.length > 0 && (
-                          <div className="rounded-lg border border-info/30 bg-info/5 p-3.5">
-                            <div className="flex items-center gap-2 mb-2">
-                              <FileText className="h-4 w-4 text-info" />
-                              <span className="text-xs font-semibold text-info">Plan Todos</span>
-                            </div>
-                            <ul className="space-y-1.5">
-                              {execution.planTodos.map((todo, i) => (
-                                <li key={i} className="flex items-start gap-2 text-xs">
-                                  {todo.status === 'completed' ? (
-                                    <Check className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" />
-                                  ) : todo.status === 'in_progress' ? (
-                                    <Loader2 className="h-3.5 w-3.5 text-info mt-0.5 shrink-0 animate-spin" />
-                                  ) : (
-                                    <div className="h-3.5 w-3.5 mt-0.5 shrink-0 rounded-full border border-muted-foreground" />
-                                  )}
-                                  <span className={cn(
-                                    todo.status === 'completed' ? 'text-muted-foreground line-through' : 'text-foreground'
-                                  )}>{todo.content}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-
-                        {/* Plan Mode Data: Questions */}
-                        {execution?.planQuestions && execution.planQuestions.length > 0 && (
-                          <div className="rounded-lg border border-primary/30 bg-primary/5 p-3.5">
-                            <div className="flex items-center gap-2 mb-2">
-                              <AlertCircle className="h-4 w-4 text-primary" />
-                              <span className="text-xs font-semibold text-primary">Plan Questions</span>
-                            </div>
-                            <ul className="space-y-2">
-                              {execution.planQuestions.map((q, i) => (
-                                <li key={i} className="text-xs">
-                                  <p className="font-medium text-foreground mb-1">{q.question}</p>
-                                  <ul className="ml-3 space-y-0.5">
-                                    {q.options.map((opt, j) => (
-                                      <li key={j} className="text-muted-foreground">• {opt}</li>
-                                    ))}
-                                  </ul>
-                                  {q.answer && (
-                                    <p className="mt-1 text-primary font-medium">Answer: {q.answer}</p>
-                                  )}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-
-                        {/* Acceptance Criteria Checklist */}
-                        {node.acceptanceCriteria && node.acceptanceCriteria.length > 0 && (
-                          <div className="rounded-lg border p-3.5">
-                            <div className="flex items-center gap-2 mb-2">
-                              <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
-                              <span className="text-xs font-semibold">Acceptance Criteria</span>
-                            </div>
-                            <ul className="space-y-1.5">
-                              {node.acceptanceCriteria.map((c) => (
-                                <li key={c.id} className="flex items-start gap-2 text-xs">
-                                  <div className="h-3.5 w-3.5 mt-0.5 shrink-0 rounded-full border" />
-                                  <span>{c.description}</span>
-                                  {c.command && (
-                                    <code className="text-[10px] text-muted-foreground ml-auto shrink-0">{c.command}</code>
-                                  )}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Card Actions */}
-                      <div className="border-t px-4 py-3 md:px-5 md:py-4">
-                        <div className="flex items-center gap-2">
-                          <Button size="sm" onClick={() => updateNode(node.id, { status: "completed" })} className="min-h-9">
-                            <Check className="h-3.5 w-3.5 mr-1" />
-                            Approve
-                          </Button>
-                          <Button variant="outline" size="sm" disabled={resettingId === node.id} onClick={async () => {
-                            setResettingId(node.id)
-                            try { await resetExecution(node.id) } finally { setResettingId(null) }
-                          }} className="min-h-9">
-                            <RotateCcw className={cn("h-3.5 w-3.5 mr-1", resettingId === node.id && "animate-spin")} />
-                            {resettingId === node.id ? "Resetting..." : "Reset"}
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => updateNode(node.id, { status: "pruned" })} className="min-h-9 text-muted-foreground">
-                            <Scissors className="h-3.5 w-3.5 mr-1" />
-                            Prune
-                          </Button>
+                                {q.answer && (
+                                  <p className="mt-1 text-primary font-medium">Answer: {q.answer}</p>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
                         </div>
-                        <p className="text-[10px] text-muted-foreground mt-1.5">Pruning also prunes all downstream tasks that depend on this one.</p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )
-              })
-            ) : (
-              <Card className="rounded-2xl">
-                <CardContent className="p-0">
-                  <EmptyState
-                    icon={CheckCircle2}
-                    title="All caught up!"
-                    description={activeTasks > 0
-                      ? `Your agents are working on ${activeTasks} task${activeTasks !== 1 ? 's' : ''}. You'll be notified when decisions need your input.`
-                      : "No active tasks running. Start executing your plan to see progress here."
-                    }
-                    action={activeTasks === 0 && projects.length > 0 ? {
-                      label: "View Projects",
-                      onClick: () => navigate("/projects"),
-                    } : undefined}
-                    variant="success"
-                    className="py-6"
-                  />
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        </div>
+                      )}
 
-        {/* Right Column */}
-        <div className="flex w-full shrink-0 flex-col gap-4 md:w-[400px] md:gap-6">
-          {/* Active Projects */}
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold md:text-lg">Active Projects</h2>
-              <Button variant="outline" size="sm" asChild className="min-h-9">
-                <Link to="/projects?status=active">View All</Link>
-              </Button>
-            </div>
-            <div className="flex flex-col gap-2">
-              {activeProjects.length > 0 ? (
-                activeProjects.slice(0, 4).map((project) => {
-                  const projectTasks = nodes.filter(
-                    (n) =>
-                      n.projectId === project.id &&
-                      (n.status === "in_progress" || n.status === "dispatched")
-                  )
-                  return (
-                    <Link key={project.id} to={`/project/${project.id}/graph`}>
-                      <Card className="rounded-2xl hover:border-primary/40 transition-colors">
-                        <CardContent className="flex items-center justify-between p-4">
-                          <div className="flex flex-col gap-0.5">
-                            <p className="text-sm font-semibold text-foreground">{project.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {projectTasks.length} task{projectTasks.length !== 1 ? "s" : ""} in
-                              progress
-                            </p>
+                      {node.acceptanceCriteria && node.acceptanceCriteria.length > 0 && (
+                        <div className="rounded-lg border border-border/30 p-3">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <ClipboardCheck className="h-3.5 w-3.5 text-muted-foreground/50" />
+                            <span className="text-[11px] font-semibold">Acceptance Criteria</span>
                           </div>
-                          <Badge variant="success">Active</Badge>
-                        </CardContent>
-                      </Card>
-                    </Link>
-                  )
-                })
-              ) : (
-                <Card className="rounded-2xl">
-                  <CardContent className="p-0">
-                    <EmptyState
-                      icon={Folder}
-                      title="No active projects"
-                      description="Create a project to get started with AI-assisted planning and execution."
-                      action={{
-                        label: "Create Project",
-                        onClick: () => navigate("/projects"),
-                      }}
-                      className="py-6"
-                    />
+                          <ul className="space-y-1">
+                            {node.acceptanceCriteria.map((c) => (
+                              <li key={c.id} className="flex items-start gap-2 text-xs">
+                                <div className="h-3 w-3 mt-0.5 shrink-0 rounded-full border border-muted-foreground/30" />
+                                <span>{c.description}</span>
+                                {c.command && (
+                                  <code className="text-[10px] text-muted-foreground/40 ml-auto shrink-0">{c.command}</code>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="border-t border-border/30 px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" onClick={() => updateNode(node.id, { status: "completed" })} className="h-8 text-xs">
+                          <Check className="h-3 w-3 mr-1" /> Approve
+                        </Button>
+                        <Button variant="outline" size="sm" disabled={resettingId === node.id} onClick={async () => {
+                          setResettingId(node.id)
+                          try { await resetExecution(node.id) } finally { setResettingId(null) }
+                        }} className="h-8 text-xs border-border/60">
+                          <RotateCcw className={cn("h-3 w-3 mr-1", resettingId === node.id && "animate-spin")} />
+                          {resettingId === node.id ? "Resetting..." : "Reset"}
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => updateNode(node.id, { status: "pruned" })} className="h-8 text-xs text-muted-foreground/50">
+                          <Scissors className="h-3 w-3 mr-1" /> Prune
+                        </Button>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
-              )}
+              )
+            })}
+          </div>
+        ) : (
+          <div className="flex items-center gap-4 rounded-xl border border-success/15 bg-success/[0.02] px-5 py-4 backdrop-blur-sm">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-success/10 shrink-0">
+              <CheckCircle2 className="h-4 w-4 text-success/80" />
             </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-medium">All caught up</p>
+              <p className="text-xs text-muted-foreground/60 mt-0.5">
+                {activeTasks > 0
+                  ? `${activeTasks} task${activeTasks !== 1 ? 's' : ''} running quietly. You'll be notified when input is needed.`
+                  : "No active tasks right now."
+                }
+              </p>
+            </div>
+            {activeTasks === 0 && projects.length > 0 && (
+              <Button size="sm" variant="outline" className="h-8 text-xs border-border/60 shrink-0" onClick={() => navigate("/projects")}>
+                View Projects
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── TIER 3: Machine Fleet + Task Timeline ── */}
+      {(machineFleetData.length > 0 || activeTasksWithContext.length > 0) && (
+        <div className="flex flex-col md:flex-row gap-6">
+          {/* Machine fleet (left column) */}
+          <div className="shrink-0 md:w-[120px]">
+            <h2 className="text-[11px] font-semibold tracking-wide text-muted-foreground/60 uppercase mb-3">Fleet</h2>
+            <MachineFleetPanel machines={machineFleetData} />
           </div>
 
-          {/* System Health */}
-          <Card className="flex-1 rounded-2xl shadow">
-            <CardContent className="flex flex-col p-0">
-              {/* Header */}
-              <div className="flex items-center justify-between border-b px-5 py-4">
-                <h2 className="text-base font-semibold text-foreground">System Health</h2>
-                <div className="flex items-center gap-1.5">
-                  <div
-                    className={cn(
-                      "h-2 w-2 rounded-full",
-                      connected ? "bg-success" : "bg-muted-foreground"
-                    )}
-                  />
-                  <span
-                    className={cn(
-                      "text-xs font-medium",
-                      connected ? "text-success" : "text-muted-foreground"
-                    )}
-                  >
-                    {connected ? "Live" : "Offline"}
-                  </span>
-                </div>
-              </div>
-
-              {/* Content */}
-              <div className="flex flex-col gap-4 p-5">
-                {/* Metrics Row */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-lg bg-muted p-3">
-                    <p className="text-[11px] font-medium text-muted-foreground">Token Spend</p>
-                    <p className="text-lg font-semibold">${sessionMetrics.totalCostUsd.toFixed(2)}</p>
-                    <p className="text-[11px] text-muted-foreground">session</p>
-                  </div>
-                  <div className="rounded-lg bg-muted p-3">
-                    <p className="text-[11px] font-medium text-muted-foreground">Throughput</p>
-                    <p className="text-lg font-semibold">{sessionMetrics.tasksCompleted}/{sessionMetrics.tasksCompleted + sessionMetrics.tasksFailed}</p>
-                    <p className="text-[11px] text-muted-foreground">tasks</p>
-                  </div>
-                </div>
-
-                {/* Active Agents */}
-                <div className="flex flex-col gap-2">
-                  <p className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-                    Active Agents
-                  </p>
-                  {machines.size > 0 ? (
-                    Array.from(machines.values()).map((machine) => (
-                      <div key={machine.machineId} className="flex items-center gap-2 py-1">
-                        <div
-                          className={cn(
-                            "h-2 w-2 rounded-full",
-                            machine.connectionStatus === "connected"
-                              ? "bg-success"
-                              : "bg-muted-foreground"
-                          )}
-                        />
-                        <span className="text-sm flex-1 truncate">
-                          {machine.name || machine.machineId}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {machine.load.activeTasks > 0
-                            ? `${machine.load.activeTasks} task${machine.load.activeTasks !== 1 ? "s" : ""}`
-                            : "Idle"}
-                        </span>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-xs text-muted-foreground py-1">
-                      No machines connected. Add one in Environments.
-                    </p>
-                  )}
-                </div>
-
-                {/* Recent Events */}
-                <div className="flex flex-col gap-2">
-                  <p className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-                    Recent Events
-                  </p>
-                  {activityFeed.length > 0 ? (
-                    activityFeed.slice(0, 5).map((event) => (
-                      <ActivityItem key={event.id} event={event} />
-                    ))
-                  ) : (
-                    <div className="flex flex-col items-center gap-2 py-4 text-center">
-                      <Zap className="h-5 w-5 text-muted-foreground" />
-                      <p className="text-xs text-muted-foreground">
-                        {connected
-                          ? "No agents running. Start executing your plan to see activity."
-                          : "Connect to see real-time agent activity."}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          {/* Task timeline (right column, expands) */}
+          <div className="flex-1 min-w-0">
+            <h2 className="text-[11px] font-semibold tracking-wide text-muted-foreground/60 uppercase mb-3">Running Tasks</h2>
+            <div className="rounded-xl glass-panel p-4 overflow-hidden">
+              <TaskTimeline tasks={activeTasksWithContext} machines={timelineMachines} />
+            </div>
+          </div>
         </div>
+      )}
+
+      {/* ── TIER 4: Project Health Cards ── */}
+      {recentProjects.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-[13px] font-semibold tracking-wide">Project Health</h2>
+            {activeProjects.length > 3 && (
+              <Button variant="ghost" size="sm" asChild className="h-6 text-[11px] text-muted-foreground/50 px-2">
+                <Link to="/projects">All {activeProjects.length}</Link>
+              </Button>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {projectHealth.map(({ project, completed, inProgress, planned, awaiting, pruned, total, costUsd, velocityData }) => (
+              <ProjectHealthCard
+                key={project.id}
+                projectId={project.id}
+                name={project.name}
+                icon={project.icon}
+                color={project.color}
+                completed={completed}
+                inProgress={inProgress}
+                planned={planned}
+                awaiting={awaiting}
+                pruned={pruned}
+                total={total}
+                costUsd={costUsd}
+                velocityData={velocityData}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {recentProjects.length === 0 && (
+        <div className="rounded-xl border border-dashed border-border/40 p-5 text-center">
+          <p className="text-xs text-muted-foreground/50 mb-2">No active projects</p>
+          <Button size="sm" variant="outline" className="h-7 text-xs border-border/60" onClick={() => navigate("/projects")}>
+            <Plus className="h-3 w-3" /> Create Project
+          </Button>
+        </div>
+      )}
+
+      {/* ── TIER 5: Activity Overview + Live Feed ── */}
+      <div className="grid grid-cols-1 md:grid-cols-[1fr,260px] gap-6">
+        <div className="rounded-xl glass-panel p-5">
+          <ActivityOverview data={heatmapData} />
+          {stats && statsLoaded && (
+            <div className="flex items-center gap-5 mt-4 pt-3.5 border-t border-border/30 text-[11px] text-muted-foreground/60">
+              <span><strong className="text-foreground/80 font-semibold">{stats.currentStreak}d</strong> streak</span>
+              <span><strong className="text-foreground/80 font-semibold">{formatCompactNumber(stats.totalTasksCompleted)}</strong> tasks</span>
+              <span><strong className="text-foreground/80 font-semibold">{formatCompactNumber(stats.totalLinesAdded)}</strong> lines</span>
+              {levelInfo && (
+                <>
+                  <div className="flex-1" />
+                  <span className="font-medium text-muted-foreground/50">{levelInfo.title}</span>
+                  <div className="w-14 h-1 rounded-full bg-muted/40 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-amber-400/80 to-amber-500/80 transition-all duration-500"
+                      style={{ width: `${Math.round(levelInfo.progress * 100)}%` }}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Live feed */}
+        {activityFeed.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <h2 className="text-[11px] font-semibold tracking-wide text-muted-foreground/60 uppercase mb-1">Live Feed</h2>
+            <div className="flex flex-col gap-0.5">
+              {activityFeed.slice(0, 8).map((event) => (
+                <ActivityItem key={event.id} event={event} />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* ── TIER 6: Achievements (collapsed) ── */}
+      {statsLoaded && (
+        <div className="rounded-xl glass-panel-subtle px-5 py-1.5">
+          <AchievementsPanel achievements={achievements} />
+        </div>
+      )}
     </div>
   )
 }

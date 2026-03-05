@@ -7,6 +7,7 @@ import {
   XCircle,
   ArrowDown,
   Info,
+  FolderOpen,
 } from "lucide-react"
 import { apiUrl } from "@/lib/api-url"
 import { Button } from "@/components/ui/button"
@@ -43,6 +44,7 @@ import { PRReviewThreads } from "@/components/pr-review-threads"
 import { useRestoredExecution } from "@/hooks/use-restored-execution"
 import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
 import type { GitHubReviewThread } from "@/types"
+import { FileBrowser } from "@/components/file-browser"
 
 const EMPTY_REVIEW_THREADS: GitHubReviewThread[] = []
 
@@ -70,6 +72,7 @@ export function UnifiedActivityView({
   const [pendingSteerText, setPendingSteerText] = useState<string | null>(null)
   const [isChatStreaming, setIsChatStreaming] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
+  const [fileBrowserOpen, setFileBrowserOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   /** Per-turn chat stream state for disconnect catch-up */
@@ -561,8 +564,34 @@ export function UnifiedActivityView({
 
   const isInputDisabled = sending || isChatStreaming
 
+  // Handler for FileChangeBlock clicks — opens FileBrowser and navigates to directory
+  const handleFileSelect = useCallback((filePath: string) => {
+    setFileBrowserOpen(true)
+    // File browser will show the directory listing; the path is informational
+    void filePath
+  }, [])
+
+  // Derive working directory for file browser from project
+  const fileBrowserDir = project?.workingDirectory || ""
+
   return (
-    <div className="flex flex-col h-full relative">
+    <div className="flex h-full">
+    <div className="flex flex-col flex-1 min-w-0 relative">
+      {/* File browser toggle */}
+      {machineId && fileBrowserDir && (
+        <div className="absolute top-2 right-2 z-10">
+          <Button
+            variant={fileBrowserOpen ? "secondary" : "ghost"}
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => setFileBrowserOpen(!fileBrowserOpen)}
+            title={fileBrowserOpen ? "Close file browser" : "Open file browser"}
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
+
       {/* Timeline */}
       <div
         ref={containerRef}
@@ -616,7 +645,7 @@ export function UnifiedActivityView({
             case 'steer':
               return <SteerBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'steer' }>} />
             case 'file_change':
-              return <FileChangeBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'file_change' }>} />
+              return <FileChangeBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'file_change' }>} onFileSelect={machineId && fileBrowserDir ? handleFileSelect : undefined} />
             case 'error':
               return <ErrorBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'error' }>} />
             case 'chat_user':
@@ -846,6 +875,16 @@ export function UnifiedActivityView({
         </Button>
       </div>
       </div>
+    </div>
+
+    {/* File Browser Sidebar */}
+    {fileBrowserOpen && machineId && fileBrowserDir && (
+      <FileBrowser
+        machineId={machineId}
+        workingDirectory={fileBrowserDir}
+        onClose={() => setFileBrowserOpen(false)}
+      />
+    )}
     </div>
   )
 }

@@ -50,4 +50,5 @@ export {
   sharedPlanForks,
   sharedPlanComments,
   githubSyncLog,
+  userAchievements,
 } from '../../../packages/core/src/db/schema.js'

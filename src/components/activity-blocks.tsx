@@ -493,13 +493,27 @@ export function SteerBlock({ event }: { event: Extract<TaskActivityEvent, { type
   )
 }
 
-export function FileChangeBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'file_change' }> }) {
+export function FileChangeBlock({ event, onFileSelect }: { event: Extract<TaskActivityEvent, { type: 'file_change' }>; onFileSelect?: (path: string) => void }) {
   const filename = event.path.split('/').pop() || event.path
 
+  const handleClick = onFileSelect ? (e: React.MouseEvent) => {
+    e.preventDefault()
+    onFileSelect(event.path)
+  } : undefined
+
   return (
-    <div className="flex items-center gap-2 mx-4 my-1 px-3 py-1.5 rounded-md bg-muted/50 text-xs text-muted-foreground">
+    <div
+      className={cn(
+        "flex items-center gap-2 mx-4 my-1 px-3 py-1.5 rounded-md bg-muted/50 text-xs text-muted-foreground",
+        onFileSelect && "cursor-pointer hover:bg-muted/80 transition-colors"
+      )}
+      onClick={handleClick}
+      role={onFileSelect ? "button" : undefined}
+      tabIndex={onFileSelect ? 0 : undefined}
+      onKeyDown={onFileSelect ? (e) => { if (e.key === 'Enter' || e.key === ' ') onFileSelect(event.path) } : undefined}
+    >
       <FileEdit className="h-3 w-3 shrink-0" />
-      <span className="font-medium text-foreground">{filename}</span>
+      <span className={cn("font-medium", onFileSelect ? "text-primary hover:underline" : "text-foreground")}>{filename}</span>
       <span className="truncate">{event.path}</span>
       {event.linesAdded != null && event.linesAdded > 0 && (
         <span className="flex items-center gap-0.5 text-success font-mono shrink-0">
