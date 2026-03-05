@@ -90,7 +90,7 @@ export function validateTemplate(
     if (!ID_PATTERN.test(template.id)) {
       errors.push({
         path: 'id',
-        message: 'Template ID must be kebab-case (e.g., "astro/web-app")',
+        message: 'Template ID must be kebab-case (e.g., "astro--web-app")',
         code: 'INVALID_VALUE',
       })
     }
