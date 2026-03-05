@@ -22,7 +22,6 @@ import { useTemplateStore } from "@/stores/template-store"
 import { PlanChatPhase } from "@/components/plan-session/plan-chat-phase"
 import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
 import { TemplatePickerDialog } from "@/components/templates/template-picker-dialog"
-import { FeaturedTemplateChips } from "@/components/templates/featured-template-chips"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { BranchSelector } from "@/components/branch-selector"
 import { AttachmentList } from "@/components/task-detail/attachment-list"
@@ -671,17 +670,6 @@ export function ProjectNewPlan() {
               className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
             />
 
-            {/* Featured template chips */}
-            <div className="px-4 pb-1">
-              <FeaturedTemplateChips
-                onSelect={(templateId) => {
-                  setInitialTemplateId(templateId)
-                  setTemplatePickerOpen(true)
-                }}
-                onShowAll={() => navigate("/templates")}
-              />
-            </div>
-
             {/* OR divider + options */}
             <div className="px-4 pb-3">
               <div className="flex items-center gap-3 mb-2.5">
@@ -692,10 +680,7 @@ export function ProjectNewPlan() {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setInitialTemplateId(null)
-                    setTemplatePickerOpen(true)
-                  }}
+                  onClick={() => navigate("/examples")}
                   disabled={templateLaunching}
                   className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -704,7 +689,7 @@ export function ProjectNewPlan() {
                   ) : (
                     <LayoutTemplate className="h-3.5 w-3.5" />
                   )}
-                  {templateLaunching ? "Starting..." : "Browse All Templates"}
+                  {templateLaunching ? "Starting..." : "Start from an Example"}
                 </button>
                 <button
                   type="button"
@@ -712,7 +697,7 @@ export function ProjectNewPlan() {
                   className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
                 >
                   <Layers className="h-3.5 w-3.5" />
-                  Resume Session
+                  Resume a Session
                 </button>
               </div>
             </div>

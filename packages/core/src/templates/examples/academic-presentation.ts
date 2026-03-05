@@ -18,7 +18,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
   name: 'Academic Paper Presentation',
   description:
     'Convert academic papers into polished slides (PDF), blog posts (Markdown), and conference posters (PDF). Uses HTML-based rendering with a low-saturation color palette, Playwright for PDF generation, and SVG figure generation. Supports multiple papers, customizable audience levels, and multiple output formats.',
-  category: 'research-analysis',
+  category: 'research',
   version: '1.0.0',
   icon: '🎓',
   tags: ['arxiv', 'presentation', 'academic', 'paper', 'slides', 'blog', 'poster', 'pdf', 'html'],
@@ -32,9 +32,9 @@ export const academicPresentationTemplate: UseCaseTemplate = {
       name: 'Paper Source(s)',
       description:
         'Path to a directory containing PDF files, OR arXiv links (one per line). When PDFs are provided, the PDF skill is used to extract content. For arXiv links, LaTeX source or HTML is fetched automatically.',
-      type: 'textarea',
+      type: 'string',
       required: true,
-      placeholder: '/path/to/papers/\nhttps://arxiv.org/abs/XXXX.XXXXX',
+      placeholder: '/path/to/papers/  or  https://arxiv.org/abs/XXXX.XXXXX',
       validation: {
         min: 1,
         message: 'Provide a PDF directory path or arXiv URL(s)',

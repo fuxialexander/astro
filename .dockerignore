@@ -1,5 +1,6 @@
 # Dependencies (installed fresh in builder)
 node_modules/
+.pnpm-store/
 npm-debug.log*
 
 # Build outputs (built fresh in builder)
