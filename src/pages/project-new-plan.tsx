@@ -528,6 +528,11 @@ export function ProjectNewPlan() {
         }
       )
 
+      // Register auto-execute for templates/examples (YOLO mode on by default)
+      if (autoExecute) {
+        setStoreAutoExecute(project.id, true)
+      }
+
       // Navigate to the chat phase
       setActiveProjectId(project.id)
       setSearchParams({ projectId: project.id })
@@ -547,7 +552,7 @@ export function ProjectNewPlan() {
     } finally {
       setTemplateLaunching(false)
     }
-  }, [startPlanSessionForProject, setSearchParams])
+  }, [startPlanSessionForProject, setSearchParams, autoExecute, setStoreAutoExecute])
 
   // Auto-launch from Examples page (templateLaunchResult passed via location state)
   const templateLaunchHandled = useRef(false)
