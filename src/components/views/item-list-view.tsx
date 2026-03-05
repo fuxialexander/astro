@@ -41,6 +41,7 @@ export interface ListGroup<T> {
   icon?: ReactNode
   items: T[]
   meta?: ReactNode          // e.g. "45% · 12 tasks"
+  defaultCollapsed?: boolean
 }
 
 export interface BatchAction {
@@ -215,7 +216,13 @@ export function ItemListView<T>({
   onGroupDrop,
 }: ItemListViewProps<T>) {
   const isMobile = useMediaQuery("(max-width: 639px)")
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    const initial = new Set<string>()
+    for (const g of groups) {
+      if (g.defaultCollapsed) initial.add(g.key)
+    }
+    return initial
+  })
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [lastClickedId, setLastClickedId] = useState<string | null>(null)
   const itemRefs = useRef<Map<string, HTMLElement>>(new Map())

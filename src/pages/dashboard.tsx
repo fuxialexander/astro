@@ -105,9 +105,16 @@ export function Dashboard() {
 
   useEffect(() => { loadAll() }, [loadAll])
 
-  const activeTasks = nodes.filter(
+  const activeNodeTasks = nodes.filter(
     (n) => n.status === "in_progress" || n.status === "dispatched"
   ).length
+  const activePlaygroundTasks = [...allExecutions.values()].filter(
+    (e) => (e.status === "running" || e.status === "pending") && e.nodeId.startsWith("playground-")
+  ).length
+  const activePlanningSessions = Array.from(agentSessions.values()).filter(
+    (s) => s.status === "active"
+  ).length
+  const activeTasks = activeNodeTasks + activePlaygroundTasks + activePlanningSessions
   const pendingDecisions = nodes.filter(
     (n) => n.status === "awaiting_judgment" || n.status === "awaiting_approval"
   ).length + dynamicApprovals.size

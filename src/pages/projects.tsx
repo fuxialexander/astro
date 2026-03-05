@@ -423,6 +423,7 @@ export function Projects() {
         label,
         icon: <Icon className={`h-4 w-4 ${iconColor}`} />,
         items,
+        defaultCollapsed: label === "Archived",
       }
     })
   }, [sortedProjects, displaySettings.groupBy, getInitiativeName])
