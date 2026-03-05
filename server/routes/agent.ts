@@ -197,10 +197,11 @@ async function streamChatViaRelay(
     const onFileChange = async (msg: TaskFileChangeMessage) => {
       if (!alive || msg.taskId !== opts.taskId) return
       lastActivity = Date.now()
-      const seq = await streamingEventLog.append(persistId, 'file_change', { path: msg.path, action: msg.action })
+      const data = { path: msg.path, action: msg.action, linesAdded: msg.linesAdded, linesRemoved: msg.linesRemoved }
+      const seq = await streamingEventLog.append(persistId, 'file_change', data)
       stream.writeSSE({
         event: 'file_change',
-        data: JSON.stringify({ path: msg.path, action: msg.action }),
+        data: JSON.stringify(data),
         id: String(seq),
       }).catch(() => { alive = false })
       executionEventBus.emit('task:file_change', { taskId: opts.taskId, path: msg.path, action: msg.action })
