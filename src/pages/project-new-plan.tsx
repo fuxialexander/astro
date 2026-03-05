@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useSearchParams, useLocation, useNavigate } from "react-router"
-import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, AlertCircle, Info, Monitor, Bot, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate } from "lucide-react"
+import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, Info, Monitor, Bot, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
@@ -1066,9 +1066,9 @@ function DetectionFeedback({
   }
 
   return (
-    <div className="flex items-center gap-2 text-xs text-warning">
-      <AlertCircle className="h-3 w-3" />
-      No git — initialize recommended for safe parallel execution.
+    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <Info className="h-3 w-3" />
+      No git repo detected. Fine for generating files; recommended for code projects.
     </div>
   )
 }
