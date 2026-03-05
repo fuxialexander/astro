@@ -2438,7 +2438,9 @@ function handleSSEEvent(
           useToastStore.getState().add({
             type: isSuccess ? 'success' : 'error',
             title: isSuccess ? 'Planning complete' : 'Planning failed',
-            description: planProject ? `Plan for "${planProject.name}" is ready.` : 'Plan generation has finished.',
+            description: planProject
+              ? (isSuccess ? `Plan for "${planProject.name}" is ready.` : `Plan for "${planProject.name}" failed.`)
+              : (isSuccess ? 'Plan generation has finished.' : 'Plan generation failed.'),
             duration: 6000,
           })
         }
