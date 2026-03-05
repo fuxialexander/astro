@@ -196,6 +196,9 @@ interface ExecutionState {
   // Batch execution state per project
   batchExecutions: Map<string, BatchExecution>
 
+  // Projects that should auto-execute after plan generation completes
+  autoExecuteProjectIds: Set<string>
+
   // Pending approval requests
   pendingApprovals: Map<string, ApprovalRequest>
 
@@ -232,6 +235,9 @@ interface ExecutionState {
 
   // Selection
   selectExecution: (nodeId: string | null) => void
+
+  // Auto-execute actions
+  setAutoExecute: (projectId: string, enabled: boolean) => void
 
   // Approval actions
   addPendingApproval: (approval: ApprovalRequest) => void
@@ -328,6 +334,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   localBackendsLoaded: false,
   selectedExecutionId: null,
   batchExecutions: new Map(),
+  autoExecuteProjectIds: new Set(),
   pendingApprovals: new Map(),
   loaded: false,
 
@@ -852,6 +859,15 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
   selectExecution: (nodeId: string | null) => {
     set({ selectedExecutionId: nodeId })
+  },
+
+  setAutoExecute: (projectId: string, enabled: boolean) => {
+    set((state) => {
+      const next = new Set(state.autoExecuteProjectIds)
+      if (enabled) next.add(projectId)
+      else next.delete(projectId)
+      return { autoExecuteProjectIds: next }
+    })
   },
 
   addPendingApproval: (approval: ApprovalRequest) => {
@@ -2443,6 +2459,16 @@ function handleSSEEvent(
               : (isSuccess ? 'Plan generation has finished.' : 'Plan generation failed.'),
             duration: 6000,
           })
+
+          // Auto-execute all tasks if YOLO mode was enabled for this project
+          if (isSuccess && planProjectId && get().autoExecuteProjectIds.has(planProjectId)) {
+            get().setAutoExecute(planProjectId, false) // consume the flag
+            // Small delay to let plan nodes settle in the store
+            setTimeout(() => {
+              console.log(`[execution] YOLO mode: auto-executing all tasks for project ${planProjectId}`)
+              get().executeAllProject(planProjectId)
+            }, 1000)
+          }
         }
 
         // Accumulate metrics in usage store

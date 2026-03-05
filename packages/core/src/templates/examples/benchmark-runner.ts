@@ -249,7 +249,7 @@ Decompose this benchmark run into a DAG of tasks and milestones. The key paralle
 ### Target Output Structure
 
 \`\`\`
-benchmark-results/
+outputs/
   config/
     benchmark-config.yaml     # Full configuration used
     model-configs/            # Per-model inference configs
@@ -346,6 +346,9 @@ BBH: 23 tasks, CoT prompting recommended`}
 - "human" for analysis quality and insight generation`,
 
     taskExecution: `You are running model benchmarks.
+
+## CRITICAL: Output Directory
+Save ALL output files (results, reports, charts, logs, configs) under the \`outputs/\` directory in the working directory. Never write results to the repository root or git worktree root. Raw results, aggregated data, analysis, and final reports must all go under \`outputs/\`.
 
 ## Context
 - Models: {{models}}

@@ -8,8 +8,9 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useSearchParams, useLocation, useNavigate } from "react-router"
-import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, Info, Monitor, Bot, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate } from "lucide-react"
+import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, Info, Monitor, Bot, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate, Zap, HelpCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -68,6 +69,7 @@ export function ProjectNewPlan() {
   const [visionDoc, setVisionDoc] = useState("")
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
   const [pendingUploads, setPendingUploads] = useState(0)
+  const [autoExecute, setAutoExecute] = useState(true)
   const modelTier: ModelTier = "large"
 
   // Reset all form fields to initial state
@@ -96,6 +98,7 @@ export function ProjectNewPlan() {
   // Stores
   const startPlanSession = useExecutionStore((s) => s.startPlanSession)
   const startPlanSessionForProject = useExecutionStore((s) => s.startPlanSessionForProject)
+  const setStoreAutoExecute = useExecutionStore((s) => s.setAutoExecute)
   const allExecutions = useExecutionStore((s) => s.executions)
   const execution = useExecutionStore((s) =>
     activeProjectId ? s.executions.get(`plan-${activeProjectId}`) : undefined
@@ -525,6 +528,11 @@ export function ProjectNewPlan() {
         }
       )
 
+      // Register auto-execute for templates/examples (YOLO mode on by default)
+      if (autoExecute) {
+        setStoreAutoExecute(project.id, true)
+      }
+
       // Navigate to the chat phase
       setActiveProjectId(project.id)
       setSearchParams({ projectId: project.id })
@@ -544,7 +552,7 @@ export function ProjectNewPlan() {
     } finally {
       setTemplateLaunching(false)
     }
-  }, [startPlanSessionForProject, setSearchParams])
+  }, [startPlanSessionForProject, setSearchParams, autoExecute, setStoreAutoExecute])
 
   // Auto-launch from Examples page (templateLaunchResult passed via location state)
   const templateLaunchHandled = useRef(false)
@@ -616,6 +624,11 @@ export function ProjectNewPlan() {
           }
         )
         projectId = result.projectId
+      }
+
+      // Register auto-execute if YOLO mode is on
+      if (autoExecute) {
+        setStoreAutoExecute(projectId, true)
       }
 
       setActiveProjectId(projectId)
@@ -938,8 +951,33 @@ export function ProjectNewPlan() {
             )}
           </div>
 
-          {/* Submit button */}
+          {/* Submit button + YOLO toggle */}
           <div className="flex items-center justify-end gap-3">
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setAutoExecute(!autoExecute)}
+                className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                  autoExecute
+                    ? "bg-primary/15 text-primary border border-primary/30"
+                    : "bg-muted/50 text-muted-foreground border border-border"
+                }`}
+              >
+                <Zap className={`h-3.5 w-3.5 ${autoExecute ? "fill-primary" : ""}`} />
+                YOLO
+              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button type="button" className="text-muted-foreground hover:text-foreground transition-colors cursor-default">
+                    <HelpCircle className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-[220px] text-center">
+                  <p><span className="font-semibold">YOLO mode:</span> Generate plan and automatically execute all steps.</p>
+                  <p className="mt-1 opacity-80"><span className="font-semibold">Off:</span> Generate plan only — review before executing.</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
             <p className="text-[10px] text-muted-foreground">
               Cmd+Enter to submit
             </p>

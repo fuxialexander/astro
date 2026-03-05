@@ -266,7 +266,7 @@ Decompose this literature review into a DAG of tasks and milestones.
 ### Target Output Structure
 
 \`\`\`
-review/
+outputs/
   review.md                   # Main review document
   sections/
     01-introduction.md        # Research question and scope
@@ -381,6 +381,9 @@ For {{reviewType}}:
 - "human" for synthesis quality and gap identification`,
 
     taskExecution: `You are conducting a literature review analysis.
+
+## CRITICAL: Output Directory
+Save ALL output files (review documents, tables, appendices, references) under the \`outputs/\` directory in the working directory. Never write results to the repository root or git worktree root. Section drafts, comparison tables, and the final review document must all go under \`outputs/\`.
 
 ## Context
 - Research Topic: {{researchTopics}}

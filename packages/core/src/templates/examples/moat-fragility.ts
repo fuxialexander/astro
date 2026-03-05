@@ -223,6 +223,9 @@ Decompose this analysis into a DAG of tasks following the 3-phase framework:
 
     taskExecution: `You are conducting a Moat & Fragility competitive advantage analysis.
 
+## CRITICAL: Output Directory
+Save ALL output files (reports, data files, charts, PDFs) under the \`outputs/\` directory in the working directory. Never write results to the repository root or git worktree root. Intermediate data, charts, and final reports must all go under \`outputs/\`.
+
 ## Context
 - Ticker Symbol: {{tickerSymbol}}
 - Comparison Tickers: {{comparisonTickers}}
@@ -405,7 +408,7 @@ Based on Nassim Taleb's "Antifragile" framework:
     type: 'free',
     description:
       'Structured competitive advantage report in PDF format. Includes quantitative scoring tables, moat analysis, anti-fragility assessment, and charts.',
-    example: `output/
+    example: `outputs/
   report/
     moat-analysis-AAPL.md     # Markdown report source
     moat-analysis-AAPL.html   # HTML with embedded charts

@@ -203,9 +203,9 @@ Decompose this paper-to-slides conversion into a DAG of tasks and milestones. Th
 
 ### Target Output Structure (2025_looped_transformer_modular pattern)
 
-The final deliverable is a directory with this structure:
+The final deliverable is a directory with this structure (all under \`outputs/\` in the working directory):
 \`\`\`
-slides/
+outputs/
   slides.md              # Main Slidev entry point (frontmatter + section imports)
   sections/
     00-title.md          # Title slide with paper metadata
@@ -329,6 +329,9 @@ Key Slidev features to use:
 - \`class: text-sm\` for dense content slides`,
 
     taskExecution: `You are generating Slidev markdown slides from an academic paper.
+
+## CRITICAL: Output Directory
+Save ALL output files (slides, assets, figures, diagrams, package.json) under the \`outputs/\` directory in the working directory. Never write results to the repository root or git worktree root. The entire Slidev project must be created under \`outputs/\`.
 
 ## Context
 - Paper Source: {{paperSource}}
