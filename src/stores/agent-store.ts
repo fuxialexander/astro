@@ -5,6 +5,7 @@ import { applyPlanFromText } from "@/lib/plan-extraction"
 import { usePlanStore } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
+import { useToastStore } from "@/stores/toast-store"
 import type { PlanNode, PlanEdge, Project } from "@/types"
 
 export type GenerationPhase = 'idle' | 'repo_setup' | 'generating' | 'interactive_planning'
@@ -261,6 +262,11 @@ async function performCatchUp(
             // Persist to localStorage so the session survives another refresh
             const updatedSessions = get().sessions
             persistGeneratedSessions(updatedSessions)
+            useToastStore.getState().add({
+              type: "success",
+              title: "Plan ready",
+              description: `Plan recovered — ${result.nodeCount} tasks. Review and start execution.`,
+            })
             return true
           }
         } catch {
@@ -610,6 +616,16 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               })
               // Persist "generated" sessions to localStorage for page refresh survival
               persistGeneratedSessions(sessions)
+
+              // Notify user that planning is complete
+              if (session?.planReceived) {
+                useToastStore.getState().add({
+                  type: "success",
+                  title: "Plan ready",
+                  description: `"${projectName}" plan is ready. Review tasks and start execution.`,
+                })
+              }
+
               return { sessions }
             })
           },
@@ -627,6 +643,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         set((s) => {
           const sessions = updateSession(s.sessions, projectId, { error: msg, status: "error", completedAt: Date.now() })
           return { sessions }
+        })
+        useToastStore.getState().add({
+          type: "error",
+          title: "Planning failed",
+          description: `"${projectName}": ${msg}`,
         })
       }
     } finally {

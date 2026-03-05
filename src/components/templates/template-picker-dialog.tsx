@@ -25,10 +25,13 @@ import { cn } from "@/lib/utils"
 import {
   ArrowLeft,
   ArrowRight,
+  ChevronDown,
+  ChevronRight,
   FolderOpen,
   Laptop,
   Loader2,
   Rocket,
+  Sparkles,
 } from "lucide-react"
 import type { UseCaseTemplateSummary } from "@astro/core/templates"
 import type { LaunchTemplateResult } from "@/lib/api-client"
@@ -121,6 +124,42 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
   const [showPathBrowser, setShowPathBrowser] = useState(false)
   const [isLaunching, setIsLaunching] = useState(false)
 
+  // Skill state — fetched from recommended skills, editable by user
+  const [skillInstructions, setSkillInstructions] = useState<Record<string, string>>({})
+  const [skillsExpanded, setSkillsExpanded] = useState<string | null>(null)
+  const [skillsLoading, setSkillsLoading] = useState(false)
+
+  // Fetch SKILL.md files when template has recommendedSkills
+  useEffect(() => {
+    if (!selectedTemplate?.recommendedSkills?.length) {
+      setSkillInstructions({})
+      return
+    }
+    let cancelled = false
+    setSkillsLoading(true)
+    Promise.all(
+      selectedTemplate.recommendedSkills.map(async (name) => {
+        try {
+          const res = await fetch(`/api/skills/files/${encodeURIComponent(name)}/SKILL.md`)
+          if (!res.ok) return [name, ''] as const
+          const text = await res.text()
+          return [name, text] as const
+        } catch {
+          return [name, ''] as const
+        }
+      })
+    ).then((results) => {
+      if (cancelled) return
+      const map: Record<string, string> = {}
+      for (const [name, content] of results) {
+        map[name] = content
+      }
+      setSkillInstructions(map)
+      setSkillsLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [selectedTemplate?.recommendedSkills])
+
   // Reset wizard state when dialog opens/closes
   useEffect(() => {
     if (!open) {
@@ -189,7 +228,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
       })
       return false
     }
-    if (!workingDirectory.trim()) {
+    if (selectedMachine && !workingDirectory.trim()) {
       useToastStore.getState().add({
         type: "error",
         title: "Working directory required",
@@ -198,7 +237,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
       return false
     }
     return true
-  }, [validateParameters, projectName, workingDirectory])
+  }, [validateParameters, projectName, workingDirectory, selectedMachine])
 
   // Validate and move to next step
   const handleNext = useCallback(async () => {
@@ -227,14 +266,23 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
     }
   }, [currentStep, stepOrder, skipBrowse, onOpenChange])
 
+  // Build combined vision doc from skill instructions
+  const buildVisionDoc = useCallback((): string | undefined => {
+    const entries = Object.entries(skillInstructions).filter(([, v]) => v.trim())
+    if (entries.length === 0) return undefined
+    if (entries.length === 1) return entries[0][1]
+    return entries.map(([name, content]) => `# Skill: ${name}\n\n${content}`).join('\n\n---\n\n')
+  }, [skillInstructions])
+
   // Handle launch
   const handleLaunch = useCallback(async () => {
     if (!selectedTemplate) return
 
     setIsLaunching(true)
     try {
+      const visionDoc = buildVisionDoc()
       // Call the store's launch method which returns the result
-      const result = await launchTemplate(projectName, workingDirectory || undefined, selectedMachine?.machineId)
+      const result = await launchTemplate(projectName, workingDirectory || undefined, selectedMachine?.machineId, visionDoc)
 
       if (result) {
         // Close dialog
@@ -270,6 +318,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
     onOpenChange,
     onLaunchSuccess,
     navigate,
+    buildVisionDoc,
   ])
 
   // Direct launch from configure step (skipBrowse mode — validates then launches)
@@ -288,7 +337,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
       case "browse":
         return !!selectedTemplate
       case "configure":
-        return !!projectName.trim() && !!workingDirectory.trim() && validationErrors.length === 0
+        return !!projectName.trim() && (!selectedMachine || !!workingDirectory.trim()) && validationErrors.length === 0
       case "launch":
         return true
       default:
@@ -335,6 +384,56 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
             {selectedTemplate.description && (
               <div className="px-4 py-3 rounded-lg border border-border bg-muted/20 text-sm text-muted-foreground leading-relaxed">
                 {selectedTemplate.description}
+              </div>
+            )}
+
+            {/* Recommended Skills (becomes Vision Doc on launch) */}
+            {selectedTemplate.recommendedSkills && selectedTemplate.recommendedSkills.length > 0 && (
+              <div className="space-y-3 p-4 rounded-lg border border-border bg-muted/30">
+                <h3 className="text-sm font-semibold flex items-center gap-2">
+                  <Sparkles className="h-4 w-4" />
+                  Skills
+                  <span className="text-xs font-normal text-muted-foreground">(becomes project vision doc)</span>
+                </h3>
+                {skillsLoading ? (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Loading skills...
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {selectedTemplate.recommendedSkills.map((name) => (
+                      <div key={name} className="rounded-md border border-border overflow-hidden">
+                        <button
+                          type="button"
+                          className="flex items-center gap-2 w-full px-3 py-2 text-left text-sm hover:bg-muted/50 transition-colors cursor-pointer"
+                          onClick={() => setSkillsExpanded(skillsExpanded === name ? null : name)}
+                        >
+                          {skillsExpanded === name ? (
+                            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          )}
+                          <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
+                          <span className="font-medium">{name}</span>
+                          <span className="text-xs text-muted-foreground ml-auto">
+                            {skillInstructions[name] ? `${Math.round(skillInstructions[name].length / 1024)}KB` : 'empty'}
+                          </span>
+                        </button>
+                        {skillsExpanded === name && (
+                          <div className="border-t border-border">
+                            <textarea
+                              value={skillInstructions[name] || ''}
+                              onChange={(e) => setSkillInstructions((prev) => ({ ...prev, [name]: e.target.value }))}
+                              className="w-full min-h-[200px] max-h-[400px] p-3 text-xs font-mono bg-background resize-y focus:outline-none"
+                              placeholder={`Skill instructions for ${name}...`}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -385,28 +484,27 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
                   </div>
                 )}
 
-                {/* Working directory */}
+                {/* Working directory — only shown when a machine is selected */}
+                {selectedMachine && (
                 <div className="space-y-2">
                   <Label htmlFor="working-directory" className="text-sm font-medium">
                     Working Directory <span className="text-red-500">*</span>
                   </Label>
                   <div className="flex items-center gap-2">
-                    {selectedMachine && (
-                      <button
-                        type="button"
-                        onClick={() => setShowPathBrowser(true)}
-                        title="Browse directories"
-                        className="shrink-0 rounded-md border border-border p-1.5 hover:bg-muted transition-colors cursor-pointer text-muted-foreground hover:text-foreground"
-                      >
-                        <FolderOpen className="h-4 w-4" />
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowPathBrowser(true)}
+                      title="Browse directories"
+                      className="shrink-0 rounded-md border border-border p-1.5 hover:bg-muted transition-colors cursor-pointer text-muted-foreground hover:text-foreground"
+                    >
+                      <FolderOpen className="h-4 w-4" />
+                    </button>
                     <Input
                       id="working-directory"
                       type="text"
                       value={workingDirectory}
                       onChange={(e) => setWorkingDirectory(e.target.value)}
-                      placeholder={selectedMachine ? "/path/to/project" : "Select a machine to browse directories"}
+                      placeholder="/path/to/project"
                       className={cn("flex-1 font-mono text-xs", !workingDirectory.trim() && "border-red-500")}
                     />
                   </div>
@@ -414,6 +512,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
                     Results will be saved inside this directory (e.g. <code className="text-[10px] bg-muted px-1 py-0.5 rounded">{workingDirectory || '/path/to/project'}/output/</code>)
                   </p>
                 </div>
+                )}
               </div>
             </div>
 

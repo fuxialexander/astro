@@ -357,6 +357,10 @@ const launchTemplateSchema = z.object({
   // Machine targeting (for plan generation)
   targetMachineId: z.string().max(100).optional(),
 
+  // Optional vision doc override (e.g. skill instructions from recommended skills)
+  // When provided, this becomes the project's visionDoc instead of the interpolated template prompt
+  visionDoc: z.string().max(500000).optional(),
+
   // Model preferences
   model: z.string().max(100).optional(),
 
@@ -711,6 +715,10 @@ templatesRoute.post('/:id/launch', async (c) => {
   const projectId = crypto.randomUUID()
   const now = new Date()
 
+  // Vision doc: use client-provided visionDoc (e.g. skill instructions) if present,
+  // otherwise fall back to the interpolated template prompt
+  const projectVisionDoc = body.visionDoc || fullDescription
+
   const projectData = {
     id: projectId,
     ownerId: user.id,
@@ -719,7 +727,7 @@ templatesRoute.post('/:id/launch', async (c) => {
     description: (resolvedParams['appDescription'] as string) ||
       (resolvedParams['description'] as string) ||
       template.description,
-    visionDoc: fullDescription,
+    visionDoc: projectVisionDoc,
     status: 'active' as const,
     icon: template.icon || '📋',
     workingDirectory: body.workingDirectory || null,
