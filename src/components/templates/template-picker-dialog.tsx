@@ -264,6 +264,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
     selectedTemplate,
     projectName,
     workingDirectory,
+    selectedMachine?.machineId,
     launchTemplate,
     onOpenChange,
     onLaunchSuccess,
