@@ -20,7 +20,7 @@ import type { UseCaseTemplate } from '../../types/use-case-template.js'
 
 export const academicReviewTemplate: UseCaseTemplate = {
   // ── Identity ──────────────────────────────────────────────────────────
-  id: 'astro/academic-review',
+  id: 'astro--academic-review',
   name: 'Academic Paper/Book Review',
   description:
     'Get a thorough, expert-level review of any academic paper, book, or thesis. Provide your document (PDF, LaTeX, Markdown, or Word) and receive a structured review report covering novelty assessment, technical rigor, merits and shortcomings, and actionable recommendations — scored across 8 dimensions with a clear accept/reject verdict.',

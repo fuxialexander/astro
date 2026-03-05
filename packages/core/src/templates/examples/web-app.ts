@@ -9,7 +9,7 @@ import type { UseCaseTemplate } from '../../types/use-case-template.js'
 
 export const webAppTemplate: UseCaseTemplate = {
   // ── Identity ──────────────────────────────────────────────────────────
-  id: 'astro/web-app',
+  id: 'astro--web-app',
   name: 'Web Application',
   description:
     'Full-stack web application development with frontend (React/Vue/Svelte), backend API, database integration, and deployment configuration. Generates a plan covering UI components, API endpoints, data models, authentication, testing, and CI/CD setup.',

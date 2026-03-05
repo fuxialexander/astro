@@ -9,7 +9,7 @@ import type { UseCaseTemplate } from '../../types/use-case-template.js'
 
 export const securityAuditTemplate: UseCaseTemplate = {
   // ── Identity ──────────────────────────────────────────────────────────
-  id: 'astro/security-audit',
+  id: 'astro--security-audit',
   name: 'Security Audit',
   description:
     'Comprehensive security audit covering dependency vulnerabilities, code analysis, secrets detection, authentication review, and security best practices. Generates a structured security report with findings categorized by severity.',

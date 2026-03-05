@@ -17,7 +17,7 @@ import type { UseCaseTemplate } from '../../types/use-case-template.js'
 
 export const literatureReviewTemplate: UseCaseTemplate = {
   // ── Identity ──────────────────────────────────────────────────────────
-  id: 'astro/literature-review',
+  id: 'astro--literature-review',
   name: 'Literature Review Builder',
   description:
     'Build comprehensive literature reviews from research topics or keywords. Searches academic databases (arXiv, Semantic Scholar, PubMed), analyzes papers in parallel, identifies themes and gaps, and synthesizes findings into a structured review document. Outputs markdown with citations, comparison tables, and research gap analysis.',

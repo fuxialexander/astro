@@ -15,7 +15,7 @@ import type { UseCaseTemplate } from '../../types/use-case-template.js'
 
 export const moatFragilityTemplate: UseCaseTemplate = {
   // ── Identity ──────────────────────────────────────────────────────────
-  id: 'astro/moat-fragility',
+  id: 'astro--moat-fragility',
   name: 'Moat & Fragility Analysis',
   description:
     'Assess any public company\'s competitive moat and resilience. Provide a ticker symbol (e.g., AAPL) and optionally add competitor tickers or supplementary filings. Get a PDF report with quantitative scoring (market position, pricing power, ROIC), qualitative moat analysis (7 Powers framework), and an anti-fragility stress test — with charts, comparisons, and actionable insights.',

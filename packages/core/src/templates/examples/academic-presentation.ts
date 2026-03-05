@@ -14,7 +14,7 @@ import type { UseCaseTemplate } from '../../types/use-case-template.js'
 
 export const academicPresentationTemplate: UseCaseTemplate = {
   // ── Identity ──────────────────────────────────────────────────────────
-  id: 'astro/academic-presentation',
+  id: 'astro--academic-presentation',
   name: 'Academic Paper Presentation',
   description:
     'Turn your research papers into presentation-ready deliverables. Provide one or more papers (PDF files or arXiv links), optionally describe the narrative you want, and get polished slide decks, blog posts, and conference posters — all generated as PDFs. Supports customizable audience levels (researchers, students, engineers) and multiple papers at once.',

@@ -17,7 +17,7 @@ import type { UseCaseTemplate } from '../../types/use-case-template.js'
 
 export const benchmarkRunnerTemplate: UseCaseTemplate = {
   // ── Identity ──────────────────────────────────────────────────────────
-  id: 'astro/benchmark-runner',
+  id: 'astro--benchmark-runner',
   name: 'Benchmark Runner',
   description:
     'Run comprehensive benchmarks comparing multiple AI models across standardized evaluation suites. Supports LLM benchmarks (MMLU, HumanEval, GSM8K), vision benchmarks, and custom evaluations. Executes model × benchmark combinations in parallel and generates detailed comparison reports with statistical analysis.',
