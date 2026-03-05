@@ -32,7 +32,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
       name: 'Paper Source(s)',
       description:
         'Path to a directory containing PDF files, OR arXiv links (one per line). When PDFs are provided, the PDF skill is used to extract content. For arXiv links, LaTeX source or HTML is fetched automatically.',
-      type: 'string',
+      type: 'textarea',
       required: true,
       placeholder: '/path/to/papers/\nhttps://arxiv.org/abs/XXXX.XXXXX',
       validation: {

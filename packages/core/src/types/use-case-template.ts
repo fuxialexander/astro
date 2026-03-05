@@ -84,6 +84,7 @@ export type TemplateSource = 'builtin' | 'workspace' | 'community' | 'custom'
  */
 export type ParameterType =
   | 'string'
+  | 'textarea'
   | 'number'
   | 'boolean'
   | 'select'

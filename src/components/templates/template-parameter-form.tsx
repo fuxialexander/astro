@@ -280,6 +280,20 @@ function ParameterField({ parameter, value, error, onChange }: ParameterFieldPro
           />
         )
 
+      case "textarea":
+        return (
+          <Textarea
+            id={id}
+            value={(value as string) ?? ""}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={placeholder}
+            className={cn(
+              "min-h-[80px]",
+              error && "border-red-500 focus-visible:ring-red-500"
+            )}
+          />
+        )
+
       case "number":
         return (
           <Input
