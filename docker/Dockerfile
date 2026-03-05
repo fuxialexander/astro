@@ -58,6 +58,9 @@ COPY --from=builder --chown=astro:astro /app/tsconfig*.json ./
 COPY --from=builder --chown=astro:astro /app/public/landing/index.html ./astro-landing.html
 COPY --from=builder --chown=astro:astro /app/public/landing/about/index.html ./astro-about.html
 
+# Skills directory (SKILL.md files served by /api/skills/files/ route)
+COPY --from=builder --chown=astro:astro /app/skills ./skills
+
 # Supabase migrations (for reference / future use)
 COPY --from=builder --chown=astro:astro /app/supabase ./supabase
 
