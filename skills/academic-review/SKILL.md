@@ -18,26 +18,12 @@ You are a world-class academic reviewer producing professional, detailed reviews
 **CRITICAL**: You MUST use the correct tool for each document format.
 
 ### PDF Files
-Use the **PDF skill** to read PDF documents. The Read tool can directly read PDF files and render their content for analysis.
+Use the **PDF skill** (pre-loaded in your skill instructions) to read PDF documents. The Read tool can directly read PDF files and render their content for analysis.
 
-Reference: https://github.com/anthropics/skills/tree/main/skills/pdf
-
-```
-# Simply use the Read tool on the PDF file:
-Read: /path/to/paper.pdf
-```
-
-The PDF skill handles:
-- Text extraction with layout preservation
-- Table extraction
-- Figure identification
-- Equation rendering
-- Multi-column layout parsing
+The PDF skill handles text extraction with layout preservation, table extraction, figure identification, equation rendering, and multi-column layout parsing.
 
 ### Word Documents (.docx)
-Use the **DOCX skill** to extract content from Word documents.
-
-Reference: https://github.com/anthropics/skills/tree/main/skills/docx
+Use the **DOCX skill** (pre-loaded in your skill instructions) to extract content from Word documents.
 
 ```bash
 # Extract text content from DOCX
@@ -195,6 +181,14 @@ Format for each point:
 - **Recommendation**: [What could be done to address this, if shortcoming]
 ```
 
+**IMPORTANT — Concrete Revision Suggestions**: For every shortcoming where it is possible, provide a **concrete revision** showing the original text and a suggested rewrite. Do not just say "this should be clearer" — show exactly how to make it clearer. Use the side-by-side format:
+
+1. Quote the **original text** from the document (with page/section reference)
+2. Provide a **suggested revision** that fixes the issue
+3. Add a brief **rationale** explaining why the revision improves the text
+
+This applies to: vague claims, unclear definitions, missing context, weak phrasing, ambiguous notation, incomplete explanations, and logical gaps. For issues that cannot have concrete text revisions (e.g., "run more experiments"), provide an actionable description instead.
+
 **Output**: `notes/merits-shortcomings.md`
 
 ### Phase 6: Report Generation
@@ -207,6 +201,7 @@ Format for each point:
 \documentclass[11pt,a4paper]{article}
 \usepackage[utf8]{inputenc}
 \usepackage[margin=1in]{geometry}
+\usepackage{mathpazo}  % Palatino font for body + math
 \usepackage{booktabs}
 \usepackage{graphicx}
 \usepackage{xcolor}
@@ -227,6 +222,23 @@ Format for each point:
   \else\ifnum#1>4 \textcolor{reviewgold}{\textbf{#1/10}}%
   \else \textcolor{reviewred}{\textbf{#1/10}}%
   \fi\fi}
+
+% Revision suggestion boxes
+\usepackage{tcolorbox}
+\tcbuselibrary{skins, breakable}
+
+\newtcolorbox{originaltext}{
+  colback=reviewred!8, colframe=reviewred!60,
+  fonttitle=\bfseries, title=Original Text,
+  left=8pt, right=8pt, top=4pt, bottom=4pt,
+  boxrule=0.8pt, arc=3pt, breakable
+}
+\newtcolorbox{revisedtext}{
+  colback=reviewgreen!8, colframe=reviewgreen!60,
+  fonttitle=\bfseries, title=Suggested Revision,
+  left=8pt, right=8pt, top=4pt, bottom=4pt,
+  boxrule=0.8pt, arc=3pt, breakable
+}
 
 \title{Academic Review Report}
 \author{AI Reviewer}
@@ -271,8 +283,28 @@ Ethical Considerations & 5\% & X/10 \\
 \section{Minor Issues}
 % Bulleted list
 
-\section{Recommendations for Improvement}
-% Actionable suggestions
+\section{Concrete Revision Suggestions}
+% For each suggestion, show original text and proposed revision side by side.
+% Use the \begin{originaltext}...\end{originaltext} (red) and
+% \begin{revisedtext}...\end{revisedtext} (green) colorboxes.
+%
+% Example:
+% \subsection*{Suggestion 1: Clarify threat model (Section 3.1, p.8)}
+%
+% \begin{originaltext}
+% ``We assume the adversary has access to the model's API.''
+% \end{originaltext}
+%
+% \begin{revisedtext}
+% ``We consider a black-box threat model where the adversary can query
+% the model's API with arbitrary inputs and observe output logits,
+% but has no access to model weights or training data (see Appendix A
+% for a formal definition).''
+% \end{revisedtext}
+%
+% \textit{Rationale: The original statement is ambiguous about what
+% ``access'' means. The revision specifies the exact capabilities
+% assumed, which is critical for evaluating the security claims.}
 
 \section{Literature Context}
 % How this work fits in the broader landscape
@@ -442,16 +474,35 @@ Where $w_i$ is the weight and $s_i$ is the score for dimension $i$.
 - **Body text**: #333333
 
 ### Typography (LaTeX)
-- Body: 11pt, Computer Modern (default LaTeX)
+- Body: 11pt, Palatino (via `mathpazo` package)
+- Math: Palatino math (via `mathpazo`)
 - Headings: Bold, same family
 - Tables: `booktabs` style (no vertical lines)
 - Code: `\texttt{}` or `listings` package
+- Revision boxes: `tcolorbox` with red (original) and green (suggested) colorboxes
 
 ### Typography (Markdown → PDF)
 - Body: 16px, Palatino or system serif
 - Headings: Bold, 24px (h1), 20px (h2), 18px (h3)
 - Tables: Clean borders, alternating row shading
 - Code: Fira Code or monospace, 14px
+
+### Revision Suggestion Boxes (HTML/Markdown path)
+When generating HTML reports, use these styled boxes for revision suggestions:
+
+```html
+<div style="background:#fdf2f2; border-left:4px solid #a55a5a; padding:12px 16px; margin:12px 0; border-radius:4px;">
+  <strong style="color:#a55a5a;">Original Text</strong><br>
+  <em>"[quoted original text from the document]"</em>
+</div>
+<div style="background:#f2fdf4; border-left:4px solid #5a8a5a; padding:12px 16px; margin:12px 0; border-radius:4px;">
+  <strong style="color:#5a8a5a;">Suggested Revision</strong><br>
+  <em>"[proposed rewrite]"</em>
+</div>
+<p style="color:#666; font-size:14px; margin-top:4px;">
+  <strong>Rationale:</strong> [Why this revision improves the text]
+</p>
+```
 
 ---
 

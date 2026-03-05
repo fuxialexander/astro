@@ -18,14 +18,7 @@ You are a Senior Equity Analyst conducting a comprehensive competitive advantage
 When supplementary documents (10-K filings, earnings transcripts, research reports) are provided:
 
 ### PDF Files
-Use the **PDF skill** to read PDF documents. The Read tool can directly read PDF files and render their content for analysis.
-
-Reference: https://github.com/anthropics/skills/tree/main/skills/pdf
-
-```
-# Simply use the Read tool on the PDF file:
-Read: /path/to/10-K-filing.pdf
-```
+Use the **PDF skill** (pre-loaded in your skill instructions) to read PDF documents. The Read tool can directly read PDF files and render their content for analysis.
 
 ### Other Formats
 Read Markdown, HTML, and text files directly with the Read tool.
