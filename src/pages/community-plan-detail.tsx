@@ -165,8 +165,9 @@ export function CommunityPlanDetail() {
   const [forkDialogOpen, setForkDialogOpen] = useState(false)
   const [projectName, setProjectName] = useState("")
 
-  // Load plan and comments on mount
+  // Load plan and comments on mount (skip in local mode)
   useEffect(() => {
+    if (isLocalMode()) return
     if (id) {
       fetchPlan(id)
       fetchComments(id)

@@ -178,8 +178,9 @@ export function Community() {
   const [editVisibility, setEditVisibility] = useState<"public" | "team" | "unlisted">("public")
   const [isSavingEdit, setIsSavingEdit] = useState(false)
 
-  // Fetch initial plans, my plans, and featured on mount
+  // Fetch initial plans, my plans, and featured on mount (skip in local mode)
   useEffect(() => {
+    if (isLocalMode()) return
     fetchPlans()
     fetchMyPlans()
     getFeatured().then(setFeaturedPlans).catch((err) => {
