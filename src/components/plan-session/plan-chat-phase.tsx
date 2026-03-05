@@ -160,6 +160,35 @@ export function PlanChatPhase({
     chatToolCounterRef,
   } = useChatStreamEvents()
 
+  // Restore chat events from persisted session messages after page refresh.
+  // On a live session, chatEventsRef is populated by pushChatEvent during streaming.
+  // After refresh, the ref is empty — reconstruct display events from the session
+  // messages that were already saved to the DB via addMessage().
+  useEffect(() => {
+    if (!sessionsLoaded) return
+    if (!chatSession) return
+    if (chatEventsRef.current.length > 0) return // already populated (live session)
+    const messages = chatSession.messages
+    if (!messages || messages.length === 0) return
+
+    const restoredChatEvents: TaskActivityEvent[] = messages
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => {
+        const ts = m.timestamp instanceof Date ? m.timestamp : new Date(m.timestamp)
+        if (m.role === 'user') {
+          return { type: 'chat_user' as const, message: m.content, timestamp: ts }
+        } else {
+          return { type: 'chat_assistant' as const, content: m.content, timestamp: ts }
+        }
+      })
+
+    if (restoredChatEvents.length > 0) {
+      chatEventsRef.current = restoredChatEvents
+      flushChatEvents()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- chatEventsRef is a stable ref; sessionsLoaded+chatSession drive restoration
+  }, [sessionsLoaded, chatSession, flushChatEvents])
+
   const allActivityEvents: TaskActivityEvent[] = useMemo(() => {
     void chatEventsVersion // re-compute when chat events change
     return [...activityEvents, ...chatEventsRef.current]
