@@ -754,7 +754,7 @@ async function dispatchViaRelay(
 
     // Inject project knowledge entries (capped at 8000 chars, most recent first)
     try {
-      const knowledgeRows = await (await db()).select().from(projectKnowledge).where(eq(projectKnowledge.projectId, projectId))
+      const knowledgeRows = await db.select().from(projectKnowledge).where(eq(projectKnowledge.projectId, projectId))
       if (knowledgeRows.length > 0) {
         const maxKnowledgeSize = 8000
         // Sort by recency (most recent first)
