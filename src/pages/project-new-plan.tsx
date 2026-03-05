@@ -487,6 +487,7 @@ export function ProjectNewPlan() {
         {
           targetMachineId: planGenerationRequest.targetMachineId,
           workingDirectory: planGenerationRequest.workingDirectory,
+          preferredProvider: planGenerationRequest.preferredProvider,
           model: planGenerationRequest.model,
           visionDoc: planGenerationRequest.visionDoc,
         }
