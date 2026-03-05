@@ -47,12 +47,19 @@ export function MobileLayout() {
   };
 
   return (
-    <div className="flex flex-col h-dvh md:hidden" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
-      <main className="flex-1 overflow-y-auto pb-20">
+    <div
+      className="flex flex-col md:hidden"
+      style={{
+        paddingTop: 'env(safe-area-inset-top)',
+        // Shrink by keyboard height so flex children (including bottom inputs) stay visible
+        height: 'calc(100dvh - var(--keyboard-height, 0px))',
+      }}
+    >
+      <main className="mobile-main-content flex-1 overflow-y-auto pb-20">
         <Outlet />
       </main>
 
-      <div className="fixed bottom-0 left-0 right-0 z-50">
+      <div className="mobile-tab-bar fixed bottom-0 left-0 right-0 z-50">
         {/* Gradient overlay — sits behind tab bar, fades content into bottom */}
         <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-background via-background/80 to-transparent pointer-events-none" />
 
