@@ -80,7 +80,7 @@ export async function fetchSlashCommands(
 }
 
 export async function generatePlan(
-  params: { description: string; visionDoc?: string; projectId: string; model?: string; providerId?: string; workingDirectory?: string; fileTree?: string[]; keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }; targetMachineId?: string; gitState?: { currentBranch: string; targetBranch: string; isDirty: boolean; dirtyDetails?: { staged: number; unstaged: number; untracked: number } }; streamId?: string },
+  params: { description: string; visionDoc?: string; projectId: string; model?: string; providerId?: string; workingDirectory?: string; fileTree?: string[]; keyFiles?: { claudeMd?: string; readmeMd?: string; packageInfo?: string }; targetMachineId?: string; gitState?: { currentBranch: string; targetBranch: string; isDirty: boolean; dirtyDetails?: { staged: number; unstaged: number; untracked: number } }; streamId?: string; selectedBackends?: string[] },
   callbacks: {
     onText: (text: string) => void
     onPlanResult: (result: PlanGraphResult) => void
@@ -156,7 +156,7 @@ export interface ChatPlanEdgeContext {
 }
 
 export async function chatWithAgent(
-  params: { message: string; sessionId?: string; streamId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }> },
+  params: { message: string; sessionId?: string; streamId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; selectedBackends?: string[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }> },
   callbacks: {
     onText: (text: string) => void
     onDone: (sessionId: string) => void
@@ -186,7 +186,7 @@ export async function chatWithAgent(
 }
 
 export async function planChatWithAgent(
-  params: { message: string; sessionId?: string; streamId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }> },
+  params: { message: string; sessionId?: string; streamId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; selectedBackends?: string[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }> },
   callbacks: {
     onText: (text: string) => void
     onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
@@ -243,6 +243,7 @@ export interface TaskChatParams {
   taskOutput?: string
   visionDoc?: string
   model?: string
+  selectedBackends?: string[]
   messages?: Array<{ role: 'user' | 'assistant'; content: string }>
   /** Branch name from the execution (for resumed session context) */
   branchName?: string

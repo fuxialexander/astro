@@ -57,6 +57,7 @@ import { requestNotificationPermission } from "@/lib/notifications"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
 import { deriveAvailableProviders, PROVIDER_NAMES } from "@/components/execution/provider-utils"
+import { BackendMultiSelect } from "@/components/execution/backend-multi-select"
 import type { TaskActivityEvent } from "@/types"
 import { useRestoredExecution } from "@/hooks/use-restored-execution"
 import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
@@ -81,6 +82,7 @@ export function Playground() {
   const [showPathBrowser, setShowPathBrowser] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState("")
   const [selectedModel, setSelectedModel] = useState("")
+  const [selectedBackends, setSelectedBackends] = useState<string[]>([])
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false)
 
   // Activity phase state
@@ -335,6 +337,7 @@ export function Playground() {
           workingDirectory: workingDir.trim(),
           preferredProvider: selectedProvider || undefined,
           model: effectiveModel,
+          selectedBackends: selectedBackends.length > 0 ? selectedBackends : undefined,
         }
       )
 
@@ -345,7 +348,7 @@ export function Playground() {
     } finally {
       setIsSubmitting(false)
     }
-  }, [description, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, getModelForProvider, startPlaygroundSession, setSearchParams])
+  }, [description, isSubmitting, selectedMachine, workingDir, selectedProvider, selectedModel, selectedBackends, getModelForProvider, startPlaygroundSession, setSearchParams])
 
   // Fork a Claude Code session
   const handleForkSession = useCallback(async (session: ClaudeCodeSession) => {
@@ -928,6 +931,15 @@ export function Playground() {
               </div>
             </div>
           )}
+
+          {/* Compute backends */}
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs text-muted-foreground">Compute backends:</span>
+            <BackendMultiSelect
+              selectedBackends={selectedBackends}
+              onSelectionChange={setSelectedBackends}
+            />
+          </div>
 
           {/* Working directory — required, shown when a machine is selected */}
           {selectedMachine && (

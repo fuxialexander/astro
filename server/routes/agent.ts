@@ -19,8 +19,8 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, TaskStdoutMessage } from '../types/relay.js'
 import { db } from '../lib/db/index.js'
-import { projects } from '../lib/db/schema.js'
-import { eq, isNull, and, or } from 'drizzle-orm'
+import { projects, environmentConfigs } from '../lib/db/schema.js'
+import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 
 /** Verify the user has access to the given project (team-scoped). */
 async function verifyProjectAccess(projectId: string, user: AuthUser): Promise<boolean> {
@@ -39,6 +39,38 @@ async function verifyProjectAccess(projectId: string, user: AuthUser): Promise<b
 /** Scratch directory for text-only relay tasks (label suggestion, refine, etc.) */
 const SCRATCH_DIR = join(homedir(), '.astro', 'tmp')
 try { mkdirSync(SCRATCH_DIR, { recursive: true }) } catch { /* ignore */ }
+
+/**
+ * Load and aggregate environment context for multiple compute backends.
+ * Queries environmentConfigs for each backend and returns sectioned markdown.
+ */
+async function loadEnvironmentContext(
+  userId: string,
+  backends: string[],
+  machineId?: string
+): Promise<string | undefined> {
+  if (backends.length === 0) return undefined
+  try {
+    const machineFilter = machineId
+      ? eq(environmentConfigs.machineId, machineId)
+      : isNull(environmentConfigs.machineId)
+    const rows = await db.select().from(environmentConfigs).where(
+      and(
+        eq(environmentConfigs.userId, userId),
+        inArray(environmentConfigs.backendId, backends),
+        machineFilter
+      )
+    )
+    if (rows.length === 0) return undefined
+    const sections = rows
+      .filter((r: { customContext?: string }) => r.customContext?.trim())
+      .map((r: { backendId: string; customContext: string }) => `### ${r.backendId} Environment\n${r.customContext}`)
+    return sections.length > 0 ? sections.join('\n\n') : undefined
+  } catch (err) {
+    console.warn('[agent] Failed to load environment context:', err)
+    return undefined
+  }
+}
 
 // Validation schemas
 const generatePlanSchema = z.object({
@@ -59,6 +91,7 @@ const generatePlanSchema = z.object({
     packageInfo: z.string().max(100000).optional(),
   }).optional(),
   targetMachineId: z.string().max(100).optional(),
+  selectedBackends: z.array(z.string().max(100)).max(20).optional(),
   gitState: z.object({
     currentBranch: z.string().max(200),
     targetBranch: z.string().max(200),
@@ -81,6 +114,7 @@ const chatSchema = z.object({
   providerId: z.string().max(100).optional(),
   planNodes: z.array(z.any()).max(1000).optional(),
   planEdges: z.array(z.any()).max(1000).optional(),
+  selectedBackends: z.array(z.string().max(100)).max(20).optional(),
   messages: z.array(z.object({
     role: z.enum(['user', 'assistant']),
     content: z.string().max(50000),
@@ -399,7 +433,7 @@ agentRoute.post('/generate-plan', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400)
   }
 
-  const { description, visionDoc, projectId, model, workingDirectory, fileTree, keyFiles, targetMachineId, streamId, gitState } = body
+  const { description, visionDoc, projectId, model, workingDirectory, fileTree, keyFiles, targetMachineId, streamId, gitState, selectedBackends } = body
   const taskId = `gen-${projectId}-${Date.now()}`
   // persistId: stable identifier for streaming event persistence.
   // Frontend supplies a stable streamId (no timestamp) so events survive reconnect/refresh.
@@ -444,12 +478,20 @@ agentRoute.post('/generate-plan', async (c) => {
     console.warn('[plan-gen] Failed to fetch GitHub context from project:', err)
   }
 
+  // Resolve compute backends: body override > project setting
+  let backends = selectedBackends
+  if (!backends || backends.length === 0) {
+    try {
+      const [proj] = await db.select({ computeBackends: projects.computeBackends }).from(projects).where(eq(projects.id, projectId)).limit(1)
+      backends = (proj?.computeBackends as string[] | null) ?? undefined
+    } catch (err) { console.warn('[plan-gen] Failed to fetch project compute backends:', err) }
+  }
+
   // Build the full plan prompt: system prompt + user description
-  // Include available skills so the planner can create tasks that leverage them
-  // Team-scoped: only inject builtins + user's team skills (prevents cross-team leakage).
-  // Pass null (not undefined) when teamId is absent to restrict to builtins only.
-  const skillsSummary = skillManager.getSkillPromptInjection(user.teamId ?? null) || undefined
-  const systemPrompt = buildPlanSystemPrompt(visionDoc, repoContext, gitState, skillsSummary, githubContext)
+  // Backend-scoped: only inject skills matching the project's compute backends.
+  const skillsSummary = skillManager.getBackendScopedSkillInjection(user.teamId ?? null, backends) || undefined
+  const envContext = await loadEnvironmentContext(user.id, backends ?? [], targetMachineId)
+  const systemPrompt = buildPlanSystemPrompt(visionDoc, repoContext, gitState, skillsSummary, githubContext, undefined, envContext)
   const fullPrompt = `${systemPrompt}\n\n---\n\n## User Request\n\n${description}\n\n---\n\nIMPORTANT: Respond with ONLY the JSON plan object. Start your response with { and end with }. No prose, no markdown fences, no explanation. The JSON must have "projectName", "nodes", and "edges" keys.`
 
   // Build relay task dispatch
@@ -665,7 +707,7 @@ agentRoute.post('/chat', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400)
   }
 
-  const { message, sessionId: existingSessionId, streamId, projectId, model, visionDoc, planNodes, planEdges, messages: historyMessages } = body
+  const { message, sessionId: existingSessionId, streamId, projectId, model, visionDoc, planNodes, planEdges, selectedBackends, messages: historyMessages } = body
   const chatUser = c.get('user') as AuthUser
   const taskId = existingSessionId || `chat-${projectId}-${Date.now()}`
 
@@ -674,10 +716,15 @@ agentRoute.post('/chat', async (c) => {
     return c.json({ error: 'Project not found' }, 404)
   }
 
-  // Look up the project's working directory and default machine
-  const [project] = await db.select({ workingDirectory: projects.workingDirectory, defaultMachineId: projects.defaultMachineId }).from(projects).where(eq(projects.id, projectId)).limit(1)
+  // Look up the project's working directory, default machine, and compute backends
+  const [project] = await db.select({ workingDirectory: projects.workingDirectory, defaultMachineId: projects.defaultMachineId, computeBackends: projects.computeBackends }).from(projects).where(eq(projects.id, projectId)).limit(1)
 
-  const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges)
+  // Resolve backends: body override > project setting
+  const backends = selectedBackends ?? (project?.computeBackends as string[] | null) ?? undefined
+  const chatSkills = skillManager.getBackendScopedSkillInjection(chatUser.teamId ?? null, backends) || undefined
+  const chatEnvContext = await loadEnvironmentContext(chatUser.id, backends ?? [], project?.defaultMachineId ?? undefined)
+
+  const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges, chatSkills, chatEnvContext)
 
   // Persist user message for catch-up hydration
   await streamingEventLog.append(streamId || taskId, 'steer_message', { message })
@@ -709,7 +756,7 @@ agentRoute.post('/plan-chat', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400)
   }
 
-  const { message, sessionId: existingSessionId, streamId, projectId, model, visionDoc, planNodes, planEdges, messages: historyMessages } = body
+  const { message, sessionId: existingSessionId, streamId, projectId, model, visionDoc, planNodes, planEdges, selectedBackends, messages: historyMessages } = body
   const planChatUser = c.get('user') as AuthUser
   const taskId = existingSessionId || `plan-chat-${projectId}-${Date.now()}`
 
@@ -718,10 +765,15 @@ agentRoute.post('/plan-chat', async (c) => {
     return c.json({ error: 'Project not found' }, 404)
   }
 
-  // Look up the project's working directory and default machine
-  const [project] = await db.select({ workingDirectory: projects.workingDirectory, defaultMachineId: projects.defaultMachineId }).from(projects).where(eq(projects.id, projectId)).limit(1)
+  // Look up the project's working directory, default machine, and compute backends
+  const [project] = await db.select({ workingDirectory: projects.workingDirectory, defaultMachineId: projects.defaultMachineId, computeBackends: projects.computeBackends }).from(projects).where(eq(projects.id, projectId)).limit(1)
 
-  const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges)
+  // Resolve backends: body override > project setting
+  const planBackends = selectedBackends ?? (project?.computeBackends as string[] | null) ?? undefined
+  const planSkills = skillManager.getBackendScopedSkillInjection(planChatUser.teamId ?? null, planBackends) || undefined
+  const planEnvContext = await loadEnvironmentContext(planChatUser.id, planBackends ?? [], project?.defaultMachineId ?? undefined)
+
+  const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges, planSkills, planEnvContext)
 
   // Persist user message for catch-up hydration
   await streamingEventLog.append(streamId || taskId, 'steer_message', { message })
@@ -757,6 +809,7 @@ const taskChatSchema = z.object({
     role: z.enum(['user', 'assistant']),
     content: z.string().max(50000),
   })).max(100).optional(),
+  selectedBackends: z.array(z.string().max(100)).max(20).optional(),
   // Execution context for resumed sessions
   branchName: z.string().max(500).nullable().optional(),
   prUrl: z.string().max(2000).nullable().optional(),
@@ -781,6 +834,7 @@ agentRoute.post('/task-chat', async (c) => {
     taskOutput,
     visionDoc,
     model,
+    selectedBackends,
     messages: historyMessages,
     branchName,
     prUrl,
@@ -795,8 +849,13 @@ agentRoute.post('/task-chat', async (c) => {
     return c.json({ error: 'Project not found' }, 404)
   }
 
-  // Look up the project's working directory and default machine
-  const [project] = await db.select({ workingDirectory: projects.workingDirectory, defaultMachineId: projects.defaultMachineId }).from(projects).where(eq(projects.id, projectId)).limit(1)
+  // Look up the project's working directory, default machine, and compute backends
+  const [project] = await db.select({ workingDirectory: projects.workingDirectory, defaultMachineId: projects.defaultMachineId, computeBackends: projects.computeBackends }).from(projects).where(eq(projects.id, projectId)).limit(1)
+
+  // Resolve backends: body override > project setting
+  const tcBackends = selectedBackends ?? (project?.computeBackends as string[] | null) ?? undefined
+  const tcSkills = skillManager.getBackendScopedSkillInjection(taskChatUser.teamId ?? null, tcBackends) || undefined
+  const tcEnvContext = await loadEnvironmentContext(taskChatUser.id, tcBackends ?? [], project?.defaultMachineId ?? undefined)
 
   const systemPrompt = buildTaskChatSystemPrompt({
     taskTitle,
@@ -806,6 +865,8 @@ agentRoute.post('/task-chat', async (c) => {
     isResumedSession,
     branchName: branchName || undefined,
     prUrl: prUrl || undefined,
+    skillsInjection: tcSkills,
+    environmentContext: tcEnvContext,
   })
 
   // Persist user message for catch-up hydration

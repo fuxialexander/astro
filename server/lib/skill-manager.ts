@@ -18,7 +18,7 @@
  */
 
 import type { OpenClawSkill } from '../../src/types/skill.js'
-import { buildSkillPromptInjection, getEligibleSkills } from './skill-injector.js'
+import { buildSkillPromptInjection, getEligibleSkills, filterSkillsByBackends } from './skill-injector.js'
 
 /** Build a composite key for the skills Map to prevent cross-team name collisions. */
 function skillKey(skill: { name: string; teamId?: string | null }): string {
@@ -95,6 +95,17 @@ export class SkillManager {
    */
   getSkillPromptInjection(teamId?: string | null): string {
     return buildSkillPromptInjection(this.getEligibleSkills(teamId))
+  }
+
+  /**
+   * Build XML prompt injection for eligible skills, filtered by compute backends.
+   * Only includes skills whose tags match the selected backends.
+   * If no backends are selected, excludes all backend-specific skills (lean default).
+   */
+  getBackendScopedSkillInjection(teamId?: string | null, selectedBackends?: string[]): string {
+    const eligible = this.getEligibleSkills(teamId)
+    const filtered = filterSkillsByBackends(eligible, selectedBackends)
+    return buildSkillPromptInjection(filtered)
   }
 
   /**

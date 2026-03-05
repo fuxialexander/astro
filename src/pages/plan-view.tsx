@@ -51,6 +51,7 @@ import { topologicalSortNodes } from "@/lib/graph-sort-utils"
 import { useFileTreeRefresh } from "@/hooks/use-file-tree-refresh"
 import { apiUrl } from "@/lib/api-url"
 import { getAccessToken } from "@/lib/supabase-client"
+import { BackendMultiSelect } from "@/components/execution/backend-multi-select"
 import type { PlanNode, Priority, Project } from "@/types"
 
 type ViewMode = "graph" | "list" | "timeline" | "board"
@@ -1846,6 +1847,10 @@ export function PlanView() {
                 Publish to Community
               </Button>
             )}
+            <BackendMultiSelect
+              selectedBackends={project.computeBackends ?? []}
+              onSelectionChange={(backends) => updateProject(project.id, { computeBackends: backends })}
+            />
             <DisplayPopover config={{
               ...(viewMode === "list" ? planListDisplayConfig
                 : viewMode === "timeline" ? planTimelineDisplayConfig

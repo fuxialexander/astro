@@ -219,6 +219,7 @@ app.patch('/projects/:id', async (c) => {
   if (body.source !== undefined) patch.source = body.source
   if (body.deliveryMode !== undefined) patch.deliveryMode = body.deliveryMode
   if (body.projectType !== undefined) patch.projectType = body.projectType
+  if (body.computeBackends !== undefined) patch.computeBackends = body.computeBackends
 
   // Auto-extract githubOwner/githubRepo from repository URL when repository is updated
   // but GitHub metadata is not explicitly provided
