@@ -1,6 +1,15 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { useParams, useNavigate, Link } from "react-router"
-import { ArrowLeft, Star, GitFork, Download, Calendar, User, Tag, Layers, FileText, MessageSquare, Edit2, Trash2, Globe } from "lucide-react"
+import { ArrowLeft, Star, GitFork, Download, Calendar, User, Tag, Layers, FileText, MessageSquare, Edit2, Trash2, Globe, List, Network, ChevronRight, Circle } from "lucide-react"
+import {
+  ReactFlow,
+  ReactFlowProvider,
+  Background,
+  BackgroundVariant,
+  type Node,
+  type Edge,
+} from "@xyflow/react"
+import "@xyflow/react/dist/style.css"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { formatDistanceToNow } from "date-fns"
@@ -145,6 +154,167 @@ function CommentItem({ authorName, authorId, content, createdAt, onReply, id, on
   )
 }
 
+// ── Plan Node List View ────────────────────────────────────────────────
+
+const statusColors: Record<string, string> = {
+  planned: "text-muted-foreground",
+  dispatched: "text-info",
+  in_progress: "text-info",
+  auto_verified: "text-success",
+  awaiting_judgment: "text-warning",
+  completed: "text-success",
+  pruned: "text-muted-foreground",
+}
+
+function PlanNodeList({ nodes, edges }: { nodes: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>> }) {
+  // Build dependency map for display
+  const depMap = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const edge of edges) {
+      const target = edge.target as string
+      const source = edge.source as string
+      if (!map.has(target)) map.set(target, [])
+      map.get(target)!.push(source)
+    }
+    return map
+  }, [edges])
+
+  const nodeById = useMemo(() => {
+    const m = new Map<string, Record<string, unknown>>()
+    for (const n of nodes) m.set(n.id as string, n)
+    return m
+  }, [nodes])
+
+  if (nodes.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <p className="text-sm text-muted-foreground">No nodes in this plan</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="divide-y divide-border">
+      {nodes.map((node, i) => {
+        const id = node.id as string
+        const title = (node.title as string) || `Task ${i + 1}`
+        const description = (node.description as string) || ""
+        const status = (node.status as string) || "planned"
+        const type = (node.type as string) || "task"
+        const priority = node.priority as string | undefined
+        const deps = depMap.get(id) || []
+
+        return (
+          <div key={id} className="flex items-start gap-3 px-6 py-3">
+            <div className="mt-1 shrink-0">
+              <Circle className={cn("h-3 w-3 fill-current", statusColors[status] || "text-muted-foreground")} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-foreground truncate">{title}</span>
+                {type === "milestone" && (
+                  <Badge variant="outline" className="text-[10px] shrink-0">Milestone</Badge>
+                )}
+                {priority && priority !== "none" && (
+                  <Badge variant="secondary" className="text-[10px] shrink-0 capitalize">{priority}</Badge>
+                )}
+                <Badge variant="outline" className="text-[10px] shrink-0 capitalize">{status.replace("_", " ")}</Badge>
+              </div>
+              {description && (
+                <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">{description}</p>
+              )}
+              {deps.length > 0 && (
+                <div className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <ChevronRight className="h-3 w-3" />
+                  <span>Depends on: {deps.map((d) => (nodeById.get(d)?.title as string) || d.slice(0, 8)).join(", ")}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Read-Only Plan Graph View ──────────────────────────────────────────
+
+const readOnlyNodeStyle: React.CSSProperties = {
+  padding: "8px 12px",
+  borderRadius: 8,
+  border: "1px solid var(--border)",
+  background: "var(--card)",
+  fontSize: 12,
+  fontWeight: 500,
+  color: "var(--foreground)",
+  maxWidth: 200,
+  textAlign: "center" as const,
+  whiteSpace: "nowrap" as const,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+}
+
+function ReadOnlyPlanGraphInner({ nodes, edges }: { nodes: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>> }) {
+  const rfNodes: Node[] = useMemo(() =>
+    nodes.map((n) => ({
+      id: n.id as string,
+      position: (n.position as { x: number; y: number }) || { x: 0, y: 0 },
+      data: { label: (n.title as string) || "Untitled" },
+      style: readOnlyNodeStyle,
+      type: "default",
+    })),
+    [nodes]
+  )
+
+  const rfEdges: Edge[] = useMemo(() =>
+    edges.map((e) => ({
+      id: (e.id as string) || `${e.source}-${e.target}`,
+      source: e.source as string,
+      target: e.target as string,
+      style: { stroke: "#94A3B8", strokeWidth: 2 },
+    })),
+    [edges]
+  )
+
+  if (nodes.length === 0) {
+    return (
+      <div className="flex h-[500px] items-center justify-center">
+        <p className="text-sm text-muted-foreground">No nodes in this plan</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="h-[500px] w-full border-t">
+      <ReactFlow
+        nodes={rfNodes}
+        edges={rfEdges}
+        fitView
+        fitViewOptions={{ padding: 0.3 }}
+        proOptions={{ hideAttribution: true }}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        elementsSelectable={false}
+        panOnDrag
+        zoomOnScroll
+        className="bg-background"
+      >
+        <Background gap={40} size={2} color="var(--muted-foreground)" style={{ opacity: 0.15 }} variant={BackgroundVariant.Dots} />
+      </ReactFlow>
+    </div>
+  )
+}
+
+function ReadOnlyPlanGraph(props: { nodes: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>> }) {
+  return (
+    <ReactFlowProvider>
+      <ReadOnlyPlanGraphInner {...props} />
+    </ReactFlowProvider>
+  )
+}
+
+// ── Main Component ─────────────────────────────────────────────────────
+
 export function CommunityPlanDetail() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
@@ -157,13 +327,17 @@ export function CommunityPlanDetail() {
   const forkPlan = useCommunityStore((s) => s.forkPlan)
   const addComment = useCommunityStore((s) => s.addComment)
   const clearSelectedPlan = useCommunityStore((s) => s.clearSelectedPlan)
+  const deletePlan = useCommunityStore((s) => s.deletePlan)
+  const currentUserId = useAuthStore((s) => s.user?.id)
 
   const [commentContent, setCommentContent] = useState("")
   const [replyingTo, setReplyingTo] = useState<string | null>(null)
   const [isStarring, setIsStarring] = useState(false)
   const [isForking, setIsForking] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [forkDialogOpen, setForkDialogOpen] = useState(false)
   const [projectName, setProjectName] = useState("")
+  const [previewMode, setPreviewMode] = useState<'list' | 'graph'>('list')
 
   // Load plan and comments on mount (skip in local mode)
   useEffect(() => {
@@ -248,6 +422,27 @@ export function CommunityPlanDetail() {
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
   }
+
+  const handleDelete = async () => {
+    if (!id || isDeleting) return
+    if (!confirm("Are you sure you want to delete this shared plan? This will remove it from the community for all users.")) return
+    setIsDeleting(true)
+    try {
+      await deletePlan(id)
+      navigate("/community")
+    } catch (err) {
+      console.error("Failed to delete plan:", err)
+      useToastStore.getState().add({
+        type: "error",
+        title: "Failed to delete plan",
+        description: err instanceof Error ? err.message : "Something went wrong",
+      })
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  const isAuthor = currentUserId && plan?.authorId === currentUserId
 
   // Thread comments by parent
   const threadedComments = comments.filter((c) => !c.parentCommentId)
@@ -341,6 +536,18 @@ export function CommunityPlanDetail() {
               <GitFork className="h-4 w-4" />
               Use This Plan
             </Button>
+            {isAuthor && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="gap-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 className="h-4 w-4" />
+                {isDeleting ? "Deleting..." : "Delete"}
+              </Button>
+            )}
           </div>
         </div>
       </header>
@@ -476,27 +683,45 @@ export function CommunityPlanDetail() {
                     </Card>
                   )}
 
-                  {/* Read-only Plan Canvas */}
+                  {/* Plan Graph / List */}
                   <Card>
-                    <CardHeader>
+                    <CardHeader className="flex flex-row items-center justify-between">
                       <CardTitle className="text-lg">Plan Graph</CardTitle>
+                      <div className="flex items-center rounded-lg border border-border p-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewMode('list')}
+                          className={cn(
+                            "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                            previewMode === 'list'
+                              ? "bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          <List className="h-3.5 w-3.5" />
+                          List
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPreviewMode('graph')}
+                          className={cn(
+                            "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                            previewMode === 'graph'
+                              ? "bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          <Network className="h-3.5 w-3.5" />
+                          Graph
+                        </button>
+                      </div>
                     </CardHeader>
                     <CardContent className="p-0">
-                      <div className="h-[600px] w-full border-t">
-                        {/* TODO: Render read-only plan canvas. This requires creating a temporary project
-                            context with the plan data (nodes/edges). For now, showing node/edge counts. */}
-                        <div className="flex h-full items-center justify-center">
-                          <div className="text-center space-y-3">
-                            <Layers className="h-12 w-12 mx-auto text-muted-foreground" />
-                            <p className="text-sm font-medium text-foreground">
-                              Plan with {plan.planData?.nodes?.length ?? 0} nodes and {plan.planData?.edges?.length ?? 0} edges
-                            </p>
-                            <p className="text-xs text-muted-foreground max-w-sm">
-                              Interactive graph preview coming soon
-                            </p>
-                          </div>
-                        </div>
-                      </div>
+                      {previewMode === 'list' ? (
+                        <PlanNodeList nodes={plan.planData?.nodes ?? []} edges={plan.planData?.edges ?? []} />
+                      ) : (
+                        <ReadOnlyPlanGraph nodes={plan.planData?.nodes ?? []} edges={plan.planData?.edges ?? []} />
+                      )}
                     </CardContent>
                   </Card>
                 </div>
@@ -680,7 +905,7 @@ export function CommunityPlanDetail() {
               <CardHeader>
                 <CardTitle className="text-sm">Actions</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -690,6 +915,18 @@ export function CommunityPlanDetail() {
                   <Download className="h-4 w-4" />
                   Download JSON
                 </Button>
+                {isAuthor && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full gap-2 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
+                    onClick={handleDelete}
+                    disabled={isDeleting}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {isDeleting ? "Deleting..." : "Delete Plan"}
+                  </Button>
+                )}
               </CardContent>
             </Card>
           </div>

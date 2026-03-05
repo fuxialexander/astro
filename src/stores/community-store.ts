@@ -18,6 +18,7 @@ import {
   getTrending,
   getCategories as apiGetCategories,
   getMyPlans as apiGetMyPlans,
+  deletePublishedPlan as apiDeletePlan,
 } from "@/lib/community-client"
 
 /** Filter and sort options for community plans */
@@ -58,6 +59,7 @@ interface CommunityState {
   fetchTrending: () => Promise<void>
   fetchCategories: () => Promise<void>
   fetchMyPlans: () => Promise<void>
+  deletePlan: (id: string) => Promise<void>
   setFilters: (filters: Partial<CommunityFilters>) => void
   clearSelectedPlan: () => void
 }
@@ -247,6 +249,23 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
       set({ myPlans })
     } catch (err) {
       console.error('[community-store] Failed to fetch my plans:', err)
+    }
+  },
+
+  // Delete a published plan (soft delete, author only)
+  deletePlan: async (id: string) => {
+    try {
+      await apiDeletePlan(id)
+      // Remove from local state
+      const { plans, myPlans, selectedPlan } = get()
+      set({
+        plans: plans.filter((p) => p.id !== id),
+        myPlans: myPlans.filter((p) => p.id !== id),
+        selectedPlan: selectedPlan?.id === id ? null : selectedPlan,
+      })
+    } catch (err) {
+      console.error('[community-store] Failed to delete plan:', err)
+      throw err
     }
   },
 
