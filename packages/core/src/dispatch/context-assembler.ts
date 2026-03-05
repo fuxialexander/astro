@@ -355,6 +355,20 @@ export class ContextAssembler {
     // Current task
     parts.push(`## Current Task\n\n**${context.node.title}**\n\n${context.node.description}`)
 
+    // Output directory guidance
+    if (context.originalProjectDirectory) {
+      parts.push(`## Output Directory
+
+**CRITICAL:** Your working directory is a temporary git worktree that will be deleted after this task finishes. Any files not preserved will be permanently lost.
+
+To preserve your work, you have two options:
+1. **Git commit** — Code changes committed to git are preserved via the branch/PR.
+2. **Copy to outputs/** — For anything that won't be committed (reports, charts, data files, generated documents, analysis results, scripts, notebooks, or any file the user should see after this task), copy them to:
+   ${context.originalProjectDirectory}/outputs/
+
+Create the directory if it doesn't exist. Use absolute paths. When in doubt, copy it — it is better to have a duplicate than to lose work.`)
+    }
+
     // Instructions
     parts.push(`## Instructions
 
