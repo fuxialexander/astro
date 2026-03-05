@@ -193,6 +193,7 @@ Format for each point:
 \documentclass[11pt,a4paper]{article}
 \usepackage[utf8]{inputenc}
 \usepackage[margin=1in]{geometry}
+\usepackage{mathpazo}  % Palatino font for body + math
 \usepackage{booktabs}
 \usepackage{graphicx}
 \usepackage{xcolor}
