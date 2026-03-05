@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from "react"
 import { useParams, useNavigate, Link } from "react-router"
-import { ArrowLeft, Star, GitFork, Download, Calendar, User, Tag, Layers, FileText, MessageSquare, Edit2, Trash2, Globe, List, Network, ChevronRight, Circle } from "lucide-react"
+import { ArrowLeft, Star, GitFork, Download, Calendar, User, Tag, Layers, FileText, MessageSquare, Edit2, Trash2, Globe, List, Network, ChevronRight, Circle, Pencil, Save, X } from "lucide-react"
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -328,6 +328,7 @@ export function CommunityPlanDetail() {
   const addComment = useCommunityStore((s) => s.addComment)
   const clearSelectedPlan = useCommunityStore((s) => s.clearSelectedPlan)
   const deletePlan = useCommunityStore((s) => s.deletePlan)
+  const updatePlan = useCommunityStore((s) => s.updatePlan)
   const currentUserId = useAuthStore((s) => s.user?.id)
 
   const [commentContent, setCommentContent] = useState("")
@@ -338,6 +339,16 @@ export function CommunityPlanDetail() {
   const [forkDialogOpen, setForkDialogOpen] = useState(false)
   const [projectName, setProjectName] = useState("")
   const [previewMode, setPreviewMode] = useState<'list' | 'graph'>('list')
+
+  // Editing state
+  const [isEditMode, setIsEditMode] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [editTitle, setEditTitle] = useState("")
+  const [editDescription, setEditDescription] = useState("")
+  const [editVisionDoc, setEditVisionDoc] = useState("")
+  const [editCustomizationNotes, setEditCustomizationNotes] = useState("")
+  const [editCategory, setEditCategory] = useState("")
+  const [editTags, setEditTags] = useState("")
 
   // Load plan and comments on mount (skip in local mode)
   useEffect(() => {
@@ -442,6 +453,55 @@ export function CommunityPlanDetail() {
     }
   }
 
+  const handleStartEdit = () => {
+    if (!plan) return
+    setEditTitle(plan.title)
+    setEditDescription(plan.description || "")
+    setEditVisionDoc(plan.visionDoc || "")
+    setEditCustomizationNotes(plan.customizationNotes || "")
+    setEditCategory(plan.category || "")
+    setEditTags(plan.tags.join(", "))
+    setIsEditMode(true)
+  }
+
+  const handleCancelEdit = () => {
+    setIsEditMode(false)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!id || !plan) return
+    setIsSaving(true)
+    try {
+      const tags = editTags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean)
+      await updatePlan(id, {
+        title: editTitle.trim() || plan.title,
+        description: editDescription.trim(),
+        visionDoc: editVisionDoc.trim(),
+        customizationNotes: editCustomizationNotes.trim(),
+        category: editCategory.trim() || undefined,
+        tags,
+      })
+      setIsEditMode(false)
+      useToastStore.getState().add({
+        type: "success",
+        title: "Plan updated",
+        description: "Your changes have been saved.",
+      })
+    } catch (err) {
+      console.error("Failed to update plan:", err)
+      useToastStore.getState().add({
+        type: "error",
+        title: "Failed to update plan",
+        description: err instanceof Error ? err.message : "Something went wrong",
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const isAuthor = currentUserId && plan?.authorId === currentUserId
 
   // Thread comments by parent
@@ -498,11 +558,21 @@ export function CommunityPlanDetail() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex-1">
-            <h1 className="text-2xl font-bold text-foreground">{plan.title}</h1>
+            {isEditMode ? (
+              <input
+                type="text"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                className="w-full text-2xl font-bold text-foreground bg-transparent border-b-2 border-primary focus:outline-none pb-1"
+                placeholder="Plan title..."
+              />
+            ) : (
+              <h1 className="text-2xl font-bold text-foreground">{plan.title}</h1>
+            )}
             <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
               <User className="h-3.5 w-3.5" />
               <span>{authorDisplayName}</span>
-              {plan.category && (
+              {!isEditMode && plan.category && (
                 <>
                   <span>•</span>
                   <Badge variant="secondary" className="text-xs">
@@ -513,40 +583,78 @@ export function CommunityPlanDetail() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleStar}
-              disabled={isStarring}
-              className={cn(
-                "gap-2",
-                isStarring && "opacity-50"
-              )}
-            >
-              <Star className={cn("h-4 w-4", isStarring && "fill-primary")} />
-              Star ({plan.starsCount})
-            </Button>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => setForkDialogOpen(true)}
-              disabled={isForking}
-              className="gap-2"
-            >
-              <GitFork className="h-4 w-4" />
-              Use This Plan
-            </Button>
-            {isAuthor && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleDelete}
-                disabled={isDeleting}
-                className="gap-2 text-destructive hover:text-destructive hover:bg-destructive/10"
-              >
-                <Trash2 className="h-4 w-4" />
-                {isDeleting ? "Deleting..." : "Delete"}
-              </Button>
+            {isEditMode ? (
+              <>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleSaveEdit}
+                  disabled={isSaving}
+                  className="gap-2"
+                >
+                  <Save className="h-4 w-4" />
+                  {isSaving ? "Saving..." : "Save Changes"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleCancelEdit}
+                  disabled={isSaving}
+                  className="gap-2"
+                >
+                  <X className="h-4 w-4" />
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <>
+                {isAuthor && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleStartEdit}
+                    className="gap-2"
+                  >
+                    <Pencil className="h-4 w-4" />
+                    Edit
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleStar}
+                  disabled={isStarring}
+                  className={cn(
+                    "gap-2",
+                    isStarring && "opacity-50"
+                  )}
+                >
+                  <Star className={cn("h-4 w-4", isStarring && "fill-primary")} />
+                  Star ({plan.starsCount})
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => setForkDialogOpen(true)}
+                  disabled={isForking}
+                  className="gap-2"
+                >
+                  <GitFork className="h-4 w-4" />
+                  Use This Plan
+                </Button>
+                {isAuthor && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleDelete}
+                    disabled={isDeleting}
+                    className="gap-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {isDeleting ? "Deleting..." : "Delete"}
+                  </Button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -576,32 +684,82 @@ export function CommunityPlanDetail() {
               {/* Overview Tab */}
               <TabsContent value="overview" className="space-y-6 mt-6">
                 {/* Description */}
-                {plan.description && (
+                {(isEditMode || plan.description) && (
                   <Card>
                     <CardHeader>
                       <CardTitle className="text-lg">Description</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="prose prose-sm max-w-none dark:prose-invert">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {plan.description}
-                        </ReactMarkdown>
-                      </div>
+                      {isEditMode ? (
+                        <textarea
+                          value={editDescription}
+                          onChange={(e) => setEditDescription(e.target.value)}
+                          placeholder="Plan description (Markdown supported)..."
+                          className="min-h-[150px] w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                      ) : (
+                        <div className="prose prose-sm max-w-none dark:prose-invert">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {plan.description!}
+                          </ReactMarkdown>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 )}
 
                 {/* Prerequisites & Customization Notes */}
-                {plan.customizationNotes && (
+                {(isEditMode || plan.customizationNotes) && (
                   <Card>
                     <CardHeader>
                       <CardTitle className="text-lg">Prerequisites & Customization Guide</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="prose prose-sm max-w-none dark:prose-invert">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {plan.customizationNotes}
-                        </ReactMarkdown>
+                      {isEditMode ? (
+                        <textarea
+                          value={editCustomizationNotes}
+                          onChange={(e) => setEditCustomizationNotes(e.target.value)}
+                          placeholder="Customization notes (Markdown supported)..."
+                          className="min-h-[120px] w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                      ) : (
+                        <div className="prose prose-sm max-w-none dark:prose-invert">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {plan.customizationNotes!}
+                          </ReactMarkdown>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Category & Tags (edit mode) */}
+                {isEditMode && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Category & Tags</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-foreground">Category</label>
+                        <input
+                          type="text"
+                          value={editCategory}
+                          onChange={(e) => setEditCategory(e.target.value)}
+                          placeholder="e.g. DevOps, Data Science, Web Development..."
+                          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-foreground">Tags</label>
+                        <input
+                          type="text"
+                          value={editTags}
+                          onChange={(e) => setEditTags(e.target.value)}
+                          placeholder="Comma-separated tags, e.g. python, ml, docker..."
+                          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                        <p className="text-xs text-muted-foreground">Separate tags with commas</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -644,8 +802,8 @@ export function CommunityPlanDetail() {
                   </Card>
                 )}
 
-                {/* Tags */}
-                {plan.tags.length > 0 && (
+                {/* Tags (read-only mode) */}
+                {!isEditMode && plan.tags.length > 0 && (
                   <Card>
                     <CardHeader>
                       <CardTitle className="text-lg">Tags</CardTitle>
@@ -668,17 +826,26 @@ export function CommunityPlanDetail() {
               <TabsContent value="preview" className="mt-6">
                 <div className="space-y-6">
                   {/* Vision Doc Preview */}
-                  {plan.visionDoc && (
+                  {(isEditMode || plan.visionDoc) && (
                     <Card>
                       <CardHeader>
                         <CardTitle className="text-lg">Vision Document</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="prose prose-sm max-w-none dark:prose-invert">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {plan.visionDoc}
-                          </ReactMarkdown>
-                        </div>
+                        {isEditMode ? (
+                          <textarea
+                            value={editVisionDoc}
+                            onChange={(e) => setEditVisionDoc(e.target.value)}
+                            placeholder="Vision document (Markdown supported)..."
+                            className="min-h-[250px] w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                          />
+                        ) : (
+                          <div className="prose prose-sm max-w-none dark:prose-invert">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {plan.visionDoc!}
+                            </ReactMarkdown>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                   )}
@@ -906,6 +1073,17 @@ export function CommunityPlanDetail() {
                 <CardTitle className="text-sm">Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
+                {isAuthor && !isEditMode && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full gap-2"
+                    onClick={handleStartEdit}
+                  >
+                    <Pencil className="h-4 w-4" />
+                    Edit Plan
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="sm"

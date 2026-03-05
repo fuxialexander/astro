@@ -100,6 +100,7 @@ export interface PublishPlanRequest {
 export interface UpdatePublishedPlanRequest {
   title?: string
   description?: string
+  visionDoc?: string
   customizationNotes?: string
   customizableFields?: CustomizableField[]
   executionResults?: string
