@@ -326,6 +326,16 @@ html {
    prevent this on iOS WebKit. Applied by useIOSKeyboardFix hook. */
 html.ios-viewport-fix {
   position: fixed;
+  inset: 0;
+}
+
+/* When virtual keyboard is open on mobile, hide the bottom tab bar and
+   remove the bottom padding that was reserving space for it. */
+html[data-keyboard-open] .mobile-tab-bar {
+  display: none !important;
+}
+html[data-keyboard-open] .mobile-main-content {
+  padding-bottom: 0 !important;
 }
 
 body {
