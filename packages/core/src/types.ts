@@ -479,6 +479,13 @@ export interface UserProfile {
   defaultMachineId?: string;
   apiKeys: ApiKey[];
   sidebarConfig?: Array<{ id: string; to: string; icon: string; label: string; visible: boolean; protected: boolean; autoRevealed?: boolean; userDismissed?: boolean }>;
+  onboardingProgress?: {
+    tier1Complete?: boolean;
+    quickstartStep?: number;
+    dismissedHints?: string[];
+    seenFeatures?: string[];
+    skipAll?: boolean;
+  };
   createdAt: Date;
   updatedAt: Date;
 }

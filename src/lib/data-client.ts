@@ -174,6 +174,7 @@ function mapProfile(row: Record<string, unknown>): UserProfile {
     defaultMachineId: r.defaultMachineId as string | undefined,
     apiKeys: ((r.apiKeys as Record<string, unknown>[]) ?? []).map(mapApiKey),
     sidebarConfig: r.sidebarConfig as UserProfile["sidebarConfig"],
+    onboardingProgress: r.onboardingProgress as UserProfile["onboardingProgress"],
     createdAt: toDate(r.createdAt),
     updatedAt: toDate(r.updatedAt),
   }

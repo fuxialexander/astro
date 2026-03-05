@@ -207,6 +207,13 @@ export const userProfiles = pgTable('user_profiles', {
     id: string; to: string; icon: string; label: string; visible: boolean; protected: boolean
   }>>(),
   settings: jsonb('settings').$type<Record<string, string>>().default({}),
+  onboardingProgress: jsonb('onboarding_progress').$type<{
+    tier1Complete?: boolean;
+    quickstartStep?: number;
+    dismissedHints?: string[];
+    seenFeatures?: string[];
+    skipAll?: boolean;
+  }>().default({}),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })

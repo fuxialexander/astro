@@ -112,6 +112,7 @@ function mapProfile(row: Record<string, unknown>): UserProfile {
     notificationsEnabled: (r.notificationsEnabled ?? true) as boolean,
     emailNotifications: (r.emailNotifications ?? false) as boolean,
     apiKeys: ((r.apiKeys as Record<string, unknown>[]) ?? []).map(mapApiKey),
+    onboardingProgress: r.onboardingProgress as UserProfile["onboardingProgress"],
     createdAt: toDate(r.createdAt),
     updatedAt: toDate(r.updatedAt),
   }
