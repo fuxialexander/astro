@@ -266,7 +266,9 @@ export function RemotePathBrowser({
       if (result.success) {
         setIsCreatingFolder(false)
         setNewFolderName("")
-        loadDirectory(path) // Refresh listing
+        // Navigate into the newly created folder so users can create nested folders
+        const newPath = result.path || `${path.replace(/\/$/, '')}/${trimmed}`
+        loadDirectory(newPath)
       } else {
         setCreateError(result.error || "Failed to create folder")
       }
@@ -330,7 +332,7 @@ export function RemotePathBrowser({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[80vh] flex flex-col">
+      <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Folder className="h-5 w-5 text-primary" />
@@ -359,7 +361,7 @@ export function RemotePathBrowser({
         </form>
 
         {/* Breadcrumb navigation */}
-        <div className="flex items-center gap-1 text-sm overflow-x-auto py-1">
+        <div className="flex items-center gap-1 text-sm overflow-x-auto py-1 min-w-0">
           <Button
             variant="ghost"
             size="sm"
@@ -435,7 +437,7 @@ export function RemotePathBrowser({
         {/* Directory listing */}
         <div
           ref={listRef}
-          className="flex-1 min-h-[200px] overflow-y-auto border rounded-lg bg-background"
+          className="flex-1 min-h-[280px] max-h-[400px] overflow-y-auto border rounded-lg bg-background"
           onKeyDown={handleKeyDown}
           tabIndex={0}
         >
