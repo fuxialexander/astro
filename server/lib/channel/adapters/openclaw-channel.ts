@@ -4,8 +4,13 @@
  * Routes notifications and approval requests from Astro to users'
  * preferred messaging channels via the OpenClaw gateway WebSocket.
  *
+ * Uses the OpenClaw gateway protocol v3:
+ *   - Frames: event ({ type: "event" }), request ({ type: "req" }), response ({ type: "res" })
+ *   - Connection: challenge-response handshake (gateway sends connect.challenge → client sends connect)
+ *   - Auth: gateway token + optional Ed25519 device auth
+ *
  * Outbound flow:
- *   Astro event → format message → WebSocket `message.send` RPC → OpenClaw gateway → user channel
+ *   Astro event → format message → WebSocket request → OpenClaw gateway → user channel
  *
  * Approval flow:
  *   Agent emits `ask_user_question` → adapter sends approval request via gateway
@@ -14,6 +19,7 @@
  */
 
 import { EventEmitter } from 'node:events'
+import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import type {
   ChannelNotification,
@@ -25,35 +31,47 @@ import { channelRouter } from '../channel-router.js'
 import { channelConfigManager } from '../channel-config-manager.js'
 
 // ---------------------------------------------------------------------------
-// Types
+// Types — OpenClaw Gateway Protocol v3
 // ---------------------------------------------------------------------------
 
-/** JSON-RPC 2.0 request sent over WebSocket to the gateway */
-export interface OpenClawRpcRequest {
-  jsonrpc: '2.0'
+/** Event frame pushed by the gateway (server → client) */
+export interface OpenClawEventFrame {
+  type: 'event'
+  event: string
+  payload: Record<string, unknown>
+  seq?: number
+}
+
+/** Request frame sent by the client (client → server) */
+export interface OpenClawRequestFrame {
+  type: 'req'
   id: string
   method: string
   params: Record<string, unknown>
 }
 
-/** JSON-RPC 2.0 response received from the gateway */
-export interface OpenClawRpcResponse {
-  jsonrpc: '2.0'
+/** Response frame from the gateway (server → client) */
+export interface OpenClawResponseFrame {
+  type: 'res'
   id: string
-  result?: unknown
+  ok: boolean
+  payload?: Record<string, unknown>
   error?: { code: number; message: string; data?: unknown }
 }
 
-/** Inbound message pushed by the gateway (server → client notification) */
-export interface OpenClawGatewayEvent {
-  jsonrpc: '2.0'
-  method: string
-  params: Record<string, unknown>
-}
+/** Any frame received over the WebSocket */
+export type OpenClawFrame = OpenClawEventFrame | OpenClawResponseFrame
 
 /** Pending approval waiting for user response */
 interface PendingApproval {
   resolve: (response: string) => void
+  reject: (err: Error) => void
+  timeoutId: ReturnType<typeof setTimeout>
+}
+
+/** Pending request waiting for gateway response */
+interface PendingRequest {
+  resolve: (value: unknown) => void
   reject: (err: Error) => void
   timeoutId: ReturnType<typeof setTimeout>
 }
@@ -73,8 +91,10 @@ export interface IWebSocket {
 
 const RECONNECT_DELAY_MS = 5_000
 const APPROVAL_TIMEOUT_MS = 300_000 // 5 minutes
-const RPC_TIMEOUT_MS = 15_000
+const REQUEST_TIMEOUT_MS = 15_000
+const CONNECT_CHALLENGE_TIMEOUT_MS = 5_000
 const WS_READY_STATE_OPEN = 1
+const PROTOCOL_VERSION = 3
 
 // ---------------------------------------------------------------------------
 // Adapter
@@ -84,14 +104,11 @@ export class OpenClawChannelAdapter extends EventEmitter {
   private ws: IWebSocket | null = null
   private config: OpenClawChannelConfig | null = null
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private challengeTimer: ReturnType<typeof setTimeout> | null = null
   private pendingApprovals = new Map<string, PendingApproval>()
-  private pendingRpc = new Map<string, {
-    resolve: (value: unknown) => void
-    reject: (err: Error) => void
-    timeoutId: ReturnType<typeof setTimeout>
-  }>()
-  private rpcCounter = 0
+  private pendingRequests = new Map<string, PendingRequest>()
   private _started = false
+  private _authenticated = false
 
   /** Injected WebSocket factory for testability */
   private createWebSocket: ((url: string) => IWebSocket) | null = null
@@ -105,9 +122,6 @@ export class OpenClawChannelAdapter extends EventEmitter {
 
   // ─── Lifecycle ──────────────────────────────────────────────────
 
-  /**
-   * Initialize the adapter: load config, connect, and register with the channel router.
-   */
   async start(): Promise<void> {
     if (this._started) return
 
@@ -136,15 +150,18 @@ export class OpenClawChannelAdapter extends EventEmitter {
     console.log(`[openclaw] Adapter started, gateway=${this.config.gatewayUrl}`)
   }
 
-  /**
-   * Disconnect and clean up.
-   */
   stop(): void {
     this._started = false
+    this._authenticated = false
 
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
+    }
+
+    if (this.challengeTimer) {
+      clearTimeout(this.challengeTimer)
+      this.challengeTimer = null
     }
 
     // Reject all pending approvals
@@ -154,11 +171,11 @@ export class OpenClawChannelAdapter extends EventEmitter {
       this.pendingApprovals.delete(id)
     }
 
-    // Reject all pending RPCs
-    for (const [id, pending] of this.pendingRpc) {
+    // Reject all pending requests
+    for (const [id, pending] of this.pendingRequests) {
       clearTimeout(pending.timeoutId)
       pending.reject(new Error('OpenClaw adapter stopped'))
-      this.pendingRpc.delete(id)
+      this.pendingRequests.delete(id)
     }
 
     if (this.ws) {
@@ -168,7 +185,7 @@ export class OpenClawChannelAdapter extends EventEmitter {
   }
 
   get isConnected(): boolean {
-    return this.ws !== null && this.ws.readyState === WS_READY_STATE_OPEN
+    return this.ws !== null && this.ws.readyState === WS_READY_STATE_OPEN && this._authenticated
   }
 
   // ─── WebSocket Connection ──────────────────────────────────────
@@ -180,7 +197,6 @@ export class OpenClawChannelAdapter extends EventEmitter {
       if (this.createWebSocket) {
         this.ws = this.createWebSocket(this.config.gatewayUrl)
       } else {
-        // Dynamic require to avoid bundling ws in environments that don't need it
         const esmRequire = createRequire(import.meta.url)
         const WebSocket = esmRequire('ws') as typeof import('ws').default
         this.ws = new WebSocket(this.config.gatewayUrl) as unknown as IWebSocket
@@ -197,37 +213,35 @@ export class OpenClawChannelAdapter extends EventEmitter {
   }
 
   private onOpen(): void {
-    console.log('[openclaw] Connected to gateway')
-    this.emit('connected')
+    console.log('[openclaw] WebSocket open, waiting for challenge...')
 
-    // Authenticate with the gateway
-    if (this.config?.apiKey) {
-      this.sendRpc('auth.authenticate', { apiKey: this.config.apiKey }).catch((err) => {
-        console.error('[openclaw] Authentication failed:', err)
-      })
-    }
+    // Start timeout for the connect challenge
+    this.challengeTimer = setTimeout(() => {
+      console.error('[openclaw] Connect challenge timeout')
+      this.ws?.close()
+    }, CONNECT_CHALLENGE_TIMEOUT_MS)
   }
 
   private onMessage(data: unknown): void {
-    let msg: OpenClawRpcResponse | OpenClawGatewayEvent
+    let frame: OpenClawFrame | OpenClawEventFrame
 
     try {
       const raw = typeof data === 'string' ? data : String(data)
-      msg = JSON.parse(raw)
+      frame = JSON.parse(raw)
     } catch {
       console.warn('[openclaw] Received non-JSON message, ignoring')
       return
     }
 
-    // Handle RPC responses (has id + result/error)
-    if ('id' in msg && msg.id && ('result' in msg || 'error' in msg)) {
-      this.handleRpcResponse(msg as OpenClawRpcResponse)
+    // Event frames: { type: "event", event: "...", payload: {...} }
+    if (frame.type === 'event') {
+      this.handleEventFrame(frame as OpenClawEventFrame)
       return
     }
 
-    // Handle gateway-pushed events (has method, no id)
-    if ('method' in msg && msg.method) {
-      this.handleGatewayEvent(msg as OpenClawGatewayEvent)
+    // Response frames: { type: "res", id: "...", ok: true/false, ... }
+    if (frame.type === 'res') {
+      this.handleResponseFrame(frame as OpenClawResponseFrame)
       return
     }
   }
@@ -235,6 +249,13 @@ export class OpenClawChannelAdapter extends EventEmitter {
   private onClose(): void {
     console.log('[openclaw] Disconnected from gateway')
     this.ws = null
+    this._authenticated = false
+
+    if (this.challengeTimer) {
+      clearTimeout(this.challengeTimer)
+      this.challengeTimer = null
+    }
+
     this.emit('disconnected')
     if (this._started) {
       this.scheduleReconnect()
@@ -257,29 +278,105 @@ export class OpenClawChannelAdapter extends EventEmitter {
     }, RECONNECT_DELAY_MS)
   }
 
-  // ─── RPC Communication ─────────────────────────────────────────
+  // ─── Challenge-Response Handshake ─────────────────────────────
+
+  private handleEventFrame(frame: OpenClawEventFrame): void {
+    if (frame.event === 'connect.challenge') {
+      this.handleConnectChallenge(frame.payload)
+      return
+    }
+
+    // Dispatch application-level events
+    this.handleGatewayEvent(frame)
+  }
+
+  private handleConnectChallenge(payload: Record<string, unknown>): void {
+    if (this.challengeTimer) {
+      clearTimeout(this.challengeTimer)
+      this.challengeTimer = null
+    }
+
+    const nonce = payload.nonce as string | undefined
+    if (!nonce) {
+      console.error('[openclaw] Connect challenge missing nonce')
+      this.ws?.close()
+      return
+    }
+
+    this.sendConnectRequest()
+  }
+
+  private sendConnectRequest(): void {
+    if (!this.ws || !this.config) return
+
+    const connectReq: OpenClawRequestFrame = {
+      type: 'req',
+      id: 'connect-1',
+      method: 'connect',
+      params: {
+        minProtocol: PROTOCOL_VERSION,
+        maxProtocol: PROTOCOL_VERSION,
+        client: {
+          id: 'astro',
+          version: 'dev',
+          platform: process.platform,
+          mode: 'backend',
+        },
+        caps: [],
+        auth: {
+          token: this.config.apiKey,
+        },
+        role: 'operator',
+        scopes: ['operator.read', 'operator.write'],
+      },
+    }
+
+    this.ws.send(JSON.stringify(connectReq))
+
+    // Register a handler for the connect response
+    const timeoutId = setTimeout(() => {
+      this.pendingRequests.delete('connect-1')
+      console.error('[openclaw] Connect request timed out')
+      this.ws?.close()
+    }, REQUEST_TIMEOUT_MS)
+
+    this.pendingRequests.set('connect-1', {
+      resolve: () => {
+        this._authenticated = true
+        console.log('[openclaw] Connected to gateway')
+        this.emit('connected')
+      },
+      reject: (err: Error) => {
+        console.error('[openclaw] Connect failed:', err.message)
+        this.ws?.close()
+      },
+      timeoutId,
+    })
+  }
+
+  // ─── Request/Response Communication ───────────────────────────
 
   /**
-   * Send a JSON-RPC request to the gateway and wait for the response.
+   * Send a request to the gateway and wait for the response.
    */
-  sendRpc(method: string, params: Record<string, unknown>): Promise<unknown> {
+  sendRequest(method: string, params: Record<string, unknown>): Promise<unknown> {
     return new Promise((resolve, reject) => {
       if (!this.ws || this.ws.readyState !== WS_READY_STATE_OPEN) {
         reject(new Error('OpenClaw gateway not connected'))
         return
       }
 
-      const id = `rpc-${++this.rpcCounter}-${Date.now()}`
+      const id = randomUUID()
 
       const timeoutId = setTimeout(() => {
-        this.pendingRpc.delete(id)
-        reject(new Error(`RPC ${method} timed out after ${RPC_TIMEOUT_MS}ms`))
-      }, RPC_TIMEOUT_MS)
+        this.pendingRequests.delete(id)
+        reject(new Error(`Request ${method} timed out after ${REQUEST_TIMEOUT_MS}ms`))
+      }, REQUEST_TIMEOUT_MS)
 
-      this.pendingRpc.set(id, { resolve, reject, timeoutId })
+      this.pendingRequests.set(id, { resolve, reject, timeoutId })
 
-      const request: OpenClawRpcRequest = {
-        jsonrpc: '2.0',
+      const request: OpenClawRequestFrame = {
+        type: 'req',
         id,
         method,
         params,
@@ -289,51 +386,48 @@ export class OpenClawChannelAdapter extends EventEmitter {
     })
   }
 
-  private handleRpcResponse(msg: OpenClawRpcResponse): void {
-    const pending = this.pendingRpc.get(msg.id)
+  private handleResponseFrame(frame: OpenClawResponseFrame): void {
+    const pending = this.pendingRequests.get(frame.id)
     if (!pending) return
 
     clearTimeout(pending.timeoutId)
-    this.pendingRpc.delete(msg.id)
+    this.pendingRequests.delete(frame.id)
 
-    if (msg.error) {
-      pending.reject(new Error(`RPC error ${msg.error.code}: ${msg.error.message}`))
+    if (frame.ok) {
+      pending.resolve(frame.payload)
     } else {
-      pending.resolve(msg.result)
+      const errMsg = frame.error?.message ?? 'unknown error'
+      const errCode = frame.error?.code ?? -1
+      pending.reject(new Error(`Request error ${errCode}: ${errMsg}`))
     }
   }
 
-  private handleGatewayEvent(msg: OpenClawGatewayEvent): void {
-    switch (msg.method) {
+  private handleGatewayEvent(frame: OpenClawEventFrame): void {
+    switch (frame.event) {
       case 'approval.response': {
-        const approvalId = msg.params.approvalId as string | undefined
-        const response = msg.params.response as string | undefined
+        const approvalId = frame.payload.approvalId as string | undefined
+        const response = frame.payload.response as string | undefined
         if (approvalId && response) {
           this.resolveApproval(approvalId, response)
         }
         break
       }
       case 'message.inbound': {
-        // Inbound messages from user's channel → Astro chat
-        this.emit('inbound', msg.params)
+        this.emit('inbound', frame.payload)
         break
       }
       default:
-        this.emit('gateway-event', msg)
+        this.emit('gateway-event', frame)
     }
   }
 
   // ─── Outbound Notifications ────────────────────────────────────
 
-  /**
-   * Send a notification to the user's preferred channel via the OpenClaw gateway.
-   */
   async sendNotification(notification: ChannelNotification): Promise<void> {
     const formatted = formatForChannel(notification.summary, 'openclaw')
-
     const message = this.buildNotificationMessage(notification, formatted)
 
-    await this.sendRpc('message.send', {
+    await this.sendRequest('message.send', {
       projectId: notification.projectId,
       type: notification.type,
       text: message,
@@ -345,13 +439,10 @@ export class OpenClawChannelAdapter extends EventEmitter {
     })
   }
 
-  /**
-   * Send a response back to a conversation via the gateway.
-   */
   async sendResponse(response: OutboundResponse): Promise<void> {
     const formatted = formatForChannel(response.text, 'openclaw')
 
-    await this.sendRpc('message.send', {
+    await this.sendRequest('message.send', {
       channelId: response.conversationRef.channelId,
       threadId: response.conversationRef.threadId,
       text: formatted,
@@ -361,10 +452,6 @@ export class OpenClawChannelAdapter extends EventEmitter {
 
   // ─── Approval Routing ──────────────────────────────────────────
 
-  /**
-   * Route an `ask_user_question` approval request to the user via the gateway.
-   * Returns a promise that resolves when the user responds.
-   */
   async requestApproval(opts: {
     approvalId: string
     projectId: string
@@ -374,8 +461,7 @@ export class OpenClawChannelAdapter extends EventEmitter {
   }): Promise<string> {
     const formatted = formatForChannel(opts.question, 'openclaw')
 
-    // Send the approval request via gateway
-    await this.sendRpc('approval.request', {
+    await this.sendRequest('approval.request', {
       approvalId: opts.approvalId,
       projectId: opts.projectId,
       taskId: opts.taskId,
@@ -383,7 +469,6 @@ export class OpenClawChannelAdapter extends EventEmitter {
       options: opts.options ?? [],
     })
 
-    // Wait for the user's response
     return new Promise<string>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         this.pendingApprovals.delete(opts.approvalId)

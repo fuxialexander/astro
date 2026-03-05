@@ -1,8 +1,8 @@
 /**
  * OpenClaw Channel Adapter Tests
  *
- * Tests outbound notification formatting, approval routing, RPC communication,
- * and error handling using a mocked WebSocket gateway.
+ * Tests outbound notification formatting, approval routing, request/response
+ * communication, and the challenge-response handshake using a mocked WebSocket gateway.
  */
 
 import { EventEmitter } from 'node:events'
@@ -10,9 +10,9 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { OpenClawChannelAdapter } from '../openclaw-channel.js'
 import type {
   IWebSocket,
-  OpenClawRpcRequest,
-  OpenClawRpcResponse,
-  OpenClawGatewayEvent,
+  OpenClawRequestFrame,
+  OpenClawResponseFrame,
+  OpenClawEventFrame,
 } from '../openclaw-channel.js'
 import type { ChannelNotification } from '../../channel-types.js'
 
@@ -46,7 +46,7 @@ vi.mock('../../channel-router.js', () => ({
 }))
 
 // ---------------------------------------------------------------------------
-// Mock WebSocket
+// Mock WebSocket — simulates the OpenClaw gateway protocol
 // ---------------------------------------------------------------------------
 
 class MockWebSocket extends EventEmitter implements IWebSocket {
@@ -54,7 +54,7 @@ class MockWebSocket extends EventEmitter implements IWebSocket {
   sent: string[] = []
 
   send(data: string): void {
-    this.sent.push(data)
+    this._baseSend(data)
   }
 
   close(): void {
@@ -62,35 +62,93 @@ class MockWebSocket extends EventEmitter implements IWebSocket {
     this.emit('close')
   }
 
-  /** Simulate receiving a message from the gateway */
-  receiveMessage(msg: OpenClawRpcResponse | OpenClawGatewayEvent): void {
-    this.emit('message', JSON.stringify(msg))
+  /** Send a connect.challenge event to start the handshake */
+  sendChallenge(nonce = 'test-nonce-123'): void {
+    const frame: OpenClawEventFrame = {
+      type: 'event',
+      event: 'connect.challenge',
+      payload: { nonce },
+    }
+    this.emit('message', JSON.stringify(frame))
   }
 
-  /** Auto-respond to the next RPC call with a result */
-  autoRespondNext(result: unknown = { ok: true }): void {
-    const originalSend = this.send.bind(this)
-    this.send = (data: string) => {
-      originalSend(data)
-      const req = JSON.parse(data) as OpenClawRpcRequest
-      // Respond asynchronously like a real server
-      setTimeout(() => {
-        this.receiveMessage({
-          jsonrpc: '2.0',
-          id: req.id,
-          result,
-        })
-      }, 0)
-      // Restore original send after first call
-      this.send = originalSend
+  /** Send an event frame to the adapter */
+  sendEvent(event: string, payload: Record<string, unknown>): void {
+    const frame: OpenClawEventFrame = {
+      type: 'event',
+      event,
+      payload,
+    }
+    this.emit('message', JSON.stringify(frame))
+  }
+
+  /** Send a response frame to the adapter */
+  sendResponse(id: string, ok: boolean, payloadOrError?: Record<string, unknown>): void {
+    const frame: OpenClawResponseFrame = ok
+      ? { type: 'res', id, ok: true, payload: payloadOrError ?? {} }
+      : { type: 'res', id, ok: false, error: { code: -1, message: (payloadOrError as { message?: string })?.message ?? 'error', ...(payloadOrError ?? {}) } }
+    this.emit('message', JSON.stringify(frame))
+  }
+
+  /** Auto-respond to requests with a successful response */
+  autoRespondToRequests(): void {
+    this._autoRespond = true
+  }
+
+  /** Stop auto-responding to requests */
+  stopAutoRespond(): void {
+    this._autoRespond = false
+  }
+
+  private _autoRespond = false
+  private _baseSend(data: string): void {
+    this.sent.push(data)
+    if (this._autoRespond) {
+      const parsed = JSON.parse(data)
+      if (parsed.type === 'req') {
+        setTimeout(() => {
+          this.sendResponse(parsed.id, true, { ok: true })
+        }, 0)
+      }
     }
   }
 
-  /** Get the last sent RPC request parsed */
-  getLastRequest(): OpenClawRpcRequest | null {
-    if (this.sent.length === 0) return null
-    return JSON.parse(this.sent[this.sent.length - 1]) as OpenClawRpcRequest
+  /** Get the last sent request frame parsed */
+  getLastRequest(): OpenClawRequestFrame | null {
+    for (let i = this.sent.length - 1; i >= 0; i--) {
+      const parsed = JSON.parse(this.sent[i])
+      if (parsed.type === 'req') return parsed as OpenClawRequestFrame
+    }
+    return null
   }
+
+  /** Get all sent request frames */
+  getAllRequests(): OpenClawRequestFrame[] {
+    return this.sent
+      .map((s) => JSON.parse(s))
+      .filter((f: { type: string }) => f.type === 'req') as OpenClawRequestFrame[]
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: start adapter with full handshake
+// ---------------------------------------------------------------------------
+
+async function startWithHandshake(
+  adapter: OpenClawChannelAdapter,
+  mockWs: MockWebSocket
+): Promise<void> {
+  // Auto-respond to the connect request
+  mockWs.autoRespondToRequests()
+
+  await adapter.start()
+
+  // Gateway sends challenge after WS opens
+  await tick()
+  mockWs.sendChallenge()
+
+  // Wait for the adapter to complete the handshake
+  await waitForEvent(adapter, 'connected')
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +164,7 @@ describe('OpenClawChannelAdapter', () => {
 
     adapter = new OpenClawChannelAdapter({
       createWebSocket: () => {
-        // Simulate the connection opening
+        // Simulate the WS opening
         setTimeout(() => mockWs.emit('open'), 0)
         return mockWs
       },
@@ -120,25 +178,30 @@ describe('OpenClawChannelAdapter', () => {
   // ─── Lifecycle ────────────────────────────────────────────────
 
   describe('start/stop', () => {
-    it('should connect to gateway on start', async () => {
-      // Auto-respond to auth RPC
-      mockWs.autoRespondNext()
-
-      await adapter.start()
-
-      // Wait for the async open event
-      await waitForEvent(adapter, 'connected')
-
+    it('should connect to gateway on start after challenge-response', async () => {
+      await startWithHandshake(adapter, mockWs)
       expect(adapter.isConnected).toBe(true)
     })
 
+    it('should send connect request with protocol v3 and auth token', async () => {
+      await startWithHandshake(adapter, mockWs)
+
+      const connectReq = mockWs.getAllRequests().find((r) => r.method === 'connect')
+      expect(connectReq).toBeDefined()
+      expect(connectReq!.params.minProtocol).toBe(3)
+      expect(connectReq!.params.maxProtocol).toBe(3)
+
+      const auth = connectReq!.params.auth as Record<string, unknown>
+      expect(auth.token).toBe('test-api-key')
+
+      const client = connectReq!.params.client as Record<string, unknown>
+      expect(client.id).toBe('astro')
+      expect(client.mode).toBe('backend')
+    })
+
     it('should disconnect on stop', async () => {
-      mockWs.autoRespondNext()
-      await adapter.start()
-      await waitForEvent(adapter, 'connected')
-
+      await startWithHandshake(adapter, mockWs)
       adapter.stop()
-
       expect(adapter.isConnected).toBe(false)
     })
 
@@ -159,9 +222,7 @@ describe('OpenClawChannelAdapter', () => {
     it('should register notification and response senders on start', async () => {
       const { channelRouter } = await import('../../channel-router.js')
 
-      mockWs.autoRespondNext()
-      await adapter.start()
-      await waitForEvent(adapter, 'connected')
+      await startWithHandshake(adapter, mockWs)
 
       expect(channelRouter.registerNotificationSender).toHaveBeenCalledWith(
         'project-abc',
@@ -173,23 +234,13 @@ describe('OpenClawChannelAdapter', () => {
         expect.any(Function)
       )
     })
-  })
 
-  // ─── Authentication ───────────────────────────────────────────
-
-  describe('authentication', () => {
-    it('should send auth RPC on connect', async () => {
-      mockWs.autoRespondNext()
+    it('should not be connected before challenge is received', async () => {
+      mockWs.autoRespondToRequests()
       await adapter.start()
-      await waitForEvent(adapter, 'connected')
-
-      // Allow the auth RPC to be sent
       await tick()
-
-      const req = mockWs.getLastRequest()
-      expect(req).not.toBeNull()
-      expect(req!.method).toBe('auth.authenticate')
-      expect(req!.params.apiKey).toBe('test-api-key')
+      // WS is open but no challenge yet → not authenticated
+      expect(adapter.isConnected).toBe(false)
     })
   })
 
@@ -197,13 +248,10 @@ describe('OpenClawChannelAdapter', () => {
 
   describe('sendNotification', () => {
     beforeEach(async () => {
-      mockWs.autoRespondNext() // auth
-      await adapter.start()
-      await waitForEvent(adapter, 'connected')
-      await tick() // let auth complete
+      await startWithHandshake(adapter, mockWs)
     })
 
-    it('should send task.completed notification via message.send RPC', async () => {
+    it('should send task.completed notification via message.send request', async () => {
       const notification: ChannelNotification = {
         type: 'task.completed',
         projectId: 'project-abc',
@@ -211,17 +259,15 @@ describe('OpenClawChannelAdapter', () => {
         astroUrl: 'https://app.astro.dev/project/abc/task/123',
       }
 
-      mockWs.autoRespondNext()
+      mockWs.autoRespondToRequests()
       await adapter.sendNotification(notification)
 
-      // Find the message.send request (skip auth)
-      const allRequests = mockWs.sent.map((s) => JSON.parse(s) as OpenClawRpcRequest)
+      const allRequests = mockWs.getAllRequests()
       const sendReq = allRequests.find((r) => r.method === 'message.send')
 
       expect(sendReq).toBeDefined()
       expect(sendReq!.params.projectId).toBe('project-abc')
       expect(sendReq!.params.type).toBe('task.completed')
-      // Text should be formatted for openclaw (markdown stripped)
       expect(sendReq!.params.text).toContain('[Completed]')
       expect(sendReq!.params.text).toContain('Build succeeded for main branch')
       expect(sendReq!.params.text).not.toContain('**')
@@ -236,12 +282,10 @@ describe('OpenClawChannelAdapter', () => {
         astroUrl: 'https://app.astro.dev/project/abc/task/456',
       }
 
-      mockWs.autoRespondNext()
+      mockWs.autoRespondToRequests()
       await adapter.sendNotification(notification)
 
-      const allRequests = mockWs.sent.map((s) => JSON.parse(s) as OpenClawRpcRequest)
-      const sendReq = allRequests.find((r) => r.method === 'message.send')
-
+      const sendReq = mockWs.getAllRequests().find((r) => r.method === 'message.send')
       expect(sendReq!.params.text).toContain('[Failed]')
       expect(sendReq!.params.text).toContain('Deployment failed: timeout')
     })
@@ -254,12 +298,10 @@ describe('OpenClawChannelAdapter', () => {
         astroUrl: 'https://app.astro.dev/project/abc/task/789',
       }
 
-      mockWs.autoRespondNext()
+      mockWs.autoRespondToRequests()
       await adapter.sendNotification(notification)
 
-      const allRequests = mockWs.sent.map((s) => JSON.parse(s) as OpenClawRpcRequest)
-      const sendReq = allRequests.find((r) => r.method === 'message.send')
-
+      const sendReq = mockWs.getAllRequests().find((r) => r.method === 'message.send')
       expect(sendReq!.params.text).toContain('[Approval Needed]')
     })
 
@@ -272,12 +314,10 @@ describe('OpenClawChannelAdapter', () => {
         metadata: { taskId: 'task-999' },
       }
 
-      mockWs.autoRespondNext()
+      mockWs.autoRespondToRequests()
       await adapter.sendNotification(notification)
 
-      const allRequests = mockWs.sent.map((s) => JSON.parse(s) as OpenClawRpcRequest)
-      const sendReq = allRequests.find((r) => r.method === 'message.send')
-
+      const sendReq = mockWs.getAllRequests().find((r) => r.method === 'message.send')
       expect(sendReq!.params.metadata).toEqual(
         expect.objectContaining({
           astroUrl: 'https://app.astro.dev/x',
@@ -292,14 +332,11 @@ describe('OpenClawChannelAdapter', () => {
 
   describe('sendResponse', () => {
     beforeEach(async () => {
-      mockWs.autoRespondNext()
-      await adapter.start()
-      await waitForEvent(adapter, 'connected')
-      await tick()
+      await startWithHandshake(adapter, mockWs)
     })
 
-    it('should send response via message.send RPC', async () => {
-      mockWs.autoRespondNext()
+    it('should send response via message.send request', async () => {
+      mockWs.autoRespondToRequests()
       await adapter.sendResponse({
         text: 'Here is the **answer** you asked for',
         conversationRef: {
@@ -309,13 +346,10 @@ describe('OpenClawChannelAdapter', () => {
         },
       })
 
-      const allRequests = mockWs.sent.map((s) => JSON.parse(s) as OpenClawRpcRequest)
-      const sendReq = allRequests.find((r) => r.method === 'message.send')
-
+      const sendReq = mockWs.getAllRequests().find((r) => r.method === 'message.send')
       expect(sendReq).toBeDefined()
       expect(sendReq!.params.channelId).toBe('oc-channel-1')
       expect(sendReq!.params.threadId).toBe('thread-42')
-      // Markdown should be stripped
       expect(sendReq!.params.text).toContain('Here is the answer you asked for')
       expect(sendReq!.params.text).not.toContain('**')
     })
@@ -325,15 +359,11 @@ describe('OpenClawChannelAdapter', () => {
 
   describe('requestApproval', () => {
     beforeEach(async () => {
-      mockWs.autoRespondNext()
-      await adapter.start()
-      await waitForEvent(adapter, 'connected')
-      await tick()
+      await startWithHandshake(adapter, mockWs)
     })
 
     it('should send approval request and resolve on response', async () => {
-      // Auto-respond to the approval.request RPC
-      mockWs.autoRespondNext()
+      mockWs.autoRespondToRequests()
 
       const approvalPromise = adapter.requestApproval({
         approvalId: 'approval-1',
@@ -343,49 +373,26 @@ describe('OpenClawChannelAdapter', () => {
         options: ['Yes', 'No'],
       })
 
-      // Wait for the RPC to be sent
       await tick()
 
-      // Verify the approval.request RPC was sent
-      const allRequests = mockWs.sent.map((s) => JSON.parse(s) as OpenClawRpcRequest)
-      const approvalReq = allRequests.find((r) => r.method === 'approval.request')
-
+      const approvalReq = mockWs.getAllRequests().find((r) => r.method === 'approval.request')
       expect(approvalReq).toBeDefined()
       expect(approvalReq!.params.approvalId).toBe('approval-1')
       expect(approvalReq!.params.question).toContain('Deploy to production?')
       expect(approvalReq!.params.question).not.toContain('**')
       expect(approvalReq!.params.options).toEqual(['Yes', 'No'])
 
-      // Simulate user responding via gateway
-      mockWs.receiveMessage({
-        jsonrpc: '2.0',
-        method: 'approval.response',
-        params: { approvalId: 'approval-1', response: 'Yes' },
+      // Simulate user responding via gateway event
+      mockWs.sendEvent('approval.response', {
+        approvalId: 'approval-1',
+        response: 'Yes',
       })
 
       const result = await approvalPromise
       expect(result).toBe('Yes')
     })
 
-    it('should reject on timeout', async () => {
-      mockWs.autoRespondNext()
-
-      // Use a short timeout adapter for testing
-      const fastAdapter = new OpenClawChannelAdapter({
-        createWebSocket: () => {
-          setTimeout(() => mockWs.emit('open'), 0)
-          return mockWs
-        },
-      })
-
-      // Directly test the approval timeout by manipulating the pending map
-      // We'll test the behavior by calling requestApproval which will timeout
-      // For unit testing, we just verify the promise rejects if no response comes
-
-      // Clean up
-      fastAdapter.stop()
-
-      // For timeout test, we check that stop() rejects pending approvals
+    it('should reject on stop (simulating timeout)', async () => {
       mockWs = new MockWebSocket()
       const adapter2 = new OpenClawChannelAdapter({
         createWebSocket: () => {
@@ -394,12 +401,9 @@ describe('OpenClawChannelAdapter', () => {
         },
       })
 
-      mockWs.autoRespondNext() // auth
-      await adapter2.start()
-      await waitForEvent(adapter2, 'connected')
-      await tick()
+      await startWithHandshake(adapter2, mockWs)
 
-      mockWs.autoRespondNext() // approval.request
+      mockWs.autoRespondToRequests()
       const approvalPromise = adapter2.requestApproval({
         approvalId: 'approval-timeout',
         projectId: 'project-abc',
@@ -409,61 +413,52 @@ describe('OpenClawChannelAdapter', () => {
 
       await tick()
 
-      // Stop adapter → should reject pending approval
       adapter2.stop()
 
       await expect(approvalPromise).rejects.toThrow('OpenClaw adapter stopped')
     })
 
     it('should ignore approval responses for unknown IDs', async () => {
-      // Should not throw
-      mockWs.receiveMessage({
-        jsonrpc: '2.0',
-        method: 'approval.response',
-        params: { approvalId: 'unknown-id', response: 'Yes' },
+      mockWs.sendEvent('approval.response', {
+        approvalId: 'unknown-id',
+        response: 'Yes',
       })
 
       await tick()
-      // If we got here without error, the test passes
+      // No error thrown
     })
   })
 
-  // ─── RPC Error Handling ───────────────────────────────────────
+  // ─── Error Handling ───────────────────────────────────────────
 
   describe('error handling', () => {
     beforeEach(async () => {
-      mockWs.autoRespondNext()
-      await adapter.start()
-      await waitForEvent(adapter, 'connected')
-      await tick()
+      await startWithHandshake(adapter, mockWs)
     })
 
-    it('should reject RPC on error response', async () => {
-      // Set up mock to respond with an error
-      const originalSend = mockWs.send.bind(mockWs)
+    it('should reject request on error response', async () => {
+      // Stop auto-responding so we can send a custom error
+      mockWs.stopAutoRespond()
       mockWs.send = (data: string) => {
-        originalSend(data)
-        const req = JSON.parse(data) as OpenClawRpcRequest
-        setTimeout(() => {
-          mockWs.receiveMessage({
-            jsonrpc: '2.0',
-            id: req.id,
-            error: { code: -32600, message: 'Invalid request' },
-          })
-        }, 0)
-        mockWs.send = originalSend
+        mockWs.sent.push(data)
+        const parsed = JSON.parse(data)
+        if (parsed.type === 'req') {
+          setTimeout(() => {
+            mockWs.sendResponse(parsed.id, false, { code: -32600, message: 'Invalid request' })
+          }, 0)
+        }
       }
 
       await expect(
-        adapter.sendRpc('message.send', { text: 'test' })
-      ).rejects.toThrow('RPC error -32600: Invalid request')
+        adapter.sendRequest('message.send', { text: 'test' })
+      ).rejects.toThrow('Invalid request')
     })
 
-    it('should reject RPC when not connected', async () => {
+    it('should reject request when not connected', async () => {
       adapter.stop()
 
       await expect(
-        adapter.sendRpc('message.send', { text: 'test' })
+        adapter.sendRequest('message.send', { text: 'test' })
       ).rejects.toThrow('OpenClaw gateway not connected')
     })
 
@@ -481,7 +476,6 @@ describe('OpenClawChannelAdapter', () => {
     })
 
     it('should handle non-JSON messages gracefully', async () => {
-      // Should not throw
       mockWs.emit('message', 'not json at all')
       await tick()
     })
@@ -498,23 +492,16 @@ describe('OpenClawChannelAdapter', () => {
 
   describe('inbound messages', () => {
     beforeEach(async () => {
-      mockWs.autoRespondNext()
-      await adapter.start()
-      await waitForEvent(adapter, 'connected')
-      await tick()
+      await startWithHandshake(adapter, mockWs)
     })
 
     it('should emit inbound event for message.inbound gateway events', async () => {
       const inboundPromise = waitForEvent(adapter, 'inbound')
 
-      mockWs.receiveMessage({
-        jsonrpc: '2.0',
-        method: 'message.inbound',
-        params: {
-          channelId: 'oc-channel-1',
-          text: 'Hello from user',
-          senderId: 'user-1',
-        },
+      mockWs.sendEvent('message.inbound', {
+        channelId: 'oc-channel-1',
+        text: 'Hello from user',
+        senderId: 'user-1',
       })
 
       const params = await inboundPromise
