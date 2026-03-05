@@ -25,6 +25,7 @@ const FORMAT_MAP: Record<ChannelType, ChannelFormat> = {
   telegram: 'telegram_html',
   github: 'github_gfm',
   linear: 'linear_markdown',
+  openclaw: 'openclaw',
 }
 
 class ChannelRouterImpl implements IChannelRouter {
