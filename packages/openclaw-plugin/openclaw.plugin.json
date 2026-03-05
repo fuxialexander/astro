@@ -1,0 +1,53 @@
+{
+  "id": "astro",
+  "name": "Astro Planning Platform",
+  "version": "0.1.0",
+  "description": "Exposes Astro project, plan, and task management as OpenClaw gateway tools",
+  "author": "Astro Anywhere",
+  "homepage": "https://github.com/astro-anywhere/astro",
+  "entry": "./src/index.ts",
+  "configSchema": {
+    "type": "object",
+    "required": ["serverUrl"],
+    "properties": {
+      "serverUrl": {
+        "type": "string",
+        "description": "Base URL of the Astro backend API (e.g. http://localhost:3001 or https://api.yourdomain.com)",
+        "default": "http://localhost:3001"
+      },
+      "authToken": {
+        "type": "string",
+        "description": "Bearer token for authenticating with the Astro API. Leave empty in local (no-auth) mode.",
+        "default": ""
+      },
+      "teamId": {
+        "type": "string",
+        "description": "Active team ID to scope all API requests. Optional in single-user mode.",
+        "default": ""
+      }
+    },
+    "additionalProperties": false
+  },
+  "tools": [
+    {
+      "name": "astro_list_projects",
+      "gatewayMethod": "astro.projects.list",
+      "description": "List all Astro projects visible to the authenticated user/team"
+    },
+    {
+      "name": "astro_get_plan",
+      "gatewayMethod": "astro.projects.getPlan",
+      "description": "Retrieve the full plan graph (nodes and edges) for a given project"
+    },
+    {
+      "name": "astro_run_task",
+      "gatewayMethod": "astro.dispatch.task",
+      "description": "Dispatch a plan task for execution on a registered agent runner"
+    },
+    {
+      "name": "astro_task_status",
+      "gatewayMethod": "astro.dispatch.taskStatus",
+      "description": "Get the current execution status and output for a dispatched task"
+    }
+  ]
+}
