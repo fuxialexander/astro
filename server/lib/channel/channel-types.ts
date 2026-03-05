@@ -90,8 +90,8 @@ export interface ChannelNotification {
 // Channel types and format
 // ---------------------------------------------------------------------------
 
-export type ChannelType = 'slack' | 'telegram' | 'github' | 'linear'
-export type ChannelFormat = 'slack_mrkdwn' | 'telegram_html' | 'github_gfm' | 'linear_markdown'
+export type ChannelType = 'slack' | 'telegram' | 'github' | 'linear' | 'openclaw'
+export type ChannelFormat = 'slack_mrkdwn' | 'telegram_html' | 'github_gfm' | 'linear_markdown' | 'openclaw'
 
 // ---------------------------------------------------------------------------
 // Channel plugin configs
@@ -126,6 +126,15 @@ export interface LinearChannelConfig {
   /** Map of Linear team ID → Astro project ID */
   teamMappings: Record<string, string>
   autoSyncIssues: boolean
+}
+
+export interface OpenClawChannelConfig {
+  /** WebSocket gateway URL (e.g., ws://localhost:4000 or wss://gateway.openclaw.dev) */
+  gatewayUrl: string
+  /** API key for authenticating with the OpenClaw gateway */
+  apiKey: string
+  /** Map of OpenClaw channel ID → Astro project ID */
+  channelMappings: Record<string, string>
 }
 
 // ---------------------------------------------------------------------------

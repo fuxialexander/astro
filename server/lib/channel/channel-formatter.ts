@@ -4,6 +4,7 @@
  * Converts standard markdown to channel-specific markup formats.
  * - Slack: mrkdwn format
  * - Telegram: HTML mode (simpler than MarkdownV2 escaping)
+ * - OpenClaw: plain text (stripped markdown, suitable for any downstream messaging channel)
  * - GitHub/Linear: passthrough (already GFM/markdown)
  */
 
@@ -18,6 +19,8 @@ export function formatForChannel(markdown: string, format: ChannelFormat): strin
       return toSlackMrkdwn(markdown)
     case 'telegram_html':
       return toTelegramHtml(markdown)
+    case 'openclaw':
+      return toOpenClaw(markdown)
     case 'github_gfm':
     case 'linear_markdown':
       return markdown
@@ -114,4 +117,44 @@ function toTelegramHtml(md: string): string {
   result = result.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<i>$1</i>')
 
   return result
+}
+
+/**
+ * Convert markdown → OpenClaw plain text
+ *
+ * OpenClaw routes messages to the user's preferred messaging channel
+ * (could be SMS, WhatsApp, Discord, etc.), so we strip markdown to
+ * plain text for maximum compatibility. The gateway handles any
+ * further formatting for the downstream channel.
+ *
+ * - **bold** / *italic* → just the text
+ * - `code` / ```blocks``` → text (with newlines preserved)
+ * - [text](url) → text (url)
+ * - # Header → HEADER (uppercased)
+ */
+function toOpenClaw(md: string): string {
+  let result = md
+
+  // Convert code blocks: ```...``` → contents only
+  result = result.replace(/```(?:\w+)?\n?([\s\S]*?)```/g, '$1')
+
+  // Convert inline code: `code` → code
+  result = result.replace(/`([^`]+)`/g, '$1')
+
+  // Convert links: [text](url) → text (url)
+  result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 ($2)')
+
+  // Convert headers: # Header → HEADER
+  result = result.replace(/^#{1,6}\s+(.+)$/gm, (_match, heading: string) => heading.toUpperCase())
+
+  // Strip bold: **text** → text
+  result = result.replace(/\*\*(.+?)\*\*/g, '$1')
+
+  // Strip italic: *text* → text
+  result = result.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '$1')
+
+  // Strip underscores used for emphasis: _text_ → text
+  result = result.replace(/(?<![a-zA-Z0-9])_([^_]+)_(?![a-zA-Z0-9])/g, '$1')
+
+  return result.trim()
 }

@@ -215,6 +215,21 @@ class ChannelConfigManager {
           settings: { autoSyncIssues: process.env.LINEAR_AUTO_SYNC_ISSUES !== 'false' },
         }
       }
+      case 'openclaw': {
+        const gatewayUrl = process.env.OPENCLAW_GATEWAY_URL
+        const apiKey = process.env.OPENCLAW_API_KEY
+        if (!gatewayUrl || !apiKey) return null
+        let channelMappings: Record<string, string> = {}
+        try { const raw = process.env.OPENCLAW_CHANNEL_MAPPINGS; if (raw) channelMappings = JSON.parse(raw) } catch { /* ignore */ }
+        return {
+          userId: 'env',
+          accountId: 'env-openclaw',
+          channel: 'openclaw',
+          credentials: { gatewayUrl, apiKey },
+          mappings: channelMappings,
+          settings: {},
+        }
+      }
       default:
         return null
     }
