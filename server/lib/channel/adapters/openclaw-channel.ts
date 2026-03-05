@@ -189,6 +189,39 @@ export class OpenClawChannelAdapter extends EventEmitter {
       }
     })
 
+    // Register/unregister virtual machine for dispatch provider selection
+    this.on('connected', async () => {
+      try {
+        const { machineRegistry } = await import('../../machine-registry.js')
+        const { OPENCLAW_MACHINE_ID } = await import('../../dispatch/openclaw-dispatcher.js')
+        machineRegistry.registerSimulated(OPENCLAW_MACHINE_ID, {
+          hostname: 'openclaw-gateway',
+          platform: 'openclaw',
+          providers: [{
+            type: 'openclaw',
+            version: 'v3',
+            status: 'available',
+            maxConcurrentTasks: 10,
+            currentTasks: 0,
+          }],
+          resources: { cpuCores: 0, memoryMB: 0, diskMB: 0 },
+          load: { cpuPercent: 0, memoryPercent: 0, activeTasks: 0 },
+        })
+      } catch {
+        // Machine registry not available (e.g., test environment)
+      }
+    })
+
+    this.on('disconnected', async () => {
+      try {
+        const { machineRegistry } = await import('../../machine-registry.js')
+        const { OPENCLAW_MACHINE_ID } = await import('../../dispatch/openclaw-dispatcher.js')
+        machineRegistry.disconnect(OPENCLAW_MACHINE_ID, 'gateway disconnected')
+      } catch {
+        // Machine registry not available
+      }
+    })
+
     console.log(`[openclaw] Adapter started, gateway=${this.config.gatewayUrl}`)
   }
 

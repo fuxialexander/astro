@@ -31,6 +31,7 @@ import { skillManager } from '../lib/skill-manager.js'
 import { extractPlanJsonFromText, retryPlanExtractionWithHaiku } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { autoDispatchDownstream } from './data.js'
+import { dispatchViaOpenClaw, isOpenClawAvailable, OPENCLAW_MACHINE_ID } from '../lib/dispatch/openclaw-dispatcher.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup)
 const dispatchedTaskDirs = new Map<string, string>()  // taskId → workingDirectory
@@ -1404,8 +1405,11 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       relayServer.off('task:safety_prompt', onSafetyPrompt)
     }
 
-    // Dispatch after listeners registered
-    const dispatched = relayServer.dispatchTask(taskDispatch, machineId, user?.id)
+    // Dispatch after listeners registered — use OpenClaw gateway for openclaw provider
+    const useOpenClaw = machineId === OPENCLAW_MACHINE_ID && isOpenClawAvailable()
+    const dispatched = useOpenClaw
+      ? await dispatchViaOpenClaw(taskDispatch)
+      : relayServer.dispatchTask(taskDispatch, machineId, user?.id)
 
     if (!dispatched) {
       cleanup()

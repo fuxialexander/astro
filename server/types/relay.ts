@@ -11,7 +11,7 @@
 // ============================================================================
 
 /** Provider types available on a machine */
-export type ProviderType = 'claude-code' | 'claude-sdk' | 'codex' | 'aws' | 'gcp' | 'custom';
+export type ProviderType = 'claude-code' | 'claude-sdk' | 'codex' | 'aws' | 'gcp' | 'custom' | 'openclaw';
 
 /** Status of a machine connection */
 export type MachineConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
