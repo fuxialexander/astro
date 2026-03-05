@@ -17,7 +17,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
   id: 'astro/academic-presentation',
   name: 'Academic Paper Presentation',
   description:
-    'Convert academic papers into polished slides (PDF), blog posts (Markdown), and conference posters (PDF). Uses HTML-based rendering with a low-saturation color palette, Playwright for PDF generation, and SVG figure generation. Supports multiple papers, customizable audience levels, and multiple output formats.',
+    'Turn your research papers into presentation-ready deliverables. Provide one or more papers (PDF files or arXiv links), optionally describe the narrative you want, and get polished slide decks, blog posts, and conference posters — all generated as PDFs. Supports customizable audience levels (researchers, students, engineers) and multiple papers at once.',
   category: 'research',
   version: '1.0.0',
   icon: '🎓',

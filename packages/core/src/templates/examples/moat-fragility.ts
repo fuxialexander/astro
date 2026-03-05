@@ -18,7 +18,7 @@ export const moatFragilityTemplate: UseCaseTemplate = {
   id: 'astro/moat-fragility',
   name: 'Moat & Fragility Analysis',
   description:
-    'Evaluate a company\'s competitive advantage using a three-phase framework: quantitative CA scoring (market position, trend, pricing power, ROIC), qualitative moat analysis (7 Powers framework), and anti-fragility resilience testing (Taleb-inspired). Produces a structured PDF report with charts, scoring tables, and actionable insights.',
+    'Assess any public company\'s competitive moat and resilience. Provide a ticker symbol (e.g., AAPL) and optionally add competitor tickers or supplementary filings. Get a PDF report with quantitative scoring (market position, pricing power, ROIC), qualitative moat analysis (7 Powers framework), and an anti-fragility stress test — with charts, comparisons, and actionable insights.',
   category: 'finance',
   version: '1.0.0',
   icon: '📑',

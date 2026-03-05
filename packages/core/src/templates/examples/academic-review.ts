@@ -23,7 +23,7 @@ export const academicReviewTemplate: UseCaseTemplate = {
   id: 'astro/academic-review',
   name: 'Academic Paper/Book Review',
   description:
-    'Generate a superhuman-level detailed review of academic papers or books. Produces a structured PDF report covering comprehension, logical flow diagrams, novelty analysis with literature comparison, technical rigor assessment, and comprehensive merits/shortcomings evaluation. Supports PDF, LaTeX, Markdown, and Word inputs.',
+    'Get a thorough, expert-level review of any academic paper, book, or thesis. Provide your document (PDF, LaTeX, Markdown, or Word) and receive a structured review report covering novelty assessment, technical rigor, merits and shortcomings, and actionable recommendations — scored across 8 dimensions with a clear accept/reject verdict.',
   category: 'research',
   version: '1.0.0',
   icon: '📖',
