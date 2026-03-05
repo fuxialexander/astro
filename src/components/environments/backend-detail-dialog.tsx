@@ -240,6 +240,9 @@ export function BackendDetailDialog({
                     + Add custom instructions
                   </button>
                 )}
+
+                {/* Link to curated skills in skills-lib */}
+                <SkillsLibHint />
               </div>
             )}
 
@@ -309,6 +312,26 @@ export function BackendDetailDialog({
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Skills-lib hint per backend type
+// ---------------------------------------------------------------------------
+
+function SkillsLibHint() {
+  return (
+    <p className="text-[11px] text-muted-foreground">
+      To help agents understand your specific compute backend, consider adding a customized skill. See{" "}
+      <a
+        href="https://github.com/astro-anywhere/skills-lib/tree/main/compute_backend"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-primary hover:underline"
+      >
+        examples
+      </a>.
+    </p>
   )
 }
 

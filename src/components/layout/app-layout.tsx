@@ -3,6 +3,7 @@ import { Outlet } from "react-router"
 import { Sidebar } from "./sidebar"
 import { SafetyPromptDialog } from "@/components/safety-prompt-dialog"
 import { WelcomeProfileDialog } from "@/components/welcome-profile-dialog"
+import { ProductTour } from "@/components/product-tour"
 import { PasskeyNudgeBanner } from "@/components/passkey-nudge-banner"
 import { ToastContainer } from "@/components/toast-container"
 import { requestNotificationPermission } from "@/lib/notifications"
@@ -34,6 +35,7 @@ export function AppLayout() {
       </main>
       <SafetyPromptDialog />
       <WelcomeProfileDialog />
+      <ProductTour />
       <ToastContainer />
     </div>
   )

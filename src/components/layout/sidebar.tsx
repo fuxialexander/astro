@@ -442,6 +442,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
+                        data-tour-id={item.id}
                         onClick={item.id === "plan" ? (e: React.MouseEvent) => handlePlanClick(e) : () => navigate(item.to)}
                         className={cn(
                           "flex items-center justify-center h-9 w-9 rounded-lg transition-colors relative",
@@ -507,6 +508,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   <NavLink
                     to={item.to}
                     end
+                    data-tour-id={item.id}
                     onClick={item.id === "plan" ? (e: React.MouseEvent) => handlePlanClick(e) : undefined}
                     className={({ isActive }) =>
                       cn(

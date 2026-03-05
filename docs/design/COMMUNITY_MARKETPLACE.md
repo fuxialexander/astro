@@ -257,6 +257,30 @@ Return top 20 plans
 - Recent stars (×2) indicate current popularity
 - Logarithmic total stars bonus prevents old plans from dominating
 
+## Local Mode Behavior
+
+Community features require authentication and are unavailable in local mode (PGlite). All access points are guarded at the component level:
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                     Community Access Points                          │
+│                                                                      │
+│  Sidebar link ──────── isServerMode() ──── hidden in local mode     │
+│                                                                      │
+│  /community page ───── isLocalMode()  ──── EmptyState message       │
+│                                                                      │
+│  /community/:id ────── isLocalMode()  ──── EmptyState message       │
+│                                                                      │
+│  Publish button ────── isServerMode() ──── hidden in local mode     │
+│  (plan-view.tsx)                                                     │
+│                                                                      │
+│  Dashboard CTA ─────── isServerMode() ──── hidden in local mode     │
+│  "Browse Community"                                                  │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+The guided product tour (driver.js) also adapts: the Community step is skipped in local mode, showing 4 steps instead of 5.
+
 ## Security & Access Control
 
 ### Three-Layer Defense

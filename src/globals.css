@@ -562,3 +562,65 @@ body.timeline-dragging {
   color: var(--color-primary);
   animation: cursor-blink 0.7s step-end infinite;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DRIVER.JS PRODUCT TOUR — Astro theme overrides
+   ═══════════════════════════════════════════════════════════════════════════ */
+.driver-popover.astro-tour-popover {
+  background-color: var(--background);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+}
+
+.driver-popover.astro-tour-popover .driver-popover-title {
+  color: var(--foreground);
+  font-family: "DM Sans", sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.driver-popover.astro-tour-popover .driver-popover-description {
+  color: var(--muted-foreground);
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+}
+
+.driver-popover.astro-tour-popover .driver-popover-progress-text {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.driver-popover.astro-tour-popover .driver-popover-prev-btn,
+.driver-popover.astro-tour-popover .driver-popover-next-btn {
+  border-radius: 8px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 14px;
+}
+
+.driver-popover.astro-tour-popover .driver-popover-next-btn {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+  border: none;
+  text-shadow: none;
+}
+
+.driver-popover.astro-tour-popover .driver-popover-prev-btn {
+  background-color: transparent;
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+}
+
+.driver-popover.astro-tour-popover .driver-popover-close-btn {
+  color: var(--muted-foreground);
+}
+
+.driver-popover.astro-tour-popover .driver-popover-arrow-side-left.driver-popover-arrow,
+.driver-popover.astro-tour-popover .driver-popover-arrow-side-right.driver-popover-arrow,
+.driver-popover.astro-tour-popover .driver-popover-arrow-side-top.driver-popover-arrow,
+.driver-popover.astro-tour-popover .driver-popover-arrow-side-bottom.driver-popover-arrow {
+  border-color: var(--border);
+}

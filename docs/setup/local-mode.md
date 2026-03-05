@@ -42,6 +42,55 @@ Data flows: Frontend stores → `dataClient` → `POST /api/data/*` → Drizzle 
 - No multi-device sync (no Supabase Realtime)
 - No Row-Level Security (RLS)
 - No team features
+- No Community features (browse, publish, fork, star, comment)
+
+## Feature Guards
+
+Server-only features are gated at the UI layer using `isLocalMode()` / `isServerMode()` checks. All guards are component-level — there are no route-level redirects.
+
+```
+                        User navigates to feature
+                                 │
+                                 ▼
+                    ┌────────────────────────┐
+                    │   isLocalMode() check   │
+                    └────────┬───────────────┘
+                             │
+                 ┌───────────┴───────────┐
+                 │                       │
+            local = true            local = false
+                 │                       │
+                 ▼                       ▼
+        ┌────────────────┐     ┌─────────────────┐
+        │   EmptyState   │     │  Normal render   │
+        │  "Requires     │     │  (full feature)  │
+        │  server mode"  │     └─────────────────┘
+        └────────────────┘
+```
+
+### Guard Locations
+
+| Surface                          | File                              | Guard            |
+|----------------------------------|-----------------------------------|------------------|
+| Sidebar "Community" link         | `src/components/layout/sidebar.tsx`| `isServerMode()` — hidden |
+| `/community` page (direct URL)   | `src/pages/community.tsx`         | `isLocalMode()` → EmptyState |
+| `/community/:id` detail page     | `src/pages/community-plan-detail.tsx` | `isLocalMode()` → EmptyState |
+| "Publish to Community" button    | `src/pages/plan-view.tsx`         | `isServerMode()` — hidden |
+| Dashboard "Browse Community" CTA | `src/pages/dashboard.tsx`         | `isServerMode()` — hidden |
+
+## Guided Product Tour
+
+On first visit, a driver.js guided tour highlights sidebar navigation items. In local mode the tour has 4 steps (Community step is skipped). The tour fires once per browser (`localStorage` key: `astro-tour-completed`).
+
+```
+ Local mode tour steps:          Server mode tour steps:
+
+ 1. Environments                  1. Environments
+ 2. Examples                      2. Examples
+ 3. Plan                          3. Plan
+ 4. Projects                      4. Projects
+                                  5. Community
+```
 
 ## Visual Indicator
 
