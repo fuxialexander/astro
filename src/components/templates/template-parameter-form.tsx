@@ -148,11 +148,10 @@ export function TemplateParameterForm({
       {/* Required Parameters */}
       {groupedRequired.size > 0 && (
         <div className="space-y-4">
-          <h3 className="text-sm font-semibold text-foreground">Required Parameters</h3>
           {Array.from(groupedRequired.entries()).map(([groupName, params]) => (
             <ParameterGroup
               key={groupName}
-              groupName={groupName}
+
               parameters={params}
               values={values}
               errors={errors}
@@ -187,7 +186,7 @@ export function TemplateParameterForm({
               {Array.from(groupedOptional.entries()).map(([groupName, params]) => (
                 <ParameterGroup
                   key={groupName}
-                  groupName={groupName}
+    
                   parameters={params}
                   values={values}
                   errors={errors}
@@ -208,7 +207,6 @@ export function TemplateParameterForm({
  * ParameterGroup - Renders a group of parameters
  */
 interface ParameterGroupProps {
-  groupName: string
   parameters: UseCaseParameter[]
   values: Record<string, unknown>
   errors: Array<{ parameterId: string; message: string }>
@@ -218,7 +216,6 @@ interface ParameterGroupProps {
 }
 
 function ParameterGroup({
-  groupName,
   parameters,
   values,
   onChange,
@@ -232,11 +229,6 @@ function ParameterGroup({
 
   return (
     <div className="space-y-4">
-      {groupName !== "_ungrouped" && (
-        <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          {groupName}
-        </h4>
-      )}
       <div className="space-y-4">
         {visibleParams.map((param) => (
           <ParameterField
@@ -287,8 +279,9 @@ function ParameterField({ parameter, value, error, onChange }: ParameterFieldPro
             value={(value as string) ?? ""}
             onChange={(e) => onChange(e.target.value)}
             placeholder={placeholder}
+            rows={1}
             className={cn(
-              "min-h-[80px]",
+              "min-h-[36px] resize-y",
               error && "border-red-500 focus-visible:ring-red-500"
             )}
           />
@@ -457,17 +450,12 @@ function MultiSelectField({ id, options, value, onChange, error }: MultiSelectFi
             checked={value.includes(option.value)}
             onCheckedChange={() => handleToggle(option.value)}
           />
-          <div className="flex-1 space-y-1">
-            <Label
-              htmlFor={`${id}-${option.value}`}
-              className="text-sm font-normal cursor-pointer"
-            >
-              {option.label}
-            </Label>
-            {option.description && (
-              <p className="text-xs text-muted-foreground">{option.description}</p>
-            )}
-          </div>
+          <Label
+            htmlFor={`${id}-${option.value}`}
+            className="text-sm font-normal cursor-pointer"
+          >
+            {option.label}
+          </Label>
         </div>
       ))}
     </div>
