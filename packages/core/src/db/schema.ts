@@ -26,6 +26,7 @@ export const projects = pgTable('projects', {
   repository: text('repository'),
   defaultEnvironment: text('default_environment'),
   defaultMachineId: text('default_machine_id'),
+  computeBackends: text('compute_backends').array().default([]),
   mergeQueueEnabled: boolean('merge_queue_enabled').default(false),
   mergeQueueMergeMethod: text('merge_queue_merge_method').default('squash'),
   source: jsonb('source'),

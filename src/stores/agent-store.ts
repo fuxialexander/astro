@@ -432,6 +432,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     const { defaultProvider, getModelForProvider } = useSettingsStore.getState()
     const effectiveModel = getModelForProvider(defaultProvider || undefined)
 
+    // Read project's compute backends for backend-scoped skill injection
+    const projectBackends = useProjectStore.getState().projects.find(p => p.id === projectId)?.computeBackends
+
     try {
       await generatePlan(
         {
@@ -446,6 +449,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           keyFiles: repoContext?.keyFiles,
           targetMachineId: repoContext?.targetMachineId,
           gitState: repoContext?.gitState,
+          selectedBackends: projectBackends,
         },
         {
           onText: (text) => {

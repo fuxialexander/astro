@@ -39,6 +39,7 @@ import { dataClient } from "@/lib/data-client"
 import { fileToBase64 } from "@/lib/html-utils"
 import { exportProject, downloadBundle } from "@/lib/sharing/export-project"
 import { apiUrl } from "@/lib/api-url"
+import { BackendMultiSelect } from "@/components/execution/backend-multi-select"
 import type { Project, PlanNode } from "@/types"
 
 const healthLabels: Record<string, string> = {
@@ -451,6 +452,13 @@ export function OverviewTab({
                 )}
               </div>
             )}
+            {/* Compute backends selector */}
+            <div className="px-1">
+              <BackendMultiSelect
+                selectedBackends={project.computeBackends ?? []}
+                onSelectionChange={(backends) => updateProject(project.id, { computeBackends: backends })}
+              />
+            </div>
             {/* Show repository warning when NOT configured */}
             {!(project.workingDirectory || project.repository) && (
               <div

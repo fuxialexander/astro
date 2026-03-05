@@ -640,7 +640,7 @@ async function dispatchViaRelay(
   // Detect "Push to GitHub" task node — these get special dispatch instructions
   const isPushToGithub = !isInteractivePlan && /push\s+to\s+github|publish\s+to\s+github/i.test(title)
 
-  // Get available skills for prompt injection, filtered by team.
+  // Get available skills for prompt injection, filtered by team and compute backends.
   // CRITICAL: Must pass user's teamId to enforce team isolation. Without this,
   // workspace skills from other teams could leak into the prompt, exposing
   // proprietary instructions or internal workflows stored in skill config.
@@ -649,7 +649,11 @@ async function dispatchViaRelay(
   // request only global/builtin skills, preventing accidental cross-team leakage
   // if local mode ever supports multiple teams.
   const effectiveTeamId = user?.teamId ?? null
-  const skillsInjection = skillManager.getSkillPromptInjection(effectiveTeamId) || undefined
+  // Resolve backends: task-level computeBackend > project setting
+  const dispatchBackends = computeBackend
+    ? [computeBackend]
+    : ((dbProject as { computeBackends?: string[] | null })?.computeBackends ?? undefined) as string[] | undefined
+  const skillsInjection = skillManager.getBackendScopedSkillInjection(effectiveTeamId, dispatchBackends) || undefined
 
   if (isInteractivePlan) {
     // Use the dedicated interactive plan prompt as a system prompt.

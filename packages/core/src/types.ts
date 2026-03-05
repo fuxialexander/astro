@@ -184,6 +184,7 @@ export interface Project {
   fileTreeUpdatedAt?: string;
   fileTreeMachineId?: string;
   defaultMachineId?: string
+  computeBackends?: string[]
   mergeQueueEnabled?: boolean
   mergeQueueMergeMethod?: 'merge' | 'squash' | 'rebase'
   source?: ProjectSource

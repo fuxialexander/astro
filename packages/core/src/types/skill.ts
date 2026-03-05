@@ -44,6 +44,8 @@ export interface OpenClawSkill {
   homepage?: string
   metadata?: OpenClawSkillMetadata
 
+  tags?: string[]
+
   // Astro-specific extensions
   source: 'builtin' | 'workspace' | 'clawhub' | 'plugin' | 'user' | 'catalog'
   pluginId?: string                       // which plugin contributed this skill

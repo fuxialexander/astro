@@ -30,9 +30,8 @@ const REPO_ROOT = join(__dirname, '..', '..')
 export function loadBuiltinSkillsFromDisk(skillsDir?: string): BuiltinSkillDefinition[] {
   const dir = skillsDir ?? join(REPO_ROOT, 'skills')
 
-  let entries: string[]
   try {
-    entries = readdirSync(dir)
+    readdirSync(dir)
   } catch {
     console.warn(`[skills] Skills directory not found: ${dir}`)
     return []
@@ -40,31 +39,42 @@ export function loadBuiltinSkillsFromDisk(skillsDir?: string): BuiltinSkillDefin
 
   const loaded: BuiltinSkillDefinition[] = []
 
-  for (const entry of entries) {
-    const entryPath = join(dir, entry)
+  function scanDir(scanPath: string, prefix: string) {
+    let dirEntries: string[]
     try {
-      if (!statSync(entryPath).isDirectory()) continue
+      dirEntries = readdirSync(scanPath)
     } catch {
-      continue
+      return
     }
 
-    const skillMdPath = join(entryPath, 'SKILL.md')
-    let content: string
-    try {
-      content = readFileSync(skillMdPath, 'utf-8')
-    } catch {
-      // No SKILL.md in this directory — skip silently
-      continue
-    }
+    for (const entry of dirEntries) {
+      const entryPath = join(scanPath, entry)
+      try {
+        if (!statSync(entryPath).isDirectory()) continue
+      } catch {
+        continue
+      }
 
-    const skill = parseBuiltinSkillMd(content)
-    if (skill) {
-      loaded.push(skill)
-      console.log(`[skills] Loaded builtin skill: ${skill.name} (v${skill.version})`)
-    } else {
-      console.warn(`[skills] Failed to parse SKILL.md in ${entry}/`)
+      const skillMdPath = join(entryPath, 'SKILL.md')
+      let content: string | undefined
+      try {
+        content = readFileSync(skillMdPath, 'utf-8')
+      } catch {
+        // No SKILL.md — check if it's a group directory with subdirs
+        scanDir(entryPath, `${prefix}${entry}/`)
+        continue
+      }
+
+      const skill = parseBuiltinSkillMd(content)
+      if (skill) {
+        loaded.push(skill)
+        console.log(`[skills] Loaded builtin skill: ${skill.name} (v${skill.version})`)
+      } else {
+        console.warn(`[skills] Failed to parse SKILL.md in ${prefix}${entry}/`)
+      }
     }
   }
 
+  scanDir(dir, '')
   return loaded
 }
