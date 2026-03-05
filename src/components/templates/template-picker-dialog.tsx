@@ -18,6 +18,7 @@ import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { useTemplateStore } from "@/stores/template-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
+import { apiUrl } from "@/lib/api-url"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { isServerMode } from "@/lib/app-mode"
@@ -140,9 +141,11 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, init
     Promise.all(
       selectedTemplate.recommendedSkills.map(async (name) => {
         try {
-          const res = await fetch(`/api/skills/files/${encodeURIComponent(name)}/SKILL.md`)
+          const res = await fetch(apiUrl(`/api/skills/files/${encodeURIComponent(name)}/SKILL.md`))
           if (!res.ok) return [name, ''] as const
           const text = await res.text()
+          // Guard against SPA fallback returning HTML instead of markdown
+          if (text.trimStart().startsWith('<!')) return [name, ''] as const
           return [name, text] as const
         } catch {
           return [name, ''] as const
