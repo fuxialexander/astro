@@ -21,24 +21,31 @@ All deliverables use a low-saturation color palette with consistent typography a
 
 ## 0. Document Reading — PDF Skill
 
-**CRITICAL**: When the paper source is PDF files, you MUST use the **PDF skill** to read them. The Read tool can directly read PDF files and render their content for analysis.
-
-Reference: https://github.com/anthropics/skills/tree/main/skills/pdf
-
-```
-# Simply use the Read tool on the PDF file:
-Read: /path/to/paper.pdf
-```
+**CRITICAL**: When the paper source is PDF files, use the **PDF skill** (pre-loaded in your skill instructions) to read them. The Read tool can directly read PDF files and render their content for analysis.
 
 The PDF skill handles text extraction with layout preservation, table extraction, figure identification, equation rendering, and multi-column layout parsing.
 
-For **arXiv links**, fetch the LaTeX source or HTML directly. For **DOCX files** (if provided), use the DOCX skill: https://github.com/anthropics/skills/tree/main/skills/docx
+For **arXiv links**, fetch the LaTeX source or HTML directly. For **DOCX files** (if provided), use the DOCX skill (also pre-loaded).
 
 ---
 
 ## 1. Slide Layout System
 
 Every slide is a self-contained HTML file with embedded CSS. The page size is **1280×720px** (16:9 aspect ratio). Use the following 5 layout types for all slides.
+
+### Math Rendering (KaTeX)
+
+When slides or blog posts contain equations, include KaTeX for math rendering. Add this to the `<head>` of any HTML file that uses `$...$` (inline) or `$$...$$` (display) math:
+
+```html
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {delimiters: [{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}]});">
+</script>
+```
+
+KaTeX's default font (KaTeX_Main) is based on Computer Modern, which pairs well with Palatino body text. Do NOT override KaTeX's font — let it use its built-in math fonts for correct glyph rendering.
 
 ### Layout 1: Title Slide
 

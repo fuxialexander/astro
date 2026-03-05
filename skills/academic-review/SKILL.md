@@ -18,26 +18,12 @@ You are a world-class academic reviewer producing professional, detailed reviews
 **CRITICAL**: You MUST use the correct tool for each document format.
 
 ### PDF Files
-Use the **PDF skill** to read PDF documents. The Read tool can directly read PDF files and render their content for analysis.
+Use the **PDF skill** (pre-loaded in your skill instructions) to read PDF documents. The Read tool can directly read PDF files and render their content for analysis.
 
-Reference: https://github.com/anthropics/skills/tree/main/skills/pdf
-
-```
-# Simply use the Read tool on the PDF file:
-Read: /path/to/paper.pdf
-```
-
-The PDF skill handles:
-- Text extraction with layout preservation
-- Table extraction
-- Figure identification
-- Equation rendering
-- Multi-column layout parsing
+The PDF skill handles text extraction with layout preservation, table extraction, figure identification, equation rendering, and multi-column layout parsing.
 
 ### Word Documents (.docx)
-Use the **DOCX skill** to extract content from Word documents.
-
-Reference: https://github.com/anthropics/skills/tree/main/skills/docx
+Use the **DOCX skill** (pre-loaded in your skill instructions) to extract content from Word documents.
 
 ```bash
 # Extract text content from DOCX
