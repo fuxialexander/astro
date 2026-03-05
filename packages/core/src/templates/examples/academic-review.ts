@@ -292,9 +292,11 @@ Save ALL output files (reports, diagrams, notes, PDFs) under the \`outputs/\` di
 
 ## CRITICAL: Document Reading Tools
 
-**For PDF files**: You MUST use the PDF skill to read PDF documents. Use the Read tool on PDF files — it will render the PDF content for analysis. Reference: https://github.com/anthropics/skills/tree/main/skills/pdf
+The PDF and DOCX skills are pre-loaded and available in your skill instructions. Follow them for document processing.
 
-**For DOCX files**: You MUST use the DOCX skill to read Word documents. Use Bash to run extraction commands or the appropriate DOCX parsing approach. Reference: https://github.com/anthropics/skills/tree/main/skills/docx
+**For PDF files**: Use the PDF skill instructions to read and extract content from PDF documents (pypdf, pdfplumber, or the Read tool on .pdf files).
+
+**For DOCX files**: Use the DOCX skill instructions to read and extract content from Word documents.
 
 **For LaTeX files**: Read .tex files directly with the Read tool. Parse \\section, \\subsection, equations (\\begin{equation}), figures (\\includegraphics), and bibliography.
 

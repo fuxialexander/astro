@@ -235,8 +235,10 @@ Save ALL output files (reports, data files, charts, PDFs) under the \`outputs/\`
 
 ## CRITICAL: Document Reading Tools
 
+The PDF skill is pre-loaded and available in your skill instructions. Follow it for document processing.
+
 If supplementary documents are provided:
-- **For PDF files**: You MUST use the PDF skill to read PDF documents. Use the Read tool on PDF files — it will render the PDF content for analysis. Reference: https://github.com/anthropics/skills/tree/main/skills/pdf
+- **For PDF files**: Use the PDF skill instructions to read and extract content from PDF documents (pypdf, pdfplumber, or the Read tool on .pdf files).
 - **For other formats**: Read directly with the Read tool.
 
 ## Skill Reference
