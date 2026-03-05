@@ -6,4 +6,4 @@
  */
 
 /** Provider types available on a machine */
-export type ProviderType = 'claude-code' | 'claude-sdk' | 'codex' | 'aws' | 'gcp' | 'custom';
+export type ProviderType = 'claude-code' | 'claude-sdk' | 'codex' | 'openclaw' | 'aws' | 'gcp' | 'custom';
