@@ -62,6 +62,10 @@ app.get('/repos', async (c) => {
     return c.json({ repos });
   } catch (error) {
     console.error('GitHub repos fetch error:', error);
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes('Unauthorized') || msg.includes('401')) {
+      return c.json({ error: 'GitHub token expired. Please reconnect GitHub.' }, 401);
+    }
     return c.json({ error: 'Failed to fetch repositories' }, 500);
   }
 });
@@ -93,6 +97,10 @@ app.post('/repos/sync', async (c) => {
     return c.json({ repos, syncedAt: new Date().toISOString() });
   } catch (error) {
     console.error('GitHub repos sync error:', error);
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes('Unauthorized') || msg.includes('401')) {
+      return c.json({ error: 'GitHub token expired. Please reconnect GitHub.' }, 401);
+    }
     return c.json({ error: 'Failed to sync repositories' }, 500);
   }
 });

@@ -22,6 +22,8 @@ import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
 import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 import type { GitHubReviewThread, GitHubReviewComment } from "@/types"
 
+const EMPTY_THREADS: GitHubReviewThread[] = []
+
 // ─── Types ──────────────────────────────────────────────────────────
 
 interface PRReviewThreadsProps {
@@ -77,19 +79,20 @@ export function PRReviewThreads({
   className,
 }: PRReviewThreadsProps) {
   const key = `${owner}/${repo}/${prNumber}`
-  const threads = useGitHubCommentsStore((s) => s.reviewThreads[key] ?? [])
+  const threadsRaw = useGitHubCommentsStore((s) => s.reviewThreads[key])
+  const threads = threadsRaw ?? EMPTY_THREADS
   const loading = useGitHubCommentsStore((s) => s.loading[`review-${key}`] ?? false)
   const error = useGitHubCommentsStore((s) => s.errors[`review-${key}`] ?? null)
   const fetchReviewComments = useGitHubCommentsStore((s) => s.fetchReviewComments)
 
   const [expanded, setExpanded] = useState(false)
 
-  // Fetch review comments on mount
+  // Fetch review comments on mount (skip if already errored to prevent infinite loop)
   useEffect(() => {
-    if (threads.length === 0 && !loading) {
+    if (threads.length === 0 && !loading && !error) {
       fetchReviewComments(owner, repo, prNumber)
     }
-  }, [owner, repo, prNumber, threads.length, loading, fetchReviewComments])
+  }, [owner, repo, prNumber, threads.length, loading, error, fetchReviewComments])
 
   // Auto-expand when scrollToThreadId changes
   const shouldExpand = scrollToThreadId != null

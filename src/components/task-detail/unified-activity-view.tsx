@@ -42,6 +42,9 @@ import type { PrData, PrCheckRun, PrReview } from "@/components/pr-status-card"
 import { PRReviewThreads } from "@/components/pr-review-threads"
 import { useRestoredExecution } from "@/hooks/use-restored-execution"
 import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
+import type { GitHubReviewThread } from "@/types"
+
+const EMPTY_REVIEW_THREADS: GitHubReviewThread[] = []
 
 interface UnifiedActivityViewProps {
   node: PlanNode
@@ -95,7 +98,8 @@ export function UnifiedActivityView({
 
   // Review threads for thread count in PrStatusCard
   const reviewThreadsKey = githubContext ? `${githubContext.owner}/${githubContext.repo}/${githubContext.number}` : ""
-  const reviewThreads = useGitHubCommentsStore((s) => reviewThreadsKey ? (s.reviewThreads[reviewThreadsKey] ?? []) : [])
+  const reviewThreadsRaw = useGitHubCommentsStore((s) => reviewThreadsKey ? s.reviewThreads[reviewThreadsKey] : undefined)
+  const reviewThreads = reviewThreadsRaw ?? EMPTY_REVIEW_THREADS
   const reviewCommentCount = reviewThreads.reduce((sum, t) => sum + t.comments.length, 0)
   const [scrollToReviewThreadId] = useState<number | null>(null)
 
