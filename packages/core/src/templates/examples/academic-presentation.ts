@@ -81,7 +81,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
       description: 'Additional emphasis areas, narrative direction, or multi-paper story arc. Use this to guide the content focus.',
       type: 'string',
       required: false,
-      placeholder: 'Focus on the comparison between methods A and B. Emphasize practical implications for industry adoption.',
+      placeholder: 'e.g., Focus on methods A vs B, emphasize practical implications',
       group: 'source',
       order: 2,
     },

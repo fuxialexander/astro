@@ -30,7 +30,8 @@ export function Examples() {
   }, [])
 
   const handleLaunchSuccess = useCallback((result: LaunchTemplateResult) => {
-    navigate("/plan", { state: { templateLaunchResult: result } })
+    // Navigate to the project's plan view (plan mode) — user can start planning from there
+    navigate(`/projects/${result.project.id}/plan`)
   }, [navigate])
 
   return (

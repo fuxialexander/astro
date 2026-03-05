@@ -1112,6 +1112,8 @@ export interface LaunchTemplateParams {
   projectName?: string
   workingDirectory?: string
   targetMachineId?: string
+  /** Optional vision doc override (e.g. combined skill instructions) */
+  visionDoc?: string
   model?: string
   fileTree?: string[]
   keyFiles?: {

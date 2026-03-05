@@ -136,6 +136,7 @@ export function RemotePathBrowser({
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const newFolderInputRef = useRef<HTMLInputElement>(null)
+  const breadcrumbRef = useRef<HTMLDivElement>(null)
 
   // Load directory contents
   const loadDirectory = useCallback(
@@ -315,6 +316,13 @@ export function RemotePathBrowser({
     }
   }, [selectedIndex])
 
+  // Auto-scroll breadcrumb to show the current (rightmost) segment
+  useEffect(() => {
+    if (breadcrumbRef.current) {
+      breadcrumbRef.current.scrollLeft = breadcrumbRef.current.scrollWidth
+    }
+  }, [path])
+
   // Parse path into breadcrumb segments
   const breadcrumbs = path.split("/").filter(Boolean)
   const directories = entries.filter((e) => e.isDirectory)
@@ -374,7 +382,7 @@ export function RemotePathBrowser({
             </Button>
           )}
 
-          <div className="flex items-center gap-0.5 overflow-x-auto">
+          <div ref={breadcrumbRef} className="flex items-center gap-0.5 overflow-x-auto">
             <button
               onClick={() => navigateTo("/")}
               className="px-1.5 py-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
@@ -427,7 +435,7 @@ export function RemotePathBrowser({
         {/* Directory listing */}
         <div
           ref={listRef}
-          className="flex-1 min-h-[300px] max-h-[400px] overflow-y-auto border rounded-lg bg-background"
+          className="flex-1 min-h-[200px] overflow-y-auto border rounded-lg bg-background"
           onKeyDown={handleKeyDown}
           tabIndex={0}
         >
@@ -442,11 +450,6 @@ export function RemotePathBrowser({
               <Button variant="outline" size="sm" onClick={() => loadDirectory(path)}>
                 Retry
               </Button>
-            </div>
-          ) : entries.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full gap-2 p-4">
-              <FolderOpen className="h-8 w-8 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">This directory is empty</p>
             </div>
           ) : (
             <div className="divide-y divide-border">
@@ -502,6 +505,14 @@ export function RemotePathBrowser({
                   {createError && (
                     <p className="text-xs text-destructive pl-6">{createError}</p>
                   )}
+                </div>
+              )}
+
+              {/* Empty state */}
+              {entries.length === 0 && !isCreatingFolder && (
+                <div className="flex flex-col items-center justify-center py-12 gap-2">
+                  <FolderOpen className="h-8 w-8 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">This directory is empty</p>
                 </div>
               )}
 

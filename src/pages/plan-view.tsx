@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, FileText, Globe, GitFork, X, Settings2 } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, Globe, GitFork, X, Settings2 } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { ReplanDialog } from "@/components/replan-dialog"
@@ -25,7 +25,6 @@ import { ColorIconBadge } from "@/components/color-icon-picker"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { validateProjectName } from "@/lib/project-validation"
 import { OverviewTab } from "@/pages/project-overview"
-import { UseTemplateSheet } from "@/components/templates/use-template-sheet"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { PublishDialog } from "@/components/community/publish-dialog"
 import { GitHubSyncSettingsDialog } from "@/components/github-sync-settings-dialog"
@@ -1584,7 +1583,6 @@ export function PlanView() {
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
   const [visionOpen, setVisionOpen] = useState(false)
   const [replanOpen, setReplanOpen] = useState(false)
-  const [useTemplateOpen, setUseTemplateOpen] = useState(false)
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
   const chatPanelPosition = useUIStore((s) => s.chatPanelPosition)
@@ -1762,15 +1760,6 @@ export function PlanView() {
         {/* View mode toggle + Use Template + Publish - right-aligned, only visible when Plan is active */}
         {activeTab === "plan" && (
           <div className="hidden md:flex items-center gap-2 shrink-0">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setUseTemplateOpen(true)}
-              className="text-xs"
-            >
-              <FileText className="h-3.5 w-3.5 mr-1.5" />
-              Use Template
-            </Button>
             {isServerMode() && (
               <Button
                 variant="outline"
@@ -1957,13 +1946,6 @@ export function PlanView() {
 
       {/* Replan Dialog */}
       <ReplanDialog open={replanOpen} onOpenChange={setReplanOpen} project={project} />
-
-      {/* Use Template Sheet */}
-      <UseTemplateSheet
-        open={useTemplateOpen}
-        onOpenChange={setUseTemplateOpen}
-        projectId={project.id}
-      />
 
       {/* Publish to Community Dialog */}
       <PublishDialog
