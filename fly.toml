@@ -44,11 +44,11 @@ primary_region = "sjc"
 
   [[services.http_checks]]
     interval = 15000
-    grace_period = "10s"
+    grace_period = "30s"
     method = "get"
     path = "/api/health"
     protocol = "http"
-    timeout = 5000
+    timeout = 10000
 
 # WebSocket relay server (port 3002)
 [[services]]

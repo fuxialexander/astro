@@ -87,12 +87,12 @@ export function PRReviewThreads({
 
   const [expanded, setExpanded] = useState(false)
 
-  // Fetch review comments on mount (skip if already errored to prevent infinite loop)
+  // Fetch review comments on mount (only when not yet fetched — threadsRaw is undefined)
   useEffect(() => {
-    if (threads.length === 0 && !loading && !error) {
+    if (threadsRaw === undefined && !loading && !error) {
       fetchReviewComments(owner, repo, prNumber)
     }
-  }, [owner, repo, prNumber, threads.length, loading, error, fetchReviewComments])
+  }, [owner, repo, prNumber, threadsRaw, loading, error, fetchReviewComments])
 
   // Auto-expand when scrollToThreadId changes
   const shouldExpand = scrollToThreadId != null
