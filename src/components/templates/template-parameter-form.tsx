@@ -179,7 +179,7 @@ export function TemplateParameterForm({
             )}
             <span>Advanced Options</span>
             <span className="text-xs font-normal text-muted-foreground">
-              ({optionalParams.length} optional)
+              ({optionalParams.filter(isParameterVisible).length} optional)
             </span>
           </button>
           {expandedAdvanced && (
