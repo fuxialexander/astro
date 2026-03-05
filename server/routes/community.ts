@@ -474,6 +474,7 @@ app.put('/plans/:id', async (c) => {
 
   if (body.title) updates.title = body.title.trim()
   if (body.description !== undefined) updates.description = body.description
+  if (body.visionDoc !== undefined) updates.visionDoc = body.visionDoc
   if (body.customizationNotes !== undefined) updates.customizationNotes = body.customizationNotes
   if (body.customizableFields !== undefined) updates.customizableFields = body.customizableFields
   if (body.executionResults !== undefined) updates.executionResults = body.executionResults

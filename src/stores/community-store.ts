@@ -4,6 +4,7 @@ import type {
   SharedPlanDetail,
   Comment,
   PublishPlanRequest,
+  UpdatePublishedPlanRequest,
   ListCommunityPlansParams,
   Category,
 } from "@/lib/community-client"
@@ -19,6 +20,7 @@ import {
   getCategories as apiGetCategories,
   getMyPlans as apiGetMyPlans,
   deletePublishedPlan as apiDeletePlan,
+  updatePublishedPlan as apiUpdatePlan,
 } from "@/lib/community-client"
 
 /** Filter and sort options for community plans */
@@ -59,6 +61,7 @@ interface CommunityState {
   fetchTrending: () => Promise<void>
   fetchCategories: () => Promise<void>
   fetchMyPlans: () => Promise<void>
+  updatePlan: (id: string, updates: UpdatePublishedPlanRequest) => Promise<void>
   deletePlan: (id: string) => Promise<void>
   setFilters: (filters: Partial<CommunityFilters>) => void
   clearSelectedPlan: () => void
@@ -249,6 +252,17 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
       set({ myPlans })
     } catch (err) {
       console.error('[community-store] Failed to fetch my plans:', err)
+    }
+  },
+
+  // Update a published plan (author only)
+  updatePlan: async (id: string, updates: UpdatePublishedPlanRequest) => {
+    try {
+      const updated = await apiUpdatePlan(id, updates)
+      set({ selectedPlan: updated })
+    } catch (err) {
+      console.error('[community-store] Failed to update plan:', err)
+      throw err
     }
   },
 
