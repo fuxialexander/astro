@@ -1,8 +1,8 @@
 import { useState, useCallback } from "react"
 import { useNavigate } from "react-router"
 import { BookOpen } from "lucide-react"
-import { TemplatePickerDialog, type TemplatePrefillData } from "@/components/templates/template-picker-dialog"
-import { useTemplateStore } from "@/stores/template-store"
+import { ExamplePickerDialog, type ExamplePrefillData } from "@/components/examples/example-picker-dialog"
+import { useExampleStore } from "@/stores/example-store"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Card } from "@/components/ui/card"
 
@@ -12,13 +12,13 @@ import { Card } from "@/components/ui/card"
  * Focused page showing curated example templates. Currently features
  * a single polished example: Academic Paper Presentation.
  *
- * Clicking an example card opens the TemplatePickerDialog directly
+ * Clicking an example card opens the ExamplePickerDialog directly
  * at the Configure step (skipping the Browse step).
  */
 export function Examples() {
   const navigate = useNavigate()
-  const templates = useTemplateStore((s) => s.templates)
-  const isLoading = useTemplateStore((s) => s.isLoading)
+  const templates = useExampleStore((s) => s.templates)
+  const isLoading = useExampleStore((s) => s.isLoading)
 
   const [pickerOpen, setPickerOpen] = useState(false)
   const [initialTemplateId, setInitialTemplateId] = useState<string | null>(null)
@@ -28,7 +28,7 @@ export function Examples() {
     setPickerOpen(true)
   }, [])
 
-  const handlePrefillPlan = useCallback((data: TemplatePrefillData) => {
+  const handlePrefillPlan = useCallback((data: ExamplePrefillData) => {
     // Navigate to Plan page with prefill data — user reviews and clicks "Start Planning"
     navigate("/plan", { state: { templatePrefill: data } })
   }, [navigate])
@@ -94,7 +94,7 @@ export function Examples() {
       </div>
 
       {/* Template Picker Dialog — opens directly at Configure step */}
-      <TemplatePickerDialog
+      <ExamplePickerDialog
         open={pickerOpen}
         onOpenChange={(open) => {
           setPickerOpen(open)

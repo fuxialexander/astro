@@ -12,10 +12,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
-import { TemplateGallery } from "./template-gallery"
-import { TemplateParameterForm } from "./template-parameter-form"
+import { ExampleGallery } from "./example-gallery"
+import { ExampleParameterForm } from "./example-parameter-form"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
-import { useTemplateStore } from "@/stores/template-store"
+import { useExampleStore } from "@/stores/example-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { useSettingsStore, resolveModel, type ModelTier } from "@/stores/settings-store"
@@ -38,11 +38,11 @@ import {
   Sparkles,
 } from "lucide-react"
 import type { UseCaseTemplateSummary } from "@astro/core/templates"
-import { previewTemplate as previewTemplateApi } from "@/lib/api-client"
-import type { LaunchTemplateResult } from "@/lib/api-client"
+import { previewExample as previewExampleApi } from "@/lib/api-client"
+import type { LaunchExampleResult } from "@/lib/api-client"
 
 /** Data passed to the Plan page to pre-fill form fields from a template */
-export interface TemplatePrefillData {
+export interface ExamplePrefillData {
   description: string
   projectName: string
   visionDoc?: string
@@ -52,7 +52,7 @@ export interface TemplatePrefillData {
   model?: string
 }
 
-interface TemplatePickerDialogProps {
+interface ExamplePickerDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   /**
@@ -60,13 +60,13 @@ interface TemplatePickerDialogProps {
    * If provided, navigation will not be performed automatically.
    * Use this when you want to handle the launch result (e.g., start SSE plan generation).
    */
-  onLaunchSuccess?: (result: LaunchTemplateResult) => void
+  onLaunchSuccess?: (result: LaunchExampleResult) => void
   /**
    * Optional callback to pre-fill the Plan page form instead of launching.
    * When provided (typically with skipBrowse), the dialog resolves template
    * parameters and passes the prefill data without creating a project.
    */
-  onPrefillPlan?: (data: TemplatePrefillData) => void
+  onPrefillPlan?: (data: ExamplePrefillData) => void
   /** When set, auto-selects this template and skips to the configure step on open */
   initialTemplateId?: string | null
   /** When true, start directly at Configure step (skip Browse) */
@@ -85,32 +85,32 @@ const STEP_LABELS: Record<WizardStep, string> = {
 }
 
 /**
- * TemplatePickerDialog - Multi-step wizard for template-based project creation
+ * ExamplePickerDialog - Multi-step wizard for template-based project creation
  *
  * Steps (full flow):
- * 1. Browse/search templates (TemplateGallery)
+ * 1. Browse/search templates (ExampleGallery)
  * 2. Configure parameters + project name + working directory
  * 3. Launch — create project and navigate to plan view
  *
  * When `skipBrowse` is true, starts directly at Configure (step 2).
  */
-export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, onPrefillPlan, initialTemplateId, skipBrowse }: TemplatePickerDialogProps) {
+export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPrefillPlan, initialTemplateId, skipBrowse }: ExamplePickerDialogProps) {
   const navigate = useNavigate()
 
-  // Template store state
-  const templates = useTemplateStore((s) => s.templates)
-  const categories = useTemplateStore((s) => s.categories)
-  const selectedTemplate = useTemplateStore((s) => s.selectedTemplate)
-  const parameterValues = useTemplateStore((s) => s.parameterValues)
-  const validationErrors = useTemplateStore((s) => s.validationErrors)
-  const isLoading = useTemplateStore((s) => s.isLoading)
+  // Example store state
+  const templates = useExampleStore((s) => s.templates)
+  const categories = useExampleStore((s) => s.categories)
+  const selectedTemplate = useExampleStore((s) => s.selectedTemplate)
+  const parameterValues = useExampleStore((s) => s.parameterValues)
+  const validationErrors = useExampleStore((s) => s.validationErrors)
+  const isLoading = useExampleStore((s) => s.isLoading)
 
   // Store actions
-  const selectTemplate = useTemplateStore((s) => s.selectTemplate)
-  const setParameterValue = useTemplateStore((s) => s.setParameterValue)
-  const validateParameters = useTemplateStore((s) => s.validateParameters)
-  const launchTemplate = useTemplateStore((s) => s.launchTemplate)
-  const reset = useTemplateStore((s) => s.reset)
+  const selectTemplate = useExampleStore((s) => s.selectTemplate)
+  const setParameterValue = useExampleStore((s) => s.setParameterValue)
+  const validateParameters = useExampleStore((s) => s.validateParameters)
+  const launchExample = useExampleStore((s) => s.launchExample)
+  const reset = useExampleStore((s) => s.reset)
 
   // Machine state
   const machines = useExecutionStore((s) => s.machines)
@@ -338,7 +338,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, onPr
       const visionDoc = buildVisionDoc()
       const effectiveModel = selectedModel || resolveModel(modelTier, selectedProvider || undefined, customModelMap)
       // Call the store's launch method which returns the result
-      const result = await launchTemplate(projectName, workingDirectory || undefined, selectedMachine?.machineId, visionDoc, selectedProvider || undefined, effectiveModel)
+      const result = await launchExample(projectName, workingDirectory || undefined, selectedMachine?.machineId, visionDoc, selectedProvider || undefined, effectiveModel)
 
       if (result) {
         // Close dialog
@@ -373,7 +373,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, onPr
     selectedProvider,
     selectedModel,
     customModelMap,
-    launchTemplate,
+    launchExample,
     onOpenChange,
     onLaunchSuccess,
     navigate,
@@ -395,7 +395,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, onPr
 
     setIsLaunching(true)
     try {
-      const preview = await previewTemplateApi(selectedTemplate.id, parameterValues)
+      const preview = await previewExampleApi(selectedTemplate.id, parameterValues)
       const visionDoc = buildVisionDoc()
       const effectiveModel = selectedModel || resolveModel(modelTier, selectedProvider || undefined, customModelMap)
 
@@ -444,7 +444,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, onPr
       case "browse":
         return (
           <div className="h-[500px]">
-            <TemplateGallery
+            <ExampleGallery
               templates={templates}
               categories={categories.map(cat => ({
                 name: cat.category,
@@ -653,7 +653,7 @@ export function TemplatePickerDialog({ open, onOpenChange, onLaunchSuccess, onPr
             {/* Template Parameters */}
             {allParameters.length > 0 && (
               <div className="space-y-4">
-                <TemplateParameterForm
+                <ExampleParameterForm
                   parameters={allParameters}
                   values={parameterValues}
                   errors={validationErrors}

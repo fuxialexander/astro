@@ -891,3 +891,16 @@ export interface TemplateValidationWarning {
   message: string
   code: 'EMPTY_PROMPT' | 'MISSING_DESCRIPTION' | 'LARGE_TEMPLATE' | 'DEPRECATED_FIELD'
 }
+
+// ============================================================================
+// Example Aliases (UI calls these "Examples", code is migrating from "Template")
+// ============================================================================
+
+/** Alias: the UI calls these "Examples" */
+export type UseCaseExample = UseCaseTemplate
+
+/** Alias: the UI calls these "Examples" */
+export type UseCaseExampleSummary = UseCaseTemplateSummary
+
+/** Alias: the UI calls these "Examples" */
+export type UseCaseExampleInstance = UseCaseTemplateInstance

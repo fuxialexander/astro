@@ -127,6 +127,13 @@
       "when": 1772754494957,
       "tag": "0017_violet_scarlet_spider",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1772870400000,
+      "tag": "0018_drop_custom_templates",
+      "breakpoints": true
     }
   ]
 }

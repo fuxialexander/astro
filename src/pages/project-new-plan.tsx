@@ -19,10 +19,10 @@ import { useMachinesStore } from "@/stores/machines-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSettingsStore, resolveModel, type ModelTier } from "@/stores/settings-store"
 import { useClaudeSessionsStore } from "@/stores/claude-sessions-store"
-import { useTemplateStore } from "@/stores/template-store"
+import { useExampleStore } from "@/stores/example-store"
 import { PlanChatPhase } from "@/components/plan-session/plan-chat-phase"
 import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
-import { TemplatePickerDialog } from "@/components/templates/template-picker-dialog"
+import { ExamplePickerDialog } from "@/components/examples/example-picker-dialog"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { BranchSelector } from "@/components/branch-selector"
 import { AttachmentList } from "@/components/task-detail/attachment-list"
@@ -35,8 +35,8 @@ import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
 import { deriveAvailableProviders, isProviderAvailable, PROVIDER_NAMES } from "@/components/execution/provider-utils"
 import type { TaskAttachment } from "@/types"
-import type { LaunchTemplateResult } from "@/lib/api-client"
-import type { TemplatePrefillData } from "@/components/templates/template-picker-dialog"
+import type { LaunchExampleResult } from "@/lib/api-client"
+import type { ExamplePrefillData } from "@/components/examples/example-picker-dialog"
 
 export function ProjectNewPlan() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -45,7 +45,7 @@ export function ProjectNewPlan() {
   const navigate = useNavigate()
 
   // Location state context
-  const locationState = location.state as { fromPlaygroundId?: string; initialTemplateId?: string; templateLaunchResult?: LaunchTemplateResult; templatePrefill?: TemplatePrefillData } | null
+  const locationState = location.state as { fromPlaygroundId?: string; initialTemplateId?: string; templateLaunchResult?: LaunchExampleResult; templatePrefill?: ExamplePrefillData } | null
   const fromPlaygroundId = locationState?.fromPlaygroundId
   const locationTemplateId = locationState?.initialTemplateId
   const templateLaunchFromExamples = locationState?.templateLaunchResult
@@ -150,8 +150,8 @@ export function ProjectNewPlan() {
   const loadSessions = useClaudeSessionsStore((s) => s.loadSessions)
 
   // Template store
-  const templatesLoaded = useTemplateStore((s) => s.loaded)
-  const loadTemplates = useTemplateStore((s) => s.load)
+  const templatesLoaded = useExampleStore((s) => s.loaded)
+  const loadTemplates = useExampleStore((s) => s.load)
 
   // View a past plan session — always open in chat phase
   const viewSession = useCallback((projectId: string) => {
@@ -496,7 +496,7 @@ export function ProjectNewPlan() {
   const isRegeneration = !!(existingProject && existingProjectHasNoNodes && !fromPlaygroundId)
 
   // Handle template launch - starts plan generation SSE for the created project
-  const handleTemplateLaunch = useCallback(async (result: LaunchTemplateResult) => {
+  const handleTemplateLaunch = useCallback(async (result: LaunchExampleResult) => {
     setTemplateLaunching(true)
     setTemplatePickerOpen(false)
 
@@ -1111,7 +1111,7 @@ export function ProjectNewPlan() {
         />
 
         {/* Template picker dialog */}
-        <TemplatePickerDialog
+        <ExamplePickerDialog
           open={templatePickerOpen}
           onOpenChange={(open) => {
             setTemplatePickerOpen(open)

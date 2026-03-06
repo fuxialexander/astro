@@ -1,16 +1,16 @@
 /**
- * Use Case Templates API Routes
+ * Use Case Examples API Routes
  *
- * Provides endpoints for listing, viewing, and launching use case templates.
- * Templates are pre-configured project patterns that generate plans automatically.
+ * Provides endpoints for listing, viewing, and launching use case examples.
+ * Examples are pre-configured project patterns that generate plans automatically.
  */
 
 import { Hono } from 'hono'
 import { z } from 'zod'
 import crypto from 'crypto'
 import { db } from '../lib/db/index.js'
-import { projects, customTemplates } from '../lib/db/schema.js'
-import { eq, and, or, isNull, desc } from 'drizzle-orm'
+import { projects } from '../lib/db/schema.js'
+import { eq } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import {
   // Built-in templates
@@ -388,56 +388,32 @@ const launchTemplateSchema = z.object({
 // Routes
 // ============================================================================
 
-const templatesRoute = new Hono()
+const examplesRoute = new Hono()
 
 // Apply authentication middleware to all routes
-templatesRoute.use('/*', requireAuth)
+examplesRoute.use('/*', requireAuth)
 
 /**
- * GET /api/templates
+ * GET /api/examples
  *
- * List all available use case templates.
- * Returns template summaries (not full definitions) for efficient listing.
- * Merges built-in templates with user's custom templates.
+ * List all available use case examples.
+ * Returns example summaries (not full definitions) for efficient listing.
  *
  * Query parameters:
  * - category: Filter by category
  * - enabled: Filter by enabled status (default: true)
- * - source: Filter by source ('builtin' | 'custom' | 'all', default: 'all')
  */
-templatesRoute.get('/', async (c) => {
-  const user = c.get('user')! as AuthUser
+examplesRoute.get('/', async (c) => {
   const category = c.req.query('category')
   const enabledParam = c.req.query('enabled')
-  const sourceFilter = c.req.query('source') || 'all'
   const enabled = enabledParam === undefined ? true : enabledParam === 'true'
 
-  let templates: UseCaseTemplate[] = []
+  let templates: UseCaseTemplate[]
 
-  // Fetch built-in templates
-  if (sourceFilter === 'all' || sourceFilter === 'builtin') {
-    if (category) {
-      templates = getTemplatesByCategory(category)
-    } else {
-      templates = [...BUILTIN_TEMPLATES]
-    }
-  }
-
-  // Fetch custom templates from database
-  if (sourceFilter === 'all' || sourceFilter === 'custom') {
-    const customTemplateRows = await db.select().from(customTemplates).where(
-      and(
-        or(
-          eq(customTemplates.authorId, user.id),
-          user.teamId ? eq(customTemplates.teamId, user.teamId) : isNull(customTemplates.teamId)
-        ),
-        category ? eq(customTemplates.category, category) : undefined
-      )
-    ).orderBy(desc(customTemplates.updatedAt))
-
-    // Convert custom templates to UseCaseTemplate format
-    const customTemplatesFormatted = customTemplateRows.map(row => dbRowToTemplate(row))
-    templates = [...templates, ...customTemplatesFormatted]
+  if (category) {
+    templates = getTemplatesByCategory(category)
+  } else {
+    templates = [...BUILTIN_TEMPLATES]
   }
 
   // Filter by enabled status
@@ -456,13 +432,11 @@ templatesRoute.get('/', async (c) => {
 })
 
 /**
- * GET /api/templates/categories
+ * GET /api/examples/categories
  *
- * List all available template categories with counts.
- * Includes both built-in and custom templates.
+ * List all available example categories with counts.
  */
-templatesRoute.get('/categories', async (c) => {
-  const user = c.get('user')! as AuthUser
+examplesRoute.get('/categories', async (c) => {
   const categoryCounts: Record<string, number> = {}
   const categoryTemplates: Record<string, Array<{ id: string; name: string; icon?: string }>> = {}
 
@@ -477,29 +451,6 @@ templatesRoute.get('/categories', async (c) => {
     }
   }
 
-  // Count custom templates
-  const customRows = await db.select().from(customTemplates).where(
-    and(
-      eq(customTemplates.enabled, true),
-      or(
-        eq(customTemplates.authorId, user.id),
-        user.teamId ? eq(customTemplates.teamId, user.teamId) : isNull(customTemplates.teamId)
-      )
-    )
-  )
-
-  for (const row of customRows) {
-    categoryCounts[row.category] = (categoryCounts[row.category] || 0) + 1
-    if (!categoryTemplates[row.category]) {
-      categoryTemplates[row.category] = []
-    }
-    categoryTemplates[row.category].push({
-      id: `custom/${row.id}`,
-      name: row.name,
-      icon: row.icon ?? undefined,
-    })
-  }
-
   const categories = Object.entries(categoryCounts).map(([category, count]) => ({
     category,
     count,
@@ -510,49 +461,19 @@ templatesRoute.get('/categories', async (c) => {
 })
 
 /**
- * GET /api/templates/:id
+ * GET /api/examples/:id
  *
- * Get full template details including parameter schema.
- * Returns the complete template definition for rendering the parameter form.
- * Supports both built-in and custom templates (custom templates have 'custom/' prefix).
+ * Get full example details including parameter schema.
+ * Returns the complete definition for rendering the parameter form.
  */
-templatesRoute.get('/:id', async (c) => {
-  const user = c.get('user')! as AuthUser
+examplesRoute.get('/:id', async (c) => {
   const templateId = c.req.param('id')
-  // Decode URL-encoded template IDs (e.g., "custom%2Fuuid" -> "custom/uuid")
   const decodedId = decodeURIComponent(templateId)
 
-  // Check if this is a custom template
-  if (decodedId.startsWith('custom/')) {
-    const customId = decodedId.replace('custom/', '')
-    const [row] = await db.select().from(customTemplates).where(
-      and(
-        eq(customTemplates.id, customId),
-        or(
-          eq(customTemplates.authorId, user.id),
-          user.teamId ? eq(customTemplates.teamId, user.teamId) : isNull(customTemplates.teamId)
-        )
-      )
-    )
-
-    if (!row) {
-      return c.json({ error: 'Template not found', templateId: decodedId }, 404)
-    }
-
-    const template = dbRowToTemplate(row)
-    return c.json({
-      template,
-      validation: { valid: true, errors: [], warnings: [] },
-      isOwner: row.authorId === user.id,
-      canEdit: row.authorId === user.id || (row.teamId && row.teamId === user.teamId),
-    })
-  }
-
-  // Look up built-in template
   const template = getTemplateById(decodedId)
 
   if (!template) {
-    return c.json({ error: 'Template not found', templateId: decodedId }, 404)
+    return c.json({ error: 'Example not found', templateId: decodedId }, 404)
   }
 
   return c.json({
@@ -562,15 +483,14 @@ templatesRoute.get('/:id', async (c) => {
   })
 })
 
-templatesRoute.post('/:id/validate', async (c) => {
-  const user = c.get('user')! as AuthUser
+examplesRoute.post('/:id/validate', async (c) => {
   const templateId = c.req.param('id')
   const decodedId = decodeURIComponent(templateId)
 
-  const template = await getTemplateByIdWithCustom(decodedId, user)
+  const template = getTemplateById(decodedId)
 
   if (!template) {
-    return c.json({ error: 'Template not found', templateId: decodedId }, 404)
+    return c.json({ error: 'Example not found', templateId: decodedId }, 404)
   }
 
   let body: { parameters: Record<string, unknown> }
@@ -590,11 +510,10 @@ templatesRoute.post('/:id/validate', async (c) => {
 })
 
 /**
- * POST /api/templates/:id/launch
+ * POST /api/examples/:id/launch
  *
  * Launch a use case with provided parameters.
  * Creates a new project and triggers plan generation.
- * Supports both built-in and custom templates.
  *
  * Returns:
  * - project: The created project
@@ -604,19 +523,19 @@ templatesRoute.post('/:id/validate', async (c) => {
  * The client uses the returned data to prefill the Plan page,
  * then starts an interactive plan session (Pathway 3) via dispatch.
  */
-templatesRoute.post('/:id/launch', async (c) => {
+examplesRoute.post('/:id/launch', async (c) => {
   const user = c.get('user')! as AuthUser
   const templateId = c.req.param('id')
   const decodedId = decodeURIComponent(templateId)
 
-  const template = await getTemplateByIdWithCustom(decodedId, user)
+  const template = getTemplateById(decodedId)
 
   if (!template) {
-    return c.json({ error: 'Template not found', templateId: decodedId }, 404)
+    return c.json({ error: 'Example not found', templateId: decodedId }, 404)
   }
 
   if (!template.enabled) {
-    return c.json({ error: 'Template is disabled', templateId: decodedId }, 400)
+    return c.json({ error: 'Example is disabled', templateId: decodedId }, 400)
   }
 
   // Parse and validate request body
@@ -692,7 +611,7 @@ templatesRoute.post('/:id/launch', async (c) => {
   try {
     await db.insert(projects).values(projectData)
   } catch (err) {
-    console.error('[templates] Failed to create project:', err)
+    console.error('[examples] Failed to create project:', err)
     return c.json({ error: 'Failed to create project' }, 500)
   }
 
@@ -732,21 +651,19 @@ templatesRoute.post('/:id/launch', async (c) => {
 })
 
 /**
- * POST /api/templates/:id/preview
+ * POST /api/examples/:id/preview
  *
- * Preview what a template launch would produce without actually creating anything.
+ * Preview what an example launch would produce without actually creating anything.
  * Returns the interpolated prompts and project configuration.
- * Supports both built-in and custom templates.
  */
-templatesRoute.post('/:id/preview', async (c) => {
-  const user = c.get('user')! as AuthUser
+examplesRoute.post('/:id/preview', async (c) => {
   const templateId = c.req.param('id')
   const decodedId = decodeURIComponent(templateId)
 
-  const template = await getTemplateByIdWithCustom(decodedId, user)
+  const template = getTemplateById(decodedId)
 
   if (!template) {
-    return c.json({ error: 'Template not found', templateId: decodedId }, 404)
+    return c.json({ error: 'Example not found', templateId: decodedId }, 404)
   }
 
   let body: { parameters: Record<string, unknown> }
@@ -792,63 +709,5 @@ templatesRoute.post('/:id/preview', async (c) => {
     parallelizationConfig: template.parallelization,
   })
 })
-// ============================================================================
-// Helper Functions
-// ============================================================================
 
-/**
- * Convert a database row to a UseCaseTemplate
- */
-function dbRowToTemplate(row: typeof customTemplates.$inferSelect): UseCaseTemplate {
-  return {
-    id: `custom/${row.id}`,
-    name: row.name,
-    description: row.description,
-    category: row.category as UseCaseTemplate['category'],
-    version: row.version,
-    icon: row.icon ?? undefined,
-    tags: row.tags ?? [],
-    maturity: (row.maturity as UseCaseTemplate['maturity']) ?? 'stable',
-    requiredParameters: (row.requiredParameters ?? []) as UseCaseParameter[],
-    optionalParameters: (row.optionalParameters ?? []) as UseCaseParameter[],
-    prompts: row.prompts as UseCaseTemplate['prompts'],
-    execution: row.execution as UseCaseTemplate['execution'],
-    parallelization: row.parallelization as UseCaseTemplate['parallelization'],
-    planHints: row.planHints as UseCaseTemplate['planHints'],
-    source: 'custom',
-    enabled: row.enabled,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  }
-}
-
-/**
- * Get a template by ID, supporting both built-in and custom templates.
- * Custom templates have IDs prefixed with 'custom/'.
- */
-async function getTemplateByIdWithCustom(decodedId: string, user: AuthUser): Promise<UseCaseTemplate | undefined> {
-  // Check if this is a custom template
-  if (decodedId.startsWith('custom/')) {
-    const customId = decodedId.replace('custom/', '')
-    const [row] = await db.select().from(customTemplates).where(
-      and(
-        eq(customTemplates.id, customId),
-        or(
-          eq(customTemplates.authorId, user.id),
-          user.teamId ? eq(customTemplates.teamId, user.teamId) : isNull(customTemplates.teamId)
-        )
-      )
-    )
-
-    if (row) {
-      return dbRowToTemplate(row)
-    }
-    return undefined
-  }
-
-  // Look up built-in template
-  return getTemplateById(decodedId)
-}
-
-
-export { templatesRoute }
+export { examplesRoute }

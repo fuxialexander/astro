@@ -13,11 +13,11 @@ import {
 } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
-import { useTemplateStore } from "@/stores/template-store"
+import { useExampleStore } from "@/stores/example-store"
 import { cn } from "@/lib/utils"
 import { ChevronDown, ChevronRight, FolderOpen } from "lucide-react"
 
-interface TemplateParameterFormProps {
+interface ExampleParameterFormProps {
   /** Parameters to render in the form */
   parameters: UseCaseParameter[]
   /** Current parameter values */
@@ -31,7 +31,7 @@ interface TemplateParameterFormProps {
 }
 
 /**
- * TemplateParameterForm - Dynamic form for template parameters
+ * ExampleParameterForm - Dynamic form for template parameters
  *
  * Features:
  * - Auto-generates form from UseCaseParameter[] schema
@@ -43,15 +43,15 @@ interface TemplateParameterFormProps {
  * - Error display per field
  * - Display groups for parameter organization
  */
-export function TemplateParameterForm({
+export function ExampleParameterForm({
   parameters,
   values,
   errors,
   onChange,
   defaultExpandAdvanced = false,
-}: TemplateParameterFormProps) {
+}: ExampleParameterFormProps) {
   const [expandedAdvanced, setExpandedAdvanced] = useState(defaultExpandAdvanced)
-  const validateParameters = useTemplateStore((s) => s.validateParameters)
+  const validateParameters = useExampleStore((s) => s.validateParameters)
 
   // Group parameters by required/optional
   const { requiredParams, optionalParams } = useMemo(() => {
@@ -186,7 +186,7 @@ export function TemplateParameterForm({
               {Array.from(groupedOptional.entries()).map(([groupName, params]) => (
                 <ParameterGroup
                   key={groupName}
-    
+
                   parameters={params}
                   values={values}
                   errors={errors}

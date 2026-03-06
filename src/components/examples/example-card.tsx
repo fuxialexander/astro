@@ -12,7 +12,7 @@ import {
 import type { UseCaseTemplateSummary } from "@astro/core/templates"
 import { cn } from "@/lib/utils"
 
-interface TemplateCardProps {
+interface ExampleCardProps {
   template: UseCaseTemplateSummary & {
     isOwner?: boolean
     canEdit?: boolean
@@ -50,7 +50,7 @@ function getDifficultyFromParams(count: number): { label: string; className: str
   return { label: 'Advanced', className: 'text-error' }
 }
 
-export function TemplateCard({ template, onClick, onEdit, onDelete }: TemplateCardProps) {
+export function ExampleCard({ template, onClick, onEdit, onDelete }: ExampleCardProps) {
   const maturity = template.maturity ?? 'stable'
   const maturityStyle = maturityConfig[maturity] ?? maturityConfig.stable
   const difficulty = getDifficultyFromParams(template.parameterCount)
