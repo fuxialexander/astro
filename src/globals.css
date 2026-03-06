@@ -313,23 +313,27 @@
       and could interfere with browser scroll restoration on other platforms.
    ═══════════════════════════════════════════════════════════════════════════ */
 html {
-  /* Prevent the document itself from scrolling — all scrolling happens inside
-     app containers (AppLayout/MobileLayout use h-dvh + overflow-auto). */
-  overflow: hidden;
   overscroll-behavior: none;
-  height: 100%;
   width: 100%;
   /* Must match body background so the safe-area region behind the iOS home
      indicator (bottom bar) is filled correctly in standalone PWA mode. */
   background-color: var(--background);
 }
 
-/* iOS-only: position: fixed prevents iOS Safari from force-scrolling the html
-   element when inputs are focused. overflow: hidden alone does not reliably
-   prevent this on iOS WebKit. Applied by useIOSKeyboardFix hook. */
+/* Desktop (md+): locked app-shell layout — scrolling inside containers */
+@media (min-width: 768px) {
+  html, body, #root {
+    overflow: hidden;
+    height: 100%;
+  }
+}
+
+/* Mobile: let the document scroll naturally so Safari collapses its toolbar.
+   Only lock when the virtual keyboard is open. */
 html.ios-viewport-fix {
   position: fixed;
   inset: 0;
+  overflow: hidden;
 }
 
 /* When virtual keyboard is open on mobile, hide the bottom tab bar and
@@ -342,16 +346,10 @@ html[data-keyboard-open] .mobile-main-content {
 }
 
 body {
-  overflow: hidden;
   overscroll-behavior: none;
-  height: 100%;
   background-color: var(--background);
   color: var(--foreground);
   font-family: "DM Sans", sans-serif;
-}
-
-#root {
-  height: 100%;
 }
 
 /* Timeline bar drag handles */

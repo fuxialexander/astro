@@ -54,16 +54,12 @@ export function MobileLayout() {
 
   return (
     <div
-      className="relative md:hidden"
-      style={{
-        paddingTop: 'env(safe-area-inset-top)',
-        // Shrink by keyboard height so flex children (including bottom inputs) stay visible
-        height: 'calc(100dvh - var(--keyboard-height, 0px))',
-      }}
+      className="md:hidden"
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
     >
-      {/* Content scrolls freely; bottom padding reserves space so last items
-          aren't hidden behind the floating tab bar */}
-      <main className="mobile-main-content h-full overflow-y-auto pb-20">
+      {/* Content flows naturally — the document body scrolls, which lets
+          Safari collapse its toolbar. Bottom padding clears the floating tab bar. */}
+      <main className="mobile-main-content pb-20">
         <Outlet />
       </main>
 
