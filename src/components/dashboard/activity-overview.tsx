@@ -24,7 +24,6 @@ interface ActivityOverviewProps {
 
 const DAY_LABELS = ["", "Mon", "", "Wed", "", "Fri", ""]
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-const SHORT_DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
 function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
@@ -175,112 +174,80 @@ function DayMonthGrid({ data }: { data: DailyActivity[] }) {
   )
 }
 
-// ── Hours × Day view ────────────────────────────────────────────────
+// ── Hours × Day view (3 weekly panels) ──────────────────────────────
 
-const HOUR_LABEL_WIDTH = 48
 const HOUR_CELL = 11
 const HOUR_GAP = 2
 
-function HoursDayGrid({ data, hourlyData }: { data: DailyActivity[]; hourlyData: HourlyActivity[] }) {
-  const { days, maxCount } = useMemo(() => {
+function HoursDayGrid({ hourlyData }: { hourlyData: HourlyActivity[] }) {
+  const { weeks, maxCount, lookup } = useMemo(() => {
     const today = new Date()
-    const daysList: string[] = []
-    for (let i = 13; i >= 0; i--) {
-      const d = new Date(today)
-      d.setDate(d.getDate() - i)
-      daysList.push(toDateStr(d))
+    const currentSunday = new Date(today)
+    currentSunday.setDate(currentSunday.getDate() - currentSunday.getDay())
+
+    const weeksList: string[][] = []
+    for (let w = 2; w >= 0; w--) {
+      const weekStart = new Date(currentSunday)
+      weekStart.setDate(weekStart.getDate() - w * 7)
+      const days: string[] = []
+      for (let d = 0; d < 7; d++) {
+        const day = new Date(weekStart)
+        day.setDate(day.getDate() + d)
+        days.push(toDateStr(day))
+      }
+      weeksList.push(days)
     }
 
-    // Build lookup: "YYYY-MM-DD:HH" → count
-    const lookup = new Map<string, number>()
-    for (const h of hourlyData) {
-      lookup.set(`${h.date}:${h.hour}`, h.tasksCompleted)
-    }
-
-    // Also aggregate daily data as fallback if hourly is empty
+    const m = new Map<string, number>()
     let max = 0
     for (const h of hourlyData) {
+      m.set(`${h.date}:${h.hour}`, h.tasksCompleted)
       if (h.tasksCompleted > max) max = h.tasksCompleted
     }
-    if (max === 0) {
-      // Fallback: use daily data spread evenly (won't have hour resolution)
-      for (const d of data) {
-        if (d.tasksCompleted > max) max = d.tasksCompleted
-      }
-    }
 
-    return { days: daysList, maxCount: Math.max(1, max), lookup }
-  }, [data, hourlyData])
-
-  const lookup = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const h of hourlyData) {
-      m.set(`${h.date}:${h.hour}`, h.tasksCompleted)
-    }
-    return m
+    return { weeks: weeksList, maxCount: Math.max(1, max), lookup: m }
   }, [hourlyData])
 
-  // Hour labels: show every 3 hours
   const hours = Array.from({ length: 24 }, (_, i) => i)
+  // Grid pixel width for one week panel
+  const gridW = 24 * (HOUR_CELL + HOUR_GAP) - HOUR_GAP
 
   return (
-    <div className="flex flex-col gap-1">
-      {/* Hour labels row */}
-      <div className="flex" style={{ marginLeft: HOUR_LABEL_WIDTH }}>
-        {hours.map((h) => (
-          <div
-            key={h}
-            className="text-[9px] text-muted-foreground/50 leading-none text-center"
-            style={{ width: HOUR_CELL + HOUR_GAP }}
-          >
-            {h % 3 === 0 ? formatHour(h) : ""}
+    <div className="flex justify-center">
+      <div className="inline-flex" style={{ gap: HOUR_GAP * 4 }}>
+        {weeks.map((days, wi) => (
+          <div key={wi} className="flex flex-col" style={{ gap: HOUR_GAP }}>
+            {days.map((dateStr) => (
+              <div key={dateStr} className="flex" style={{ gap: HOUR_GAP }}>
+                {hours.map((h) => {
+                  const count = lookup.get(`${dateStr}:${h}`) ?? 0
+                  const intensity = count / maxCount
+                  return (
+                    <Tooltip key={h}>
+                      <TooltipTrigger asChild>
+                        <div
+                          className={cn(
+                            "rounded-[2px] transition-opacity hover:opacity-70 cursor-default",
+                            getIntensityClass(intensity, count),
+                          )}
+                          style={{ width: HOUR_CELL, height: HOUR_CELL }}
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">
+                        <strong>{count}</strong> task{count !== 1 ? "s" : ""} — {formatDateLabel(dateStr)}, {formatHour(h)}
+                      </TooltipContent>
+                    </Tooltip>
+                  )
+                })}
+              </div>
+            ))}
+            {/* Minimal week label below each panel */}
+            <div className="text-[9px] text-muted-foreground/40 text-center" style={{ width: gridW }}>
+              {wi === 2 ? "This week" : wi === 1 ? "Last week" : "2 weeks ago"}
+            </div>
           </div>
         ))}
       </div>
-
-      {/* Rows: one per day */}
-      {days.map((dateStr) => {
-        const d = new Date(dateStr + "T00:00:00")
-        const dayName = SHORT_DAY_NAMES[d.getDay()]
-        const dayNum = d.getDate()
-        const monthAbbr = MONTH_NAMES[d.getMonth()]
-
-        return (
-          <div key={dateStr} className="flex items-center">
-            {/* Day label */}
-            <div
-              className="text-[9px] text-muted-foreground/40 leading-none shrink-0 text-right pr-1.5"
-              style={{ width: HOUR_LABEL_WIDTH }}
-            >
-              {dayName} {monthAbbr} {dayNum}
-            </div>
-
-            {/* Hour cells */}
-            <div className="flex" style={{ gap: HOUR_GAP }}>
-              {hours.map((h) => {
-                const count = lookup.get(`${dateStr}:${h}`) ?? 0
-                const intensity = count / maxCount
-                return (
-                  <Tooltip key={h}>
-                    <TooltipTrigger asChild>
-                      <div
-                        className={cn(
-                          "rounded-[2px] transition-opacity hover:opacity-70 cursor-default",
-                          getIntensityClass(intensity, count),
-                        )}
-                        style={{ width: HOUR_CELL, height: HOUR_CELL }}
-                      />
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-xs">
-                      <strong>{count}</strong> task{count !== 1 ? "s" : ""} — {formatDateLabel(dateStr)}, {formatHour(h)}
-                    </TooltipContent>
-                  </Tooltip>
-                )
-              })}
-            </div>
-          </div>
-        )
-      })}
     </div>
   )
 }
@@ -323,7 +290,7 @@ export function ActivityOverview({ data, hourlyData = [], className }: ActivityO
         </div>
 
         {mode === "hours" ? (
-          <HoursDayGrid data={data} hourlyData={hourlyData} />
+          <HoursDayGrid hourlyData={hourlyData} />
         ) : (
           <DayMonthGrid data={data} />
         )}

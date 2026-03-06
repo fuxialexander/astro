@@ -154,131 +154,77 @@ function InlineMachineName({ machineId, name, fallback }: {
   )
 }
 
-function ConnectedMachinesCard({ machines, onRemove, onMachineClick }: {
-  machines: MachineEntry[]
+function ConnectedMachineCard({ machine, onRemove, onMachineClick }: {
+  machine: MachineEntry
   onRemove?: (machineId: string) => void
   onMachineClick?: (machine: MachineEntry) => void
 }) {
-  const [confirmingMachine, setConfirmingMachine] = useState<MachineEntry | null>(null)
+  const loadPercent = Math.round(machine.load.cpuPercent)
+  const loadColor = loadPercent > 75 ? "bg-warning" : "bg-info"
+  const resourceSummary = formatResourceSummary(machine.resources)
 
   return (
-    <Card>
-      <div className="flex items-center justify-between p-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-teal-600/8 dark:bg-teal-500/10">
-            <Globe className="h-5 w-5 text-teal-700 dark:text-teal-400" />
+    <Card
+      className="cursor-pointer hover:shadow-[0_4px_16px_-4px_rgba(0,0,0,0.1)] transition-shadow duration-200"
+      onClick={() => onMachineClick?.(machine)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter') onMachineClick?.(machine) }}
+    >
+      <div className="flex flex-col gap-3 p-4">
+        {/* Name + status */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="h-2 w-2 rounded-full bg-teal-500 shrink-0" />
+            <InlineMachineName machineId={machine.machineId} name={machine.name} fallback={machine.machineId} />
           </div>
-          <div>
-            <p className="font-medium">Connected</p>
-            <p className="text-xs text-muted-foreground">
-              {machines.length} machine{machines.length !== 1 ? "s" : ""} via agent runner relay
-            </p>
-          </div>
-        </div>
-        <Badge className="gap-1.5 bg-success/10 text-success border-0">
-          <span className="h-1.5 w-1.5 rounded-full bg-success" />
-          {machines.length} active
-        </Badge>
-      </div>
-      <div className="flex flex-col gap-2 px-6 pb-6">
-        {machines.map((machine) => {
-          const loadPercent = Math.round(machine.load.cpuPercent)
-          const loadColor = loadPercent > 75 ? "bg-warning" : "bg-info"
-          const resourceSummary = formatResourceSummary(machine.resources)
-
-          return (
-            <div
-              key={machine.machineId}
-              className="flex flex-col gap-2.5 rounded-lg bg-muted hover:bg-muted/80 transition-colors p-3 cursor-pointer"
-              onClick={() => onMachineClick?.(machine)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => { if (e.key === 'Enter') onMachineClick?.(machine) }}
-            >
-              {/* Name + status row */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="h-2 w-2 rounded-full bg-teal-500 shrink-0" />
-                  <div className="flex flex-col gap-0 min-w-0">
-                    <InlineMachineName machineId={machine.machineId} name={machine.name} fallback={machine.machineId} />
-                    {resourceSummary && (
-                      <span className="text-[11px] text-muted-foreground truncate">{resourceSummary}</span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <span className="text-[11px] text-muted-foreground">{loadPercent}%</span>
-                  <div className="h-1 w-16 rounded-sm bg-background overflow-hidden">
-                    <div
-                      className={`h-full rounded-sm ${loadColor} transition-all duration-500`}
-                      style={{ width: `${Math.min(loadPercent, 100)}%` }}
-                    />
-                  </div>
-                  {onRemove && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 text-muted-foreground hover:text-destructive hidden md:flex"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setConfirmingMachine(machine)
-                      }}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  )}
-                </div>
-              </div>
-              {/* Badges: agent providers only */}
-              <div className="flex flex-wrap gap-1">
-                {machine.providers.map((p) => (
-                  <span
-                    key={p.type}
-                    className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
-                      p.status === "available"
-                        ? "text-success bg-success/10"
-                        : "text-muted-foreground bg-muted/50"
-                    }`}
-                  >
-                    {providerDisplayName[p.type] ?? p.type}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Unregister confirmation dialog */}
-      <Dialog open={!!confirmingMachine} onOpenChange={(open) => { if (!open) setConfirmingMachine(null) }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Unregister Machine</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to unregister{" "}
-              <span className="font-medium text-foreground">{confirmingMachine?.name || confirmingMachine?.machineId}</span>?
-              The machine will need to re-authenticate to reconnect.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setConfirmingMachine(null)}>
-              Cancel
-            </Button>
+          {onRemove && (
             <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => {
-                if (confirmingMachine) {
-                  onRemove?.(confirmingMachine.machineId)
-                  setConfirmingMachine(null)
-                }
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 text-muted-foreground hover:text-destructive hidden md:flex"
+              onClick={(e) => {
+                e.stopPropagation()
+                onRemove(machine.machineId)
               }}
             >
-              Unregister
+              <Trash2 className="h-3 w-3" />
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          )}
+        </div>
+
+        {/* Resources */}
+        {resourceSummary && (
+          <span className="text-[11px] text-muted-foreground truncate">{resourceSummary}</span>
+        )}
+
+        {/* Load bar */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] text-muted-foreground">{loadPercent}% CPU</span>
+          <div className="flex-1 h-1 rounded-sm bg-muted overflow-hidden">
+            <div
+              className={`h-full rounded-sm ${loadColor} transition-all duration-500`}
+              style={{ width: `${Math.min(loadPercent, 100)}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Provider badges */}
+        <div className="flex flex-wrap gap-1">
+          {machine.providers.map((p) => (
+            <span
+              key={p.type}
+              className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
+                p.status === "available"
+                  ? "text-success bg-success/10"
+                  : "text-muted-foreground bg-muted/50"
+              }`}
+            >
+              {providerDisplayName[p.type] ?? p.type}
+            </span>
+          ))}
+        </div>
+      </div>
     </Card>
   )
 }
@@ -330,7 +276,7 @@ function RegisteredMachinesCard({ machines, liveMachineIds, onRefresh }: {
         {offlineMachines.map((machine) => (
           <div
             key={machine.id}
-            className="flex items-center justify-between rounded-lg bg-muted/50 p-3"
+            className="flex items-center justify-between rounded-xl bg-muted/30 p-3"
           >
             <div className="flex items-center gap-2 min-w-0">
               <div className="h-2 w-2 rounded-full bg-muted-foreground shrink-0" />
@@ -473,8 +419,8 @@ function LocalBackendsCard({ backends, onBackendClick, title, subtitle }: { back
             <button
               key={b.id}
               type="button"
-              className={`flex items-center justify-between rounded-lg p-3 w-full text-left cursor-pointer transition-colors ${
-                isUnreachable ? "bg-muted/50 opacity-60 hover:opacity-80" : "bg-muted hover:bg-muted/80"
+              className={`flex items-center justify-between rounded-xl p-3 w-full text-left cursor-pointer transition-all duration-200 ${
+                isUnreachable ? "bg-muted/30 opacity-60 hover:opacity-80" : "bg-muted/50 hover:bg-muted/80"
               }`}
               onClick={() => onBackendClick?.(b)}
             >
@@ -530,6 +476,7 @@ export function Environments() {
   const [selectedMachine, setSelectedMachine] = useState<RegisteredMachine | null>(null)
   const [machineDetailDialogOpen, setMachineDetailDialogOpen] = useState(false)
   const [detailLiveMachine, setDetailLiveMachine] = useState<MachineEntry | undefined>(undefined)
+  const [confirmingUnregister, setConfirmingUnregister] = useState<{ machineId: string; name: string } | null>(null)
   const fetchRemoteBackendDetail = useExecutionStore((s) => s.fetchRemoteBackendDetail)
 
   // Fetch backend detail from the relay's machine registry (unified path for all modes)
@@ -635,7 +582,7 @@ export function Environments() {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-8 md:px-10">
+    <div className="flex flex-col gap-6 p-4 md:p-8 md:px-10 max-w-[1100px] mx-auto w-full">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-1">
@@ -708,12 +655,15 @@ export function Environments() {
             </p>
           </div>
           <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Connected</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <ConnectedMachinesCard
-              machines={connectedLiveMachines}
-              onRemove={(id) => revokeMachine(id)}
-              onMachineClick={handleMachineClick}
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {connectedLiveMachines.map((machine) => (
+              <ConnectedMachineCard
+                key={machine.machineId}
+                machine={machine}
+                onRemove={(id) => setConfirmingUnregister({ machineId: id, name: machine.name || machine.machineId })}
+                onMachineClick={handleMachineClick}
+              />
+            ))}
           </div>
         </div>
       )}
@@ -814,6 +764,37 @@ export function Environments() {
         machine={selectedMachine}
         liveMachine={detailLiveMachine}
       />
+
+      {/* Unregister confirmation dialog */}
+      <Dialog open={!!confirmingUnregister} onOpenChange={(open) => { if (!open) setConfirmingUnregister(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Unregister Machine</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to unregister{" "}
+              <span className="font-medium text-foreground">{confirmingUnregister?.name}</span>?
+              The machine will need to re-authenticate to reconnect.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setConfirmingUnregister(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                if (confirmingUnregister) {
+                  revokeMachine(confirmingUnregister.machineId)
+                  setConfirmingUnregister(null)
+                }
+              }}
+            >
+              Unregister
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   )

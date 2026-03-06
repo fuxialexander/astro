@@ -176,7 +176,7 @@ function WorkdirBar({ project }: { project: Project }) {
   return (
     <>
       <RepoConfigDialog open={repoOpen} onOpenChange={setRepoOpen} project={project} />
-      <div className="flex items-center gap-2 border-b border-border px-3 md:px-6 h-8 shrink-0 bg-muted/30 text-xs">
+      <div className="flex items-center gap-2 border-b border-border/60 px-3 md:px-6 h-8 shrink-0 bg-muted/20 text-xs">
         {hasWorkdir ? (
           <>
             <button
@@ -408,7 +408,7 @@ function ResizableChatPanel({
 
   return (
     <div
-      className={cn("flex shrink-0", isRight ? "flex-row border-l border-border" : "flex-col border-t border-border")}
+      className={cn("flex shrink-0", isRight ? "flex-row border-l border-border/60" : "flex-col border-t border-border/60")}
       style={isRight ? { width: size } : { height: size }}
     >
       {/* Drag handle */}
@@ -1800,7 +1800,7 @@ export function PlanView() {
   return (
     <div className="flex h-dvh md:h-full flex-col">
       {/* Header: project identity + Plan|Overview toggle + view mode + actions */}
-      <header className="flex items-center gap-2 md:gap-3 border-b border-border px-2 md:px-6 h-11 md:h-14 shrink-0">
+      <header className="flex items-center gap-2 md:gap-3 border-b border-border/60 px-2 md:px-6 h-11 md:h-14 shrink-0">
         {/* Mobile back button */}
         <button
           onClick={() => navigate('/projects')}

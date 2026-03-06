@@ -291,7 +291,7 @@ export function OverviewTab({
             />
           </div>
           {milestones.length === 0 ? (
-            <div className="flex items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 p-6">
+            <div className="flex items-center justify-center rounded-xl border border-dashed border-border/50 bg-muted/20 p-6">
               <div className="flex flex-col items-center gap-2 text-center">
                 <Diamond className="h-8 w-8 text-muted-foreground" />
                 <p className="text-sm font-medium text-muted-foreground">No milestones yet</p>
@@ -308,7 +308,7 @@ export function OverviewTab({
                 return (
                   <div
                     key={milestone.id}
-                    className="flex items-start gap-3 rounded-lg bg-muted p-4 cursor-pointer hover:bg-muted/80 transition-colors"
+                    className="flex items-start gap-3 rounded-xl bg-muted/50 border border-border/40 p-4 cursor-pointer hover:bg-muted/70 hover:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.06)] transition-all duration-200"
                     onClick={() => handleMilestoneEdit(milestone)}
                   >
                     <Diamond className="h-5 w-5 text-primary shrink-0 mt-0.5" />
@@ -367,7 +367,7 @@ export function OverviewTab({
           </div>
           <div className="flex flex-col gap-2">
             <div
-              className="flex items-center gap-3 rounded-lg bg-muted p-3 px-4 cursor-pointer hover:bg-muted/80 transition-colors"
+              className="flex items-center gap-3 rounded-xl bg-muted/50 border border-border/40 p-3 px-4 cursor-pointer hover:bg-muted/70 hover:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.06)] transition-all duration-200"
               onClick={() => setVisionOpen(true)}
             >
               <FileText className="h-[18px] w-[18px] text-primary" />
@@ -383,7 +383,7 @@ export function OverviewTab({
             </div>
             {/* Show repository/directory item when configured */}
             {(project.workingDirectory || project.repository) && (
-              <div className="flex flex-col gap-2 rounded-lg bg-muted p-3 px-4">
+              <div className="flex flex-col gap-2 rounded-xl bg-muted/50 border border-border/40 p-3 px-4">
                 <div className="flex items-center gap-3 min-w-0">
                   <FolderGit2 className="h-[18px] w-[18px] text-primary shrink-0" />
                   <div className="flex-1 flex flex-col gap-0.5 min-w-0">
@@ -462,7 +462,7 @@ export function OverviewTab({
             {/* Show repository warning when NOT configured */}
             {!(project.workingDirectory || project.repository) && (
               <div
-                className="flex items-center gap-3 rounded-lg bg-warning/10 border border-warning/20 p-3 px-4 cursor-pointer hover:bg-warning/15 transition-colors"
+                className="flex items-center gap-3 rounded-xl bg-warning/10 border border-warning/20 p-3 px-4 cursor-pointer hover:bg-warning/15 transition-all duration-200"
                 onClick={() => setRepoOpen(true)}
               >
                 <FolderGit2 className="h-[18px] w-[18px] text-warning" />
@@ -479,7 +479,7 @@ export function OverviewTab({
             )}
             {/* Export project */}
             <div
-              className="flex items-center gap-3 rounded-lg bg-muted p-3 px-4 cursor-pointer hover:bg-muted/80 transition-colors"
+              className="flex items-center gap-3 rounded-xl bg-muted/50 border border-border/40 p-3 px-4 cursor-pointer hover:bg-muted/70 hover:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.06)] transition-all duration-200"
               onClick={() => {
                 const bundle = exportProject(project.id)
                 downloadBundle(bundle)
@@ -494,8 +494,8 @@ export function OverviewTab({
             {/* Share as link */}
             <div
               className={cn(
-                "flex items-center gap-3 rounded-lg bg-muted p-3 px-4 transition-colors",
-                sharing ? "opacity-60 cursor-wait" : "cursor-pointer hover:bg-muted/80"
+                "flex items-center gap-3 rounded-xl bg-muted/50 border border-border/40 p-3 px-4 transition-all duration-200",
+                sharing ? "opacity-60 cursor-wait" : "cursor-pointer hover:bg-muted/70 hover:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.06)]"
               )}
               onClick={async () => {
                 if (sharing) return
@@ -539,7 +539,7 @@ export function OverviewTab({
       </div>
 
       {/* Right Panel — Properties + Activity */}
-      <div className="flex w-[320px] shrink-0 flex-col border-l border-border bg-card">
+      <div className="flex w-[320px] shrink-0 flex-col border-l border-border/60 bg-card">
         {/* Properties */}
         <div className="flex flex-col gap-4 p-5">
           <h3 className="text-sm font-semibold">Properties</h3>

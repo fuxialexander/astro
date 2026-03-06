@@ -79,7 +79,7 @@ export const useStatsStore = create<StatsState>((set, get) => ({
     }
   },
 
-  loadHourly: async (days = 14) => {
+  loadHourly: async (days = 21) => {
     try {
       const data = await dataClient.getHourlyActivity(days)
       set({ hourlyData: data, hourlyLoaded: true })

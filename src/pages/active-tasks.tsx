@@ -183,7 +183,7 @@ function ProjectGroup({
   const [expanded, setExpanded] = useState(defaultExpanded)
 
   return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden">
+    <div className="rounded-xl border border-border/60 bg-card overflow-hidden shadow-[0_1px_8px_-2px_rgba(0,0,0,0.08)] hover:shadow-[0_4px_16px_-4px_rgba(0,0,0,0.1)] transition-shadow duration-200">
       {/* Project header */}
       <button
         type="button"
@@ -320,7 +320,7 @@ export function ActiveTasks() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-border shrink-0">
+      <div className="flex items-center justify-between px-4 md:px-8 py-4 border-b border-border/60 shrink-0">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-primary font-semibold text-foreground">Active</h1>
           {totalCount > 0 && (
@@ -335,10 +335,10 @@ export function ActiveTasks() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto px-4 md:px-6 py-4">
+      <div className="flex-1 overflow-auto px-4 md:px-8 py-6">
         {totalCount === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted/50">
               <Play className="h-5 w-5 text-muted-foreground" />
             </div>
             <div>
