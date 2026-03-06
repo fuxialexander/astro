@@ -49,19 +49,19 @@ try { mkdirSync(SCRATCH_DIR, { recursive: true }) } catch { /* ignore */ }
 // Validation schemas
 const chatSchema = z.object({
   message: z.string().min(1).max(50000),
-  sessionId: z.string().max(100).optional(),
-  streamId: z.string().max(200).optional(),
+  sessionId: z.string().max(100).nullish(),
+  streamId: z.string().max(200).nullish(),
   projectId: z.string().min(1).max(100),
-  visionDoc: z.string().max(100000).optional(),
-  model: z.string().max(100).optional(),
-  providerId: z.string().max(100).optional(),
-  planNodes: z.array(z.any()).max(1000).optional(),
-  planEdges: z.array(z.any()).max(1000).optional(),
-  selectedBackends: z.array(z.string().max(100)).max(20).optional(),
+  visionDoc: z.string().max(100000).nullish(),
+  model: z.string().max(100).nullish(),
+  providerId: z.string().max(100).nullish(),
+  planNodes: z.array(z.any()).max(1000).nullish(),
+  planEdges: z.array(z.any()).max(1000).nullish(),
+  selectedBackends: z.array(z.string().max(100)).max(20).nullish(),
   messages: z.array(z.object({
     role: z.enum(['user', 'assistant']),
     content: z.string().max(50000),
-  })).max(100).optional(),
+  })).max(100).nullish(),
 })
 
 /**
