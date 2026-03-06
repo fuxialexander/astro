@@ -1,7 +1,7 @@
 /**
- * Plan Chat Phase Component
+ * Plan Generation Component
  *
- * Full-height streaming activity view for interactive plan sessions.
+ * Full-height streaming activity view for interactive plan generation.
  * Subscribes to execution-store and realtime-store for events.
  * Renders activity blocks, inline approvals, and plan result card.
  */
