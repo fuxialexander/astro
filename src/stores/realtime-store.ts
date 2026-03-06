@@ -583,17 +583,58 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     }
   },
 
-  pushActivityEvent: (executionId: string, event: TaskActivityEvent) => {
-    set((state) => {
-      const streams = new Map(state.taskStreams)
-      const existing = streams.get(executionId) || createEmptyTaskStream(executionId)
-      streams.set(executionId, {
-        ...existing,
-        activityEvents: [...existing.activityEvents, event],
+  pushActivityEvent: (() => {
+    // Throttle text events to prevent React re-render on every token.
+    // Non-text events (tool_use, tool_result, etc.) flush immediately.
+    const pendingTextEvents = new Map<string, TaskActivityEvent[]>()
+    let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+    const flush = () => {
+      flushTimer = null
+      const entries = Array.from(pendingTextEvents.entries())
+      pendingTextEvents.clear()
+      if (entries.length === 0) return
+
+      set((state) => {
+        const streams = new Map(state.taskStreams)
+        for (const [eid, events] of entries) {
+          const existing = streams.get(eid) || createEmptyTaskStream(eid)
+          streams.set(eid, {
+            ...existing,
+            activityEvents: [...existing.activityEvents, ...events],
+          })
+        }
+        return { taskStreams: streams }
       })
-      return { taskStreams: streams }
-    })
-  },
+    }
+
+    return (executionId: string, event: TaskActivityEvent) => {
+      // Text events are throttled (high frequency, low urgency)
+      if (event.type === 'text') {
+        const existing = pendingTextEvents.get(executionId) || []
+        existing.push(event)
+        pendingTextEvents.set(executionId, existing)
+        if (!flushTimer) {
+          flushTimer = setTimeout(flush, 50)
+        }
+        return
+      }
+      // Non-text events: flush pending text first, then push immediately
+      if (flushTimer) {
+        clearTimeout(flushTimer)
+        flush()
+      }
+      set((state) => {
+        const streams = new Map(state.taskStreams)
+        const existing = streams.get(executionId) || createEmptyTaskStream(executionId)
+        streams.set(executionId, {
+          ...existing,
+          activityEvents: [...existing.activityEvents, event],
+        })
+        return { taskStreams: streams }
+      })
+    }
+  })(),
 }))
 
 /**

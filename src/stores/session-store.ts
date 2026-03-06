@@ -247,29 +247,44 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     dataClient.addSessionMessage(sessionId, newMessage).catch(() => {})
   },
 
-  appendToLastAssistantMessage: (sessionId, chunk) => {
-    const sessions = new Map(get().sessions)
-    const session = sessions.get(sessionId)
-    if (!session || session.messages.length === 0) return
+  appendToLastAssistantMessage: (() => {
+    // Throttled state updates: buffer incoming chunks and flush to Zustand
+    // at most every 50ms. Prevents React re-rendering on every single token
+    // which causes the "delay then bulk text" stutter during fast streaming.
+    const pendingChunks = new Map<string, string>()
+    let flushTimer: ReturnType<typeof setTimeout> | null = null
 
-    const lastMessage = session.messages[session.messages.length - 1]
-    if (lastMessage.role !== "assistant") return
+    const flush = () => {
+      flushTimer = null
+      const entries = Array.from(pendingChunks.entries())
+      pendingChunks.clear()
+      if (entries.length === 0) return
 
-    const updatedMessages = [...session.messages]
-    updatedMessages[updatedMessages.length - 1] = {
-      ...lastMessage,
-      content: lastMessage.content + chunk,
+      const sessions = new Map(get().sessions)
+      for (const [sid, buffered] of entries) {
+        const session = sessions.get(sid)
+        if (!session || session.messages.length === 0) continue
+        const lastMessage = session.messages[session.messages.length - 1]
+        if (lastMessage.role !== "assistant") continue
+
+        const updatedMessages = [...session.messages]
+        updatedMessages[updatedMessages.length - 1] = {
+          ...lastMessage,
+          content: lastMessage.content + buffered,
+        }
+        sessions.set(sid, { ...session, messages: updatedMessages, updatedAt: new Date() })
+      }
+      set({ sessions })
     }
 
-    sessions.set(sessionId, {
-      ...session,
-      messages: updatedMessages,
-      updatedAt: new Date(),
-    })
-    set({ sessions })
-    // Debounce during streaming for performance
-
-  },
+    return (sessionId: string, chunk: string) => {
+      const existing = pendingChunks.get(sessionId) || ''
+      pendingChunks.set(sessionId, existing + chunk)
+      if (!flushTimer) {
+        flushTimer = setTimeout(flush, 50)
+      }
+    }
+  })(),
 
   updateLastAssistantMessage: (sessionId, content, appliedMutations?) => {
     const sessions = new Map(get().sessions)
