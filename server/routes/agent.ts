@@ -16,8 +16,8 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, ProviderType } from '../types/relay.js'
 import { db } from '../lib/db/index.js'
-import { projects, environmentConfigs } from '../lib/db/schema.js'
-import { eq, isNull, and, or, inArray } from 'drizzle-orm'
+import { projects } from '../lib/db/schema.js'
+import { eq, isNull, and, or } from 'drizzle-orm'
 
 /** Verify the user has access to the given project (team-scoped). */
 async function verifyProjectAccess(projectId: string, user: AuthUser): Promise<boolean> {
@@ -36,38 +36,6 @@ async function verifyProjectAccess(projectId: string, user: AuthUser): Promise<b
 /** Scratch directory for text-only relay tasks (label suggestion, refine, etc.) */
 const SCRATCH_DIR = join(homedir(), '.astro', 'tmp')
 try { mkdirSync(SCRATCH_DIR, { recursive: true }) } catch { /* ignore */ }
-
-/**
- * Load and aggregate environment context for multiple compute backends.
- * Queries environmentConfigs for each backend and returns sectioned markdown.
- */
-async function loadEnvironmentContext(
-  userId: string,
-  backends: string[],
-  machineId?: string
-): Promise<string | undefined> {
-  if (backends.length === 0) return undefined
-  try {
-    const machineFilter = machineId
-      ? eq(environmentConfigs.machineId, machineId)
-      : isNull(environmentConfigs.machineId)
-    const rows = await db.select().from(environmentConfigs).where(
-      and(
-        eq(environmentConfigs.userId, userId),
-        inArray(environmentConfigs.backendId, backends),
-        machineFilter
-      )
-    )
-    if (rows.length === 0) return undefined
-    const sections = rows
-      .filter((r: { customContext?: string }) => r.customContext?.trim())
-      .map((r: { backendId: string; customContext: string }) => `### ${r.backendId} Environment\n${r.customContext}`)
-    return sections.length > 0 ? sections.join('\n\n') : undefined
-  } catch (err) {
-    console.warn('[agent] Failed to load environment context:', err)
-    return undefined
-  }
-}
 
 // Validation schemas
 const chatSchema = z.object({
@@ -425,9 +393,8 @@ agentRoute.post('/project-chat', async (c) => {
   // Resolve backends: body override > project setting
   const backends = selectedBackends ?? (project?.computeBackends as string[] | null) ?? undefined
   const chatSkills = skillManager.getBackendScopedSkillInjection(chatUser.teamId ?? null, backends) || undefined
-  const chatEnvContext = await loadEnvironmentContext(chatUser.id, backends ?? [], project?.defaultMachineId ?? undefined)
 
-  const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges, chatSkills, chatEnvContext)
+  const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges, chatSkills)
 
   // Persist user message for catch-up hydration
   await streamingEventLog.append(streamId || taskId, 'steer_message', { message })
@@ -511,7 +478,6 @@ agentRoute.post('/task-chat', async (c) => {
   // Resolve backends: body override > project setting
   const tcBackends = selectedBackends ?? (project?.computeBackends as string[] | null) ?? undefined
   const tcSkills = skillManager.getBackendScopedSkillInjection(taskChatUser.teamId ?? null, tcBackends) || undefined
-  const tcEnvContext = await loadEnvironmentContext(taskChatUser.id, tcBackends ?? [], project?.defaultMachineId ?? undefined)
 
   const systemPrompt = buildTaskChatSystemPrompt({
     taskTitle,
@@ -522,7 +488,6 @@ agentRoute.post('/task-chat', async (c) => {
     branchName: branchName || undefined,
     prUrl: prUrl || undefined,
     skillsInjection: tcSkills,
-    environmentContext: tcEnvContext,
   })
 
   // Persist user message for catch-up hydration
