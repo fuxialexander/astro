@@ -29,20 +29,15 @@ export function useIOSKeyboardFix() {
       /iPad|iPhone|iPod/.test(navigator.userAgent) ||
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
 
-    // iOS-specific: position: fixed on html to prevent document scrolling on focus
-    if (isIOS) {
-      document.documentElement.classList.add("ios-viewport-fix")
-    }
-
-    // Keyboard height tracking — works on iOS and Android
+    // Keyboard height tracking — works on iOS and Android.
+    // On iOS, we only apply position: fixed on html while the keyboard is open
+    // to prevent document scrolling on focus. When the keyboard is closed, we
+    // remove it so Safari can collapse its toolbar on scroll.
     const visualViewport = window.visualViewport
     if (visualViewport) {
-      const handleViewportChange = () => {
-        // iOS scroll reset: prevent document-level scrolling during viewport transitions
-        if (isIOS && (window.scrollX !== 0 || window.scrollY !== 0)) {
-          window.scrollTo(0, 0)
-        }
+      let wasKeyboardOpen = false
 
+      const handleViewportChange = () => {
         // Calculate keyboard height from visual viewport difference.
         // On iOS, visualViewport.offsetTop accounts for any shift (e.g. scroll into
         // view behavior). The keyboard height is the gap between the layout viewport
@@ -57,9 +52,24 @@ export function useIOSKeyboardFix() {
 
         if (isKeyboardOpen) {
           document.documentElement.setAttribute("data-keyboard-open", "")
+          if (isIOS) {
+            // Lock the document when keyboard opens to prevent iOS from
+            // force-scrolling the page. Reset any scroll that already happened.
+            document.documentElement.classList.add("ios-viewport-fix")
+            if (window.scrollX !== 0 || window.scrollY !== 0) {
+              window.scrollTo(0, 0)
+            }
+          }
         } else {
           document.documentElement.removeAttribute("data-keyboard-open")
+          if (isIOS && wasKeyboardOpen) {
+            // Unlock when keyboard closes so Safari can collapse its toolbar
+            // on normal scroll.
+            document.documentElement.classList.remove("ios-viewport-fix")
+          }
         }
+
+        wasKeyboardOpen = isKeyboardOpen
       }
 
       visualViewport.addEventListener("resize", handleViewportChange)
@@ -74,18 +84,6 @@ export function useIOSKeyboardFix() {
       }
     }
 
-    // Fallback for browsers without VisualViewport: just prevent scroll on iOS
-    if (isIOS) {
-      const preventDocumentScroll = () => {
-        if (window.scrollX !== 0 || window.scrollY !== 0) {
-          window.scrollTo(0, 0)
-        }
-      }
-      window.addEventListener("scroll", preventDocumentScroll)
-      return () => {
-        document.documentElement.classList.remove("ios-viewport-fix")
-        window.removeEventListener("scroll", preventDocumentScroll)
-      }
-    }
+    // No fallback needed — VisualViewport is supported on all modern iOS/Android browsers
   }, [])
 }
