@@ -187,12 +187,12 @@ export function KnowledgePanel({ projectId }: { projectId: string }) {
                           {isLongValue && (
                             <button
                               onClick={() => toggleExpand(entry.id)}
-                              className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
+                              className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground p-1 -m-1 min-h-[44px] min-w-[44px] flex items-center justify-center"
                             >
                               {isExpanded ? (
-                                <ChevronDown className="h-3.5 w-3.5" />
+                                <ChevronDown className="h-4 w-4" />
                               ) : (
-                                <ChevronRight className="h-3.5 w-3.5" />
+                                <ChevronRight className="h-4 w-4" />
                               )}
                             </button>
                           )}
@@ -222,10 +222,10 @@ export function KnowledgePanel({ projectId }: { projectId: string }) {
                           <button
                             onClick={() => handleDelete(entry.id)}
                             className={cn(
-                              "mt-0.5 shrink-0 transition-colors",
+                              "mt-0.5 shrink-0 transition-colors p-1 -m-1",
                               confirmDelete === entry.id
                                 ? "text-error"
-                                : "text-muted-foreground/0 group-hover:text-muted-foreground hover:text-error"
+                                : "text-muted-foreground/40 [@media(hover:hover)]:text-muted-foreground/0 [@media(hover:hover)]:group-hover:text-muted-foreground hover:text-error"
                             )}
                             title={confirmDelete === entry.id ? "Click again to confirm" : "Delete entry"}
                           >

@@ -174,14 +174,22 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   // Removed: syncWithProjectCount was hiding Tasks when < 2 projects
   // Tasks is always visible as the home route
 
+  const touchStartPos = useRef<{ x: number; y: number } | null>(null)
+
   const handleLongPressStart = useCallback((e: React.TouchEvent | React.MouseEvent) => {
+    const isTouch = "touches" in e
+    // Track touch start position to cancel on scroll
+    if (isTouch) {
+      const touch = e.touches[0]
+      touchStartPos.current = { x: touch.clientX, y: touch.clientY }
+    }
     longPressTimer.current = window.setTimeout(() => {
       setEditing(true)
       setShowHint(false)
       localStorage.setItem("sidebar-hint-dismissed", "1")
-    }, 500)
+    }, isTouch ? 800 : 500)
     // Prevent iOS Safari link preview / context menu on touch
-    if ("touches" in e) {
+    if (isTouch) {
       e.preventDefault()
     }
   }, [setEditing])
@@ -190,6 +198,20 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     if (longPressTimer.current) {
       window.clearTimeout(longPressTimer.current)
       longPressTimer.current = null
+    }
+    touchStartPos.current = null
+  }, [])
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    // Cancel long-press if finger moves more than 10px (user is scrolling)
+    if (longPressTimer.current && touchStartPos.current) {
+      const touch = e.touches[0]
+      const dx = touch.clientX - touchStartPos.current.x
+      const dy = touch.clientY - touchStartPos.current.y
+      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+        window.clearTimeout(longPressTimer.current)
+        longPressTimer.current = null
+      }
     }
   }, [])
 
@@ -433,6 +455,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
           onMouseUp={collapsed ? undefined : handleLongPressEnd}
           onMouseLeave={collapsed ? undefined : handleLongPressEnd}
           onTouchStart={collapsed ? undefined : handleLongPressStart}
+          onTouchMove={collapsed ? undefined : handleTouchMove}
           onTouchEnd={collapsed ? undefined : handleLongPressEnd}
           onContextMenu={collapsed ? undefined : (e) => e.preventDefault()}
         >

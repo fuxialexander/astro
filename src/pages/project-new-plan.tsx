@@ -682,7 +682,7 @@ export function ProjectNewPlan() {
 
   // ─── Input Phase ────────────────────────────────────────────────
   return (
-    <div className="flex flex-col items-center justify-start min-h-full p-4 md:p-6 overflow-auto">
+    <div className="flex flex-col items-center justify-start min-h-full p-4 md:p-6 overflow-auto" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 1rem)' }}>
       <div className="w-full max-w-2xl">
         <div className="text-center mb-8 mt-4 md:mt-8">
           <h1 className="text-xl md:text-2xl font-bold font-sans mb-2">

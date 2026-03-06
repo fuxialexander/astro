@@ -618,17 +618,17 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                         )}
                         <button
                           onClick={(e) => { e.stopPropagation(); handleEditSession(session); setSessionDropdownOpen(false) }}
-                          className="p-0.5 hover:bg-accent rounded opacity-60 hover:opacity-100 transition-opacity"
+                          className="p-1.5 hover:bg-accent rounded opacity-60 [@media(hover:hover)]:opacity-40 hover:opacity-100 transition-opacity"
                           title="Rename session"
                         >
-                          <Pencil className="h-3 w-3" />
+                          <Pencil className="h-3.5 w-3.5" />
                         </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.id) }}
-                          className="p-0.5 hover:bg-destructive/10 rounded opacity-60 hover:opacity-100 transition-opacity text-destructive"
+                          className="p-1.5 hover:bg-destructive/10 rounded opacity-60 [@media(hover:hover)]:opacity-40 hover:opacity-100 transition-opacity text-destructive"
                           title="Delete session"
                         >
-                          <Trash2 className="h-3 w-3" />
+                          <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </div>
                       <span className="text-[10px] text-muted-foreground truncate w-full pl-5">

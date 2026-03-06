@@ -110,7 +110,7 @@ export function TaskDetail() {
   const machineId = execution?.machineId || taskStream?.machineId || ""
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
       {/* Header */}
       <div className="flex items-center gap-3 md:gap-4 border-b border-border px-4 md:px-6 py-3 md:py-4">
         <Button variant="ghost" size="icon" className="h-8 w-8 md:h-9 md:w-9 shrink-0" onClick={() => {

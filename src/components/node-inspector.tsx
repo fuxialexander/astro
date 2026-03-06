@@ -586,11 +586,13 @@ export function NodeInspectorSheet(props: NodeInspectorProps & { open: boolean }
                 onDoubleClick={startRenaming}
               >
                 {node.title}
-                <Pencil
-                  className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/title:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer"
+                <button
+                  className="inline-flex items-center justify-center ml-1.5 p-1 -m-1 rounded opacity-40 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/title:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer"
                   onClick={(e) => { e.stopPropagation(); startRenaming() }}
                   aria-label="Rename task"
-                />
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
               </h3>
             )}
           </div>
@@ -640,11 +642,13 @@ export function NodeInspectorSidebar(props: NodeInspectorProps) {
             onDoubleClick={startRenaming}
           >
             {node.title}
-            <Pencil
-              className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/title:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer"
+            <button
+              className="inline-flex items-center justify-center ml-1.5 p-1 -m-1 rounded opacity-40 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/title:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer"
               onClick={(e) => { e.stopPropagation(); startRenaming() }}
               aria-label="Rename task"
-            />
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
           </h3>
         )}
         {node.executionId && (
