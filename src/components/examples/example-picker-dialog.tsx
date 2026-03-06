@@ -353,6 +353,12 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
       const result = await launchExample(projectName, workingDirectory || undefined, selectedMachine?.machineId, visionDoc, selectedProvider || undefined, effectiveModel)
 
       if (result) {
+        // Examples always run in YOLO mode — enable it automatically
+        const settingsStore = useSettingsStore.getState()
+        if (!settingsStore.yoloMode) {
+          settingsStore.setYoloMode(true)
+        }
+
         // Close dialog
         onOpenChange(false)
 
