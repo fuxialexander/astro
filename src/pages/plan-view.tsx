@@ -228,7 +228,7 @@ function WorkdirBar({ project }: { project: Project }) {
                 </span>
               )}
             </button>
-            <div className="flex items-center gap-1 ml-auto shrink-0">
+            <div className="hidden md:flex items-center gap-1 ml-auto shrink-0">
               <Badge
                 variant="outline"
                 className="cursor-pointer hover:bg-muted transition-colors text-[10px] h-5 px-1.5"
@@ -1798,9 +1798,9 @@ export function PlanView() {
   } : null
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-dvh md:h-full flex-col">
       {/* Header: project identity + Plan|Overview toggle + view mode + actions */}
-      <header className="flex items-center gap-2 md:gap-3 border-b border-border px-2 md:px-6 h-11 md:h-14 shrink-0" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+      <header className="flex items-center gap-2 md:gap-3 border-b border-border px-2 md:px-6 h-11 md:h-14 shrink-0">
         {/* Mobile back button */}
         <button
           onClick={() => navigate('/projects')}
