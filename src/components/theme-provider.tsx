@@ -95,6 +95,14 @@ export function ThemeProvider({ children, defaultTheme = "system" }: { children:
 
   useEffect(() => {
     applyTheme(theme, customThemes)
+
+    // Listen for system theme changes so "system" mode updates in real time
+    if (theme === "system") {
+      const mq = window.matchMedia("(prefers-color-scheme: dark)")
+      const handler = () => applyTheme("system", customThemes)
+      mq.addEventListener("change", handler)
+      return () => mq.removeEventListener("change", handler)
+    }
   }, [theme, customThemes])
 
   const registerTheme = useCallback((themeDef: ThemeDefinition) => {
