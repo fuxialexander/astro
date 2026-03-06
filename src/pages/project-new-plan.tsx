@@ -70,6 +70,7 @@ export function ProjectNewPlan() {
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
   const [pendingUploads, setPendingUploads] = useState(0)
   const [autoExecute, setAutoExecute] = useState(true)
+  const setYoloMode = useSettingsStore((s) => s.setYoloMode)
   const modelTier: ModelTier = "large"
 
   // Reset all form fields to initial state
@@ -956,7 +957,12 @@ export function ProjectNewPlan() {
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                onClick={() => setAutoExecute(!autoExecute)}
+                onClick={() => {
+                  const next = !autoExecute
+                  setAutoExecute(next)
+                  // YOLO on → also enable auto-approval; off → leave auto-approval as-is
+                  if (next) setYoloMode(true)
+                }}
                 className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
                   autoExecute
                     ? "bg-primary/15 text-primary border border-primary/30"

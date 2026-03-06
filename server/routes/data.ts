@@ -581,6 +581,17 @@ app.put('/plan/:projectId', async (c) => {
     edges: Array<Record<string, unknown>>
   }
 
+  // Deduplicate nodes by client ID (keep last occurrence)
+  const seenClientIds = new Set<string>()
+  const uniqueNodes: typeof newNodes = []
+  for (let i = newNodes.length - 1; i >= 0; i--) {
+    const cid = newNodes[i].id as string
+    if (!seenClientIds.has(cid)) {
+      seenClientIds.add(cid)
+      uniqueNodes.unshift(newNodes[i])
+    }
+  }
+
   // Transaction: delete existing, insert new with server-assigned numbers
   const numbers: Record<string, number> = {}
   await db.transaction(async (tx) => {
@@ -588,7 +599,7 @@ app.put('/plan/:projectId', async (c) => {
     await tx.delete(planNodes).where(eq(planNodes.projectId, projectId))
 
     let nextNumber = 1
-    for (const n of newNodes) {
+    for (const n of uniqueNodes) {
       const assignedNumber = nextNumber++
       const clientId = n.id as string
       numbers[clientId] = assignedNumber
