@@ -37,7 +37,6 @@ async function verifyProjectAccess(projectId: string, user: AuthUser): Promise<b
 const SCRATCH_DIR = join(homedir(), '.astro', 'tmp')
 try { mkdirSync(SCRATCH_DIR, { recursive: true }) } catch { /* ignore */ }
 
-
 // Validation schemas
 const chatSchema = z.object({
   message: z.string().min(1).max(50000),
