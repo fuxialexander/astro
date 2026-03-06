@@ -23,7 +23,7 @@ import {
   streamingEvents,
   projectKnowledge,
 } from '../lib/db/schema.js'
-import { eq, and, or, sql, desc, isNull, inArray } from 'drizzle-orm'
+import { eq, and, or, sql, desc, isNull, inArray, notInArray } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.js'
 import { isServerMode } from '../lib/app-mode.js'
@@ -592,11 +592,23 @@ app.put('/plan/:projectId', async (c) => {
     }
   }
 
-  // Transaction: delete existing, insert new with server-assigned numbers
+  // Transaction: upsert nodes/edges, delete removed ones
   const numbers: Record<string, number> = {}
   await db.transaction(async (tx) => {
-    await tx.delete(planEdges).where(eq(planEdges.projectId, projectId))
-    await tx.delete(planNodes).where(eq(planNodes.projectId, projectId))
+    const newNodeClientIds = uniqueNodes.map(n => n.id as string)
+    const newEdgeClientIds = newEdges.map(e => e.id as string)
+
+    // Delete nodes/edges no longer in the set
+    if (newEdgeClientIds.length > 0) {
+      await tx.delete(planEdges).where(and(eq(planEdges.projectId, projectId), notInArray(planEdges.clientId, newEdgeClientIds)))
+    } else {
+      await tx.delete(planEdges).where(eq(planEdges.projectId, projectId))
+    }
+    if (newNodeClientIds.length > 0) {
+      await tx.delete(planNodes).where(and(eq(planNodes.projectId, projectId), notInArray(planNodes.clientId, newNodeClientIds)))
+    } else {
+      await tx.delete(planNodes).where(eq(planNodes.projectId, projectId))
+    }
 
     let nextNumber = 1
     for (const n of uniqueNodes) {
@@ -605,7 +617,7 @@ app.put('/plan/:projectId', async (c) => {
       numbers[clientId] = assignedNumber
       const position = n.position as { x: number; y: number } | undefined
       const row = {
-        clientId, // Use client ID for compatibility
+        clientId,
         projectId,
         number: assignedNumber,
         type: n.type as string,
@@ -640,7 +652,42 @@ app.put('/plan/:projectId', async (c) => {
         createdAt: (typeof n.createdAt === 'string' || typeof n.createdAt === 'number') ? new Date(n.createdAt as string | number) : new Date(),
         updatedAt: (typeof n.updatedAt === 'string' || typeof n.updatedAt === 'number') ? new Date(n.updatedAt as string | number) : new Date(),
       }
-      await tx.insert(planNodes).values(row)
+      await tx.insert(planNodes).values(row).onConflictDoUpdate({
+        target: [planNodes.projectId, planNodes.clientId],
+        set: {
+          number: row.number,
+          type: row.type,
+          title: row.title,
+          description: row.description,
+          status: row.status,
+          parentId: row.parentId,
+          verification: row.verification,
+          positionX: row.positionX,
+          positionY: row.positionY,
+          startDate: row.startDate,
+          endDate: row.endDate,
+          priority: row.priority,
+          labelIds: row.labelIds,
+          dueDate: row.dueDate,
+          estimate: row.estimate,
+          milestoneId: row.milestoneId,
+          executionId: row.executionId,
+          executionOutput: row.executionOutput,
+          executionError: row.executionError,
+          executionStartedAt: row.executionStartedAt,
+          executionCompletedAt: row.executionCompletedAt,
+          branchName: row.branchName,
+          prUrl: row.prUrl,
+          prNumber: row.prNumber,
+          mergeQueueStatus: row.mergeQueueStatus,
+          autoPr: row.autoPr,
+          content: row.content,
+          attachments: row.attachments,
+          links: row.links,
+          acceptanceCriteria: row.acceptanceCriteria,
+          updatedAt: row.updatedAt,
+        },
+      })
     }
 
     for (const e of newEdges) {
@@ -650,6 +697,13 @@ app.put('/plan/:projectId', async (c) => {
         sourceClientId: e.source as string,
         targetClientId: e.target as string,
         type: (e.type as string) ?? 'dependency',
+      }).onConflictDoUpdate({
+        target: [planEdges.projectId, planEdges.clientId],
+        set: {
+          sourceClientId: e.source as string,
+          targetClientId: e.target as string,
+          type: (e.type as string) ?? 'dependency',
+        },
       })
     }
   })
