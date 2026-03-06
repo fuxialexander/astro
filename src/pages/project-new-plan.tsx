@@ -69,8 +69,11 @@ export function ProjectNewPlan() {
   const [visionDoc, setVisionDoc] = useState("")
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
   const [pendingUploads, setPendingUploads] = useState(0)
-  const [autoExecute, setAutoExecute] = useState(true)
+  const globalYolo = useSettingsStore((s) => s.yoloMode)
+  const [autoExecute, setAutoExecute] = useState(globalYolo)
   const setYoloMode = useSettingsStore((s) => s.setYoloMode)
+  // Keep plan page YOLO in sync when sidebar toggle changes
+  useEffect(() => { setAutoExecute(globalYolo) }, [globalYolo])
   const modelTier: ModelTier = "large"
 
   // Reset all form fields to initial state
@@ -963,8 +966,8 @@ export function ProjectNewPlan() {
                 onClick={() => {
                   const next = !autoExecute
                   setAutoExecute(next)
-                  // YOLO on → also enable auto-approval; off → leave auto-approval as-is
-                  if (next) setYoloMode(true)
+                  // Sync global YOLO with the plan page toggle
+                  setYoloMode(next)
                 }}
                 className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
                   autoExecute
