@@ -28,10 +28,17 @@ User opens Astro
     |       |                 "Add a testing phase after deployment"
     |       |                 Agent updates plan via mutations
     |       |
-    |       +---> [P5] Template Application (rare)
-    |               User applies pre-built template
-    |               One-shot structured JSON generation
-    |               Adds template nodes to existing project
+    |       +---> [P5] Template Application (DEAD CODE)
+    |               UseTemplateSheet was intended to apply templates
+    |               to existing plans via structured JSON generation,
+    |               but was never wired to any page
+    |
+    +---> Examples (/examples page)
+    |       |
+    |       +---> Click example card → TemplatePickerDialog
+    |               Configure params, machine, working dir
+    |               "Enter Plan Mode" → navigates to /plan with prefill
+    |               (uses Pathway 3, NOT Pathway 5)
     |
     +---> Plan View (plan-view page, existing project)
     |       |
@@ -81,12 +88,12 @@ User opens Astro
 
 ### Pair 1: Pathway 3 (Interactive Plan) vs Pathway 5 (Plan Generation)
 
-**These look similar but are fundamentally different. And critically: Pathway 5 is mostly dead code.**
+**These look similar but are fundamentally different. And critically: Pathway 5 is entirely dead code.**
 
 | | P3: Interactive Plan | P5: Plan Generation |
 |---|---|---|
 | **Frontend trigger** | `startPlanSession()` in execution-store | `generatePlan()` in api-client |
-| **Called from** | `project-new-plan.tsx` (primary plan creation page) | `use-template-sheet.tsx` (template application only) |
+| **Called from** | `project-new-plan.tsx` (primary plan creation page) | **NOWHERE** (see below) |
 | **API route** | `POST /api/dispatch/task` with `isInteractivePlan: true` | `POST /api/agent/generate-plan` |
 | **Backend handler** | `routes/dispatch.ts` | `routes/agent.ts` |
 | **Task type** | `execution` (full agentic) | `plan` (text-only, no tools) |
@@ -98,27 +105,39 @@ User opens Astro
 | **Prompt builder** | `buildInteractivePlanPrompt()` | `buildPlanSystemPrompt()` |
 | **Follow-up** | Transitions to Pathway 7 (plan-chat) | None |
 
-**Key insight: When a user creates a new plan in the Astro UI, they always use Pathway 3 (Interactive Plan), not Pathway 5.** Pathway 5 (`/api/agent/generate-plan`) is only used when applying a pre-built template to an existing project. The `startGeneration()` function in `agent-store.ts` that calls Pathway 5 is dead code -- never invoked from any UI component.
+**Key insight: Pathway 5 is entirely dead code.** Both callers of `generatePlan()` are unreachable:
 
-**The plan creation flow is:**
+1. **`UseTemplateSheet`** (`use-template-sheet.tsx`) -- this component calls `generatePlan()` to apply a template to an existing plan, but it is **never imported or rendered** by any page.
+2. **`startGeneration()`** in `agent-store.ts` -- this store function calls `generatePlan()` but is **never invoked** from any UI component.
+
+**What about Examples?** The UI has an **Examples page** (`/examples`) that shows curated example cards. Despite the underlying data model using "templates" in code, the UI calls them "Examples." The flow is:
+
 ```
-1. User on project-new-plan page
-2. Enters goal description + settings
-3. Clicks "Start"
-4. [P3] startPlanSession() dispatches to /api/dispatch/task with isInteractivePlan=true
-5. Agent brainstorms interactively (full tools, multi-turn)
-6. Server extracts plan JSON from agent output
-7. Plan nodes/edges appear in UI
-8. [P7] User can refine plan via plan-chat
-   "Add error handling to the auth flow"
-   Agent responds with plan mutations (astro-updates/astro-edges/astro-add-nodes)
+1. User opens Examples page (examples.tsx)
+2. Clicks an example card → opens TemplatePickerDialog (NOT UseTemplateSheet)
+3. Configures parameters, machine, working directory
+4. Clicks "Enter Plan Mode"
+5. Dialog resolves template description → navigates to /plan with prefilled form data
+6. User reviews prefilled goal on the plan creation page
+7. Clicks "Start Planning"
+8. [P3] startPlanSession() dispatches to /api/dispatch/task with isInteractivePlan=true
+9. Agent brainstorms interactively (full tools, multi-turn)
+10. Server extracts plan JSON from agent output
+11. Plan nodes/edges appear in UI
+12. [P7] User can refine plan via plan-chat
 ```
 
-**Should Pathway 5 be deprecated?** Not necessarily -- it serves a different purpose:
-- P3 is "brainstorm with full agent capabilities, then produce a plan" (expensive, slow, powerful)
-- P5 is "given a structured description, produce JSON plan quickly" (cheap, fast, limited)
-- P5 is useful for template application where the structure is already defined
-- But `startGeneration()` in agent-store should be cleaned up since it's never called
+**The Examples page uses Pathway 3 (Interactive Plan), not Pathway 5.** It pre-fills the plan creation form with the resolved template description, then lets the user trigger P3 as normal.
+
+**Should Pathway 5 be removed?** The backend route (`/api/agent/generate-plan`) works correctly and could be useful for a future "quick plan from template" feature. But all frontend callers are dead code:
+- `UseTemplateSheet` -- never rendered (was intended for applying templates to existing plans)
+- `startGeneration()` in agent-store -- never called
+- The Examples page uses `TemplatePickerDialog` → Plan page → P3 instead
+
+**Cleanup candidates:**
+- Remove `UseTemplateSheet` component (dead code)
+- Remove `startGeneration()` from `agent-store.ts` (dead code)
+- Keep `/api/agent/generate-plan` backend route (functional, may be useful later)
 
 ### Pair 2: Pathway 6 (Project Chat) vs Pathway 7 (Plan Chat)
 
@@ -184,13 +203,14 @@ The real differentiation is **frontend-side**:
 - **Skills:** Yes (Claude SDK only, HPC-specific compute backend skills)
 - **Stored:** streaming_events + taskExecutions
 
-#### P5: Plan Generation (structured)
-- **Page:** Template application sheet (use-template-sheet)
-- **Trigger:** User applies a template to an existing project
-- **User sees:** Brief loading state. Plan nodes/edges appear from template. No streaming visible to user.
-- **Duration:** 10-30 seconds
+#### P5: Plan Generation (structured) -- DEAD CODE
+- **Page:** Was intended for `UseTemplateSheet` (applying templates to existing plans)
+- **Trigger:** None -- `UseTemplateSheet` is never rendered; `startGeneration()` in agent-store is never called
+- **User sees:** N/A -- unreachable from UI. The **Examples page** uses `TemplatePickerDialog` → Plan page → Pathway 3 instead.
+- **Duration:** Would be 10-30 seconds if reachable
 - **Skills:** No (text-only fast path)
 - **Stored:** streaming_events
+- **Note:** Backend route `/api/agent/generate-plan` is functional; only frontend callers are dead
 
 #### P6: Project Chat
 - **Page:** Plan View (sidebar)
@@ -341,11 +361,9 @@ One-shot pathways (P9-P13) and fallbacks (P15-P16) don't need skills because the
 
 ### Could P3 replace P5 entirely?
 
-**P3 is the primary path.** P5 is only used for template application. P3 is more powerful (tools, multi-turn, skills) but slower and more expensive.
+**P3 already has.** P5 has zero active callers in the UI. The Examples page (the only user-facing "template" feature) pre-fills the Plan page form and uses P3. The `UseTemplateSheet` component that was meant to call P5 was never wired up.
 
-For template application, P5's structured one-shot approach is appropriate -- the template already defines the structure, and the AI just needs to fill in details. Using P3 for this would be wasteful.
-
-**Recommendation:** Keep both, but mark P5 as "template-only" and clean up the dead `startGeneration()` code in `agent-store.ts`.
+**Recommendation:** Clean up the dead frontend code (`UseTemplateSheet`, `startGeneration()`). Keep the backend route `/api/agent/generate-plan` -- it's functional and could serve a future "quick structured plan" feature, but it's not exposed to users today.
 
 ### Could P10-P13 share an implementation?
 
