@@ -350,6 +350,10 @@ body {
   font-family: "DM Sans", sans-serif;
 }
 
+#root {
+  height: 100%;
+}
+
 /* Timeline bar drag handles */
 .timeline-bar .drag-handle {
   opacity: 0;

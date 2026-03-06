@@ -57,8 +57,9 @@ export function MobileLayout() {
       className="flex flex-col md:hidden"
       style={{
         paddingTop: 'env(safe-area-inset-top)',
+        paddingBottom: 'env(safe-area-inset-bottom)',
         // Shrink by keyboard height so flex children (including bottom inputs) stay visible
-        height: 'calc(100dvh - var(--keyboard-height, 0px))',
+        height: 'calc(100% - var(--keyboard-height, 0px))',
       }}
     >
       <main className="mobile-main-content flex-1 overflow-y-auto min-h-0">
@@ -66,7 +67,7 @@ export function MobileLayout() {
       </main>
 
       {/* Tab bar — in-flow so main content naturally stops above it */}
-      <div className="mobile-tab-bar shrink-0 flex justify-center px-4 bg-background" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}>
+      <div className="mobile-tab-bar shrink-0 flex justify-center px-4 pb-2">
         <nav className="flex items-center justify-around rounded-full bg-card h-[56px] shadow-2xl border border-border/40 w-full max-w-md px-1">
           {tabs.map((tab) => {
             const Icon = tab.icon;
