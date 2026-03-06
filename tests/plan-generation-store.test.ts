@@ -1,13 +1,13 @@
 /**
- * Plan Session Store Tests
+ * Plan Generation Store Tests
  *
- * Tests the plan session methods on the execution store:
- * - startPlanSession: creates project, execution entry, dispatches via fetch
- * - cancelPlanSession: aborts controller, marks execution cancelled
- * - steerPlanSession: sends guidance to running plan session
+ * Tests the plan generation methods on the execution store:
+ * - startPlanGeneration: creates project, execution entry, dispatches via fetch
+ * - cancelPlanGeneration: aborts controller, marks execution cancelled
+ * - steerPlanGeneration: sends guidance to running plan generation
  *
  * Mocks fetch, Zustand external stores, and SSE parsing to isolate
- * the plan session logic.
+ * the plan generation logic.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -152,7 +152,7 @@ function createMockResponse(ok: boolean, body?: unknown): Response {
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
-describe('Plan Session Store', () => {
+describe('Plan Generation Store', () => {
   beforeEach(() => {
     // Reset store state
     useExecutionStore.setState({ executions: new Map() })
@@ -167,13 +167,13 @@ describe('Plan Session Store', () => {
   })
 
   // ======================================================================
-  // startPlanSession
+  // startPlanGeneration
   // ======================================================================
-  describe('startPlanSession', () => {
+  describe('startPlanGeneration', () => {
     it('creates execution entry with nodeId pattern plan-{projectId}', async () => {
       globalFetchMock.mockResolvedValue(createMockResponse(true))
 
-      const result = await useExecutionStore.getState().startPlanSession(
+      const result = await useExecutionStore.getState().startPlanGeneration(
         'Build a web app',
         'My Project',
       )
@@ -190,7 +190,7 @@ describe('Plan Session Store', () => {
     it('creates a project via project store', async () => {
       globalFetchMock.mockResolvedValue(createMockResponse(true))
 
-      await useExecutionStore.getState().startPlanSession(
+      await useExecutionStore.getState().startPlanGeneration(
         'Build a web app',
         'My Project',
       )
@@ -205,7 +205,7 @@ describe('Plan Session Store', () => {
     it('uses "New Project" as default name when projectName is empty', async () => {
       globalFetchMock.mockResolvedValue(createMockResponse(true))
 
-      await useExecutionStore.getState().startPlanSession(
+      await useExecutionStore.getState().startPlanGeneration(
         'Some description',
         '',
       )
@@ -217,7 +217,7 @@ describe('Plan Session Store', () => {
     it('passes options to project and fetch', async () => {
       globalFetchMock.mockResolvedValue(createMockResponse(true))
 
-      await useExecutionStore.getState().startPlanSession(
+      await useExecutionStore.getState().startPlanGeneration(
         'Research analysis',
         'Science Project',
         {
@@ -250,7 +250,7 @@ describe('Plan Session Store', () => {
     it('dispatches POST to /api/dispatch/task with auth headers', async () => {
       globalFetchMock.mockResolvedValue(createMockResponse(true))
 
-      await useExecutionStore.getState().startPlanSession(
+      await useExecutionStore.getState().startPlanGeneration(
         'Build something',
         'Test Project',
       )
@@ -268,7 +268,7 @@ describe('Plan Session Store', () => {
         createMockResponse(false, { error: 'Internal error' }),
       )
 
-      await useExecutionStore.getState().startPlanSession(
+      await useExecutionStore.getState().startPlanGeneration(
         'Will fail',
         'Fail Project',
       )
@@ -288,7 +288,7 @@ describe('Plan Session Store', () => {
       const abortError = new DOMException('The operation was aborted', 'AbortError')
       globalFetchMock.mockRejectedValue(abortError)
 
-      await useExecutionStore.getState().startPlanSession(
+      await useExecutionStore.getState().startPlanGeneration(
         'Will be aborted',
         'Abort Project',
       )
@@ -306,7 +306,7 @@ describe('Plan Session Store', () => {
     it('initial execution entry has correct default fields', async () => {
       globalFetchMock.mockResolvedValue(createMockResponse(true))
 
-      await useExecutionStore.getState().startPlanSession(
+      await useExecutionStore.getState().startPlanGeneration(
         'Default fields test',
         'Defaults',
       )
@@ -324,7 +324,7 @@ describe('Plan Session Store', () => {
     it('includes title with project name in fetch body', async () => {
       globalFetchMock.mockResolvedValue(createMockResponse(true))
 
-      await useExecutionStore.getState().startPlanSession(
+      await useExecutionStore.getState().startPlanGeneration(
         'Build a complex web application with authentication',
         'Auth App',
       )
@@ -342,7 +342,7 @@ describe('Plan Session Store', () => {
       globalFetchMock.mockResolvedValue(createMockResponse(true))
       const longDesc = 'A'.repeat(100)
 
-      await useExecutionStore.getState().startPlanSession(longDesc, '')
+      await useExecutionStore.getState().startPlanGeneration(longDesc, '')
 
       // SSE dispatch is fire-and-forget — wait for async fetch
       await vi.waitFor(() => { expect(globalFetchMock).toHaveBeenCalled() })
@@ -352,9 +352,9 @@ describe('Plan Session Store', () => {
   })
 
   // ======================================================================
-  // cancelPlanSession
+  // cancelPlanGeneration
   // ======================================================================
-  describe('cancelPlanSession', () => {
+  describe('cancelPlanGeneration', () => {
     it('marks execution as cancelled', async () => {
       const nodeId = `plan-test-project-id`
       const executions = new Map()
@@ -371,7 +371,7 @@ describe('Plan Session Store', () => {
       })
       useExecutionStore.setState({ executions })
 
-      await useExecutionStore.getState().cancelPlanSession('test-project-id')
+      await useExecutionStore.getState().cancelPlanGeneration('test-project-id')
 
       const execution = useExecutionStore.getState().executions.get(nodeId)
       expect(execution).toBeDefined()
@@ -381,15 +381,15 @@ describe('Plan Session Store', () => {
 
     it('handles cancel when no execution exists (graceful no-op)', async () => {
       await expect(
-        useExecutionStore.getState().cancelPlanSession('nonexistent-project')
+        useExecutionStore.getState().cancelPlanGeneration('nonexistent-project')
       ).resolves.not.toThrow()
     })
   })
 
   // ======================================================================
-  // steerPlanSession
+  // steerPlanGeneration
   // ======================================================================
-  describe('steerPlanSession', () => {
+  describe('steerPlanGeneration', () => {
     it('calls the correct API endpoint with right payload', async () => {
       const nodeId = `plan-steer-project`
       const executions = new Map()
@@ -411,7 +411,7 @@ describe('Plan Session Store', () => {
         createMockResponse(true, { success: true }),
       )
 
-      const result = await useExecutionStore.getState().steerPlanSession(
+      const result = await useExecutionStore.getState().steerPlanGeneration(
         'steer-project',
         'Focus on the backend first',
       )
@@ -444,7 +444,7 @@ describe('Plan Session Store', () => {
       })
       useExecutionStore.setState({ executions })
 
-      const result = await useExecutionStore.getState().steerPlanSession(
+      const result = await useExecutionStore.getState().steerPlanGeneration(
         'no-exec',
         'some guidance',
       )
@@ -468,7 +468,7 @@ describe('Plan Session Store', () => {
       })
       useExecutionStore.setState({ executions })
 
-      const result = await useExecutionStore.getState().steerPlanSession(
+      const result = await useExecutionStore.getState().steerPlanGeneration(
         'no-machine',
         'some guidance',
       )
@@ -477,7 +477,7 @@ describe('Plan Session Store', () => {
     })
 
     it('returns false when execution does not exist at all', async () => {
-      const result = await useExecutionStore.getState().steerPlanSession(
+      const result = await useExecutionStore.getState().steerPlanGeneration(
         'nonexistent',
         'guidance',
       )
@@ -504,7 +504,7 @@ describe('Plan Session Store', () => {
 
       globalFetchMock.mockResolvedValue(createMockResponse(false))
 
-      const result = await useExecutionStore.getState().steerPlanSession(
+      const result = await useExecutionStore.getState().steerPlanGeneration(
         'api-error',
         'guidance',
       )
@@ -531,7 +531,7 @@ describe('Plan Session Store', () => {
 
       globalFetchMock.mockRejectedValue(new Error('Network error'))
 
-      const result = await useExecutionStore.getState().steerPlanSession(
+      const result = await useExecutionStore.getState().steerPlanGeneration(
         'network-err',
         'guidance',
       )
@@ -560,7 +560,7 @@ describe('Plan Session Store', () => {
         createMockResponse(true, { success: true }),
       )
 
-      await useExecutionStore.getState().steerPlanSession(
+      await useExecutionStore.getState().steerPlanGeneration(
         'auth-check',
         'guidance message',
       )

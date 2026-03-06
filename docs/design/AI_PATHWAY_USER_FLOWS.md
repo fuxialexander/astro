@@ -92,7 +92,7 @@ User opens Astro
 
 | | P3: Interactive Plan | P5: Plan Generation |
 |---|---|---|
-| **Frontend trigger** | `startPlanSession()` in execution-store | `generatePlan()` in api-client |
+| **Frontend trigger** | `startPlanGeneration()` in execution-store | `generatePlan()` in api-client |
 | **Called from** | `project-new-plan.tsx` (primary plan creation page) | **NOWHERE** (see below) |
 | **API route** | `POST /api/dispatch/task` with `isInteractivePlan: true` | `POST /api/agent/generate-plan` |
 | **Backend handler** | `routes/dispatch.ts` | `routes/agent.ts` |
@@ -120,7 +120,7 @@ User opens Astro
 5. Dialog resolves template description → navigates to /plan with prefilled form data
 6. User reviews prefilled goal on the plan creation page
 7. Clicks "Start Planning"
-8. [P3] startPlanSession() dispatches to /api/dispatch/task with isInteractivePlan=true
+8. [P3] startPlanGeneration() dispatches to /api/dispatch/task with isInteractivePlan=true
 9. Agent brainstorms interactively (full tools, multi-turn)
 10. Server extracts plan JSON from agent output
 11. Plan nodes/edges appear in UI
@@ -145,7 +145,7 @@ User opens Astro
 
 | | P6: Project Chat | P7: Plan Chat |
 |---|---|---|
-| **Frontend component** | `ChatPanel` in `chat-panel.tsx` | `PlanChatPhase` in `plan-chat-phase.tsx` |
+| **Frontend component** | `ChatPanel` in `chat-panel.tsx` | `PlanGeneration` in `plan-generation.tsx` |
 | **Page** | Plan View page (sidebar) | Plan Creation page (chat phase, after initial plan) |
 | **When** | Anytime on plan view | After plan generation completes |
 | **Default model** | Agent runner default | **Haiku** (cost optimization) |
@@ -154,16 +154,16 @@ User opens Astro
 | **Schema** | `chatSchema` | `chatSchema` (identical) |
 | **Skills** | Yes (backend-scoped) | Yes (backend-scoped, identical) |
 | **Relay function** | `streamChatViaRelay()` | `streamChatViaRelay()` (identical) |
-| **API route** | `POST /api/agent/chat` | `POST /api/agent/plan-chat` |
+| **API route** | `POST /api/agent/chat` | `POST /api/agent/project-chat` |
 | **Backend difference** | Line 740: `model: model \|\| undefined` | Line 789: `model: model \|\| 'haiku'` |
 
 **The backend code is identical except for one line: the default model.**
 
 The real differentiation is **frontend-side**:
 - **Project Chat** (`ChatPanel`): General-purpose chat sidebar on the plan view page. User discusses the project, asks questions, gets analysis. No plan mutations.
-- **Plan Chat** (`PlanChatPhase`): Interactive plan refinement during plan creation. The frontend **parses structured plan mutations** from the AI's response (code blocks tagged `astro-updates`, `astro-edges`, `astro-add-nodes`) and applies them to the plan graph. This is what makes "Add a testing phase" actually create new nodes.
+- **Plan Chat** (`PlanGeneration`): Interactive plan refinement during plan creation. The frontend **parses structured plan mutations** from the AI's response (code blocks tagged `astro-updates`, `astro-edges`, `astro-add-nodes`) and applies them to the plan graph. This is what makes "Add a testing phase" actually create new nodes.
 
-**Should they be merged?** The backend routes could be merged (just pass `model: 'haiku'` from the frontend when in plan context). But the frontend components are genuinely different -- `PlanChatPhase` has mutation parsing that `ChatPanel` doesn't need. Keeping separate API routes gives cleaner analytics and allows future divergence.
+**Should they be merged?** The backend routes could be merged (just pass `model: 'haiku'` from the frontend when in plan context). But the frontend components are genuinely different -- `PlanGeneration` has mutation parsing that `ChatPanel` doesn't need. Keeping separate API routes gives cleaner analytics and allows future divergence.
 
 ---
 
@@ -367,7 +367,7 @@ P9 (Compact) and P14 (Steering) are control signals, not generation workflows. P
 
 **Backend: Yes.** The only difference is `model: 'haiku'` default. The frontend could pass this.
 
-**Frontend: No.** `PlanChatPhase` parses plan mutations from AI output and applies them to the plan graph. `ChatPanel` doesn't do this. They serve different UX purposes.
+**Frontend: No.** `PlanGeneration` parses plan mutations from AI output and applies them to the plan graph. `ChatPanel` doesn't do this. They serve different UX purposes.
 
 **Recommendation:** Keep separate API routes for analytics and future divergence, but document that they share the same backend implementation.
 

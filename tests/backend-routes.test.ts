@@ -198,7 +198,7 @@ describe('GET /api/backends/:id', () => {
     expect(res.status).toBe(200)
 
     const data = await res.json() as { contextString: string }
-    expect(data.contextString).toContain('SSH access')
+    expect(data.contextString).toContain('SSH host')
     expect(data.contextString).toContain('hpc-login')
     expect(data.contextString).toContain('admin@hpc.edu')
   })
@@ -219,8 +219,8 @@ describe('GET /api/backends/:id', () => {
     expect(res.status).toBe(200)
 
     const data = await res.json() as { contextString: string }
-    expect(data.contextString).toContain('SSH access')
-    expect(data.contextString).not.toContain('unreachable')
+    expect(data.contextString).toContain('SSH host')
+    expect(data.contextString).not.toContain('Unreachable')
   })
 
   it('shows unreachable warning for hosts with reachable=false', async () => {
@@ -239,7 +239,7 @@ describe('GET /api/backends/:id', () => {
     expect(res.status).toBe(200)
 
     const data = await res.json() as { contextString: string }
-    expect(data.contextString).toContain('unreachable')
+    expect(data.contextString).toContain('Unreachable at last check')
   })
 
   it('returns context string for Docker backend', async () => {

@@ -1,7 +1,7 @@
 /**
- * Plan Chat Phase Component
+ * Plan Generation Component
  *
- * Full-height streaming activity view for interactive plan sessions.
+ * Full-height streaming activity view for interactive plan generation.
  * Subscribes to execution-store and realtime-store for events.
  * Renders activity blocks, inline approvals, and plan result card.
  */
@@ -16,7 +16,7 @@ import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { usePlanStore } from "@/stores/plan-store"
-import { planChatWithAgent, fetchStreamingEventsCatchUp, replayChatCatchUpEvents, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
+import { projectChatWithAgent, fetchStreamingEventsCatchUp, replayChatCatchUpEvents, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { extractMutations, applyMutationsToStore } from "@/lib/plan-mutations"
 import {
   groupActivityEvents,
@@ -33,14 +33,14 @@ import {
 } from "@/components/activity-blocks"
 import { InlineApprovalCard } from "./inline-approval-card"
 import { PlanResultCard } from "./plan-result-card"
-import { PlanSessionHeader } from "./plan-session-header"
+import { PlanGenerationHeader } from "./plan-generation-header"
 import type { TaskActivityEvent } from "@/types"
 import { useRestoredExecution } from "@/hooks/use-restored-execution"
 import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
 import { useChatActivityEvents } from "@/hooks/use-chat-activity-events"
 import { Link } from "react-router"
 
-interface PlanChatPhaseProps {
+interface PlanGenerationProps {
   projectId: string
   projectName: string
   machineName?: string
@@ -51,14 +51,14 @@ interface PlanChatPhaseProps {
   onNewPlan?: () => void
 }
 
-export function PlanChatPhase({
+export function PlanGeneration({
   projectId,
   projectName,
   machineName,
   workingDirectory,
   onBack,
   onNewPlan,
-}: PlanChatPhaseProps) {
+}: PlanGenerationProps) {
   const nodeId = `plan-${projectId}`
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
@@ -73,8 +73,8 @@ export function PlanChatPhase({
 
   // Execution state — stable selectors (Map.get returns same ref)
   const execution = useExecutionStore((s) => s.executions.get(nodeId))
-  const cancelPlanSession = useExecutionStore((s) => s.cancelPlanSession)
-  const steerPlanSession = useExecutionStore((s) => s.steerPlanSession)
+  const cancelPlanGeneration = useExecutionStore((s) => s.cancelPlanGeneration)
+  const steerPlanGeneration = useExecutionStore((s) => s.steerPlanGeneration)
 
   // Realtime state — select stable refs, derive filtered data in useMemo
   const executionId = execution?.executionId || ""
@@ -241,7 +241,7 @@ export function PlanChatPhase({
     }
 
     try {
-      await steerPlanSession(projectId, text)
+      await steerPlanGeneration(projectId, text)
     } finally {
       setSending(false)
       setPendingSteerText(null)
@@ -309,7 +309,7 @@ export function PlanChatPhase({
 
     let rawText = ""
     try {
-      await planChatWithAgent(
+      await projectChatWithAgent(
         {
           message: text,
           sessionId: chatSession.providerSessionId,
@@ -488,12 +488,12 @@ export function PlanChatPhase({
   return (
     <div className="flex flex-col h-full relative">
       {/* Header */}
-      <PlanSessionHeader
+      <PlanGenerationHeader
         projectName={projectName}
         status={headerStatus}
         machineName={machineName}
         workingDirectory={workingDirectory}
-        onAbort={() => cancelPlanSession(projectId)}
+        onAbort={() => cancelPlanGeneration(projectId)}
         onBack={onBack}
         onNewPlan={onNewPlan}
       />

@@ -19,9 +19,8 @@
  * Part 3 — runPrSummaryFallbackChain Unit Tests:
  * 1. Returns structured summary when available (Layer 1)
  * 2. Falls back to parsed summary when structured missing (Layer 2)
- * 3. Falls back to server-generated when parsing fails (Layer 3)
- * 4. Falls back to git diff when server fails (Layer 4)
- * 5. Falls back to task description as last resort (Layer 5)
+ * 3. Falls back to git diff when parsing fails (Layer 3)
+ * 4. Falls back to task description as last resort (Layer 4)
  * 6. Source field correctness for each layer
  * 7. Fallback chain priority and edge cases
  *
@@ -73,41 +72,8 @@ vi.mock('drizzle-orm', () => ({
   eq: vi.fn((col, val) => ({ col, val })),
 }))
 
-// Mock only the server-side summary generation to avoid real API calls
-// Preserve the real parseExecutiveSummaryFromOutput for unit testing
-vi.mock('../packages/core/src/dispatch/summary-utils.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../packages/core/src/dispatch/summary-utils.js')>()
-  return {
-    ...actual,
-    generateServerSideSummary: vi.fn().mockResolvedValue(null),
-  }
-})
-
-// Mock the Anthropic SDK for runPrSummaryFallbackChain tests
-// The fallback chain calls generateServerSideSummary internally (same module),
-// so we mock the SDK to control Layer 3 behavior from within the real function
-const mockAnthropicCreate = vi.fn().mockResolvedValue({
-  content: [
-    {
-      type: 'text',
-      text: JSON.stringify({
-        workCompleted: 'SDK-generated summary',
-        keyFindings: ['SDK finding 1'],
-        filesChanged: ['file.ts'],
-        status: 'success',
-        followUps: [],
-      }),
-    },
-  ],
-})
-
-vi.mock('@anthropic-ai/sdk', () => ({
-  default: class MockAnthropic {
-    messages = {
-      create: mockAnthropicCreate,
-    }
-  },
-}))
+// No Anthropic SDK mocks needed — server-side summary generation (Layer 3) was removed.
+// The fallback chain is now 4 layers: structured → parsed → git_diff → task_description.
 
 describe('PR Body Update Hook', () => {
   let originalFetch: typeof global.fetch
@@ -427,7 +393,7 @@ More content...`,
       expect(body.body).toContain('src/utils.ts')
     })
 
-    it('should format PR body with task description fallback (Layer 5)', async () => {
+    it('should format PR body with task description fallback (Layer 4)', async () => {
       const updateResponse = {
         ok: true,
         json: async () => ({ id: 123 }),
@@ -1273,8 +1239,6 @@ ${longSuffix}`
 // Each layer is tested in isolation, along with fallback precedence,
 // source field correctness, and edge cases.
 //
-// The mock setup at the top of this file preserves real parseExecutiveSummaryFromOutput
-// and runPrSummaryFallbackChain but mocks generateServerSideSummary (returns null by default).
 // ============================================================================
 
 describe('runPrSummaryFallbackChain', () => {
@@ -1289,36 +1253,11 @@ describe('runPrSummaryFallbackChain', () => {
     taskDescription: 'Add Google and GitHub OAuth2 providers with session management',
   }
 
-  let originalAnthropicKey: string | undefined
-
   beforeEach(() => {
     vi.clearAllMocks()
-    // Save and clear the ANTHROPIC_API_KEY to prevent accidental real API calls
-    originalAnthropicKey = process.env.ANTHROPIC_API_KEY
-    delete process.env.ANTHROPIC_API_KEY
-    // Reset the SDK mock to return the default response
-    mockAnthropicCreate.mockResolvedValue({
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            workCompleted: 'SDK-generated summary',
-            keyFindings: ['SDK finding 1'],
-            filesChanged: ['file.ts'],
-            status: 'success',
-            followUps: [],
-          }),
-        },
-      ],
-    })
   })
 
   afterEach(() => {
-    if (originalAnthropicKey) {
-      process.env.ANTHROPIC_API_KEY = originalAnthropicKey
-    } else {
-      delete process.env.ANTHROPIC_API_KEY
-    }
     vi.restoreAllMocks()
   })
 
@@ -1603,190 +1542,9 @@ Tool calls completed.
     })
   })
 
-  // ── Layer 3: Server-side summary generation ─────────────────────────────
-  // Note: runPrSummaryFallbackChain calls generateServerSideSummary internally
-  // (same module), so we control it via the mocked @anthropic-ai/sdk.
+  // ── Layer 3: Git diff summary ──────────────────────────────────────────
 
-  // Layer 3 tests are skipped here because vi.mock('@anthropic-ai/sdk') cannot intercept
-  // cross-package dynamic imports inside packages/core/. These are fully tested in
-  // packages/core/src/dispatch/__tests__/pr-summary-fallback-chain.test.ts (20 tests, all passing).
-  describe.skip('Layer 3: Server-side summary generation', () => {
-    it('uses server-generated summary when API key is provided', async () => {
-      // The SDK mock returns a default response with workCompleted: 'SDK-generated summary'
-      const result = await runPrSummaryFallbackChain({
-        ...baseInput,
-        executionOutput: 'Some output without executive summary section',
-        apiKey: 'test-api-key',
-      })
-
-      expect(result.source).toBe('server_generated')
-      expect(result.summary).toContain('SDK-generated summary')
-      expect(mockAnthropicCreate).toHaveBeenCalledTimes(1)
-    })
-
-    it('builds server-generated summary with key findings and follow-ups', async () => {
-      mockAnthropicCreate.mockResolvedValueOnce({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              workCompleted: 'Server built summary from fields',
-              keyFindings: ['Finding A', 'Finding B'],
-              filesChanged: ['a.ts', 'b.ts'],
-              status: 'success',
-              followUps: ['Follow-up X'],
-            }),
-          },
-        ],
-      })
-
-      const result = await runPrSummaryFallbackChain({
-        ...baseInput,
-        executionOutput: 'Output without parseable summary',
-        apiKey: 'test-api-key',
-      })
-
-      expect(result.source).toBe('server_generated')
-      expect(result.summary).toContain('Server built summary from fields')
-      expect(result.summary).toContain('**Key changes:**')
-      expect(result.summary).toContain('- Finding A')
-      expect(result.summary).toContain('- Finding B')
-      expect(result.summary).toContain('**Follow-ups:**')
-      expect(result.summary).toContain('- Follow-up X')
-    })
-
-    it('includes failure status in server-generated summary', async () => {
-      mockAnthropicCreate.mockResolvedValueOnce({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              status: 'failure',
-              workCompleted: 'Build failed',
-              keyFindings: ['Type errors found'],
-              filesChanged: [],
-              followUps: ['Fix type errors'],
-            }),
-          },
-        ],
-      })
-
-      const result = await runPrSummaryFallbackChain({
-        ...baseInput,
-        executionOutput: 'Output with errors',
-        apiKey: 'test-api-key',
-      })
-
-      expect(result.source).toBe('server_generated')
-      expect(result.summary).toContain('**Status:** failure')
-    })
-
-    it('falls through when SDK call fails', async () => {
-      mockAnthropicCreate.mockRejectedValueOnce(new Error('API error'))
-
-      const result = await runPrSummaryFallbackChain({
-        ...baseInput,
-        executionOutput: 'Output without parseable summary',
-        apiKey: 'test-api-key',
-      })
-
-      // Server generation failed → falls to task_description (no git diff fn)
-      expect(result.source).toBe('task_description')
-    })
-
-    it('falls through when no API key and no env var', async () => {
-      // ANTHROPIC_API_KEY was deleted in beforeEach
-      const result = await runPrSummaryFallbackChain({
-        ...baseInput,
-        executionOutput: 'Output without parseable summary',
-        // No apiKey
-      })
-
-      expect(result.source).toBe('task_description')
-      expect(mockAnthropicCreate).not.toHaveBeenCalled()
-    })
-
-    it('skips server generation when no executionOutput is provided', async () => {
-      const result = await runPrSummaryFallbackChain({
-        ...baseInput,
-        apiKey: 'test-api-key',
-        // No executionOutput
-      })
-
-      expect(mockAnthropicCreate).not.toHaveBeenCalled()
-      expect(result.source).toBe('task_description')
-    })
-
-    it('is not called when Layer 1 (structured) succeeds', async () => {
-      const result = await runPrSummaryFallbackChain({
-        ...baseInput,
-        taskResult: {
-          ...baseTaskResult,
-          summary: {
-            status: 'success',
-            workCompleted: 'Structured summary available',
-            keyFindings: ['Structured finding'],
-            filesChanged: [],
-            followUps: [],
-          },
-        },
-        executionOutput: 'Some output',
-        apiKey: 'test-api-key',
-      })
-
-      expect(result.source).toBe('structured')
-      expect(mockAnthropicCreate).not.toHaveBeenCalled()
-    })
-
-    it('is not called when Layer 2 (parsed) succeeds', async () => {
-      const executionOutput = `
-## Executive Summary
-**Status:** success
-**What was done:** Parsed summary found.
-- Parsed finding
-`
-
-      const result = await runPrSummaryFallbackChain({
-        ...baseInput,
-        executionOutput,
-        apiKey: 'test-api-key',
-      })
-
-      expect(result.source).toBe('parsed')
-      expect(mockAnthropicCreate).not.toHaveBeenCalled()
-    })
-
-    it('uses executiveSummary from SDK response when present', async () => {
-      mockAnthropicCreate.mockResolvedValueOnce({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              workCompleted: 'Short work description',
-              executiveSummary: 'Detailed executive summary from server generation.',
-              keyFindings: [],
-              filesChanged: [],
-              status: 'success',
-              followUps: [],
-            }),
-          },
-        ],
-      })
-
-      const result = await runPrSummaryFallbackChain({
-        ...baseInput,
-        executionOutput: 'Some output',
-        apiKey: 'test-api-key',
-      })
-
-      expect(result.source).toBe('server_generated')
-      expect(result.summary).toBe('Detailed executive summary from server generation.')
-    })
-  })
-
-  // ── Layer 4: Git diff summary ──────────────────────────────────────────
-
-  describe('Layer 4: Git diff summary', () => {
+  describe('Layer 3: Git diff summary', () => {
     it('uses git diff summary from provided function', async () => {
       const mockGitDiffFn = vi.fn().mockReturnValue(`## Changes
 
@@ -1884,15 +1642,15 @@ h7i8j9k Add session management
     })
   })
 
-  // ── Layer 5: Task description fallback ──────────────────────────────────
+  // ── Layer 4: Task description fallback ──────────────────────────────────
 
-  describe('Layer 5: Task description fallback', () => {
+  describe('Layer 4: Task description fallback', () => {
     it('falls back to task description when all other layers fail', async () => {
       const result = await runPrSummaryFallbackChain({
         taskResult: baseTaskResult,
         taskTitle: 'Implement OAuth2 Login',
         taskDescription: 'Add Google and GitHub OAuth2 providers with session management',
-        // No summary, no executionOutput, no worktreePath, no gitDiffFn, no apiKey
+        // No summary, no executionOutput, no worktreePath, no gitDiffFn
       })
 
       expect(result.source).toBe('task_description')
@@ -1957,17 +1715,7 @@ h7i8j9k Add session management
       expect(result.source).toBe('parsed')
     })
 
-    // Skipped: cross-package vi.mock cannot intercept @anthropic-ai/sdk. See core-level tests.
-    it.skip('source is "server_generated" for Layer 3', async () => {
-      const result = await runPrSummaryFallbackChain({
-        ...baseInput,
-        executionOutput: 'Unparseable output',
-        apiKey: 'key',
-      })
-      expect(result.source).toBe('server_generated')
-    })
-
-    it('source is "git_diff" for Layer 4', async () => {
+    it('source is "git_diff" for Layer 3', async () => {
       const result = await runPrSummaryFallbackChain({
         ...baseInput,
         worktreePath: '/path',
@@ -1976,7 +1724,7 @@ h7i8j9k Add session management
       expect(result.source).toBe('git_diff')
     })
 
-    it('source is "task_description" for Layer 5', async () => {
+    it('source is "task_description" for Layer 4', async () => {
       const result = await runPrSummaryFallbackChain({
         ...baseInput,
       })
@@ -2038,45 +1786,23 @@ h7i8j9k Add session management
           },
         },
         executionOutput,
-        apiKey: 'key',
         worktreePath: '/path',
         generateGitDiffSummary: mockGitDiffFn,
       })
 
       expect(result.source).toBe('structured')
       expect(result.summary).toContain('Structured wins over everything')
-      expect(mockAnthropicCreate).not.toHaveBeenCalled()
       expect(mockGitDiffFn).not.toHaveBeenCalled()
     })
 
-    it('prefers Layer 2 (parsed) over Layer 3 (server-generated)', async () => {
-      const executionOutput = `
-## Executive Summary
-**Status:** success
-**What was done:** Parsed wins over server.
-- Parsed finding
-`
-
-      const result = await runPrSummaryFallbackChain({
-        ...baseInput,
-        executionOutput,
-        apiKey: 'key',
-      })
-
-      expect(result.source).toBe('parsed')
-      expect(result.summary).toContain('Parsed wins over server')
-      expect(mockAnthropicCreate).not.toHaveBeenCalled()
-    })
-
-    it('prefers Layer 2 (parsed) over Layer 4 (git_diff)', async () => {
-      const mockGitDiffFn = vi.fn().mockReturnValue('## Changes\nGit output')
-
+    it('prefers Layer 2 (parsed) over Layer 3 (git_diff)', async () => {
       const executionOutput = `
 ## Executive Summary
 **Status:** success
 **What was done:** Parsed wins over git diff.
 - Parsed finding
 `
+      const mockGitDiffFn = vi.fn().mockReturnValue('## Changes\nGit output')
 
       const result = await runPrSummaryFallbackChain({
         ...baseInput,
@@ -2086,26 +1812,11 @@ h7i8j9k Add session management
       })
 
       expect(result.source).toBe('parsed')
+      expect(result.summary).toContain('Parsed wins over git diff')
       expect(mockGitDiffFn).not.toHaveBeenCalled()
     })
 
-    // Skipped: cross-package vi.mock cannot intercept @anthropic-ai/sdk. See core-level tests.
-    it.skip('prefers Layer 3 (server-generated) over Layer 4 (git_diff)', async () => {
-      const mockGitDiffFn = vi.fn().mockReturnValue('## Changes\nGit output')
-
-      const result = await runPrSummaryFallbackChain({
-        ...baseInput,
-        executionOutput: 'Unparseable output',
-        apiKey: 'key',
-        worktreePath: '/path',
-        generateGitDiffSummary: mockGitDiffFn,
-      })
-
-      expect(result.source).toBe('server_generated')
-      expect(mockGitDiffFn).not.toHaveBeenCalled()
-    })
-
-    it('prefers Layer 4 (git_diff) over Layer 5 (task_description)', async () => {
+    it('prefers Layer 3 (git_diff) over Layer 4 (task_description)', async () => {
       const mockGitDiffFn = vi.fn().mockReturnValue('## Changes\nGit diff wins')
 
       const result = await runPrSummaryFallbackChain({
@@ -2113,33 +1824,27 @@ h7i8j9k Add session management
         executionOutput: 'Unparseable output',
         worktreePath: '/path',
         generateGitDiffSummary: mockGitDiffFn,
-        // No API key → server generation skipped
       })
 
       expect(result.source).toBe('git_diff')
       expect(result.summary).toContain('Git diff wins')
     })
 
-    // Skipped: cross-package vi.mock cannot intercept @anthropic-ai/sdk. See core-level tests.
-    it.skip('cascades from Layer 1 → 2 → 3 → 4 → 5 when each layer fails', async () => {
+    it('cascades from Layer 1 → 2 → 3 → 4 when each layer fails', async () => {
       // Layer 1: No structured summary
       // Layer 2: No parseable executive summary in output
-      // Layer 3: SDK mock throws error → generateServerSideSummary returns null
-      // Layer 4: No worktreePath/gitDiffFn
-      // Layer 5: Task description (always succeeds)
-      mockAnthropicCreate.mockRejectedValueOnce(new Error('API error'))
+      // Layer 3: No worktreePath/gitDiffFn
+      // Layer 4: Task description (always succeeds)
 
       const result = await runPrSummaryFallbackChain({
         taskResult: baseTaskResult,
         taskTitle: 'Cascading Fallback Test',
         taskDescription: 'Testing the full cascade',
         executionOutput: 'Regular output with no executive summary block',
-        apiKey: 'key', // Will be tried but SDK throws
       })
 
       expect(result.source).toBe('task_description')
       expect(result.summary).toContain('Cascading Fallback Test')
-      expect(mockAnthropicCreate).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -2208,20 +1913,6 @@ h7i8j9k Add session management
       expect(result.source).toBe('task_description')
     })
 
-    // Skipped: cross-package vi.mock cannot intercept @anthropic-ai/sdk. See core-level tests.
-    it.skip('handles undefined fileChanges for server generation', async () => {
-      const result = await runPrSummaryFallbackChain({
-        ...baseInput,
-        executionOutput: 'Some output',
-        fileChanges: undefined,
-        apiKey: 'key',
-      })
-
-      // SDK should have been called (Layer 3 triggered)
-      expect(mockAnthropicCreate).toHaveBeenCalledTimes(1)
-      expect(result.source).toBe('server_generated')
-    })
-
     it('handles concurrent calls independently', async () => {
       // Run two calls concurrently with different inputs
       const [result1, result2] = await Promise.all([
@@ -2279,44 +1970,5 @@ h7i8j9k Add session management
       ).rejects.toThrow('Git command failed')
     })
 
-    // Skipped: cross-package vi.mock cannot intercept @anthropic-ai/sdk. See core-level tests.
-    it.skip('triggers server generation for successful task', async () => {
-      const result = await runPrSummaryFallbackChain({
-        ...baseInput,
-        taskResult: { ...baseTaskResult, status: 'success' },
-        executionOutput: 'Some output',
-        apiKey: 'key',
-      })
-
-      expect(mockAnthropicCreate).toHaveBeenCalledTimes(1)
-      expect(result.source).toBe('server_generated')
-    })
-
-    // Skipped: cross-package vi.mock cannot intercept @anthropic-ai/sdk. See core-level tests.
-    it.skip('triggers server generation for failed task', async () => {
-      const result = await runPrSummaryFallbackChain({
-        ...baseInput,
-        taskResult: { ...baseTaskResult, status: 'failure' },
-        executionOutput: 'Error output',
-        apiKey: 'key',
-      })
-
-      expect(mockAnthropicCreate).toHaveBeenCalledTimes(1)
-      expect(result.source).toBe('server_generated')
-    })
-
-    // Skipped: cross-package vi.mock cannot intercept @anthropic-ai/sdk. See core-level tests.
-    it.skip('triggers server generation for cancelled task', async () => {
-      const result = await runPrSummaryFallbackChain({
-        ...baseInput,
-        taskResult: { ...baseTaskResult, status: 'cancelled' },
-        executionOutput: 'Cancelled output',
-        apiKey: 'key',
-      })
-
-      // 'cancelled' is not 'success', but server generation should still be attempted
-      expect(mockAnthropicCreate).toHaveBeenCalledTimes(1)
-      expect(result.source).toBe('server_generated')
-    })
   })
 })

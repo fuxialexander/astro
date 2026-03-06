@@ -11,7 +11,7 @@ All 4 chat surfaces in Astro:
 | Surface | File | Context |
 |---------|------|---------|
 | **Playground** | `src/pages/playground.tsx` | Standalone coding sessions |
-| **Plan Chat Phase** | `src/components/plan-session/plan-chat-phase.tsx` | Chat during/after plan generation |
+| **Plan Chat Phase** | `src/components/plan-generation/plan-generation.tsx` | Chat during/after plan generation |
 | **Chat Panel** | `src/components/agent/chat-panel.tsx` | Plan chat sidebar |
 | **Task Execution** | `src/components/task-detail/unified-activity-view.tsx` | Chat after task execution |
 

@@ -25,7 +25,5 @@ export { getEligibleSkills, buildSkillPromptInjection } from './skill-injector.j
 export * from './prompt-templates.js'
 export { extractPlanJsonFromText } from './plan-extraction.js'
 export type { PlanJsonResult } from './plan-extraction.js'
-export { retryPlanExtractionWithHaiku } from './plan-extraction-retry.js'
-
 // Built-in skills
 export * from './skills/index.js'

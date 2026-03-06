@@ -73,37 +73,7 @@ export interface ChatPlanEdgeContext {
   type: string
 }
 
-export async function chatWithAgent(
-  params: { message: string; sessionId?: string; streamId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; selectedBackends?: string[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }> },
-  callbacks: {
-    onText: (text: string) => void
-    onDone: (sessionId: string) => void
-    onError: (error: string) => void
-  },
-  signal?: AbortSignal,
-): Promise<void> {
-  const res = await fetch(apiUrl("/api/agent/chat"), {
-    method: "POST",
-    headers: await authHeaders(),
-    body: JSON.stringify(params),
-    signal,
-  })
-
-  if (!res.ok) {
-    let errorMsg = `Server error: ${res.status}`
-    try { const b = await res.json(); if (b.error) errorMsg += ` – ${b.error}` } catch { /* non-JSON */ }
-    callbacks.onError(errorMsg)
-    return
-  }
-
-  await parseChatSSE(res, {
-    onText: callbacks.onText,
-    onDone: callbacks.onDone,
-    onError: callbacks.onError,
-  })
-}
-
-export async function planChatWithAgent(
+export async function projectChatWithAgent(
   params: { message: string; sessionId?: string; streamId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; selectedBackends?: string[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }> },
   callbacks: {
     onText: (text: string) => void
@@ -116,7 +86,7 @@ export async function planChatWithAgent(
   },
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(apiUrl("/api/agent/plan-chat"), {
+  const res = await fetch(apiUrl("/api/agent/project-chat"), {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify(params),

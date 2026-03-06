@@ -36,7 +36,6 @@ describe("buildContextString — SLURM", () => {
   it("produces basic SLURM string with version and no metadata", () => {
     const result = buildContextString(slurmBackend())
     expect(result).toContain("Slurm v23.11.4")
-    expect(result).toContain("NEVER run compute on the login node")
   })
 
   it("includes cluster name when present", () => {
@@ -67,8 +66,8 @@ describe("buildContextString — SLURM", () => {
       }),
     )
     expect(result).toContain("Partitions:")
-    expect(result).toContain("gpu (7/10 nodes available) [a100,nvlink]")
-    expect(result).toContain("cpu (42/50 nodes available) [intel,avx512]")
+    expect(result).toContain("gpu (7/10 nodes) [a100,nvlink]")
+    expect(result).toContain("cpu (42/50 nodes) [intel,avx512]")
   })
 
   it("handles partition with zero available nodes", () => {
@@ -79,7 +78,7 @@ describe("buildContextString — SLURM", () => {
         ],
       }),
     )
-    expect(result).toContain("maintenance (0/5 nodes available)")
+    expect(result).toContain("maintenance (0/5 nodes)")
     // No feature brackets when features is undefined
     expect(result).not.toContain("[")
   })
@@ -91,7 +90,7 @@ describe("buildContextString — SLURM", () => {
       }),
     )
     expect(result).toContain("Partitions: debug")
-    // No "(x/y nodes available)" when nodes is undefined
+    // No "(x/y nodes)" when nodes is undefined
     expect(result).not.toContain("nodes available")
   })
 
@@ -106,20 +105,20 @@ describe("buildContextString — SLURM", () => {
     const result = buildContextString(
       slurmBackend({ totalGpus: 32, gpuNodeCount: 8 }),
     )
-    expect(result).toContain("32 GPUs available across 8 nodes.")
+    expect(result).toContain("32 GPUs across 8 nodes.")
   })
 
   it("handles GPU summary with unknown node count", () => {
     const result = buildContextString(slurmBackend({ totalGpus: 4 }))
-    expect(result).toContain("4 GPUs available across ? nodes.")
+    expect(result).toContain("4 GPUs across ? nodes.")
   })
 
   it("omits GPU line when totalGpus is 0 or absent", () => {
     const result = buildContextString(slurmBackend({ totalGpus: 0 }))
-    expect(result).not.toContain("GPUs available")
+    expect(result).not.toContain("GPUs across")
 
     const result2 = buildContextString(slurmBackend({}))
-    expect(result2).not.toContain("GPUs available")
+    expect(result2).not.toContain("GPUs across")
   })
 
   it("omits partitions line when partitions array is empty", () => {
@@ -168,12 +167,11 @@ describe("buildContextString — SLURM", () => {
       }),
     )
     expect(result).toContain('"omega"')
-    expect(result).toContain("normal (80/100 nodes available) [intel,ssd]")
-    expect(result).toContain("gpu (15/20 nodes available) [a100,nvlink,pcie4]")
-    expect(result).toContain("bigmem (5/5 nodes available)")
+    expect(result).toContain("normal (80/100 nodes) [intel,ssd]")
+    expect(result).toContain("gpu (15/20 nodes) [a100,nvlink,pcie4]")
+    expect(result).toContain("bigmem (5/5 nodes)")
     expect(result).toContain("Accounts: research, teaching.")
-    expect(result).toContain("80 GPUs available across 20 nodes.")
-    expect(result).toContain("NEVER run compute on the login node")
+    expect(result).toContain("80 GPUs across 20 nodes.")
   })
 })
 
@@ -194,7 +192,6 @@ describe("buildContextString — Docker", () => {
     expect(result).toContain("Docker v24.0.7")
     expect(result).toContain("16 CPUs")
     expect(result).toContain("64GB memory")
-    expect(result).toContain("docker run --rm")
   })
 
   it("uses '?' for missing cpus and memory", () => {
@@ -248,7 +245,6 @@ describe("buildContextString — Kubernetes", () => {
     expect(result).toContain("320Gi RAM")
     expect(result).toContain("8 GPUs")
     expect(result).toContain("Namespaces: default, kube-system, app.")
-    expect(result).toContain("kubectl exec")
   })
 
   it("handles zero-node fallback with pod count", () => {
@@ -269,7 +265,7 @@ describe("buildContextString — Kubernetes", () => {
     }
     const result = buildContextString(backend)
     expect(result).toContain("No nodes visible")
-    expect(result).toContain("42 pods running across 3 namespaces")
+    expect(result).toContain("42 pods across 3 namespaces")
     expect(result).toContain("Namespaces: default, monitoring, app")
   })
 
@@ -316,8 +312,7 @@ describe("buildContextString — SSH", () => {
     const result = buildContextString(backend)
     expect(result).toContain('"hpc-login"')
     expect(result).toContain("jdoe@login.hpc.university.edu")
-    expect(result).toContain("ssh hpc-login")
-    expect(result).not.toContain("unreachable")
+    expect(result).not.toContain("Unreachable")
   })
 
   it("includes unreachable warning", () => {
@@ -332,7 +327,7 @@ describe("buildContextString — SSH", () => {
       },
     }
     const result = buildContextString(backend)
-    expect(result).toContain("unreachable at last check")
+    expect(result).toContain("Unreachable at last check")
   })
 
   it("formats hostname without user when user is undefined", () => {
@@ -461,9 +456,8 @@ describe("buildContextString — custom context", () => {
       "Max 4 GPUs per job.\nUse account ml-team.",
     )
     expect(result).toContain('"atlas"')
-    expect(result).toContain("gpu (8/10 nodes available)")
+    expect(result).toContain("gpu (8/10 nodes)")
     expect(result).toContain("Accounts: ml-team.")
-    expect(result).toContain("NEVER run compute on the login node")
     expect(result).toContain("--- Custom Instructions ---")
     expect(result).toContain("Max 4 GPUs per job.")
     expect(result).toContain("Use account ml-team.")

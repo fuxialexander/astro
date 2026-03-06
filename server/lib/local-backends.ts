@@ -1,8 +1,13 @@
 /**
  * Backend Context String Builder
  *
- * Builds AI-ready context strings describing backend capabilities.
- * Used by /api/backends endpoints to generate prompts for agent sessions.
+ * Builds machine-specific context strings describing backend capabilities.
+ * Used by /api/backends endpoints and shown in the backend detail dialog UI.
+ *
+ * This module provides ONLY machine-specific facts (versions, resources,
+ * cluster topology). Generic command references (how to use kubectl, docker,
+ * sbatch) live in the default compute backend skills under
+ * skills/compute_backend_default/ and are injected separately.
  *
  * Detection has moved to agent runners (packages/agent-runner/src/execution/).
  * This module only provides the context string builder and the LocalBackendInfo type.
@@ -17,7 +22,9 @@ export interface LocalBackendInfo {
 }
 
 /**
- * Build an AI-ready context string describing a backend's capabilities.
+ * Build a machine-specific context string describing a backend's resources.
+ * Contains only facts about THIS machine — no generic command references
+ * (those are in compute backend default skills).
  * If customContext is provided, it is appended as a "Custom Instructions" section.
  */
 export function buildContextString(backend: LocalBackendInfo, customContext?: string): string {
@@ -34,21 +41,20 @@ export function buildContextString(backend: LocalBackendInfo, customContext?: st
       const podCount = meta.podCount as number | undefined
       const podsByNamespace = meta.podsByNamespace as Record<string, number> | undefined
 
-      let str = `You have kubectl access to cluster "${context || 'default'}".`
+      let str = `Kubernetes cluster "${context || 'default'}".`
       if (totalNodes === 0 && podCount && podCount > 0) {
         const nsCount = podsByNamespace ? Object.keys(podsByNamespace).length : 0
-        str += ` No nodes visible (cluster may use autoscaling or node listing is restricted), but ${podCount} pods running across ${nsCount} namespaces.`
+        str += ` No nodes visible (autoscaling or RBAC restricted), ${podCount} pods across ${nsCount} namespaces.`
         if (podsByNamespace) {
           const nsList = Object.keys(podsByNamespace).slice(0, 20).join(', ')
           str += ` Namespaces: ${nsList}.`
         }
       } else {
-        str += ` ${totalNodes} node(s) (${totalCPU} CPUs, ${totalMemoryGi}Gi RAM, ${totalGPUs} GPUs).`
+        str += ` ${totalNodes} node(s), ${totalCPU} CPUs, ${totalMemoryGi}Gi RAM, ${totalGPUs} GPUs.`
         if (namespaces && namespaces.length > 0) {
           str += ` Namespaces: ${namespaces.join(', ')}.`
         }
       }
-      str += ` Use \`kubectl exec -n <ns> <pod> -- <cmd>\` to run commands on pods.`
       return appendCustomContext(str, customContext)
     }
 
@@ -56,8 +62,7 @@ export function buildContextString(backend: LocalBackendInfo, customContext?: st
       const meta = backend.metadata ?? {}
       const cpus = meta.cpus ?? '?'
       const memoryGb = meta.memoryGb ?? '?'
-      let str = `Docker v${backend.version || '?'} available. ${cpus} CPUs, ${memoryGb}GB memory.`
-      str += ` Use \`docker run --rm -v $PWD:/work -w /work <image> <cmd>\` for containerized execution.`
+      const str = `Docker v${backend.version || '?'}. ${cpus} CPUs, ${memoryGb}GB memory.`
       return appendCustomContext(str, customContext)
     }
 
@@ -67,15 +72,15 @@ export function buildContextString(backend: LocalBackendInfo, customContext?: st
       const partitions = meta.partitions as Array<Record<string, unknown>> | undefined
       const accounts = meta.accounts as string[] | undefined
 
-      let str = `You are on an HPC cluster`
+      let str = `HPC cluster`
       if (clusterName) str += ` "${clusterName}"`
-      str += ` with Slurm v${backend.version || '?'}.`
+      str += `, Slurm v${backend.version || '?'}.`
       if (partitions && partitions.length > 0) {
         const partList = partitions.map((p) => {
           let s = p.name as string
           const total = (p.nodes ?? p.totalNodes) as number | undefined
           const avail = p.availableNodes as number | undefined
-          if (total) s += ` (${avail ?? 0}/${total} nodes available)`
+          if (total) s += ` (${avail ?? 0}/${total} nodes)`
           if (p.features) s += ` [${p.features}]`
           return s
         }).join(', ')
@@ -87,9 +92,8 @@ export function buildContextString(backend: LocalBackendInfo, customContext?: st
       const totalGpus = meta.totalGpus as number | undefined
       const gpuNodeCount = meta.gpuNodeCount as number | undefined
       if (totalGpus) {
-        str += ` ${totalGpus} GPUs available across ${gpuNodeCount ?? '?'} nodes.`
+        str += ` ${totalGpus} GPUs across ${gpuNodeCount ?? '?'} nodes.`
       }
-      str += ` NEVER run compute on the login node -- use srun/sbatch.`
       return appendCustomContext(str, customContext)
     }
 
@@ -101,10 +105,9 @@ export function buildContextString(backend: LocalBackendInfo, customContext?: st
         const hostname = meta.hostname as string
         const user = meta.user as string | undefined
         const target = user ? `${user}@${hostname}` : hostname
-        let str = `SSH access to remote host "${alias}" (${target}).`
-        str += ` Use \`ssh ${alias} '<command>'\` to run commands remotely.`
+        let str = `SSH host "${alias}" (${target}).`
         if (meta.reachable === false) {
-          str += ` Note: this host was unreachable at last check.`
+          str += ` Unreachable at last check.`
         }
         return appendCustomContext(str, customContext)
       }

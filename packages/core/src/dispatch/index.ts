@@ -37,14 +37,12 @@ export type {
   DispatchTaskPayload,
 } from './payload.js'
 
-// Summary generation (direct Anthropic API call)
+// Summary generation
 export {
-  generateServerSideSummary,
   parseExecutiveSummaryFromOutput,
   runPrSummaryFallbackChain,
 } from './summary-utils.js'
 export type {
-  SummaryInput,
   ExecutiveSummaryParsed,
   PrSummarySource,
   PrSummaryResult,

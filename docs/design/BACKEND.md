@@ -129,7 +129,7 @@ This is the main AI interaction endpoint. It handles plan generation (asking the
 |--------|------|---------|
 | POST | `/generate-plan` | AI plan generation via SSE stream |
 | POST | `/chat` | Plan-level refinement chat |
-| POST | `/plan-chat` | Plan-level chat (alias for /chat) |
+| POST | `/project-chat` | Plan-level chat (alias for /chat) |
 | POST | `/task-chat` | Task-level chat with execution context |
 | POST | `/summarize` | Generate execution summary |
 | POST | `/abort` | Cancel running session |
@@ -143,7 +143,7 @@ This is what happens when you create a new project and the AI generates a plan (
 - Dispatched through the relay as a `RelayTaskDispatch` with `type: 'plan'` and `outputFormat: { type: 'json_schema' }` to enforce structured JSON output conforming to the plan graph schema
 - Returns an SSE stream: `text` events during generation (so the user sees progress), `plan_result` with the final JSON plan, and `done` when complete
 
-**Chat** (`/chat`, `/plan-chat`):
+**Chat** (`/chat`, `/project-chat`):
 
 This powers the chat panel where users discuss and refine their plan with the AI. The user can say things like "break task 3 into smaller pieces" or "add a testing step after the implementation."
 

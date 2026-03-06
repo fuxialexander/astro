@@ -48,7 +48,7 @@ The Skills system implementation (consolidated across PRs #441-#455) is function
 - **Location**: `packages/agent-runner/src/providers/claude-sdk-adapter.ts:366-375`
 
 **4. AI Creation Flow Architecture** (Priority: Medium) → [Issue #467](https://github.com/fuxialexander/astro/issues/467)
-- **Issue**: Uses `planChatWithAgent()` with synthetic `projectId: "skill-onboarder"`
+- **Issue**: Uses `projectChatWithAgent()` with synthetic `projectId: "skill-onboarder"`
 - **Current**: Works but is architecturally inconsistent
 - **Improvement**: Create dedicated `/api/skills/generate` endpoint
 - **Location**: `src/pages/skill-new.tsx:229-259`

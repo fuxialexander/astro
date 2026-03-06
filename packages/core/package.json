@@ -33,7 +33,6 @@
     "./achievements": "./src/achievements.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.74.0",
     "drizzle-orm": "^0.45.1"
   }
 }

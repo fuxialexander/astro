@@ -180,7 +180,7 @@ After hydration, `hydrateFromCatchUp` rebuilds the `dynamicApprovals` map from `
 
 Approval cards in the UI depend on **two independent data structures**:
 
-1. **`taskStream.activityEvents`** — the full timeline. Contains both `approval_request` and `approval_response` entries. Used by `plan-chat-phase.tsx` to render `InlineApprovalCard` components and determine answered state via `answeredRequestIds`.
+1. **`taskStream.activityEvents`** — the full timeline. Contains both `approval_request` and `approval_response` entries. Used by `plan-generation.tsx` to render `InlineApprovalCard` components and determine answered state via `answeredRequestIds`.
 
 2. **`dynamicApprovals` Map** — the pending state. Contains only unanswered approvals. Used for the "waiting" header badge and routing responses to the correct machine.
 
@@ -325,7 +325,7 @@ When the page refreshes during task execution, the SSE fetch connection is dropp
 
 **Symptom:** After every page refresh during execution, the task was falsely marked as `failure` with the network error message, and the node status was set to `awaiting_judgment`. The judgment banner (Approve/Reset/Prune) appeared with the error text, even though the agent runner was still running normally.
 
-**Fix:** Added a module-level `isPageUnloading` flag set by a `beforeunload` event listener. `beforeunload` fires deterministically BEFORE fetch connections are dropped, so the flag is always set in time. The catch block now checks `isPageUnloading` first, falling back to `visibilityState` as a secondary guard. Applied to all three SSE catch blocks (task execution, plan-session, plan-session-forProject).
+**Fix:** Added a module-level `isPageUnloading` flag set by a `beforeunload` event listener. `beforeunload` fires deterministically BEFORE fetch connections are dropped, so the flag is always set in time. The catch block now checks `isPageUnloading` first, falling back to `visibilityState` as a secondary guard. Applied to all three SSE catch blocks (task execution, plan-generation, plan-generation-forProject).
 
 ---
 
