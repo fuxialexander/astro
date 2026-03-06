@@ -241,7 +241,7 @@ POST /api/agent/{chat,plan-chat,task-chat}
 
 **Provider skills:** Claude SDK chat path now loads `settingSources` + includes `'Skill'` in allowed tools (fixed in PR #52). CLI providers load skills natively.
 
-**Multi-turn:** Chat supports `resumeSessionId` for continuing prior conversations. Maps to `resumeTask()` on the adapter. Supported by Claude SDK, Codex (PR #42), OpenClaw (PR #52), OpenCode (PR #52).
+**Multi-turn:** Project Chat and Plan Chat achieve continuity via message history arrays (no adapter-level resume). Task Chat supports true session resume via `resumeSessionId` → `resumeTask()` on the adapter. Supported by Claude SDK, Codex (PR #42), OpenClaw (PR #52), OpenCode (PR #52).
 
 **Tools available in chat (Claude SDK):**
 - With working directory: `['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch', 'Skill']`
@@ -422,8 +422,8 @@ dispatch/summary-utils.ts:generateServerSideSummary()
 | 3 | Interactive Plan | `POST /api/dispatch/task` | execution | Yes | Yes (all) | Yes (steer) | Any |
 | 4 | HPC/Slurm | `POST /api/relay/slurm/dispatch` | execution | Yes | No | No | `claude-sdk` only |
 | 5 | Plan Generation | `POST /api/agent/generate-plan` | plan | Yes | CLI only | Yes (steer) | Any |
-| 6 | Project Chat | `POST /api/agent/chat` | chat | Yes | Yes (all) | Yes (resume) | Any |
-| 7 | Plan Chat | `POST /api/agent/plan-chat` | chat | Yes | Yes (all) | Yes (resume) | Any (default Haiku) |
+| 6 | Project Chat | `POST /api/agent/chat` | chat | Yes | Yes (all) | History replay | Any |
+| 7 | Plan Chat | `POST /api/agent/plan-chat` | chat | Yes | Yes (all) | History replay | Any (default Haiku) |
 | 8 | Task Chat | `POST /api/agent/task-chat` | chat | Yes | Yes (all) | Yes (resume) | Any |
 | 9 | Compact | `POST /api/agent/compact` | chat | Yes | No | No (1 turn) | Any |
 | 10 | Task Summary | `POST /api/agent/summarize` | summarize | Yes | No | No (1 turn) | Any |
