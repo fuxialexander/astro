@@ -25,6 +25,7 @@ import { ColorIconBadge } from "@/components/color-icon-picker"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { validateProjectName } from "@/lib/project-validation"
 import { OverviewTab } from "@/pages/project-overview"
+import { KnowledgePanel } from "@/components/knowledge-panel"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { PublishDialog } from "@/components/community/publish-dialog"
 import { GitHubSyncSettingsDialog } from "@/components/github-sync-settings-dialog"
@@ -1683,6 +1684,8 @@ export function PlanView() {
     // Check if the last part is a view mode
     if (lastPart === 'overview') {
       return { viewMode: 'graph' as ViewMode, activeTab: 'overview' as const }
+    } else if (lastPart === 'knowledge') {
+      return { viewMode: 'graph' as ViewMode, activeTab: 'knowledge' as const }
     } else if (VALID_VIEWS.has(lastPart as ViewMode)) {
       return { viewMode: lastPart as ViewMode, activeTab: 'plan' as const }
     }
@@ -1828,6 +1831,17 @@ export function PlanView() {
             )}
           >
             Description
+          </button>
+          <button
+            onClick={() => navigate(`/project/${project.id}/knowledge`)}
+            className={cn(
+              "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
+              activeTab === "knowledge"
+                ? "text-accent-foreground border-b-2 border-accent"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Knowledge
           </button>
         </div>
 
@@ -1982,6 +1996,8 @@ export function PlanView() {
           <div className="flex flex-1 overflow-hidden relative">
             {activeTab === "overview" ? (
               <OverviewTab project={project} />
+            ) : activeTab === "knowledge" ? (
+              <KnowledgePanel projectId={project.id} />
             ) : viewMode === "graph" ? (
               <div className="flex-1 relative overflow-hidden">
                 <div className="absolute inset-0 touch-pan-x touch-pan-y">

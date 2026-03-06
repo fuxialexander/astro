@@ -3,4 +3,4 @@
  *
  * Re-exports from @astro/core for backward compatibility.
  */
-export { ContextAssembler, createContextAssembler } from '../../../packages/core/src/dispatch/context-assembler.js'
+export { ContextAssembler, createContextAssembler, capKnowledgeEntries, slugifyTitle } from '../../../packages/core/src/dispatch/context-assembler.js'

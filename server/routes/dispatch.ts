@@ -10,6 +10,8 @@ import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
 import {
   dispatchEngine,
+  capKnowledgeEntries,
+  slugifyTitle,
   type BranchPruneRequest,
   type DispatchPriority,
 } from '../lib/dispatch/index.js'
@@ -22,7 +24,7 @@ import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
-import { projects, planNodes, planNodeDependencies, blobs, environmentConfigs, userProfiles, taskExecutions, streamingEvents } from '../lib/db/schema.js'
+import { projects, planNodes, planNodeDependencies, blobs, environmentConfigs, userProfiles, taskExecutions, streamingEvents, projectKnowledge } from '../lib/db/schema.js'
 import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
@@ -63,6 +65,77 @@ function getShortNodeId(nodeId: string, nodeNumber?: number | null): string {
     return `n${nodeNumber}`
   }
   return hex || 'unknown'
+}
+
+
+/**
+ * Auto-extract knowledge entries from a task's execution summary.
+ * Called fire-and-forget after task completion.
+ *
+ * Extracts up to 3 entries:
+ * 1. `findings_{slug}` — keyFindings joined as bullet points
+ * 2. `summary_{slug}` — executiveSummary text
+ * 3. `work_{slug}` — workCompleted one-liner (only if no other entries)
+ */
+async function extractKnowledgeFromSummary(
+  projectId: string,
+  nodeId: string,
+  taskTitle: string,
+  summary: NonNullable<import('../types/relay.js').TaskResultMessage['result']['summary']>,
+): Promise<void> {
+  const slug = slugifyTitle(taskTitle) || nodeId.slice(0, 12)
+  const now = new Date()
+  const entries: Array<{ key: string; value: string }> = []
+
+  // 1. Key findings as bullet points
+  if (summary.keyFindings && summary.keyFindings.length > 0) {
+    const value = summary.keyFindings.map(f => `- ${f}`).join('\n')
+    if (value.length <= 2000) {
+      entries.push({ key: `findings_${slug}`, value })
+    } else {
+      // Truncate to fit
+      entries.push({ key: `findings_${slug}`, value: value.slice(0, 2000) })
+    }
+  }
+
+  // 2. Executive summary
+  if (summary.executiveSummary) {
+    const value = summary.executiveSummary.slice(0, 2000)
+    entries.push({ key: `summary_${slug}`, value })
+  }
+
+  // 3. If neither findings nor executive summary, store workCompleted as fallback
+  if (entries.length === 0 && summary.workCompleted) {
+    entries.push({ key: `work_${slug}`, value: summary.workCompleted.slice(0, 2000) })
+  }
+
+  // Upsert all entries (fire-and-forget, errors caught by caller)
+  for (const entry of entries) {
+    await db.insert(projectKnowledge)
+      .values({
+        projectId,
+        key: entry.key,
+        value: entry.value,
+        sourceNodeId: nodeId,
+        sourceTaskTitle: taskTitle || null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [projectKnowledge.projectId, projectKnowledge.key],
+        set: {
+          value: entry.value,
+          sourceNodeId: nodeId,
+          sourceTaskTitle: taskTitle || null,
+          updatedAt: now,
+        },
+      })
+      .execute()
+  }
+
+  if (entries.length > 0) {
+    console.log(`[dispatch] Extracted ${entries.length} knowledge entries from task "${taskTitle}" (node ${nodeId.slice(0, 8)})`)
+  }
 }
 
 // Validation schemas
@@ -672,6 +745,26 @@ async function dispatchViaRelay(
       promptParts.push(`## Project Vision\n\n${visionDoc}`)
     }
 
+    // Inject project knowledge entries (capped at 8000 chars, most recent first)
+    try {
+      const knowledgeRows = await db.select().from(projectKnowledge).where(eq(projectKnowledge.projectId, projectId))
+      if (knowledgeRows.length > 0) {
+        const capped = capKnowledgeEntries(knowledgeRows, 8000)
+        if (capped.length > 0) {
+          const knowledgeSection = capped
+            .map((entry) => {
+              const source = entry.sourceTaskTitle ? ` (from: "${entry.sourceTaskTitle}")` : ''
+              return `### ${entry.key}${source}\n\n${entry.value}`
+            })
+            .join('\n\n')
+          promptParts.push(`## Project Knowledge\n\n${knowledgeSection}`)
+        }
+      }
+    } catch (err) {
+      console.warn('[dispatch] Failed to fetch knowledge entries:', err instanceof Error ? err.message : String(err))
+      // Non-fatal — continue without knowledge
+    }
+
     if (dependencyOutputs.length > 0) {
       const depsSection = dependencyOutputs
         .map((d) => {
@@ -1264,6 +1357,15 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           .catch((err: unknown) => {
             console.error('[dispatch] Error auto-assigning defaultMachineId:', err)
           })
+      }
+
+      // Auto-extract knowledge from task summary into project_knowledge
+      if (msg.result.summary && msg.result.status === 'completed') {
+        extractKnowledgeFromSummary(
+          projectId, nodeId, title || '', msg.result.summary,
+        ).catch((err: unknown) => {
+          console.error('[dispatch] Error extracting knowledge from summary:', err)
+        })
       }
 
       stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})

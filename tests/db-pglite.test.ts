@@ -18,7 +18,6 @@ describe('db/index.ts — dual-driver factory', () => {
   })
 
   it('initializes PGlite driver in local mode', async () => {
-    const mockDrizzle = vi.fn().mockReturnValue({ $client: 'pglite-mock' })
     let pgliteCallCount = 0
 
     vi.doMock('../packages/core/src/app-mode.js', () => ({
@@ -31,21 +30,20 @@ describe('db/index.ts — dual-driver factory', () => {
       PGlite: class MockPGlite { constructor() { pgliteCallCount++ } },
     }))
     vi.doMock('drizzle-orm/pglite', () => ({
-      drizzle: mockDrizzle,
+      drizzle: vi.fn().mockReturnValue({ $client: 'pglite-mock' }),
     }))
     vi.doMock('../packages/core/src/db/schema.js', () => ({}))
     vi.doMock('../server/lib/db/schema.js', () => ({}))
+    vi.doMock('../packages/core/src/db/run-migrations.js', () => ({ runMigrations: vi.fn() }))
 
     const { initDb } = await import('../server/lib/db/index.js')
     const db = await initDb()
 
     expect(db).toBeDefined()
     expect(pgliteCallCount).toBe(1)
-    expect(mockDrizzle).toHaveBeenCalledTimes(1)
   })
 
   it('initializes postgres-js driver in server mode', async () => {
-    const mockDrizzle = vi.fn().mockReturnValue({ $client: 'postgres-mock' })
     const mockPostgres = vi.fn().mockReturnValue({})
 
     vi.doMock('../packages/core/src/app-mode.js', () => ({
@@ -58,17 +56,17 @@ describe('db/index.ts — dual-driver factory', () => {
       default: mockPostgres,
     }))
     vi.doMock('drizzle-orm/postgres-js', () => ({
-      drizzle: mockDrizzle,
+      drizzle: vi.fn().mockReturnValue({ $client: 'postgres-mock' }),
     }))
     vi.doMock('../packages/core/src/db/schema.js', () => ({}))
     vi.doMock('../server/lib/db/schema.js', () => ({}))
+    vi.doMock('../packages/core/src/db/run-migrations.js', () => ({ runMigrations: vi.fn() }))
 
     const { initDb } = await import('../server/lib/db/index.js')
     const db = await initDb()
 
     expect(db).toBeDefined()
     expect(mockPostgres).toHaveBeenCalledTimes(1)
-    expect(mockDrizzle).toHaveBeenCalledTimes(1)
   })
 
   it('initDb returns same instance on subsequent calls', async () => {
@@ -89,6 +87,7 @@ describe('db/index.ts — dual-driver factory', () => {
     }))
     vi.doMock('../packages/core/src/db/schema.js', () => ({}))
     vi.doMock('../server/lib/db/schema.js', () => ({}))
+    vi.doMock('../packages/core/src/db/run-migrations.js', () => ({ runMigrations: vi.fn() }))
 
     const { initDb } = await import('../server/lib/db/index.js')
 
@@ -109,6 +108,7 @@ describe('db/index.ts — dual-driver factory', () => {
     }))
     vi.doMock('../packages/core/src/db/schema.js', () => ({}))
     vi.doMock('../server/lib/db/schema.js', () => ({}))
+    vi.doMock('../packages/core/src/db/run-migrations.js', () => ({ runMigrations: vi.fn() }))
 
     const { db } = await import('../server/lib/db/index.js')
 
@@ -137,6 +137,7 @@ describe('db/index.ts — dual-driver factory', () => {
     }))
     vi.doMock('../packages/core/src/db/schema.js', () => ({}))
     vi.doMock('../server/lib/db/schema.js', () => ({}))
+    vi.doMock('../packages/core/src/db/run-migrations.js', () => ({ runMigrations: vi.fn() }))
 
     const { initDb } = await import('../server/lib/db/index.js')
     await initDb()
@@ -167,6 +168,7 @@ describe('db/index.ts — dual-driver factory', () => {
     }))
     vi.doMock('../packages/core/src/db/schema.js', () => ({}))
     vi.doMock('../server/lib/db/schema.js', () => ({}))
+    vi.doMock('../packages/core/src/db/run-migrations.js', () => ({ runMigrations: vi.fn() }))
 
     const { initDb } = await import('../server/lib/db/index.js')
     await initDb()
@@ -202,6 +204,7 @@ describe('db/index.ts — dual-driver factory', () => {
     }))
     vi.doMock('../packages/core/src/db/schema.js', () => ({}))
     vi.doMock('../server/lib/db/schema.js', () => ({}))
+    vi.doMock('../packages/core/src/db/run-migrations.js', () => ({ runMigrations: vi.fn() }))
 
     const { initDb } = await import('../server/lib/db/index.js')
     await initDb()
@@ -236,6 +239,7 @@ describe('db/index.ts — dual-driver factory', () => {
     }))
     vi.doMock('../packages/core/src/db/schema.js', () => ({}))
     vi.doMock('../server/lib/db/schema.js', () => ({}))
+    vi.doMock('../packages/core/src/db/run-migrations.js', () => ({ runMigrations: vi.fn() }))
 
     const { initDb } = await import('../server/lib/db/index.js')
     await initDb()

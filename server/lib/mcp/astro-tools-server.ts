@@ -23,6 +23,7 @@ const serverUrl = process.env.ASTRO_SERVER_URL || 'http://localhost:3001'
 const authToken = process.env.ASTRO_AUTH_TOKEN || ''
 const executionId = process.env.ASTRO_EXECUTION_ID || ''
 const projectId = process.env.ASTRO_PROJECT_ID || ''
+const nodeId = process.env.ASTRO_NODE_ID || ''
 
 /**
  * Make authenticated HTTP request to Astro API
@@ -507,6 +508,49 @@ const TOOLS = [
       properties: {},
     },
   },
+
+  // ── Knowledge Store ──────────────────────────────────────────────────────
+  {
+    name: 'store_knowledge',
+    description:
+      'Store a key piece of knowledge that other tasks in this project would benefit from knowing. ' +
+      'Use semantic keys like db_schema, api_endpoints, architecture_decisions, blockers. ' +
+      'Value should be concise (under 2000 chars) factual information. ' +
+      'If a key already exists for this project, the value will be updated.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        key: {
+          type: 'string',
+          description:
+            'Semantic key for this knowledge entry (e.g., db_schema, api_endpoints, architecture_decisions, blockers, tech_stack)',
+        },
+        value: {
+          type: 'string',
+          description:
+            'The knowledge content to store. Should be concise (under 2000 chars), factual, and useful for other tasks.',
+        },
+      },
+      required: ['key', 'value'],
+    },
+  },
+
+  {
+    name: 'query_knowledge',
+    description:
+      'Query all stored knowledge entries for the current project. Returns key-value pairs of knowledge ' +
+      'previously stored by any task in this project. Use this at the start of your work to check what ' +
+      'is already known about the project (architecture, schemas, decisions, blockers, etc.).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectId: {
+          type: 'string',
+          description: 'Project ID to query (optional, defaults to current project)',
+        },
+      },
+    },
+  },
 ]
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -858,6 +902,81 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
     }
 
+    // ── Knowledge Store ─────────────────────────────────────────────────────
+    if (toolName === 'store_knowledge') {
+      const targetProjectId = projectId
+      if (!targetProjectId) {
+        throw new Error('No project ID available. Ensure ASTRO_PROJECT_ID is set.')
+      }
+
+      const { key, value } = args as { key: string; value: string }
+
+      if (!key || typeof key !== 'string') {
+        throw new Error('key must be a non-empty string')
+      }
+      if (!value || typeof value !== 'string') {
+        throw new Error('value must be a non-empty string')
+      }
+      if (value.length > 2000) {
+        throw new Error(`Value too long (${value.length} chars). Keep it under 2000 characters.`)
+      }
+
+      const entry = {
+        projectId: targetProjectId,
+        key,
+        value,
+        sourceNodeId: nodeId || null,
+      }
+
+      await apiRequest('POST', '/api/data/knowledge', entry)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Knowledge stored: "${key}" (${value.length} chars)`,
+          },
+        ],
+      }
+    }
+
+    if (toolName === 'query_knowledge') {
+      const targetProjectId = (args.projectId as string) || projectId
+      if (!targetProjectId) {
+        throw new Error('No project ID available. Specify projectId or ensure ASTRO_PROJECT_ID is set.')
+      }
+
+      const entries = await apiRequest<Array<{ key: string; value: string; sourceNodeId: string | null; updatedAt: string }>>(
+        'GET',
+        `/api/data/knowledge?projectId=${encodeURIComponent(targetProjectId)}`
+      )
+
+      if (!Array.isArray(entries) || entries.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'No knowledge entries found for this project.',
+            },
+          ],
+        }
+      }
+
+      // Format as a readable summary
+      const formatted = entries.map((e) =>
+        `## ${e.key}\n${e.value}\n(updated: ${e.updatedAt}${e.sourceNodeId ? `, from task: ${e.sourceNodeId}` : ''})`
+      ).join('\n\n')
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Found ${entries.length} knowledge entries:\n\n${formatted}`,
+          },
+        ],
+      }
+    }
+
     // Unknown tool
     throw new Error(`Unknown tool: ${toolName}`)
   } catch (error) {
@@ -886,6 +1005,7 @@ async function main() {
   console.error(`  Auth: ${authToken ? 'Configured' : 'Not configured'}`)
   console.error(`  Execution ID: ${executionId || 'Not set'}`)
   console.error(`  Project ID: ${projectId || 'Not set'}`)
+  console.error(`  Node ID: ${nodeId || 'Not set'}`)
   console.error(`  Tools available: ${TOOLS.length}`)
 }
 
