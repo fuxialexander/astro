@@ -26,12 +26,9 @@ export function BackendMultiSelect({
     }
   }
 
-  const label =
-    selectedBackends.length === 0
-      ? "Compute"
-      : selectedBackends
-          .map((id) => AVAILABLE_BACKENDS.find((b) => b.id === id)?.name ?? id)
-          .join(", ")
+  const selectedNames = selectedBackends
+    .map((id) => AVAILABLE_BACKENDS.find((b) => b.id === id)?.name ?? id)
+    .join(", ")
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -39,10 +36,12 @@ export function BackendMultiSelect({
         <Button
           variant="outline"
           size="sm"
-          className={cn("h-7 gap-1 text-xs font-normal", className)}
+          className={cn("h-7 w-fit gap-1 text-xs font-normal", className)}
         >
           <Server className="h-3 w-3" />
-          <span className="max-w-[120px] truncate">{label}</span>
+          <span className="max-w-[200px] truncate">
+            {selectedBackends.length === 0 ? "Select compute skills…" : selectedNames}
+          </span>
           <ChevronDown className="h-3 w-3 opacity-50" />
         </Button>
       </PopoverTrigger>

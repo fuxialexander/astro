@@ -17,6 +17,7 @@ import { resolveWorkingDirectory, buildDependencyOutputs } from "@astro/core/dis
 import { applyPlanFromText, planNodeIdToProjectId } from "@/lib/plan-extraction"
 import { getSigningPrivateKey, signDispatchIntent, generateNonce, type DispatchSigningPayload } from "@/lib/dispatch-signing"
 import { useAuthStore } from "./auth-store"
+import { useSettingsStore } from "./settings-store"
 
 // ─── Page Unload Detection ────────────────────────────────────────────
 // `document.visibilityState` is unreliable during page refresh — it may
@@ -2500,8 +2501,9 @@ function handleSSEEvent(
 
         if (!finalStatus) {
           const deliveryOk = !parsed.deliveryStatus || parsed.deliveryStatus === 'success' || parsed.deliveryStatus === 'skipped'
+          const yoloOn = useSettingsStore.getState().yoloMode
           if (isSuccess) {
-            finalStatus = (node?.verification === "auto" && deliveryOk) ? "auto_verified" : "awaiting_judgment"
+            finalStatus = ((node?.verification === "auto" || yoloOn) && deliveryOk) ? "auto_verified" : "awaiting_judgment"
           } else {
             finalStatus = "awaiting_judgment"
           }
@@ -2557,7 +2559,9 @@ function handleSSEEvent(
 
         // Summary generation: use structured summary from agent result if available,
         // otherwise fall back to parsing from stream text, then relay-based /api/agent/summarize.
-        if (execution && (finalStatus === "awaiting_judgment" || (isSuccess && node?.verification !== "auto"))) {
+        // In YOLO mode, always store summaries (needed for batch summary notifications).
+        const yoloOn = useSettingsStore.getState().yoloMode
+        if (execution && (yoloOn || finalStatus === "awaiting_judgment" || (isSuccess && node?.verification !== "auto"))) {
           const freshExec = get().executions.get(nodeId)
 
           if (parsed.summary?.status && parsed.summary?.workCompleted) {

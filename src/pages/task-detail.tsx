@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useParams, Link, useNavigate, useSearchParams } from "react-router"
-import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink, RotateCcw, Check, Scissors, AlertCircle, CheckCircle2, XCircle, Layers, FileText, FolderEdit, PanelRight } from "lucide-react"
+import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink, RotateCcw, Check, Scissors, AlertCircle, CheckCircle2, XCircle, Layers, FileText, FolderEdit, PanelRight, Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -478,15 +478,23 @@ export function TaskDetail() {
               </>
             )}
           </div>
-          {/* Delivery failure warning — shown when task succeeded but delivery (push/PR) failed */}
-          {execution?.deliveryStatus === "failed" && execution?.deliveryError && (
-            <div className="flex items-center gap-2.5 rounded-lg border border-warning/30 bg-warning/5 px-4 py-2.5 text-sm text-warning">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span className="font-medium">Delivery failed</span>
-              <span className="text-xs opacity-70">&middot;</span>
-              <span className="text-xs opacity-70 truncate">{execution.deliveryError}</span>
-            </div>
-          )}
+          {/* Delivery status — soft info for no-remote repos, warning for real failures */}
+          {execution?.deliveryStatus === "failed" && execution?.deliveryError && (() => {
+            const isNoRemote = /no remote origin|not a git/i.test(execution.deliveryError)
+            return isNoRemote ? (
+              <div className="flex items-center gap-2.5 rounded-lg border border-muted/30 bg-muted/5 px-4 py-2.5 text-sm text-muted-foreground">
+                <Info className="h-4 w-4 shrink-0" />
+                <span className="text-xs opacity-70">Files saved locally (no git remote configured)</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2.5 rounded-lg border border-warning/30 bg-warning/5 px-4 py-2.5 text-sm text-warning">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span className="font-medium">Delivery failed</span>
+                <span className="text-xs opacity-70">&middot;</span>
+                <span className="text-xs opacity-70 truncate">{execution.deliveryError}</span>
+              </div>
+            )
+          })()}
         </div>
       )}
 

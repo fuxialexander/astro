@@ -18,6 +18,7 @@ import { useExecutionStore } from './execution-store'
 import { useMachinesStore } from './machines-store'
 import { applyPlanFromText, planNodeIdToProjectId } from '@/lib/plan-extraction'
 import type { TaskActivityEvent } from '@/types'
+import { useSettingsStore } from './settings-store'
 
 export interface HpcCapability {
   clusterName?: string
@@ -699,10 +700,13 @@ function reconcileResultFromCatchUp(
   const planStore = usePlanStore.getState()
   const node = planStore.nodes.find((n) => n.executionId === executionId)
   if (node && node.status !== 'completed' && node.status !== 'auto_verified' && node.status !== 'pruned') {
+    // Use server-computed finalStatus (includes YOLO check) if available,
+    // otherwise fall back to local computation for backward compat
     const deliveryOk = !hydrated.deliveryStatus || hydrated.deliveryStatus === 'success' || hydrated.deliveryStatus === 'skipped'
-    const finalStatus = isSuccess
-      ? (node.verification === 'auto' && deliveryOk ? 'auto_verified' : 'awaiting_judgment')
-      : 'awaiting_judgment'
+    const yoloOn = useSettingsStore.getState().yoloMode
+    const finalStatus = hydrated.finalStatus || (isSuccess
+      ? ((node.verification === 'auto' || yoloOn) && deliveryOk ? 'auto_verified' : 'awaiting_judgment')
+      : 'awaiting_judgment')
     planStore.updateNode(node.id, {
       status: finalStatus as import('@/types').PlanNode['status'],
       executionOutput: hydrated.output,
@@ -936,9 +940,10 @@ function handleRealtimeEvent(
       if (node) {
         // Use finalStatus from server if provided
         const deliveryOk = !data.deliveryStatus || data.deliveryStatus === 'success' || data.deliveryStatus === 'skipped'
+        const yoloOn = useSettingsStore.getState().yoloMode
         const finalStatus = (data.finalStatus as string) || (
           isSuccess
-            ? (node.verification === 'auto' && deliveryOk ? 'auto_verified' : 'awaiting_judgment')
+            ? ((node.verification === 'auto' || yoloOn) && deliveryOk ? 'auto_verified' : 'awaiting_judgment')
             : 'awaiting_judgment'
         )
         const completionTime = new Date()

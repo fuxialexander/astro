@@ -14,7 +14,6 @@ import { useExecutionStore } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSessionStore } from "@/stores/session-store"
-import { useSettingsStore } from "@/stores/settings-store"
 import { useUsageStore } from "@/stores/usage-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { projectChatWithAgent, fetchStreamingEventsCatchUp, replayChatCatchUpEvents, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
@@ -89,7 +88,9 @@ export function PlanGeneration({
   const createSessionAction = useSessionStore((s) => s.createSession)
   const addMessage = useSessionStore((s) => s.addMessage)
   const setProviderSessionId = useSessionStore((s) => s.setProviderSessionId)
-  const model = useSettingsStore((s) => s.model)
+  // Don't send model to plan chat — the compute backend (Claude Code CLI)
+  // uses its own configured model. Sending display names like "Haiku 4.5"
+  // causes API errors since they aren't valid model identifiers.
 
   // Get or create a chat session for this plan node — wait for sessions to load first
   const allSessions = useSessionStore((s) => s.sessions)
@@ -317,7 +318,6 @@ export function PlanGeneration({
           streamId: turnStreamId,
           projectId,
           visionDoc: project?.visionDoc,
-          model,
           planNodes: planNodeContext,
           planEdges: planEdgeContext,
           messages: historyMessages,

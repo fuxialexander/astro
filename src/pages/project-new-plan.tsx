@@ -8,9 +8,8 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useSearchParams, useLocation, useNavigate } from "react-router"
-import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, Info, Monitor, Bot, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate, Zap, HelpCircle } from "lucide-react"
+import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, Info, Monitor, Bot, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -69,8 +68,7 @@ export function ProjectNewPlan() {
   const [visionDoc, setVisionDoc] = useState("")
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
   const [pendingUploads, setPendingUploads] = useState(0)
-  const [autoExecute, setAutoExecute] = useState(true)
-  const setYoloMode = useSettingsStore((s) => s.setYoloMode)
+  const autoExecute = useSettingsStore((s) => s.yoloMode)
   const modelTier: ModelTier = "large"
 
   // Reset all form fields to initial state
@@ -955,38 +953,8 @@ export function ProjectNewPlan() {
             )}
           </div>
 
-          {/* Submit button + YOLO toggle */}
+          {/* Submit button */}
           <div className="flex items-center justify-end gap-3">
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => {
-                  const next = !autoExecute
-                  setAutoExecute(next)
-                  // YOLO on → also enable auto-approval; off → leave auto-approval as-is
-                  if (next) setYoloMode(true)
-                }}
-                className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                  autoExecute
-                    ? "bg-primary/15 text-primary border border-primary/30"
-                    : "bg-muted/50 text-muted-foreground border border-border"
-                }`}
-              >
-                <Zap className={`h-3.5 w-3.5 ${autoExecute ? "fill-primary" : ""}`} />
-                YOLO
-              </button>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button type="button" className="text-muted-foreground hover:text-foreground transition-colors cursor-default">
-                    <HelpCircle className="h-3.5 w-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-[220px] text-center">
-                  <p><span className="font-semibold">YOLO mode:</span> Generate plan and automatically execute all steps.</p>
-                  <p className="mt-1 opacity-80"><span className="font-semibold">Off:</span> Generate plan only — review before executing.</p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
             <Button
               onClick={handleSubmit}
               disabled={!description.trim() || isSubmitting || pendingUploads > 0}
