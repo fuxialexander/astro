@@ -54,21 +54,26 @@ export function MobileLayout() {
 
   return (
     <div
-      className="flex flex-col md:hidden"
+      className="relative md:hidden"
       style={{
         paddingTop: 'env(safe-area-inset-top)',
-        paddingBottom: 'env(safe-area-inset-bottom)',
         // Shrink by keyboard height so flex children (including bottom inputs) stay visible
-        height: 'calc(100% - var(--keyboard-height, 0px))',
+        height: 'calc(100dvh - var(--keyboard-height, 0px))',
       }}
     >
-      <main className="mobile-main-content flex-1 overflow-y-auto min-h-0">
+      {/* Content scrolls freely; bottom padding reserves space so last items
+          aren't hidden behind the floating tab bar */}
+      <main className="mobile-main-content h-full overflow-y-auto pb-20">
         <Outlet />
       </main>
 
-      {/* Tab bar — in-flow so main content naturally stops above it */}
-      <div className="mobile-tab-bar shrink-0 flex justify-center px-4 pb-2">
-        <nav className="flex items-center justify-around rounded-full bg-card h-[56px] shadow-2xl border border-border/40 w-full max-w-md px-1">
+      {/* Floating tab bar — fixed above Safari toolbar / home indicator.
+          Content scrolls behind it. */}
+      <div
+        className="mobile-tab-bar fixed left-0 right-0 z-50 flex justify-center px-4"
+        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
+      >
+        <nav className="flex items-center justify-around rounded-full bg-card/90 backdrop-blur-lg h-[56px] shadow-2xl border border-border/40 w-full max-w-md px-1">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = isTabActive(tab.path);
