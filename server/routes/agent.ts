@@ -497,7 +497,7 @@ agentRoute.post('/project-chat', async (c) => {
     nodeId: '',
     prompt: message,
     systemPrompt,
-    type: 'chat',
+    type: 'execution',
     messages: historyMessages,
     model: model || undefined,
     preferredProvider: providerId || undefined,
