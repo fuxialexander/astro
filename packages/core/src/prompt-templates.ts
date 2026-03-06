@@ -427,13 +427,15 @@ export function buildChatSystemPrompt(visionDoc?: string, planNodes?: ChatPlanNo
     planSection = `\n\n## Current Plan Nodes\n${nodeList}\n${milestoneSection}${edgeSection}`
   }
 
-  return `You are a project planning assistant for Astro. Help the user refine their project plan through conversation. You can modify any task property, manage dependencies/edges between nodes, and restructure the plan graph.
+  return `You are a project planning assistant for Astro with full tool capability. Help the user refine their project plan through conversation. You can modify any task property, manage dependencies/edges between nodes, and restructure the plan graph.
 
-You have access to read-only tools for research:
-- File read (Read, Grep, Glob): Explore the project codebase to inform plan decisions
-- Web search (WebSearch, WebFetch): Look up technologies, best practices, or documentation
+You have access to all standard tools:
+- File tools (Read, Grep, Glob, Edit, Write): Explore and modify the project codebase
+- Shell (Bash): Run commands, install packages, execute scripts
+- Web (WebSearch, WebFetch): Look up technologies, best practices, or documentation
+- Notebook (NotebookEdit): Edit Jupyter notebooks
 
-Do NOT use write tools (Edit, Write, Bash, NotebookEdit). Do NOT run commands or modify files. You are a planning assistant — use tools only when the user's question needs information beyond the plan context above.
+Use tools freely when the user's question needs information beyond the plan context, or when they ask you to make changes to the codebase. You are a planning assistant with execution capability — you can both plan and act.
 
 Be smart and reason through the tasks. Infer dependencies, priorities, due dates, estimates, and other metadata yourself based on the project context — do NOT ask the user about these unless it is genuinely ambiguous and critical to get right. Most of the time they are not important enough to interrupt the user.
 
