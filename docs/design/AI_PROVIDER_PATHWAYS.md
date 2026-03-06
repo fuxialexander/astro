@@ -79,7 +79,7 @@ Each pathway receives a different combination of system prompt content, skills, 
 2. **Provider skills** — Loaded by the adapter itself (settingSources for Claude SDK, native loading for CLI providers). Includes `~/.claude/skills/`, `~/.codex/skills/`, and project `.claude/` directories. These are loaded by the agent runner, not the server.
 3. **Compute backend skills** — Injected server-side into the system prompt by `skillManager.getBackendScopedSkillInjection()`. Filtered by the project's `computeBackends` setting. Format: `<skills><skill name="astro/{name}">{instructions}</skill></skills>`. Users can customize these per compute backend (e.g., conda environment setup for `direct`, module loads for `slurm`, kubectl context for `k8s-exec`). All environment-specific context (virtual environments, dependencies, SSH details, module loads) should be authored as compute backend skills — there is no separate "environment context" layer.
 
-> **Note on `environmentConfigs` table:** A legacy `environment_configs` table exists with per-backend `customContext` free-text fields, loaded by `loadEnvironmentContext()`. This overlaps with compute backend skills and is superseded by the skill system. Users should put environment details (conda envs, module loads, etc.) into their compute backend skill documents instead.
+> **Note:** The legacy `loadEnvironmentContext()` function and `environmentContext` prompt parameter have been removed. Environment-specific context (conda envs, module loads, SSH details, etc.) should be authored as compute backend skill documents in `skills/compute_backend_default/`. The `environment_configs` table still exists for backward compatibility but is no longer read during prompt assembly.
 
 ### P1-2: Task Execution / Playground
 
@@ -121,7 +121,7 @@ Each pathway receives a different combination of system prompt content, skills, 
 
 ### P5: Project Chat
 
-**Prompt builder:** `buildChatSystemPrompt(visionDoc, planNodes, planEdges, skillsInjection, envContext)` in `packages/core/src/prompt-templates.ts`
+**Prompt builder:** `buildChatSystemPrompt(visionDoc, planNodes, planEdges, skillsInjection)` in `packages/core/src/prompt-templates.ts`
 
 **System prompt contents:**
 - Conversational planning instructions
@@ -129,8 +129,7 @@ Each pathway receives a different combination of system prompt content, skills, 
 - Plan nodes list with metadata (title, status, priority, estimate, verification, milestone, dependencies)
 - Available milestones reference
 - Current edges/dependencies
-- Skills injection XML
-- Compute environment context
+- Skills injection XML (includes compute backend skills)
 
 **Skills injected:**
 - Provider skills: **Yes** — settingSources + `Skill` tool in allowedTools
@@ -150,8 +149,7 @@ Each pathway receives a different combination of system prompt content, skills, 
 - Current task details: title, description (wrapped in `<user_task>`)
 - Task execution output (wrapped in `<agent_output>`, truncated to 10K chars)
 - Resumed session context: worktree cleanup note, branch name, PR URL
-- Skills injection XML
-- Compute environment context
+- Skills injection XML (includes compute backend skills)
 
 **Skills injected:**
 - Provider skills: **Yes** — settingSources + `Skill` tool
@@ -803,13 +801,9 @@ See Section 4 for detailed analysis (GAP-TRAJ-1 through GAP-TRAJ-5). Summary:
 
 ### Legacy Cleanup
 
-### GAP-LEGACY-1: `environmentConfigs` Table Overlaps With Compute Backend Skills
+### GAP-LEGACY-1: `environmentConfigs` Table — Resolved
 
-**Location:** `environment_configs` table, `loadEnvironmentContext()` in `server/routes/agent.ts`
-
-**Problem:** The `environmentConfigs` table stores per-backend free-text context (conda env, module loads, SSH details) which is exactly what compute backend skills are for. Two separate systems inject the same kind of content into prompts.
-
-**Recommendation:** Deprecate `loadEnvironmentContext()` and guide users to put environment-specific context into compute backend skill documents instead. Eventually remove the `environmentConfigs` mechanism.
+**Status:** ✅ Resolved. `loadEnvironmentContext()` has been removed from `server/routes/agent.ts`. The `environmentContext` parameter has been removed from all prompt builders (`buildPlanSystemPrompt`, `buildChatSystemPrompt`, `buildTaskChatSystemPrompt`). Environment-specific context is now exclusively provided via compute backend skills (`skills/compute_backend_default/`). The `environment_configs` table still exists but is no longer read during prompt assembly.
 
 ---
 
