@@ -53,6 +53,7 @@ import { SessionPickerDialog } from "@/components/playground/session-picker-dial
 import { useClaudeSessionsStore, type ClaudeCodeSession } from "@/stores/claude-sessions-store"
 import { useSessionStore } from "@/stores/session-store"
 import { chatWithTask } from "@/lib/api-client"
+import { useUsageStore } from "@/stores/usage-store"
 import { requestNotificationPermission } from "@/lib/notifications"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
@@ -493,6 +494,16 @@ export function Playground() {
             pushChatEvent({ type: 'error', error, timestamp: new Date() })
             flushChatEvents()
             setIsChatStreaming(false)
+          },
+          onMetrics: (m) => {
+            useUsageStore.getState().addTaskMetrics({
+              durationMs: m.durationMs,
+              inputTokens: m.inputTokens,
+              outputTokens: m.outputTokens,
+              estimatedCostUsd: m.totalCost,
+              model: m.model,
+              turnsUsed: m.numTurns,
+            }, true)
           },
         },
         abortRef.current.signal,

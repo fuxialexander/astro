@@ -83,6 +83,8 @@ export async function projectChatWithAgent(
     onError: (error: string) => void
     /** Called with each SSE seq number — track for disconnect catch-up */
     onSeq?: (seq: number) => void
+    /** Called when the done event includes usage metrics */
+    onMetrics?: (metrics: { durationMs?: number; inputTokens?: number; outputTokens?: number; totalCost?: number; model?: string; numTurns?: number }) => void
   },
   signal?: AbortSignal,
 ): Promise<void> {
@@ -107,6 +109,7 @@ export async function projectChatWithAgent(
     onDone: callbacks.onDone,
     onError: callbacks.onError,
     onSeq: callbacks.onSeq,
+    onMetrics: callbacks.onMetrics,
   })
 }
 
@@ -150,6 +153,8 @@ export async function chatWithTask(
     onError: (error: string) => void
     /** Called with each SSE seq number — track for disconnect catch-up */
     onSeq?: (seq: number) => void
+    /** Called when the done event includes usage metrics */
+    onMetrics?: (metrics: { durationMs?: number; inputTokens?: number; outputTokens?: number; totalCost?: number; model?: string; numTurns?: number }) => void
   },
   signal?: AbortSignal,
 ): Promise<void> {
@@ -174,6 +179,7 @@ export async function chatWithTask(
     onDone: callbacks.onDone,
     onError: callbacks.onError,
     onSeq: callbacks.onSeq,
+    onMetrics: callbacks.onMetrics,
   })
 }
 

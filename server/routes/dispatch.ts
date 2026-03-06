@@ -1532,19 +1532,25 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 
     // Send init event (persist first so page-refresh hydration can recover machineId)
     const targetMachine = machineRegistry.get(machineId!)
-    const initData = {
+    const initDataForSSE = {
       executionId,
       nodeId,
       machineId,
       providerId: preferredProvider || targetMachine?.providers[0]?.type,
       providerName: preferredProvider || targetMachine?.providers[0]?.type,
       computeBackend,
+      pathwayType: isInteractivePlan ? 'interactive-plan' : (computeBackend === 'slurm' ? 'hpc' : 'execution'),
     }
-    const initSeq = await streamingEventLog.append(executionId, 'init', initData)
+    // Persist full init data (including system prompt) for observability — but don't send prompt to frontend
+    const initSeq = await streamingEventLog.append(executionId, 'init', {
+      ...initDataForSSE,
+      hasSystemPrompt: !!relaySystemPrompt,
+      systemPrompt: relaySystemPrompt,
+    })
     await stream.writeSSE({
       id: String(initSeq),
       event: 'init',
-      data: JSON.stringify(initData),
+      data: JSON.stringify(initDataForSSE),
     })
 
     // Keepalive + activity timeout
@@ -1578,6 +1584,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           return
         }
       }
+      // Flush buffered text to DB periodically so catch-up hydration has recent data
+      streamingEventLog.flushText(executionId).catch(() => {})
       stream.writeSSE({ event: 'heartbeat', data: '' }).catch(() => { alive = false; clearInterval(heartbeat) })
     }, 15000)
 

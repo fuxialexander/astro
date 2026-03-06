@@ -567,6 +567,18 @@ async function shutdown(signal: string) {
 process.on('SIGTERM', () => shutdown('SIGTERM'))
 process.on('SIGINT', () => shutdown('SIGINT'))
 
+// Flush buffered streaming events on unexpected crashes so data isn't lost
+process.on('uncaughtException', (err) => {
+  console.error('[server] Uncaught exception:', err)
+  const forceExit = setTimeout(() => process.exit(1), 3_000)
+  forceExit.unref()
+  streamingEventLog.flushAll().catch(() => {}).finally(() => process.exit(1))
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] Unhandled rejection:', reason)
+  streamingEventLog.flushAll().catch(() => {})
+})
+
 // Only start the server when not running in test mode.
 // Tests use createApp() + app.request() for in-process testing.
 if (!isTest()) {
