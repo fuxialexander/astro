@@ -52,6 +52,16 @@ import {
 import { machineRegistry } from './machine-registry.js';
 import { streamingEventLog } from './streaming-event-log.js';
 
+/** Compute line counts from a unified diff string */
+function computeLineCounts(diff: string): { added: number; removed: number } {
+  let added = 0, removed = 0;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('+') && !line.startsWith('+++')) added++;
+    else if (line.startsWith('-') && !line.startsWith('---')) removed++;
+  }
+  return { added, removed };
+}
+
 /** Key file contents returned from remote repo setup */
 export interface RepoKeyFiles {
   claudeMd?: string;
@@ -2020,19 +2030,26 @@ export class RelayServer extends EventEmitter {
    */
   private async handleAgentRunnerTaskFileChange(message: AgentRunnerTaskFileChangeMessage): Promise<void> {
     const { payload } = message;
+    // Compute line counts from diff when not provided by agent runner
+    let { linesAdded, linesRemoved } = payload;
+    if (linesAdded == null && linesRemoved == null && payload.diff) {
+      const counts = computeLineCounts(payload.diff);
+      linesAdded = counts.added;
+      linesRemoved = counts.removed;
+    }
     const changeMsg: TaskFileChangeMessage = {
       type: 'task.file_change',
       timestamp: new Date(),
       taskId: payload.taskId,
       path: payload.path,
       action: payload.action,
-      linesAdded: payload.linesAdded,
-      linesRemoved: payload.linesRemoved,
+      linesAdded,
+      linesRemoved,
       diff: payload.diff,
     };
     let seq: number | undefined;
     try {
-      seq = await streamingEventLog.append(payload.taskId, 'file_change', { path: payload.path, action: payload.action, linesAdded: payload.linesAdded, linesRemoved: payload.linesRemoved });
+      seq = await streamingEventLog.append(payload.taskId, 'file_change', { path: payload.path, action: payload.action, linesAdded, linesRemoved });
     } catch (err) {
       console.error(`[relay-server] Failed to persist file_change event for task ${payload.taskId}:`, err);
     }

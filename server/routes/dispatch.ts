@@ -1450,7 +1450,16 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     const onFileChange = async (msg: import('../types/relay.js').TaskFileChangeMessage) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
-      const data = { path: msg.path, action: msg.action, linesAdded: msg.linesAdded, linesRemoved: msg.linesRemoved }
+      // Compute line counts from diff when not provided
+      let linesAdded = msg.linesAdded
+      let linesRemoved = msg.linesRemoved
+      if (linesAdded == null && linesRemoved == null && msg.diff) {
+        for (const line of msg.diff.split('\n')) {
+          if (line.startsWith('+') && !line.startsWith('+++')) linesAdded = (linesAdded ?? 0) + 1
+          else if (line.startsWith('-') && !line.startsWith('---')) linesRemoved = (linesRemoved ?? 0) + 1
+        }
+      }
+      const data = { path: msg.path, action: msg.action, linesAdded, linesRemoved }
       const seq = await streamingEventLog.append(executionId, 'file_change', data)
       stream.writeSSE({
         id: String(seq),
