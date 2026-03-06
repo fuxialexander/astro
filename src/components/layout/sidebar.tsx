@@ -864,7 +864,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   <Zap className={cn("h-4 w-4", yoloMode ? "text-warning fill-warning" : "text-muted-foreground")} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="right">Auto Approval: {yoloMode ? "On" : "Off"}</TooltipContent>
+              <TooltipContent side="right">YOLO: {yoloMode ? "On" : "Off"} — Auto-approve all tasks across all projects</TooltipContent>
             </Tooltip>
           </div>
           <div className="flex justify-center w-full">
@@ -918,13 +918,13 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
             </div>
           </div>
 
-          {/* Auto Approval Toggle */}
+          {/* YOLO Mode Toggle */}
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
                 <div className="flex items-center gap-3">
                   <Zap className={cn("h-4 w-4", yoloMode ? "text-warning fill-warning" : "text-muted-foreground")} />
-                  <span className="text-sm font-medium text-muted-foreground">Auto Approval</span>
+                  <span className="text-sm font-medium text-muted-foreground">YOLO</span>
                 </div>
                 <Switch
                   checked={yoloMode}
@@ -932,8 +932,8 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                 />
               </div>
             </TooltipTrigger>
-            <TooltipContent side="right">
-              Auto-approve all agent decisions with the recommended option
+            <TooltipContent side="right" className="max-w-[220px]">
+              Auto-approve safety checks, tool requests, and task completions across all projects. Failed tasks still require review.
             </TooltipContent>
           </Tooltip>
 
