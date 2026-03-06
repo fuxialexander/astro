@@ -74,7 +74,7 @@ describe('agent runner SDK adapter — session preservation', () => {
 
 describe('agent runner SDK adapter — task type routing', () => {
   it('uses maxTurns=10 for chat and summarize tasks', () => {
-    expect(source).toContain("isTextOnlyTask ? 10 : 150")
+    expect(source).toContain("isTextOnlyTask ? 10 : undefined")
   })
 
   it('allows task.maxTurns to override default', () => {
