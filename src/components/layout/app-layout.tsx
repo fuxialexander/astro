@@ -5,6 +5,7 @@ import { SafetyPromptDialog } from "@/components/safety-prompt-dialog"
 import { WelcomeProfileDialog } from "@/components/welcome-profile-dialog"
 import { ProductTour } from "@/components/product-tour"
 import { PasskeyNudgeBanner } from "@/components/passkey-nudge-banner"
+import { SseDisconnectBanner } from "@/components/sse-disconnect-banner"
 import { ToastContainer } from "@/components/toast-container"
 import { requestNotificationPermission } from "@/lib/notifications"
 import { useUIStore } from "@/stores/ui-store"
@@ -30,6 +31,7 @@ export function AppLayout() {
       </div>
 
       <main className="flex-1 overflow-auto w-full md:w-auto">
+        <SseDisconnectBanner />
         <PasskeyNudgeBanner />
         <Outlet />
       </main>
