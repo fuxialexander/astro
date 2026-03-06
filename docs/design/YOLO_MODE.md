@@ -52,6 +52,8 @@ Plan generation completes (SSE 'result' event)
 
 For example templates, auto-execute is always registered (YOLO is implicitly on for examples).
 
+The `autoExecuteProjectIds: Set<string>` in execution-store tracks which projects should auto-execute. The flag is consumed (removed) on first use, so re-generating a plan doesn't auto-execute again unless the user re-enables it.
+
 ### Stage 2: Safety Check Auto-Proceed
 
 When a task starts in a non-git or risky directory, the agent-runner sends a `task_safety_prompt`. In YOLO mode, this is auto-approved:
@@ -117,7 +119,10 @@ Task auto_verified → dispatch.ts: autoDispatchDownstream(projectId, nodeId)
 
 This cascade continues until all tasks in the plan are complete or a failure stops a branch.
 
-**File:** `server/routes/dispatch.ts` (line ~1350)
+**File:** `server/routes/data.ts` (line ~813) — `autoDispatchDownstream()`
+**File:** `server/routes/dispatch.ts` (line ~1350) — triggers autoDispatchDownstream on auto_verified
+
+Downstream tasks are staggered with a 15-second delay between dispatches to prevent system overload.
 
 ## Notification Flow
 
@@ -144,12 +149,44 @@ The final summary notification should include:
 - Per-task one-line summaries (from `result.summary.workCompleted`)
 - Links to any failed tasks that need attention
 
-### Implementation Notes for Batch Summary
+### Implementation Plan for Batch Summary
 
-Track plan-level completion in `realtime-store.ts`:
-- When `auto_verified` event arrives, check if ALL nodes in the project plan are terminal (completed/auto_verified/pruned)
-- If yes → emit a single "plan complete" notification with aggregated summaries
-- Suppress per-task `showTaskNotification()` calls when YOLO is enabled
+**Phase 1: Suppress per-task noise in YOLO**
+
+In `realtime-store.ts`, when processing task results:
+- Check `useSettingsStore.getState().yoloMode` before calling `showTaskNotification()`
+- In YOLO mode, skip individual task notifications entirely
+
+**Phase 2: Track plan-level completion**
+
+In `realtime-store.ts` or `execution-store.ts`:
+- When `auto_verified` event arrives, check if ALL non-milestone nodes in the project plan are terminal (`completed` / `auto_verified` / `pruned`)
+- If yes, compute aggregated summary:
+  - Count completed/failed/pruned tasks
+  - Sum cost/tokens from usage-store
+  - Collect `summary.workCompleted` from each task's execution result
+- Emit a single `showPlanSummaryNotification()` with the aggregate
+
+**Phase 3: Summary notification UI**
+
+Create a rich notification or toast that shows:
+```
+Project "Academic Review" complete
+  8/8 tasks finished | $2.40 | 45k tokens
+  - Parse PDF: Extracted 42 pages, 15 figures
+  - Structure Map: Generated argument flow diagram
+  - Novelty Analysis: 3 novel contributions identified
+  - Report: PDF saved to outputs/review-report.pdf
+```
+
+This could be a persistent toast with a "View Details" link to the plan view, or a browser notification with a summary body.
+
+**Phase 4: First-failure alert**
+
+In YOLO mode, a task failure should immediately:
+- Show a toast: "Task failed: {title} -- YOLO execution paused on this branch"
+- Send a browser notification (even if the tab has focus)
+- Continue executing other independent branches that don't depend on the failed task
 
 ## Data Flow Diagram
 
