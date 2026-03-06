@@ -757,7 +757,7 @@ export function Playground() {
           )}
 
           {/* Input Bar — always visible for running sessions and resuming stopped ones */}
-          <div className="border-t border-border bg-background shrink-0">
+          <div className="border-t border-border/60 bg-background shrink-0">
             <div className="flex items-end gap-2 p-3">
               <textarea
                 ref={inputRef}
@@ -771,7 +771,7 @@ export function Playground() {
                 }}
                 placeholder={isRunning ? "Send a message..." : "Ask about this session..."}
                 rows={1}
-                className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                className="flex-1 rounded-lg border border-border/20 bg-muted/30 px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/50 focus:bg-muted/40 transition-colors resize-none"
               />
               <Button
                 size="icon"
@@ -835,7 +835,7 @@ export function Playground() {
 
         <div className="flex flex-col gap-4">
           {/* Goal textarea + session resume */}
-          <div className="flex flex-col rounded-lg border border-border bg-background overflow-hidden focus-within:ring-2 focus-within:ring-ring">
+          <div className="flex flex-col rounded-xl border border-border/20 bg-muted/30 overflow-hidden shadow-[0_1px_6px_-2px_rgba(0,0,0,0.06)] focus-within:ring-1 focus-within:ring-ring/50 focus-within:bg-muted/40 transition-all duration-200">
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -1027,7 +1027,7 @@ export function Playground() {
                     tabIndex={0}
                     onClick={() => viewSession(p.id)}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') viewSession(p.id) }}
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors text-left group cursor-pointer"
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted/50 transition-all duration-200 text-left group cursor-pointer"
                   >
                     <span className={cn("h-2 w-2 rounded-full shrink-0", statusColor)} />
                     <div className="flex-1 min-w-0">
