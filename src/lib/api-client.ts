@@ -164,7 +164,7 @@ export async function chatWithAgent(
   },
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(apiUrl("/api/agent/chat"), {
+  const res = await fetch(apiUrl("/api/agent/project-chat"), {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify(params),
@@ -185,7 +185,7 @@ export async function chatWithAgent(
   })
 }
 
-export async function planChatWithAgent(
+export async function projectChatWithAgent(
   params: { message: string; sessionId?: string; streamId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }> },
   callbacks: {
     onText: (text: string) => void
@@ -198,7 +198,7 @@ export async function planChatWithAgent(
   },
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(apiUrl("/api/agent/plan-chat"), {
+  const res = await fetch(apiUrl("/api/agent/project-chat"), {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify(params),

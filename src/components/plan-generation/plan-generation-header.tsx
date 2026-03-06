@@ -1,5 +1,5 @@
 /**
- * Plan Session Header
+ * Plan Generation Header
  *
  * Shows project name, status badge, abort button, and optional machine/directory info.
  */
@@ -8,11 +8,11 @@ import { Loader2, X, Laptop, CheckCircle2, AlertCircle, XCircle, ChevronLeft, Pl
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
-type PlanSessionStatus = 'planning' | 'waiting' | 'completed' | 'error' | 'stopped'
+type PlanGenerationStatus = 'planning' | 'waiting' | 'completed' | 'error' | 'stopped'
 
-interface PlanSessionHeaderProps {
+interface PlanGenerationHeaderProps {
   projectName: string
-  status: PlanSessionStatus
+  status: PlanGenerationStatus
   machineName?: string
   workingDirectory?: string
   onAbort: () => void
@@ -20,7 +20,7 @@ interface PlanSessionHeaderProps {
   onNewPlan?: () => void
 }
 
-export function PlanSessionHeader({
+export function PlanGenerationHeader({
   projectName,
   status,
   machineName,
@@ -28,8 +28,8 @@ export function PlanSessionHeader({
   onAbort,
   onBack,
   onNewPlan,
-}: PlanSessionHeaderProps) {
-  const statusConfig: Record<PlanSessionStatus, { label: string; color: string; icon: React.ReactNode }> = {
+}: PlanGenerationHeaderProps) {
+  const statusConfig: Record<PlanGenerationStatus, { label: string; color: string; icon: React.ReactNode }> = {
     planning: {
       label: "Planning",
       color: "bg-primary/10 text-primary",

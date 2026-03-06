@@ -37,7 +37,7 @@ import {
   BranchLinkedBlock,
 } from "@/components/activity-blocks"
 import { useGitHubCommentsStore } from "@/stores/github-comments-store"
-import { InlineApprovalCard } from "@/components/plan-session/inline-approval-card"
+import { InlineApprovalCard } from "@/components/plan-generation/inline-approval-card"
 import { PrStatusCard } from "@/components/pr-status-card"
 import type { PrData, PrCheckRun, PrReview } from "@/components/pr-status-card"
 import { PRReviewThreads } from "@/components/pr-review-threads"

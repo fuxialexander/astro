@@ -141,9 +141,9 @@ export const actionCommands: CommandDefinition[] = [
     keywords: ["create", "task", "add"],
   },
   {
-    id: "action-open-plan-chat",
-    label: "Open Plan Chat...",
-    description: "Select a project to open plan chat",
+    id: "action-open-project-chat",
+    label: "Open Project Chat...",
+    description: "Select a project to open project chat",
     icon: Plus,
     category: "actions",
     keywords: ["chat", "plan", "ai", "assistant"],

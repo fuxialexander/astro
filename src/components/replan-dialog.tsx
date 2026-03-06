@@ -69,8 +69,8 @@ export function ReplanDialog({ open, onOpenChange, project }: ReplanDialogProps)
         })
       }
 
-      // Start the replan session
-      await useExecutionStore.getState().startReplanSession(
+      // Start the replan
+      await useExecutionStore.getState().startReplan(
         project.id,
         changeDescription || undefined,
         lessons,

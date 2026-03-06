@@ -239,7 +239,7 @@ export const usageMetrics = pgTable('usage_metrics', {
 export const sessions = pgTable('sessions', {
   id: text('id').primaryKey(),
   userId: uuid('user_id').notNull(),
-  type: text('type').notNull(), // 'plan-chat' | 'task-chat' | 'steer' | 'execution' | 'plan-generation'
+  type: text('type').notNull(), // 'project-chat' | 'task-chat' | 'steer' | 'execution' | 'plan-generation'
   status: text('status').notNull().default('active'), // 'active' | 'streaming' | 'completed' | 'error' | 'cancelled'
   projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   nodeId: text('node_id'),

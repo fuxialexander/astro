@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
-import { stripHtml, escapeHtml } from "@/lib/html-utils"
+import { stripHtml } from "@/lib/html-utils"
 import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { FileCompletionTextarea, type MentionItem, type SlashCommand } from "@/components/ui/file-completion-textarea"
 import { TypingIndicator } from "@/components/ui/typing-indicator"
-import { planChatWithAgent, fetchSlashCommands, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
+import { projectChatWithAgent, fetchSlashCommands, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
+import { extractMutations, applyMutationsToStore, type AppliedMutations, type ResolvedMutations } from "@/lib/plan-mutations"
 import { useSettingsStore, resolveModel } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
@@ -34,122 +35,13 @@ import {
   ChatAssistantBlock,
   MutationBlock,
 } from "@/components/activity-blocks"
-import type { PlanNode, ProviderStatus, Session, TaskActivityEvent } from "@/types"
-
-/** A node update: nodeId OR nodeTitle + any properties to patch */
-interface ParsedNodeUpdate {
-  nodeId?: string
-  nodeTitle?: string
-  type?: string  // optional: disambiguate when multiple nodes have same title
-  [key: string]: unknown
-}
-
-/** An edge operation: add or remove */
-interface ParsedEdgeOp {
-  action: "add" | "remove"
-  source: string
-  target: string
-  type?: string
-}
-
-/** A new node to create (from decomposition) */
-interface ParsedNewNode {
-  id?: string
-  title: string
-  description: string
-  type?: string
-  milestoneId?: string
-  dependencies?: string[]
-  priority?: string
-  estimate?: string
-  verification?: string
-}
-
-/** All mutations extracted from a single assistant message */
-interface AppliedMutations {
-  nodeUpdates: ParsedNodeUpdate[]
-  edgeOps: ParsedEdgeOp[]
-  newNodes: ParsedNewNode[]
-}
-
-/** Resolved mutations with guaranteed nodeIds (for activity events and storage) */
-interface ResolvedMutations {
-  nodeUpdates: Array<{ nodeId: string; [key: string]: unknown }>
-  edgeOps: Array<{ action: "add" | "remove"; source: string; target: string; type?: string }>
-  newNodes: Array<{ id?: string; title: string; description: string; type?: string; dependencies?: string[]; priority?: string; estimate?: string; verification?: string }>
-}
+import type { ProviderStatus, Session, TaskActivityEvent } from "@/types"
 
 interface Message {
   role: "user" | "assistant"
   content: string
   /** Mutations applied from this message */
   appliedMutations?: AppliedMutations
-}
-
-// ---- Fields that are internal and should not be written from chat ----
-const INTERNAL_FIELDS = new Set(["id", "projectId", "createdAt", "updatedAt", "position", "boardOrder", "executionId", "executionOutput", "executionError", "executionStartedAt", "executionCompletedAt", "branchName", "prUrl", "prNumber"])
-
-// ---- Update parsing utilities ----
-
-const UPDATE_BLOCK_RE = /```astro-updates\s*\n([\s\S]*?)```/g
-const EDGE_BLOCK_RE = /```astro-edges\s*\n([\s\S]*?)```/g
-const ADD_NODES_BLOCK_RE = /```astro-add-nodes\s*\n([\s\S]*?)```/g
-
-/** Extract astro-updates, astro-edges, and astro-add-nodes blocks from a message. */
-function extractMutations(content: string): { cleanContent: string; mutations: AppliedMutations } {
-  const nodeUpdates: ParsedNodeUpdate[] = []
-  const edgeOps: ParsedEdgeOp[] = []
-  const newNodes: ParsedNewNode[] = []
-
-  let cleanContent = content.replace(UPDATE_BLOCK_RE, (match, json: string) => {
-    try {
-      const parsed = JSON.parse(json.trim())
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (item && typeof item === "object" && (item.nodeId || item.nodeTitle)) {
-            nodeUpdates.push(item as ParsedNodeUpdate)
-          }
-        }
-      }
-    } catch {
-      return match // malformed — keep visible
-    }
-    return ""
-  })
-
-  cleanContent = cleanContent.replace(EDGE_BLOCK_RE, (match, json: string) => {
-    try {
-      const parsed = JSON.parse(json.trim())
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (item && typeof item === "object" && item.action && item.source && item.target) {
-            edgeOps.push(item as ParsedEdgeOp)
-          }
-        }
-      }
-    } catch {
-      return match
-    }
-    return ""
-  })
-
-  cleanContent = cleanContent.replace(ADD_NODES_BLOCK_RE, (match, json: string) => {
-    try {
-      const parsed = JSON.parse(json.trim())
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (item && typeof item === "object" && item.title) {
-            newNodes.push(item as ParsedNewNode)
-          }
-        }
-      }
-    } catch {
-      return match
-    }
-    return ""
-  }).trim()
-
-  return { cleanContent, mutations: { nodeUpdates, edgeOps, newNodes } }
 }
 
 /** Compact label for a model id (strip dates and common prefixes). */
@@ -205,16 +97,16 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   const sessionDropdownRef = useRef<HTMLButtonElement>(null)
   const modelDropdownRef = useRef<HTMLButtonElement>(null)
 
-  // Get all plan-chat sessions for this project (re-evaluates when sessions map changes)
-  const planChatSessions = useMemo(
-    () => getSessionsForProject(projectId, "plan-chat"),
+  // Get all project-chat sessions for this project (re-evaluates when sessions map changes)
+  const projectChatSessions = useMemo(
+    () => getSessionsForProject(projectId, "project-chat"),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [getSessionsForProject, projectId, sessions]
   )
 
   // Get the active session ID (re-evaluates when activeSessionIds changes)
   const activeSessionId = useMemo(
-    () => getActiveSessionId(projectId, "plan-chat"),
+    () => getActiveSessionId(projectId, "project-chat"),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [getActiveSessionId, projectId, activeSessionIds]
   )
@@ -223,22 +115,22 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     if (activeSessionId) {
       const session = getSession(activeSessionId)
       // Verify the session still exists and belongs to this project
-      if (session && session.projectId === projectId && session.type === "plan-chat") {
+      if (session && session.projectId === projectId && session.type === "project-chat") {
         return session
       }
     }
     // Fall back to the most recent session
-    return planChatSessions[planChatSessions.length - 1]
-  }, [activeSessionId, getSession, planChatSessions, projectId])
+    return projectChatSessions[projectChatSessions.length - 1]
+  }, [activeSessionId, getSession, projectChatSessions, projectId])
 
   // Ensure session exists and track as active
   useEffect(() => {
     if (!currentSession) {
-      const newSession = createSession({ type: "plan-chat", projectId })
-      setActiveSessionId(projectId, "plan-chat", newSession.id)
+      const newSession = createSession({ type: "project-chat", projectId })
+      setActiveSessionId(projectId, "project-chat", newSession.id)
     } else if (!activeSessionId || activeSessionId !== currentSession.id) {
       // If the current session exists but isn't marked as active, mark it
-      setActiveSessionId(projectId, "plan-chat", currentSession.id)
+      setActiveSessionId(projectId, "project-chat", currentSession.id)
     }
   }, [currentSession, createSession, projectId, activeSessionId, setActiveSessionId])
 
@@ -249,13 +141,13 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       abortRef.current = null
     }
     setIsStreaming(false)
-    setActiveSessionId(projectId, "plan-chat", sessionId)
+    setActiveSessionId(projectId, "project-chat", sessionId)
   }, [projectId, setActiveSessionId])
 
   // Handler to create a new session
   const handleNewSession = useCallback(() => {
-    const newSession = createSession({ type: "plan-chat", projectId })
-    setActiveSessionId(projectId, "plan-chat", newSession.id)
+    const newSession = createSession({ type: "project-chat", projectId })
+    setActiveSessionId(projectId, "project-chat", newSession.id)
   }, [createSession, projectId, setActiveSessionId])
 
   // Handler to open session edit dialog
@@ -280,26 +172,26 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     // If we deleted the active session, switch to another or create new
     if (isActiveSession) {
       // Get remaining sessions (after deletion, so filter out the deleted one)
-      const remainingSessions = planChatSessions.filter(s => s.id !== sessionId)
+      const remainingSessions = projectChatSessions.filter(s => s.id !== sessionId)
 
       if (remainingSessions.length > 0) {
         // Switch to the most recent remaining session
         const mostRecent = remainingSessions[remainingSessions.length - 1]
-        setActiveSessionId(projectId, "plan-chat", mostRecent.id)
+        setActiveSessionId(projectId, "project-chat", mostRecent.id)
       } else {
         // No sessions left, clear active and let the effect create a new one
-        clearActiveSessionId(projectId, "plan-chat")
+        clearActiveSessionId(projectId, "project-chat")
       }
     }
-  }, [currentSession?.id, deleteSession, planChatSessions, projectId, setActiveSessionId, clearActiveSessionId])
+  }, [currentSession?.id, deleteSession, projectChatSessions, projectId, setActiveSessionId, clearActiveSessionId])
 
   // Handler to clear all sessions
   const handleClearAllSessions = useCallback(() => {
-    for (const session of planChatSessions) {
+    for (const session of projectChatSessions) {
       deleteSession(session.id)
     }
-    clearActiveSessionId(projectId, "plan-chat")
-  }, [planChatSessions, deleteSession, projectId, clearActiveSessionId])
+    clearActiveSessionId(projectId, "project-chat")
+  }, [projectChatSessions, deleteSession, projectId, clearActiveSessionId])
 
   const messages: (Message & { id: string })[] = (currentSession?.messages || []).map((m) => ({
     id: m.id,
@@ -321,11 +213,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const rawPlanEdges = usePlanStore((s) => s.edges)
   const planEdges = useMemo(() => rawPlanEdges.filter(isLive), [rawPlanEdges])
-  const updateNode = usePlanStore((s) => s.updateNode)
-  const addNode = usePlanStore((s) => s.addNode)
-  const addEdge = usePlanStore((s) => s.addEdge)
-  const removeEdge = usePlanStore((s) => s.removeEdge)
-  const reorganizeProject = usePlanStore((s) => s.reorganizeProject)
   const markNodesAsUpdating = usePlanStore((s) => s.markNodesAsUpdating)
 
   // Project store — for file tree and working directory
@@ -435,166 +322,13 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   /** Apply all mutations (node updates + edge operations + new nodes) to the plan store.
    *  Returns the affected node IDs and resolved mutations (with guaranteed nodeIds). */
   const applyMutations = useCallback((mutations: AppliedMutations): { affectedNodeIds: string[]; resolvedMutations: ResolvedMutations } => {
-    const { nodeUpdates, edgeOps, newNodes } = mutations
-    const affectedNodeIds: string[] = []
-    const resolvedNodeUpdates: Array<{ nodeId: string; [key: string]: unknown }> = []
-
-    // Create new nodes (from decomposition)
-    // Map AI-generated IDs to proper UUIDs for consistency with manually created tasks.
-    // No deduplication — if AI wants to update an existing node, it should use astro-updates with nodeTitle.
-    const idMap = new Map<string, string>() // map AI-generated IDs to real UUIDs
-
-    for (const n of newNodes) {
-      const realId = crypto.randomUUID()
-      affectedNodeIds.push(realId)
-      if (n.id) idMap.set(n.id, realId)
-
-      const now = new Date()
-      const node: PlanNode = {
-        id: realId,
-        projectId,
-        type: (n.type as PlanNode["type"]) ?? "task",
-        title: n.title,
-        description: n.description,
-        content: n.description ? `<p>${escapeHtml(n.description)}</p>` : '',
-        status: "planned",
-        parentId: null,
-        dependencies: (n.dependencies ?? []).map((d) => idMap.get(d) ?? d),
-        verification: (n.verification as PlanNode["verification"]) ?? "auto",
-        position: { x: 40, y: 40 },
-        priority: (n.priority as PlanNode["priority"]) ?? "medium",
-        estimate: (n.estimate as PlanNode["estimate"]) ?? undefined,
-        milestoneId: n.milestoneId ?? undefined,
-        createdAt: now,
-        updatedAt: now,
-      }
-      addNode(node)
-
-      // Add edges for dependencies
-      for (const dep of node.dependencies) {
-        addEdge({ id: crypto.randomUUID(), source: dep, target: realId, type: "dependency" })
-      }
-    }
-
-    if (newNodes.length > 0) {
-      // Auto-layout after adding new nodes
-      reorganizeProject(projectId)
-    }
-
-    // Apply node property updates
-    for (const u of nodeUpdates) {
-      // Resolve nodeId: either directly provided, or looked up by nodeTitle
-      let resolvedNodeId: string | undefined = u.nodeId
-
-      if (!resolvedNodeId && u.nodeTitle) {
-        // Title-based lookup: find node by title (case-insensitive)
-        const normalizedTitle = u.nodeTitle.trim().toLowerCase()
-        const projectNodes = planNodes.filter((n) => n.projectId === projectId)
-        let candidates = projectNodes.filter((n) => n.title.trim().toLowerCase() === normalizedTitle)
-
-        // If type is specified, filter by type for disambiguation
-        if (u.type && candidates.length > 1) {
-          candidates = candidates.filter((n) => n.type === u.type)
-        }
-
-        if (candidates.length === 0) {
-          console.warn(`[chat-panel] Node update failed: no node found with title "${u.nodeTitle}"${u.type ? ` and type "${u.type}"` : ''}`)
-          continue
-        } else if (candidates.length > 1) {
-          console.warn(`[chat-panel] Node update ambiguous: multiple nodes found with title "${u.nodeTitle}"${u.type ? ` and type "${u.type}"` : ''}. Specify type to disambiguate.`)
-          continue
-        }
-
-        resolvedNodeId = candidates[0].id
-      }
-
-      if (!resolvedNodeId) {
-        console.warn('[chat-panel] Node update failed: neither nodeId nor nodeTitle provided')
-        continue
-      }
-
-      affectedNodeIds.push(resolvedNodeId)
-
-      // Build resolved update object for activity events
-      const resolvedUpdate: { nodeId: string; [key: string]: unknown } = { nodeId: resolvedNodeId }
-      const patch: Partial<PlanNode> = {}
-      for (const [key, value] of Object.entries(u)) {
-        if (key === "nodeId" || key === "nodeTitle" || key === "type") continue // not properties to patch
-        if (INTERNAL_FIELDS.has(key)) continue // skip internal fields
-        ;(patch as Record<string, unknown>)[key] = value
-        resolvedUpdate[key] = value
-      }
-
-      resolvedNodeUpdates.push(resolvedUpdate)
-
-      // When description is updated, also generate the HTML content field
-      // (UI renders content, not description)
-      if (typeof patch.description === 'string' && !patch.content) {
-        patch.content = `<p>${escapeHtml(patch.description)}</p>`
-      }
-
-      // If dependencies were updated, reconcile edges automatically
-      if (Array.isArray(u.dependencies)) {
-        const currentNode = planNodes.find((n) => n.id === resolvedNodeId)
-        if (currentNode) {
-          const newDeps = new Set(u.dependencies as string[])
-          const oldDeps = new Set(currentNode.dependencies)
-          // Remove edges for removed dependencies
-          for (const dep of oldDeps) {
-            if (!newDeps.has(dep)) removeEdge(dep, resolvedNodeId)
-          }
-          // Add edges for new dependencies
-          for (const dep of newDeps) {
-            if (!oldDeps.has(dep)) {
-              addEdge({ id: `e-${dep}-${resolvedNodeId}`, source: dep, target: resolvedNodeId, type: "dependency" })
-            }
-          }
-        }
-      }
-
-      if (Object.keys(patch).length > 0) {
-        updateNode(resolvedNodeId, patch)
-      }
-    }
-
-    // Apply edge operations
-    for (const op of edgeOps) {
-      if (op.action === "add") {
-        addEdge({
-          id: `e-${op.source}-${op.target}`,
-          source: op.source,
-          target: op.target,
-          type: (op.type as "dependency" | "branch") ?? "dependency",
-        })
-        // Also update the target node's dependencies array
-        const targetNode = planNodes.find((n) => n.id === op.target)
-        if (targetNode && !targetNode.dependencies.includes(op.source)) {
-          updateNode(op.target, { dependencies: [...targetNode.dependencies, op.source] })
-        }
-      } else if (op.action === "remove") {
-        removeEdge(op.source, op.target)
-        // Also update the target node's dependencies array
-        const targetNode = planNodes.find((n) => n.id === op.target)
-        if (targetNode) {
-          updateNode(op.target, { dependencies: targetNode.dependencies.filter((d) => d !== op.source) })
-        }
-      }
-    }
-
-    return {
-      affectedNodeIds,
-      resolvedMutations: {
-        nodeUpdates: resolvedNodeUpdates,
-        edgeOps: edgeOps,
-        newNodes: newNodes,
-      }
-    }
-  }, [planNodes, projectId, updateNode, addNode, addEdge, removeEdge, reorganizeProject])
+    return applyMutationsToStore(projectId, mutations)
+  }, [projectId])
 
   const sendMessage = useCallback(async (text: string) => {
     // Read session fresh from store — never use stale ref
     const store = useSessionStore.getState()
-    const activeId = store.activeSessionIds.get(`${projectId}:plan-chat`)
+    const activeId = store.activeSessionIds.get(`${projectId}:project-chat`)
     const session = activeId ? store.sessions.get(activeId) : undefined
     if (!text || isStreaming || !session) return
 
@@ -646,7 +380,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     let localToolCount = 0
 
     try {
-      await planChatWithAgent(
+      await projectChatWithAgent(
         {
           message: text,
           sessionId: hasCompletedExchange ? session.providerSessionId : undefined,
@@ -825,7 +559,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       {/* Header with session switcher and model/provider picker */}
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4 border-b border-border">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold">Plan Chat</span>
+          <span className="text-sm font-semibold">Project Chat</span>
           {/* Session metadata */}
           {messages.length > 0 && (
             <span className="text-[10px] text-muted-foreground tabular-nums">
@@ -833,12 +567,12 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
             </span>
           )}
           {/* Session Switcher */}
-          {planChatSessions.length > 0 && (
+          {projectChatSessions.length > 0 && (
             <DropdownMenu open={sessionDropdownOpen} onOpenChange={setSessionDropdownOpen}>
               <DropdownMenuTrigger asChild>
                 <button ref={sessionDropdownRef} className="flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
                   <History className="h-3 w-3" />
-                  <span>{planChatSessions.length}</span>
+                  <span>{projectChatSessions.length}</span>
                   <ChevronDown className="h-2.5 w-2.5 opacity-50" />
                 </button>
               </DropdownMenuTrigger>
@@ -865,7 +599,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                   </div>
                 </div>
                 <DropdownMenuSeparator />
-                {[...planChatSessions].reverse().map((session) => {
+                {[...projectChatSessions].reverse().map((session) => {
                   const messageCount = session.messages.length
                   const sessionTitle = getSessionTitle(session)
                   const isActive = currentSession?.id === session.id

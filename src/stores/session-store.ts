@@ -28,7 +28,7 @@ import type {
 interface SessionState {
   sessions: Map<string, Session>
   loaded: boolean
-  // Track active session per project+type combination (e.g. "projectId:plan-chat" -> sessionId)
+  // Track active session per project+type combination (e.g. "projectId:project-chat" -> sessionId)
   activeSessionIds: Map<string, string>
 
   // Lifecycle

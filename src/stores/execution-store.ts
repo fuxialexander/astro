@@ -251,8 +251,8 @@ interface ExecutionState {
   addFileChange: (nodeId: string, change: FileChange) => void
   updateToolTraceResult: (nodeId: string, toolName: string, result: unknown, success?: boolean, duration?: number) => void
 
-  // Plan session methods
-  startPlanSession: (
+  // Plan generation methods
+  startPlanGeneration: (
     description: string,
     projectName: string,
     options?: {
@@ -268,13 +268,13 @@ interface ExecutionState {
       githubRepoId?: number
     }
   ) => Promise<{ projectId: string; nodeId: string }>
-  cancelPlanSession: (projectId: string) => Promise<void>
-  /** Remove execution entry and delete the project created by startPlanSession. */
-  cleanupPlanSession: (projectId: string) => void
-  steerPlanSession: (projectId: string, message: string) => Promise<boolean>
+  cancelPlanGeneration: (projectId: string) => Promise<void>
+  /** Remove execution entry and delete the project created by startPlanGeneration. */
+  cleanupPlanGeneration: (projectId: string) => void
+  steerPlanGeneration: (projectId: string, message: string) => Promise<boolean>
 
-  /** Start a plan session for an existing project (doesn't create a new project) */
-  startPlanSessionForProject: (
+  /** Start plan generation for an existing project (doesn't create a new project) */
+  startPlanGenerationForProject: (
     projectId: string,
     description: string,
     options?: {
@@ -287,8 +287,8 @@ interface ExecutionState {
     }
   ) => Promise<{ projectId: string; nodeId: string }>
 
-  /** Start a replan session — regenerates the plan with lessons from prior execution */
-  startReplanSession: (
+  /** Start a replan — regenerates the plan with lessons from prior execution */
+  startReplan: (
     projectId: string,
     changeDescription: string | undefined,
     lessons: ReplanContext["lessons"],
@@ -1031,9 +1031,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     })
   },
 
-  // ─── Plan Session Methods ──────────────────────────────────────────
+  // ─── Plan Generation Methods ──────────────────────────────────────────
 
-  startPlanSession: async (description, projectName, options) => {
+  startPlanGeneration: async (description, projectName, options) => {
     // 1. Create project
     const projectId = crypto.randomUUID()
     const displayName = projectName || "New Project"
@@ -1133,16 +1133,16 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
               if (exec?.streamText) {
                 const result = applyPlanFromText(projectId, exec.streamText, exec.executionId || undefined)
                 if (result.applied) {
-                  console.log(`[plan-session] Plan extracted: ${result.nodeCount} nodes`)
+                  console.log(`[plan-generation] Plan extracted: ${result.nodeCount} nodes`)
                 }
               }
             } catch (e) {
-              console.error("[plan-session] Failed to extract plan:", e)
+              console.error("[plan-generation] Failed to extract plan:", e)
             }
           }
         }, abortController.signal)
       } catch (error) {
-        // Only update if entry still exists (cancelPlanSession/cleanupPlanSession may have already handled it)
+        // Only update if entry still exists (cancelPlanGeneration/cleanupPlanGeneration may have already handled it)
         if (!get().executions.has(nodeId)) return
         if (error instanceof Error && error.name === "AbortError") {
           set((state) => {
@@ -1157,7 +1157,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           // Don't mark as failure if the page is unloading (refresh/navigate away)
           // — the task is still running server-side, catch-up will reconcile on reload
           if (isPageUnloadingOrHidden()) {
-            console.log('[plan-session] SSE interrupted by page unload, skipping failure marking')
+            console.log('[plan-generation] SSE interrupted by page unload, skipping failure marking')
             return
           }
           const message = error instanceof Error ? error.message : "Unknown error"
@@ -1179,7 +1179,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     return { projectId, nodeId }
   },
 
-  cancelPlanSession: async (projectId) => {
+  cancelPlanGeneration: async (projectId) => {
     const nodeId = `plan-${projectId}`
     const controller = abortControllers.get(nodeId)
     if (controller) {
@@ -1217,8 +1217,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     get().persist()
   },
 
-  /** Remove execution entry and delete the project created by startPlanSession. */
-  cleanupPlanSession: (projectId) => {
+  /** Remove execution entry and delete the project created by startPlanGeneration. */
+  cleanupPlanGeneration: (projectId) => {
     const nodeId = `plan-${projectId}`
     set((state) => {
       const newExecutions = new Map(state.executions)
@@ -1228,11 +1228,11 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     useProjectStore.getState().deleteProject(projectId)
   },
 
-  steerPlanSession: async (projectId, message) => {
+  steerPlanGeneration: async (projectId, message) => {
     const nodeId = `plan-${projectId}`
     const execution = get().executions.get(nodeId)
     if (!execution?.executionId || !execution.machineId) {
-      console.warn("[plan-session] Cannot steer: no executionId or machineId")
+      console.warn("[plan-generation] Cannot steer: no executionId or machineId")
       return false
     }
 
@@ -1250,21 +1250,21 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       })
 
       if (!response.ok) {
-        console.error("[plan-session] Failed to steer:", response.status)
+        console.error("[plan-generation] Failed to steer:", response.status)
         return false
       }
 
       const result = await response.json()
       return result.success
     } catch (error) {
-      console.error("[plan-session] Error steering:", error)
+      console.error("[plan-generation] Error steering:", error)
       return false
     }
   },
 
-  // ─── Start Plan Session For Existing Project ──────────────────────────
+  // ─── Start Plan Generation For Existing Project ──────────────────────────
 
-  startPlanSessionForProject: async (projectId, description, options) => {
+  startPlanGenerationForProject: async (projectId, description, options) => {
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
     if (!project) throw new Error(`Project ${projectId} not found`)
 
@@ -1355,16 +1355,16 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
               const exec = get().executions.get(nodeId)
               if (exec?.streamText) {
                 if (!exec.executionId) {
-                  console.warn(`[plan-session-forProject] Skipping plan extraction — executionId missing for node ${nodeId}`)
+                  console.warn(`[plan-generation-forProject] Skipping plan extraction — executionId missing for node ${nodeId}`)
                 } else {
                   const result = applyPlanFromText(projectId, exec.streamText, exec.executionId)
                   if (result.applied) {
-                    console.log(`[plan-session-forProject] Plan extracted: ${result.nodeCount} nodes`)
+                    console.log(`[plan-generation-forProject] Plan extracted: ${result.nodeCount} nodes`)
                   }
                 }
               }
             } catch (e) {
-              console.error("[plan-session-forProject] Failed to extract plan:", e)
+              console.error("[plan-generation-forProject] Failed to extract plan:", e)
             }
           }
         }, abortController.signal)
@@ -1382,7 +1382,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         } else {
           // Don't mark as failure if the page is unloading (refresh/navigate away)
           if (isPageUnloadingOrHidden()) {
-            console.log('[plan-session-forProject] SSE interrupted by page unload, skipping failure marking')
+            console.log('[plan-generation-forProject] SSE interrupted by page unload, skipping failure marking')
             return
           }
           const message = error instanceof Error ? error.message : "Unknown error"
@@ -1405,16 +1405,16 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
   // ─── Replan Session ──────────────────────────────────────────────────
 
-  startReplanSession: async (projectId, changeDescription, lessons, previousPlanSummary, options) => {
+  startReplan: async (projectId, changeDescription, lessons, previousPlanSummary, options) => {
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
     if (!project) throw new Error(`Project ${projectId} not found`)
 
     const nodeId = `plan-${projectId}`
 
-    // Cancel any active plan session first
+    // Cancel any active plan generation first
     const existingExec = get().executions.get(nodeId)
     if (existingExec && existingExec.status !== "success" && existingExec.status !== "failure" && existingExec.status !== "cancelled") {
-      await get().cancelPlanSession(projectId)
+      await get().cancelPlanGeneration(projectId)
     }
 
     // Build the replan description with context
@@ -1491,16 +1491,16 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
               const exec = get().executions.get(nodeId)
               if (exec?.streamText) {
                 if (!exec.executionId) {
-                  console.warn(`[replan-session] Skipping plan extraction — executionId missing for node ${nodeId}`)
+                  console.warn(`[replan] Skipping plan extraction — executionId missing for node ${nodeId}`)
                 } else {
                   const result = applyPlanFromText(projectId, exec.streamText, exec.executionId)
                   if (result.applied) {
-                    console.log(`[replan-session] Plan extracted: ${result.nodeCount} nodes`)
+                    console.log(`[replan] Plan extracted: ${result.nodeCount} nodes`)
                   }
                 }
               }
             } catch (e) {
-              console.error("[replan-session] Failed to extract plan:", e)
+              console.error("[replan] Failed to extract plan:", e)
             }
           }
         }, abortController.signal)
@@ -1517,7 +1517,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           })
         } else {
           if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-            console.log('[replan-session] SSE interrupted by page unload, skipping failure marking')
+            console.log('[replan] SSE interrupted by page unload, skipping failure marking')
             return
           }
           const message = error instanceof Error ? error.message : "Unknown error"

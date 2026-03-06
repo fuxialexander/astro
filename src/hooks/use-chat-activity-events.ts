@@ -1,7 +1,7 @@
 /**
  * Hook: useChatActivityEvents
  *
- * Returns activity events and display blocks for plan-chat sessions.
+ * Returns activity events and display blocks for project-chat sessions.
  * During live streaming, combines realtime-store events with session messages.
  * After page refresh, hydrates from streaming_events table via catch-up.
  *
