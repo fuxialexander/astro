@@ -56,25 +56,7 @@ export class ContextAssembler {
    * Prioritizes most recent entries first.
    */
   private capKnowledgeEntries(entries: KnowledgeEntry[]): KnowledgeEntry[] {
-    const maxSize = this.config.maxKnowledgeSize
-    // Sort by recency (most recent first)
-    const sorted = [...entries].sort(
-      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-    )
-
-    const result: KnowledgeEntry[] = []
-    let totalSize = 0
-
-    for (const entry of sorted) {
-      const entrySize = entry.key.length + entry.value.length + (entry.sourceTaskTitle?.length ?? 0)
-      if (totalSize + entrySize > maxSize && result.length > 0) {
-        break // Stop adding entries once we exceed the cap (always include at least one)
-      }
-      result.push(entry)
-      totalSize += entrySize
-    }
-
-    return result
+    return capKnowledgeEntries(entries, this.config.maxKnowledgeSize)
   }
 
   /**
@@ -461,4 +443,28 @@ export function createContextAssembler(
     maxDependencyOutputSize: config?.maxDependencyOutputSize ?? 10000,
     maxKnowledgeSize: config?.maxKnowledgeSize ?? 8000,
   })
+}
+
+/**
+ * Cap knowledge entries to fit within maxSize.
+ * Prioritizes most recent entries first. Always includes at least one entry.
+ */
+export function capKnowledgeEntries(entries: KnowledgeEntry[], maxSize: number): KnowledgeEntry[] {
+  const sorted = [...entries].sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  )
+
+  const result: KnowledgeEntry[] = []
+  let totalSize = 0
+
+  for (const entry of sorted) {
+    const entrySize = entry.key.length + entry.value.length + (entry.sourceTaskTitle?.length ?? 0)
+    if (totalSize + entrySize > maxSize && result.length > 0) {
+      break
+    }
+    result.push(entry)
+    totalSize += entrySize
+  }
+
+  return result
 }

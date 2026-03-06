@@ -10,6 +10,7 @@ import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
 import {
   dispatchEngine,
+  capKnowledgeEntries,
   type BranchPruneRequest,
   type DispatchPriority,
 } from '../lib/dispatch/index.js'
@@ -756,27 +757,19 @@ async function dispatchViaRelay(
     try {
       const knowledgeRows = await db.select().from(projectKnowledge).where(eq(projectKnowledge.projectId, projectId))
       if (knowledgeRows.length > 0) {
-        const maxKnowledgeSize = 8000
-        // Sort by recency (most recent first)
-        const sorted = knowledgeRows.sort(
-          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-        )
-        const entries: string[] = []
-        let totalSize = 0
-        for (const row of sorted) {
-          const source = row.sourceTaskTitle ? ` (from: "${row.sourceTaskTitle}")` : ''
-          const entryText = `### ${row.key}${source}\n\n${row.value}`
-          const entrySize = entryText.length
-          if (totalSize + entrySize > maxKnowledgeSize && entries.length > 0) break
-          entries.push(entryText)
-          totalSize += entrySize
-        }
-        if (entries.length > 0) {
-          promptParts.push(`## Project Knowledge\n\n${entries.join('\n\n')}`)
+        const capped = capKnowledgeEntries(knowledgeRows, 8000)
+        if (capped.length > 0) {
+          const knowledgeSection = capped
+            .map((entry) => {
+              const source = entry.sourceTaskTitle ? ` (from: "${entry.sourceTaskTitle}")` : ''
+              return `### ${entry.key}${source}\n\n${entry.value}`
+            })
+            .join('\n\n')
+          promptParts.push(`## Project Knowledge\n\n${knowledgeSection}`)
         }
       }
     } catch (err) {
-      console.warn('[dispatch] Failed to fetch knowledge entries:', err)
+      console.warn('[dispatch] Failed to fetch knowledge entries:', err instanceof Error ? err.message : String(err))
       // Non-fatal — continue without knowledge
     }
 

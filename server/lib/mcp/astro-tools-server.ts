@@ -922,12 +922,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       const entry = {
-        id: randomUUID(),
         projectId: targetProjectId,
         key,
         value,
         sourceNodeId: nodeId || null,
-        sourceExecutionId: executionId || null,
       }
 
       await apiRequest('POST', '/api/data/knowledge', entry)
