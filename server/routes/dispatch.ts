@@ -289,6 +289,7 @@ dispatchRoute.post('/task', async (c) => {
   let baseBranch: string | undefined
   let nodeNumber: number | null | undefined
   let githubContext: import('../lib/prompt-templates.js').GitHubContextForPrompt | undefined
+  let projectComputeBackends: string[] | undefined
 
   // ── Early serial execution check for 'direct' delivery mode ──────
   // Fail-fast optimization: if the client explicitly sends deliveryMode='direct',
@@ -424,6 +425,11 @@ dispatchRoute.post('/task', async (c) => {
         }
       }
 
+      // Resolve compute backends from project
+      if (dbProject.computeBackends?.length) {
+        projectComputeBackends = dbProject.computeBackends
+      }
+
       // Resolve working directory from project
       if (!workingDirectory) {
         if (dbProject.defaultMachineId && dbProject.workingDirectory && !dbProject.repository) {
@@ -552,6 +558,7 @@ dispatchRoute.post('/task', async (c) => {
     workingDirectory,
     sourceDirectory,
     computeBackend,
+    projectComputeBackends,
     deliveryMode,
     remoteType,
     baseBranch,
@@ -597,6 +604,7 @@ async function dispatchViaRelay(
     workingDirectory?: string
     sourceDirectory?: string
     computeBackend?: string
+    projectComputeBackends?: string[]
     deliveryMode?: string
     remoteType?: string
     baseBranch?: string
@@ -639,6 +647,7 @@ async function dispatchViaRelay(
     workingDirectory,
     sourceDirectory,
     computeBackend,
+    projectComputeBackends,
     deliveryMode,
     remoteType,
     baseBranch,
@@ -725,7 +734,7 @@ async function dispatchViaRelay(
   // Resolve backends: task-level computeBackend > project setting
   const dispatchBackends = computeBackend
     ? [computeBackend]
-    : ((dbProject as { computeBackends?: string[] | null })?.computeBackends ?? undefined) as string[] | undefined
+    : (projectComputeBackends ?? undefined)
   const skillsInjection = skillManager.getBackendScopedSkillInjection(effectiveTeamId, dispatchBackends) || undefined
 
   if (isInteractivePlan) {
