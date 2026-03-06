@@ -14,7 +14,7 @@ import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { activeDispatchStreams } from '../lib/execution-context-store.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
-import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage } from '../types/relay.js'
+import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, ProviderType } from '../types/relay.js'
 import { db } from '../lib/db/index.js'
 import { projects, environmentConfigs } from '../lib/db/schema.js'
 import { eq, isNull, and, or, inArray } from 'drizzle-orm'
@@ -125,7 +125,7 @@ async function streamChatViaRelay(
     type: opts.type,
     messages: opts.messages,
     model: opts.model,
-    preferredProvider: opts.preferredProvider as import('../types/relay.js').ProviderType | undefined,
+    preferredProvider: opts.preferredProvider as ProviderType | undefined,
     maxTurns: opts.maxTurns,
     workingDirectory: opts.workingDirectory,
     useWorktree: false,
@@ -344,7 +344,7 @@ async function executeViaRelay(opts: {
     prompt: opts.prompt,
     systemPrompt: opts.systemPrompt,
     type: opts.type,
-    preferredProvider: opts.preferredProvider as import('../types/relay.js').ProviderType | undefined,
+    preferredProvider: opts.preferredProvider as ProviderType | undefined,
     maxTurns: opts.maxTurns ?? 1,
     workingDirectory: SCRATCH_DIR,
     skipSafetyCheck: true,
