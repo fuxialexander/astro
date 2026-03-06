@@ -88,6 +88,56 @@ export async function getUsageHistory(userId: string, weeks: number = 52): Promi
   return result
 }
 
+// ── Hourly Activity (for hours×days heatmap) ────────────────────────
+
+export interface HourlyActivity {
+  date: string      // YYYY-MM-DD
+  hour: number      // 0–23
+  tasksCompleted: number
+}
+
+export async function getHourlyActivity(userId: string, days: number = 14): Promise<HourlyActivity[]> {
+  const cacheKey = `hourly_activity:${userId}:${days}`
+  const cached = getCached<HourlyActivity[]>(cacheKey)
+  if (cached) return cached
+
+  const startDate = new Date()
+  startDate.setDate(startDate.getDate() - days)
+  const startStr = startDate.toISOString()
+
+  const rows = await db.select({
+    date: sql<string>`TO_CHAR(${taskExecutions.completedAt}, 'YYYY-MM-DD')`,
+    hour: sql<number>`EXTRACT(HOUR FROM ${taskExecutions.completedAt})::int`,
+    count: count(),
+  })
+    .from(taskExecutions)
+    .where(
+      and(
+        sql`${taskExecutions.projectId} IN (SELECT id FROM projects WHERE owner_id = ${userId})`,
+        sql`${taskExecutions.completedAt} IS NOT NULL`,
+        gte(taskExecutions.completedAt, new Date(startStr)),
+        eq(taskExecutions.status, 'success')
+      )
+    )
+    .groupBy(
+      sql`TO_CHAR(${taskExecutions.completedAt}, 'YYYY-MM-DD')`,
+      sql`EXTRACT(HOUR FROM ${taskExecutions.completedAt})::int`
+    )
+    .orderBy(
+      sql`TO_CHAR(${taskExecutions.completedAt}, 'YYYY-MM-DD')`,
+      sql`EXTRACT(HOUR FROM ${taskExecutions.completedAt})::int`
+    )
+
+  const result: HourlyActivity[] = rows.map(r => ({
+    date: r.date,
+    hour: r.hour,
+    tasksCompleted: r.count,
+  }))
+
+  setCache(cacheKey, result)
+  return result
+}
+
 // ── Lifetime Stats ──────────────────────────────────────────────────
 
 export async function computeLifetimeStats(userId: string): Promise<LifetimeStats> {

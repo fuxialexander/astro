@@ -2227,6 +2227,14 @@ app.get('/usage/history', async (c) => {
   return c.json(data)
 })
 
+app.get('/usage/hourly-history', async (c) => {
+  const userId = c.get('user')!.id
+  const days = parseInt(c.req.query('days') || '14', 10)
+  const { getHourlyActivity } = await import('../lib/stats.js')
+  const data = await getHourlyActivity(userId, Math.min(days, 30))
+  return c.json(data)
+})
+
 app.get('/stats/lifetime', async (c) => {
   const userId = c.get('user')!.id
   const { getFullStats } = await import('../lib/stats.js')

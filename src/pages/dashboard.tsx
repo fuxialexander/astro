@@ -25,7 +25,6 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useRealtimeStore, type ActivityEvent } from "@/stores/realtime-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore } from "@/stores/execution-store"
-import { useAgentStore } from "@/stores/agent-store"
 import { useStatsStore } from "@/stores/stats-store"
 import { ApprovalCard } from "@/components/approval-card"
 import { InlineApprovalCard } from "@/components/plan-generation/inline-approval-card"
@@ -80,8 +79,8 @@ export function Dashboard() {
   const [resettingId, setResettingId] = useState<string | null>(null)
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
-  const agentSessions = useAgentStore((s) => s.sessions)
   const heatmapData = useStatsStore((s) => s.heatmapData)
+  const hourlyData = useStatsStore((s) => s.hourlyData)
   const stats = useStatsStore((s) => s.stats)
   const achievements = useStatsStore((s) => s.achievements)
   const levelInfo = useStatsStore((s) => s.levelInfo)
@@ -98,10 +97,10 @@ export function Dashboard() {
   const activePlaygroundTasks = [...allExecutions.values()].filter(
     (e) => (e.status === "running" || e.status === "pending") && e.nodeId.startsWith("playground-")
   ).length
-  const activePlanningSessions = Array.from(agentSessions.values()).filter(
-    (s) => s.status === "active"
+  const activePlanSessions = [...allExecutions.values()].filter(
+    (e) => (e.status === "running" || e.status === "pending") && e.nodeId.startsWith("plan-")
   ).length
-  const activeTasks = activeNodeTasks + activePlaygroundTasks + activePlanningSessions
+  const activeTasks = activeNodeTasks + activePlaygroundTasks + activePlanSessions
   const pendingDecisions = nodes.filter(
     (n) => n.status === "awaiting_judgment" || n.status === "awaiting_approval"
   ).length + dynamicApprovals.size
@@ -146,7 +145,7 @@ export function Dashboard() {
     })),
   [machineList])
 
-  type TaskCategory = "planning" | "generation" | "playground" | "projects"
+  type TaskCategory = "generation" | "playground" | "projects"
 
   const activeTasksWithContext = useMemo(() => {
     // Running execution tasks (project tasks)
@@ -174,40 +173,26 @@ export function Dashboard() {
         }
       })
 
-    // Active agent sessions — split into planning vs generation
-    const planningTasks = Array.from(agentSessions.values())
-      .filter((s) => s.status === "active" && s.phase === "interactive_planning")
-      .map((session) => ({
-        id: `plan-${session.projectId}`,
-        title: session.projectName,
-        projectId: session.projectId,
-        projectName: session.projectName,
-        projectColor: undefined as string | undefined,
-        machineName: "planner",
-        machineId: "planner",
-        startedAt: session.startedAt,
-        progress: 0,
-        progressMessage: "Interactive planning...",
-        costUsd: undefined as number | undefined,
-        category: "planning" as TaskCategory,
-      }))
-
-    const generationTasks = Array.from(agentSessions.values())
-      .filter((s) => s.status === "active" && (s.phase === "generating" || s.phase === "repo_setup"))
-      .map((session) => ({
-        id: `gen-${session.projectId}`,
-        title: session.projectName,
-        projectId: session.projectId,
-        projectName: session.projectName,
-        projectColor: undefined as string | undefined,
-        machineName: "planner",
-        machineId: "planner",
-        startedAt: session.startedAt,
-        progress: session.phase === "generating" ? 50 : 10,
-        progressMessage: session.phase === "generating" ? "Generating plan..." : "Setting up...",
-        costUsd: undefined as number | undefined,
-        category: "generation" as TaskCategory,
-      }))
+    // Active plan generation sessions (from execution store, nodeId starts with "plan-")
+    const planGenerationTasks = [...allExecutions.values()]
+      .filter((e) => (e.status === "running" || e.status === "pending") && e.nodeId.startsWith("plan-"))
+      .map((exec) => {
+        const project = projects.find((p) => p.id === exec.projectId)
+        return {
+          id: exec.nodeId,
+          title: project?.name || "Plan Generation",
+          projectId: exec.projectId,
+          projectName: project?.name || "Plan Generation",
+          projectColor: project?.color,
+          machineName: "planner",
+          machineId: "planner",
+          startedAt: exec.startedAt ? new Date(exec.startedAt).getTime() : Date.now(),
+          progress: exec.status === "running" ? 50 : 10,
+          progressMessage: exec.status === "running" ? "Generating plan..." : "Starting...",
+          costUsd: undefined as number | undefined,
+          category: "generation" as TaskCategory,
+        }
+      })
 
     // Active playground sessions
     const playgroundTasks = [...allExecutions.values()]
@@ -231,12 +216,12 @@ export function Dashboard() {
         }
       })
 
-    return [...planningTasks, ...generationTasks, ...playgroundTasks, ...executionTasks]
-  }, [nodes, taskStreams, projects, machines, agentSessions, allExecutions])
+    return [...planGenerationTasks, ...playgroundTasks, ...executionTasks]
+  }, [nodes, taskStreams, projects, machines, allExecutions])
 
   const tasksByCategory = useMemo(() => {
     const grouped: Record<TaskCategory, typeof activeTasksWithContext> = {
-      planning: [], generation: [], playground: [], projects: [],
+      generation: [], playground: [], projects: [],
     }
     for (const task of activeTasksWithContext) {
       grouped[task.category].push(task)
@@ -245,8 +230,7 @@ export function Dashboard() {
   }, [activeTasksWithContext])
 
   const categoryLabels: Record<TaskCategory, string> = {
-    planning: "Planning",
-    generation: "Generation",
+    generation: "Plan Generation",
     playground: "Playground",
     projects: "Projects",
   }
@@ -600,7 +584,7 @@ export function Dashboard() {
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
-                  {(["planning", "generation", "playground", "projects"] as TaskCategory[]).map((cat) => {
+                  {(["generation", "playground", "projects"] as TaskCategory[]).map((cat) => {
                     const tasks = tasksByCategory[cat]
                     if (tasks.length === 0) return null
                     return (
@@ -698,7 +682,7 @@ export function Dashboard() {
       {/* ── TIER 5: Activity Overview + Live Feed ── */}
       <div className="grid grid-cols-1 md:grid-cols-[1fr,260px] gap-6">
         <div className="rounded-xl glass-panel p-5">
-          <ActivityOverview data={heatmapData} />
+          <ActivityOverview data={heatmapData} hourlyData={hourlyData} />
           {stats && statsLoaded && (
             <div className="flex items-center gap-5 mt-4 pt-3.5 border-t border-border text-[11px] text-muted-foreground">
               <span><strong className="text-foreground font-semibold">{stats.currentStreak}d</strong> streak</span>
