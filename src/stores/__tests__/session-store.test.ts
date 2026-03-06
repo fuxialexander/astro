@@ -34,7 +34,7 @@ function resetStore() {
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
     id: "test-session",
-    type: "plan-chat",
+    type: "project-chat",
     status: "active",
     projectId: "proj-1",
     messages: [],
@@ -99,12 +99,12 @@ describe("session store - CRUD", () => {
   it("createSession creates a session and stores it", () => {
     const store = useSessionStore.getState()
     const session = store.createSession({
-      type: "plan-chat",
+      type: "project-chat",
       projectId: "proj-1",
     })
 
     expect(session.id).toBeTruthy()
-    expect(session.type).toBe("plan-chat")
+    expect(session.type).toBe("project-chat")
     expect(session.projectId).toBe("proj-1")
     expect(session.status).toBe("active")
     expect(session.messages).toEqual([])
@@ -119,11 +119,11 @@ describe("session store - CRUD", () => {
     const store = useSessionStore.getState()
 
     // Create sessions with slight time differences
-    const s1 = store.createSession({ type: "plan-chat", projectId: "proj-1" })
-    const s2 = store.createSession({ type: "plan-chat", projectId: "proj-1" })
-    const s3 = store.createSession({ type: "plan-chat", projectId: "proj-2" })
+    const s1 = store.createSession({ type: "project-chat", projectId: "proj-1" })
+    const s2 = store.createSession({ type: "project-chat", projectId: "proj-1" })
+    const s3 = store.createSession({ type: "project-chat", projectId: "proj-2" })
 
-    const proj1Sessions = useSessionStore.getState().getSessionsForProject("proj-1", "plan-chat")
+    const proj1Sessions = useSessionStore.getState().getSessionsForProject("proj-1", "project-chat")
     expect(proj1Sessions).toHaveLength(2)
     expect(proj1Sessions[0].id).toBe(s1.id)
     expect(proj1Sessions[1].id).toBe(s2.id)
@@ -136,12 +136,12 @@ describe("session store - CRUD", () => {
 
   it("getSessionsForProject filters by type", () => {
     const store = useSessionStore.getState()
-    store.createSession({ type: "plan-chat", projectId: "proj-1" })
+    store.createSession({ type: "project-chat", projectId: "proj-1" })
     store.createSession({ type: "task-chat", projectId: "proj-1", nodeId: "n1" })
 
-    const planSessions = useSessionStore.getState().getSessionsForProject("proj-1", "plan-chat")
+    const planSessions = useSessionStore.getState().getSessionsForProject("proj-1", "project-chat")
     expect(planSessions).toHaveLength(1)
-    expect(planSessions[0].type).toBe("plan-chat")
+    expect(planSessions[0].type).toBe("project-chat")
 
     const allSessions = useSessionStore.getState().getSessionsForProject("proj-1")
     expect(allSessions).toHaveLength(2)
@@ -149,7 +149,7 @@ describe("session store - CRUD", () => {
 
   it("deleteSession removes a session", () => {
     const store = useSessionStore.getState()
-    const session = store.createSession({ type: "plan-chat", projectId: "proj-1" })
+    const session = store.createSession({ type: "project-chat", projectId: "proj-1" })
 
     useSessionStore.getState().deleteSession(session.id)
 
@@ -167,11 +167,11 @@ describe("session store - multi-session history", () => {
     const store = useSessionStore.getState()
 
     // Create first session
-    const s1 = store.createSession({ type: "plan-chat", projectId: "proj-1" })
+    const s1 = store.createSession({ type: "project-chat", projectId: "proj-1" })
     expect(s1.status).toBe("active")
 
     // Create a NEW session (should complete the old one)
-    const s2 = useSessionStore.getState().createNewSession({ type: "plan-chat", projectId: "proj-1" })
+    const s2 = useSessionStore.getState().createNewSession({ type: "project-chat", projectId: "proj-1" })
 
     const s1After = useSessionStore.getState().getSession(s1.id)
     expect(s1After?.status).toBe("completed")
@@ -183,12 +183,12 @@ describe("session store - multi-session history", () => {
   it("createNewSession only completes same type/project sessions", () => {
     const store = useSessionStore.getState()
 
-    const planChat = store.createSession({ type: "plan-chat", projectId: "proj-1" })
+    const planChat = store.createSession({ type: "project-chat", projectId: "proj-1" })
     const taskChat = store.createSession({ type: "task-chat", projectId: "proj-1", nodeId: "n1" })
-    const otherProject = store.createSession({ type: "plan-chat", projectId: "proj-2" })
+    const otherProject = store.createSession({ type: "project-chat", projectId: "proj-2" })
 
-    // Create new plan-chat for proj-1
-    useSessionStore.getState().createNewSession({ type: "plan-chat", projectId: "proj-1" })
+    // Create new project-chat for proj-1
+    useSessionStore.getState().createNewSession({ type: "project-chat", projectId: "proj-1" })
 
     // planChat should be completed
     expect(useSessionStore.getState().getSession(planChat.id)?.status).toBe("completed")
@@ -201,15 +201,15 @@ describe("session store - multi-session history", () => {
   it("all sessions are preserved and accessible after creating new ones", () => {
     const store = useSessionStore.getState()
 
-    const s1 = store.createSession({ type: "plan-chat", projectId: "proj-1" })
+    const s1 = store.createSession({ type: "project-chat", projectId: "proj-1" })
     useSessionStore.getState().addMessage(s1.id, { role: "user", content: "First conversation" })
     useSessionStore.getState().addMessage(s1.id, { role: "assistant", content: "Response 1" })
 
-    const s2 = useSessionStore.getState().createNewSession({ type: "plan-chat", projectId: "proj-1" })
+    const s2 = useSessionStore.getState().createNewSession({ type: "project-chat", projectId: "proj-1" })
     useSessionStore.getState().addMessage(s2.id, { role: "user", content: "Second conversation" })
 
     // Both sessions should be accessible
-    const sessions = useSessionStore.getState().getSessionsForProject("proj-1", "plan-chat")
+    const sessions = useSessionStore.getState().getSessionsForProject("proj-1", "project-chat")
     expect(sessions).toHaveLength(2)
 
     // First session's messages should be preserved
@@ -231,53 +231,53 @@ describe("session store - active session tracking", () => {
 
   it("getActiveSessionId returns undefined when none set", () => {
     const store = useSessionStore.getState()
-    expect(store.getActiveSessionId("proj-1", "plan-chat")).toBeUndefined()
+    expect(store.getActiveSessionId("proj-1", "project-chat")).toBeUndefined()
   })
 
   it("setActiveSessionId persists and retrieves", () => {
     const store = useSessionStore.getState()
-    store.setActiveSessionId("proj-1", "plan-chat", "session-abc")
+    store.setActiveSessionId("proj-1", "project-chat", "session-abc")
 
-    expect(useSessionStore.getState().getActiveSessionId("proj-1", "plan-chat")).toBe("session-abc")
+    expect(useSessionStore.getState().getActiveSessionId("proj-1", "project-chat")).toBe("session-abc")
   })
 
   it("active sessions are scoped per project+type", () => {
     const store = useSessionStore.getState()
 
-    store.setActiveSessionId("proj-1", "plan-chat", "session-1")
+    store.setActiveSessionId("proj-1", "project-chat", "session-1")
     store.setActiveSessionId("proj-1", "task-chat", "session-2")
-    store.setActiveSessionId("proj-2", "plan-chat", "session-3")
+    store.setActiveSessionId("proj-2", "project-chat", "session-3")
 
-    expect(useSessionStore.getState().getActiveSessionId("proj-1", "plan-chat")).toBe("session-1")
+    expect(useSessionStore.getState().getActiveSessionId("proj-1", "project-chat")).toBe("session-1")
     expect(useSessionStore.getState().getActiveSessionId("proj-1", "task-chat")).toBe("session-2")
-    expect(useSessionStore.getState().getActiveSessionId("proj-2", "plan-chat")).toBe("session-3")
+    expect(useSessionStore.getState().getActiveSessionId("proj-2", "project-chat")).toBe("session-3")
   })
 
   it("clearActiveSessionId removes the active session", () => {
     const store = useSessionStore.getState()
-    store.setActiveSessionId("proj-1", "plan-chat", "session-abc")
-    store.clearActiveSessionId("proj-1", "plan-chat")
+    store.setActiveSessionId("proj-1", "project-chat", "session-abc")
+    store.clearActiveSessionId("proj-1", "project-chat")
 
-    expect(useSessionStore.getState().getActiveSessionId("proj-1", "plan-chat")).toBeUndefined()
+    expect(useSessionStore.getState().getActiveSessionId("proj-1", "project-chat")).toBeUndefined()
   })
 
   it("switching between sessions preserves each session's state", () => {
     const store = useSessionStore.getState()
 
     // Create two sessions and add messages
-    const s1 = store.createSession({ type: "plan-chat", projectId: "proj-1" })
+    const s1 = store.createSession({ type: "project-chat", projectId: "proj-1" })
     useSessionStore.getState().addMessage(s1.id, { role: "user", content: "Session 1 msg" })
 
-    const s2 = useSessionStore.getState().createSession({ type: "plan-chat", projectId: "proj-1" })
+    const s2 = useSessionStore.getState().createSession({ type: "project-chat", projectId: "proj-1" })
     useSessionStore.getState().addMessage(s2.id, { role: "user", content: "Session 2 msg" })
 
     // Set active to s1
-    useSessionStore.getState().setActiveSessionId("proj-1", "plan-chat", s1.id)
-    expect(useSessionStore.getState().getActiveSessionId("proj-1", "plan-chat")).toBe(s1.id)
+    useSessionStore.getState().setActiveSessionId("proj-1", "project-chat", s1.id)
+    expect(useSessionStore.getState().getActiveSessionId("proj-1", "project-chat")).toBe(s1.id)
 
     // Switch to s2
-    useSessionStore.getState().setActiveSessionId("proj-1", "plan-chat", s2.id)
-    expect(useSessionStore.getState().getActiveSessionId("proj-1", "plan-chat")).toBe(s2.id)
+    useSessionStore.getState().setActiveSessionId("proj-1", "project-chat", s2.id)
+    expect(useSessionStore.getState().getActiveSessionId("proj-1", "project-chat")).toBe(s2.id)
 
     // Both sessions still intact
     expect(useSessionStore.getState().getSession(s1.id)?.messages[0].content).toBe("Session 1 msg")
@@ -292,7 +292,7 @@ describe("session store - rename and message operations", () => {
 
   it("renameSession sets the title field", () => {
     const store = useSessionStore.getState()
-    const session = store.createSession({ type: "plan-chat", projectId: "proj-1" })
+    const session = store.createSession({ type: "project-chat", projectId: "proj-1" })
 
     useSessionStore.getState().renameSession(session.id, "Custom Title")
 
@@ -302,7 +302,7 @@ describe("session store - rename and message operations", () => {
 
   it("renamed session title shows in getSessionTitle", () => {
     const store = useSessionStore.getState()
-    const session = store.createSession({ type: "plan-chat", projectId: "proj-1" })
+    const session = store.createSession({ type: "project-chat", projectId: "proj-1" })
     useSessionStore.getState().addMessage(session.id, { role: "user", content: "Some question" })
 
     // Before rename - should show message preview
@@ -317,7 +317,7 @@ describe("session store - rename and message operations", () => {
 
   it("addMessage adds messages with auto-generated IDs", () => {
     const store = useSessionStore.getState()
-    const session = store.createSession({ type: "plan-chat", projectId: "proj-1" })
+    const session = store.createSession({ type: "project-chat", projectId: "proj-1" })
 
     useSessionStore.getState().addMessage(session.id, { role: "user", content: "Hello" })
     useSessionStore.getState().addMessage(session.id, { role: "assistant", content: "Hi!" })
@@ -333,7 +333,7 @@ describe("session store - rename and message operations", () => {
 
   it("appendToLastAssistantMessage streams content", () => {
     const store = useSessionStore.getState()
-    const session = store.createSession({ type: "plan-chat", projectId: "proj-1" })
+    const session = store.createSession({ type: "project-chat", projectId: "proj-1" })
 
     useSessionStore.getState().addMessage(session.id, { role: "assistant", content: "" })
     useSessionStore.getState().appendToLastAssistantMessage(session.id, "Hello ")
@@ -345,7 +345,7 @@ describe("session store - rename and message operations", () => {
 
   it("appendToLastAssistantMessage ignores if last message is not assistant", () => {
     const store = useSessionStore.getState()
-    const session = store.createSession({ type: "plan-chat", projectId: "proj-1" })
+    const session = store.createSession({ type: "project-chat", projectId: "proj-1" })
 
     useSessionStore.getState().addMessage(session.id, { role: "user", content: "Hi" })
     useSessionStore.getState().appendToLastAssistantMessage(session.id, "should not work")
@@ -357,7 +357,7 @@ describe("session store - rename and message operations", () => {
 
   it("setStatus updates session status and sets completedAt for terminal states", () => {
     const store = useSessionStore.getState()
-    const session = store.createSession({ type: "plan-chat", projectId: "proj-1" })
+    const session = store.createSession({ type: "project-chat", projectId: "proj-1" })
 
     useSessionStore.getState().setStatus(session.id, "completed")
 
@@ -368,7 +368,7 @@ describe("session store - rename and message operations", () => {
 
   it("setProviderSessionId links session to provider", () => {
     const store = useSessionStore.getState()
-    const session = store.createSession({ type: "plan-chat", projectId: "proj-1" })
+    const session = store.createSession({ type: "project-chat", projectId: "proj-1" })
 
     useSessionStore.getState().setProviderSessionId(session.id, "provider-xyz-123")
 

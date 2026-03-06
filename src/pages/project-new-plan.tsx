@@ -130,7 +130,7 @@ export function ProjectNewPlan() {
     fromPlaygroundId ? s.executions.get(`playground-${fromPlaygroundId}`) : undefined
   )
 
-  // Recent plan chat sessions (projectType === 'plan')
+  // Recent project chat sessions (projectType === 'plan')
   const planHistory = useMemo(() => {
     return allProjects
       .filter((p) => p.projectType === 'plan')

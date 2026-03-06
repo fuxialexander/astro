@@ -1,9 +1,9 @@
 /**
  * Unified Session Store
  *
- * Single source of truth for all session data: plan chat, task chat,
+ * Single source of truth for all session data: project chat, task chat,
  * steer messages, and execution sessions. Replaces the fragmented
- * task-chat-store and plan chat useState.
+ * task-chat-store and project chat useState.
  *
  * Key actions:
  * - createSession: Create a new session
@@ -28,7 +28,7 @@ import type {
 interface SessionState {
   sessions: Map<string, Session>
   loaded: boolean
-  // Track active session per project+type combination (e.g. "projectId:plan-chat" -> sessionId)
+  // Track active session per project+type combination (e.g. "projectId:project-chat" -> sessionId)
   activeSessionIds: Map<string, string>
 
   // Lifecycle

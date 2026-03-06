@@ -295,8 +295,7 @@ interface BackendMultiSelectProps {
 `selectedBackends` is passed as an optional parameter to:
 
 - `generatePlan()` — plan generation
-- `chatWithAgent()` — plan chat
-- `projectChatWithAgent()` — plan chat (alternate path)
+- `projectChatWithAgent()` — project chat
 - `TaskChatParams` — task chat
 
 ### Agent Store Integration

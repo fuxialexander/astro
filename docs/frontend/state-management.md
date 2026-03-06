@@ -11,7 +11,7 @@ All stores live in `src/stores/` and use Zustand 5. Stores persist via `dataClie
 - `project-store.ts` - Projects CRUD, API persistence
 - `plan-store.ts` - Plan nodes/edges per project, bulk updates, graph layout
 - `initiative-store.ts` - Initiatives/projects grouping
-- `session-store.ts` - Unified session data: plan chat, task chat, steer messages, execution sessions
+- `session-store.ts` - Unified session data: project chat, task chat, steer messages, execution sessions
 - `task-chat-store.ts` - Task-level chat history (per-node conversations)
 - `activity-store.ts` - Activity tracking and history (task/project/milestone events)
 

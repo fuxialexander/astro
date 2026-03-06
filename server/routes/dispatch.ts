@@ -24,7 +24,7 @@ import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
-import { projects, planNodes, planNodeDependencies, blobs, environmentConfigs, userProfiles, taskExecutions, streamingEvents, projectKnowledge } from '../lib/db/schema.js'
+import { projects, planNodes, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge } from '../lib/db/schema.js'
 import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
@@ -960,27 +960,6 @@ There is no branch isolation — changes are made in-place.
 
     if (sourceDirectory) {
       promptParts.push(`## Data Access\n\nThe original project directory is: ${sourceDirectory}\nLarge untracked files (training data, model caches, datasets) remain in the original directory. Use absolute paths to reference them. Always use absolute paths when writing code that accesses data files.`)
-    }
-
-    // Inject custom environment context if configured
-    if (user && computeBackend) {
-      try {
-        const machineFilter = machineId
-          ? eq(environmentConfigs.machineId, machineId)
-          : isNull(environmentConfigs.machineId)
-        const [envConfig] = await db.select().from(environmentConfigs).where(
-          and(
-            eq(environmentConfigs.userId, user.id),
-            eq(environmentConfigs.backendId, computeBackend),
-            machineFilter
-          )
-        )
-        if (envConfig?.customContext) {
-          promptParts.push(`## Custom Environment Instructions\n\n${envConfig.customContext}`)
-        }
-      } catch (err) {
-        console.warn('[dispatch] Failed to fetch environment config:', err)
-      }
     }
 
     promptParts.push(`## Current Task\n\n**${title}**\n\n${description}`)

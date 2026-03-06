@@ -1,7 +1,7 @@
 /**
  * Chat Session Flow Tests
  *
- * Tests the end-to-end flow of plan chat sessions:
+ * Tests the end-to-end flow of project chat sessions:
  * - Session creation, message adding, streaming append
  * - Session switching, deletion, active tracking
  * - Provider session ID management
@@ -26,7 +26,7 @@ interface SessionMessage {
 
 interface Session {
   id: string
-  type: 'plan-chat' | 'task-chat' | 'execution' | 'steer'
+  type: 'project-chat' | 'task-chat' | 'execution' | 'steer'
   status: 'active' | 'streaming' | 'completed' | 'error' | 'cancelled'
   projectId: string
   nodeId?: string
@@ -182,29 +182,29 @@ beforeEach(() => {
 })
 
 describe('Session Lifecycle', () => {
-  it('creates a plan-chat session', () => {
-    const session = store.createSession({ type: 'plan-chat', projectId: 'proj-1' })
+  it('creates a project-chat session', () => {
+    const session = store.createSession({ type: 'project-chat', projectId: 'proj-1' })
 
-    expect(session.type).toBe('plan-chat')
+    expect(session.type).toBe('project-chat')
     expect(session.projectId).toBe('proj-1')
     expect(session.status).toBe('active')
     expect(session.messages).toHaveLength(0)
   })
 
   it('tracks active session per project+type', () => {
-    const s1 = store.createSession({ type: 'plan-chat', projectId: 'proj-1' })
-    store.setActiveSessionId('proj-1', 'plan-chat', s1.id)
+    const s1 = store.createSession({ type: 'project-chat', projectId: 'proj-1' })
+    store.setActiveSessionId('proj-1', 'project-chat', s1.id)
 
-    expect(store.getActiveSessionId('proj-1', 'plan-chat')).toBe(s1.id)
-    expect(store.getActiveSessionId('proj-2', 'plan-chat')).toBeUndefined()
+    expect(store.getActiveSessionId('proj-1', 'project-chat')).toBe(s1.id)
+    expect(store.getActiveSessionId('proj-2', 'project-chat')).toBeUndefined()
   })
 
   it('isolates sessions by project and type', () => {
-    store.createSession({ type: 'plan-chat', projectId: 'proj-1' })
+    store.createSession({ type: 'project-chat', projectId: 'proj-1' })
     store.createSession({ type: 'task-chat', projectId: 'proj-1' })
-    store.createSession({ type: 'plan-chat', projectId: 'proj-2' })
+    store.createSession({ type: 'project-chat', projectId: 'proj-2' })
 
-    expect(store.getSessionsForProject('proj-1', 'plan-chat')).toHaveLength(1)
+    expect(store.getSessionsForProject('proj-1', 'project-chat')).toHaveLength(1)
     expect(store.getSessionsForProject('proj-1', 'task-chat')).toHaveLength(1)
     expect(store.getSessionsForProject('proj-1')).toHaveLength(2)
     expect(store.getSessionsForProject('proj-2')).toHaveLength(1)
@@ -213,7 +213,7 @@ describe('Session Lifecycle', () => {
 
 describe('Message Flow', () => {
   it('adds user and assistant messages', () => {
-    const session = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const session = store.createSession({ type: 'project-chat', projectId: 'p1' })
 
     store.addMessage(session.id, { role: 'user', content: 'Hello' })
     store.addMessage(session.id, { role: 'assistant', content: '' })
@@ -227,7 +227,7 @@ describe('Message Flow', () => {
   })
 
   it('appends chunks to last assistant message', () => {
-    const session = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const session = store.createSession({ type: 'project-chat', projectId: 'p1' })
     store.addMessage(session.id, { role: 'user', content: 'Hello' })
     store.addMessage(session.id, { role: 'assistant', content: '' })
 
@@ -240,7 +240,7 @@ describe('Message Flow', () => {
   })
 
   it('does not append if last message is not assistant', () => {
-    const session = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const session = store.createSession({ type: 'project-chat', projectId: 'p1' })
     store.addMessage(session.id, { role: 'user', content: 'Hello' })
 
     store.appendToLastAssistantMessage(session.id, 'should be ignored')
@@ -251,7 +251,7 @@ describe('Message Flow', () => {
   })
 
   it('does not append to deleted session', () => {
-    const session = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const session = store.createSession({ type: 'project-chat', projectId: 'p1' })
     store.addMessage(session.id, { role: 'assistant', content: '' })
     store.deleteSession(session.id)
 
@@ -262,7 +262,7 @@ describe('Message Flow', () => {
   })
 
   it('updates last assistant message with mutations', () => {
-    const session = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const session = store.createSession({ type: 'project-chat', projectId: 'p1' })
     store.addMessage(session.id, { role: 'user', content: 'Update task-1' })
     store.addMessage(session.id, { role: 'assistant', content: '' })
     store.appendToLastAssistantMessage(session.id, 'Updated! ```astro-updates...')
@@ -278,7 +278,7 @@ describe('Message Flow', () => {
 
 describe('Provider Session ID', () => {
   it('stores provider session ID from done event', () => {
-    const session = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const session = store.createSession({ type: 'project-chat', projectId: 'p1' })
     expect(session.providerSessionId).toBeUndefined()
 
     store.setProviderSessionId(session.id, 'provider-xyz-123')
@@ -288,7 +288,7 @@ describe('Provider Session ID', () => {
   })
 
   it('updates provider session ID on subsequent messages', () => {
-    const session = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const session = store.createSession({ type: 'project-chat', projectId: 'p1' })
 
     store.setProviderSessionId(session.id, 'session-1')
     store.setProviderSessionId(session.id, 'session-2')
@@ -306,46 +306,46 @@ describe('Provider Session ID', () => {
 
 describe('Session Switching', () => {
   it('switches between sessions for same project', () => {
-    const s1 = store.createSession({ type: 'plan-chat', projectId: 'p1' })
-    const s2 = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const s1 = store.createSession({ type: 'project-chat', projectId: 'p1' })
+    const s2 = store.createSession({ type: 'project-chat', projectId: 'p1' })
 
-    store.setActiveSessionId('p1', 'plan-chat', s1.id)
-    expect(store.getActiveSessionId('p1', 'plan-chat')).toBe(s1.id)
+    store.setActiveSessionId('p1', 'project-chat', s1.id)
+    expect(store.getActiveSessionId('p1', 'project-chat')).toBe(s1.id)
 
-    store.setActiveSessionId('p1', 'plan-chat', s2.id)
-    expect(store.getActiveSessionId('p1', 'plan-chat')).toBe(s2.id)
+    store.setActiveSessionId('p1', 'project-chat', s2.id)
+    expect(store.getActiveSessionId('p1', 'project-chat')).toBe(s2.id)
   })
 
   it('deleting active session requires fallback', () => {
-    const s1 = store.createSession({ type: 'plan-chat', projectId: 'p1' })
-    const s2 = store.createSession({ type: 'plan-chat', projectId: 'p1' })
-    store.setActiveSessionId('p1', 'plan-chat', s1.id)
+    const s1 = store.createSession({ type: 'project-chat', projectId: 'p1' })
+    const s2 = store.createSession({ type: 'project-chat', projectId: 'p1' })
+    store.setActiveSessionId('p1', 'project-chat', s1.id)
 
     // Simulate the ChatPanel delete logic
     store.deleteSession(s1.id)
-    const remaining = store.getSessionsForProject('p1', 'plan-chat')
+    const remaining = store.getSessionsForProject('p1', 'project-chat')
     if (remaining.length > 0) {
-      store.setActiveSessionId('p1', 'plan-chat', remaining[remaining.length - 1].id)
+      store.setActiveSessionId('p1', 'project-chat', remaining[remaining.length - 1].id)
     } else {
-      store.clearActiveSessionId('p1', 'plan-chat')
+      store.clearActiveSessionId('p1', 'project-chat')
     }
 
-    expect(store.getActiveSessionId('p1', 'plan-chat')).toBe(s2.id)
+    expect(store.getActiveSessionId('p1', 'project-chat')).toBe(s2.id)
   })
 
   it('deleting the only session clears active ID', () => {
-    const s1 = store.createSession({ type: 'plan-chat', projectId: 'p1' })
-    store.setActiveSessionId('p1', 'plan-chat', s1.id)
+    const s1 = store.createSession({ type: 'project-chat', projectId: 'p1' })
+    store.setActiveSessionId('p1', 'project-chat', s1.id)
 
     store.deleteSession(s1.id)
-    const remaining = store.getSessionsForProject('p1', 'plan-chat')
+    const remaining = store.getSessionsForProject('p1', 'project-chat')
     if (remaining.length > 0) {
-      store.setActiveSessionId('p1', 'plan-chat', remaining[remaining.length - 1].id)
+      store.setActiveSessionId('p1', 'project-chat', remaining[remaining.length - 1].id)
     } else {
-      store.clearActiveSessionId('p1', 'plan-chat')
+      store.clearActiveSessionId('p1', 'project-chat')
     }
 
-    expect(store.getActiveSessionId('p1', 'plan-chat')).toBeUndefined()
+    expect(store.getActiveSessionId('p1', 'project-chat')).toBeUndefined()
   })
 })
 
@@ -361,7 +361,7 @@ describe('Session History Building', () => {
   }
 
   it('excludes empty assistant messages from history', () => {
-    const session = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const session = store.createSession({ type: 'project-chat', projectId: 'p1' })
 
     // Simulate first exchange
     store.addMessage(session.id, { role: 'user', content: 'Hi' })
@@ -383,7 +383,7 @@ describe('Session History Building', () => {
   })
 
   it('uses snapshot to avoid including current exchange', () => {
-    const session = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const session = store.createSession({ type: 'project-chat', projectId: 'p1' })
     store.addMessage(session.id, { role: 'user', content: 'First' })
     store.addMessage(session.id, { role: 'assistant', content: 'First reply' })
 
@@ -404,7 +404,7 @@ describe('Session History Building', () => {
 
 describe('Immutable Update Pattern', () => {
   it('addMessage creates new session object (does not mutate in-place)', () => {
-    const session = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const session = store.createSession({ type: 'project-chat', projectId: 'p1' })
     const originalMessages = session.messages
 
     store.addMessage(session.id, { role: 'user', content: 'Hi' })
@@ -419,7 +419,7 @@ describe('Immutable Update Pattern', () => {
   })
 
   it('appendToLastAssistantMessage creates new message array', () => {
-    const session = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const session = store.createSession({ type: 'project-chat', projectId: 'p1' })
     store.addMessage(session.id, { role: 'assistant', content: '' })
 
     const beforeAppend = store.getSession(session.id)!
@@ -444,7 +444,7 @@ describe('Concurrent Send Prevention', () => {
    */
   it('second send is blocked while streaming', () => {
     let isStreaming = false
-    const session = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const session = store.createSession({ type: 'project-chat', projectId: 'p1' })
 
     function sendMessage(text: string): boolean {
       if (!text || isStreaming || !session) return false
@@ -465,7 +465,7 @@ describe('Concurrent Send Prevention', () => {
 
 describe('Session Rename', () => {
   it('renames a session', () => {
-    const session = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const session = store.createSession({ type: 'project-chat', projectId: 'p1' })
     store.renameSession(session.id, 'My Important Chat')
 
     const updated = store.getSession(session.id)!
@@ -479,8 +479,8 @@ describe('Session Isolation (fresh store read)', () => {
    * After switching sessions, the fresh read should pick up the new active session.
    */
   it('reads fresh session after switch (no stale ref)', () => {
-    const s1 = store.createSession({ type: 'plan-chat', projectId: 'p1' })
-    const s2 = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const s1 = store.createSession({ type: 'project-chat', projectId: 'p1' })
+    const s2 = store.createSession({ type: 'project-chat', projectId: 'p1' })
 
     // Populate s1 with a completed exchange
     store.addMessage(s1.id, { role: 'user', content: 'Hello in s1' })
@@ -488,13 +488,13 @@ describe('Session Isolation (fresh store read)', () => {
     store.setProviderSessionId(s1.id, 'provider-s1')
 
     // Set s1 as active
-    store.setActiveSessionId('p1', 'plan-chat', s1.id)
+    store.setActiveSessionId('p1', 'project-chat', s1.id)
 
     // Switch to s2
-    store.setActiveSessionId('p1', 'plan-chat', s2.id)
+    store.setActiveSessionId('p1', 'project-chat', s2.id)
 
     // Simulate the fixed sendMessage: read fresh from store
-    const activeId = store.getActiveSessionId('p1', 'plan-chat')
+    const activeId = store.getActiveSessionId('p1', 'project-chat')
     const freshSession = activeId ? store.getSession(activeId) : undefined
 
     // Should get s2, not s1
@@ -504,7 +504,7 @@ describe('Session Isolation (fresh store read)', () => {
   })
 
   it('does not send providerSessionId for new sessions', () => {
-    const s1 = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const s1 = store.createSession({ type: 'project-chat', projectId: 'p1' })
     store.addMessage(s1.id, { role: 'user', content: 'Hello' })
     store.addMessage(s1.id, { role: 'assistant', content: '' }) // empty placeholder
 
@@ -529,7 +529,7 @@ describe('Session Isolation (fresh store read)', () => {
   })
 
   it('fresh history excludes just-added user message and placeholder', () => {
-    const session = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const session = store.createSession({ type: 'project-chat', projectId: 'p1' })
 
     // First exchange
     store.addMessage(session.id, { role: 'user', content: 'First' })
@@ -585,16 +585,16 @@ describe('Slash Command Processing', () => {
   })
 
   it('/clear creates a new session (simulated)', () => {
-    const s1 = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const s1 = store.createSession({ type: 'project-chat', projectId: 'p1' })
     store.addMessage(s1.id, { role: 'user', content: 'Hello' })
     store.addMessage(s1.id, { role: 'assistant', content: 'Hi there' })
-    store.setActiveSessionId('p1', 'plan-chat', s1.id)
+    store.setActiveSessionId('p1', 'project-chat', s1.id)
 
     // Simulate /clear: create new session
-    const s2 = store.createSession({ type: 'plan-chat', projectId: 'p1' })
-    store.setActiveSessionId('p1', 'plan-chat', s2.id)
+    const s2 = store.createSession({ type: 'project-chat', projectId: 'p1' })
+    store.setActiveSessionId('p1', 'project-chat', s2.id)
 
-    const activeId = store.getActiveSessionId('p1', 'plan-chat')
+    const activeId = store.getActiveSessionId('p1', 'project-chat')
     expect(activeId).toBe(s2.id)
 
     const newSession = store.getSession(s2.id)!
@@ -606,7 +606,7 @@ describe('Slash Command Processing', () => {
   })
 
   it('/rename updates session title', () => {
-    const session = store.createSession({ type: 'plan-chat', projectId: 'p1' })
+    const session = store.createSession({ type: 'project-chat', projectId: 'p1' })
     store.renameSession(session.id, 'Architecture Discussion')
 
     const updated = store.getSession(session.id)!

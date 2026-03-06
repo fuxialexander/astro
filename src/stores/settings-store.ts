@@ -29,8 +29,6 @@ export const defaultModelTierMap: Record<ModelTier, Record<string, string>> = {
   },
 }
 
-/** @deprecated Use defaultModelTierMap instead */
-export const modelTierMap = defaultModelTierMap
 
 /**
  * User-customizable overrides: tier → provider → model ID.

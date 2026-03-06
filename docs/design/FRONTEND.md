@@ -385,7 +385,7 @@ These stores handle more focused concerns:
 - **`initiative-store`** -- Groups related projects into initiatives (higher-level organizational units). Supports CRUD, filtering, and progress aggregation across projects.
 - **`auth-store`** -- Manages the Supabase authentication session (login state, tokens). Completely skipped in local mode since there is no authentication.
 - **`slurm-store`** -- State for HPC (High-Performance Computing) clusters. SLURM is a job scheduler used in scientific computing environments -- this store tracks cluster status, jobs, and queue information.
-- **`session-store`** -- Unified session store for plan chat, task chat, steer messages, and execution sessions. Tracks conversation history and session lifecycle.
+- **`session-store`** -- Unified session store for project chat, task chat, steer messages, and execution sessions. Tracks conversation history and session lifecycle.
 - **`observation-store`** -- Trace observation trees for execution debugging. Stores and retrieves `TraceTree` data from the observability system for post-execution analysis.
 - **`plugin-store`** -- Plugin registry, manifests, and contributions. Manages dynamic loading of plugins that extend the app with custom views and capabilities.
 - **`skill-store`** -- OpenClaw skill registry. Skills are reusable AI capabilities that can be discovered, configured, and injected into agent sessions.
@@ -1017,7 +1017,7 @@ Core types are defined in `packages/core/src/types.ts` and re-exported through `
 
 - **`UsageMetrics`**: Tracks resource consumption for an execution. Fields: `durationMs` (how long it took in milliseconds), `inputTokens` (how many tokens were sent to the AI), `outputTokens` (how many tokens the AI generated), `estimatedCostUsd` (estimated cost in US dollars), `model` (which AI model was used), `turnsUsed` (how many back-and-forth turns the agent took).
 
-- **`Session`**: Represents a conversation or execution session. Fields: `id`, `type` (one of: plan-chat, task-chat, steer, execution, plan-generation), `messages` (the conversation history), `status`.
+- **`Session`**: Represents a conversation or execution session. Fields: `id`, `type` (one of: project-chat, task-chat, steer, execution, plan-generation), `messages` (the conversation history), `status`.
 
 - **`ProviderStatus`**: Describes an AI provider's availability. Fields: `id`, `name`, `installed` (is the provider software present?), `authStatus` (is the user authenticated with this provider?), `available` (is it ready to use?), `capabilities` (what can this provider do?).
 

@@ -98,16 +98,16 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   const sessionDropdownRef = useRef<HTMLButtonElement>(null)
   const modelDropdownRef = useRef<HTMLButtonElement>(null)
 
-  // Get all plan-chat sessions for this project (re-evaluates when sessions map changes)
-  const planChatSessions = useMemo(
-    () => getSessionsForProject(projectId, "plan-chat"),
+  // Get all project-chat sessions for this project (re-evaluates when sessions map changes)
+  const projectChatSessions = useMemo(
+    () => getSessionsForProject(projectId, "project-chat"),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [getSessionsForProject, projectId, sessions]
   )
 
   // Get the active session ID (re-evaluates when activeSessionIds changes)
   const activeSessionId = useMemo(
-    () => getActiveSessionId(projectId, "plan-chat"),
+    () => getActiveSessionId(projectId, "project-chat"),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [getActiveSessionId, projectId, activeSessionIds]
   )
@@ -116,22 +116,22 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     if (activeSessionId) {
       const session = getSession(activeSessionId)
       // Verify the session still exists and belongs to this project
-      if (session && session.projectId === projectId && session.type === "plan-chat") {
+      if (session && session.projectId === projectId && session.type === "project-chat") {
         return session
       }
     }
     // Fall back to the most recent session
-    return planChatSessions[planChatSessions.length - 1]
-  }, [activeSessionId, getSession, planChatSessions, projectId])
+    return projectChatSessions[projectChatSessions.length - 1]
+  }, [activeSessionId, getSession, projectChatSessions, projectId])
 
   // Ensure session exists and track as active
   useEffect(() => {
     if (!currentSession) {
-      const newSession = createSession({ type: "plan-chat", projectId })
-      setActiveSessionId(projectId, "plan-chat", newSession.id)
+      const newSession = createSession({ type: "project-chat", projectId })
+      setActiveSessionId(projectId, "project-chat", newSession.id)
     } else if (!activeSessionId || activeSessionId !== currentSession.id) {
       // If the current session exists but isn't marked as active, mark it
-      setActiveSessionId(projectId, "plan-chat", currentSession.id)
+      setActiveSessionId(projectId, "project-chat", currentSession.id)
     }
   }, [currentSession, createSession, projectId, activeSessionId, setActiveSessionId])
 
@@ -142,13 +142,13 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       abortRef.current = null
     }
     setIsStreaming(false)
-    setActiveSessionId(projectId, "plan-chat", sessionId)
+    setActiveSessionId(projectId, "project-chat", sessionId)
   }, [projectId, setActiveSessionId])
 
   // Handler to create a new session
   const handleNewSession = useCallback(() => {
-    const newSession = createSession({ type: "plan-chat", projectId })
-    setActiveSessionId(projectId, "plan-chat", newSession.id)
+    const newSession = createSession({ type: "project-chat", projectId })
+    setActiveSessionId(projectId, "project-chat", newSession.id)
   }, [createSession, projectId, setActiveSessionId])
 
   // Handler to open session edit dialog
@@ -173,26 +173,26 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     // If we deleted the active session, switch to another or create new
     if (isActiveSession) {
       // Get remaining sessions (after deletion, so filter out the deleted one)
-      const remainingSessions = planChatSessions.filter(s => s.id !== sessionId)
+      const remainingSessions = projectChatSessions.filter(s => s.id !== sessionId)
 
       if (remainingSessions.length > 0) {
         // Switch to the most recent remaining session
         const mostRecent = remainingSessions[remainingSessions.length - 1]
-        setActiveSessionId(projectId, "plan-chat", mostRecent.id)
+        setActiveSessionId(projectId, "project-chat", mostRecent.id)
       } else {
         // No sessions left, clear active and let the effect create a new one
-        clearActiveSessionId(projectId, "plan-chat")
+        clearActiveSessionId(projectId, "project-chat")
       }
     }
-  }, [currentSession?.id, deleteSession, planChatSessions, projectId, setActiveSessionId, clearActiveSessionId])
+  }, [currentSession?.id, deleteSession, projectChatSessions, projectId, setActiveSessionId, clearActiveSessionId])
 
   // Handler to clear all sessions
   const handleClearAllSessions = useCallback(() => {
-    for (const session of planChatSessions) {
+    for (const session of projectChatSessions) {
       deleteSession(session.id)
     }
-    clearActiveSessionId(projectId, "plan-chat")
-  }, [planChatSessions, deleteSession, projectId, clearActiveSessionId])
+    clearActiveSessionId(projectId, "project-chat")
+  }, [projectChatSessions, deleteSession, projectId, clearActiveSessionId])
 
   const messages: (Message & { id: string })[] = (currentSession?.messages || []).map((m) => ({
     id: m.id,
@@ -328,7 +328,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   const sendMessage = useCallback(async (text: string) => {
     // Read session fresh from store — never use stale ref
     const store = useSessionStore.getState()
-    const activeId = store.activeSessionIds.get(`${projectId}:plan-chat`)
+    const activeId = store.activeSessionIds.get(`${projectId}:project-chat`)
     const session = activeId ? store.sessions.get(activeId) : undefined
     if (!text || isStreaming || !session) return
 
@@ -577,12 +577,12 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
             </span>
           )}
           {/* Session Switcher */}
-          {planChatSessions.length > 0 && (
+          {projectChatSessions.length > 0 && (
             <DropdownMenu open={sessionDropdownOpen} onOpenChange={setSessionDropdownOpen}>
               <DropdownMenuTrigger asChild>
                 <button ref={sessionDropdownRef} className="flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
                   <History className="h-3 w-3" />
-                  <span>{planChatSessions.length}</span>
+                  <span>{projectChatSessions.length}</span>
                   <ChevronDown className="h-2.5 w-2.5 opacity-50" />
                 </button>
               </DropdownMenuTrigger>
@@ -609,7 +609,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                   </div>
                 </div>
                 <DropdownMenuSeparator />
-                {[...planChatSessions].reverse().map((session) => {
+                {[...projectChatSessions].reverse().map((session) => {
                   const messageCount = session.messages.length
                   const sessionTitle = getSessionTitle(session)
                   const isActive = currentSession?.id === session.id

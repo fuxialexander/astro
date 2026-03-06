@@ -2,7 +2,7 @@
  * Hook: useChatStreamEvents
  *
  * Reusable infrastructure for tracking chat activity events (text, tool_use,
- * tool_result) during post-completion chat sessions. Used by plan-chat-phase,
+ * tool_result) during post-completion chat sessions. Used by plan-generation,
  * unified-activity-view, and playground to render proper tool blocks instead
  * of raw XML in chat responses.
  *
@@ -11,7 +11,7 @@
  * - Tool ID matching (tool_use ↔ tool_result by tool name)
  *
  * Hydration is handled by parent views via useRestoredExecution (task-chat,
- * plan-chat) or useChatActivityEvents (chat-panel playground).
+ * project-chat) or useChatActivityEvents (chat-panel playground).
  */
 
 import { useState, useRef, useEffect, useCallback } from "react"
