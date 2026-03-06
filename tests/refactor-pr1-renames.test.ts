@@ -12,7 +12,7 @@
  * These tests import the actual source modules (not mocks) to verify that old
  * names are gone and new names are present — catching accidental reversions.
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { readFileSync, existsSync } from 'fs'
 import { join } from 'path'
 
