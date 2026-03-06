@@ -22,6 +22,8 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Switch } from "@/components/ui/switch"
 import { InlineRenameInput } from "@/components/inline-rename-input"
+import { TeamSwitcher } from "@/components/team-switcher"
+import { useTeamStore } from "@/stores/team-store"
 
 const iconMap: Record<string, typeof CheckSquare> = {
   CheckSquare,
@@ -86,6 +88,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const showAuth = isServerMode()
 
   const activeProjectId = params.id
+  const hasMultipleTeams = useTeamStore((s) => s.teams.length > 1)
   const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0
 
   // Auto-reveal sidebar items based on usage thresholds
@@ -402,6 +405,11 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
             </kbd>
           </button>
         </div>
+      )}
+
+      {/* Team Switcher — only shown when user has multiple teams */}
+      {showAuth && hasMultipleTeams && (
+        <TeamSwitcher collapsed={collapsed} />
       )}
 
       {/* Scrollable middle section: navigation + projects */}
