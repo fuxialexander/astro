@@ -168,52 +168,47 @@ describe('P6: /task-chat provider threading', () => {
 })
 
 describe('P7-10: One-shot pathways (summarize, title-gen, refine, labels)', () => {
-  // These pathways intentionally do NOT thread provider — they're utility calls
-  // without project context that go to whatever agent runner is available.
+  // These pathways now accept optional providerId from the request body
+  // and thread it through to executeViaRelay as preferredProvider.
 
-  it('/summarize uses executeViaRelay without preferredProvider (by design)', () => {
+  it('/summarize accepts providerId and threads it to executeViaRelay', () => {
     const handler = agentSource.slice(
       agentSource.indexOf("agentRoute.post('/summarize'"),
       agentSource.indexOf("agentRoute.post('/generate-title'")
     )
-    // executeViaRelay call should exist but NOT include preferredProvider
+    expect(handler).toContain('providerId')
     expect(handler).toContain('executeViaRelay')
-    const relayCall = handler.slice(handler.indexOf('executeViaRelay'))
-    const callBody = relayCall.slice(0, relayCall.indexOf('})'))
-    expect(callBody).not.toContain('preferredProvider')
+    expect(handler).toContain('preferredProvider')
   })
 
-  it('/generate-title uses executeViaRelay without preferredProvider (by design)', () => {
+  it('/generate-title accepts providerId and threads it to executeViaRelay', () => {
     const handler = agentSource.slice(
       agentSource.indexOf("agentRoute.post('/generate-title'"),
       agentSource.indexOf("agentRoute.post('/refine'")
     )
+    expect(handler).toContain('providerId')
     expect(handler).toContain('executeViaRelay')
-    const relayCall = handler.slice(handler.indexOf('executeViaRelay'))
-    const callBody = relayCall.slice(0, relayCall.indexOf('})'))
-    expect(callBody).not.toContain('preferredProvider')
+    expect(handler).toContain('preferredProvider')
   })
 
-  it('/refine uses executeViaRelay without preferredProvider (by design)', () => {
+  it('/refine accepts providerId via Zod schema and threads it to executeViaRelay', () => {
     const handler = agentSource.slice(
       agentSource.indexOf("agentRoute.post('/refine'"),
       agentSource.indexOf("agentRoute.post('/suggest-labels'")
     )
+    expect(handler).toMatch(/providerId:\s*z\.string/)
     expect(handler).toContain('executeViaRelay')
-    const relayCall = handler.slice(handler.indexOf('executeViaRelay'))
-    const callBody = relayCall.slice(0, relayCall.indexOf('})'))
-    expect(callBody).not.toContain('preferredProvider')
+    expect(handler).toContain('preferredProvider')
   })
 
-  it('/suggest-labels uses executeViaRelay without preferredProvider (by design)', () => {
+  it('/suggest-labels accepts providerId via Zod schema and threads it to executeViaRelay', () => {
     const handler = agentSource.slice(
       agentSource.indexOf("agentRoute.post('/suggest-labels'"),
       agentSource.indexOf("agentRoute.get('/providers'")
     )
+    expect(handler).toMatch(/providerId:\s*z\.string/)
     expect(handler).toContain('executeViaRelay')
-    const relayCall = handler.slice(handler.indexOf('executeViaRelay'))
-    const callBody = relayCall.slice(0, relayCall.indexOf('})'))
-    expect(callBody).not.toContain('preferredProvider')
+    expect(handler).toContain('preferredProvider')
   })
 })
 

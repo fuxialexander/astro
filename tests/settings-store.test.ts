@@ -51,12 +51,12 @@ describe("resolveModel", () => {
       expect(resolveModel("large", undefined)).toBe("opus")
     })
 
-    it("falls back to claude-code for unknown provider", () => {
-      expect(resolveModel("large", "unknown-provider")).toBe("opus")
+    it("returns undefined for unknown provider (adapter picks its own default)", () => {
+      expect(resolveModel("large", "unknown-provider")).toBeUndefined()
     })
 
-    it("falls back to claude-code for bedrock (not in defaults)", () => {
-      expect(resolveModel("medium", "bedrock")).toBe("sonnet")
+    it("returns undefined for bedrock without custom map (adapter picks its own default)", () => {
+      expect(resolveModel("medium", "bedrock")).toBeUndefined()
     })
   })
 

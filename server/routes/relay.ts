@@ -741,25 +741,27 @@ relayRoute.post('/slurm/dispatch', async (c) => {
       }, 400);
     }
 
-    // Force claude-sdk provider for HPC tasks
+    // Use task's preferred provider (user selection), no longer forced to claude-sdk.
+    // All providers (Claude SDK, Codex, OpenClaw, etc.) support multi-turn agentic
+    // loops and can drive Slurm workflows via shell commands.
     const hpcTask: TaskDispatch = {
       ...task,
-      preferredProvider: 'claude-sdk',
+      preferredProvider: task.preferredProvider || undefined,
       metadata: {
         ...task.metadata,
         slurmConfig: slurmConfig ? JSON.stringify(slurmConfig) : undefined,
       },
     };
 
-    // Find target cluster
+    // Find target cluster — match preferred provider if specified, otherwise any HPC machine
     let targetMachineId = targetClusterId;
     if (!targetMachineId) {
       const slurmUser = c.get('user') as AuthUser | undefined;
-      const bestMachine = machineRegistry.findBestMachine('claude-sdk', slurmUser?.id);
+      const bestMachine = machineRegistry.findBestMachine(task.preferredProvider || undefined, slurmUser?.id);
       if (!bestMachine) {
         return c.json({
           error: 'No HPC machine available',
-          hint: 'Connect an HPC machine with Claude SDK and Slurm installed',
+          hint: 'Connect an HPC machine with Slurm installed and a supported AI provider (Claude SDK, Codex, etc.)',
         }, 503);
       }
       targetMachineId = bestMachine.machineId;

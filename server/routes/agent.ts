@@ -673,6 +673,7 @@ agentRoute.post('/summarize', async (c) => {
     executionOutput: string
     fileChanges: Array<{ path: string; action: string }>
     status: 'success' | 'failure'
+    providerId?: string
   }>()
 
   console.log(`[summarize] Summary requested for task: ${body.taskTitle} (status: ${body.status})`)
@@ -688,6 +689,7 @@ agentRoute.post('/summarize', async (c) => {
     type: 'summarize',
     maxTurns: 1,
     userId: summaryUser?.id,
+    preferredProvider: body.providerId || undefined,
     pathwayType: 'summarize',
   })
 
@@ -717,7 +719,7 @@ agentRoute.post('/summarize', async (c) => {
 })
 
 agentRoute.post('/generate-title', async (c) => {
-  const body = await c.req.json<{ description: string }>()
+  const body = await c.req.json<{ description: string; providerId?: string }>()
   const { description } = body
 
   if (!description || typeof description !== 'string' || description.length < 1) {
@@ -735,6 +737,7 @@ agentRoute.post('/generate-title', async (c) => {
     type: 'summarize',
     maxTurns: 1,
     userId: titleUser?.id,
+    preferredProvider: body.providerId || undefined,
     pathwayType: 'title-gen',
   })
 
@@ -754,6 +757,7 @@ agentRoute.post('/refine', async (c) => {
     title: z.string().max(500).default(''),
     description: z.string().max(50000).default(''),
     context: z.enum(['task', 'project']),
+    providerId: z.string().max(100).optional(),
   })
 
   let body: z.infer<typeof refineSchema>
@@ -782,6 +786,7 @@ agentRoute.post('/refine', async (c) => {
     type: 'summarize',
     maxTurns: 1,
     userId: refineUser?.id,
+    preferredProvider: body.providerId || undefined,
     pathwayType: 'refine',
   })
 
@@ -809,6 +814,7 @@ agentRoute.post('/suggest-labels', async (c) => {
   const labelSchema = z.object({
     title: z.string().max(500).default(''),
     description: z.string().max(50000).default(''),
+    providerId: z.string().max(100).optional(),
   })
 
   let body: z.infer<typeof labelSchema>
@@ -833,6 +839,7 @@ agentRoute.post('/suggest-labels', async (c) => {
     type: 'summarize',
     maxTurns: 1,
     userId: labelUser?.id,
+    preferredProvider: body.providerId || undefined,
     pathwayType: 'suggest-labels',
   })
 

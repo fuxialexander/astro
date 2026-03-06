@@ -40,15 +40,17 @@ export type CustomModelMap = Partial<Record<ModelTier, Record<string, string>>>
 
 /**
  * Resolve a model tier + provider into a concrete model ID.
- * Checks custom overrides first, then default map, then falls back to claude-code.
+ * Checks custom overrides first, then default map.
+ * Returns undefined for unknown providers — lets the adapter use its own default.
  */
-export function resolveModel(tier: ModelTier, provider?: string, customMap?: CustomModelMap): string {
+export function resolveModel(tier: ModelTier, provider?: string, customMap?: CustomModelMap): string | undefined {
   const effectiveProvider = provider || "claude-sdk"
   // Check user customizations first
   const custom = customMap?.[tier]?.[effectiveProvider]
   if (custom) return custom
-  // Then check defaults
-  return defaultModelTierMap[tier]?.[effectiveProvider] ?? defaultModelTierMap[tier]["claude-sdk"]
+  // Then check defaults — do NOT fall back to claude-sdk for other providers,
+  // as that would send a Claude alias ("haiku") to a non-Claude adapter.
+  return defaultModelTierMap[tier]?.[effectiveProvider]
 }
 
 /**
@@ -90,8 +92,8 @@ interface SettingsState {
   setYoloMode: (enabled: boolean) => void
   setCustomModel: (tier: ModelTier, provider: string, model: string) => Promise<void>
   removeCustomModel: (tier: ModelTier, provider: string) => void
-  /** Resolve current tier to a model ID for the given provider */
-  getModelForProvider: (provider?: string) => string
+  /** Resolve current tier to a model ID for the given provider. Returns undefined if no mapping exists (adapter picks its own default). */
+  getModelForProvider: (provider?: string) => string | undefined
   /** Get the effective tier map (defaults merged with custom overrides) */
   getEffectiveTierMap: () => Record<ModelTier, Record<string, string>>
 }
@@ -144,7 +146,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       if (settings.modelTier) {
         const tier = settings.modelTier as ModelTier
         updates.modelTier = tier
-        updates.model = resolveModel(tier, settings.defaultProvider || get().defaultProvider || "claude-sdk", updates.customModelMap || get().customModelMap)
+        updates.model = resolveModel(tier, settings.defaultProvider || get().defaultProvider || "claude-sdk", updates.customModelMap || get().customModelMap) || ''
       } else if (settings.model) {
         // Backward compat: derive tier from legacy model string
         updates.model = settings.model
@@ -179,7 +181,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setModelTier: (modelTier) => {
     const { defaultProvider, customModelMap } = get()
     const provider = defaultProvider || "claude-sdk"
-    const model = resolveModel(modelTier, provider, customModelMap)
+    const model = resolveModel(modelTier, provider, customModelMap) || ''
     set({ modelTier, model })
     dataClient.updateSettings({ modelTier, model }).catch(() => {})
   },
@@ -196,7 +198,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   setDefaultProvider: (defaultProvider) => {
     const { modelTier, customModelMap } = get()
-    const model = resolveModel(modelTier, defaultProvider || "claude-sdk", customModelMap)
+    const model = resolveModel(modelTier, defaultProvider || "claude-sdk", customModelMap) || ''
     set({ defaultProvider, model })
     dataClient.updateSettings({ defaultProvider, model, modelTier: modelTier }).catch(() => {})
   },
@@ -213,7 +215,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       next[tier]![provider] = model
     }
     // Re-resolve current model if affected
-    const currentModel = resolveModel(modelTier, defaultProvider || "claude-sdk", next)
+    const currentModel = resolveModel(modelTier, defaultProvider || "claude-sdk", next) || ''
     set({ customModelMap: next, model: currentModel })
     return dataClient.updateSettings({ customModelMap: JSON.stringify(next), model: currentModel })
   },
@@ -225,7 +227,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       delete next[tier]![provider]
       if (Object.keys(next[tier]!).length === 0) delete next[tier]
     }
-    const currentModel = resolveModel(modelTier, defaultProvider || "claude-sdk", next)
+    const currentModel = resolveModel(modelTier, defaultProvider || "claude-sdk", next) || ''
     set({ customModelMap: next, model: currentModel })
     dataClient.updateSettings({ customModelMap: JSON.stringify(next), model: currentModel }).catch(() => {})
   },

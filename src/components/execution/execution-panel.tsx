@@ -82,7 +82,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   // Local state for execution options
   const [selectedProvider, setSelectedProvider] = useState<string>(defaultProvider || "")
   const getModelForProvider = useSettingsStore((s) => s.getModelForProvider)
-  const [selectedModel, setSelectedModel] = useState<string>(() => getModelForProvider(defaultProvider || undefined))
+  const [selectedModel, setSelectedModel] = useState<string>(() => getModelForProvider(defaultProvider || undefined) || '')
   const [selectedBackend, setSelectedBackend] = useState<string>("")
   const [useWorktree, setUseWorktree] = useState(true)
 
@@ -338,7 +338,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
                 <DropdownMenuLabel>Select Provider</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  onClick={() => { setSelectedProvider(""); setSelectedModel(getModelForProvider(undefined)) }}
+                  onClick={() => { setSelectedProvider(""); setSelectedModel(getModelForProvider(undefined) || '') }}
                   className="gap-2"
                 >
                   <Bot className="h-4 w-4" />
@@ -354,7 +354,7 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
                 {availableProviders.map((provider) => (
                   <DropdownMenuItem
                     key={provider.id}
-                    onClick={() => { setSelectedProvider(provider.id); setSelectedModel(getModelForProvider(provider.id)) }}
+                    onClick={() => { setSelectedProvider(provider.id); setSelectedModel(getModelForProvider(provider.id) || '') }}
                     className="gap-2"
                     disabled={!provider.available}
                   >
