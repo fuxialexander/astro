@@ -535,8 +535,9 @@ Decomposition rules:
 ### Rules
 - Only include fields that should change. Omit unchanged fields.
 - You can combine \`astro-updates\`, \`astro-edges\`, and \`astro-add-nodes\` in the same response.
-- Do NOT include update blocks if no changes are needed.
-- ALWAYS include update blocks when the user asks to change something — never just describe what to do manually.
+- Do NOT include update blocks if no changes are needed (e.g. the user is just asking a question).
+- **CRITICAL:** When the user asks to change, update, add, remove, or modify ANYTHING in the plan, you MUST include the corresponding mutation blocks (\`astro-updates\`, \`astro-edges\`, or \`astro-add-nodes\`). These blocks are the ONLY way changes are applied to the graph — without them, nothing happens regardless of what you say in text. Never just describe what to do; always emit the blocks.
+- Do NOT output a full plan JSON object. Only use the mutation block formats above. Full JSON replacement is handled by a separate system.
 - When modifying dependencies via "dependencies" in astro-updates, edges are automatically synchronized. Alternatively use astro-edges for individual add/remove.`
 }
 

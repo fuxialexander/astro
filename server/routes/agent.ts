@@ -476,7 +476,7 @@ agentRoute.post('/plan-chat', async (c) => {
     systemPrompt,
     type: 'chat',
     messages: historyMessages,
-    model: model || 'haiku',  // Default to small model for plan chat
+    model: model || undefined,
     workingDirectory: project?.workingDirectory ?? undefined,
     targetMachineId: project?.defaultMachineId ?? undefined,
     streamId,

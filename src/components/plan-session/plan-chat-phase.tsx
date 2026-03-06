@@ -17,6 +17,7 @@ import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { planChatWithAgent, fetchStreamingEventsCatchUp, replayChatCatchUpEvents, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
+import { extractMutations, applyMutationsToStore } from "@/lib/plan-mutations"
 import {
   groupActivityEvents,
   TextBlock,
@@ -329,6 +330,15 @@ export function PlanChatPhase({
           onToolResult: handleToolResult,
           onDone: (newSessionId) => {
             if (newSessionId) setProviderSessionId(sid, newSessionId)
+            // Extract and apply any mutation blocks before storing the message
+            const { mutations } = extractMutations(rawText)
+            const hasMutations = mutations.nodeUpdates.length > 0 || mutations.edgeOps.length > 0 || mutations.newNodes.length > 0
+            if (hasMutations) {
+              const { affectedNodeIds } = applyMutationsToStore(projectId, mutations)
+              if (affectedNodeIds.length > 0) {
+                usePlanStore.getState().markNodesAsUpdating(affectedNodeIds)
+              }
+            }
             // Store full text in session message for conversation history
             addMessage(sid, { role: "assistant", content: rawText })
             chatStreamRef.current = { streamId: '', lastSeq: 0 }
@@ -370,6 +380,15 @@ export function PlanChatPhase({
               onToolResult: handleToolResult,
               onDone: (newSessionId) => {
                 if (newSessionId) setProviderSessionId(sid, newSessionId)
+                // Extract and apply mutations from catch-up text
+                const { mutations: catchUpMutations } = extractMutations(rawText)
+                const hasCatchUpMutations = catchUpMutations.nodeUpdates.length > 0 || catchUpMutations.edgeOps.length > 0 || catchUpMutations.newNodes.length > 0
+                if (hasCatchUpMutations) {
+                  const { affectedNodeIds } = applyMutationsToStore(projectId, catchUpMutations)
+                  if (affectedNodeIds.length > 0) {
+                    usePlanStore.getState().markNodesAsUpdating(affectedNodeIds)
+                  }
+                }
                 addMessage(sid, { role: "assistant", content: rawText })
               },
               onError: (error) => {
