@@ -1133,6 +1133,28 @@ app.post('/usage/increment', async (c) => {
   return c.json({ ok: true })
 })
 
+// ── Per-Project Costs ─────────────────────────────────────────────────
+
+app.post('/usage/project-costs', async (c) => {
+  const body = await c.req.json<{ projectIds: string[] }>()
+  const ids = body.projectIds || []
+  if (ids.length === 0) return c.json({})
+
+  const rows = await db.select({
+    projectId: taskExecutions.projectId,
+    totalCost: sql<number>`coalesce(sum(${taskExecutions.estimatedCostUsd}), 0)`,
+  })
+    .from(taskExecutions)
+    .where(inArray(taskExecutions.projectId, ids))
+    .groupBy(taskExecutions.projectId)
+
+  const result: Record<string, number> = {}
+  for (const row of rows) {
+    result[row.projectId] = Number(row.totalCost)
+  }
+  return c.json(result)
+})
+
 // ── Settings ──────────────────────────────────────────────────────────
 
 app.get('/settings', async (c) => {
