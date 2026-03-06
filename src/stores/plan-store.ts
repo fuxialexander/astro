@@ -444,6 +444,15 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       const nodeIds = new Set(get().nodes.filter((n) => n.projectId === projectId).map((n) => n.id))
       return !nodeIds.has(e.source) && !nodeIds.has(e.target)
     })
+    // Deduplicate new nodes by id (keep last occurrence — latest data wins)
+    const seenNodeIds = new Set<string>()
+    const dedupedNewNodes: typeof newNodes = []
+    for (let i = newNodes.length - 1; i >= 0; i--) {
+      if (!seenNodeIds.has(newNodes[i].id)) {
+        seenNodeIds.add(newNodes[i].id)
+        dedupedNewNodes.unshift(newNodes[i])
+      }
+    }
     // Deduplicate new edges by source→target
     const seen = new Set<string>()
     const dedupedNewEdges = newEdges.filter((e) => {
@@ -452,13 +461,13 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       seen.add(key)
       return true
     })
-    const nextNodes = [...otherNodes, ...newNodes]
+    const nextNodes = [...otherNodes, ...dedupedNewNodes]
     const nextEdges = [...otherEdges, ...dedupedNewEdges]
-    console.log(`[plan-store] Updating store: ${nextNodes.length} total nodes (${otherNodes.length} existing + ${newNodes.length} new)`)
+    console.log(`[plan-store] Updating store: ${nextNodes.length} total nodes (${otherNodes.length} existing + ${dedupedNewNodes.length} new)`)
     set({ nodes: nextNodes, edges: nextEdges })
     // Mark all new nodes as pending save
-    const newNodeIds = new Set(newNodes.map((n) => n.id))
-    for (const n of newNodes) pendingSaveNodeIds.add(n.id)
+    const newNodeIds = new Set(dedupedNewNodes.map((n) => n.id))
+    for (const n of dedupedNewNodes) pendingSaveNodeIds.add(n.id)
     // Retry API save to prevent data loss on reload.
     // Read the latest node state at save-time so positions from reorganizeProject are included.
     retryAsync(
