@@ -174,7 +174,7 @@ async function streamChatViaRelay(
         try {
           await db.insert(taskExecutions).values({
             executionId: persistId,
-            nodeClientId: opts.nodeId || opts.pathwayType,
+            nodeClientId: opts.nodeId || `__pathway:${opts.pathwayType}`,
             projectId: opts.projectId,
             status: isSuccess ? 'success' : 'failure',
             error: msg.result.error || null,
@@ -182,13 +182,13 @@ async function streamChatViaRelay(
             completedAt: new Date(),
             sessionId: resolvedSessionId,
             providerId: opts.preferredProvider || null,
-            durationMs: metrics?.durationMs || (Date.now() - startTime),
-            inputTokens: metrics?.inputTokens || null,
-            outputTokens: metrics?.outputTokens || null,
-            tokensUsed: (metrics?.inputTokens || 0) + (metrics?.outputTokens || 0) || null,
-            estimatedCostUsd: metrics?.totalCost || null,
-            model: metrics?.model || null,
-            turnsUsed: metrics?.numTurns || null,
+            durationMs: metrics?.durationMs ?? (Date.now() - startTime),
+            inputTokens: metrics?.inputTokens ?? null,
+            outputTokens: metrics?.outputTokens ?? null,
+            tokensUsed: metrics ? ((metrics.inputTokens ?? 0) + (metrics.outputTokens ?? 0)) : null,
+            estimatedCostUsd: metrics?.totalCost ?? null,
+            model: metrics?.model ?? null,
+            turnsUsed: metrics?.numTurns ?? null,
           }).onConflictDoNothing()
         } catch (err) {
           console.warn(`[chat] Failed to persist taskExecution for ${persistId}:`, err)
