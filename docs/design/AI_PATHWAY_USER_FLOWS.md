@@ -103,7 +103,7 @@ User opens Astro
 | **Multi-turn** | Yes -- agent loop with many turns | Limited -- 1-3 turns for JSON generation |
 | **User can steer** | Yes -- user sends messages during generation | Limited |
 | **Prompt builder** | `buildInteractivePlanPrompt()` | `buildPlanSystemPrompt()` |
-| **Follow-up** | Transitions to Pathway 7 (plan-chat) | None |
+| **Follow-up** | Transitions to Pathway 7 (project-chat) | None |
 
 **Key insight: Pathway 5 is entirely dead code.** Both callers of `generatePlan()` are unreachable:
 
@@ -124,7 +124,7 @@ User opens Astro
 9. Agent brainstorms interactively (full tools, multi-turn)
 10. Server extracts plan JSON from agent output
 11. Plan nodes/edges appear in UI
-12. [P7] User can refine plan via plan-chat
+12. [P7] User can refine plan via project-chat
 ```
 
 **The Examples page uses Pathway 3 (Interactive Plan), not Pathway 5.** It pre-fills the plan creation form with the resolved template description, then lets the user trigger P3 as normal.
@@ -190,7 +190,7 @@ The real differentiation is **frontend-side**:
 #### P3: Interactive Plan
 - **Page:** `/project-new-plan`
 - **Trigger:** Enter goal + settings, click "Start"
-- **User sees:** Full-height streaming activity. Agent brainstorms, may read files, asks clarifying questions (approval cards). Plan nodes appear when agent produces structured output. Transitions to plan-chat phase.
+- **User sees:** Full-height streaming activity. Agent brainstorms, may read files, asks clarifying questions (approval cards). Plan nodes appear when agent produces structured output. Transitions to project-chat phase.
 - **Duration:** 1-5 minutes
 - **Skills:** Yes (provider + compute backend + user)
 - **Stored:** streaming_events

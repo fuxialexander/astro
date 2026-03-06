@@ -96,7 +96,7 @@ export function PlanGeneration({
   const chatSession = useMemo(() => {
     let latest: ReturnType<typeof allSessions.get> | undefined
     for (const session of allSessions.values()) {
-      if (session.nodeId === nodeId && session.type === "plan-chat") {
+      if (session.nodeId === nodeId && session.type === "project-chat") {
         if (!latest || session.createdAt > latest.createdAt) latest = session
       }
     }
@@ -104,7 +104,7 @@ export function PlanGeneration({
   }, [allSessions, nodeId])
   useEffect(() => {
     if (sessionsLoaded && !chatSession) {
-      createSessionAction({ type: "plan-chat", projectId, nodeId })
+      createSessionAction({ type: "project-chat", projectId, nodeId })
     }
   }, [sessionsLoaded, chatSession, createSessionAction, nodeId, projectId])
 
@@ -516,7 +516,7 @@ export function PlanGeneration({
         </div>
       )}
 
-      {/* Activity Timeline — always visible (plan-chat IS the activity view) */}
+      {/* Activity Timeline — always visible (project-chat IS the activity view) */}
       <div
         ref={containerRef}
         onScroll={handleScroll}

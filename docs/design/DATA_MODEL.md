@@ -502,7 +502,7 @@ interface SteerMessage {
 **Storage**: Postgres `sessions` table via Drizzle ORM
 
 ```typescript
-type SessionType = 'plan-chat' | 'task-chat' | 'steer' | 'execution' | 'plan-generation';
+type SessionType = 'project-chat' | 'task-chat' | 'steer' | 'execution' | 'plan-generation';
 type SessionStatus = 'active' | 'streaming' | 'completed' | 'error' | 'cancelled';
 
 interface Session {
@@ -1521,7 +1521,7 @@ Frontend stores fetch data via `fetch('/api/...')` in both modes. There is no br
 |  |-- has many PlanNodes (tasks, milestones, branches, decisions)   |
 |  |-- has many PlanEdges (dependency and branch connections)         |
 |  |-- has many ProjectMembers (access control)                      |
-|  |-- has many Sessions (plan-chat, execution, etc.)                |
+|  |-- has many Sessions (project-chat, execution, etc.)             |
 |  |-- has many DispatchQueueEntries (pending tasks)                 |
 |  |-- may belong to a Team (via teamId)                             |
 |  |-- may belong to an Initiative (via initiativeId)                |

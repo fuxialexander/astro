@@ -410,7 +410,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         executionId,
         isInteractive: true,
         pendingApprovals: 0,
-        streamId: `plan-chat-${projectId}-${Date.now()}`,
+        streamId: `project-chat-${projectId}-${Date.now()}`,
       })
       return { sessions }
     })

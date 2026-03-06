@@ -8,7 +8,7 @@
 
 The `sessions` table stores three types of conversational data that are not currently extracted:
 
-- **plan-chat**: Plan refinement conversations (user asks questions, AI suggests plan mutations)
+- **project-chat**: Plan refinement conversations (user asks questions, AI suggests plan mutations)
 - **task-chat**: Per-task discussions about implementation approach and results
 - **steer**: Mid-execution steering messages where users redirect running agents
 
@@ -17,7 +17,7 @@ These sessions contain high-signal human decision-making data (decomposition cho
 ## Future Work
 
 1. **Enrich extraction to cover all session types**
-   - Extract `plan-chat` sessions as multi-turn conversation trajectories with applied plan mutations
+   - Extract `project-chat` sessions as multi-turn conversation trajectories with applied plan mutations
    - Extract `task-chat` sessions paired with task context (title, description, execution output)
    - Extract `steer` messages paired with before/after execution behavior
 

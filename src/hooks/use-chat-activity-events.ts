@@ -1,13 +1,13 @@
 /**
  * Hook: useChatActivityEvents
  *
- * Returns activity events and display blocks for plan-chat sessions.
+ * Returns activity events and display blocks for project-chat sessions.
  * During live streaming, combines realtime-store events with session messages.
  * After page refresh, hydrates from streaming_events table via catch-up.
  *
  * Adapted from useRestoredExecution, but simplified:
- * - No execution-store dependency (plan chats don't use it)
- * - No observation-store fallback (plan chats don't generate Langfuse traces)
+ * - No execution-store dependency (project chats don't use it)
+ * - No observation-store fallback (project chats don't generate Langfuse traces)
  * - Uses streamId as the streaming_events executionId
  */
 

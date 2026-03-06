@@ -245,13 +245,13 @@ passkeyCredentials {
 
 ### Sessions (Unified)
 
-New unified session table consolidating plan chat, task chat, steer chat, and execution tracking.
+New unified session table consolidating project chat, task chat, steer chat, and execution tracking.
 
 ```typescript
 sessions {
   id: text (PK)
   userId: uuid
-  type: text                         // 'plan-chat' | 'task-chat' | 'steer' | 'execution' | 'plan-generation'
+  type: text                         // 'project-chat' | 'task-chat' | 'steer' | 'execution' | 'plan-generation'
   status: text                       // 'active' | 'streaming' | 'completed' | 'error' | 'cancelled'
   projectId: uuid (FK → projects, cascade)
   nodeId: text                       // Plan node client ID (for task/steer)

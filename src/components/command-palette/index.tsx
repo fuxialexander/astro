@@ -147,14 +147,14 @@ export function CommandPalette() {
           }))
         return { ...cmd, children }
       }
-      if (cmd.id === "action-open-plan-chat") {
+      if (cmd.id === "action-open-project-chat") {
         // Create nested commands for planning projects
         const planChildren: CommandItemType[] = projects
           .filter((p) => p.status === "active")
           .map((project) => ({
-            id: `plan-chat-${project.id}`,
+            id: `project-chat-${project.id}`,
             label: project.name,
-            description: `Open plan chat for ${project.name}`,
+            description: `Open project chat for ${project.name}`,
             icon: undefined,
             category: "actions" as CommandCategory,
             keywords: ["chat", "plan", project.name.toLowerCase()],
@@ -163,7 +163,7 @@ export function CommandPalette() {
               title: `Plan Chat - ${project.name}`,
               content: project.description,
               metadata: {
-                Action: "Open AI plan chat",
+                Action: "Open AI project chat",
                 ...(project.health && { Health: project.health.replace(/_/g, ' ') }),
                 ...(project.progress !== undefined && { Progress: `${project.progress}%` }),
               },
@@ -173,7 +173,7 @@ export function CommandPalette() {
         const playgroundChildren: CommandItemType[] = playgroundProjects
           .filter((p) => p.status === "active")
           .map((project) => ({
-            id: `plan-chat-${project.id}`,
+            id: `project-chat-${project.id}`,
             label: project.name,
             description: `Open playground session: ${project.name}`,
             icon: undefined,
