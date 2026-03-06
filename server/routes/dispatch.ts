@@ -1186,10 +1186,10 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     // Two-tier timeout: short startup period, longer once events are flowing.
     // If the agent-runner never picks up the task (crash, busy, bad state),
     // we detect it quickly instead of hanging for days.
-    const STARTUP_TIMEOUT_MS = 3 * 60 * 1000 // 3 minutes — no events at all
+    const STARTUP_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000 // 5 days — wait for user to approve / act
     const MAX_STARTUP_RETRIES = 3 // Retry dispatch up to 3 times before failing
     let startupRetries = 0
-    const ACTIVITY_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 hours — events stopped mid-execution
+    const ACTIVITY_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000 // 5 days — wait for user to approve / act
 
     const onResult = async (msg: import('../types/relay.js').TaskResultMessage) => {
       if (!alive || msg.result.taskId !== executionId) return
@@ -1594,7 +1594,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           }
 
           const errorMsg = hasReceivedEvent
-            ? 'Activity timeout — agent runner stopped responding after 2 hours of inactivity'
+            ? 'Activity timeout — agent runner stopped responding after 5 days of inactivity'
             : `Startup timeout — agent runner did not start after ${MAX_STARTUP_RETRIES + 1} attempts. The machine may be busy or the agent process failed to launch. Try re-executing the task.`
           const errorData = { error: errorMsg, recoverable: true }
 
