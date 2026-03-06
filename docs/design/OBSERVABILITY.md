@@ -14,18 +14,11 @@ Astro's observability system captures, persists, and surfaces data from every AI
 
 The system operates across three storage layers, each serving different query patterns:
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     STORAGE LAYERS                          │
-├──────────────────┬──────────────────┬───────────────────────┤
-│ streaming_events │ taskExecutions   │ observationEvents     │
-│ (append-only log)│ (summary record) │ (structured traces)   │
-├──────────────────┼──────────────────┼───────────────────────┤
-│ SSE catch-up     │ Cost dashboards  │ Trace viewer          │
-│ Page refresh     │ Usage metrics    │ Langfuse export       │
-│ Activity replay  │ Project totals   │ Turn-level analysis   │
-└──────────────────┴──────────────────┴───────────────────────┘
-```
+| Layer | Table | Purpose | Consumers |
+|-------|-------|---------|-----------|
+| **Event Log** | `streaming_events` | Append-only SSE events | Page refresh recovery, catch-up hydration, activity replay |
+| **Execution Summary** | `taskExecutions` | Per-execution cost/status record | Cost dashboards, usage metrics, project totals |
+| **Structured Traces** | `observationEvents` | Turn-level generation tracking | Trace viewer, Langfuse export, turn-level analysis |
 
 ## 2. The 11 AI Pathways
 
@@ -55,159 +48,210 @@ Each pathway is classified by its execution model and observability depth:
 
 ### 3.1 Agentic Pathways (P1–P4): Full Observability
 
-```
-Browser                    Hono Backend                 Relay              Agent Runner
-  │                            │                          │                     │
-  │  POST /api/dispatch/task   │                          │                     │
-  ├───────────────────────────►│                          │                     │
-  │                            │                          │                     │
-  │                            │ ┌──────────────────────┐ │                     │
-  │                            │ │ Build system prompt   │ │                     │
-  │                            │ │ + vision doc          │ │                     │
-  │                            │ │ + dependency outputs  │ │                     │
-  │                            │ │ + skills injection    │ │                     │
-  │                            │ └──────────┬───────────┘ │                     │
-  │                            │            │             │                     │
-  │                            │ ┌──────────▼───────────┐ │                     │
-  │                            │ │ Persist init event    │ │                     │
-  │                            │ │ streaming_events:     │ │                     │
-  │                            │ │  pathwayType          │ │                     │
-  │                            │ │  systemPrompt         │ │                     │
-  │                            │ │  model, providerId    │ │                     │
-  │                            │ │  machineId            │ │                     │
-  │                            │ └──────────┬───────────┘ │                     │
-  │                            │            │             │                     │
-  │                            │  dispatch ─┼────────────►│  dispatch ─────────►│
-  │                            │            │             │                     │
-  │◄────── SSE: init ─────────│            │             │                     │
-  │                            │            │             │                     │
-  │                            │◄───────────┼── session_init ──────────────────│
-  │◄── SSE: session_init ─────│            │             │                     │
-  │                            │ persist ───┤             │                     │
-  │                            │            │             │                     │
-  │                            │◄───────────┼──── text ───┼────────────────────│
-  │◄────── SSE: text ─────────│            │             │  (buffered, flushed │
-  │                            │ appendText─┤             │   on structural evt)│
-  │                            │            │             │                     │
-  │                            │◄───────────┼── tool_use ─┼────────────────────│
-  │◄──── SSE: tool_use ───────│            │             │                     │
-  │                            │ persist ───┤             │                     │
-  │                            │ eventBus ──┤             │                     │
-  │                            │            │             │                     │
-  │                            │◄───────────┼─ tool_result┼────────────────────│
-  │◄──── SSE: tool_result ────│            │             │                     │
-  │                            │ persist ───┤             │                     │
-  │                            │ eventBus ──┤             │                     │
-  │                            │            │             │                     │
-  │                            │◄───────────┼─file_change─┼────────────────────│
-  │◄── SSE: file_change ──────│            │             │                     │
-  │                            │ persist ───┤             │                     │
-  │                            │            │             │                     │
-  │                            │◄───────────┼── result ───┼────────────────────│
-  │                            │            │             │                     │
-  │                            │ ┌──────────▼───────────┐ │                     │
-  │                            │ │ Persist result event  │ │                     │
-  │                            │ │  status, metrics      │ │                     │
-  │                            │ │                       │ │                     │
-  │                            │ │ Create taskExecutions │ │                     │
-  │                            │ │  executionId          │ │                     │
-  │                            │ │  tokens, cost, model  │ │                     │
-  │                            │ │  duration, turns      │ │                     │
-  │                            │ │                       │ │                     │
-  │                            │ │ Emit lifecycle event  │ │                     │
-  │                            │ │  → observation hooks  │ │                     │
-  │                            │ │  → usage metrics hook │ │                     │
-  │                            │ │  → langfuse export    │ │                     │
-  │                            │ └──────────┬───────────┘ │                     │
-  │                            │            │             │                     │
-  │◄─── SSE: result ──────────│            │             │                     │
-  │◄─── SSE: done ────────────│            │             │                     │
-  │     (with metrics)         │            │             │                     │
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant H as Hono Backend
+    participant R as Relay Server
+    participant A as Agent Runner
+
+    B->>H: POST /api/dispatch/task
+
+    Note over H: Build system prompt<br/>(vision doc + deps + skills)
+
+    H->>H: Persist init event to streaming_events<br/>(pathwayType, systemPrompt, model, provider, machine)
+
+    H->>R: dispatchTask(taskDispatch)
+    R->>A: Forward task to agent runner
+    H-->>B: SSE: init (metadata only, no prompt)
+
+    A-->>R: session_init
+    R-->>H: task:session_init
+    H->>H: Persist session_init
+    H-->>B: SSE: session_init {sessionId, model}
+
+    loop Agent execution turns
+        A-->>R: text chunks
+        R-->>H: task:text
+        H->>H: Buffer text in memory (appendText)
+        H-->>B: SSE: text
+
+        A-->>R: tool_use
+        R-->>H: task:tool_trace
+        H->>H: Flush text buffer + persist tool_use
+        H->>H: Emit to executionEventBus
+        H-->>B: SSE: tool_use {toolName, toolInput}
+
+        A-->>R: tool_result
+        R-->>H: task:tool_trace (with result)
+        H->>H: Persist tool_result
+        H-->>B: SSE: tool_result {toolName, success, result}
+
+        opt File changes
+            A-->>R: file_change
+            R-->>H: task:file_change
+            H->>H: Persist file_change
+            H-->>B: SSE: file_change {path, action, lines}
+        end
+    end
+
+    A-->>R: result {status, metrics}
+    R-->>H: task:result
+
+    Note over H: Persist result event (status, metrics)<br/>Create taskExecutions record<br/>Emit lifecycle event → hooks
+
+    H-->>B: SSE: result {executionId, status, output, metrics}
+    H-->>B: SSE: done {executionId, nodeId}
 ```
 
 ### 3.2 Chat Pathways (P5–P6): Standard Observability
 
-```
-Browser                    Hono Backend                 Relay              Agent Runner
-  │                            │                          │                     │
-  │  POST /agent/project-chat  │                          │                     │
-  │  or /agent/task-chat       │                          │                     │
-  ├───────────────────────────►│                          │                     │
-  │                            │                          │                     │
-  │                            │ ┌──────────────────────┐ │                     │
-  │                            │ │ Build system prompt   │ │                     │
-  │                            │ │ + visionDoc/planNodes │ │                     │
-  │                            │ │ + skills injection    │ │                     │
-  │                            │ │ + task context (P6)   │ │                     │
-  │                            │ └──────────┬───────────┘ │                     │
-  │                            │            │             │                     │
-  │                            │ persist steer_message ───┤ (user's message)    │
-  │                            │ persist init event ──────┤ (pathwayType, etc.) │
-  │                            │            │             │                     │
-  │                            │  dispatch ─┼────────────►│  dispatch ─────────►│
-  │                            │            │             │                     │
-  │                            │◄───────────┼── events ───┼────────────────────│
-  │◄──── SSE: text ───────────│            │             │                     │
-  │◄──── SSE: tool_use ───────│ persist ───┤             │                     │
-  │◄──── SSE: tool_result ────│ persist ───┤             │                     │
-  │                            │            │             │                     │
-  │                            │◄───────────┼── result ───┼────────────────────│
-  │                            │            │             │                     │
-  │                            │ persist result ──────────┤                     │
-  │                            │ create taskExecutions ───┤                     │
-  │                            │            │             │                     │
-  │◄── SSE: done + metrics ───│            │             │                     │
-  │                            │            │             │                     │
-  │ ┌────────────────────┐     │            │             │                     │
-  │ │ onMetrics callback │     │            │             │                     │
-  │ │ → addTaskMetrics() │     │            │             │                     │
-  │ │ → usage-store      │     │            │             │                     │
-  │ │ → dataClient sync  │     │            │             │                     │
-  │ └────────────────────┘     │            │             │                     │
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant H as Hono Backend
+    participant R as Relay Server
+    participant A as Agent Runner
+
+    B->>H: POST /agent/project-chat or /agent/task-chat
+
+    Note over H: Build system prompt<br/>(visionDoc + planNodes/taskContext + skills)
+
+    H->>H: Persist steer_message (user's input)
+    H->>H: Persist init event<br/>(pathwayType, systemPrompt, model, provider)
+
+    H->>R: dispatchTask(chatTask)
+    R->>A: Forward to agent runner
+
+    loop Chat interaction
+        A-->>R: text / tool_use / tool_result
+        R-->>H: relay events
+        H->>H: Persist events to streaming_events
+        H-->>B: SSE: text / tool_use / tool_result
+    end
+
+    A-->>R: result {status, metrics}
+    R-->>H: task:result
+
+    Note over H: Persist result event<br/>Create taskExecutions record<br/>(executionId, tokens, cost, model, duration)
+
+    H-->>B: SSE: done {sessionId, metrics}
+
+    Note over B: onMetrics callback<br/>→ useUsageStore.addTaskMetrics()<br/>→ dataClient.incrementUsage()<br/>→ usageMetrics table
 ```
 
 ### 3.3 One-Shot Pathways (P7–P10): Minimal Observability
 
-```
-Browser                    Hono Backend                 Relay              Agent Runner
-  │                            │                          │                     │
-  │  POST /agent/summarize     │                          │                     │
-  │  (or title/refine/labels)  │                          │                     │
-  ├───────────────────────────►│                          │                     │
-  │                            │                          │                     │
-  │                            │ persist init event ──────┤                     │
-  │                            │  (pathwayType,           │                     │
-  │                            │   systemPrompt)          │                     │
-  │                            │            │             │                     │
-  │                            │  dispatch ─┼────────────►│  dispatch ─────────►│
-  │                            │            │             │                     │
-  │                            │◄───────────┼── text ─────┼────────────────────│
-  │                            │ accumulate │             │  (buffered in       │
-  │                            │ in memory  │             │   closure variable) │
-  │                            │            │             │                     │
-  │                            │◄───────────┼── result ───┼────────────────────│
-  │                            │            │             │                     │
-  │                            │ persist result event ────┤                     │
-  │                            │  (status, metrics,       │                     │
-  │                            │   durationMs)            │                     │
-  │                            │            │             │                     │
-  │◄── JSON response ─────────│            │             │                     │
-  │    { summary/title/etc }   │            │             │                     │
-  │                            │            │             │  No SSE stream      │
-  │                            │            │             │  No taskExecutions  │
-  │                            │            │             │  No frontend metrics│
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant H as Hono Backend
+    participant R as Relay Server
+    participant A as Agent Runner
+
+    B->>H: POST /agent/summarize (or title/refine/labels)
+
+    H->>H: Persist init event<br/>(pathwayType, systemPrompt)
+
+    H->>R: dispatchTask (maxTurns=1)
+    R->>A: Forward to agent runner
+
+    A-->>R: text (accumulated in memory)
+    R-->>H: task:text
+
+    A-->>R: result {status, metrics}
+    R-->>H: task:result
+
+    H->>H: Persist result event<br/>(status, metrics, durationMs)
+
+    H->>B: JSON response {summary/title/refinement/labelIds}
+
+    Note over B: No SSE stream<br/>No taskExecutions record<br/>No frontend cost tracking
 ```
 
 ### 3.4 Steering (P11): No Observability
 
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant H as Hono Backend
+    participant R as Relay Server
+
+    B->>H: POST /agent/abort {sessionId}
+    H->>R: cancelTask(sessionId)
+    H->>B: {aborted: true}
+
+    Note over H: No events stored<br/>No AI invocation
 ```
-Browser                    Hono Backend
-  │                            │
-  │  POST /agent/abort         │
-  ├───────────────────────────►│
-  │                            │ relayServer.cancelTask()
-  │◄── { aborted: true } ─────│
-  │                            │  No events stored
+
+### 3.5 Recovery: Page Refresh Hydration
+
+```mermaid
+flowchart TD
+    A[Page loads / refresh] --> B[useRestoredExecution hook]
+    B --> C{streaming_events<br/>available?}
+    C -->|Yes| D[fetchStreamingEventsCatchUp<br/>GET /api/events/catch-up]
+    D --> E[Replay events via<br/>parseExecutionSSE / parseChatSSE]
+    E --> F[Activity view restored]
+    C -->|No / empty| G[observationStore.fetchTrace<br/>GET /api/observations/:traceId]
+    G --> H[reconstructActivityFromTrace<br/>observation-activity-bridge.ts]
+    H --> F
+```
+
+### 3.6 Observation Collector Pipeline
+
+```mermaid
+flowchart TD
+    subgraph "Event Sources"
+        EE[executionEventBus<br/>streaming events]
+        LE[astroEventTransport<br/>lifecycle events]
+    end
+
+    subgraph "Observation Collector"
+        SI[session_init → store model]
+        TX[text → start/finalize turns]
+        TU[tool_use → pending tool observation]
+        TR[tool_result → complete tool observation]
+        FC[file_change → file observation]
+
+        TS[task.started → initTrace]
+        TC[task.completed → finishTrace]
+        TF[task.failed → finishTrace with error]
+        AR[approval events → observations]
+    end
+
+    subgraph "Outputs"
+        OE[(observationEvents table)]
+        MS[markdownSummary → taskExecutions]
+        LF[Langfuse export<br/>traces + spans + generations]
+    end
+
+    EE --> SI & TX & TU & TR & FC
+    LE --> TS & TC & TF & AR
+
+    SI & TX & TU & TR & FC --> OE
+    TC --> MS
+    OE --> LF
+```
+
+### 3.7 Frontend Cost Display Pipeline
+
+```mermaid
+flowchart LR
+    subgraph "P1-4 Agentic"
+        A1[SSE: result event] --> A2[execution-store<br/>onResult handler]
+        A2 --> A3[addTaskMetrics]
+    end
+
+    subgraph "P5-6 Chat"
+        B1[SSE: done event<br/>with metrics] --> B2[parseChatSSE<br/>onMetrics callback]
+        B2 --> B3[addTaskMetrics]
+    end
+
+    A3 & B3 --> C[useUsageStore<br/>sessionMetrics]
+    C --> D[Sidebar usage widget<br/>cost / tokens / tasks]
+    C --> E[dataClient.incrementUsage]
+    E --> F[(usageMetrics table<br/>daily aggregation)]
 ```
 
 ## 4. Storage Layer Details
@@ -218,19 +262,18 @@ The primary persistence layer for SSE event recovery. All events written here ca
 
 **Schema:** `packages/core/src/db/schema.ts`
 
-```
-streaming_events
-├── seq          SERIAL PRIMARY KEY
-├── executionId  TEXT NOT NULL (routing key — taskId or streamId)
-├── eventType    TEXT NOT NULL
-├── data         JSONB
-└── createdAt    TIMESTAMP DEFAULT now()
-```
+| Column | Type | Description |
+|--------|------|-------------|
+| `seq` | SERIAL PK | Auto-increment sequence number |
+| `executionId` | TEXT NOT NULL | Routing key (taskId or streamId) |
+| `eventType` | TEXT NOT NULL | Event type identifier |
+| `data` | JSONB | Event payload |
+| `createdAt` | TIMESTAMP | Default now() |
 
 **Event types by pathway:**
 
 | Event Type | P1-4 | P5-6 | P7-10 | Content |
-|------------|------|------|-------|---------|
+|------------|:----:|:----:|:-----:|---------|
 | `init` | yes | yes | yes | `{ pathwayType, projectId, nodeId, model, providerId, machineId, systemPrompt, computeBackend }` |
 | `session_init` | yes | yes | — | `{ sessionId, model }` — Claude SDK session ID |
 | `steer_message` | yes* | yes | — | `{ message }` — user's input text |
@@ -250,7 +293,7 @@ streaming_events
 \* steer_message for dispatch pathways is written via the `/steer` endpoint
 † plan_result only for interactive plan generation pathway
 
-**Text buffering:** Text events are buffered in memory (`appendText()`) and only flushed to DB when a structural event arrives (tool_use, tool_result, file_change, result) or on heartbeat/disconnect. This reduces write frequency dramatically for streaming text.
+**Text buffering:** Text events are buffered in memory (`appendText()`) and only flushed to DB when a structural event arrives (tool_use, tool_result, file_change, result) or on heartbeat/disconnect. This reduces write frequency by ~100x during active streaming.
 
 ### 4.2 taskExecutions (Summary Records)
 
@@ -258,35 +301,30 @@ Per-execution summary with cost metrics. Used for dashboards, project-level cost
 
 **Schema:** `packages/core/src/db/schema.ts`
 
-```
-taskExecutions
-├── id               UUID PRIMARY KEY
-├── executionId      TEXT UNIQUE NOT NULL
-├── nodeClientId     TEXT NOT NULL
-├── projectId        TEXT NOT NULL
-├── status           TEXT (pending, running, success, failure, cancelled)
-├── streamText       TEXT (accumulated raw output)
-├── error            TEXT
-├── startedAt        TIMESTAMP
-├── completedAt      TIMESTAMP
-├── sessionId        TEXT (Claude SDK session ID)
-├── providerId       TEXT
-├── model            TEXT
-├── durationMs       INTEGER
-├── inputTokens      INTEGER
-├── outputTokens     INTEGER
-├── tokensUsed       INTEGER (input + output)
-├── estimatedCostUsd REAL
-├── turnsUsed        INTEGER
-└── markdownSummary  TEXT (generated by observation collector)
-```
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID PK | Auto-generated |
+| `executionId` | TEXT UNIQUE | Links to streaming_events |
+| `nodeClientId` | TEXT NOT NULL | Plan node ID or `__pathway:<type>` sentinel |
+| `projectId` | UUID NOT NULL | FK → projects |
+| `status` | TEXT | `pending`, `running`, `success`, `failure`, `cancelled` |
+| `streamText` | TEXT | Accumulated raw output |
+| `error` | TEXT | Error message if failed |
+| `startedAt` / `completedAt` | TIMESTAMP | Timing |
+| `sessionId` | TEXT | Claude SDK session ID |
+| `providerId` / `model` | TEXT | Provider and model used |
+| `durationMs` | INTEGER | Wall-clock duration |
+| `inputTokens` / `outputTokens` / `tokensUsed` | INTEGER | Token counts |
+| `estimatedCostUsd` | REAL | Cost estimate from relay |
+| `turnsUsed` | INTEGER | Number of agent turns |
+| `markdownSummary` | TEXT | Generated by observation collector |
 
 **Creation points:**
 - **P1-4 (dispatch):** Created by dispatch engine's result handler (`server/lib/dispatch/result-router.ts`)
 - **P5-6 (chat):** Created by `streamChatViaRelay.onResult` in `agent.ts`
 - **P7-10 (one-shot):** Not created (no project context; these are utility calls)
 
-**nodeClientId sentinel:** For chat pathways without a task node, `nodeClientId` uses the `pathwayType` string (e.g., `'project-chat'`) as a sentinel value. This satisfies the NOT NULL constraint while allowing filtering.
+**nodeClientId sentinel:** For chat pathways without a task node, `nodeClientId` uses a prefixed sentinel like `__pathway:project-chat`. This satisfies the NOT NULL constraint while remaining easily filterable.
 
 ### 4.3 observationEvents (Structured Traces)
 
@@ -294,24 +332,21 @@ Turn-level generation tracking for deep analysis and Langfuse export. Created by
 
 **Schema:** `packages/core/src/db/schema.ts`
 
-```
-observationEvents
-├── id                    UUID PRIMARY KEY
-├── traceId               TEXT (groups all events for one execution)
-├── parentObservationId   UUID (tree structure)
-├── type                  TEXT (span, generation, tool, event)
-├── name                  TEXT
-├── startTime / endTime   TIMESTAMP
-├── input / output        JSONB
-├── model                 TEXT
-├── inputTokens           INTEGER
-├── outputTokens          INTEGER
-├── estimatedCostUsd      REAL
-├── level                 TEXT (debug, default, warning, error)
-├── projectId / nodeId    TEXT
-├── statusMessage         TEXT
-└── metadata              JSONB
-```
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID PK | Auto-generated |
+| `traceId` | TEXT | Groups all events for one execution |
+| `parentObservationId` | UUID | Tree structure for nested spans |
+| `type` | TEXT | `span`, `generation`, `tool`, `event` |
+| `name` | TEXT | Human-readable label |
+| `startTime` / `endTime` | TIMESTAMP | Timing |
+| `input` / `output` | JSONB | Turn input/output data |
+| `model` | TEXT | Model used for generation |
+| `inputTokens` / `outputTokens` | INTEGER | Per-generation token counts |
+| `estimatedCostUsd` | REAL | Per-generation cost |
+| `level` | TEXT | `debug`, `default`, `warning`, `error` |
+| `projectId` / `nodeId` | TEXT | Context |
+| `metadata` | JSONB | Additional context |
 
 **Coverage:** Only P1-4 (agentic pathways) get full observation traces. Chat and one-shot pathways have minimal or no observation records.
 
@@ -319,16 +354,13 @@ observationEvents
 
 Per-user daily cost totals. Updated incrementally from the frontend.
 
-```
-usageMetrics
-├── userId         TEXT
-├── sessionDate    DATE
-├── totalCostUsd   REAL
-├── totalInputTokens   INTEGER
-├── totalOutputTokens  INTEGER
-├── tasksCompleted     INTEGER
-└── tasksFailed        INTEGER
-```
+| Column | Type | Description |
+|--------|------|-------------|
+| `userId` | TEXT | User identifier |
+| `sessionDate` | DATE | Aggregation day |
+| `totalCostUsd` | REAL | Daily cost total |
+| `totalInputTokens` / `totalOutputTokens` | INTEGER | Token totals |
+| `tasksCompleted` / `tasksFailed` | INTEGER | Task counts |
 
 **Update flow:** Frontend `useUsageStore.addTaskMetrics()` → `dataClient.incrementUsage()` → `POST /api/data/usage/increment` → `usageMetrics` table.
 
@@ -344,7 +376,7 @@ usageMetrics
 | P7-10 One-shot | yes | — | — | — | varies | — |
 | P11 Abort | — | — | — | — | — | — |
 
-**System prompt storage:** The full system prompt is stored in the `init` event's `data.systemPrompt` field in `streaming_events`. This means every AI session's prompt is recoverable — including injected skills, vision doc, and context.
+**System prompt storage:** The full system prompt is stored in the `init` event's `data.systemPrompt` field in `streaming_events`. This means every AI session's prompt is recoverable — including injected skills, vision doc, and context. The system prompt is stored server-side only (not sent to the browser via SSE).
 
 ### 5.2 AI Provider Input/Output
 
@@ -378,30 +410,14 @@ usageMetrics
 
 ### 6.1 Page Refresh Recovery
 
-```
-useRestoredExecution hook
-  │
-  ├─ Primary: fetchStreamingEventsCatchUp([executionIds], lastSeq)
-  │    → GET /api/events/catch-up
-  │    → Returns streaming_events after lastSeq
-  │    → Replay via parseExecutionSSE/parseChatSSE
-  │
-  └─ Fallback: observationStore.fetchTrace(traceId)
-       → GET /api/observations/:traceId
-       → Reconstruct activity from observationEvents
-       → Uses reconstructActivityFromTrace() bridge
-```
+The `useRestoredExecution` hook tries two paths:
+
+1. **Primary:** `fetchStreamingEventsCatchUp([executionIds], lastSeq)` → `GET /api/events/catch-up` → replay via `parseExecutionSSE`/`parseChatSSE`
+2. **Fallback:** `observationStore.fetchTrace(traceId)` → `GET /api/observations/:traceId` → reconstruct via `reconstructActivityFromTrace()` bridge
 
 ### 6.2 SSE Disconnect Catch-Up
 
-When the SSE stream drops mid-execution, the frontend tracks `lastSeq` (from SSE `id:` field) and reconnects:
-
-```
-Network reconnects
-  → fetchStreamingEventsCatchUp([executionId], lastSeq)
-  → Returns only events after lastSeq
-  → Replays missed events into activity view
-```
+When the SSE stream drops mid-execution, the frontend tracks `lastSeq` (from SSE `id:` field) and on reconnect fetches `fetchStreamingEventsCatchUp([executionId], lastSeq)` — returns only events after the last seen seq, replayed into the activity view.
 
 ### 6.3 Crash Resilience
 
@@ -410,7 +426,7 @@ Network reconnects
 | Browser tab close | Text buffer flushed on `stream.onAbort()` |
 | SSE timeout | Heartbeat every 15s; flushes text buffer |
 | Server SIGTERM/SIGINT | `streamingEventLog.flushAll()` in shutdown handler |
-| Uncaught exception | `streamingEventLog.flushAll()` before `process.exit(1)` |
+| Uncaught exception | `streamingEventLog.flushAll()` with 3s timeout before `process.exit(1)` |
 | Unhandled rejection | `streamingEventLog.flushAll()` (non-fatal) |
 | Agent runner disconnect | `machine:disconnected` event → error SSE |
 
@@ -426,101 +442,22 @@ Text events arrive at high frequency during streaming. Rather than persisting ea
    - Server shuts down (flushAll)
 3. This reduces DB writes by ~100x during active streaming
 
-## 7. Observation Collector Pipeline
+## 7. Hook Registration
 
-The observation collector (`server/lib/observability/observation-collector.ts`) creates structured traces for agentic pathways (P1-4):
+The backend registers observability hooks on startup via `astroEventTransport`:
 
-```
-Execution Events (via executionEventBus)
-  │
-  ├── session_init → store sessionId, model in trace state
-  │
-  ├── text (new text after tools) → finalize previous turn → start new turn
-  │
-  ├── tool_use → create pending tool observation
-  │              add to currentTurn.toolCalls
-  │
-  ├── tool_result → complete pending tool observation
-  │                 add to pendingToolResults (input for next turn)
-  │
-  ├── file_change → addObservation('file:change')
-  │
-  └── progress → addObservation('task:progress')
+| Hook | Subscribes To | Action |
+|------|--------------|--------|
+| `observability` | Lifecycle + streaming events | Builds turn-level traces in `observationEvents`, generates markdown summaries |
+| `usage-metrics` | `task.completed` | Aggregates cost + tokens |
+| `langfuse` | Lifecycle + observation events | Exports to Langfuse (if `LANGFUSE_ENABLED=true`) |
+| `sse-notification` | All lifecycle events | Pushes to frontend via SSE |
+| `audit-log` | All lifecycle events | Writes audit trail |
+| Plus | PR creation, merge queue, git pull, channel notification, GitHub issue close, field sync, PR body update, project completion, PR auto-link | Various automation hooks |
 
-Lifecycle Events (via astroEventTransport)
-  │
-  ├── task.started → initTrace(), captureInitialContext()
-  │
-  ├── task.completed → finalizeCurrentTurn()
-  │                    addObservation('task:completed')
-  │                    finishTrace() → flush + generate markdown summary
-  │
-  ├── task.failed → finishTrace() with error
-  │
-  └── approval.requested/responded → addObservation()
+## 8. Observability Gaps and Future Work
 
-Flush Pipeline
-  │
-  ├── Periodic: every 5 seconds (if buffer non-empty)
-  ├── Size threshold: buffer >= 50 events
-  └── On completion: flush all + generate markdown summary
-       └── Summary → taskExecutions.markdownSummary
-```
-
-### 7.1 Hook Registration
-
-```typescript
-// server/index.ts
-astroEventTransport.registerHook('observability', observabilityHook)   // → observation collector
-astroEventTransport.registerHook('usage-metrics', usageMetricsHook)    // → cost aggregation
-astroEventTransport.registerHook('langfuse', langfuseExportHook)       // → Langfuse export
-astroEventTransport.registerHook('sse-notification', sseNotificationHook)
-astroEventTransport.registerHook('audit-log', auditLogHook)
-// ... plus PR creation, merge queue, git pull, channel notification hooks
-```
-
-### 7.2 Langfuse Export
-
-When `LANGFUSE_ENABLED=true`:
-
-```
-observationEvents (DB)
-  │
-  └── langfuseExportHook
-       ├── Map traces → Langfuse trace-create
-       ├── Map spans → Langfuse span-create
-       ├── Map generations → Langfuse generation-create
-       └── Batch POST to LANGFUSE_BASE_URL every 10s or 50 events
-```
-
-## 8. Frontend Cost Display Pipeline
-
-```
-SSE done event (with metrics)
-  │
-  └── parseChatSSE → onMetrics callback
-       │
-       └── useUsageStore.addTaskMetrics({
-             durationMs, inputTokens, outputTokens,
-             estimatedCostUsd, model, turnsUsed
-           }, success)
-            │
-            ├── Update in-memory sessionMetrics
-            │    (shown in sidebar usage widget)
-            │
-            └── dataClient.incrementUsage()
-                 → POST /api/data/usage/increment
-                 → usageMetrics table (daily aggregation)
-```
-
-**Coverage:**
-- P1-4: Metrics flow through `execution-store` → `addTaskMetrics` (existing path)
-- P5-6: Metrics flow through SSE `done` event → `onMetrics` callback → `addTaskMetrics` (new in this PR)
-- P7-10: No frontend cost display (fire-and-forget utility calls)
-
-## 9. Observability Gaps and Future Work
-
-### 9.1 Currently Deferred
+### 8.1 Currently Deferred
 
 | Gap | Description | Priority |
 |---|---|---|
@@ -528,8 +465,9 @@ SSE done event (with metrics)
 | `pathway_type` column | Optional indexed column on streaming_events for efficient filtering by pathway | Low |
 | One-shot cost tracking | P7-10 don't create taskExecutions — could be added if cost visibility needed | Low |
 | Chat observation traces | P5-6 don't have turn-level observation records (only streaming_events) | Medium |
+| Failed-execution metrics | Metrics for failed chat sessions aren't sent to frontend (server-side tracking works) | Low |
 
-### 9.2 Data Points Not Yet Captured
+### 8.2 Data Points Not Yet Captured
 
 | Data Point | Pathways Affected | Potential Value |
 |---|---|---|
@@ -539,7 +477,7 @@ SSE done event (with metrics)
 | Time to first token | P1-6 (streaming) | Latency monitoring |
 | Retry count | All | Detect flaky relay/agent issues |
 
-## 10. Key File Reference
+## 9. Key File Reference
 
 | File | Role |
 |---|---|
