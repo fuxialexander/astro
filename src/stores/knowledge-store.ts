@@ -4,6 +4,8 @@ import type { KnowledgeEntry } from "@/types"
 
 export type { KnowledgeEntry }
 
+const EMPTY_ENTRIES: KnowledgeEntry[] = []
+
 type KnowledgeStore = {
   /** Entries keyed by projectId */
   entriesByProject: Record<string, KnowledgeEntry[]>
@@ -57,6 +59,6 @@ export const useKnowledgeStore = create<KnowledgeStore>((set, get) => ({
   },
 
   getProjectKnowledge: (projectId: string) => {
-    return get().entriesByProject[projectId] ?? []
+    return get().entriesByProject[projectId] ?? EMPTY_ENTRIES
   },
 }))

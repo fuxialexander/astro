@@ -3,6 +3,8 @@ import { BookOpen, ChevronDown, ChevronRight, Search, Trash2 } from "lucide-reac
 import { Badge } from "@/components/ui/badge"
 import { useKnowledgeStore, type KnowledgeEntry } from "@/stores/knowledge-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
+
+const EMPTY_ENTRIES: KnowledgeEntry[] = []
 import { cn } from "@/lib/utils"
 import { formatRelativeTime } from "@/lib/date-utils"
 
@@ -15,7 +17,7 @@ type GroupedKnowledge = {
 export function KnowledgePanel({ projectId }: { projectId: string }) {
   const loadKnowledge = useKnowledgeStore((s) => s.loadKnowledge)
   const deleteKnowledge = useKnowledgeStore((s) => s.deleteKnowledge)
-  const entries = useKnowledgeStore((s) => s.getProjectKnowledge(projectId))
+  const entries = useKnowledgeStore((s) => s.entriesByProject[projectId]) ?? EMPTY_ENTRIES
   const loading = useKnowledgeStore((s) => s.loading[projectId])
   const error = useKnowledgeStore((s) => s.error[projectId])
 
