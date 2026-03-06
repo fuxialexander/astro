@@ -163,11 +163,19 @@ This project uses the \`moat-fragility\` skill. The skill's SKILL.md contains:
 Decompose this analysis into a DAG of tasks following the 3-phase framework:
 
 ### Phase 1: Data Retrieval & Quantitative Scoring (CA Score)
-- Retrieve financial data for {{tickerSymbol}} (and comparison tickers if provided):
+- Retrieve financial data for {{tickerSymbol}} (and comparison tickers if provided) from:
+  - **SEC EDGAR**: 10-K filings for revenue, margins, ROIC, balance sheet data
+  - **Earnings reports/transcripts**: Recent quarterly earnings for forward guidance and segment detail
+  - **Yahoo Finance API**: Historical prices, key statistics (\`curl\` commands)
+  - **Company investor relations**: Annual reports, earnings presentations
+  - **Industry reports**: Market sizing data from Gartner, IDC, Statista
+- Data to collect:
   - Revenue (last N years based on time horizon)
   - Market share / addressable market estimates
   - ARPU and pricing trends (CAGR)
   - ROIC vs. WACC (historical and projected)
+  - Balance sheet: debt/equity, cash, FCF
+  - Insider ownership from DEF 14A proxy
 - If supplementary documents provided, parse them using appropriate tools:
   - PDF files → use the PDF skill (Read tool on .pdf files)
   - Other formats → read directly
@@ -235,11 +243,61 @@ Save ALL output files (reports, data files, charts, PDFs) under the \`outputs/\`
 
 ## CRITICAL: Document Reading Tools
 
-The PDF skill is pre-loaded and available in your skill instructions. Follow it for document processing.
+### PDF Files (.pdf)
+PDFs require special handling — do NOT try to \`cat\` or \`Read\` a PDF as plain text.
 
-If supplementary documents are provided:
-- **For PDF files**: Use the PDF skill instructions to read and extract content from PDF documents (pypdf, pdfplumber, or the Read tool on .pdf files).
-- **For other formats**: Read directly with the Read tool.
+**Method 1 (preferred)**: Use \`pdftotext\` (poppler-utils):
+\`\`\`bash
+pdftotext "path/to/file.pdf" - | head -500  # Extract text to stdout
+pdftotext -layout "path/to/file.pdf" -       # Preserve table layout
+\`\`\`
+
+**Method 2**: Use Python with \`pdfplumber\` (better for tables):
+\`\`\`bash
+pip install pdfplumber -q && python3 -c "
+import pdfplumber
+with pdfplumber.open('path/to/file.pdf') as pdf:
+    for page in pdf.pages:
+        text = page.extract_text()
+        if text: print(text)
+        for table in page.extract_tables():
+            for row in table: print('\\t'.join(str(c or '') for c in row))
+"
+\`\`\`
+
+**Method 3**: Use the Read tool directly on .pdf files (works for simple PDFs).
+
+### Word Documents (.docx)
+\`\`\`bash
+pip install python-docx -q && python3 -c "
+from docx import Document
+doc = Document('path/to/file.docx')
+for p in doc.paragraphs: print(p.text)
+for table in doc.tables:
+    for row in table.rows: print('\\t'.join(c.text for c in row.cells))
+"
+\`\`\`
+
+### Excel Files (.xlsx)
+\`\`\`bash
+pip install openpyxl -q && python3 -c "
+import openpyxl
+wb = openpyxl.load_workbook('path/to/file.xlsx')
+for sheet in wb.sheetnames:
+    ws = wb[sheet]
+    print(f'--- Sheet: {sheet} ---')
+    for row in ws.iter_rows(values_only=True): print('\\t'.join(str(c or '') for c in row))
+"
+\`\`\`
+
+### Other formats (HTML, Markdown, text)
+Read directly with the Read tool.
+
+### Supplementary Documents
+If a supplementary documents directory is provided at \`{{supplementaryDocs}}\`:
+1. First list contents: \`ls -la "{{supplementaryDocs}}"\`
+2. Then process each file using the appropriate method above
+3. Extract key financial data points and save to \`data/\` as structured Markdown
 
 ## Skill Reference
 Consult the \`moat-fragility\` skill's SKILL.md for:
@@ -250,10 +308,32 @@ Consult the \`moat-fragility\` skill's SKILL.md for:
 - Report template and chart specifications
 
 ## Data Retrieval Guidelines
-- Use publicly available financial data sources
+
+### Primary Sources (use in this order)
+1. **SEC EDGAR** — 10-K annual filings, 10-Q quarterly filings, DEF 14A proxy statements, Form 4 insider transactions
+   - Use \`curl\` to fetch filings: \`curl "https://efts.sec.gov/LATEST/search-index?q=%22{{tickerSymbol}}%22&dateRange=custom&startdt=2023-01-01&enddt=2025-12-31&forms=10-K"\`
+   - Or navigate the full-text search: \`https://efts.sec.gov/LATEST/search-index?q=<company>&forms=10-K\`
+2. **Earnings Reports & Transcripts** — Quarterly earnings calls contain forward guidance, segment breakdowns, and management commentary. Extract revenue, margins, and guidance from the most recent 4 quarters.
+3. **Yahoo Finance** — Historical prices, key statistics, financial statements
+   - \`curl -s "https://query1.finance.yahoo.com/v8/finance/chart/{{tickerSymbol}}?range=5y&interval=1mo"\` for price history
+   - Key stats page for PE, market cap, revenue, margins
+4. **Company Investor Relations pages** — Annual reports, earnings presentations, supplemental data packs
+5. **Industry Reports** — Gartner, IDC, Statista for market sizing and competitive landscape
+
+### What to Extract
+- **Revenue**: Last 5 years annual + last 4 quarters
+- **Market share**: From earnings calls, industry reports, or calculated from revenue vs TAM
+- **ARPU / Pricing**: Revenue per user/unit, pricing page history, gross margin trend
+- **ROIC**: Calculate from NOPAT / Invested Capital using 10-K data
+- **Balance sheet**: Debt/equity, current ratio, cash position, FCF
+- **Insider ownership**: From DEF 14A proxy filings
+- **Competitor data**: Same metrics for comparison tickers
+
+### Important
 - For financial ratios, use the most recent annual report data
-- When exact data is unavailable, use reasonable estimates and clearly label them
-- Always cite data sources (10-K filings, earnings reports, analyst estimates)
+- When exact data is unavailable, use reasonable estimates and clearly label them as estimates
+- Always cite data sources with dates (e.g., "MSFT 10-K FY2025, p.42")
+- Cross-reference at least 2 sources for key metrics
 
 ## Analysis Principles
 - Be evidence-based: every score must be justified with specific data points
