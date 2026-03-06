@@ -1,6 +1,6 @@
 import { memo, useState, useCallback, useEffect, useRef } from "react"
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
-import { Plus, GitPullRequest, GitPullRequestCreateArrow, Sparkles, Check, GitMerge, Loader2, CheckCircle2, XCircle, Diamond } from "lucide-react"
+import { Plus, GitPullRequest, GitPullRequestCreateArrow, Sparkles, Check, GitMerge, Loader2, CheckCircle2, XCircle, Diamond, Eye, ShieldCheck } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
@@ -112,6 +112,10 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
     }
     return { name, timeAgo }
   })()
+
+  // Verification state
+  const isVerified = !!execution?.verifiedBy
+  const needsVerification = (data.status === "auto_verified" || data.status === "awaiting_judgment") && !isVerified
 
   // Priority dot for urgent/high
   const showPriorityDot = data.priority === "urgent" || data.priority === "high"
@@ -255,7 +259,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         highlight.bg,
         highlight.border,
         "w-[180px] rounded-xl",
-        attribution ? "flex-col justify-center gap-0.5 h-[54px]" : "items-center gap-2.5 h-[44px]",
+        (attribution || needsVerification || isVerified) ? "flex-col justify-center gap-0.5 h-[54px]" : "items-center gap-2.5 h-[44px]",
         data.status === "pruned" && "opacity-50",
         isOverdue && "border-l-error border-l-[3px]",
         isChecked && "ring-2 ring-primary ring-offset-1 ring-offset-background",
@@ -397,11 +401,25 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         )}
       </div>
 
-      {/* Execution attribution line */}
-      {attribution && (
-        <span className="truncate text-[9px] text-muted-foreground/70 relative z-10 pl-[18px] leading-tight">
-          {attribution.name} · {attribution.timeAgo}
-        </span>
+      {/* Execution attribution line / verification badge */}
+      {(attribution || needsVerification || isVerified) && (
+        <div className="flex items-center gap-1 relative z-10 pl-[18px] leading-tight min-w-0">
+          {isVerified ? (
+            <span className="flex items-center gap-0.5 text-[9px] text-success font-medium truncate">
+              <ShieldCheck className="h-2.5 w-2.5 shrink-0" />
+              Verified
+            </span>
+          ) : needsVerification ? (
+            <span className="flex items-center gap-0.5 text-[9px] text-warning font-medium truncate">
+              <Eye className="h-2.5 w-2.5 shrink-0" />
+              Needs review
+            </span>
+          ) : attribution ? (
+            <span className="truncate text-[9px] text-muted-foreground/70">
+              {attribution.name} · {attribution.timeAgo}
+            </span>
+          ) : null}
+        </div>
       )}
 
       {/* Priority dot for urgent/high */}
