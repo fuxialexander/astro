@@ -196,14 +196,15 @@ export function createApp() {
   app.route('/api/examples', examplesRoute)
 
   // Backward-compat redirect: /api/templates → /api/examples
+  // Use 308 (not 301) to preserve HTTP method — 301 converts POST to GET
   app.all('/api/templates', (c) => {
     const url = new URL(c.req.url)
-    return c.redirect('/api/examples' + url.search, 301)
+    return c.redirect('/api/examples' + url.search, 308)
   })
   app.all('/api/templates/*', (c) => {
     const url = new URL(c.req.url)
     const newPath = url.pathname.replace('/api/templates', '/api/examples')
-    return c.redirect(newPath + url.search, 301)
+    return c.redirect(newPath + url.search, 308)
   })
   app.route('/api/observations', observationsRoute)
   app.route('/api/teams', teamsRoute)
