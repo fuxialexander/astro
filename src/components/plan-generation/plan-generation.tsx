@@ -15,6 +15,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
+import { useUsageStore } from "@/stores/usage-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { projectChatWithAgent, fetchStreamingEventsCatchUp, replayChatCatchUpEvents, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { extractMutations, applyMutationsToStore } from "@/lib/plan-mutations"
@@ -353,6 +354,16 @@ export function PlanGeneration({
           },
           onSeq: (seq) => {
             chatStreamRef.current.lastSeq = seq
+          },
+          onMetrics: (m) => {
+            useUsageStore.getState().addTaskMetrics({
+              durationMs: m.durationMs,
+              inputTokens: m.inputTokens,
+              outputTokens: m.outputTokens,
+              estimatedCostUsd: m.totalCost,
+              model: m.model,
+              turnsUsed: m.numTurns,
+            }, true)
           },
         },
         abortRef.current.signal,

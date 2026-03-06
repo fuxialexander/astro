@@ -102,6 +102,8 @@ export async function parseChatSSE(
     onSessionInit?: (data: { sessionId: string; model?: string }) => void
     onPlanResult?: (result: unknown) => void
     onDone?: (sessionId: string) => void
+    /** Called when the done event includes usage metrics from the relay */
+    onMetrics?: (metrics: { durationMs?: number; inputTokens?: number; outputTokens?: number; totalCost?: number; model?: string; numTurns?: number }) => void
     onError?: (error: string) => void
     /** Called when an SSE event carries a numeric `id:` field (seq number). */
     onSeq?: (seq: number) => void
@@ -142,8 +144,11 @@ export async function parseChatSSE(
           break
         case "done":
           try {
-            const { sessionId } = JSON.parse(data)
-            handlers.onDone?.(sessionId)
+            const parsed = JSON.parse(data)
+            handlers.onDone?.(parsed.sessionId)
+            if (parsed.metrics && handlers.onMetrics) {
+              handlers.onMetrics(parsed.metrics)
+            }
           } catch {
             handlers.onDone?.("")
           }

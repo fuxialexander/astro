@@ -17,6 +17,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
+import { useUsageStore } from "@/stores/usage-store"
 import { chatWithTask, fetchStreamingEventsCatchUp, replayChatCatchUpEvents } from "@/lib/api-client"
 import { parseSSEStream } from "@/lib/sse-parser"
 import { cn } from "@/lib/utils"
@@ -534,6 +535,16 @@ export function UnifiedActivityView({
             pushChatEvent({ type: 'error', error, timestamp: new Date() })
             flushChatEvents()
             setIsChatStreaming(false)
+          },
+          onMetrics: (m) => {
+            useUsageStore.getState().addTaskMetrics({
+              durationMs: m.durationMs,
+              inputTokens: m.inputTokens,
+              outputTokens: m.outputTokens,
+              estimatedCostUsd: m.totalCost,
+              model: m.model,
+              turnsUsed: m.numTurns,
+            }, true)
           },
         },
         abortRef.current.signal,

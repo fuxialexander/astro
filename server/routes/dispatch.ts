@@ -1539,6 +1539,9 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       providerId: preferredProvider || targetMachine?.providers[0]?.type,
       providerName: preferredProvider || targetMachine?.providers[0]?.type,
       computeBackend,
+      pathwayType: isInteractivePlan ? 'interactive-plan' : (computeBackend === 'slurm' ? 'hpc' : 'execution'),
+      hasSystemPrompt: !!relaySystemPrompt,
+      systemPrompt: relaySystemPrompt,
     }
     const initSeq = await streamingEventLog.append(executionId, 'init', initData)
     await stream.writeSSE({
@@ -1578,6 +1581,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           return
         }
       }
+      // Flush buffered text to DB periodically so catch-up hydration has recent data
+      streamingEventLog.flushText(executionId).catch(() => {})
       stream.writeSSE({ event: 'heartbeat', data: '' }).catch(() => { alive = false; clearInterval(heartbeat) })
     }, 15000)
 

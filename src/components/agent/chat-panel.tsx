@@ -18,6 +18,7 @@ import { useSettingsStore, resolveModel } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
+import { useUsageStore } from "@/stores/usage-store"
 import { useSessionStore, getSessionTitle } from "@/stores/session-store"
 import { SessionDialog } from "@/components/session-dialog"
 import { useProjectMachineId } from "@/hooks/use-project-machine"
@@ -475,6 +476,16 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
           onError: (error) => {
             appendToLastAssistantMessage(sid, `\nError: ${error}`)
             setIsStreaming(false)
+          },
+          onMetrics: (m) => {
+            useUsageStore.getState().addTaskMetrics({
+              durationMs: m.durationMs,
+              inputTokens: m.inputTokens,
+              outputTokens: m.outputTokens,
+              estimatedCostUsd: m.totalCost,
+              model: m.model,
+              turnsUsed: m.numTurns,
+            }, true)
           },
         },
         abortRef.current.signal,

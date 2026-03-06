@@ -16,7 +16,7 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, ProviderType } from '../types/relay.js'
 import { db } from '../lib/db/index.js'
-import { projects } from '../lib/db/schema.js'
+import { projects, taskExecutions } from '../lib/db/schema.js'
 import { eq, isNull, and, or } from 'drizzle-orm'
 
 /** Verify the user has access to the given project (team-scoped). */
@@ -76,11 +76,14 @@ async function streamChatViaRelay(
     preferredProvider?: string
     resumeSessionId?: string
     streamId?: string
+    /** Pathway type for observability (stored in init event) */
+    pathwayType?: string
   }
 ) {
   // persistId: where streaming events are stored. Defaults to taskId (relay routing key),
   // but callers can supply a stable streamId so the frontend can find events after refresh.
   const persistId = opts.streamId || opts.taskId
+  const startTime = Date.now()
 
   const task: RelayTaskDispatch = {
     taskId: opts.taskId,
@@ -98,6 +101,19 @@ async function streamChatViaRelay(
     workingDirectory: opts.workingDirectory,
     useWorktree: false,
     ...(opts.resumeSessionId && { resumeSessionId: opts.resumeSessionId }),
+  }
+
+  // Persist init event for observability (system prompt, pathway type, project context)
+  if (opts.pathwayType) {
+    await streamingEventLog.append(persistId, 'init', {
+      pathwayType: opts.pathwayType,
+      projectId: opts.projectId,
+      nodeId: opts.nodeId || undefined,
+      model: opts.model,
+      providerId: opts.preferredProvider,
+      hasSystemPrompt: !!opts.systemPrompt,
+      systemPrompt: opts.systemPrompt,
+    })
   }
 
   // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)
@@ -121,26 +137,63 @@ async function streamChatViaRelay(
       if (!alive || msg.result.taskId !== opts.taskId) return
       lastActivity = Date.now()
       const resolvedSessionId = providerSessionId || opts.taskId
+      const isSuccess = msg.result.status === 'completed'
+      const metrics = msg.result.metrics
 
       // Forward agent runner errors to client instead of silently sending 'done'
       if (msg.result.status === 'failed') {
         const errorMsg = msg.result.error || 'Agent runner task failed'
         console.error(`[chat] Task ${opts.taskId} failed: ${errorMsg}`)
-        await streamingEventLog.append(persistId, 'result', { sessionId: resolvedSessionId, error: errorMsg })
+        await streamingEventLog.append(persistId, 'result', { sessionId: resolvedSessionId, error: errorMsg, metrics })
         stream.writeSSE({
           event: 'error',
           data: errorMsg,
         }).catch(() => {})
         alive = false
-        return
+      } else {
+        await streamingEventLog.append(persistId, 'result', { sessionId: resolvedSessionId, metrics })
+        stream.writeSSE({
+          event: 'done',
+          data: JSON.stringify({
+            sessionId: resolvedSessionId,
+            metrics: metrics ? {
+              durationMs: metrics.durationMs,
+              inputTokens: metrics.inputTokens,
+              outputTokens: metrics.outputTokens,
+              totalCost: metrics.totalCost,
+              model: metrics.model,
+              numTurns: metrics.numTurns,
+            } : undefined,
+          }),
+        }).catch(() => {})
+        alive = false
       }
 
-      await streamingEventLog.append(persistId, 'result', { sessionId: resolvedSessionId })
-      stream.writeSSE({
-        event: 'done',
-        data: JSON.stringify({ sessionId: resolvedSessionId }),
-      }).catch(() => {})
-      alive = false
+      // Create taskExecutions record for cost tracking (chat pathways)
+      if (opts.pathwayType && opts.projectId) {
+        try {
+          await db.insert(taskExecutions).values({
+            executionId: persistId,
+            nodeClientId: opts.nodeId || opts.pathwayType,
+            projectId: opts.projectId,
+            status: isSuccess ? 'success' : 'failure',
+            error: msg.result.error || null,
+            startedAt: new Date(startTime),
+            completedAt: new Date(),
+            sessionId: resolvedSessionId,
+            providerId: opts.preferredProvider || null,
+            durationMs: metrics?.durationMs || (Date.now() - startTime),
+            inputTokens: metrics?.inputTokens || null,
+            outputTokens: metrics?.outputTokens || null,
+            tokensUsed: (metrics?.inputTokens || 0) + (metrics?.outputTokens || 0) || null,
+            estimatedCostUsd: metrics?.totalCost || null,
+            model: metrics?.model || null,
+            turnsUsed: metrics?.numTurns || null,
+          }).onConflictDoNothing()
+        } catch (err) {
+          console.warn(`[chat] Failed to persist taskExecution for ${persistId}:`, err)
+        }
+      }
     }
 
     const onToolTrace = async (msg: TaskToolTraceMessage) => {
@@ -302,7 +355,10 @@ async function executeViaRelay(opts: {
   type?: 'chat' | 'plan' | 'execution' | 'summarize'
   preferredProvider?: string
   userId?: string
+  /** Pathway type for observability (stored in init event) */
+  pathwayType?: string
 }): Promise<{ success: boolean; output?: string; error?: string }> {
+  const startTime = Date.now()
   const task: RelayTaskDispatch = {
     taskId: opts.taskId,
     projectId: opts.projectId,
@@ -319,6 +375,18 @@ async function executeViaRelay(opts: {
     useWorktree: false,
   }
 
+  // Persist init event for one-shot observability
+  if (opts.pathwayType) {
+    await streamingEventLog.append(opts.taskId, 'init', {
+      pathwayType: opts.pathwayType,
+      projectId: opts.projectId,
+      model: undefined,
+      providerId: opts.preferredProvider,
+      hasSystemPrompt: !!opts.systemPrompt,
+      systemPrompt: opts.systemPrompt,
+    })
+  }
+
   return new Promise((resolve) => {
     let output = ''
     const timeout = setTimeout(() => {
@@ -331,12 +399,25 @@ async function executeViaRelay(opts: {
       output += msg.text
     }
 
-    const onResult = (msg: TaskResultMessage) => {
+    const onResult = async (msg: TaskResultMessage) => {
       if (msg.result.taskId !== opts.taskId) return
       clearTimeout(timeout)
       cleanup()
+      const isSuccess = msg.result.status === 'completed'
+      const metrics = msg.result.metrics
+
+      // Persist result event for one-shot observability
+      if (opts.pathwayType) {
+        await streamingEventLog.append(opts.taskId, 'result', {
+          status: isSuccess ? 'success' : 'failure',
+          error: msg.result.error,
+          metrics,
+          durationMs: Date.now() - startTime,
+        })
+      }
+
       resolve({
-        success: msg.result.status === 'completed',
+        success: isSuccess,
         output: msg.result.output || output,
         error: msg.result.error,
       })
@@ -412,6 +493,7 @@ agentRoute.post('/project-chat', async (c) => {
     workingDirectory: project?.workingDirectory ?? undefined,
     targetMachineId: project?.defaultMachineId ?? undefined,
     streamId,
+    pathwayType: 'project-chat',
   })
 })
 
@@ -508,6 +590,7 @@ agentRoute.post('/task-chat', async (c) => {
     // When we have a provider session ID, pass it so agent-runner can resume the Claude session
     resumeSessionId: existingSessionId || undefined,
     streamId,
+    pathwayType: 'task-chat',
   })
 })
 
@@ -577,6 +660,7 @@ agentRoute.post('/dispatch', async (c) => {
     preferredProvider: providerId || undefined,
     workingDirectory,
     maxTurns,
+    pathwayType: 'execution',
   })
 })
 
@@ -602,6 +686,7 @@ agentRoute.post('/summarize', async (c) => {
     type: 'summarize',
     maxTurns: 1,
     userId: summaryUser?.id,
+    pathwayType: 'summarize',
   })
 
   if (result.success && result.output) {
@@ -648,6 +733,7 @@ agentRoute.post('/generate-title', async (c) => {
     type: 'summarize',
     maxTurns: 1,
     userId: titleUser?.id,
+    pathwayType: 'title-gen',
   })
 
   if (result.success && result.output) {
@@ -694,6 +780,7 @@ agentRoute.post('/refine', async (c) => {
     type: 'summarize',
     maxTurns: 1,
     userId: refineUser?.id,
+    pathwayType: 'refine',
   })
 
   if (result.success && result.output) {
@@ -744,6 +831,7 @@ agentRoute.post('/suggest-labels', async (c) => {
     type: 'summarize',
     maxTurns: 1,
     userId: labelUser?.id,
+    pathwayType: 'suggest-labels',
   })
 
   if (result.success && result.output) {
