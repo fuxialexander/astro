@@ -22,7 +22,6 @@ import type { ProviderType, ImageAttachment } from '../types/relay.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
-import { isYoloMode } from '../lib/yolo-mode.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
 import { projects, planNodes, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge } from '../lib/db/schema.js'
@@ -964,27 +963,6 @@ There is no branch isolation — changes are made in-place.
       promptParts.push(`## Data Access\n\nThe original project directory is: ${sourceDirectory}\nLarge untracked files (training data, model caches, datasets) remain in the original directory. Use absolute paths to reference them. Always use absolute paths when writing code that accesses data files.`)
     }
 
-    // Output directory guidance — ensures generated files survive worktree cleanup.
-    // Applies when a worktree is used (sourceDirectory is the original project dir).
-    // If sourceDirectory isn't set but workingDirectory is, fall back to workingDirectory.
-    {
-      const outputBase = sourceDirectory || workingDirectory
-      const usesWorktreeForOutput = outputBase && useWorktree !== false && (deliveryMode ?? 'pr') !== 'direct'
-      if (usesWorktreeForOutput) {
-        promptParts.push(`## Output Directory
-
-**CRITICAL:** Your working directory is a temporary git worktree that will be deleted after this task finishes. Any files not committed to git will be permanently lost.
-
-To preserve your work, you have two options:
-1. **Git commit** — Code changes committed to git are preserved via the branch/PR.
-2. **Copy to outputs/** — For anything that won't be committed (reports, charts, data files, generated documents, analysis results, scripts, notebooks, or any file the user should see after this task), copy them to:
-   ${outputBase}/outputs/
-
-Create the directory if it doesn't exist. Use absolute paths. When in doubt, copy it — it is better to have a duplicate than to lose work.`)
-      }
-    }
-    }
-
     promptParts.push(`## Current Task\n\n**${title}**\n\n${description}`)
 
     // Inject available skills so the agent knows what tools are available
@@ -1227,6 +1205,24 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         turnsUsed: relayMetrics.numTurns,  // Alias used by usage-metrics-hook
       } : undefined
 
+      // Compute final node status early so we can include it in the SSE event.
+      // The frontend uses this to set the correct plan node status immediately.
+      const isSuccess = msg.result.status === 'completed'
+      const deliveryOk = !msg.result.deliveryStatus ||
+        msg.result.deliveryStatus === 'success' ||
+        msg.result.deliveryStatus === 'skipped'
+      let yoloEnabled = false
+      if (isSuccess && user?.id) {
+        try {
+          const [profile] = await db.select({ settings: userProfiles.settings })
+            .from(userProfiles).where(eq(userProfiles.id, user.id)).limit(1)
+          yoloEnabled = (profile?.settings as Record<string, string> | null)?.yoloMode === 'true'
+        } catch { /* fail closed — no auto-verify */ }
+      }
+      const finalNodeStatus = isSuccess
+        ? ((verification === 'auto' || yoloEnabled) && deliveryOk ? 'auto_verified' : 'awaiting_judgment')
+        : 'awaiting_judgment'
+
       const resultData = {
         executionId,
         nodeId,
@@ -1241,6 +1237,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         deliveryStatus: msg.result.deliveryStatus,
         deliveryError: msg.result.deliveryError,
         summary: msg.result.summary,
+        finalStatus: finalNodeStatus,
       }
       // Server-side plan extraction for interactive plan sessions
       if (isInteractivePlan) {
@@ -1308,26 +1305,9 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 
       // Persist execution result + PR/branch metadata to plan_nodes (server-side)
       // This ensures node status is updated even if the frontend SSE connection drops.
-      const isSuccess = msg.result.status === 'completed'
-      const deliveryOk = !msg.result.deliveryStatus ||
-        msg.result.deliveryStatus === 'success' ||
-        msg.result.deliveryStatus === 'skipped'
-
-      // Determine final status. In YOLO mode, successful tasks auto-complete
-      // even if verification is 'human' — the user opted out of manual review.
-      // Failed executions always go to awaiting_judgment regardless of YOLO.
-      let finalNodeStatus: string
-      if (!isSuccess) {
-        finalNodeStatus = 'awaiting_judgment'
-      } else if (verification === 'auto' && deliveryOk) {
-        finalNodeStatus = 'auto_verified'
-      } else {
-        // verification === 'human' or delivery issue — check YOLO
-        const yolo = await isYoloMode(user?.id).catch(() => false)
-        finalNodeStatus = yolo ? 'auto_verified' : 'awaiting_judgment'
-        if (yolo) {
-          console.log(`[dispatch] YOLO auto-verified: task=${nodeId} (verification=${verification})`)
-        }
+      // finalNodeStatus was computed above (before SSE event) so the frontend gets it too.
+      if (yoloEnabled) {
+        console.log(`[dispatch] YOLO auto-verified: task=${nodeId} (verification=${verification})`)
       }
 
       const nodePatch: Partial<typeof planNodes.$inferInsert> = {

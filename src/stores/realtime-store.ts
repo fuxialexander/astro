@@ -699,10 +699,12 @@ function reconcileResultFromCatchUp(
   const planStore = usePlanStore.getState()
   const node = planStore.nodes.find((n) => n.executionId === executionId)
   if (node && node.status !== 'completed' && node.status !== 'auto_verified' && node.status !== 'pruned') {
+    // Use server-computed finalStatus (includes YOLO check) if available,
+    // otherwise fall back to local computation for backward compat
     const deliveryOk = !hydrated.deliveryStatus || hydrated.deliveryStatus === 'success' || hydrated.deliveryStatus === 'skipped'
-    const finalStatus = isSuccess
+    const finalStatus = hydrated.finalStatus || (isSuccess
       ? (node.verification === 'auto' && deliveryOk ? 'auto_verified' : 'awaiting_judgment')
-      : 'awaiting_judgment'
+      : 'awaiting_judgment')
     planStore.updateNode(node.id, {
       status: finalStatus as import('@/types').PlanNode['status'],
       executionOutput: hydrated.output,

@@ -247,6 +247,18 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
     }
   }, [selectedTemplate, projectName])
 
+  // Auto-fill sourceDirectory from workingDirectory when it changes
+  useEffect(() => {
+    if (workingDirectory && selectedTemplate) {
+      const hasSourceDir = selectedTemplate.requiredParameters?.some(
+        (p) => p.id === "sourceDirectory"
+      )
+      if (hasSourceDir && !parameterValues["sourceDirectory"]) {
+        setParameterValue("sourceDirectory", workingDirectory)
+      }
+    }
+  }, [workingDirectory, selectedTemplate, parameterValues, setParameterValue])
+
   // Handle template selection
   const handleTemplateSelect = useCallback(
     async (template: UseCaseTemplateSummary) => {

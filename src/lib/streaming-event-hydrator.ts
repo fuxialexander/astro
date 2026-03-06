@@ -65,6 +65,7 @@ export interface HydratedStreamData {
   prUrl?: string
   prNumber?: number
   deliveryStatus?: string
+  finalStatus?: string
   summary?: string
   planResult?: PlanJsonResult
 }
@@ -94,6 +95,7 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
   let prUrl: string | undefined
   let prNumber: number | undefined
   let deliveryStatus: string | undefined
+  let finalStatus: string | undefined
   let summary: string | undefined
   let planResult: HydratedStreamData['planResult']
   // Map toolName → queue of unpaired tool_use IDs for matching with tool_result
@@ -210,6 +212,7 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
         prUrl = (data.prUrl as string) || undefined
         prNumber = (data.prNumber as number) || undefined
         deliveryStatus = (data.deliveryStatus as string) || undefined
+        finalStatus = (data.finalStatus as string) || undefined
         summary = (data.summary as string) || undefined
         break
       }
@@ -292,5 +295,5 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
   const pendingSafetyPrompts = Array.from(safetyPromptRequests.values())
     .filter(s => !answeredSafetyPrompts.has(s.executionId))
 
-  return { stdout, activityEvents, toolTraces, fileChanges, pendingApprovals, pendingSafetyPrompts, machineId, status, output, error, sessionId, model, progress, progressMessage, branchName, prUrl, prNumber, deliveryStatus, summary, planResult }
+  return { stdout, activityEvents, toolTraces, fileChanges, pendingApprovals, pendingSafetyPrompts, machineId, status, output, error, sessionId, model, progress, progressMessage, branchName, prUrl, prNumber, deliveryStatus, finalStatus, summary, planResult }
 }
