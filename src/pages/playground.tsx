@@ -433,7 +433,7 @@ export function Playground() {
       await chatWithTask(
         {
           message: text,
-          sessionId: chatSession.providerSessionId,
+          sessionId: chatSession.providerSessionId || undefined,
           streamId: sid,
           nodeId: playgroundNodeId,
           projectId: activeProjectId,

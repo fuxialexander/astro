@@ -313,7 +313,7 @@ export function PlanGeneration({
       await projectChatWithAgent(
         {
           message: text,
-          sessionId: chatSession.providerSessionId,
+          sessionId: chatSession.providerSessionId || undefined,
           streamId: turnStreamId,
           projectId,
           visionDoc: project?.visionDoc,
