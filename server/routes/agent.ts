@@ -653,7 +653,7 @@ agentRoute.post('/generate-plan', async (c) => {
   })
 })
 
-agentRoute.post('/chat', async (c) => {
+agentRoute.post('/project-chat', async (c) => {
   let body: z.infer<typeof chatSchema>
   try {
     const rawBody = await c.req.json()
@@ -667,54 +667,10 @@ agentRoute.post('/chat', async (c) => {
 
   const { message, sessionId: existingSessionId, streamId, projectId, model, visionDoc, planNodes, planEdges, messages: historyMessages } = body
   const chatUser = c.get('user') as AuthUser
-  const taskId = existingSessionId || `chat-${projectId}-${Date.now()}`
+  const taskId = existingSessionId || `project-chat-${projectId}-${Date.now()}`
 
   // Verify project ownership
   if (!await verifyProjectAccess(projectId, chatUser)) {
-    return c.json({ error: 'Project not found' }, 404)
-  }
-
-  // Look up the project's working directory and default machine
-  const [project] = await db.select({ workingDirectory: projects.workingDirectory, defaultMachineId: projects.defaultMachineId }).from(projects).where(eq(projects.id, projectId)).limit(1)
-
-  const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges)
-
-  // Persist user message for catch-up hydration
-  await streamingEventLog.append(streamId || taskId, 'steer_message', { message })
-
-  return streamChatViaRelay(c, {
-    taskId,
-    projectId,
-    nodeId: '',
-    prompt: message,
-    systemPrompt,
-    type: 'chat',
-    messages: historyMessages,
-    model: model || undefined,
-    workingDirectory: project?.workingDirectory ?? undefined,
-    targetMachineId: project?.defaultMachineId ?? undefined,
-    streamId,
-  })
-})
-
-agentRoute.post('/plan-chat', async (c) => {
-  let body: z.infer<typeof chatSchema>
-  try {
-    const rawBody = await c.req.json()
-    body = chatSchema.parse(rawBody)
-  } catch (err) {
-    if (err instanceof z.ZodError) {
-      return c.json({ error: 'Invalid input', details: err.errors }, 400)
-    }
-    return c.json({ error: 'Invalid JSON' }, 400)
-  }
-
-  const { message, sessionId: existingSessionId, streamId, projectId, model, visionDoc, planNodes, planEdges, messages: historyMessages } = body
-  const planChatUser = c.get('user') as AuthUser
-  const taskId = existingSessionId || `plan-chat-${projectId}-${Date.now()}`
-
-  // Verify project ownership
-  if (!await verifyProjectAccess(projectId, planChatUser)) {
     return c.json({ error: 'Project not found' }, 404)
   }
 

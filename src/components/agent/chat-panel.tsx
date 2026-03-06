@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { FileCompletionTextarea, type MentionItem, type SlashCommand } from "@/components/ui/file-completion-textarea"
 import { TypingIndicator } from "@/components/ui/typing-indicator"
-import { planChatWithAgent, fetchSlashCommands, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
+import { projectChatWithAgent, fetchSlashCommands, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
+import { extractMutations, applyMutationsToStore, type AppliedMutations, type ResolvedMutations } from "@/lib/plan-mutations"
 import { useSettingsStore, resolveModel } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
@@ -34,7 +35,6 @@ import {
   ChatAssistantBlock,
   MutationBlock,
 } from "@/components/activity-blocks"
-import { extractMutations, applyMutationsToStore, type AppliedMutations } from "@/lib/plan-mutations"
 import type { ProviderStatus, Session, TaskActivityEvent } from "@/types"
 
 interface Message {
@@ -97,16 +97,16 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   const sessionDropdownRef = useRef<HTMLButtonElement>(null)
   const modelDropdownRef = useRef<HTMLButtonElement>(null)
 
-  // Get all plan-chat sessions for this project (re-evaluates when sessions map changes)
-  const planChatSessions = useMemo(
-    () => getSessionsForProject(projectId, "plan-chat"),
+  // Get all project-chat sessions for this project (re-evaluates when sessions map changes)
+  const projectChatSessions = useMemo(
+    () => getSessionsForProject(projectId, "project-chat"),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [getSessionsForProject, projectId, sessions]
   )
 
   // Get the active session ID (re-evaluates when activeSessionIds changes)
   const activeSessionId = useMemo(
-    () => getActiveSessionId(projectId, "plan-chat"),
+    () => getActiveSessionId(projectId, "project-chat"),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [getActiveSessionId, projectId, activeSessionIds]
   )
@@ -115,22 +115,22 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     if (activeSessionId) {
       const session = getSession(activeSessionId)
       // Verify the session still exists and belongs to this project
-      if (session && session.projectId === projectId && session.type === "plan-chat") {
+      if (session && session.projectId === projectId && session.type === "project-chat") {
         return session
       }
     }
     // Fall back to the most recent session
-    return planChatSessions[planChatSessions.length - 1]
-  }, [activeSessionId, getSession, planChatSessions, projectId])
+    return projectChatSessions[projectChatSessions.length - 1]
+  }, [activeSessionId, getSession, projectChatSessions, projectId])
 
   // Ensure session exists and track as active
   useEffect(() => {
     if (!currentSession) {
-      const newSession = createSession({ type: "plan-chat", projectId })
-      setActiveSessionId(projectId, "plan-chat", newSession.id)
+      const newSession = createSession({ type: "project-chat", projectId })
+      setActiveSessionId(projectId, "project-chat", newSession.id)
     } else if (!activeSessionId || activeSessionId !== currentSession.id) {
       // If the current session exists but isn't marked as active, mark it
-      setActiveSessionId(projectId, "plan-chat", currentSession.id)
+      setActiveSessionId(projectId, "project-chat", currentSession.id)
     }
   }, [currentSession, createSession, projectId, activeSessionId, setActiveSessionId])
 
@@ -141,13 +141,13 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       abortRef.current = null
     }
     setIsStreaming(false)
-    setActiveSessionId(projectId, "plan-chat", sessionId)
+    setActiveSessionId(projectId, "project-chat", sessionId)
   }, [projectId, setActiveSessionId])
 
   // Handler to create a new session
   const handleNewSession = useCallback(() => {
-    const newSession = createSession({ type: "plan-chat", projectId })
-    setActiveSessionId(projectId, "plan-chat", newSession.id)
+    const newSession = createSession({ type: "project-chat", projectId })
+    setActiveSessionId(projectId, "project-chat", newSession.id)
   }, [createSession, projectId, setActiveSessionId])
 
   // Handler to open session edit dialog
@@ -172,26 +172,26 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     // If we deleted the active session, switch to another or create new
     if (isActiveSession) {
       // Get remaining sessions (after deletion, so filter out the deleted one)
-      const remainingSessions = planChatSessions.filter(s => s.id !== sessionId)
+      const remainingSessions = projectChatSessions.filter(s => s.id !== sessionId)
 
       if (remainingSessions.length > 0) {
         // Switch to the most recent remaining session
         const mostRecent = remainingSessions[remainingSessions.length - 1]
-        setActiveSessionId(projectId, "plan-chat", mostRecent.id)
+        setActiveSessionId(projectId, "project-chat", mostRecent.id)
       } else {
         // No sessions left, clear active and let the effect create a new one
-        clearActiveSessionId(projectId, "plan-chat")
+        clearActiveSessionId(projectId, "project-chat")
       }
     }
-  }, [currentSession?.id, deleteSession, planChatSessions, projectId, setActiveSessionId, clearActiveSessionId])
+  }, [currentSession?.id, deleteSession, projectChatSessions, projectId, setActiveSessionId, clearActiveSessionId])
 
   // Handler to clear all sessions
   const handleClearAllSessions = useCallback(() => {
-    for (const session of planChatSessions) {
+    for (const session of projectChatSessions) {
       deleteSession(session.id)
     }
-    clearActiveSessionId(projectId, "plan-chat")
-  }, [planChatSessions, deleteSession, projectId, clearActiveSessionId])
+    clearActiveSessionId(projectId, "project-chat")
+  }, [projectChatSessions, deleteSession, projectId, clearActiveSessionId])
 
   const messages: (Message & { id: string })[] = (currentSession?.messages || []).map((m) => ({
     id: m.id,
@@ -319,15 +319,16 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     }
   }, [displayBlocks.length, isStreaming])
 
-  /** Apply all mutations to the plan store via the shared module. */
-  const applyMutations = useCallback((mutations: AppliedMutations) => {
+  /** Apply all mutations (node updates + edge operations + new nodes) to the plan store.
+   *  Returns the affected node IDs and resolved mutations (with guaranteed nodeIds). */
+  const applyMutations = useCallback((mutations: AppliedMutations): { affectedNodeIds: string[]; resolvedMutations: ResolvedMutations } => {
     return applyMutationsToStore(projectId, mutations)
   }, [projectId])
 
   const sendMessage = useCallback(async (text: string) => {
     // Read session fresh from store — never use stale ref
     const store = useSessionStore.getState()
-    const activeId = store.activeSessionIds.get(`${projectId}:plan-chat`)
+    const activeId = store.activeSessionIds.get(`${projectId}:project-chat`)
     const session = activeId ? store.sessions.get(activeId) : undefined
     if (!text || isStreaming || !session) return
 
@@ -379,7 +380,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     let localToolCount = 0
 
     try {
-      await planChatWithAgent(
+      await projectChatWithAgent(
         {
           message: text,
           sessionId: hasCompletedExchange ? session.providerSessionId : undefined,
@@ -558,7 +559,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       {/* Header with session switcher and model/provider picker */}
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4 border-b border-border">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold">Plan Chat</span>
+          <span className="text-sm font-semibold">Project Chat</span>
           {/* Session metadata */}
           {messages.length > 0 && (
             <span className="text-[10px] text-muted-foreground tabular-nums">
@@ -566,12 +567,12 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
             </span>
           )}
           {/* Session Switcher */}
-          {planChatSessions.length > 0 && (
+          {projectChatSessions.length > 0 && (
             <DropdownMenu open={sessionDropdownOpen} onOpenChange={setSessionDropdownOpen}>
               <DropdownMenuTrigger asChild>
                 <button ref={sessionDropdownRef} className="flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer">
                   <History className="h-3 w-3" />
-                  <span>{planChatSessions.length}</span>
+                  <span>{projectChatSessions.length}</span>
                   <ChevronDown className="h-2.5 w-2.5 opacity-50" />
                 </button>
               </DropdownMenuTrigger>
@@ -598,7 +599,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                   </div>
                 </div>
                 <DropdownMenuSeparator />
-                {[...planChatSessions].reverse().map((session) => {
+                {[...projectChatSessions].reverse().map((session) => {
                   const messageCount = session.messages.length
                   const sessionTitle = getSessionTitle(session)
                   const isActive = currentSession?.id === session.id

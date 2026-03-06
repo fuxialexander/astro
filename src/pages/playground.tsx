@@ -36,7 +36,7 @@ import { useSettingsStore } from "@/stores/settings-store"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { PlaygroundHeader } from "@/components/playground/playground-header"
 import { FileBrowser } from "@/components/file-browser"
-import { InlineApprovalCard } from "@/components/plan-session/inline-approval-card"
+import { InlineApprovalCard } from "@/components/plan-generation/inline-approval-card"
 import {
   groupActivityEvents,
   TextBlock,
