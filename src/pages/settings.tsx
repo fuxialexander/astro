@@ -30,6 +30,11 @@ import {
   Clock,
   Copy,
   Check,
+  Pencil,
+  LogOut,
+  Shield,
+  ShieldCheck,
+  Crown,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
@@ -41,6 +46,7 @@ import { useApiKeysStore } from "@/stores/api-keys-store"
 import { useSettingsStore, defaultModelTierMap, type ModelTier } from "@/stores/settings-store"
 import { useSidebarStore } from "@/stores/sidebar-store"
 import { useToastStore } from "@/stores/toast-store"
+import { useTeamStore } from "@/stores/team-store"
 import { getSupabase } from "@/lib/supabase-client"
 import { apiUrl } from "@/lib/api-url"
 import { isServerMode } from "@/lib/app-mode"
@@ -1103,127 +1109,246 @@ function ConnectedAccountsContent() {
 }
 
 function TeamsContent() {
+  const toast = useToastStore((s) => s.add)
+  const currentUser = useUserProfileStore((s) => s.profile)
+  const teamStore = useTeamStore()
+
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null)
-  const [teams, setTeams] = useState<Array<{ id: string; name: string; role: string }>>([])
+  const [teams, setTeams] = useState<Array<{ id: string; name: string; description?: string; role: string }>>([])
   const [members, setMembers] = useState<Array<{ user_id: string; role: string; joined_at: string; user: { name: string; email: string } }>>([])
   const [pendingInvites, setPendingInvites] = useState<Array<{ id: string; token: string; email: string; role: string; expires_at: string; created_at: string }>>([])
   const [loading, setLoading] = useState(true)
+
+  // Dialog states
   const [showInviteDialog, setShowInviteDialog] = useState(false)
+  const [showCreateTeamDialog, setShowCreateTeamDialog] = useState(false)
+  const [showEditTeamDialog, setShowEditTeamDialog] = useState(false)
+  const [showDeleteTeamDialog, setShowDeleteTeamDialog] = useState(false)
+  const [showLeaveTeamDialog, setShowLeaveTeamDialog] = useState(false)
+  const [showRoleDialog, setShowRoleDialog] = useState<{ userId: string; userName: string; currentRole: string } | null>(null)
+  const [showRemoveMemberDialog, setShowRemoveMemberDialog] = useState<{ userId: string; userName: string } | null>(null)
+
+  // Form states
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<'owner' | 'admin' | 'member'>('member')
+  const [newTeamName, setNewTeamName] = useState('')
+  const [newTeamDescription, setNewTeamDescription] = useState('')
+  const [editTeamName, setEditTeamName] = useState('')
+  const [editTeamDescription, setEditTeamDescription] = useState('')
+  const [newRole, setNewRole] = useState<'owner' | 'admin' | 'member'>('member')
+
+  // Loading states
   const [inviting, setInviting] = useState(false)
   const [revoking, setRevoking] = useState<string | null>(null)
-  const [removing, setRemoving] = useState<string | null>(null)
+  const [removing, setRemoving] = useState(false)
+  const [creatingTeam, setCreatingTeam] = useState(false)
+  const [editingTeam, setEditingTeam] = useState(false)
+  const [deletingTeam, setDeletingTeam] = useState(false)
+  const [leavingTeam, setLeavingTeam] = useState(false)
+  const [changingRole, setChangingRole] = useState(false)
   const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null)
 
   // Fetch user's teams
-  useEffect(() => {
-    const fetchTeams = async () => {
-      try {
-        const { teams: loaded } = await dataClient.listTeams()
-        setTeams(loaded.map((t) => ({
-          id: t.id,
-          name: t.name,
-          role: (t as unknown as Record<string, unknown>).memberRole as string ?? 'member',
-        })))
-        // Auto-select first team
-        if (loaded.length > 0 && !selectedTeamId) {
-          setSelectedTeamId(loaded[0]!.id)
-        }
-        setLoading(false)
-      } catch (error) {
-        console.error('[settings] Failed to fetch teams:', error)
-        setLoading(false)
+  const fetchTeams = useCallback(async () => {
+    try {
+      const { teams: loaded } = await dataClient.listTeams()
+      const mapped = loaded.map((t) => ({
+        id: t.id,
+        name: t.name,
+        description: t.description,
+        role: (t as unknown as Record<string, unknown>).memberRole as string ?? 'member',
+      }))
+      setTeams(mapped)
+      // Auto-select first team if none selected or current selection gone
+      if (mapped.length > 0 && (!selectedTeamId || !mapped.some((t) => t.id === selectedTeamId))) {
+        setSelectedTeamId(mapped[0]!.id)
+      } else if (mapped.length === 0) {
+        setSelectedTeamId(null)
       }
+      setLoading(false)
+    } catch (error) {
+      console.error('[settings] Failed to fetch teams:', error)
+      setLoading(false)
     }
+  }, [selectedTeamId])
+
+  useEffect(() => {
     fetchTeams()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch team members and invites when a team is selected
+  const fetchTeamData = useCallback(async (teamId: string) => {
+    try {
+      const membersData = await dataClient.getTeamMembers(teamId)
+      setMembers(membersData.map((m) => ({
+        user_id: m.userId,
+        role: m.role,
+        joined_at: m.joinedAt instanceof Date ? m.joinedAt.toISOString() : String(m.joinedAt),
+        user: {
+          name: m.userName ?? 'Unknown',
+          email: m.userEmail ?? '',
+        },
+      })))
+      const invitesData = await dataClient.getPendingInvites(teamId)
+      setPendingInvites(invitesData.map((inv) => ({
+        id: inv.id,
+        token: inv.token,
+        email: inv.email,
+        role: inv.role,
+        expires_at: inv.expiresAt instanceof Date ? inv.expiresAt.toISOString() : String(inv.expiresAt),
+        created_at: inv.createdAt instanceof Date ? inv.createdAt.toISOString() : String(inv.createdAt),
+      })))
+    } catch (error) {
+      console.error('[settings] Failed to fetch team data:', error)
+    }
+  }, [])
+
   useEffect(() => {
     if (!selectedTeamId) {
       setMembers([])
       setPendingInvites([])
       return
     }
+    fetchTeamData(selectedTeamId)
+  }, [selectedTeamId, fetchTeamData])
 
-    const fetchTeamData = async () => {
-      try {
-        const membersData = await dataClient.getTeamMembers(selectedTeamId)
-        setMembers(membersData.map((m) => ({
-          user_id: m.userId,
-          role: m.role,
-          joined_at: m.joinedAt instanceof Date ? m.joinedAt.toISOString() : String(m.joinedAt),
-          user: {
-            name: m.userName ?? 'Unknown',
-            email: m.userEmail ?? '',
-          },
-        })))
-        const invitesData = await dataClient.getPendingInvites(selectedTeamId)
-        setPendingInvites(invitesData.map((inv) => ({
-          id: inv.id,
-          token: inv.token,
-          email: inv.email,
-          role: inv.role,
-          expires_at: inv.expiresAt instanceof Date ? inv.expiresAt.toISOString() : String(inv.expiresAt),
-          created_at: inv.createdAt instanceof Date ? inv.createdAt.toISOString() : String(inv.createdAt),
-        })))
-      } catch (error) {
-        console.error('[settings] Failed to fetch team data:', error)
-      }
+  // ── Create Team ──────────────────────────────────────────────────
+  const handleCreateTeam = async () => {
+    if (!newTeamName.trim()) return
+    setCreatingTeam(true)
+    try {
+      const team = await dataClient.createTeam({ name: newTeamName.trim(), description: newTeamDescription.trim() } as Partial<import("@/types").Team>)
+      setShowCreateTeamDialog(false)
+      setNewTeamName('')
+      setNewTeamDescription('')
+      toast({ type: 'success', title: 'Team created', description: `"${team.name}" is ready to go` })
+      await fetchTeams()
+      setSelectedTeamId(team.id)
+      // Reload team store so sidebar picks up new team
+      teamStore.load()
+    } catch (error) {
+      toast({ type: 'error', title: 'Failed to create team', description: error instanceof Error ? error.message : 'Unknown error' })
+    } finally {
+      setCreatingTeam(false)
     }
-    fetchTeamData()
-  }, [selectedTeamId])
+  }
 
+  // ── Edit Team ────────────────────────────────────────────────────
+  const handleEditTeam = async () => {
+    if (!selectedTeamId || !editTeamName.trim()) return
+    setEditingTeam(true)
+    try {
+      await dataClient.updateTeam(selectedTeamId, { name: editTeamName.trim(), description: editTeamDescription.trim() } as Partial<import("@/types").Team>)
+      setShowEditTeamDialog(false)
+      toast({ type: 'success', title: 'Team updated' })
+      await fetchTeams()
+      teamStore.load()
+    } catch (error) {
+      toast({ type: 'error', title: 'Failed to update team', description: error instanceof Error ? error.message : 'Unknown error' })
+    } finally {
+      setEditingTeam(false)
+    }
+  }
+
+  // ── Delete Team ──────────────────────────────────────────────────
+  const handleDeleteTeam = async () => {
+    if (!selectedTeamId) return
+    setDeletingTeam(true)
+    try {
+      await dataClient.deleteTeam(selectedTeamId)
+      setShowDeleteTeamDialog(false)
+      toast({ type: 'success', title: 'Team deleted' })
+      setSelectedTeamId(null)
+      await fetchTeams()
+      teamStore.load()
+    } catch (error) {
+      toast({ type: 'error', title: 'Failed to delete team', description: error instanceof Error ? error.message : 'Unknown error' })
+    } finally {
+      setDeletingTeam(false)
+    }
+  }
+
+  // ── Leave Team ───────────────────────────────────────────────────
+  const handleLeaveTeam = async () => {
+    if (!selectedTeamId || !currentUser?.id) return
+    setLeavingTeam(true)
+    try {
+      await dataClient.removeTeamMember(selectedTeamId, currentUser.id)
+      setShowLeaveTeamDialog(false)
+      toast({ type: 'success', title: 'Left team' })
+      setSelectedTeamId(null)
+      await fetchTeams()
+      teamStore.load()
+    } catch (error) {
+      toast({ type: 'error', title: 'Failed to leave team', description: error instanceof Error ? error.message : 'Unknown error' })
+    } finally {
+      setLeavingTeam(false)
+    }
+  }
+
+  // ── Send Invite ──────────────────────────────────────────────────
   const handleSendInvite = async () => {
     if (!inviteEmail || !selectedTeamId) return
-
     setInviting(true)
     try {
       await dataClient.sendTeamInvite(selectedTeamId, inviteEmail, inviteRole)
       setShowInviteDialog(false)
       setInviteEmail('')
       setInviteRole('member')
-      // Refresh invites list
-      const invitesData = await dataClient.getPendingInvites(selectedTeamId)
-      setPendingInvites(invitesData.map((inv) => ({
-        id: inv.id, token: inv.token, email: inv.email, role: inv.role,
-        expires_at: inv.expiresAt instanceof Date ? inv.expiresAt.toISOString() : String(inv.expiresAt),
-        created_at: inv.createdAt instanceof Date ? inv.createdAt.toISOString() : String(inv.createdAt),
-      })))
+      toast({ type: 'success', title: 'Invitation sent', description: `Invite sent to ${inviteEmail}` })
+      await fetchTeamData(selectedTeamId)
     } catch (error) {
-      console.error('[settings] Failed to send invite:', error)
-      alert(`Failed to send invitation: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      toast({ type: 'error', title: 'Failed to send invitation', description: error instanceof Error ? error.message : 'Unknown error' })
     } finally {
       setInviting(false)
     }
   }
 
+  // ── Revoke Invite ────────────────────────────────────────────────
   const handleRevokeInvite = async (inviteId: string) => {
     setRevoking(inviteId)
     try {
       await dataClient.revokeInvite(inviteId)
       setPendingInvites((prev) => prev.filter((inv) => inv.id !== inviteId))
+      toast({ type: 'success', title: 'Invitation revoked' })
     } catch (error) {
-      console.error('[settings] Failed to revoke invite:', error)
-      alert(`Failed to revoke invitation: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      toast({ type: 'error', title: 'Failed to revoke invitation', description: error instanceof Error ? error.message : 'Unknown error' })
     } finally {
       setRevoking(null)
     }
   }
 
-  const handleRemoveMember = async (userId: string) => {
-    if (!selectedTeamId) return
-
-    setRemoving(userId)
+  // ── Remove Member ────────────────────────────────────────────────
+  const handleRemoveMember = async () => {
+    if (!selectedTeamId || !showRemoveMemberDialog) return
+    setRemoving(true)
     try {
-      await dataClient.removeTeamMember(selectedTeamId, userId)
-      setMembers((prev) => prev.filter((m) => m.user_id !== userId))
+      await dataClient.removeTeamMember(selectedTeamId, showRemoveMemberDialog.userId)
+      setMembers((prev) => prev.filter((m) => m.user_id !== showRemoveMemberDialog.userId))
+      setShowRemoveMemberDialog(null)
+      toast({ type: 'success', title: 'Member removed' })
     } catch (error) {
-      console.error('[settings] Failed to remove member:', error)
-      alert(`Failed to remove member: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      toast({ type: 'error', title: 'Failed to remove member', description: error instanceof Error ? error.message : 'Unknown error' })
     } finally {
-      setRemoving(null)
+      setRemoving(false)
+    }
+  }
+
+  // ── Change Role ──────────────────────────────────────────────────
+  const handleChangeRole = async () => {
+    if (!selectedTeamId || !showRoleDialog) return
+    setChangingRole(true)
+    try {
+      await dataClient.updateTeamMemberRole(selectedTeamId, showRoleDialog.userId, newRole)
+      setMembers((prev) => prev.map((m) =>
+        m.user_id === showRoleDialog.userId ? { ...m, role: newRole } : m
+      ))
+      setShowRoleDialog(null)
+      toast({ type: 'success', title: 'Role updated', description: `Changed to ${newRole}` })
+    } catch (error) {
+      toast({ type: 'error', title: 'Failed to change role', description: error instanceof Error ? error.message : 'Unknown error' })
+    } finally {
+      setChangingRole(false)
     }
   }
 
@@ -1231,7 +1356,20 @@ function TeamsContent() {
     const inviteUrl = `${window.location.origin}/invite/${token}`
     navigator.clipboard.writeText(inviteUrl)
     setCopiedInviteId(inviteId)
+    toast({ type: 'success', title: 'Link copied' })
     setTimeout(() => setCopiedInviteId(null), 2000)
+  }
+
+  const roleIcon = (role: string) => {
+    if (role === 'owner') return <Crown className="h-3 w-3" />
+    if (role === 'admin') return <ShieldCheck className="h-3 w-3" />
+    return <User className="h-3 w-3" />
+  }
+
+  const roleBadgeVariant = (role: string): "default" | "secondary" | "outline" | "destructive" => {
+    if (role === 'owner') return 'default'
+    if (role === 'admin') return 'secondary'
+    return 'outline'
   }
 
   if (!isServerMode()) {
@@ -1261,25 +1399,33 @@ function TeamsContent() {
   }
 
   const selectedTeam = teams.find((t) => t.id === selectedTeamId)
-  const canInvite = selectedTeam && ['owner', 'admin'].includes(selectedTeam.role)
+  const isOwner = selectedTeam?.role === 'owner'
+  const isAdminOrOwner = selectedTeam && ['owner', 'admin'].includes(selectedTeam.role)
+  const isPersonalTeam = selectedTeam?.name === 'Personal'
 
   return (
     <div className="flex flex-col gap-8">
-      <h1 className="text-xl font-primary font-semibold">Teams</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-primary font-semibold">Teams</h1>
+        <Button variant="outline" size="sm" onClick={() => setShowCreateTeamDialog(true)}>
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
+          Create Team
+        </Button>
+      </div>
 
       {teams.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-16">
           <Users className="mb-4 h-12 w-12 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">You're not a member of any teams yet</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Ask a team admin to send you an invitation
+            Create a team or ask a team admin to send you an invitation
           </p>
         </div>
       ) : (
         <>
           {/* Team Selector */}
           <section className="flex flex-col gap-3">
-            <h2 className="text-sm font-semibold">Select Team</h2>
+            <h2 className="text-sm font-semibold">Your Teams</h2>
             <div className="rounded-xl border border-border bg-card">
               {teams.map((team, idx) => (
                 <button
@@ -1293,9 +1439,15 @@ function TeamsContent() {
                 >
                   <div className="flex items-center gap-3">
                     <Users className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">{team.name}</span>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium">{team.name}</span>
+                      {team.description && (
+                        <span className="text-xs text-muted-foreground line-clamp-1">{team.description}</span>
+                      )}
+                    </div>
                   </div>
-                  <Badge variant="secondary" className="text-xs">
+                  <Badge variant={roleBadgeVariant(team.role)} className="flex items-center gap-1 text-xs">
+                    {roleIcon(team.role)}
                     {team.role}
                   </Badge>
                 </button>
@@ -1303,13 +1455,69 @@ function TeamsContent() {
             </div>
           </section>
 
-          {selectedTeamId && (
+          {selectedTeamId && selectedTeam && (
             <>
+              {/* Team Settings */}
+              <section className="flex flex-col gap-3">
+                <h2 className="text-sm font-semibold">Team Settings</h2>
+                <div className="rounded-xl border border-border bg-card">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-sm font-medium">{selectedTeam.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {selectedTeam.description || 'No description'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {isAdminOrOwner && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setEditTeamName(selectedTeam.name)
+                            setEditTeamDescription(selectedTeam.description || '')
+                            setShowEditTeamDialog(true)
+                          }}
+                          title="Edit team"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="flex items-center gap-2 px-4 py-3">
+                    {isOwner && !isPersonalTeam && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => setShowDeleteTeamDialog(true)}
+                      >
+                        <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                        Delete Team
+                      </Button>
+                    )}
+                    {!isOwner && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowLeaveTeamDialog(true)}
+                      >
+                        <LogOut className="mr-1.5 h-3.5 w-3.5" />
+                        Leave Team
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </section>
+
               {/* Team Members */}
               <section className="flex flex-col gap-3">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-semibold">Members</h2>
-                  {canInvite && (
+                  <h2 className="text-sm font-semibold">Members ({members.length})</h2>
+                  {isAdminOrOwner && (
                     <Button variant="outline" size="sm" onClick={() => setShowInviteDialog(true)}>
                       <Mail className="mr-1.5 h-3.5 w-3.5" />
                       Invite Member
@@ -1324,49 +1532,80 @@ function TeamsContent() {
                       <span className="text-sm">No members yet</span>
                     </div>
                   ) : (
-                    members.map((member, idx) => (
-                      <div
-                        key={member.user_id}
-                        className={cn(
-                          "flex items-center justify-between px-4 py-3",
-                          idx !== members.length - 1 && "border-b border-border"
-                        )}
-                      >
-                        <div className="flex flex-col gap-0.5">
-                          <span className="text-sm font-medium">{member.user.name}</span>
-                          <span className="text-xs text-muted-foreground">{member.user.email}</span>
-                          <span className="text-xs text-muted-foreground">
-                            Joined {new Date(member.joined_at).toLocaleDateString()}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="secondary" className="text-xs">
-                            {member.role}
-                          </Badge>
-                          {canInvite && member.role !== 'owner' && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleRemoveMember(member.user_id)}
-                              disabled={removing === member.user_id}
-                              className="text-destructive hover:text-destructive"
-                            >
-                              {removing === member.user_id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Trash2 className="h-4 w-4" />
-                              )}
-                            </Button>
+                    members.map((member, idx) => {
+                      const isSelf = member.user_id === currentUser?.id
+                      return (
+                        <div
+                          key={member.user_id}
+                          className={cn(
+                            "flex items-center justify-between px-4 py-3",
+                            idx !== members.length - 1 && "border-b border-border"
                           )}
+                        >
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-8 w-8">
+                              <AvatarFallback className="text-xs">
+                                {member.user.name?.[0]?.toUpperCase() ?? '?'}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex flex-col gap-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium">{member.user.name}</span>
+                                {isSelf && (
+                                  <span className="text-xs text-muted-foreground">(you)</span>
+                                )}
+                              </div>
+                              <span className="text-xs text-muted-foreground">{member.user.email}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={roleBadgeVariant(member.role)} className="flex items-center gap-1 text-xs">
+                              {roleIcon(member.role)}
+                              {member.role}
+                            </Badge>
+                            {/* Role change button (owner only, cannot change self) */}
+                            {isOwner && !isSelf && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title="Change role"
+                                onClick={() => {
+                                  setNewRole(member.role as 'owner' | 'admin' | 'member')
+                                  setShowRoleDialog({
+                                    userId: member.user_id,
+                                    userName: member.user.name,
+                                    currentRole: member.role,
+                                  })
+                                }}
+                              >
+                                <Shield className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {/* Remove button (admin/owner can remove non-owners, not self) */}
+                            {isAdminOrOwner && !isSelf && member.role !== 'owner' && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive hover:text-destructive"
+                                title="Remove member"
+                                onClick={() => setShowRemoveMemberDialog({
+                                  userId: member.user_id,
+                                  userName: member.user.name,
+                                })}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      )
+                    })
                   )}
                 </div>
               </section>
 
               {/* Pending Invitations */}
-              {canInvite && (
+              {isAdminOrOwner && (
                 <section className="flex flex-col gap-3">
                   <h2 className="text-sm font-semibold">Pending Invitations</h2>
                   <div className="rounded-xl border border-border bg-card">
@@ -1432,13 +1671,253 @@ function TeamsContent() {
         </>
       )}
 
-      {/* Invite Dialog */}
+      {/* ── Create Team Dialog ──────────────────────────────────────── */}
+      <Dialog open={showCreateTeamDialog} onOpenChange={setShowCreateTeamDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Team</DialogTitle>
+            <DialogDescription>
+              Create a new team to collaborate with others. You will be the owner.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 py-4">
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Team Name</label>
+              <Input
+                value={newTeamName}
+                onChange={(e) => setNewTeamName(e.target.value)}
+                placeholder="My Team"
+                onKeyDown={(e) => e.key === 'Enter' && handleCreateTeam()}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Description (optional)</label>
+              <Input
+                value={newTeamDescription}
+                onChange={(e) => setNewTeamDescription(e.target.value)}
+                placeholder="What is this team for?"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateTeamDialog(false)} disabled={creatingTeam}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateTeam} disabled={!newTeamName.trim() || creatingTeam}>
+              {creatingTeam ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create Team
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Team Dialog ────────────────────────────────────────── */}
+      <Dialog open={showEditTeamDialog} onOpenChange={setShowEditTeamDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Team</DialogTitle>
+            <DialogDescription>
+              Update team name and description.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 py-4">
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Team Name</label>
+              <Input
+                value={editTeamName}
+                onChange={(e) => setEditTeamName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleEditTeam()}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Description</label>
+              <Input
+                value={editTeamDescription}
+                onChange={(e) => setEditTeamDescription(e.target.value)}
+                placeholder="What is this team for?"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditTeamDialog(false)} disabled={editingTeam}>
+              Cancel
+            </Button>
+            <Button onClick={handleEditTeam} disabled={!editTeamName.trim() || editingTeam}>
+              {editingTeam ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Save Changes'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete Team Dialog ──────────────────────────────────────── */}
+      <Dialog open={showDeleteTeamDialog} onOpenChange={setShowDeleteTeamDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Team</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <strong>{selectedTeam?.name}</strong>? This action cannot be undone. All team members will lose access.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+            <AlertTriangle className="h-5 w-5 text-destructive shrink-0" />
+            <span className="text-sm text-destructive">This will permanently delete the team and remove all members.</span>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteTeamDialog(false)} disabled={deletingTeam}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteTeam} disabled={deletingTeam}>
+              {deletingTeam ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete Team
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Leave Team Dialog ───────────────────────────────────────── */}
+      <Dialog open={showLeaveTeamDialog} onOpenChange={setShowLeaveTeamDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Leave Team</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to leave <strong>{selectedTeam?.name}</strong>? You will need a new invitation to rejoin.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLeaveTeamDialog(false)} disabled={leavingTeam}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleLeaveTeam} disabled={leavingTeam}>
+              {leavingTeam ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Leaving...
+                </>
+              ) : (
+                <>
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Leave Team
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Change Role Dialog ──────────────────────────────────────── */}
+      <Dialog open={!!showRoleDialog} onOpenChange={() => setShowRoleDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Role</DialogTitle>
+            <DialogDescription>
+              Change the role of <strong>{showRoleDialog?.userName}</strong> in this team.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 py-4">
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">New Role</label>
+              <select
+                value={newRole}
+                onChange={(e) => setNewRole(e.target.value as 'owner' | 'admin' | 'member')}
+                className="h-9 rounded-md border border-border bg-card px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="member">Member — Can view and participate</option>
+                <option value="admin">Admin — Can manage members and settings</option>
+                <option value="owner">Owner — Full control</option>
+              </select>
+            </div>
+            {newRole === 'owner' && (
+              <div className="flex items-center gap-3 rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3">
+                <AlertTriangle className="h-5 w-5 text-yellow-600 shrink-0" />
+                <span className="text-sm text-yellow-700 dark:text-yellow-400">
+                  Promoting to owner grants full control, including the ability to delete the team.
+                </span>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRoleDialog(null)} disabled={changingRole}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleChangeRole}
+              disabled={changingRole || newRole === showRoleDialog?.currentRole}
+            >
+              {changingRole ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                'Update Role'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Remove Member Dialog ────────────────────────────────────── */}
+      <Dialog open={!!showRemoveMemberDialog} onOpenChange={() => setShowRemoveMemberDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove Member</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to remove <strong>{showRemoveMemberDialog?.userName}</strong> from this team?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRemoveMemberDialog(null)} disabled={removing}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleRemoveMember} disabled={removing}>
+              {removing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Removing...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Remove
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Invite Dialog ───────────────────────────────────────────── */}
       <Dialog open={showInviteDialog} onOpenChange={setShowInviteDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Invite Team Member</DialogTitle>
             <DialogDescription>
-              Create an invitation to join {selectedTeam?.name}. Copy the invite link to share directly. Valid for 7 days.
+              Send an invitation to join <strong>{selectedTeam?.name}</strong>. The invite link is valid for 7 days.
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4 py-4">
@@ -1449,6 +1928,7 @@ function TeamsContent() {
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
                 placeholder="colleague@example.com"
+                onKeyDown={(e) => e.key === 'Enter' && handleSendInvite()}
               />
             </div>
             <div className="flex flex-col gap-2">
