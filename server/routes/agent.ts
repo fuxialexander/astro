@@ -33,6 +33,15 @@ async function verifyProjectAccess(projectId: string, user: AuthUser): Promise<b
   return !!row
 }
 
+/** Look up the user's default AI provider from their settings. Returns undefined if not configured. */
+async function resolveUserProvider(userId?: string): Promise<string | undefined> {
+  if (!userId) return undefined
+  const { userProfiles } = await import('../lib/db/schema.js')
+  const [profile] = await db.select({ settings: userProfiles.settings }).from(userProfiles).where(eq(userProfiles.id, userId)).limit(1)
+  const settings = profile?.settings as Record<string, string> | null
+  return settings?.defaultProvider || undefined
+}
+
 /** Scratch directory for text-only relay tasks (label suggestion, refine, etc.) */
 const SCRATCH_DIR = join(homedir(), '.astro', 'tmp')
 try { mkdirSync(SCRATCH_DIR, { recursive: true }) } catch { /* ignore */ }
@@ -679,6 +688,7 @@ agentRoute.post('/summarize', async (c) => {
   console.log(`[summarize] Summary requested for task: ${body.taskTitle} (status: ${body.status})`)
 
   const summaryUser = c.get('user') as { id: string } | undefined
+  const effectiveProvider = body.providerId || await resolveUserProvider(summaryUser?.id)
   const prompt = buildSummaryPrompt(body)
   const taskId = `summary-${Date.now()}`
   const result = await executeViaRelay({
@@ -689,7 +699,7 @@ agentRoute.post('/summarize', async (c) => {
     type: 'summarize',
     maxTurns: 1,
     userId: summaryUser?.id,
-    preferredProvider: body.providerId || undefined,
+    preferredProvider: effectiveProvider,
     pathwayType: 'summarize',
   })
 
@@ -727,6 +737,7 @@ agentRoute.post('/generate-title', async (c) => {
   }
 
   const titleUser = c.get('user') as { id: string } | undefined
+  const effectiveProvider = body.providerId || await resolveUserProvider(titleUser?.id)
   const prompt = buildTitleGenerationPrompt(description)
   const taskId = `title-${Date.now()}`
   const result = await executeViaRelay({
@@ -737,7 +748,7 @@ agentRoute.post('/generate-title', async (c) => {
     type: 'summarize',
     maxTurns: 1,
     userId: titleUser?.id,
-    preferredProvider: body.providerId || undefined,
+    preferredProvider: effectiveProvider,
     pathwayType: 'title-gen',
   })
 
@@ -776,6 +787,7 @@ agentRoute.post('/refine', async (c) => {
   }
 
   const refineUser = c.get('user') as { id: string } | undefined
+  const effectiveProvider = body.providerId || await resolveUserProvider(refineUser?.id)
   const prompt = buildRefinementPrompt({ title: body.title, description: body.description, context: body.context })
   const taskId = `refine-${Date.now()}`
   const result = await executeViaRelay({
@@ -786,7 +798,7 @@ agentRoute.post('/refine', async (c) => {
     type: 'summarize',
     maxTurns: 1,
     userId: refineUser?.id,
-    preferredProvider: body.providerId || undefined,
+    preferredProvider: effectiveProvider,
     pathwayType: 'refine',
   })
 
@@ -829,6 +841,7 @@ agentRoute.post('/suggest-labels', async (c) => {
   }
 
   const labelUser = c.get('user') as { id: string } | undefined
+  const effectiveProvider = body.providerId || await resolveUserProvider(labelUser?.id)
   const prompt = buildLabelSuggestionPrompt(body.title, body.description)
   const taskId = `labels-${Date.now()}`
   const result = await executeViaRelay({
@@ -839,7 +852,7 @@ agentRoute.post('/suggest-labels', async (c) => {
     type: 'summarize',
     maxTurns: 1,
     userId: labelUser?.id,
-    preferredProvider: body.providerId || undefined,
+    preferredProvider: effectiveProvider,
     pathwayType: 'suggest-labels',
   })
 
