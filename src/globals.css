@@ -319,6 +319,9 @@ html {
   overscroll-behavior: none;
   height: 100%;
   width: 100%;
+  /* Must match body background so the safe-area region behind the iOS home
+     indicator (bottom bar) is filled correctly in standalone PWA mode. */
+  background-color: var(--background);
 }
 
 /* iOS-only: position: fixed prevents iOS Safari from force-scrolling the html

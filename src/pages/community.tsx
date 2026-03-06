@@ -543,7 +543,7 @@ export function Community() {
 
       {/* Edit Plan Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-[calc(100vw-2rem)] md:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit Plan</DialogTitle>
           </DialogHeader>

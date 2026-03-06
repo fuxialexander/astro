@@ -544,7 +544,7 @@ function ProfileContent() {
             </div>
           </div>
           {/* Name */}
-          <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3.5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4 border-b border-border px-4 py-3.5">
             <div className="flex flex-col gap-0.5">
               <span className="text-sm">Name</span>
               <span className="text-[13px] text-muted-foreground">Your display name</span>
@@ -553,11 +553,11 @@ function ProfileContent() {
               value={profile.name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Enter your name"
-              className="w-[240px]"
+              className="w-full md:w-[240px]"
             />
           </div>
           {/* Email */}
-          <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3.5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4 border-b border-border px-4 py-3.5">
             <div className="flex flex-col gap-0.5">
               <span className="text-sm">Email</span>
               <span className="text-[13px] text-muted-foreground">Your email address</span>
@@ -567,7 +567,7 @@ function ProfileContent() {
               value={profile.email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              className="w-[240px]"
+              className="w-full md:w-[240px]"
             />
           </div>
           {/* Bio */}

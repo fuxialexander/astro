@@ -587,17 +587,17 @@ export function Dashboard() {
         <div className="rounded-xl glass-panel p-5">
           <ActivityOverview data={heatmapData} />
           {stats && statsLoaded && (
-            <div className="flex items-center gap-5 mt-4 pt-3.5 border-t border-border/30 text-[11px] text-muted-foreground/60">
-              <span><strong className="text-foreground/80 font-semibold">{stats.currentStreak}d</strong> streak</span>
-              <span><strong className="text-foreground/80 font-semibold">{formatCompactNumber(stats.totalTasksCompleted)}</strong> tasks</span>
-              <span><strong className="text-foreground/80 font-semibold">{formatCompactNumber(stats.totalLinesAdded)}</strong> lines</span>
+            <div className="flex items-center gap-5 mt-4 pt-3.5 border-t border-border text-[11px] text-muted-foreground">
+              <span><strong className="text-foreground font-semibold">{stats.currentStreak}d</strong> streak</span>
+              <span><strong className="text-foreground font-semibold">{formatCompactNumber(stats.totalTasksCompleted)}</strong> tasks</span>
+              <span><strong className="text-foreground font-semibold">{formatCompactNumber(stats.totalLinesAdded)}</strong> lines</span>
               {levelInfo && (
                 <>
                   <div className="flex-1" />
-                  <span className="font-medium text-muted-foreground/50">{levelInfo.title}</span>
-                  <div className="w-14 h-1 rounded-full bg-muted/40 overflow-hidden">
+                  <span className="font-medium text-muted-foreground">{levelInfo.title}</span>
+                  <div className="w-14 h-1 rounded-full bg-muted overflow-hidden">
                     <div
-                      className="h-full rounded-full bg-gradient-to-r from-amber-400/80 to-amber-500/80 transition-all duration-500"
+                      className="h-full rounded-full bg-warning transition-all duration-500"
                       style={{ width: `${Math.round(levelInfo.progress * 100)}%` }}
                     />
                   </div>

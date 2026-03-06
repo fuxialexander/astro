@@ -339,11 +339,13 @@ function ResizableChatPanel({
   visionDoc,
   initialMessage,
   onNodeSelect,
+  onClose,
 }: {
   projectId: string
   visionDoc?: string
   initialMessage?: string
   onNodeSelect: (nodeId: string) => void
+  onClose?: () => void
 }) {
   const position = useUIStore((s) => s.chatPanelPosition)
   const togglePosition = useUIStore((s) => s.toggleChatPanelPosition)
@@ -357,34 +359,50 @@ function ResizableChatPanel({
   const startPos = useRef(0)
   const startSize = useRef(0)
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  const handleDragStart = useCallback((clientX: number, clientY: number) => {
     isDragging.current = true
-    startPos.current = isRight ? e.clientX : e.clientY
+    startPos.current = isRight ? clientX : clientY
     startSize.current = size
-    e.preventDefault()
   }, [size, isRight])
 
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    handleDragStart(e.clientX, e.clientY)
+    e.preventDefault()
+  }, [handleDragStart])
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0]
+    handleDragStart(touch.clientX, touch.clientY)
+  }, [handleDragStart])
+
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
+    const handleMove = (clientX: number, clientY: number) => {
       if (!isDragging.current) return
       if (isRight) {
-        const delta = startPos.current - e.clientX
+        const delta = startPos.current - clientX
         const newWidth = Math.max(300, Math.min(window.innerWidth * 0.5, startSize.current + delta))
         setSize(newWidth)
       } else {
-        const delta = startPos.current - e.clientY
+        const delta = startPos.current - clientY
         const newHeight = Math.max(200, Math.min(window.innerHeight * 0.6, startSize.current + delta))
         setSize(newHeight)
       }
     }
-    const handleMouseUp = () => {
-      isDragging.current = false
+    const handleMouseMove = (e: MouseEvent) => handleMove(e.clientX, e.clientY)
+    const handleTouchMove = (e: TouchEvent) => {
+      if (isDragging.current) e.preventDefault()
+      handleMove(e.touches[0].clientX, e.touches[0].clientY)
     }
+    const handleEnd = () => { isDragging.current = false }
     document.addEventListener("mousemove", handleMouseMove)
-    document.addEventListener("mouseup", handleMouseUp)
+    document.addEventListener("mouseup", handleEnd)
+    document.addEventListener("touchmove", handleTouchMove, { passive: false })
+    document.addEventListener("touchend", handleEnd)
     return () => {
       document.removeEventListener("mousemove", handleMouseMove)
-      document.removeEventListener("mouseup", handleMouseUp)
+      document.removeEventListener("mouseup", handleEnd)
+      document.removeEventListener("touchmove", handleTouchMove)
+      document.removeEventListener("touchend", handleEnd)
     }
   }, [isRight, setSize])
 
@@ -396,10 +414,11 @@ function ResizableChatPanel({
       {/* Drag handle */}
       <div
         className={cn(
-          "flex items-center justify-center hover:bg-accent/50 transition-colors group",
-          isRight ? "w-1.5 cursor-col-resize" : "h-1.5 cursor-row-resize"
+          "flex items-center justify-center hover:bg-accent/50 transition-colors group touch-none",
+          isRight ? "w-2.5 cursor-col-resize" : "h-2.5 cursor-row-resize"
         )}
         onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStart}
       >
         <div className={cn(
           "rounded-full bg-border group-hover:bg-muted-foreground transition-colors",
@@ -414,17 +433,28 @@ function ResizableChatPanel({
           initialMessage={initialMessage}
           onNodeSelect={onNodeSelect}
           headerActions={
-            <button
-              onClick={togglePosition}
-              className="p-1 rounded-md hover:bg-muted/50 transition-colors"
-              title={isRight ? "Move chat to bottom" : "Move chat to right"}
-            >
-              {isRight ? (
-                <PanelBottom className="h-3.5 w-3.5 text-muted-foreground" />
-              ) : (
-                <PanelRight className="h-3.5 w-3.5 text-muted-foreground" />
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={togglePosition}
+                className="p-1 rounded-md hover:bg-muted/50 transition-colors"
+                title={isRight ? "Move chat to bottom" : "Move chat to right"}
+              >
+                {isRight ? (
+                  <PanelBottom className="h-3.5 w-3.5 text-muted-foreground" />
+                ) : (
+                  <PanelRight className="h-3.5 w-3.5 text-muted-foreground" />
+                )}
+              </button>
+              {onClose && (
+                <button
+                  onClick={onClose}
+                  className="p-1 rounded-md hover:bg-muted/50 transition-colors"
+                  title="Close chat"
+                >
+                  <X className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
               )}
-            </button>
+            </div>
           }
         />
       </div>
@@ -1663,6 +1693,8 @@ export function PlanView() {
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
   const chatPanelPosition = useUIStore((s) => s.chatPanelPosition)
+  const chatPanelVisible = useUIStore((s) => s.chatPanelVisible)
+  const setChatPanelVisible = useUIStore((s) => s.setChatPanelVisible)
   const isRightChat = chatPanelPosition === "right"
   const [isRenaming, setIsRenaming] = useState(false)
 
@@ -1768,7 +1800,7 @@ export function PlanView() {
   return (
     <div className="flex h-full flex-col">
       {/* Header: project identity + Plan|Overview toggle + view mode + actions */}
-      <header className="flex items-center gap-2 md:gap-3 border-b border-border px-2 md:px-6 h-11 md:h-14 shrink-0">
+      <header className="flex items-center gap-2 md:gap-3 border-b border-border px-2 md:px-6 h-11 md:h-14 shrink-0" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         {/* Mobile back button */}
         <button
           onClick={() => navigate('/projects')}
@@ -1802,7 +1834,7 @@ export function PlanView() {
               onDoubleClick={() => setIsRenaming(true)}
             >
               {project.name}
-              <Pencil className="h-3 w-3 ml-1.5 hidden md:inline-block opacity-0 group-hover/name:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsRenaming(true); }} />
+              <button className="hidden md:inline-flex items-center justify-center ml-1.5 p-1 -m-1 rounded opacity-40 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/name:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsRenaming(true); }}><Pencil className="h-3 w-3" /></button>
             </span>
           )}
           <Star className="h-[18px] w-[18px] text-muted-foreground shrink-0 hidden md:block" />
@@ -1915,6 +1947,21 @@ export function PlanView() {
             ) : null}
           </div>
         )}
+
+        {/* Chat panel toggle */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setChatPanelVisible(!chatPanelVisible)}
+            >
+              <Sparkles className={cn("h-4 w-4", chatPanelVisible ? "text-primary" : "text-muted-foreground")} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{chatPanelVisible ? "Hide Chat" : "Show Chat"}</TooltipContent>
+        </Tooltip>
 
         {/* Mobile overflow menu */}
         <DropdownMenu>
@@ -2029,12 +2076,15 @@ export function PlanView() {
         </div>
 
         {/* Chat panel — resizable, toggleable between bottom and right */}
-        <ResizableChatPanel
-          projectId={project.id}
-          visionDoc={project.visionDoc}
-          initialMessage={chatInitialMessage}
-          onNodeSelect={handleChatNodeSelect}
-        />
+        {chatPanelVisible && (
+          <ResizableChatPanel
+            projectId={project.id}
+            visionDoc={project.visionDoc}
+            initialMessage={chatInitialMessage}
+            onNodeSelect={handleChatNodeSelect}
+            onClose={() => setChatPanelVisible(false)}
+          />
+        )}
       </div>
 
       {/* Vision Document Dialog */}

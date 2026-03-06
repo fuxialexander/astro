@@ -320,7 +320,7 @@ export function ActiveTasks() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+      <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-border shrink-0">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-primary font-semibold text-foreground">Active</h1>
           {totalCount > 0 && (
@@ -335,7 +335,7 @@ export function ActiveTasks() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto px-6 py-4">
+      <div className="flex-1 overflow-auto px-4 md:px-6 py-4">
         {totalCount === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">

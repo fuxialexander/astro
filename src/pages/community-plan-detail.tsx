@@ -135,7 +135,7 @@ function CommentItem({ authorName, authorId, content, createdAt, onReply, id, on
               <button
                 type="button"
                 onClick={() => setIsEditing(true)}
-                className="text-xs font-medium text-muted-foreground hover:text-foreground flex items-center gap-1"
+                className="text-xs font-medium text-muted-foreground hover:text-foreground active:text-foreground flex items-center gap-1 py-1"
               >
                 <Edit2 className="h-3 w-3" />
                 Edit
@@ -144,7 +144,7 @@ function CommentItem({ authorName, authorId, content, createdAt, onReply, id, on
                 type="button"
                 onClick={handleDelete}
                 disabled={isDeleting}
-                className="text-xs font-medium text-muted-foreground hover:text-destructive flex items-center gap-1"
+                className="text-xs font-medium text-muted-foreground hover:text-destructive active:text-destructive flex items-center gap-1 py-1"
               >
                 <Trash2 className="h-3 w-3" />
                 {isDeleting ? "Deleting..." : "Delete"}
@@ -1127,7 +1127,7 @@ export function CommunityPlanDetail() {
 
       {/* Fork Dialog (Simple inline modal) */}
       {forkDialogOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
           <Card className="w-full max-w-md mx-4">
             <CardHeader>
               <CardTitle>Fork Plan</CardTitle>

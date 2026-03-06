@@ -149,7 +149,7 @@ function InlineMachineName({ machineId, name, fallback }: {
       onClick={startEditing}
     >
       <span className="text-sm font-medium truncate">{displayName}</span>
-      <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover/name:opacity-100 shrink-0 transition-opacity" />
+      <Pencil className="h-3 w-3 text-muted-foreground opacity-40 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/name:opacity-100 shrink-0 transition-opacity" />
     </button>
   )
 }
