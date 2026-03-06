@@ -27,7 +27,6 @@ import {
   updateGitHubIssue,
   syncGitHubIssueLabels,
   getGitHubIssue,
-  resolveAstroUserToGitHubLogin,
   SYNC_SOURCE_RESET_DELAY_MS,
 } from '../../github-sync-utils.js'
 import { logSyncOperation } from '../../github-sync-logger.js'
@@ -59,7 +58,6 @@ export async function syncNodeToGitHub(
       status: planNodes.status,
       priority: planNodes.priority,
       estimate: planNodes.estimate,
-      metadata: planNodes.metadata,
       githubIssueNumber: planNodes.githubIssueNumber,
       githubSyncVersion: planNodes.githubSyncVersion,
       syncSource: planNodes.syncSource,
@@ -232,21 +230,8 @@ export async function syncNodeToGitHub(
     }
 
     // ── Sync assignee ──
-    // Assignee is stored in metadata.assigneeUserId since there's no dedicated column
-    const shouldSyncAssignee = enabledFields.includes('assignee') && (!changedFields || changedFields.includes('assignee'))
-    const metadata = (node.metadata ?? {}) as Record<string, unknown>
-    const assigneeUserId = metadata.assigneeUserId as string | undefined
-    if (shouldSyncAssignee && assigneeUserId) {
-      const ghLogin = await resolveAstroUserToGitHubLogin(assigneeUserId)
-      if (ghLogin) {
-        const currentAssignees = currentIssue?.assignees.map((a) => a.login) ?? []
-        if (!currentAssignees.includes(ghLogin)) {
-          await updateGitHubIssue(accessToken, owner, repo, issueNumber, {
-            assignees: [ghLogin],
-          })
-        }
-      }
-    }
+    // TODO: assignee sync requires a dedicated column or metadata on planNodes
+    // Currently planNodes has no metadata column, so assignee sync is skipped
 
     console.log(
       `${LOG_PREFIX} Synced node '${nodeId}' → issue #${issueNumber} in ${owner}/${repo} ` +
