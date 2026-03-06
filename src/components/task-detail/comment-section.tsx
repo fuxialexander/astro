@@ -143,7 +143,7 @@ export function CommentSection({ nodeId, projectId, userName }: CommentSectionPr
         />
         <div className="flex items-center justify-between border-t border-border/50 bg-muted/20 px-3 py-1.5">
           <span className="text-[10px] text-muted-foreground">
-            {newComment.trim() ? '⌘ Enter to submit' : ''}
+            {newComment.trim() ? '⌘+Enter to submit' : ''}
           </span>
           <Button
             size="sm"

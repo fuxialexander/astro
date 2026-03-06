@@ -850,6 +850,9 @@ export function Playground() {
               autoFocus
               className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
             />
+            <div className="flex justify-end px-4 pb-1">
+              <span className="text-[10px] text-muted-foreground/40">⌘+Enter to start</span>
+            </div>
 
             {/* OR divider + resume button */}
             {(allMachines.length > 0 || playgroundHistory.length > 0) && (
@@ -980,9 +983,6 @@ export function Playground() {
 
           {/* Submit button */}
           <div className="flex items-center justify-end gap-3">
-            <p className="text-[10px] text-muted-foreground hidden md:block">
-              Cmd+Enter to submit
-            </p>
             <Button
               onClick={handleSubmit}
               disabled={!description.trim() || !selectedMachine || !workingDir.trim() || isSubmitting}

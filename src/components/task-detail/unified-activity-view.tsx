@@ -878,7 +878,7 @@ export function UnifiedActivityView({
       {isRunning && (
         <div className="px-3 pt-2 pb-0">
           <span className="text-[10px] text-muted-foreground">
-            Cmd+Enter to send · Shift+Enter to interrupt
+            ⌘+Enter to send · Shift+Enter to interrupt
           </span>
         </div>
       )}
