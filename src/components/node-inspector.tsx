@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Link } from "react-router"
-import { FileText, XCircle, RotateCcw, X, Plus, Pencil, ArrowUpRight, Diamond } from "lucide-react"
+import { FileText, XCircle, RotateCcw, X, Plus, Pencil, ArrowUpRight, Diamond, ShieldCheck, SkipForward, RefreshCw, Eye, MessageSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -16,12 +16,15 @@ import { ExecutionPanel } from "@/components/execution"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useExecutionStore } from "@/stores/execution-store"
+import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useToastStore } from "@/stores/toast-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
 import { statusLabels } from "@/lib/status-config"
 import { cn, getShortId } from "@/lib/utils"
 import { isNodeIsolated } from "@/lib/plan-utils"
 import { dataClient } from "@/lib/data-client"
+import { apiUrl } from "@/lib/api-url"
+import { getAccessToken } from "@/lib/supabase-client"
 import type { PlanNode, Priority } from "@/types"
 
 /**
@@ -292,7 +295,73 @@ export function NodeInspectorContent({
     handleUpdate({ status: "pruned" })
   }, [handleUpdate])
 
+  // ── Verification state ───────────────────────────────────────
+  const execution = useExecutionStore((s) => s.getExecution(node.id))
+  const currentUserId = useUserProfileStore((s) => s.profile.id)
+  const needsVerification = (node.status === "auto_verified" || node.status === "awaiting_judgment") && !execution?.verifiedBy
+  const isVerified = !!execution?.verifiedBy
+  const canVerify = needsVerification && execution?.userId !== currentUserId // verifier should differ from executor
+  const [verifyNote, setVerifyNote] = useState("")
+  const [showNoteInput, setShowNoteInput] = useState(false)
+  const [verifyLoading, setVerifyLoading] = useState<string | null>(null) // 'approve' | 'rerun' | 'skip' | null
 
+  const handleVerificationAction = useCallback(async (action: 'verify' | 'rerun' | 'skip') => {
+    if (!execution?.executionId) return
+    setVerifyLoading(action)
+    try {
+      const token = await getAccessToken()
+      const headers: HeadersInit = { "Content-Type": "application/json" }
+      if (token) headers["Authorization"] = `Bearer ${token}`
+
+      const res = await fetch(apiUrl(`/api/executions/${execution.executionId}/${action}`), {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ note: verifyNote || undefined }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `Failed to ${action}`)
+      }
+
+      const data = await res.json()
+
+      // Update local execution state
+      if (data.execution) {
+        const executions = useExecutionStore.getState().executions
+        const updatedExec = executions.get(node.id)
+        if (updatedExec) {
+          const newExec = {
+            ...updatedExec,
+            verifiedBy: data.execution.verifiedBy ?? data.execution.verified_by,
+            verificationNote: data.execution.verificationNote ?? data.execution.verification_note,
+          }
+          executions.set(node.id, newExec)
+          useExecutionStore.setState({ executions: new Map(executions) })
+        }
+      }
+
+      // Update node status if approved/skipped
+      if (action === 'verify' || action === 'skip') {
+        handleUpdate({ status: "completed" })
+      }
+
+      setVerifyNote("")
+      setShowNoteInput(false)
+      useToastStore.getState().add({
+        type: 'success',
+        title: action === 'verify' ? 'Execution verified' : action === 'skip' ? 'Verification skipped' : 'Re-run created',
+      })
+    } catch (err) {
+      useToastStore.getState().add({
+        type: 'error',
+        title: `Failed to ${action}`,
+        description: err instanceof Error ? err.message : 'Unknown error',
+      })
+    } finally {
+      setVerifyLoading(null)
+    }
+  }, [execution?.executionId, node.id, verifyNote, handleUpdate])
 
 
   return (
@@ -487,7 +556,115 @@ export function NodeInspectorContent({
             <ElapsedTime node={node} />
           </div>
         )}
+
+        {/* Verification status */}
+        {isVerified && execution && (
+          <div className="flex flex-col gap-1.5 mt-1">
+            <div className="flex items-center gap-1.5 text-[12px] text-success">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              <span className="font-medium">
+                Verified{execution.verifiedBy === currentUserId ? " by you" : " by team member"}
+              </span>
+            </div>
+            {execution.verificationNote && (
+              <div className="flex items-start gap-1.5 text-[11px] text-muted-foreground bg-muted/50 rounded-md px-2 py-1.5">
+                <MessageSquare className="h-3 w-3 mt-0.5 shrink-0" />
+                <span className="leading-relaxed">{execution.verificationNote}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Needs verification badge */}
+        {needsVerification && (
+          <div className="flex items-center gap-1.5 text-[12px] text-warning mt-1">
+            <Eye className="h-3.5 w-3.5" />
+            <span className="font-medium">Needs verification</span>
+          </div>
+        )}
       </div>
+
+      {/* Verification actions */}
+      {canVerify && (
+        <>
+          <Separator />
+          <div className="flex flex-col gap-2">
+            <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Verification</span>
+
+            {/* Optional note input */}
+            {showNoteInput ? (
+              <div className="flex flex-col gap-1.5">
+                <textarea
+                  value={verifyNote}
+                  onChange={(e) => setVerifyNote(e.target.value)}
+                  placeholder="Add a note (optional)..."
+                  className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-xs placeholder:text-muted-foreground/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                  rows={2}
+                />
+                <button
+                  type="button"
+                  onClick={() => { setShowNoteInput(false); setVerifyNote("") }}
+                  className="text-[11px] text-muted-foreground hover:text-foreground self-end cursor-pointer"
+                >
+                  Cancel note
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowNoteInput(true)}
+                className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 cursor-pointer w-fit"
+              >
+                <MessageSquare className="h-3 w-3" />
+                Add note
+              </button>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={!!verifyLoading}
+                onClick={() => handleVerificationAction('verify')}
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-1.5 h-8 rounded-lg text-xs font-medium transition-colors cursor-pointer",
+                  "bg-success/10 text-success hover:bg-success/20 border border-success/30",
+                  "disabled:opacity-50 disabled:cursor-not-allowed"
+                )}
+              >
+                <ShieldCheck className="h-3.5 w-3.5" />
+                {verifyLoading === 'verify' ? "..." : "Approve"}
+              </button>
+              <button
+                type="button"
+                disabled={!!verifyLoading}
+                onClick={() => handleVerificationAction('rerun')}
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-1.5 h-8 rounded-lg text-xs font-medium transition-colors cursor-pointer",
+                  "bg-info/10 text-info hover:bg-info/20 border border-info/30",
+                  "disabled:opacity-50 disabled:cursor-not-allowed"
+                )}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                {verifyLoading === 'rerun' ? "..." : "Re-run"}
+              </button>
+              <button
+                type="button"
+                disabled={!!verifyLoading}
+                onClick={() => handleVerificationAction('skip')}
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-1.5 h-8 rounded-lg text-xs font-medium transition-colors cursor-pointer",
+                  "bg-muted text-muted-foreground hover:bg-muted/80 border border-border",
+                  "disabled:opacity-50 disabled:cursor-not-allowed"
+                )}
+              >
+                <SkipForward className="h-3.5 w-3.5" />
+                {verifyLoading === 'skip' ? "..." : "Skip"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       <Separator />
 
       <div className="flex flex-col gap-2.5">
