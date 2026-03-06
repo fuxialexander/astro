@@ -37,6 +37,11 @@ export type {
   UseCaseTemplateInstance,
   ResolvedParameters,
 
+  // Example aliases (UI terminology)
+  UseCaseExample,
+  UseCaseExampleSummary,
+  UseCaseExampleInstance,
+
   // Parameter types
   UseCaseParameter,
   ParameterType,
@@ -66,7 +71,7 @@ export type {
   TemplateValidationWarning,
 } from '../types/use-case-template.js'
 
-// ── Built-in Templates ──────────────────────────────────────────────────
+// ── Built-in Templates / Examples ────────────────────────────────────────
 export {
   // Individual templates
   academicPresentationTemplate,
@@ -80,6 +85,12 @@ export {
   // Lookup functions
   getTemplateById,
   getTemplatesByCategory,
+
+  // Example aliases (UI terminology)
+  BUILTIN_EXAMPLES,
+  EXAMPLES_BY_CATEGORY,
+  getExampleById,
+  getExamplesByCategory,
 } from './examples/index.js'
 
 // ── Template Loader ─────────────────────────────────────────────────────
@@ -101,5 +112,6 @@ export {
 // ── Template Validator ──────────────────────────────────────────────────
 export {
   validateTemplate,
+  validateExample,
   formatValidationResult,
 } from './template-validator.js'

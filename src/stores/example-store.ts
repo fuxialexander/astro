@@ -4,25 +4,25 @@ import type {
   UseCaseTemplate,
 } from "@astro/core/templates"
 import {
-  getTemplates,
-  getTemplateCategories,
-  getTemplate,
-  validateTemplateParams,
-  launchTemplate,
-  previewTemplate,
-  type TemplateCategory,
+  getExamples,
+  getExampleCategories,
+  getExample,
+  validateExampleParams,
+  launchExample,
+  previewExample,
+  type ExampleCategory,
   type ParameterValidationError,
-  type PreviewTemplateResult,
-  type LaunchTemplateParams,
-  type LaunchTemplateResult,
+  type PreviewExampleResult,
+  type LaunchExampleParams,
+  type LaunchExampleResult,
 } from "@/lib/api-client"
 import { useToastStore } from "@/stores/toast-store"
 
-interface TemplateStore {
+interface ExampleStore {
   /** Template summaries for browsing */
   templates: UseCaseTemplateSummary[]
   /** Categories with template lists */
-  categories: TemplateCategory[]
+  categories: ExampleCategory[]
   /** Currently selected template details */
   selectedTemplate: UseCaseTemplate | null
   /** Parameter values for the selected template */
@@ -30,7 +30,7 @@ interface TemplateStore {
   /** Validation errors from last validate call */
   validationErrors: ParameterValidationError[]
   /** Preview result from last preview call */
-  previewResult: PreviewTemplateResult | null
+  previewResult: PreviewExampleResult | null
   /** Loading states */
   isLoading: boolean
   loaded: boolean
@@ -52,14 +52,14 @@ interface TemplateStore {
 
   // Validation and preview
   validateParameters: () => Promise<boolean>
-  previewTemplate: () => Promise<void>
+  previewExample: () => Promise<void>
 
   // Launch
-  launchTemplate: (projectName: string, workDir?: string, targetMachineId?: string, visionDoc?: string, preferredProvider?: string, model?: string) => Promise<LaunchTemplateResult | undefined>
+  launchExample: (projectName: string, workDir?: string, targetMachineId?: string, visionDoc?: string, preferredProvider?: string, model?: string) => Promise<LaunchExampleResult | undefined>
 
 }
 
-export const useTemplateStore = create<TemplateStore>((set, get) => ({
+export const useExampleStore = create<ExampleStore>((set, get) => ({
   templates: [],
   categories: [],
   selectedTemplate: null,
@@ -79,8 +79,8 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
     try {
       // Fetch templates and categories in parallel
       const [templatesResult, categoriesResult] = await Promise.all([
-        getTemplates(),
-        getTemplateCategories(),
+        getExamples(),
+        getExampleCategories(),
       ])
       set({
         templates: templatesResult.templates,
@@ -124,7 +124,7 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
   fetchTemplates: async (category?: string) => {
     set({ isLoading: true, error: null })
     try {
-      const result = await getTemplates(category)
+      const result = await getExamples(category)
       set({
         templates: result.templates,
         isLoading: false,
@@ -146,7 +146,7 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
   fetchCategories: async () => {
     set({ isLoading: true, error: null })
     try {
-      const result = await getTemplateCategories()
+      const result = await getExampleCategories()
       set({
         categories: result.categories,
         isLoading: false,
@@ -168,7 +168,7 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
   fetchTemplate: async (id: string) => {
     set({ isLoading: true, error: null })
     try {
-      const result = await getTemplate(id)
+      const result = await getExample(id)
       set({
         selectedTemplate: result.template,
         isLoading: false,
@@ -198,7 +198,7 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
       error: null,
     })
     try {
-      const result = await getTemplate(id)
+      const result = await getExample(id)
       // Populate default values from parameter definitions
       const defaults: Record<string, unknown> = {}
       const allParams = [
@@ -259,7 +259,7 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
 
     set({ isLoading: true, error: null })
     try {
-      const result = await validateTemplateParams(selectedTemplate.id, parameterValues)
+      const result = await validateExampleParams(selectedTemplate.id, parameterValues)
       set({
         validationErrors: result.errors,
         isLoading: false,
@@ -281,7 +281,7 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
    * Preview what the template would generate with current parameters.
    * Shows interpolated prompts and configuration without creating a project.
    */
-  previewTemplate: async () => {
+  previewExample: async () => {
     const { selectedTemplate, parameterValues } = get()
     if (!selectedTemplate) {
       useToastStore.getState().add({
@@ -294,7 +294,7 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
 
     set({ isLoading: true, error: null })
     try {
-      const result = await previewTemplate(selectedTemplate.id, parameterValues)
+      const result = await previewExample(selectedTemplate.id, parameterValues)
       set({
         previewResult: result,
         isLoading: false,
@@ -317,7 +317,7 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
    * @param workDir - Optional working directory override
    * @returns The launch result with project details, or undefined on error
    */
-  launchTemplate: async (projectName: string, workDir?: string, targetMachineId?: string, visionDoc?: string, preferredProvider?: string, model?: string) => {
+  launchExample: async (projectName: string, workDir?: string, targetMachineId?: string, visionDoc?: string, preferredProvider?: string, model?: string) => {
     const { selectedTemplate, parameterValues } = get()
     if (!selectedTemplate) {
       useToastStore.getState().add({
@@ -330,7 +330,7 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
 
     set({ isLoading: true, error: null })
     try {
-      const params: LaunchTemplateParams = {
+      const params: LaunchExampleParams = {
         parameters: parameterValues,
         projectName,
         workingDirectory: workDir,
@@ -339,7 +339,7 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
         preferredProvider,
         model,
       }
-      const result = await launchTemplate(selectedTemplate.id, params)
+      const result = await launchExample(selectedTemplate.id, params)
 
       set({ isLoading: false })
 

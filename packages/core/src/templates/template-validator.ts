@@ -576,3 +576,6 @@ export function formatValidationResult(result: TemplateValidationResult): string
 
   return lines.join('\n')
 }
+
+/** Alias for validateTemplate — the UI calls these "Examples" */
+export const validateExample = validateTemplate

@@ -25,7 +25,7 @@ import githubPrRoute from './routes/github-pr-data.js'
 import { wellKnownRoute } from './routes/well-known.js'
 import systemRoute from './routes/system.js'
 import { skillsRoute } from './routes/skills.js'
-import { templatesRoute } from './routes/templates.js'
+import { examplesRoute } from './routes/examples.js'
 import { shareRoute } from './routes/share.js'
 import { connectedAccountsRoute } from './routes/connected-accounts.js'
 import { openClawChannel } from './lib/channel/adapters/openclaw-channel.js'
@@ -193,7 +193,19 @@ export function createApp() {
   app.route('/api/data', dataRoute)
   app.route('/api/system', systemRoute)
   app.route('/api/skills', skillsRoute)
-  app.route('/api/templates', templatesRoute)
+  app.route('/api/examples', examplesRoute)
+
+  // Backward-compat redirect: /api/templates → /api/examples
+  // Use 308 (not 301) to preserve HTTP method — 301 converts POST to GET
+  app.all('/api/templates', (c) => {
+    const url = new URL(c.req.url)
+    return c.redirect('/api/examples' + url.search, 308)
+  })
+  app.all('/api/templates/*', (c) => {
+    const url = new URL(c.req.url)
+    const newPath = url.pathname.replace('/api/templates', '/api/examples')
+    return c.redirect(newPath + url.search, 308)
+  })
   app.route('/api/observations', observationsRoute)
   app.route('/api/teams', teamsRoute)
   app.route('/api/community', communityRoute)

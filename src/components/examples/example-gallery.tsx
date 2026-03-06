@@ -1,12 +1,12 @@
 import { useMemo, useState, useCallback } from "react"
 import { Search, FileText, ArrowUpDown } from "lucide-react"
-import { TemplateCard } from "./template-card"
+import { ExampleCard } from "./example-card"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Card } from "@/components/ui/card"
 import type { UseCaseTemplateSummary } from "@astro/core/templates"
 import { cn } from "@/lib/utils"
 
-interface TemplateGalleryProps {
+interface ExampleGalleryProps {
   templates: UseCaseTemplateSummary[]
   categories: Array<{ name: string; count: number }>
   isLoading?: boolean
@@ -17,7 +17,7 @@ interface TemplateGalleryProps {
 
 type SortOption = 'popular' | 'newest' | 'a-z'
 
-// Category display names (same as in template-card)
+// Category display names (same as in example-card)
 const categoryLabels: Record<string, string> = {
   'software-development': 'Development',
   'data-science': 'Data Science',
@@ -56,14 +56,14 @@ function LoadingSkeleton() {
   )
 }
 
-export function TemplateGallery({
+export function ExampleGallery({
   templates,
   categories,
   isLoading = false,
   onTemplateSelect,
   onTemplateEdit,
   onTemplateDelete,
-}: TemplateGalleryProps) {
+}: ExampleGalleryProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState<string>("all")
   const [sortBy, setSortBy] = useState<SortOption>("a-z")
@@ -202,7 +202,7 @@ export function TemplateGallery({
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredTemplates.map((template) => (
-              <TemplateCard
+              <ExampleCard
                 key={template.id}
                 template={template}
                 onClick={onTemplateSelect}

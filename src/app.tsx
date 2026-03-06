@@ -30,7 +30,7 @@ import { useSidebarStore } from "@/stores/sidebar-store"
 import { isLocalMode } from "@/lib/app-mode"
 import { usePluginStore } from "@/stores/plugin-store"
 import { useSkillStore } from "@/stores/skill-store"
-import { useTemplateStore } from "@/stores/template-store"
+import { useExampleStore } from "@/stores/example-store"
 import { useAgentStore } from "@/stores/agent-store"
 import { useTeamStore } from "@/stores/team-store"
 import { setActiveTeamId } from "@/lib/data-client"
@@ -103,7 +103,7 @@ function resetAllStores() {
   useSidebarStore.setState({ loaded: false })
   usePluginStore.setState({ loaded: false })
   useSkillStore.setState({ loaded: false })
-  useTemplateStore.setState({ templates: [], categories: [], loaded: false })
+  useExampleStore.setState({ templates: [], categories: [], loaded: false })
   useAgentStore.setState({ sessions: new Map(), loaded: false })
   // Reset external integration stores
   useGitHubStore.setState({ connected: false, user: null, connectedAt: null, repos: [], selectedRepoIds: [], lastSyncedAt: null })
@@ -129,7 +129,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const loadSidebar = useSidebarStore((s) => s.load)
   const loadPlugins = usePluginStore((s) => s.load)
   const loadSkills = useSkillStore((s) => s.load)
-  const loadTemplates = useTemplateStore((s) => s.load)
+  const loadTemplates = useExampleStore((s) => s.load)
   const loadAgent = useAgentStore((s) => s.load)
   const connectRealtime = useRealtimeStore((s) => s.connect)
   const disconnectRealtime = useRealtimeStore((s) => s.disconnect)
@@ -151,7 +151,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const sidebarLoaded = useSidebarStore((s) => s.loaded)
   const pluginsLoaded = usePluginStore((s) => s.loaded)
   const skillsLoaded = useSkillStore((s) => s.loaded)
-  const templatesLoaded = useTemplateStore((s) => s.loaded)
+  const templatesLoaded = useExampleStore((s) => s.loaded)
   const agentLoaded = useAgentStore((s) => s.loaded)
 
   // Only load data if authenticated or in local mode

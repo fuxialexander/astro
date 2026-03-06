@@ -974,7 +974,7 @@ export async function fetchTraceSummary(traceId: string): Promise<string> {
 }
 
 // ============================================================================
-// Templates API
+// Examples API
 // ============================================================================
 
 import type {
@@ -984,7 +984,7 @@ import type {
   TemplateValidationResult,
 } from "@astro/core/templates"
 
-export interface TemplateCategory {
+export interface ExampleCategory {
   category: string
   count: number
   templates: Array<{
@@ -994,13 +994,13 @@ export interface TemplateCategory {
   }>
 }
 
-export interface TemplatesListResult {
+export interface ExamplesListResult {
   templates: UseCaseTemplateSummary[]
   count: number
   categories: string[]
 }
 
-export interface TemplateDetailsResult {
+export interface ExampleDetailsResult {
   template: UseCaseTemplate
   validation: TemplateValidationResult
 }
@@ -1011,13 +1011,13 @@ export interface ParameterValidationError {
   code: 'MISSING_REQUIRED' | 'INVALID_TYPE' | 'INVALID_VALUE' | 'INVALID_PATTERN' | 'OUT_OF_RANGE'
 }
 
-export interface TemplateValidationParams {
+export interface ExampleValidationParams {
   valid: boolean
   errors: ParameterValidationError[]
   resolvedParameters: ResolvedParameters
 }
 
-export interface LaunchTemplateParams {
+export interface LaunchExampleParams {
   parameters: Record<string, unknown>
   projectName?: string
   workingDirectory?: string
@@ -1044,7 +1044,7 @@ export interface LaunchTemplateParams {
   }
 }
 
-export interface LaunchTemplateResult {
+export interface LaunchExampleResult {
   project: {
     id: string
     name: string
@@ -1074,7 +1074,7 @@ export interface LaunchTemplateResult {
   }
 }
 
-export interface PreviewTemplateResult {
+export interface PreviewExampleResult {
   templateId: string
   templateName: string
   resolvedParameters: ResolvedParameters
@@ -1090,78 +1090,78 @@ export interface PreviewTemplateResult {
 }
 
 /**
- * Get all available templates, optionally filtered by category.
+ * Get all available examples, optionally filtered by category.
  * @param category - Optional category to filter by
- * @returns List of template summaries
+ * @returns List of example summaries
  */
-export async function getTemplates(category?: string): Promise<TemplatesListResult> {
+export async function getExamples(category?: string): Promise<ExamplesListResult> {
   const params = new URLSearchParams()
   if (category) {
     params.set('category', category)
   }
 
-  const url = apiUrl(`/api/templates${params.toString() ? `?${params}` : ''}`)
+  const url = apiUrl(`/api/examples${params.toString() ? `?${params}` : ''}`)
   const response = await fetch(url, {
     headers: await authHeaders(),
   })
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch templates: ${response.status}`)
+    throw new Error(`Failed to fetch examples: ${response.status}`)
   }
 
   return response.json()
 }
 
 /**
- * Get all template categories with counts and template lists.
- * @returns List of categories with their templates
+ * Get all example categories with counts and example lists.
+ * @returns List of categories with their examples
  */
-export async function getTemplateCategories(): Promise<{ categories: TemplateCategory[] }> {
-  const response = await fetch(apiUrl('/api/templates/categories'), {
+export async function getExampleCategories(): Promise<{ categories: ExampleCategory[] }> {
+  const response = await fetch(apiUrl('/api/examples/categories'), {
     headers: await authHeaders(),
   })
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch template categories: ${response.status}`)
+    throw new Error(`Failed to fetch example categories: ${response.status}`)
   }
 
   return response.json()
 }
 
 /**
- * Get full details for a specific template including parameter schema.
- * @param id - Template ID (will be URL-encoded, e.g., "astro/web-app")
- * @returns Template details with validation result
+ * Get full details for a specific example including parameter schema.
+ * @param id - Example ID (will be URL-encoded, e.g., "astro/web-app")
+ * @returns Example details with validation result
  */
-export async function getTemplate(id: string): Promise<TemplateDetailsResult> {
+export async function getExample(id: string): Promise<ExampleDetailsResult> {
   const encodedId = encodeURIComponent(id)
-  const response = await fetch(apiUrl(`/api/templates/${encodedId}`), {
+  const response = await fetch(apiUrl(`/api/examples/${encodedId}`), {
     headers: await authHeaders(),
   })
 
   if (!response.ok) {
     if (response.status === 404) {
-      throw new Error(`Template not found: ${id}`)
+      throw new Error(`Example not found: ${id}`)
     }
-    throw new Error(`Failed to fetch template: ${response.status}`)
+    throw new Error(`Failed to fetch example: ${response.status}`)
   }
 
   return response.json()
 }
 
 /**
- * Validate parameters against a template's schema without launching.
+ * Validate parameters against an example's schema without launching.
  * Useful for real-time form validation.
- * @param id - Template ID (will be URL-encoded)
+ * @param id - Example ID (will be URL-encoded)
  * @param params - Parameters to validate
  * @returns Validation result with resolved parameters
  */
-export async function validateTemplateParams(
+export async function validateExampleParams(
   id: string,
   params: Record<string, unknown>
-): Promise<TemplateValidationParams> {
+): Promise<ExampleValidationParams> {
   const encodedId = encodeURIComponent(id)
-  const response = await fetch(apiUrl(`/api/templates/${encodedId}/validate`), {
+  const response = await fetch(apiUrl(`/api/examples/${encodedId}/validate`), {
     method: 'POST',
     headers: await authHeaders(),
     body: JSON.stringify({ parameters: params }),
@@ -1169,7 +1169,7 @@ export async function validateTemplateParams(
 
   if (!response.ok) {
     if (response.status === 404) {
-      throw new Error(`Template not found: ${id}`)
+      throw new Error(`Example not found: ${id}`)
     }
     const errorData = await response.json().catch(() => ({}))
     throw new Error(errorData.error || `Validation failed: ${response.status}`)
@@ -1179,18 +1179,18 @@ export async function validateTemplateParams(
 }
 
 /**
- * Launch a template with provided parameters.
+ * Launch an example with provided parameters.
  * Creates a new project and returns configuration for plan generation.
- * @param id - Template ID (will be URL-encoded)
- * @param params - Launch parameters including template parameters and project config
+ * @param id - Example ID (will be URL-encoded)
+ * @param params - Launch parameters including example parameters and project config
  * @returns Created project and plan generation request
  */
-export async function launchTemplate(
+export async function launchExample(
   id: string,
-  params: LaunchTemplateParams
-): Promise<LaunchTemplateResult> {
+  params: LaunchExampleParams
+): Promise<LaunchExampleResult> {
   const encodedId = encodeURIComponent(id)
-  const response = await fetch(apiUrl(`/api/templates/${encodedId}/launch`), {
+  const response = await fetch(apiUrl(`/api/examples/${encodedId}/launch`), {
     method: 'POST',
     headers: await authHeaders(),
     body: JSON.stringify(params),
@@ -1199,30 +1199,30 @@ export async function launchTemplate(
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}))
     if (response.status === 404) {
-      throw new Error(`Template not found: ${id}`)
+      throw new Error(`Example not found: ${id}`)
     }
     if (response.status === 400 && errorData.details) {
       throw new Error(`Validation failed: ${JSON.stringify(errorData.details)}`)
     }
-    throw new Error(errorData.error || `Failed to launch template: ${response.status}`)
+    throw new Error(errorData.error || `Failed to launch example: ${response.status}`)
   }
 
   return response.json()
 }
 
 /**
- * Preview what a template launch would produce without creating anything.
+ * Preview what an example launch would produce without creating anything.
  * Returns interpolated prompts and project configuration.
- * @param id - Template ID (will be URL-encoded)
+ * @param id - Example ID (will be URL-encoded)
  * @param params - Parameters to preview with
  * @returns Preview of interpolated prompts and configuration
  */
-export async function previewTemplate(
+export async function previewExample(
   id: string,
   params: Record<string, unknown>
-): Promise<PreviewTemplateResult> {
+): Promise<PreviewExampleResult> {
   const encodedId = encodeURIComponent(id)
-  const response = await fetch(apiUrl(`/api/templates/${encodedId}/preview`), {
+  const response = await fetch(apiUrl(`/api/examples/${encodedId}/preview`), {
     method: 'POST',
     headers: await authHeaders(),
     body: JSON.stringify({ parameters: params }),
@@ -1231,12 +1231,12 @@ export async function previewTemplate(
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}))
     if (response.status === 404) {
-      throw new Error(`Template not found: ${id}`)
+      throw new Error(`Example not found: ${id}`)
     }
     if (response.status === 400 && errorData.details) {
       throw new Error(`Validation failed: ${JSON.stringify(errorData.details)}`)
     }
-    throw new Error(errorData.error || `Failed to preview template: ${response.status}`)
+    throw new Error(errorData.error || `Failed to preview example: ${response.status}`)
   }
 
   return response.json()
