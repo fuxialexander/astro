@@ -1,6 +1,6 @@
 ---
 name: academic-presentation
-version: "1.0.0"
+version: "2.0.0"
 description: "Convert academic papers into slides (PDF), blog posts (Markdown), and conference posters (PDF) using HTML-based rendering with a low-saturation color palette"
 category: workflows
 tags: [academic, presentation, slides, blog, poster, pdf, html]
@@ -29,23 +29,77 @@ For **arXiv links**, fetch the LaTeX source or HTML directly. For **DOCX files**
 
 ---
 
-## 0b. Workflow — Multi-Step Decomposition
+## 0b. Workflow — Multi-Step Task Decomposition
 
-**CRITICAL**: Do NOT generate all slides in a single step. Presentation creation must be decomposed into multiple tasks:
+**CRITICAL**: Do NOT generate all slides in a single step. High-quality presentations require structured narrative thinking before any slide creation. Decompose into multiple Astro tasks.
 
-1. **Narrative Planning** (separate task) — Read the paper, identify the story arc, and produce an outline:
-   - What is the motivation / gap?
-   - What prior work is relevant?
-   - What is the proposed method / theory?
-   - What are the key results / experiments?
-   - What are the takeaways / future work?
-   Output: A structured outline with section titles, key points per section, and which layout type fits each slide. This outline drives all subsequent tasks.
+### Recommended Plan Structure
 
-2. **Slide Generation** (1 task per major section) — For each section in the outline, create the HTML slides following the layout system below. Each section is a separate task so the model can focus on one coherent narrative thread at a time. Typical sections: Title + Motivation (2-3 slides), Background/Prior Work (2-3 slides), Method (4-6 slides), Results (3-5 slides), Discussion + Conclusion (1-2 slides).
+```
+Task 1: Paper Analysis & Narrative Outline
+  → Output: outline/narrative-outline.md
+  → No dependencies
+  → Deep read of the paper, extract story arc, decide slide-by-slide outline
 
-3. **PDF Assembly** (final task) — Combine all HTML slides into a single PDF. This is a separate mechanical step.
+Task 2: Slide Generation — Title + Motivation + Background (slides 1-6)
+  → Output: output/slides/slide_01.html through slide_06.html
+  → Depends on: Task 1
 
-When creating a plan for presentation generation, **always decompose into at least 4 tasks**: outline, 2+ slide-generation batches, and PDF assembly. Never put "generate all slides" in a single task.
+Task 3: Slide Generation — Method / Theory (slides 7-12)
+  → Output: output/slides/slide_07.html through slide_12.html
+  → Depends on: Task 1 (can run in parallel with Task 2 if outline is complete)
+
+Task 4: Slide Generation — Results + Discussion + Conclusion (slides 13-18)
+  → Output: output/slides/slide_13.html through slide_18.html
+  → Depends on: Task 1
+
+Task 5: Blog Post Generation (if requested)
+  → Output: output/blog/post.md
+  → Depends on: Task 1 (can run in parallel with slides)
+
+Task 6: Poster Generation (if requested)
+  → Output: output/poster/poster.html
+  → Depends on: Task 1
+
+Task 7: PDF Assembly & Quality Review
+  → Output: output/slides/slides.pdf, output/poster/poster.pdf
+  → Depends on: Tasks 2, 3, 4, (5, 6 if requested)
+
+Milestone: Presentation Complete
+  → Depends on: Task 7
+```
+
+**Minimum 5 tasks** for slides-only. **7+ tasks** if blog and poster are also requested.
+
+### Task 1 Deep Dive: Narrative Outline
+
+The outline is the most important task. It determines the quality of everything downstream. The outline must include:
+
+1. **Paper comprehension** (500+ words): What is the paper's core argument? What problem does it solve? What is the key insight that makes the approach work?
+
+2. **Story arc identification**: Every good presentation follows a dramatic structure:
+   - **Hook** (1-2 slides): What is the problem? Why should the audience care *right now*?
+   - **Context** (2-3 slides): What has been tried before? What are the limitations of prior approaches? What gap exists?
+   - **Key Insight** (1 slide): What is the crucial observation or idea that enables the new approach? This is the "aha moment" — the single slide the audience should remember.
+   - **Method** (3-6 slides): How does the approach work? Build up from simple intuition to full formalism. Use progressive disclosure — don't dump all math on one slide.
+   - **Evidence** (3-5 slides): Does it work? Show quantitative results, comparisons, ablations. Lead with the strongest result first.
+   - **Implications** (1-2 slides): So what? What does this enable? What are the limitations? What's next?
+
+3. **Slide-by-slide plan**: For each slide, specify:
+   - Title
+   - Layout type (1-5)
+   - Key points (3-5 bullets max)
+   - Whether a figure/SVG is needed and what it should show
+   - Which equations to include (if any)
+   - Transition: how does this slide connect to the next?
+
+4. **Adaptation for paper type**:
+   - **Empirical ML papers**: Heavy on results, comparisons, ablations. Method section focused on architecture diagrams and loss functions.
+   - **Theoretical papers**: Heavy on intuition-building, proof sketches, and implications. Use progressive formalization (intuition → informal statement → formal theorem).
+   - **Systems papers**: Heavy on architecture diagrams, benchmarks, and design decisions. Emphasize the "why" behind each design choice.
+   - **Survey papers**: Organize by taxonomy, use comparison tables, show the landscape evolution over time.
+
+**The outline must be reviewed and approved before proceeding to slide generation.**
 
 ---
 
@@ -921,29 +975,99 @@ Same structure but with `grid-template-columns: 1fr 1fr 1fr 1fr` and swapped wid
 
 ---
 
-## 9. Content Narrative Arc
+## 9. Content Narrative Arc — Deep Guide
 
-All deliverables follow this structure, adapted for format:
+The difference between a forgettable presentation and a memorable one is narrative structure. Every deliverable must tell a *story*, not just report facts.
 
-1. **Motivation** (Hook) — Why should the audience care? What gap exists?
-   - Slides: 1-2 slides
-   - Blog: 1-2 paragraphs
-   - Poster: 1 section
+### The 6-Act Structure
 
-2. **Methodology** — What is the proposed approach?
-   - Slides: 4-8 slides (most detail), use Left-Right Split and Three-Zone layouts
-   - Blog: Detailed section with equations and figures
-   - Poster: 1-2 sections with key diagram
+#### Act 1: The Hook (1-2 slides / 1 paragraph / 1 poster section)
+**Purpose**: Make the audience care in 30 seconds.
 
-3. **Results** — Does it work? Quantitative evidence.
-   - Slides: 3-5 slides with tables/charts in Three-Zone layout
-   - Blog: Tables and charts with analysis
-   - Poster: 1-2 sections with key result table
+Techniques:
+- **Start with a failure**: "Current systems can only handle X. Real-world problems require Y."
+- **Start with a number**: "GPT-4 uses 1.8 trillion parameters. We achieve comparable results with 7 billion."
+- **Start with a question**: "Can we learn representations without any labels at all?"
+- **Start with a contradiction**: "The conventional wisdom is X. We show that the opposite is true."
 
-4. **Discussion** — Implications, limitations, future work.
-   - Slides: 1-2 slides
-   - Blog: 1-2 paragraphs
-   - Poster: 1 section
+**Never** start with "In this paper, we propose..." — that's the method, not the motivation.
+
+#### Act 2: The Gap (2-3 slides / 1-2 paragraphs / 1 poster section)
+**Purpose**: Show what has been tried and why it's not enough.
+
+Structure:
+- **Prior work overview**: What approaches exist? Use a comparison table or timeline.
+- **Limitation identification**: What specifically fails? Be concrete — show an example where existing methods break down.
+- **The void**: Articulate the gap precisely. "Existing methods handle A and B, but fail on C because of [specific reason]."
+
+**Visual approach**: Use Left-Right Split layout — prior work on the left, its limitations on the right.
+
+#### Act 3: The Key Insight (1 slide / 1 paragraph / highlighted in poster)
+**Purpose**: The "aha moment" — the one idea that makes everything click.
+
+This is the **most important slide**. It should be:
+- **Simple**: One sentence that captures the core idea
+- **Visual**: A diagram, analogy, or equation that makes the insight tangible
+- **Surprising**: If the insight is obvious, it's not novel enough
+
+Use Layout 3 (Full Bullet) with a single box-pink callout containing the key insight. Or use Layout 4 with a figure that makes the insight visual.
+
+#### Act 4: The Method (3-6 slides / detailed section / 1-2 poster sections)
+**Purpose**: How does the approach work?
+
+**Progressive disclosure** — build up complexity gradually:
+1. **High-level intuition** (1 slide): What does the system do at a 10,000-foot view? Use an architecture diagram (SVG).
+2. **Core mechanism** (1-2 slides): What is the key algorithmic/mathematical step? Introduce the main equation with plain-English annotation. Use Left-Right Split: equation on left, intuition on right.
+3. **Technical details** (1-2 slides): Formal definitions, loss functions, training procedure. Use Three-Zone layout: formalism in top-left, diagram in top-right, supplementary notes in bottom bar.
+4. **Design decisions** (0-1 slide): Why this approach over alternatives? What tradeoffs were made?
+
+**Equation presentation rules**:
+- Never show an equation without explaining what each variable means
+- Always show the equation's *purpose* before the equation itself ("We minimize the distance between X and Y:")
+- If an equation has >5 terms, build it up incrementally across slides
+
+#### Act 5: The Evidence (3-5 slides / tables + analysis / 1-2 poster sections)
+**Purpose**: Prove it works with quantitative results.
+
+Structure:
+1. **Main result** (1 slide): The headline number. Use Three-Zone layout — result table in top-right, analysis in top-left, takeaway in bottom bar.
+2. **Comparisons** (1-2 slides): How does it compare to baselines? Highlight the proposed method in **bold** in tables. Use color to draw attention: green box around the best result, not just bold text.
+3. **Ablations** (1 slide): What matters? Which components contribute most? Use a bar chart (SVG) showing the contribution of each component.
+4. **Qualitative examples** (0-1 slide): Show concrete outputs if applicable (generated images, parsed structures, predictions).
+
+**Table presentation rules**:
+- Highlight your method's row with a subtle background color (`rgba(178,152,110,0.1)`)
+- Bold the best result in each column
+- Include error bars or confidence intervals where available
+- Never show a table with >6 columns or >8 rows — split or summarize
+
+#### Act 6: The Implications (1-2 slides / 1-2 paragraphs / 1 poster section)
+**Purpose**: So what? What does this enable?
+
+Structure:
+- **Broader impact**: What does this result mean for the field?
+- **Limitations** (be honest): What doesn't work? Under what conditions does the method fail?
+- **Future work**: What's the natural next step?
+- **Call to action**: Link to code/data if available. What should the audience try?
+
+### Slide Count Guidelines by Paper Type
+
+| Paper Type | Total Slides | Hook | Gap | Insight | Method | Evidence | Implications |
+|------------|-------------|------|-----|---------|--------|----------|--------------|
+| Empirical ML | 15-20 | 1-2 | 2-3 | 1 | 3-4 | 4-6 | 1-2 |
+| Theoretical | 12-16 | 1-2 | 2-3 | 1 | 4-6 | 2-3 | 1-2 |
+| Systems | 14-18 | 1-2 | 2 | 1 | 4-6 | 3-4 | 1-2 |
+| Survey | 16-22 | 1 | 3-4 | 1 | 6-10 | 2-3 | 1-2 |
+
+### Transition Quality
+
+Every slide should have a logical connection to the next. Common transitions:
+- **"But..."** — introduces a limitation that motivates the next topic
+- **"How?"** — the previous slide claimed something, the next shows how
+- **"Does it work?"** — transitions from method to results
+- **"So what?"** — transitions from results to implications
+
+A slide that doesn't logically follow from the previous one breaks the narrative.
 
 ---
 
