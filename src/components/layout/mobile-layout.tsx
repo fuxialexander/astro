@@ -54,7 +54,7 @@ export function MobileLayout() {
 
   return (
     <div
-      className="md:hidden"
+      className="md:hidden min-h-dvh bg-background"
       style={{ paddingTop: 'env(safe-area-inset-top)' }}
     >
       {/* Content flows naturally — the document body scrolls, which lets
