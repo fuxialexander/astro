@@ -131,6 +131,7 @@ export interface TaskChatParams {
   taskOutput?: string
   visionDoc?: string
   model?: string
+  providerId?: string
   selectedBackends?: string[]
   messages?: Array<{ role: 'user' | 'assistant'; content: string }>
   /** Branch name from the execution (for resumed session context) */
