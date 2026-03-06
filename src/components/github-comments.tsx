@@ -88,7 +88,7 @@ function ReplyInput({ onSubmit, placeholder = 'Write a reply...', className }: R
       )}
       <div className="flex items-center justify-between border-t border-border/50 bg-muted/20 px-2 py-1">
         <span className="text-[10px] text-muted-foreground">
-          {value.trim() ? `${typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent) ? '⌘' : 'Ctrl'} Enter to submit` : 'Markdown supported'}
+          {value.trim() ? '⌘+Enter to submit' : 'Markdown supported'}
         </span>
         <Button
           size="sm"

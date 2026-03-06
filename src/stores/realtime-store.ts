@@ -1500,6 +1500,22 @@ function handleRealtimeEvent(
       break
     }
 
+    case 'task:safety_auto_proceeded': {
+      const taskId = data.taskId as string
+      const safetyTier = data.safetyTier as string
+      const warning = data.warning as string | undefined
+
+      addActivity(
+        set,
+        'approval',
+        `YOLO auto-proceed: ${warning || `non-git directory (${safetyTier})`}`,
+        { taskId }
+      )
+
+      console.log('[realtime] Safety auto-proceeded (YOLO):', { taskId, safetyTier })
+      break
+    }
+
     case 'task:ready': {
       addActivity(set, 'info', `Downstream task dispatching server-side`)
       // Server handles dispatch — frontend just tracks status via SSE

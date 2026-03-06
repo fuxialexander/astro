@@ -94,6 +94,11 @@ eventsRoute.get('/stream', async (c) => {
       })
     })
 
+    // Track projects whose safety prompts have been approved (per SSE session).
+    // Once a user approves "Continue anyway" for any task in a project, all
+    // subsequent tasks in the same project auto-proceed silently.
+    const safetyApprovedProjects = new Set<string>()
+
     // Helper: check if this SSE connection's user owns the given task
     const isTaskOwnedByUser = (taskId: string): boolean => {
       if (!user?.id) return true // no auth = local mode, allow all
@@ -320,12 +325,60 @@ eventsRoute.get('/stream', async (c) => {
       })
     }
 
+    /** Auto-proceed a safety prompt and notify the browser */
+    const autoSafetyProceed = (msg: { taskId: string; safetyTier: string; warning?: string; machineId?: string }, reason: string) => {
+      relayServer.sendSafetyDecision(msg.taskId, msg.machineId!, 'proceed')
+      console.log(`[events] ${reason} safety auto-proceed: task=${msg.taskId} tier=${msg.safetyTier}`)
+
+      streamingEventLog.append(msg.taskId, 'safety_response', { decision: 'proceed', autoApproved: true }).catch(() => {})
+
+      const autoData = JSON.stringify({
+        taskId: msg.taskId,
+        safetyTier: msg.safetyTier,
+        warning: msg.warning,
+        decision: 'proceed',
+        autoApproved: true,
+      })
+      const autoId = eventBuffer.push('task:safety_auto_proceeded', autoData)
+      stream.writeSSE({ id: autoId, event: 'task:safety_auto_proceeded', data: autoData }).catch(() => { alive = false })
+    }
+
     const onTaskSafetyPrompt = (msg: { taskId: string; safetyTier: string; warning?: string; machineId?: string; options: Array<{ id: string; label: string; description?: string }> }) => {
       if (!alive) return
       if (!isTaskOwnedByUser(msg.taskId)) return
-      const data = JSON.stringify(msg)
-      const id = eventBuffer.push('task:safety_prompt', data)
-      stream.writeSSE({ id, event: 'task:safety_prompt', data }).catch(() => { alive = false })
+      if (!msg.machineId) {
+        // No machine to send decision to — show dialog as fallback
+        const data = JSON.stringify(msg)
+        const id = eventBuffer.push('task:safety_prompt', data)
+        stream.writeSSE({ id, event: 'task:safety_prompt', data }).catch(() => { alive = false })
+        return
+      }
+
+      // Per-project auto-proceed: if user already approved for this project, skip the dialog
+      const ctx = executionContextStore.get(msg.taskId)
+      if (ctx && safetyApprovedProjects.has(ctx.projectId)) {
+        autoSafetyProceed(msg, 'Per-project')
+        return
+      }
+
+      // YOLO mode: auto-proceed for safety prompts (skip the dialog)
+      isYoloMode().then((yoloEnabled) => {
+        if (!alive) return
+
+        if (yoloEnabled) {
+          if (ctx) safetyApprovedProjects.add(ctx.projectId)
+          autoSafetyProceed(msg, 'YOLO')
+          return
+        }
+
+        const data = JSON.stringify(msg)
+        const id = eventBuffer.push('task:safety_prompt', data)
+        stream.writeSSE({ id, event: 'task:safety_prompt', data }).catch(() => { alive = false })
+      }).catch(() => {
+        const data = JSON.stringify(msg)
+        const id = eventBuffer.push('task:safety_prompt', data)
+        stream.writeSSE({ id, event: 'task:safety_prompt', data }).catch(() => { alive = false })
+      })
     }
 
     const onMachineConnected = async (machineId: string, machineUserId: string) => {
@@ -431,6 +484,11 @@ eventsRoute.get('/stream', async (c) => {
     relayServer.on('task:steer_ack', onTaskSteerAck)
     relayServer.on('task:approval_request', onTaskApprovalRequest)
     relayServer.on('task:safety_prompt', onTaskSafetyPrompt)
+    // Track per-project safety approvals from user responses (dispatch.ts emits this)
+    const onSafetyApproved = (msg: { projectId: string }) => {
+      safetyApprovedProjects.add(msg.projectId)
+    }
+    relayServer.on('task:safety_approved', onSafetyApproved)
     relayServer.on('machine:connected', onMachineConnected)
     relayServer.on('machine:disconnected', onMachineDisconnected)
     // Session events
@@ -560,6 +618,7 @@ eventsRoute.get('/stream', async (c) => {
       relayServer.off('task:steer_ack', onTaskSteerAck)
       relayServer.off('task:approval_request', onTaskApprovalRequest)
       relayServer.off('task:safety_prompt', onTaskSafetyPrompt)
+      relayServer.off('task:safety_approved', onSafetyApproved)
       relayServer.off('machine:connected', onMachineConnected)
       relayServer.off('machine:disconnected', onMachineDisconnected)
       // Relay-direct streaming fallback cleanup

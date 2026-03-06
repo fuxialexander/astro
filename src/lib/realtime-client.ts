@@ -21,6 +21,7 @@ export type RealtimeEventType =
   | 'task:approval_request'
   | 'task:approval_auto_responded'
   | 'task:safety_prompt'
+  | 'task:safety_auto_proceeded'
   | 'machine:connected'
   | 'machine:disconnected'
   | 'session:attached'
@@ -155,6 +156,7 @@ export class RealtimeClient {
       'task:approval_request',
       'task:approval_auto_responded',
       'task:safety_prompt',
+      'task:safety_auto_proceeded',
       'machine:connected',
       'machine:disconnected',
       'session:attached',

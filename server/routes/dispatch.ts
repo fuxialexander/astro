@@ -1744,6 +1744,11 @@ dispatchRoute.post('/safety-decision', async (c) => {
     if (workdir) {
       approvedSafetyDirs.set(workdir, decision)
     }
+    // Emit event so SSE handlers can track per-project approval
+    const ctx = executionContextStore.get(taskId)
+    if (ctx) {
+      relayServer.emit('task:safety_approved', { taskId, projectId: ctx.projectId, decision })
+    }
   }
 
   return c.json({ success: true, taskId, machineId, decision, message: 'Safety decision sent' })

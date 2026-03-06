@@ -741,6 +741,9 @@ export function ProjectNewPlan() {
               autoFocus
               className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
             />
+            <div className="flex justify-end px-4 pb-1">
+              <span className="text-[10px] text-muted-foreground/40">⌘+Enter to start planning</span>
+            </div>
 
             {/* OR divider + options */}
             <div className="px-4 pb-3">
@@ -984,9 +987,6 @@ export function ProjectNewPlan() {
                 </TooltipContent>
               </Tooltip>
             </div>
-            <p className="text-[10px] text-muted-foreground">
-              Cmd+Enter to submit
-            </p>
             <Button
               onClick={handleSubmit}
               disabled={!description.trim() || isSubmitting || pendingUploads > 0}
