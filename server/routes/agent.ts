@@ -14,7 +14,7 @@ import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { activeDispatchStreams } from '../lib/execution-context-store.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
-import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage } from '../types/relay.js'
+import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, ProviderType } from '../types/relay.js'
 import { db } from '../lib/db/index.js'
 import { projects, environmentConfigs } from '../lib/db/schema.js'
 import { eq, isNull, and, or, inArray } from 'drizzle-orm'
@@ -105,6 +105,7 @@ async function streamChatViaRelay(
     workingDirectory?: string
     targetMachineId?: string
     model?: string
+    preferredProvider?: string
     resumeSessionId?: string
     streamId?: string
   }
@@ -124,6 +125,7 @@ async function streamChatViaRelay(
     type: opts.type,
     messages: opts.messages,
     model: opts.model,
+    preferredProvider: opts.preferredProvider as ProviderType | undefined,
     maxTurns: opts.maxTurns,
     workingDirectory: opts.workingDirectory,
     useWorktree: false,
@@ -330,6 +332,7 @@ async function executeViaRelay(opts: {
   systemPrompt?: string
   maxTurns?: number
   type?: 'chat' | 'plan' | 'execution' | 'summarize'
+  preferredProvider?: string
   userId?: string
 }): Promise<{ success: boolean; output?: string; error?: string }> {
   const task: RelayTaskDispatch = {
@@ -341,6 +344,7 @@ async function executeViaRelay(opts: {
     prompt: opts.prompt,
     systemPrompt: opts.systemPrompt,
     type: opts.type,
+    preferredProvider: opts.preferredProvider as ProviderType | undefined,
     maxTurns: opts.maxTurns ?? 1,
     workingDirectory: SCRATCH_DIR,
     skipSafetyCheck: true,
@@ -406,7 +410,7 @@ agentRoute.post('/project-chat', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400)
   }
 
-  const { message, sessionId: existingSessionId, streamId, projectId, model, visionDoc, planNodes, planEdges, selectedBackends, messages: historyMessages } = body
+  const { message, sessionId: existingSessionId, streamId, projectId, model, providerId, visionDoc, planNodes, planEdges, selectedBackends, messages: historyMessages } = body
   const chatUser = c.get('user') as AuthUser
   const taskId = existingSessionId || `project-chat-${projectId}-${Date.now()}`
 
@@ -437,6 +441,7 @@ agentRoute.post('/project-chat', async (c) => {
     type: 'chat',
     messages: historyMessages,
     model: model || undefined,
+    preferredProvider: providerId || undefined,
     workingDirectory: project?.workingDirectory ?? undefined,
     targetMachineId: project?.defaultMachineId ?? undefined,
     streamId,
@@ -484,6 +489,7 @@ agentRoute.post('/task-chat', async (c) => {
     taskOutput,
     visionDoc,
     model,
+    providerId,
     selectedBackends,
     messages: historyMessages,
     branchName,
@@ -531,6 +537,7 @@ agentRoute.post('/task-chat', async (c) => {
     type: 'chat',
     messages: historyMessages,
     model: model || undefined,
+    preferredProvider: providerId || undefined,
     workingDirectory: project?.workingDirectory ?? undefined,
     targetMachineId: project?.defaultMachineId ?? undefined,
     // When we have a provider session ID, pass it so agent-runner can resume the Claude session
@@ -583,6 +590,7 @@ agentRoute.post('/dispatch', async (c) => {
     visionDoc,
     dependencyOutputs,
     workingDirectory,
+    providerId,
     maxTurns,
   } = body
 
@@ -601,6 +609,7 @@ agentRoute.post('/dispatch', async (c) => {
     nodeId,
     prompt,
     type: 'execution',
+    preferredProvider: providerId || undefined,
     workingDirectory,
     maxTurns,
   })
