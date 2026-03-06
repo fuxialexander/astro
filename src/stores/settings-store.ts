@@ -113,7 +113,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   defaultProvider: "",
   customModelMap: {},
   editorType: "cursor",
-  yoloMode: false,
+  yoloMode: true, // Default ON for new users — fully autonomous execution
   connectionStatus: "disconnected",
   loaded: false,
   loading: false,
@@ -140,7 +140,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       }
       if (settings.yoloMode === 'true') {
         updates.yoloMode = true
+      } else if (settings.yoloMode === 'false') {
+        updates.yoloMode = false
       }
+      // If yoloMode is unset in DB (new user), keep the default (true)
       if (settings.modelTier) {
         const tier = settings.modelTier as ModelTier
         updates.modelTier = tier

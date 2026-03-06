@@ -1178,15 +1178,23 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     let lastActivity = Date.now()
     let resultSent = false
     let waitingForApproval = false
+    let hasReceivedEvent = false // Whether we've received any event from agent-runner
     // Accumulated text from `text` events — used for plan extraction in onResult.
     // msg.result.output is equivalent for completed sessions; accumulatedText is the
     // fallback when the relay strips output from the result message.
     let accumulatedText = ''
-    const ACTIVITY_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000 // 5 days
+    // Two-tier timeout: short startup period, longer once events are flowing.
+    // If the agent-runner never picks up the task (crash, busy, bad state),
+    // we detect it quickly instead of hanging for days.
+    const STARTUP_TIMEOUT_MS = 3 * 60 * 1000 // 3 minutes — no events at all
+    const MAX_STARTUP_RETRIES = 3 // Retry dispatch up to 3 times before failing
+    let startupRetries = 0
+    const ACTIVITY_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 hours — events stopped mid-execution
 
     const onResult = async (msg: import('../types/relay.js').TaskResultMessage) => {
       if (!alive || msg.result.taskId !== executionId) return
       lastActivity = Date.now()
+      hasReceivedEvent = true
       resultSent = true
       executionContextStore.remove(executionId)
       dispatchedTaskDirs.delete(executionId)
@@ -1364,6 +1372,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     const onText = (msg: import('../types/relay.js').TaskTextMessage) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
+      hasReceivedEvent = true
       waitingForApproval = false
       // Buffer text for batch persistence (flushed when next structural event arrives)
       streamingEventLog.appendText(executionId, msg.text)
@@ -1375,6 +1384,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     const onSessionInit = async (msg: import('../types/relay.js').TaskSessionInitMessage) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
+      hasReceivedEvent = true
       const data = { sessionId: msg.sessionId, model: msg.model }
       const seq = await streamingEventLog.append(executionId, 'session_init', data)
       stream.writeSSE({
@@ -1388,6 +1398,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     const onProgress = async (msg: import('../types/relay.js').TaskProgressMessage) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
+      hasReceivedEvent = true
       const data = { message: msg.message, percentage: msg.progress }
       const seq = await streamingEventLog.append(executionId, 'progress', data)
       stream.writeSSE({
@@ -1401,6 +1412,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     const onToolTrace = async (msg: import('../types/relay.js').TaskToolTraceMessage) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
+      hasReceivedEvent = true
       waitingForApproval = false
 
       // Only send tool_use SSE when toolInput is present (avoid orphan tool_use
@@ -1430,6 +1442,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     const onFileChange = async (msg: import('../types/relay.js').TaskFileChangeMessage) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
+      hasReceivedEvent = true
       // Compute line counts from diff when not provided
       let linesAdded = msg.linesAdded
       let linesRemoved = msg.linesRemoved
@@ -1466,6 +1479,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     const onApprovalRequest = (msg: { taskId: string; requestId: string; question: string; options: string[]; machineId?: string }) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
+      hasReceivedEvent = true
       waitingForApproval = true
       // Persist approval_request so it survives page refresh
       const approvalData = { requestId: msg.requestId, question: msg.question, options: msg.options, machineId: msg.machineId || machineId }
@@ -1475,6 +1489,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     const onSafetyPrompt = (msg: { taskId: string; safetyTier: string; warning?: string; options: Array<{ id: string; label: string; description?: string }>; machineId?: string }) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
+      hasReceivedEvent = true
       waitingForApproval = true
       // Persist safety_prompt so it survives page refresh
       const safetyData = { safetyTier: msg.safetyTier, warning: msg.warning, options: msg.options, machineId: msg.machineId || machineId }
@@ -1547,15 +1562,49 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       data: JSON.stringify(initDataForSSE),
     })
 
-    // Keepalive + activity timeout
+    // Keepalive + two-tier activity timeout
+    // Tier 1 (STARTUP_TIMEOUT_MS): If no events at all after dispatch, agent-runner
+    //   likely failed to pick up the task (crash, busy, bad state). Retries up to 3x.
+    // Tier 2 (ACTIVITY_TIMEOUT_MS): After first event, allow longer gaps between
+    //   events (long tool calls, builds, API waits). Still detect true stalls.
     const heartbeat = setInterval(() => {
       if (!alive) { clearInterval(heartbeat); return }
-      if (Date.now() - lastActivity > ACTIVITY_TIMEOUT_MS) {
+      const timeoutMs = hasReceivedEvent ? ACTIVITY_TIMEOUT_MS : STARTUP_TIMEOUT_MS
+      if (Date.now() - lastActivity > timeoutMs) {
         // Don't timeout if we're waiting for user approval (ask_user_question)
         if (dispatchEngine.hasPendingApprovalForExecution(executionId) || waitingForApproval) {
           lastActivity = Date.now() // Reset timer while approval is pending
         } else if (!resultSent) {
-          const errorData = { error: 'Activity timeout — agent runner stopped responding', recoverable: false }
+          // Startup timeout: retry dispatch up to MAX_STARTUP_RETRIES times
+          if (!hasReceivedEvent && startupRetries < MAX_STARTUP_RETRIES) {
+            startupRetries++
+            console.log(`[dispatch] Startup timeout for ${executionId}, retry ${startupRetries}/${MAX_STARTUP_RETRIES}`)
+            // Cancel previous dispatch to prevent duplicate concurrent executions
+            relayServer.cancelTask(executionId, machineId || '')
+            lastActivity = Date.now() // Reset timer for next attempt
+            const retried = relayServer.dispatchTask(taskDispatch, machineId, user?.id)
+            if (retried) {
+              stream.writeSSE({
+                event: 'text',
+                data: `\n[Astro] Agent runner did not respond — retrying (attempt ${startupRetries + 1}/${MAX_STARTUP_RETRIES + 1})...\n`,
+              }).catch(() => { alive = false })
+              return // Continue waiting
+            }
+            // If re-dispatch failed, fall through to error
+          }
+
+          const errorMsg = hasReceivedEvent
+            ? 'Activity timeout — agent runner stopped responding after 2 hours of inactivity'
+            : `Startup timeout — agent runner did not start after ${MAX_STARTUP_RETRIES + 1} attempts. The machine may be busy or the agent process failed to launch. Try re-executing the task.`
+          const errorData = { error: errorMsg, recoverable: true }
+
+          // Update plan_nodes so the node doesn't stay in_progress if browser is disconnected
+          db.update(planNodes)
+            .set({ status: 'planned', executionError: errorMsg, updatedAt: new Date() })
+            .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+            .execute()
+            .catch((err) => console.error(`[dispatch] Failed to update plan_node on timeout:`, err))
+
           const sendDone = () => {
             stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
           }
