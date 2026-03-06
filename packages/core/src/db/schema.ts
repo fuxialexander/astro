@@ -354,6 +354,8 @@ export const taskExecutions = pgTable('task_executions', {
   model: text('model'),
   turnsUsed: integer('turns_used'),
   markdownSummary: text('markdown_summary'),
+  verifiedBy: uuid('verified_by'),
+  verificationNote: text('verification_note'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 }, (table) => [
   index('task_executions_project_user_idx').on(table.projectId, table.userId),
