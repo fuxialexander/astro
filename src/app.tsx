@@ -331,6 +331,7 @@ export default function App() {
                 <Route path="project/:id/timeline" element={<PlanView />} />
                 <Route path="project/:id/board" element={<PlanView />} />
                 <Route path="project/:id/overview" element={<PlanView />} />
+                <Route path="project/:id/knowledge" element={<PlanView />} />
                 <Route path="project/:id/task/:nodeId" element={<TaskDetail />} />
                 <Route path="initiatives" element={<Initiatives />} />
                 <Route path="tasks" element={<MyTasks />} />
