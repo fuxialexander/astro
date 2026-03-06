@@ -1,11 +1,11 @@
 /**
- * Plan Session End-to-End Tests
+ * Plan Generation End-to-End Tests
  *
- * Tests the Interactive Plan Session feature at two levels:
+ * Tests the Interactive Plan Generation feature at two levels:
  *
  * 1. Store-level tests (always run) — verify Zustand store logic:
- *    - startPlanSession creates execution entry synchronously
- *    - cancelPlanSession removes abort controller and marks cancelled
+ *    - startPlanGeneration creates execution entry synchronously
+ *    - cancelPlanGeneration removes abort controller and marks cancelled
  *    - Sidebar store includes "plan" item in defaults
  *
  * 2. API integration tests (requires running server) — verify HTTP contract:
@@ -13,7 +13,7 @@
  *    - POST /api/dispatch/steer endpoint exists
  *    - Health check returns valid status
  *
- * Run with: npx vitest run tests/plan-session-e2e.test.ts
+ * Run with: npx vitest run tests/plan-generation-e2e.test.ts
  * For API tests, start server first: npm run dev:local
  */
 
@@ -139,7 +139,7 @@ const MOCK_UUID = 'e2e-test-1111-2222-3333-444444444444'
 import { useExecutionStore } from '@/stores/execution-store'
 import { useSidebarStore, sidebarDefaults } from '@/stores/sidebar-store'
 
-describe('Plan Session - Store', () => {
+describe('Plan Generation - Store', () => {
   beforeEach(() => {
     vi.stubGlobal('crypto', {
       randomUUID: vi.fn().mockReturnValue(MOCK_UUID),
@@ -160,9 +160,9 @@ describe('Plan Session - Store', () => {
     vi.unstubAllGlobals()
   })
 
-  // ── startPlanSession ────────────────────────────────────────────────────
+  // ── startPlanGeneration ────────────────────────────────────────────────────
 
-  it('startPlanSession creates execution entry synchronously before SSE completes', async () => {
+  it('startPlanGeneration creates execution entry synchronously before SSE completes', async () => {
     // Simulate slow SSE stream that never resolves during the test
     mockParseSSEStream.mockReturnValue(new Promise(() => {}))
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
@@ -173,7 +173,7 @@ describe('Plan Session - Store', () => {
       headers: new Headers(),
     }))
 
-    const result = await useExecutionStore.getState().startPlanSession(
+    const result = await useExecutionStore.getState().startPlanGeneration(
       'Build a full-stack todo app',
       'Todo App',
     )
@@ -194,7 +194,7 @@ describe('Plan Session - Store', () => {
     expect(execution.startedAt).toBeInstanceOf(Date)
   })
 
-  it('startPlanSession dispatches POST to /api/dispatch/task with isInteractivePlan flag', async () => {
+  it('startPlanGeneration dispatches POST to /api/dispatch/task with isInteractivePlan flag', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -204,7 +204,7 @@ describe('Plan Session - Store', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    await useExecutionStore.getState().startPlanSession(
+    await useExecutionStore.getState().startPlanGeneration(
       'Implement auth system',
       'Auth Project',
       { workingDirectory: '/home/user/project', model: 'claude-sonnet-4-6' },
@@ -229,9 +229,9 @@ describe('Plan Session - Store', () => {
     expect(body.projectId).toBe(MOCK_UUID)
   })
 
-  // ── cancelPlanSession ───────────────────────────────────────────────────
+  // ── cancelPlanGeneration ───────────────────────────────────────────────────
 
-  it('cancelPlanSession marks execution as cancelled and sets completedAt', async () => {
+  it('cancelPlanGeneration marks execution as cancelled and sets completedAt', async () => {
     // Set up an active execution
     const nodeId = `plan-cancel-test-id`
     const executions = new Map()
@@ -248,7 +248,7 @@ describe('Plan Session - Store', () => {
     })
     useExecutionStore.setState({ executions })
 
-    await useExecutionStore.getState().cancelPlanSession('cancel-test-id')
+    await useExecutionStore.getState().cancelPlanGeneration('cancel-test-id')
 
     const execution = useExecutionStore.getState().executions.get(nodeId)
     expect(execution).toBeDefined()
@@ -256,7 +256,7 @@ describe('Plan Session - Store', () => {
     expect(execution.completedAt).toBeInstanceOf(Date)
   })
 
-  it('cancelPlanSession marks execution as cancelled', async () => {
+  it('cancelPlanGeneration marks execution as cancelled', async () => {
     const nodeId = `plan-cancel-agent`
     const executions = new Map()
     executions.set(nodeId, {
@@ -272,7 +272,7 @@ describe('Plan Session - Store', () => {
     })
     useExecutionStore.setState({ executions })
 
-    await useExecutionStore.getState().cancelPlanSession('cancel-agent')
+    await useExecutionStore.getState().cancelPlanGeneration('cancel-agent')
 
     const execution = useExecutionStore.getState().executions.get(nodeId)
     expect(execution).toBeDefined()
@@ -280,9 +280,9 @@ describe('Plan Session - Store', () => {
     expect(execution!.completedAt).toBeInstanceOf(Date)
   })
 
-  it('cancelPlanSession is a graceful no-op when no execution exists', async () => {
+  it('cancelPlanGeneration is a graceful no-op when no execution exists', async () => {
     await expect(
-      useExecutionStore.getState().cancelPlanSession('nonexistent-project')
+      useExecutionStore.getState().cancelPlanGeneration('nonexistent-project')
     ).resolves.not.toThrow()
   })
 
@@ -322,7 +322,7 @@ try {
   serverAvailable = false
 }
 
-describe.skipIf(!serverAvailable)('Plan Session - API (requires server)', () => {
+describe.skipIf(!serverAvailable)('Plan Generation - API (requires server)', () => {
   it('health check returns valid status', async () => {
     const response = await fetch(`${API_BASE}/api/health`)
     expect(response.ok).toBe(true)

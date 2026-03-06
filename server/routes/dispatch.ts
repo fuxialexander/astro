@@ -30,7 +30,7 @@ import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch } from '../lib/prompt-templates.js'
 import { skillManager } from '../lib/skill-manager.js'
-import { extractPlanJsonFromText, retryPlanExtractionWithHaiku } from '@astro/core'
+import { extractPlanJsonFromText } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { autoDispatchDownstream } from './data.js'
 
@@ -1248,20 +1248,6 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           // Regex extraction succeeded — emit plan_result synchronously before result
           const planSeq = await streamingEventLog.append(executionId, 'plan_result', planJson)
           stream.writeSSE({ id: String(planSeq), event: 'plan_result', data: JSON.stringify(planJson) }).catch(() => { alive = false })
-        } else {
-          // Regex failed — fire-and-forget Haiku retry (does NOT block result event)
-          // Always persist to DB even if SSE stream is closed, so page-refresh recovery works.
-          retryPlanExtractionWithHaiku(textForExtraction, process.env.ANTHROPIC_API_KEY)
-            .then(retried => {
-              if (!retried) return
-              return streamingEventLog.append(executionId, 'plan_result', retried)
-                .then(seq => {
-                  if (alive) {
-                    stream.writeSSE({ id: String(seq), event: 'plan_result', data: JSON.stringify(retried) }).catch(() => {})
-                  }
-                })
-            })
-            .catch(e => console.error('[dispatch] Haiku retry failed:', e))
         }
       }
 

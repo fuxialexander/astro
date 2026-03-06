@@ -205,7 +205,7 @@ Backend-scoped skills and environment context are injected in **all four** promp
 | Context | Route | Prompt Builder | Skills | Env Context |
 |---------|-------|----------------|--------|-------------|
 | Plan generation | `POST /generate-plan` | `buildPlanSystemPrompt()` | `skillsSummary` param | `environmentContext` param |
-| Plan chat | `POST /plan-chat` | `buildChatSystemPrompt()` | `skillsInjection` param | `environmentContext` param |
+| Plan chat | `POST /project-chat` | `buildChatSystemPrompt()` | `skillsInjection` param | `environmentContext` param |
 | Task chat | `POST /task-chat` | `buildTaskChatSystemPrompt()` | `skillsInjection` in context | `environmentContext` in context |
 | Task dispatch | `POST /dispatch/task` | Relay system prompt | `skillsInjection` appended | (via execution strategy) |
 
@@ -296,7 +296,7 @@ interface BackendMultiSelectProps {
 
 - `generatePlan()` — plan generation
 - `chatWithAgent()` — plan chat
-- `planChatWithAgent()` — plan chat (alternate path)
+- `projectChatWithAgent()` — plan chat (alternate path)
 - `TaskChatParams` — task chat
 
 ### Agent Store Integration

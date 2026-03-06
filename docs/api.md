@@ -103,7 +103,7 @@ All auth required. SSE-streaming endpoints return `text/event-stream`.
 | Method | Path | Streaming | Description |
 |--------|------|-----------|-------------|
 | POST | `/agent/chat` | SSE | General project chat |
-| POST | `/agent/plan-chat` | SSE | Plan-focused chat (defaults to haiku) |
+| POST | `/agent/project-chat` | SSE | Project-focused chat (defaults to haiku) |
 | POST | `/agent/task-chat` | SSE | Task-specific chat with execution context |
 | POST | `/agent/abort` | — | Abort active session |
 | POST | `/agent/compact` | SSE | Summarize conversation history |
@@ -478,7 +478,7 @@ Astro uses three complementary real-time systems:
 
 **Two SSE patterns:**
 
-1. **Action SSE**: `POST /api/dispatch/task`, `POST /api/agent/plan-chat`, etc. return an SSE stream for that operation. Frontend parses via `parseExecutionSSE()` or `parseChatSSE()`.
+1. **Action SSE**: `POST /api/dispatch/task`, `POST /api/agent/project-chat`, etc. return an SSE stream for that operation. Frontend parses via `parseExecutionSSE()` or `parseChatSSE()`.
 2. **Global event stream**: `GET /api/events/stream` — persistent SSE connection for real-time events (machine state, task progress, approvals). Subscribes to both `ExecutionEventBus` and relay server EventEmitter.
 
 **Dual-path deduplication:** When a dispatch bridge is active for a task, the global event stream skips relay-direct events for that task (via `activeDispatchStreams` guard) to avoid double-sending. After page refresh kills the dispatch bridge, the global stream picks up relay-direct events as fallback.

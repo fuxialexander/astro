@@ -32,6 +32,17 @@ allowedTools: [Bash, Read, Write, Glob, Grep]
 - Check pod logs: `kubectl logs <pod> -n <namespace> --tail=100`
 - Follow logs: `kubectl logs -f <pod> -n <namespace>`
 
+## Batch Workloads
+- Create Job: `kubectl create job <name> --image=<image> -- <command>`
+- Create CronJob: `kubectl create cronjob <name> --image=<image> --schedule="0 */6 * * *" -- <command>`
+- List jobs: `kubectl get jobs -n <namespace>`
+- Check job status: `kubectl describe job <name> -n <namespace>`
+
+## Debugging & Port Forwarding
+- Port forward to pod: `kubectl port-forward <pod> <local-port>:<pod-port> -n <namespace>`
+- Port forward to service: `kubectl port-forward svc/<service> <local-port>:<svc-port> -n <namespace>`
+- Get events: `kubectl get events -n <namespace> --sort-by=.lastTimestamp`
+
 ## Namespace Best Practices
 - List namespaces: `kubectl get namespaces`
 - Set default namespace: `kubectl config set-context --current --namespace=<ns>`

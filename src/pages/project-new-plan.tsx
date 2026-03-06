@@ -20,7 +20,7 @@ import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSettingsStore, resolveModel, type ModelTier } from "@/stores/settings-store"
 import { useClaudeSessionsStore } from "@/stores/claude-sessions-store"
 import { useExampleStore } from "@/stores/example-store"
-import { PlanChatPhase } from "@/components/plan-session/plan-chat-phase"
+import { PlanGeneration } from "@/components/plan-generation/plan-generation"
 import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
 import { ExamplePickerDialog } from "@/components/examples/example-picker-dialog"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
@@ -97,8 +97,8 @@ export function ProjectNewPlan() {
 
 
   // Stores
-  const startPlanSession = useExecutionStore((s) => s.startPlanSession)
-  const startPlanSessionForProject = useExecutionStore((s) => s.startPlanSessionForProject)
+  const startPlanGeneration = useExecutionStore((s) => s.startPlanGeneration)
+  const startPlanGenerationForProject = useExecutionStore((s) => s.startPlanGenerationForProject)
   const setStoreAutoExecute = useExecutionStore((s) => s.setAutoExecute)
   const allExecutions = useExecutionStore((s) => s.executions)
   const execution = useExecutionStore((s) =>
@@ -398,7 +398,7 @@ export function ProjectNewPlan() {
     }
 
     // Always return the visionDoc when from playground (even if minimal) so the
-    // "From Playground" badge detection in PlanChatPhase works reliably
+    // "From Playground" badge detection in PlanGeneration works reliably
     return sections.join('\n')
   }, [fromPlaygroundId, playgroundProject, playgroundExecution])
 
@@ -466,7 +466,7 @@ export function ProjectNewPlan() {
           }
           setAttachments((prev) => [...prev, attachment])
         } catch (err) {
-          console.error('[plan-session] Failed to upload pasted image:', err)
+          console.error('[plan-generation] Failed to upload pasted image:', err)
           useToastStore.getState().add({
             type: 'error',
             title: 'Upload failed',
@@ -478,7 +478,7 @@ export function ProjectNewPlan() {
       }
       // Handle FileReader errors (e.g., file access denied, read failure)
       reader.onerror = () => {
-        console.error('[plan-session] FileReader error for:', filename)
+        console.error('[plan-generation] FileReader error for:', filename)
         setPendingUploads((prev) => Math.max(0, prev - 1))
         useToastStore.getState().add({
           type: 'error',
@@ -517,7 +517,7 @@ export function ProjectNewPlan() {
       })
 
       // Start plan generation SSE using the existing project
-      await startPlanSessionForProject(
+      await startPlanGenerationForProject(
         project.id,
         planGenerationRequest.description,
         {
@@ -544,7 +544,7 @@ export function ProjectNewPlan() {
         description: `Starting plan generation for "${project.name}"...`,
       })
     } catch (error) {
-      console.error("[plan-session] Failed to start plan from template:", error)
+      console.error("[plan-generation] Failed to start plan from template:", error)
       useToastStore.getState().add({
         type: "error",
         title: "Template launch failed",
@@ -553,7 +553,7 @@ export function ProjectNewPlan() {
     } finally {
       setTemplateLaunching(false)
     }
-  }, [startPlanSessionForProject, setSearchParams, autoExecute, setStoreAutoExecute])
+  }, [startPlanGenerationForProject, setSearchParams, autoExecute, setStoreAutoExecute])
 
   // Auto-launch from Examples page (templateLaunchResult passed via location state)
   const templateLaunchHandled = useRef(false)
@@ -597,7 +597,7 @@ export function ProjectNewPlan() {
         updateProject(existingProject.id, regenUpdates) // optimistic local
         await dataClient.updateProject(existingProject.id, regenUpdates) // await backend
 
-        const result = await startPlanSessionForProject(
+        const result = await startPlanGenerationForProject(
           existingProject.id,
           description.trim(),
           {
@@ -612,7 +612,7 @@ export function ProjectNewPlan() {
         projectId = result.projectId
       } else {
         // Normal flow: create a new project + plan session
-        const result = await startPlanSession(
+        const result = await startPlanGeneration(
           description.trim(),
           firstLine,
           {
@@ -635,7 +635,7 @@ export function ProjectNewPlan() {
       setActiveProjectId(projectId)
       setSearchParams({ projectId })
     } catch (error) {
-      console.error("[plan-session] Failed to start:", error)
+      console.error("[plan-generation] Failed to start:", error)
     } finally {
       setIsSubmitting(false)
     }
@@ -648,7 +648,7 @@ export function ProjectNewPlan() {
   if (activeProjectId && (execution || project) && !showInputForRegeneration) {
     return (
       <div className="h-full">
-        <PlanChatPhase
+        <PlanGeneration
           projectId={activeProjectId}
           projectName={project?.name || "New Project"}
           machineName={machineName}

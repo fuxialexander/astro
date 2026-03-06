@@ -28,6 +28,16 @@ allowedTools: [Bash, Read, Write, Glob, Grep]
 - View logs: `docker logs <container> --tail=100`
 - Follow logs: `docker logs -f <container>`
 
+## Resource Limits
+- Limit memory: `docker run --memory=16g <image>`
+- Limit CPUs: `docker run --cpus=4 <image>`
+- Combined: `docker run --gpus all --memory=32g --cpus=8 <image>`
+
+## Networking & Environment
+- Map port: `docker run -p <host-port>:<container-port> <image>`
+- Set env variable: `docker run -e KEY=VALUE <image>`
+- Use env file: `docker run --env-file .env <image>`
+
 ## Image Management
 - Build image: `docker build -t <tag> .`
 - List images: `docker images`

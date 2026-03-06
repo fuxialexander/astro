@@ -519,15 +519,15 @@ When you drill into a specific task, you see its full execution history. These c
 
 - **`chat-panel.tsx`** -- A sidebar chat panel for refining the plan through conversation. The user can ask the AI to modify the plan, and the AI responds with both explanatory text and structured plan modifications that get applied automatically.
 
-### 4.5 Plan Session (`src/components/plan-session/`)
+### 4.5 Plan Generation (`src/components/plan-generation/`)
 
 These components power the interactive plan creation and chat experience used in `project-new-plan.tsx`:
 
-- **`plan-chat-phase.tsx`** -- The chat phase of plan creation. Renders a full-height streaming activity view with inline approvals, plan result cards, and a message input. Reuses the `DisplayBlock` components from `activity-blocks.tsx`.
+- **`plan-generation.tsx`** -- The chat phase of plan creation. Renders a full-height streaming activity view with inline approvals, plan result cards, and a message input. Reuses the `DisplayBlock` components from `activity-blocks.tsx`.
 
 - **`plan-result-card.tsx`** -- Displays a generated plan result as a card with project name, node count, and a link to view the plan graph. Shown inline in the chat stream when the AI finishes generating a plan.
 
-- **`plan-session-header.tsx`** -- Header bar for the plan session phase, showing project name and session controls.
+- **`plan-generation-header.tsx`** -- Header bar for the plan generation phase, showing project name and session controls.
 
 - **`inline-approval-card.tsx`** -- Renders approval requests inline within the streaming activity. When the AI agent needs a human decision during plan generation, this card shows the question with approve/deny/input options.
 
@@ -704,9 +704,9 @@ The user sees a clean goal-entry form with the following elements:
 
 **Phase 2: Chat Phase**
 
-After the user submits their goal, the page transitions to a full-height streaming activity view powered by `PlanChatPhase`:
+After the user submits their goal, the page transitions to a full-height streaming activity view powered by `PlanGeneration`:
 
-- The system dispatches a plan session via `execution-store.startPlanSession()`, which sends a POST to `/api/dispatch/task` with `taskType: 'plan'`.
+- The system dispatches a plan generation via `execution-store.startPlanGeneration()`, which sends a POST to `/api/dispatch/task` with `taskType: 'plan'`.
 - Streaming events arrive via SSE and are rendered as `DisplayBlock` components (same activity blocks used in task detail).
 - The AI's reasoning appears as text blocks in real-time.
 - When the AI needs a human decision, an `InlineApprovalCard` appears inline in the stream.
@@ -729,7 +729,7 @@ addProject() writes to the Zustand store (optimistic) and Hono backend (persiste
 The page transitions to the Chat Phase (same URL, different UI state)
   |
   v
-startPlanSession() dispatches via POST /api/dispatch/task with:
+startPlanGeneration() dispatches via POST /api/dispatch/task with:
   - taskType: 'plan'
   - workingDirectory, machineId, branch, provider, model
   - The goal description as the task prompt

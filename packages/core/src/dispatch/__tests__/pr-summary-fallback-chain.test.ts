@@ -1,41 +1,16 @@
 /**
  * Tests for runPrSummaryFallbackChain function.
  *
- * This test suite covers the 5-layer fallback chain for generating PR body summaries:
+ * This test suite covers the 4-layer fallback chain for generating PR body summaries:
  * 1. Structured summary from TaskResult.summary.executiveSummary
  * 2. Parsed in-stream executive summary from output text
- * 3. Server-side summary generation via Anthropic API
- * 4. Git diff + commit log summary
- * 5. Task description fallback
+ * 3. Git diff + commit log summary
+ * 4. Task description fallback
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { runPrSummaryFallbackChain } from '../summary-utils.js'
 import type { TaskResult } from '../types.js'
-
-// Mock the Anthropic SDK to avoid real API calls in tests
-const mockCreate = vi.fn().mockResolvedValue({
-  content: [
-    {
-      type: 'text',
-      text: JSON.stringify({
-        workCompleted: 'Server generated summary',
-        keyFindings: ['Server finding 1'],
-        filesChanged: ['file.ts'],
-        status: 'success',
-        followUps: [],
-      }),
-    },
-  ],
-})
-
-vi.mock('@anthropic-ai/sdk', () => ({
-  default: class MockAnthropic {
-    messages = {
-      create: mockCreate,
-    }
-  },
-}))
 
 describe('runPrSummaryFallbackChain', () => {
   const baseTaskResult: TaskResult = {
@@ -194,25 +169,12 @@ Some agent output here...
         executionOutput,
       })
 
-      // Should fall through to task_description since server generation requires API key
+      // Should fall through to task_description
       expect(result.source).toBe('task_description')
     })
   })
 
-  describe('Layer 3: Server-side summary generation', () => {
-    it('uses server generation when parsing fails and API key is available', async () => {
-      const result = await runPrSummaryFallbackChain({
-        ...baseInput,
-        executionOutput: 'Some output without executive summary',
-        apiKey: 'test-api-key',
-      })
-
-      expect(result.source).toBe('server_generated')
-      expect(result.summary).toContain('Server generated summary')
-    })
-  })
-
-  describe('Layer 4: Git diff summary', () => {
+  describe('Layer 3: Git diff summary', () => {
     it('uses git diff summary when provided function returns valid output', async () => {
       const mockGitDiffFn = vi.fn().mockReturnValue(`## Changes
 
@@ -276,14 +238,13 @@ abc1234 Fix bug in authentication
     })
   })
 
-  describe('Layer 5: Task description fallback', () => {
+  describe('Layer 4: Task description fallback', () => {
     it('falls back to task description when all other layers fail', async () => {
       const result = await runPrSummaryFallbackChain({
         ...baseInput,
         // No summary in taskResult
         // No executionOutput
         // No worktreePath or gitDiffFn
-        // No API key
       })
 
       expect(result.source).toBe('task_description')
@@ -362,7 +323,6 @@ abc1234 Fix bug in authentication
         executionOutput: 'Some output without executive summary',
         worktreePath: '/path/to/worktree',
         generateGitDiffSummary: mockGitDiffFn,
-        // No API key for server generation
       })
 
       expect(result.source).toBe('git_diff')
@@ -388,20 +348,6 @@ abc1234 Fix bug in authentication
 
       // Empty workCompleted should fall through to next layer
       expect(result.source).toBe('task_description')
-    })
-
-    it('handles file changes in server generation', async () => {
-      const result = await runPrSummaryFallbackChain({
-        ...baseInput,
-        executionOutput: 'Some output',
-        fileChanges: [
-          { path: 'src/index.ts', action: 'modify' },
-          { path: 'src/utils.ts', action: 'create' },
-        ],
-        apiKey: 'test-api-key',
-      })
-
-      expect(result.source).toBe('server_generated')
     })
 
     it('handles failure status in task result', async () => {

@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { FileCompletionTextarea, type MentionItem, type SlashCommand } from "@/components/ui/file-completion-textarea"
 import { TypingIndicator } from "@/components/ui/typing-indicator"
-import { planChatWithAgent, fetchSlashCommands, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
+import { projectChatWithAgent, fetchSlashCommands, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { useSettingsStore, resolveModel } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
@@ -379,7 +379,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     let localToolCount = 0
 
     try {
-      await planChatWithAgent(
+      await projectChatWithAgent(
         {
           message: text,
           sessionId: hasCompletedExchange ? session.providerSessionId : undefined,

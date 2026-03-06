@@ -137,16 +137,12 @@ async function buildPrBody(
   }
 
   // Use the core fallback chain for summary generation
-  // (5 layers: structured → parsed → server-generated → git diff → task description)
+  // (4 layers: structured → parsed → git diff → task description)
   const summaryResult = await runPrSummaryFallbackChain({
     taskResult: result,
     taskTitle: node.title,
     taskDescription: node.description || '',
     executionOutput: result.stdout,
-    fileChanges: (result.filesChanged || []).map((f) => ({
-      path: f.path,
-      action: f.diff ? 'modified' : 'changed',
-    })),
     worktreePath: 'worktreePath' in result && typeof (result as Record<string, unknown>).worktreePath === 'string'
       ? (result as Record<string, unknown>).worktreePath as string
       : undefined,
