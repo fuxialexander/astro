@@ -482,9 +482,12 @@ agentRoute.post('/project-chat', async (c) => {
   // Look up the project's working directory, default machine, and compute backends
   const [project] = await db.select({ workingDirectory: projects.workingDirectory, defaultMachineId: projects.defaultMachineId, computeBackends: projects.computeBackends }).from(projects).where(eq(projects.id, projectId)).limit(1)
 
-  // Resolve backends: body override > project setting
+  // Only inject skills when a compute backend is explicitly selected.
+  // Non-backend skills come through templates via visionDoc, not here.
   const backends = selectedBackends ?? (project?.computeBackends as string[] | null) ?? undefined
-  const chatSkills = skillManager.getBackendScopedSkillInjection(chatUser.teamId ?? null, backends) || undefined
+  const chatSkills = backends?.length
+    ? (skillManager.getBackendScopedSkillInjection(chatUser.teamId ?? null, backends) || undefined)
+    : undefined
 
   const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges, chatSkills)
 
@@ -568,9 +571,11 @@ agentRoute.post('/task-chat', async (c) => {
   // Look up the project's working directory, default machine, and compute backends
   const [project] = await db.select({ workingDirectory: projects.workingDirectory, defaultMachineId: projects.defaultMachineId, computeBackends: projects.computeBackends }).from(projects).where(eq(projects.id, projectId)).limit(1)
 
-  // Resolve backends: body override > project setting
+  // Only inject skills when a compute backend is explicitly selected.
   const tcBackends = selectedBackends ?? (project?.computeBackends as string[] | null) ?? undefined
-  const tcSkills = skillManager.getBackendScopedSkillInjection(taskChatUser.teamId ?? null, tcBackends) || undefined
+  const tcSkills = tcBackends?.length
+    ? (skillManager.getBackendScopedSkillInjection(taskChatUser.teamId ?? null, tcBackends) || undefined)
+    : undefined
 
   const systemPrompt = buildTaskChatSystemPrompt({
     taskTitle,
