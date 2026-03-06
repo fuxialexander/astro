@@ -345,7 +345,19 @@ User Environment Context (loadEnvironmentContext):
 
 2. **Provider-side loading** (`settingSources` on Claude SDK, native on CLI): Provider loads its own skill files (`~/.claude/skills/`, `~/.codex/skills/`). Only works for agentic/chat pathways where the provider has tool access. Applied to P1-P4 (agentic) and P6-P8 (chat).
 
-One-shot pathways (P9-P13) and fallbacks (P15-P16) don't need skills because they are simple single-turn completions -- summarization, title generation, label classification. Adding skills would increase prompt size and latency for no benefit.
+### Why one-shot pathways (P10-P13) don't load skills
+
+P10-P13 are real, user-visible workflows that produce tangible outputs:
+- **P10 Summary**: Structured findings card on the task detail page
+- **P11 Title**: Auto-generated task title that appears in plan nodes
+- **P12 Refine**: Improved title + description, replaces original
+- **P13 Labels**: Suggested labels (Frontend, Backend, Testing, etc.) as badges
+
+These are **"generate once, store the result, discard the trace"** workflows. They use `executeViaRelay()` (no streaming event persistence) instead of `streamChatViaRelay()`. The refined title/description/labels/summary is what matters -- the generation process is ephemeral.
+
+Skills are not loaded because the input (task description, execution output) already contains sufficient context for a one-shot refinement. Injecting compute backend skills into a title generator would add prompt tokens and latency without improving output quality.
+
+P9 (Compact) and P14 (Steering) are control signals, not generation workflows. P15-P16 are last-resort fallbacks that call the Anthropic API directly (not through the relay).
 
 ---
 

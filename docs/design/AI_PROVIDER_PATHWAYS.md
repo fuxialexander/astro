@@ -306,14 +306,14 @@ The constraint `claude-sdk` only is because only the Claude SDK adapter has the 
 
 | # | Pathway | Supported Providers | Model Selection | Default Model |
 |---|---------|--------------------|-----------------|--------------|
-| 1-3 | Execution/Playground/Interactive | All 5 (SDK, Codex, OpenClaw, OpenCode, CC CLI) | User override via UI | Agent runner default |
+| 1-3 | Execution/Playground/Interactive | All 4 (SDK, Codex, OpenClaw, OpenCode) | User override via UI | Agent runner default |
 | 4 | HPC/Slurm | **Claude SDK only** | User override | Agent runner default |
-| 5 | Plan Generation | All 5 | User override via UI | Agent runner default |
-| 6 | Project Chat | All 5 | User override via UI | Agent runner default |
-| 7 | Plan Chat | All 5 | User override via UI | **Haiku** (hardcoded default) |
-| 8 | Task Chat | All 5 | User override via UI | Agent runner default |
-| 9 | Compact | All 5 | **Bug: `model` param accepted but discarded** | Agent runner default |
-| 10-13 | Summary/Title/Refine/Labels | All 5 | **No model param** (uses agent runner default) | Agent runner default |
+| 5 | Plan Generation | All 4 | User override via UI | Agent runner default |
+| 6 | Project Chat | All 4 | User override via UI | Agent runner default |
+| 7 | Plan Chat | All 4 | User override via UI | **Haiku** (hardcoded default) |
+| 8 | Task Chat | All 4 | User override via UI | Agent runner default |
+| 9 | Compact | All 4 | **Bug: `model` param accepted but discarded** | Agent runner default |
+| 10-13 | Summary/Title/Refine/Labels | All 4 | **No model param** (uses agent runner default) | Agent runner default |
 | 14 | Steering | N/A (control signal) | N/A | N/A |
 | 15 | Plan Extract Retry | **Anthropic API only** (not via relay) | Hardcoded | `claude-haiku-4-5-20251001` |
 | 16 | Server Summary | **Anthropic API only** (not via relay) | Hardcoded | `claude-3-haiku-20240307` (outdated) |
@@ -488,19 +488,19 @@ This means:
 
 | # | Pathway | Class | Turns | Provider | Skills | Backend Skills | Stored in DB | Model Control |
 |---|---------|-------|-------|----------|--------|---------------|-------------|---------------|
-| 1 | Task Execution | A | Multi | All 5 | Yes | Yes | streaming_events + taskExecutions + planNodes | User override |
-| 2 | Playground | A | Multi | All 5 | Yes | Yes | streaming_events + taskExecutions | User override |
-| 3 | Interactive Plan | A | Multi | All 5 | Yes | Yes | streaming_events | User override |
+| 1 | Task Execution | A | Multi | All 4 | Yes | Yes | streaming_events + taskExecutions + planNodes | User override |
+| 2 | Playground | A | Multi | All 4 | Yes | Yes | streaming_events + taskExecutions | User override |
+| 3 | Interactive Plan | A | Multi | All 4 | Yes | Yes | streaming_events | User override |
 | 4 | HPC/Slurm | A | Multi | SDK only | Yes | Yes (HPC) | streaming_events + taskExecutions | User override |
-| 5 | Plan Generation | B | Multi | All 5 | Server-side only | Yes | streaming_events | User override |
-| 6 | Project Chat | B | Multi | All 5 | Yes | Yes | streaming_events | User override |
-| 7 | Plan Chat | B | Multi | All 5 | Yes | Yes | streaming_events | Default Haiku |
-| 8 | Task Chat | B | Multi | All 5 | Yes | Yes | streaming_events | User override |
-| 9 | Compact | B | 1 | All 5 | No | No | streaming_events | Bug: discarded |
-| 10 | Summary | C | 1 | All 5 | No | No | **None** | Agent default |
-| 11 | Title Gen | C | 1 | All 5 | No | No | **None** | Agent default |
-| 12 | Refine | C | 1 | All 5 | No | No | **None** | Agent default |
-| 13 | Labels | C | 1 | All 5 | No | No | **None** | Agent default |
+| 5 | Plan Generation (DEAD) | B | Multi | All 4 | Server-side only | Yes | streaming_events | User override |
+| 6 | Project Chat | B | Multi | All 4 | Yes | Yes | streaming_events | User override |
+| 7 | Plan Chat | B | Multi | All 4 | Yes | Yes | streaming_events | Default Haiku |
+| 8 | Task Chat | B | Multi | All 4 | Yes | Yes | streaming_events | User override |
+| 9 | Compact | B | 1 | All 4 | No | No | streaming_events | Bug: discarded |
+| 10 | Summary | C | 1 | All 4 | No | No | **None** (result only) | Agent default |
+| 11 | Title Gen | C | 1 | All 4 | No | No | **None** (result only) | Agent default |
+| 12 | Refine | C | 1 | All 4 | No | No | **None** (result only) | Agent default |
+| 13 | Labels | C | 1 | All 4 | No | No | **None** (result only) | Agent default |
 | 14 | Steering | D | 0 | N/A | N/A | N/A | streaming_events (steer_message) | N/A |
 | 15 | Plan Retry | E | 1 | Anthropic only | No | No | streaming_events (plan_result) | Haiku 4.5 |
 | 16 | Server Summary | E | 1 | Anthropic only | No | No | **None** | Haiku 3 |
