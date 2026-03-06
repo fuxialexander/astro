@@ -815,6 +815,7 @@ export function buildInteractivePlanPrompt(
     skillsSummary?: string
     githubContext?: GitHubContextForPrompt
     replanContext?: import('./types.js').ReplanContext
+    providerId?: string
   }
 ): string {
   const visionSection = options?.visionDoc
@@ -933,16 +934,32 @@ You MUST include a final task node titled "Push to GitHub" that:
   }
 
   const hasCodebase = !!options?.repoContext
+  const isDirectPlan = options?.providerId === 'codex'
 
-  return `You are an interactive project planning assistant. Your goal is to help the user create a detailed, actionable project plan through exploration and discussion.
+  // Codex: generate best-guess plan immediately, list uncertainties at the end.
+  // Codex doesn't support AskUserQuestion, so it can't do multi-turn questioning.
+  // Claude Code and other providers: interactive multi-turn questioning approach.
+  let approachSection: string
+  if (isDirectPlan) {
+    approachSection = hasCodebase ? `
+1. **Quick survey of the codebase** — Get a high-level understanding first. Read READMEs, CLAUDE.md, package.json, and use Glob to see the directory/file tree structure. Do NOT dive into individual source files yet — just get the lay of the land.
 
-## User's Goal
-<user_goal>
-${description}
-</user_goal>
-${visionSection}${replanSection}${repoSection}${gitStateSection}${skillsSection}${githubSection}
-## Your Approach
-${hasCodebase ? `
+2. **Deep-dive into relevant files** — Use Read, Glob, and Grep to examine the specific files and code sections that are relevant to the plan. Share what you find as you go.
+
+3. **Share your reasoning** — Think out loud as you explore. Explain what you're finding, what patterns you see, and how they inform the plan.
+
+4. **Produce the plan immediately** — Based on what you've learned, generate your best-guess plan as a JSON object. Do NOT ask clarifying questions — make reasonable assumptions and move forward. Default verification to "auto" for programmatically verifiable tasks and "human" for design/product decisions.
+
+5. **List uncertainties** — After the JSON plan, list any assumptions you made or questions that could refine the plan. Format as a bulleted list under a "## Assumptions & Open Questions" heading. The user can address these in a follow-up chat and the plan can be refined.` : `
+1. **Use web search** — Use WebSearch and WebFetch to research relevant technologies, libraries, best practices, or documentation that would inform the plan.
+
+2. **Share your reasoning** — Think out loud. Explain your thought process, what tradeoffs you see, and how they inform the plan.
+
+3. **Produce the plan immediately** — Based on the user's description, generate your best-guess plan as a JSON object. Do NOT ask clarifying questions — make reasonable assumptions and move forward. Default verification to "auto" for programmatically verifiable tasks and "human" for design/product decisions.
+
+4. **List uncertainties** — After the JSON plan, list any assumptions you made or questions that could refine the plan. Format as a bulleted list under a "## Assumptions & Open Questions" heading. The user can address these in a follow-up chat and the plan can be refined.`
+  } else {
+    approachSection = hasCodebase ? `
 1. **Quick survey of the codebase** — Get a high-level understanding first. Read READMEs, CLAUDE.md, package.json, and use Glob to see the directory/file tree structure. Do NOT dive into individual source files yet — just get the lay of the land.
 
 2. **Ask clarifying questions** — Use AskUserQuestion to get the user's input on:
@@ -987,7 +1004,32 @@ ${hasCodebase ? `
    Options: "Automated only", "Automated + human review", "Mixed — auto for testable, human for design", "I'll specify per-task"
    Based on their answer, set each node's \`verification\` field and populate \`acceptanceCriteria\`.
 
-5. **Produce the final plan** — Once you have enough information, output the complete plan as a JSON object. The JSON MUST be the last thing you output.`}
+5. **Produce the final plan** — Once you have enough information, output the complete plan as a JSON object. The JSON MUST be the last thing you output.`
+  }
+
+  const importantSection = isDirectPlan
+    ? `## Important
+- Do NOT ask clarifying questions. Generate the best plan you can with the information available.
+- Do NOT write code, create files, or build anything. Your only job is to plan — the tasks you create will be executed later by agents.
+- Your text output is visible to the user in real-time as a chat conversation.
+- The JSON plan should be the LAST thing you output, wrapped in a \`\`\`json code fence.
+- After the JSON, list your assumptions and open questions so the user can refine the plan in a follow-up chat.`
+    : `## Important
+- Do NOT rush to produce the plan. Take time to explore and ask questions first.
+- Do NOT write code, create files, or build anything. Your only job is to plan — the tasks you create will be executed later by agents.
+- Your text output is visible to the user in real-time as a chat conversation.
+- The JSON plan should be the LAST thing you output, wrapped in a \`\`\`json code fence.
+- After the JSON, do not output any more text.`
+
+  return `You are an interactive project planning assistant. Your goal is to help the user create a detailed, actionable project plan through exploration and discussion.
+
+## User's Goal
+<user_goal>
+${description}
+</user_goal>
+${visionSection}${replanSection}${repoSection}${gitStateSection}${skillsSection}${githubSection}
+## Your Approach
+${approachSection}
 
 ## Plan Output Format
 
@@ -1048,10 +1090,5 @@ When ready, output a single JSON object with this structure:
 ## Edge Rules
 - type: "dependency" for sequential, "branch" for parallel paths
 
-## Important
-- Do NOT rush to produce the plan. Take time to explore and ask questions first.
-- Do NOT write code, create files, or build anything. Your only job is to plan — the tasks you create will be executed later by agents.
-- Your text output is visible to the user in real-time as a chat conversation.
-- The JSON plan should be the LAST thing you output, wrapped in a \`\`\`json code fence.
-- After the JSON, do not output any more text.`
+${importantSection}`
 }

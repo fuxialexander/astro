@@ -440,8 +440,8 @@ export function createContextAssembler(
   config?: Partial<Pick<DispatchEngineConfig, 'maxDependencyOutputSize' | 'maxKnowledgeSize'>>
 ): ContextAssembler {
   return new ContextAssembler({
-    maxDependencyOutputSize: config?.maxDependencyOutputSize ?? 10000,
-    maxKnowledgeSize: config?.maxKnowledgeSize ?? 8000,
+    maxDependencyOutputSize: config?.maxDependencyOutputSize ?? 20000,
+    maxKnowledgeSize: config?.maxKnowledgeSize ?? 16000,
   })
 }
 
