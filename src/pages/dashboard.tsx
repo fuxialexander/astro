@@ -37,6 +37,7 @@ import { MachineFleetPanel } from "@/components/dashboard/machine-fleet-panel"
 import { TaskTimeline } from "@/components/dashboard/task-timeline"
 import { ProjectHealthCard } from "@/components/dashboard/project-health-card"
 import { formatCompactNumber } from "@astro/core/achievements"
+import { dataClient } from "@/lib/data-client"
 import { cn } from "@/lib/utils"
 import { formatRelativeTime } from "@/lib/date-utils"
 
@@ -107,12 +108,27 @@ export function Dashboard() {
 
   const pendingNodes = nodes.filter((n) => n.status === "awaiting_judgment" || n.status === "awaiting_approval")
   const activeProjects = projects.filter((p) => p.status === "active")
+  const regularProjects = useMemo(() => activeProjects.filter((p) => p.projectType !== "playground"), [activeProjects])
+  const playgroundProjects = useMemo(() => activeProjects.filter((p) => p.projectType === "playground"), [activeProjects])
+
+  const [projectCosts, setProjectCosts] = useState<Record<string, number>>({})
+  useEffect(() => {
+    const ids = activeProjects.map((p) => p.id)
+    if (ids.length === 0) return
+    dataClient.getProjectCosts(ids).then(setProjectCosts).catch(() => {})
+  }, [activeProjects])
 
   const recentProjects = useMemo(() => {
-    return [...activeProjects]
+    return [...regularProjects]
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, 6)
+  }, [regularProjects])
+
+  const recentPlaygrounds = useMemo(() => {
+    return [...playgroundProjects]
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
       .slice(0, 3)
-  }, [activeProjects])
+  }, [playgroundProjects])
   const hasAttention = pendingNodes.length > 0 || dynamicApprovals.size > 0
 
   const machineList = useMemo(() => Array.from(machines.values()), [machines])
@@ -130,8 +146,10 @@ export function Dashboard() {
     })),
   [machineList])
 
+  type TaskCategory = "planning" | "generation" | "playground" | "projects"
+
   const activeTasksWithContext = useMemo(() => {
-    // Running execution tasks
+    // Running execution tasks (project tasks)
     const executionTasks = nodes
       .filter((n) => n.status === "in_progress" || n.status === "dispatched")
       .map((node) => {
@@ -152,24 +170,43 @@ export function Dashboard() {
           progress: stream?.progress ?? 0,
           progressMessage: stream?.progressMessage,
           costUsd: undefined as number | undefined,
+          category: "projects" as TaskCategory,
         }
       })
 
-    // Active planning sessions (generating plans)
-    const planningSessions = Array.from(agentSessions.values())
-      .filter((s) => s.status === "active")
+    // Active agent sessions — split into planning vs generation
+    const planningTasks = Array.from(agentSessions.values())
+      .filter((s) => s.status === "active" && s.phase === "interactive_planning")
       .map((session) => ({
         id: `plan-${session.projectId}`,
-        title: `Planning: ${session.projectName}`,
+        title: session.projectName,
         projectId: session.projectId,
         projectName: session.projectName,
         projectColor: undefined as string | undefined,
         machineName: "planner",
         machineId: "planner",
         startedAt: session.startedAt,
-        progress: session.phase === "generating" ? 50 : session.phase === "repo_setup" ? 10 : 0,
-        progressMessage: session.phase === "generating" ? "Generating plan..." : session.phase === "repo_setup" ? "Setting up..." : undefined,
+        progress: 0,
+        progressMessage: "Interactive planning...",
         costUsd: undefined as number | undefined,
+        category: "planning" as TaskCategory,
+      }))
+
+    const generationTasks = Array.from(agentSessions.values())
+      .filter((s) => s.status === "active" && (s.phase === "generating" || s.phase === "repo_setup"))
+      .map((session) => ({
+        id: `gen-${session.projectId}`,
+        title: session.projectName,
+        projectId: session.projectId,
+        projectName: session.projectName,
+        projectColor: undefined as string | undefined,
+        machineName: "planner",
+        machineId: "planner",
+        startedAt: session.startedAt,
+        progress: session.phase === "generating" ? 50 : 10,
+        progressMessage: session.phase === "generating" ? "Generating plan..." : "Setting up...",
+        costUsd: undefined as number | undefined,
+        category: "generation" as TaskCategory,
       }))
 
     // Active playground sessions
@@ -190,29 +227,44 @@ export function Dashboard() {
           progress: 0,
           progressMessage: exec.status === "pending" ? "Starting..." : undefined,
           costUsd: undefined as number | undefined,
+          category: "playground" as TaskCategory,
         }
       })
 
-    return [...executionTasks, ...planningSessions, ...playgroundTasks]
+    return [...planningTasks, ...generationTasks, ...playgroundTasks, ...executionTasks]
   }, [nodes, taskStreams, projects, machines, agentSessions, allExecutions])
+
+  const tasksByCategory = useMemo(() => {
+    const grouped: Record<TaskCategory, typeof activeTasksWithContext> = {
+      planning: [], generation: [], playground: [], projects: [],
+    }
+    for (const task of activeTasksWithContext) {
+      grouped[task.category].push(task)
+    }
+    return grouped
+  }, [activeTasksWithContext])
+
+  const categoryLabels: Record<TaskCategory, string> = {
+    planning: "Planning",
+    generation: "Generation",
+    playground: "Playground",
+    projects: "Projects",
+  }
 
   const timelineMachines = useMemo(
     () => [...new Set(activeTasksWithContext.map((t) => t.machineName))],
     [activeTasksWithContext],
   )
 
-  const projectHealth = useMemo(() =>
-    recentProjects.map((project) => {
+  function computeHealth(projectList: typeof projects) {
+    return projectList.map((project) => {
       const pNodes = nodes.filter((n) => n.projectId === project.id)
       const completed = pNodes.filter((n) => ["completed", "auto_verified"].includes(n.status)).length
       const inProgress = pNodes.filter((n) => ["in_progress", "dispatched"].includes(n.status)).length
       const planned = pNodes.filter((n) => n.status === "planned").length
       const awaiting = pNodes.filter((n) => ["awaiting_judgment", "awaiting_approval"].includes(n.status)).length
       const pruned = pNodes.filter((n) => n.status === "pruned").length
-
-      // Build velocity data from heatmap (last 30 days, project-agnostic for now)
       const velocityData = heatmapData.slice(-30).map((d) => d.tasksCompleted)
-      const totalCost = heatmapData.reduce((s, d) => s + d.totalCostUsd, 0)
 
       return {
         project,
@@ -222,11 +274,19 @@ export function Dashboard() {
         awaiting,
         pruned,
         total: pNodes.length,
-        costUsd: totalCost / Math.max(1, activeProjects.length),
+        costUsd: projectCosts[project.id] ?? 0,
         velocityData,
       }
-    }),
-  [recentProjects, nodes, heatmapData, activeProjects.length])
+    })
+  }
+
+  const projectHealth = useMemo(() => computeHealth(recentProjects),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [recentProjects, nodes, heatmapData, projectCosts])
+
+  const playgroundHealth = useMemo(() => computeHealth(recentPlaygrounds),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [recentPlaygrounds, nodes, heatmapData, projectCosts])
 
   const hourlyPulse = useMemo(() => {
     const now = Date.now()
@@ -521,7 +581,7 @@ export function Dashboard() {
         )}
       </div>
 
-      {/* ── TIER 3: Machine Fleet + Task Timeline ── */}
+      {/* ── TIER 3: Machine Fleet + Running Tasks ── */}
       {(machineFleetData.length > 0 || activeTasksWithContext.length > 0) && (
         <div className="flex flex-col md:flex-row gap-6">
           {/* Machine fleet (left column) */}
@@ -530,24 +590,44 @@ export function Dashboard() {
             <MachineFleetPanel machines={machineFleetData} />
           </div>
 
-          {/* Task timeline (right column, expands) */}
+          {/* Running tasks grouped by category */}
           <div className="flex-1 min-w-0">
             <h2 className="text-[11px] font-semibold tracking-wide text-muted-foreground/60 uppercase mb-3">Running Tasks</h2>
             <div className="rounded-xl glass-panel p-3 max-h-[min(50vh,400px)] overflow-y-auto">
-              <TaskTimeline tasks={activeTasksWithContext} machines={timelineMachines} />
+              {activeTasksWithContext.length === 0 ? (
+                <div className="flex items-center justify-center py-8 text-muted-foreground/40 text-sm">
+                  All quiet — no running tasks
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {(["planning", "generation", "playground", "projects"] as TaskCategory[]).map((cat) => {
+                    const tasks = tasksByCategory[cat]
+                    if (tasks.length === 0) return null
+                    return (
+                      <div key={cat}>
+                        <div className="flex items-center gap-2 mb-1.5 px-1">
+                          <span className="text-[10px] font-semibold tracking-wider text-muted-foreground/50 uppercase">{categoryLabels[cat]}</span>
+                          <span className="text-[10px] text-muted-foreground/30">{tasks.length}</span>
+                        </div>
+                        <TaskTimeline tasks={tasks} machines={timelineMachines} />
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ── TIER 4: Project Health Cards ── */}
+      {/* ── TIER 4: Project Health — Projects ── */}
       {recentProjects.length > 0 && (
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-[13px] font-semibold tracking-wide">Project Health</h2>
-            {activeProjects.length > 3 && (
+            <h2 className="text-[13px] font-semibold tracking-wide">Projects</h2>
+            {regularProjects.length > 6 && (
               <Button variant="ghost" size="sm" asChild className="h-6 text-[11px] text-muted-foreground/50 px-2">
-                <Link to="/projects">All {activeProjects.length}</Link>
+                <Link to="/projects">All {regularProjects.length}</Link>
               </Button>
             )}
           </div>
@@ -573,7 +653,40 @@ export function Dashboard() {
         </div>
       )}
 
-      {recentProjects.length === 0 && (
+      {/* ── TIER 4b: Project Health — Playground ── */}
+      {recentPlaygrounds.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-[13px] font-semibold tracking-wide">Playground</h2>
+            {playgroundProjects.length > 3 && (
+              <Button variant="ghost" size="sm" asChild className="h-6 text-[11px] text-muted-foreground/50 px-2">
+                <Link to="/playground">All {playgroundProjects.length}</Link>
+              </Button>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {playgroundHealth.map(({ project, completed, inProgress, planned, awaiting, pruned, total, costUsd, velocityData }) => (
+              <ProjectHealthCard
+                key={project.id}
+                projectId={project.id}
+                name={project.name}
+                icon={project.icon}
+                color={project.color}
+                completed={completed}
+                inProgress={inProgress}
+                planned={planned}
+                awaiting={awaiting}
+                pruned={pruned}
+                total={total}
+                costUsd={costUsd}
+                velocityData={velocityData}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {recentProjects.length === 0 && recentPlaygrounds.length === 0 && (
         <div className="rounded-xl border border-dashed border-border/40 p-5 text-center">
           <p className="text-xs text-muted-foreground/50 mb-2">No active projects</p>
           <Button size="sm" variant="outline" className="h-7 text-xs border-border/60" onClick={() => navigate("/projects")}>

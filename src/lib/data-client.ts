@@ -355,6 +355,10 @@ export const dataClient = {
     await post(`${BASE}/usage/increment`, metrics)
   },
 
+  async getProjectCosts(projectIds: string[]): Promise<Record<string, number>> {
+    return post(`${BASE}/usage/project-costs`, { projectIds }) as Promise<Record<string, number>>
+  },
+
   async getUsageHistory(weeks: number = 52): Promise<Array<{ date: string; tasksCompleted: number; totalCostUsd: number }>> {
     return json<Array<{ date: string; tasksCompleted: number; totalCostUsd: number }>>(`${BASE}/usage/history?weeks=${weeks}`)
   },
