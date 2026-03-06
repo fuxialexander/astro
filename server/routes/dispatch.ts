@@ -745,6 +745,7 @@ async function dispatchViaRelay(
       skillsSummary: skillsInjection,
       githubContext,
       replanContext,
+      providerId: preferredProvider,
     })
     // The user prompt is just the description
     promptParts.push(description)
@@ -754,11 +755,11 @@ async function dispatchViaRelay(
       promptParts.push(`## Project Vision\n\n${visionDoc}`)
     }
 
-    // Inject project knowledge entries (capped at 8000 chars, most recent first)
+    // Inject project knowledge entries (capped at 16000 chars, most recent first)
     try {
       const knowledgeRows = await db.select().from(projectKnowledge).where(eq(projectKnowledge.projectId, projectId))
       if (knowledgeRows.length > 0) {
-        const capped = capKnowledgeEntries(knowledgeRows, 8000)
+        const capped = capKnowledgeEntries(knowledgeRows, 16000)
         if (capped.length > 0) {
           const knowledgeSection = capped
             .map((entry) => {

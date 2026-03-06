@@ -492,8 +492,8 @@ export const DEFAULT_DISPATCH_CONFIG: DispatchEngineConfig = {
   retryDelayBase: 5000,
   retryDelayMax: 60000,
   dryRunMode: false,
-  maxDependencyOutputSize: 10000,
-  maxKnowledgeSize: 8000,
+  maxDependencyOutputSize: 20000,
+  maxKnowledgeSize: 16000,
   pollIntervalMs: 2000,
   machineSelectionPolicy: 'priority',
 }

@@ -29,6 +29,26 @@ For **arXiv links**, fetch the LaTeX source or HTML directly. For **DOCX files**
 
 ---
 
+## 0b. Workflow — Multi-Step Decomposition
+
+**CRITICAL**: Do NOT generate all slides in a single step. Presentation creation must be decomposed into multiple tasks:
+
+1. **Narrative Planning** (separate task) — Read the paper, identify the story arc, and produce an outline:
+   - What is the motivation / gap?
+   - What prior work is relevant?
+   - What is the proposed method / theory?
+   - What are the key results / experiments?
+   - What are the takeaways / future work?
+   Output: A structured outline with section titles, key points per section, and which layout type fits each slide. This outline drives all subsequent tasks.
+
+2. **Slide Generation** (1 task per major section) — For each section in the outline, create the HTML slides following the layout system below. Each section is a separate task so the model can focus on one coherent narrative thread at a time. Typical sections: Title + Motivation (2-3 slides), Background/Prior Work (2-3 slides), Method (4-6 slides), Results (3-5 slides), Discussion + Conclusion (1-2 slides).
+
+3. **PDF Assembly** (final task) — Combine all HTML slides into a single PDF. This is a separate mechanical step.
+
+When creating a plan for presentation generation, **always decompose into at least 4 tasks**: outline, 2+ slide-generation batches, and PDF assembly. Never put "generate all slides" in a single task.
+
+---
+
 ## 1. Slide Layout System
 
 Every slide is a self-contained HTML file with embedded CSS. The page size is **1280×720px** (16:9 aspect ratio). Use the following 5 layout types for all slides.
@@ -611,127 +631,133 @@ When generating figures (architecture diagrams, pipeline flows, comparison chart
 
 ## 6. HTML-to-PDF Rendering
 
-Use Playwright headless Chromium for all HTML-to-PDF conversions.
+Use the **combined HTML approach** with Chrome/Chromium headless for PDF conversion. This avoids installing Playwright or downloading separate browser binaries.
 
-### Slides → PDF
+### Step 1: Combine slides into a single HTML file
 
-Each HTML slide is a separate file. Combine into a single PDF:
+First, create a combined HTML file that includes all slides as print pages:
 
 ```bash
-# Install Playwright if needed
-npx playwright install chromium
-
-# Render individual slides to PDF pages
+# combine-slides.sh — creates combined.html from individual slide HTML files
 node -e "
-const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 
-(async () => {
-  const browser = await chromium.launch();
-  const slideDir = './output/slides';
-  const files = fs.readdirSync(slideDir)
-    .filter(f => f.endsWith('.html'))
-    .sort();
+const slideDir = './output/slides';
+const files = fs.readdirSync(slideDir)
+  .filter(f => f.endsWith('.html'))
+  .sort();
 
-  for (const file of files) {
-    const page = await browser.newPage();
-    await page.setViewportSize({ width: 1280, height: 720 });
-    await page.goto('file://' + path.resolve(slideDir, file));
-    await page.pdf({
-      path: path.join(slideDir, file.replace('.html', '.pdf')),
-      width: '1280px',
-      height: '720px',
-      printBackground: true,
-      margin: { top: 0, right: 0, bottom: 0, left: 0 },
-    });
-    await page.close();
+let html = '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><style>';
+html += '@page { size: 1280px 720px; margin: 0; }';
+html += '.slide { width: 1280px; height: 720px; page-break-after: always; overflow: hidden; position: relative; }';
+html += '</style></head><body>';
+
+for (const file of files) {
+  const content = fs.readFileSync(path.join(slideDir, file), 'utf-8');
+  const bodyMatch = content.match(/<body[^>]*>([\\s\\S]*?)<\\/body>/i);
+  const styleMatch = content.match(/<style>([\\s\\S]*?)<\\/style>/i);
+  if (bodyMatch) {
+    html += '<div class=\"slide\">';
+    if (styleMatch) html += '<style>' + styleMatch[1] + '</style>';
+    html += bodyMatch[1];
+    html += '</div>';
   }
+}
+html += '</body></html>';
 
+fs.writeFileSync(path.join(slideDir, 'combined.html'), html);
+console.log('Combined HTML saved (' + files.length + ' slides)');
+"
+```
+
+### Step 2: Convert HTML to PDF
+
+Try these methods in order (first available wins):
+
+**Option A — Chrome/Chromium headless (preferred, no install needed)**
+```bash
+# macOS
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --headless --disable-gpu --no-margins --print-to-pdf=./output/slides/slides.pdf \
+  --print-to-pdf-no-header \
+  "file://$(pwd)/output/slides/combined.html"
+
+# Linux
+google-chrome --headless --disable-gpu --no-margins --print-to-pdf=./output/slides/slides.pdf \
+  --print-to-pdf-no-header \
+  "file://$(pwd)/output/slides/combined.html"
+
+# If chromium is installed instead
+chromium --headless --disable-gpu --no-margins --print-to-pdf=./output/slides/slides.pdf \
+  --print-to-pdf-no-header \
+  "file://$(pwd)/output/slides/combined.html"
+```
+
+**Option B — puppeteer-core (uses system Chrome, no browser download)**
+```bash
+npm install puppeteer-core
+node -e "
+const puppeteer = require('puppeteer-core');
+const path = require('path');
+
+(async () => {
+  // Find system Chrome
+  const execPaths = [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser',
+  ];
+  const execPath = execPaths.find(p => { try { require('fs').accessSync(p); return true; } catch { return false; } });
+  if (!execPath) { console.error('No Chrome/Chromium found'); process.exit(1); }
+
+  const browser = await puppeteer.launch({ executablePath: execPath, headless: 'new' });
+  const page = await browser.newPage();
+  await page.goto('file://' + path.resolve('./output/slides/combined.html'), { waitUntil: 'networkidle0' });
+  await page.pdf({
+    path: './output/slides/slides.pdf',
+    width: '1280px', height: '720px',
+    printBackground: true,
+    margin: { top: 0, right: 0, bottom: 0, left: 0 },
+  });
   await browser.close();
+  console.log('PDF saved');
 })();
 "
 ```
 
-After generating individual PDFs, merge them:
-
+**Option C — Playwright (fallback if other options fail)**
 ```bash
-# Merge PDFs using Playwright (generate all pages in one pass)
+npx playwright install chromium
 node -e "
 const { chromium } = require('playwright');
-const fs = require('fs');
 const path = require('path');
-
 (async () => {
   const browser = await chromium.launch();
-  const slideDir = './output/slides';
-  const files = fs.readdirSync(slideDir)
-    .filter(f => f.endsWith('.html'))
-    .sort();
-
-  // Create a combined HTML that includes all slides as pages
-  let combinedHtml = '<!DOCTYPE html><html><head><style>';
-  combinedHtml += '@page { size: 1280px 720px; margin: 0; }';
-  combinedHtml += '.slide { width: 1280px; height: 720px; page-break-after: always; overflow: hidden; position: relative; }';
-  combinedHtml += '</style></head><body>';
-
-  for (const file of files) {
-    const content = fs.readFileSync(path.join(slideDir, file), 'utf-8');
-    // Extract body content and styles from each slide
-    const bodyMatch = content.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-    const styleMatch = content.match(/<style>([\s\S]*?)<\/style>/i);
-    if (bodyMatch) {
-      combinedHtml += '<div class=\"slide\">';
-      if (styleMatch) combinedHtml += '<style>' + styleMatch[1] + '</style>';
-      combinedHtml += bodyMatch[1];
-      combinedHtml += '</div>';
-    }
-  }
-  combinedHtml += '</body></html>';
-
   const page = await browser.newPage();
-  await page.setContent(combinedHtml, { waitUntil: 'networkidle' });
-  await page.pdf({
-    path: path.join(slideDir, 'slides.pdf'),
-    width: '1280px',
-    height: '720px',
-    printBackground: true,
-    margin: { top: 0, right: 0, bottom: 0, left: 0 },
-  });
-
-  await page.close();
+  await page.goto('file://' + path.resolve('./output/slides/combined.html'), { waitUntil: 'networkidle' });
+  await page.pdf({ path: './output/slides/slides.pdf', width: '1280px', height: '720px', printBackground: true, margin: { top: 0, right: 0, bottom: 0, left: 0 } });
   await browser.close();
-  console.log('Combined PDF saved to slides.pdf');
+  console.log('PDF saved');
 })();
 "
 ```
 
 ### Poster → PDF
 
+Use the same approach. For A0 posters, Chrome headless works but `--print-to-pdf` uses Letter size by default. Use puppeteer-core or Playwright for custom dimensions:
+
 ```bash
+# puppeteer-core with custom A0 dimensions
 node -e "
-const { chromium } = require('playwright');
+const puppeteer = require('puppeteer-core');
 const path = require('path');
-
 (async () => {
-  const browser = await chromium.launch();
+  const execPaths = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/chromium'];
+  const execPath = execPaths.find(p => { try { require('fs').accessSync(p); return true; } catch { return false; } });
+  const browser = await puppeteer.launch({ executablePath: execPath, headless: 'new' });
   const page = await browser.newPage();
-
-  // A0 dimensions: 841mm × 1189mm (portrait) or 1189mm × 841mm (landscape)
-  const orientation = 'portrait'; // or 'landscape'
-  const width = orientation === 'portrait' ? '841mm' : '1189mm';
-  const height = orientation === 'portrait' ? '1189mm' : '841mm';
-
-  await page.goto('file://' + path.resolve('./output/poster/poster.html'));
-  await page.pdf({
-    path: './output/poster/poster.pdf',
-    width,
-    height,
-    printBackground: true,
-    margin: { top: 0, right: 0, bottom: 0, left: 0 },
-  });
-
-  await page.close();
+  await page.goto('file://' + path.resolve('./output/poster/poster.html'), { waitUntil: 'networkidle0' });
+  await page.pdf({ path: './output/poster/poster.pdf', width: '841mm', height: '1189mm', printBackground: true, margin: { top: 0, right: 0, bottom: 0, left: 0 } });
   await browser.close();
   console.log('Poster PDF saved');
 })();
