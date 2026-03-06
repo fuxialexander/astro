@@ -565,9 +565,9 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   }, [preprocessNodeRefs])
 
   return (
-    <div className="flex h-full flex-col border-l border-border bg-card">
+    <div className="flex h-full flex-col border-l border-border/60 bg-card">
       {/* Header with session switcher and model/provider picker */}
-      <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4 border-b border-border">
+      <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4 border-b border-border/60">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold">Plan Chat</span>
           {/* Session metadata */}
@@ -821,7 +821,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       </div>
 
       {/* Input */}
-      <div className="flex items-end gap-2 border-t border-border p-3">
+      <div className="flex items-end gap-2 border-t border-border/60 p-3">
         <FileCompletionTextarea
           projectId={projectId}
           machineId={resolvedMachineId}
