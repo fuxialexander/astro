@@ -286,7 +286,7 @@ The real differentiation is **frontend-side**:
 
 #### P15: Plan Extraction Retry
 - **Page:** Not visible
-- **Trigger:** Auto when plan JSON extraction fails after P3/P5
+- **Trigger:** Auto when plan JSON extraction fails after P3
 - **User sees:** Nothing -- transparent fallback. If it works, plan appears. If it fails, user sees "Plan generation failed" error.
 - **Duration:** 5-30 seconds
 - **Skills:** No

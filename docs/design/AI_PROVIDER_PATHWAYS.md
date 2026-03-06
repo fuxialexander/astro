@@ -507,7 +507,49 @@ This means:
 
 ---
 
-## 9. Identified Gaps and Recommendations
+## 9. Pathway Triage: Active vs Dead
+
+### Summary
+
+Of 16 pathways, **14 are active** and **2 are dead code** (P5 and P9).
+
+| # | Pathway | Status | Frontend Trigger | Notes |
+|---|---------|--------|-----------------|-------|
+| 1 | Task Execution | **Active** | "Execute" button on plan node | Core workflow |
+| 2 | Playground | **Active** | "Start" on playground page | Core workflow |
+| 3 | Interactive Plan | **Active** | "Start Planning" on plan page | Primary plan creation. Also used by Examples. |
+| 4 | HPC/Slurm | **Active** | HPC dispatch UI | Claude SDK only (issue #645) |
+| 5 | Plan Generation | **DEAD** | None | `UseTemplateSheet` never rendered; `startGeneration()` never called. Backend route `/api/agent/generate-plan` works but has zero UI callers. |
+| 6 | Project Chat | **Active** | Chat sidebar on plan view | Read-only tools |
+| 7 | Plan Chat | **Active** | Chat during plan creation (after P3) | Parses plan mutations |
+| 8 | Task Chat | **Active** | Chat on task detail page | Session resume supported |
+| 9 | Compact | **DEAD** | None | Backend route `POST /api/agent/compact` exists but is never called from any frontend, store, API client, agent-runner, or relay code. Zero callers anywhere. |
+| 10 | Summary | **Active** | Auto after task completion | Generate-once, store result, discard trace |
+| 11 | Title Gen | **Active** | Auto when creating untitled task | Generate-once, store result |
+| 12 | Refine | **Active** | "Refine" button on task | Generate-once, store result |
+| 13 | Labels | **Active** | Auto on task creation | Generate-once, store result |
+| 14 | Steering | **Active** | Type message while task is running | Control signal: `POST /api/dispatch/steer` |
+| 15 | Plan Extract Retry | **Active** (conditional) | Auto when P3 output JSON parsing fails | Direct Anthropic API fallback. Returns null if no API key. |
+| 16 | Server Summary | **Active** (conditional) | Auto when PR body generation fails (Layer 3 of 3) | Direct Anthropic API. Uses outdated model. |
+
+### Cleanup Actions
+
+- **P5:** Remove dead frontend code (`UseTemplateSheet`, `startGeneration()`, `generatePlan()` in api-client). Keep backend route for potential future API use. See issue #646.
+- **P9:** Remove the `/api/agent/compact` endpoint entirely. Context compression is handled by provider adapters internally (Claude SDK has built-in compaction). See GAP-7 below.
+
+### After Cleanup: 14 Active Pathways
+
+```
+Class A — Agentic (multi-turn, tools, streaming):  P1, P2, P3, P4
+Class B — Conversational (multi-turn, chat):        P6, P7, P8
+Class C — One-shot generation (result only):        P10, P11, P12, P13
+Class D — Control signal:                            P14
+Class E — Direct API fallback:                       P15, P16
+```
+
+---
+
+## 10. Identified Gaps and Recommendations (see also Section 9 cleanup actions)
 
 ### GAP-1: Claude SDK Chat Missing Skills -- FIXED (PR #52)
 
@@ -535,13 +577,13 @@ This means:
 
 **Fix:** Add lightweight metrics logging -- at minimum: task type, duration, input/output token counts, model, success/failure. Could be a separate `ai_metrics` table or appended to an existing observability table.
 
-### GAP-7: Compact Ignores Model Parameter
+### GAP-7: Compact Endpoint Is Dead Code
 
 **Location:** `server/routes/agent.ts:905-946`
 
-**Problem:** `/compact` endpoint accepts `model` and `providerId` in the request body but never passes them to `streamChatViaRelay()`.
+**Problem:** The `/api/agent/compact` endpoint (Pathway 9) has **zero callers** anywhere -- not from the frontend API client, stores, components, agent-runner, or relay. It was intended to compress conversation history when context exceeds limits, but this is handled internally by provider adapters (Claude SDK has built-in context compaction). Additionally, the endpoint accepts `model` and `providerId` parameters but never passes them to `streamChatViaRelay()`.
 
-**Fix:** Either pass `model` to `streamChatViaRelay()` or remove the unused parameters from the schema.
+**Fix:** Remove the endpoint entirely. Context compression is a provider-level concern, not a server-side pathway.
 
 ### GAP-8: Direct API Calls Require Anthropic API Key
 
@@ -553,7 +595,7 @@ This means:
 
 ---
 
-## 10. Provider Skill Systems Reference
+## 11. Provider Skill Systems Reference
 
 ### Claude Agent SDK
 - **Mechanism:** `settingSources: ['user', 'project', 'local']` in query options
@@ -577,7 +619,7 @@ This means:
 
 ---
 
-## 11. File Reference
+## 12. File Reference
 
 | Component | Path |
 |-----------|------|
