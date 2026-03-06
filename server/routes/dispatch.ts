@@ -1479,6 +1479,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     const onApprovalRequest = (msg: { taskId: string; requestId: string; question: string; options: string[]; machineId?: string }) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
+      hasReceivedEvent = true
       waitingForApproval = true
       // Persist approval_request so it survives page refresh
       const approvalData = { requestId: msg.requestId, question: msg.question, options: msg.options, machineId: msg.machineId || machineId }
@@ -1488,6 +1489,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     const onSafetyPrompt = (msg: { taskId: string; safetyTier: string; warning?: string; options: Array<{ id: string; label: string; description?: string }>; machineId?: string }) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
+      hasReceivedEvent = true
       waitingForApproval = true
       // Persist safety_prompt so it survives page refresh
       const safetyData = { safetyTier: msg.safetyTier, warning: msg.warning, options: msg.options, machineId: msg.machineId || machineId }
@@ -1577,6 +1579,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           if (!hasReceivedEvent && startupRetries < MAX_STARTUP_RETRIES) {
             startupRetries++
             console.log(`[dispatch] Startup timeout for ${executionId}, retry ${startupRetries}/${MAX_STARTUP_RETRIES}`)
+            // Cancel previous dispatch to prevent duplicate concurrent executions
+            relayServer.cancelTask(executionId, machineId || '')
             lastActivity = Date.now() // Reset timer for next attempt
             const retried = relayServer.dispatchTask(taskDispatch, machineId, user?.id)
             if (retried) {
@@ -1593,6 +1597,14 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
             ? 'Activity timeout — agent runner stopped responding after 2 hours of inactivity'
             : `Startup timeout — agent runner did not start after ${MAX_STARTUP_RETRIES + 1} attempts. The machine may be busy or the agent process failed to launch. Try re-executing the task.`
           const errorData = { error: errorMsg, recoverable: true }
+
+          // Update plan_nodes so the node doesn't stay in_progress if browser is disconnected
+          db.update(planNodes)
+            .set({ status: 'planned', executionError: errorMsg, updatedAt: new Date() })
+            .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+            .execute()
+            .catch((err) => console.error(`[dispatch] Failed to update plan_node on timeout:`, err))
+
           const sendDone = () => {
             stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
           }
