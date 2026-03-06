@@ -332,6 +332,7 @@ describe("session store - rename and message operations", () => {
   })
 
   it("appendToLastAssistantMessage streams content", () => {
+    vi.useFakeTimers()
     const store = useSessionStore.getState()
     const session = store.createSession({ type: "project-chat", projectId: "proj-1" })
 
@@ -339,20 +340,29 @@ describe("session store - rename and message operations", () => {
     useSessionStore.getState().appendToLastAssistantMessage(session.id, "Hello ")
     useSessionStore.getState().appendToLastAssistantMessage(session.id, "world!")
 
+    // Flush the throttled text update
+    vi.advanceTimersByTime(50)
+
     const updated = useSessionStore.getState().getSession(session.id)
     expect(updated?.messages[0].content).toBe("Hello world!")
+    vi.useRealTimers()
   })
 
   it("appendToLastAssistantMessage ignores if last message is not assistant", () => {
+    vi.useFakeTimers()
     const store = useSessionStore.getState()
     const session = store.createSession({ type: "project-chat", projectId: "proj-1" })
 
     useSessionStore.getState().addMessage(session.id, { role: "user", content: "Hi" })
     useSessionStore.getState().appendToLastAssistantMessage(session.id, "should not work")
 
+    // Flush the throttled text update
+    vi.advanceTimersByTime(50)
+
     const updated = useSessionStore.getState().getSession(session.id)
     expect(updated?.messages).toHaveLength(1)
     expect(updated?.messages[0].content).toBe("Hi")
+    vi.useRealTimers()
   })
 
   it("setStatus updates session status and sets completedAt for terminal states", () => {
