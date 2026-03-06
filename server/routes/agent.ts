@@ -399,20 +399,22 @@ async function executeViaRelay(opts: {
       output += msg.text
     }
 
-    const onResult = async (msg: TaskResultMessage) => {
+    const onResult = (msg: TaskResultMessage) => {
       if (msg.result.taskId !== opts.taskId) return
       clearTimeout(timeout)
       cleanup()
       const isSuccess = msg.result.status === 'completed'
       const metrics = msg.result.metrics
 
-      // Persist result event for one-shot observability
+      // Persist result event for one-shot observability (fire-and-forget)
       if (opts.pathwayType) {
-        await streamingEventLog.append(opts.taskId, 'result', {
+        streamingEventLog.append(opts.taskId, 'result', {
           status: isSuccess ? 'success' : 'failure',
           error: msg.result.error,
           metrics,
           durationMs: Date.now() - startTime,
+        }).catch((err) => {
+          console.warn(`[one-shot] Failed to persist result for ${opts.taskId}:`, err)
         })
       }
 
