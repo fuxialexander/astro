@@ -1,44 +1,64 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { WifiOff } from "lucide-react"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { cn } from "@/lib/utils"
 
 /**
  * Thin banner shown when the SSE connection drops.
- * Only appears after having been connected (avoids flash on initial load).
- * Fades out automatically 2s after reconnection.
+ * Only appears after having been connected once (no flash on initial load).
+ * Shows "Reconnected" briefly on recovery, then auto-dismisses.
  */
 export function SseDisconnectBanner() {
   const connected = useRealtimeStore((s) => s.connected)
-  const wasConnected = useRef(false)
-  const [show, setShow] = useState(false)
+  // "waiting" = never connected, "ready" = connected & hidden,
+  // "disconnected" = warning shown, "reconnected" = brief success
+  const [phase, setPhase] = useState<"waiting" | "ready" | "disconnected" | "reconnected">("waiting")
 
-  useEffect(() => {
-    if (connected) {
-      wasConnected.current = true
-      // Fade out after reconnect
-      if (show) {
-        const t = setTimeout(() => setShow(false), 2000)
-        return () => clearTimeout(t)
-      }
-    } else if (wasConnected.current) {
-      // Only show after having been connected once (skip initial load)
-      setShow(true)
+  const transition = useCallback((currentConnected: boolean, currentPhase: typeof phase) => {
+    if (currentConnected) {
+      if (currentPhase === "waiting") return "ready"
+      if (currentPhase === "disconnected") return "reconnected"
     }
-  }, [connected, show])
+    return null // no immediate transition
+  }, [])
 
-  if (!show) return null
+  // Handle connection state changes via subscription callback (not in effect body)
+  useEffect(() => {
+    const next = transition(connected, phase)
+    if (next) {
+      // Use microtask to avoid synchronous setState in effect
+      queueMicrotask(() => setPhase(next))
+    }
+  }, [connected, phase, transition])
+
+  // Delayed transition: ready/reconnected -> disconnected (after 3s of being disconnected)
+  useEffect(() => {
+    if (!connected && (phase === "ready" || phase === "reconnected")) {
+      const t = setTimeout(() => setPhase("disconnected"), 3000)
+      return () => clearTimeout(t)
+    }
+  }, [connected, phase])
+
+  // Auto-dismiss "reconnected" after 2s
+  useEffect(() => {
+    if (phase === "reconnected") {
+      const t = setTimeout(() => setPhase("ready"), 2000)
+      return () => clearTimeout(t)
+    }
+  }, [phase])
+
+  if (phase === "waiting" || phase === "ready") return null
 
   return (
     <div
       className={cn(
         "flex items-center justify-center gap-2 px-3 py-1.5 text-[11px] font-medium transition-all duration-500",
-        connected
+        phase === "reconnected"
           ? "bg-success/10 text-success"
           : "bg-warning/10 text-warning"
       )}
     >
-      {connected ? (
+      {phase === "reconnected" ? (
         "Reconnected"
       ) : (
         <>
