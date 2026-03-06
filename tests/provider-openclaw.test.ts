@@ -26,21 +26,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createMockStream } from './helpers/mock-stream.js'
 
+// NOTE: All tests in this file are skipped — the OpenClaw adapter was rewritten
+// from JSONL/spawn to WebSocket Gateway protocol. The handleStreamLine API no longer exists.
+// These dynamic imports are retained so the file still parses; the describe.skip blocks
+// prevent any test from actually running.
+
 // Dynamic imports — agent-runner submodule may not be checked out in CI
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let OpenClawAdapter: any
-let adapterAvailable = false
-let gatewaySupported = false
+let _adapterAvailable = false
+let _gatewaySupported = false
 
 try {
   const mod = await import('../packages/agent-runner/src/providers/openclaw-adapter.js')
   OpenClawAdapter = mod.OpenClawAdapter
-  adapterAvailable = true
-
-  // Check if the adapter supports Gateway EventFrame format.
-  // Gateway support requires handleStreamLine to process { type: "event", event: "chat"|"agent" }
-  // and the adapter to expose resetDeltaTracker() for cumulative delta text tracking.
-  gatewaySupported = typeof OpenClawAdapter.prototype.resetDeltaTracker === 'function'
+  _adapterAvailable = true
+  _gatewaySupported = typeof OpenClawAdapter.prototype.resetDeltaTracker === 'function'
 } catch {
   // agent-runner submodule not available — tests will be skipped
 }
