@@ -3,13 +3,17 @@ import type { Team, TeamMember } from "@/types"
 import { dataClient, setActiveTeamId } from "@/lib/data-client"
 import { setActiveTeamId as setApiActiveTeamId } from "@/lib/api-client"
 
+const ACTIVE_TEAM_KEY = "astro-active-team-id"
+
 interface TeamState {
   teams: Team[]
+  activeTeamId: string | undefined
   teamMembers: Record<string, TeamMember[]> // teamId -> members
   loaded: boolean
   loading: boolean
   error: string | null
   load: () => Promise<void>
+  setActiveTeam: (teamId: string) => void
   addTeam: (team: Team) => void
   updateTeam: (id: string, updates: Partial<Team>) => void
   deleteTeam: (id: string) => void
@@ -21,6 +25,7 @@ interface TeamState {
 
 export const useTeamStore = create<TeamState>((set, get) => ({
   teams: [],
+  activeTeamId: undefined,
   teamMembers: {},
   loaded: false,
   loading: false,
@@ -30,14 +35,35 @@ export const useTeamStore = create<TeamState>((set, get) => ({
     set({ loading: true, error: null })
     try {
       const { teams, teamMembers } = await dataClient.listTeams()
-      set({ teams, teamMembers, loaded: true, loading: false })
+
+      // Check localStorage for persisted team preference
+      const persistedTeamId = localStorage.getItem(ACTIVE_TEAM_KEY)
+      const isPersistedValid = persistedTeamId && teams.some((t) => t.id === persistedTeamId)
+      const activeId = isPersistedValid ? persistedTeamId : (teams.length > 0 ? teams[0].id : undefined)
+
+      set({ teams, teamMembers, activeTeamId: activeId, loaded: true, loading: false })
+
       // Sync active team ID to API clients
-      const activeId = teams.length > 0 ? teams[0].id : undefined
       setActiveTeamId(activeId)
       setApiActiveTeamId(activeId)
+
+      // Persist the resolved team ID
+      if (activeId) {
+        localStorage.setItem(ACTIVE_TEAM_KEY, activeId)
+      }
     } catch (err) {
       set({ teams: [], teamMembers: {}, loaded: true, loading: false, error: err instanceof Error ? err.message : 'Failed to load teams' })
     }
+  },
+
+  setActiveTeam: (teamId: string) => {
+    const { teams } = get()
+    if (!teams.some((t) => t.id === teamId)) return
+
+    set({ activeTeamId: teamId })
+    setActiveTeamId(teamId)
+    setApiActiveTeamId(teamId)
+    localStorage.setItem(ACTIVE_TEAM_KEY, teamId)
   },
 
   addTeam: (team) => {
