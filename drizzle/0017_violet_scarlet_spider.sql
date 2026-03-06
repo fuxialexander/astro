@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "compute_backends" text[] DEFAULT '{}';
