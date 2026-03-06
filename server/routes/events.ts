@@ -70,18 +70,18 @@ eventsRoute.get('/stream', async (c) => {
   return streamSSE(c, async (stream) => {
     let alive = true
 
-    // Load YOLO mode setting for this user (one query per SSE connection)
-    let yoloMode = false
-    if (user?.id) {
+    // Helper to read YOLO mode setting fresh from DB (not cached per connection)
+    const isYoloMode = async (): Promise<boolean> => {
+      if (!user?.id) return false
       try {
         const { userProfiles } = await import('../lib/db/schema.js')
         const { eq } = await import('drizzle-orm')
         const { db } = await import('../lib/db/index.js')
         const [profile] = await db.select({ settings: userProfiles.settings })
           .from(userProfiles).where(eq(userProfiles.id, user.id)).limit(1)
-        yoloMode = (profile?.settings as Record<string, string> | null)?.yoloMode === 'true'
+        return (profile?.settings as Record<string, string> | null)?.yoloMode === 'true'
       } catch {
-        // fail open — no auto-approval if we can't read settings
+        return false // fail open — no auto-approval if we can't read settings
       }
     }
 
@@ -273,35 +273,51 @@ eventsRoute.get('/stream', async (c) => {
       if (!alive) return
       if (!isTaskOwnedByUser(msg.taskId)) return
 
-      // YOLO mode: auto-approve with first option (AI's recommendation)
-      if (yoloMode && msg.machineId && msg.options.length > 0) {
-        const autoAnswer = msg.options[0]
-        relayServer.sendApprovalResponse(msg.taskId, msg.machineId, msg.requestId, true, autoAnswer)
-        console.log(`[events] YOLO auto-approved: task=${msg.taskId} request=${msg.requestId} answer="${autoAnswer}"`)
+      // Check YOLO mode fresh from DB (not cached) so mid-session toggles take effect
+      isYoloMode().then((yoloEnabled) => {
+        if (!alive) return
 
-        // Send auto-responded notification to browser instead of the approval dialog
-        const autoData = JSON.stringify({
+        // YOLO mode: auto-approve with first option (AI's recommendation)
+        if (yoloEnabled && msg.machineId && msg.options.length > 0) {
+          const autoAnswer = msg.options[0]
+          relayServer.sendApprovalResponse(msg.taskId, msg.machineId, msg.requestId, true, autoAnswer)
+          console.log(`[events] YOLO auto-approved: task=${msg.taskId} request=${msg.requestId} answer="${autoAnswer}"`)
+
+          // Send auto-responded notification to browser instead of the approval dialog
+          const autoData = JSON.stringify({
+            taskId: msg.taskId,
+            requestId: msg.requestId,
+            question: msg.question,
+            options: msg.options,
+            answer: autoAnswer,
+            autoApproved: true,
+          })
+          const id = eventBuffer.push('task:approval_auto_responded', autoData)
+          stream.writeSSE({ id, event: 'task:approval_auto_responded', data: autoData }).catch(() => { alive = false })
+          return
+        }
+
+        const data = JSON.stringify({
           taskId: msg.taskId,
           requestId: msg.requestId,
           question: msg.question,
           options: msg.options,
-          answer: autoAnswer,
-          autoApproved: true,
+          machineId: msg.machineId,
         })
-        const id = eventBuffer.push('task:approval_auto_responded', autoData)
-        stream.writeSSE({ id, event: 'task:approval_auto_responded', data: autoData }).catch(() => { alive = false })
-        return
-      }
-
-      const data = JSON.stringify({
-        taskId: msg.taskId,
-        requestId: msg.requestId,
-        question: msg.question,
-        options: msg.options,
-        machineId: msg.machineId,
+        const id = eventBuffer.push('task:approval_request', data)
+        stream.writeSSE({ id, event: 'task:approval_request', data }).catch(() => { alive = false })
+      }).catch(() => {
+        // On error reading settings, fall through to normal approval flow
+        const data = JSON.stringify({
+          taskId: msg.taskId,
+          requestId: msg.requestId,
+          question: msg.question,
+          options: msg.options,
+          machineId: msg.machineId,
+        })
+        const id = eventBuffer.push('task:approval_request', data)
+        stream.writeSSE({ id, event: 'task:approval_request', data }).catch(() => { alive = false })
       })
-      const id = eventBuffer.push('task:approval_request', data)
-      stream.writeSSE({ id, event: 'task:approval_request', data }).catch(() => { alive = false })
     }
 
     const onTaskSafetyPrompt = (msg: { taskId: string; safetyTier: string; warning?: string; machineId?: string; options: Array<{ id: string; label: string; description?: string }> }) => {
