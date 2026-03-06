@@ -943,7 +943,7 @@ In addition to the WebSocket protocol (which is for real-time communication with
 | GET | `/api/relay/slurm/clusters` | List all HPC-capable machines (machines with `hpcCapability` metadata) |
 | GET | `/api/relay/slurm/clusters/:machineId` | Get detailed Slurm cluster info for a specific machine |
 | GET | `/api/relay/slurm/jobs` | List active Slurm jobs across all clusters |
-| POST | `/api/relay/slurm/dispatch` | Dispatch a task specifically to a Slurm cluster (forces `claude-sdk` provider, validates HPC capability) |
+| POST | `/api/relay/slurm/dispatch` | Dispatch a task specifically to a Slurm cluster (provider-agnostic, validates HPC capability) |
 
 All endpoints except `/health` require authentication (the caller must prove who they are).
 
