@@ -389,7 +389,7 @@ describe('Source code: events.ts safety prompt handler', () => {
   )
 
   it('checks YOLO mode for safety prompts', () => {
-    expect(source).toContain('isYoloMode()')
+    expect(source).toContain('isYoloMode(user?.id)')
     // Should be in the safety prompt handler context
     expect(source).toContain('safety auto-proceed')
   })
@@ -402,7 +402,7 @@ describe('Source code: events.ts safety prompt handler', () => {
   it('checks per-project approval before YOLO check', () => {
     // Per-project check should come before YOLO check (faster, no DB read)
     const projectCheckIdx = source.indexOf('safetyApprovedProjects.has(')
-    const yoloCheckIdx = source.indexOf('isYoloMode().then(')
+    const yoloCheckIdx = source.indexOf('isYoloMode(user?.id).then(')
     // Both should exist
     expect(projectCheckIdx).toBeGreaterThan(-1)
     expect(yoloCheckIdx).toBeGreaterThan(-1)

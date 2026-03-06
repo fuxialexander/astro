@@ -22,6 +22,7 @@ import type { ProviderType, ImageAttachment } from '../types/relay.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
+import { isYoloMode } from '../lib/yolo-mode.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
 import { projects, planNodes, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge } from '../lib/db/schema.js'
@@ -1311,11 +1312,23 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       const deliveryOk = !msg.result.deliveryStatus ||
         msg.result.deliveryStatus === 'success' ||
         msg.result.deliveryStatus === 'skipped'
-      // Failed executions also go to awaiting_judgment — human judgment is needed
-      // to decide whether to retry, fix, or abandon the task.
-      const finalNodeStatus = isSuccess
-        ? (verification === 'auto' && deliveryOk ? 'auto_verified' : 'awaiting_judgment')
-        : 'awaiting_judgment'
+
+      // Determine final status. In YOLO mode, successful tasks auto-complete
+      // even if verification is 'human' — the user opted out of manual review.
+      // Failed executions always go to awaiting_judgment regardless of YOLO.
+      let finalNodeStatus: string
+      if (!isSuccess) {
+        finalNodeStatus = 'awaiting_judgment'
+      } else if (verification === 'auto' && deliveryOk) {
+        finalNodeStatus = 'auto_verified'
+      } else {
+        // verification === 'human' or delivery issue — check YOLO
+        const yolo = await isYoloMode(user?.id).catch(() => false)
+        finalNodeStatus = yolo ? 'auto_verified' : 'awaiting_judgment'
+        if (yolo) {
+          console.log(`[dispatch] YOLO auto-verified: task=${nodeId} (verification=${verification})`)
+        }
+      }
 
       const nodePatch: Partial<typeof planNodes.$inferInsert> = {
         status: finalNodeStatus,
