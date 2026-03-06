@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router"
-import { Loader2, Clock, Cpu } from "lucide-react"
+import { Loader2, Clock, Cpu, Sparkles, Play } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface TimelineTask {
@@ -14,6 +14,7 @@ interface TimelineTask {
   progress: number
   progressMessage?: string
   costUsd?: number
+  category?: string
 }
 
 interface TaskTimelineProps {
@@ -48,12 +49,26 @@ export function TaskTimeline({ tasks, className }: TaskTimelineProps) {
       {tasks.map((task) => (
         <button
           key={task.id}
-          onClick={() => navigate(`/project/${task.projectId}/task/${task.id}`)}
+          onClick={() => {
+            if (task.id.startsWith("playground-")) {
+              navigate(`/playground?projectId=${task.projectId}`)
+            } else if (task.id.startsWith("plan-")) {
+              navigate(`/welcome?projectId=${task.projectId}`)
+            } else {
+              navigate(`/project/${task.projectId}/task/${task.id}`)
+            }
+          }}
           className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-muted/40 transition-colors cursor-pointer group w-full"
         >
           {/* Status indicator */}
           <div className="relative shrink-0">
-            <Loader2 className="h-4 w-4 animate-spin text-primary/70" />
+            {task.id.startsWith("plan-") ? (
+              <Sparkles className="h-4 w-4 text-info animate-pulse" />
+            ) : task.id.startsWith("playground-") ? (
+              <Play className="h-4 w-4 text-primary/70" />
+            ) : (
+              <Loader2 className="h-4 w-4 animate-spin text-primary/70" />
+            )}
           </div>
 
           {/* Task info */}

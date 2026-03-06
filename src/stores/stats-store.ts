@@ -12,6 +12,12 @@ export interface DailyActivity {
   totalCostUsd: number
 }
 
+export interface HourlyActivity {
+  date: string
+  hour: number
+  tasksCompleted: number
+}
+
 export interface EarnedAchievement {
   slug: string
   earnedAt: string
@@ -22,6 +28,10 @@ interface StatsState {
   // Heatmap
   heatmapData: DailyActivity[]
   heatmapLoaded: boolean
+
+  // Hourly heatmap
+  hourlyData: HourlyActivity[]
+  hourlyLoaded: boolean
 
   // Lifetime stats
   stats: LifetimeStats | null
@@ -34,6 +44,7 @@ interface StatsState {
 
   // Actions
   loadHeatmap: (weeks?: number) => Promise<void>
+  loadHourly: (days?: number) => Promise<void>
   loadStats: () => Promise<void>
   loadAll: () => Promise<void>
 }
@@ -50,6 +61,8 @@ const DEFAULT_LEVEL: LevelInfo = {
 export const useStatsStore = create<StatsState>((set, get) => ({
   heatmapData: [],
   heatmapLoaded: false,
+  hourlyData: [],
+  hourlyLoaded: false,
   stats: null,
   achievements: [],
   levelInfo: DEFAULT_LEVEL,
@@ -63,6 +76,16 @@ export const useStatsStore = create<StatsState>((set, get) => ({
     } catch (err) {
       console.error("[stats-store] Failed to load heatmap:", err)
       set({ heatmapLoaded: true })
+    }
+  },
+
+  loadHourly: async (days = 14) => {
+    try {
+      const data = await dataClient.getHourlyActivity(days)
+      set({ hourlyData: data, hourlyLoaded: true })
+    } catch (err) {
+      console.error("[stats-store] Failed to load hourly data:", err)
+      set({ hourlyLoaded: true })
     }
   },
 
@@ -87,7 +110,7 @@ export const useStatsStore = create<StatsState>((set, get) => ({
   loadAll: async () => {
     if (get().loading) return
     set({ loading: true })
-    await Promise.all([get().loadHeatmap(), get().loadStats()])
+    await Promise.all([get().loadHeatmap(), get().loadHourly(), get().loadStats()])
     set({ loading: false })
   },
 }))

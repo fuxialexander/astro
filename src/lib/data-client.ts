@@ -363,6 +363,10 @@ export const dataClient = {
     return json<Array<{ date: string; tasksCompleted: number; totalCostUsd: number }>>(`${BASE}/usage/history?weeks=${weeks}`)
   },
 
+  async getHourlyActivity(days: number = 14): Promise<Array<{ date: string; hour: number; tasksCompleted: number }>> {
+    return json<Array<{ date: string; hour: number; tasksCompleted: number }>>(`${BASE}/usage/hourly-history?days=${days}`)
+  },
+
   async getLifetimeStats(): Promise<{
     stats: Record<string, unknown>
     achievements: Array<{ slug: string; earnedAt: string; metadata: Record<string, unknown> }>
