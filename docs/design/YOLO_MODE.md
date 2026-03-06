@@ -19,14 +19,13 @@ There are two independent controls that affect task execution behavior:
 
 ### 1. Global YOLO (`yoloMode`)
 
-A single global setting stored in `user_profiles.settings.yoloMode`. Toggled from two places that are **fully synced** — changing one changes the other:
+A single global setting stored in `user_profiles.settings.yoloMode`. Toggled from the sidebar:
 
 | Location | UI Element |
 |----------|------------|
 | **Sidebar** | "YOLO" switch (expanded) or Zap icon (collapsed) |
-| **Plan generation page** | "YOLO" pill button next to Generate |
 
-The sidebar toggle calls `setYoloMode(enabled)`. The plan page toggle calls both `setAutoExecute(next)` (local auto-dispatch flag) and `setYoloMode(next)` (global). A `useEffect` keeps the plan page button in sync when the sidebar toggle changes.
+The sidebar toggle calls `setYoloMode(enabled)`. The plan generation page reads this setting directly via `useSettingsStore((s) => s.yoloMode)` to determine whether to auto-dispatch after plan generation — there is no separate toggle on the plan page.
 
 The server reads YOLO mode fresh from the database on every check (not cached). Toggling YOLO mid-execution takes effect immediately on the next event.
 
