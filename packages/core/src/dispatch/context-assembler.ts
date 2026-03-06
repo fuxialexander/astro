@@ -446,6 +446,20 @@ export function createContextAssembler(
 }
 
 /**
+ * Slugify a task title into a deterministic knowledge key.
+ * "Set up database schema" → "set_up_database_schema"
+ */
+export function slugifyTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')  // strip non-alphanumeric
+    .trim()
+    .replace(/[\s-]+/g, '_')        // spaces/hyphens to underscores
+    .replace(/^_+|_+$/g, '')        // trim leading/trailing underscores
+    .slice(0, 80)                    // cap length
+}
+
+/**
  * Cap knowledge entries to fit within maxSize.
  * Prioritizes most recent entries first. Always includes at least one entry.
  */

@@ -31,7 +31,7 @@
  */
 
 import { EventEmitter } from 'events'
-import type { PlanNode, PlanEdge, Project, KnowledgeEntry } from '../../../src/types/index.js'
+import type { PlanNode, PlanEdge, Project } from '../../../src/types/index.js'
 import type { TaskResult, StreamEvent } from './types.js'
 import { executionEventBus } from '../execution-event-bus.js'
 import {
@@ -73,11 +73,6 @@ export type PlanGraphProvider = (projectId: string) => Promise<{
   edges: PlanEdge[]
   project?: Project
 }>
-
-/**
- * Callback to fetch knowledge entries for a project
- */
-export type KnowledgeProvider = (projectId: string) => Promise<KnowledgeEntry[]>
 
 /**
  * Callback to execute a task via provider
@@ -136,7 +131,6 @@ export class DispatchEngine extends EventEmitter {
   /** Callbacks */
   private nodeUpdateCallback?: NodeUpdateCallback
   private planGraphProvider?: PlanGraphProvider
-  private knowledgeProvider?: KnowledgeProvider
   private executionCallback?: ExecutionCallback
 
   constructor(config: Partial<DispatchEngineConfig> = {}) {
@@ -157,12 +151,10 @@ export class DispatchEngine extends EventEmitter {
   configure(callbacks: {
     nodeUpdate: NodeUpdateCallback
     planGraphProvider: PlanGraphProvider
-    knowledgeProvider?: KnowledgeProvider
     executionCallback: ExecutionCallback
   }): void {
     this.nodeUpdateCallback = callbacks.nodeUpdate
     this.planGraphProvider = callbacks.planGraphProvider
-    this.knowledgeProvider = callbacks.knowledgeProvider
     this.executionCallback = callbacks.executionCallback
   }
 
@@ -434,19 +426,8 @@ export class DispatchEngine extends EventEmitter {
       return
     }
 
-    // Fetch knowledge entries if provider is configured
-    let knowledgeEntries: KnowledgeEntry[] | undefined
-    if (this.knowledgeProvider) {
-      try {
-        knowledgeEntries = await this.knowledgeProvider(queueEntry.projectId)
-      } catch (err) {
-        console.warn('[dispatch] Failed to fetch knowledge entries:', errorMessage(err))
-        // Continue without knowledge — non-fatal
-      }
-    }
-
     // Assemble context
-    const context = this.contextAssembler.assembleContext(node, nodes, edges, project, knowledgeEntries)
+    const context = this.contextAssembler.assembleContext(node, nodes, edges, project)
 
     // Create abort controller
     const abortController = new AbortController()

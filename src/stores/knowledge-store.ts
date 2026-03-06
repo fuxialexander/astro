@@ -1,17 +1,8 @@
 import { create } from "zustand"
 import { dataClient } from "@/lib/data-client"
+import type { KnowledgeEntry } from "@/types"
 
-export type KnowledgeEntry = {
-  id: string
-  projectId: string
-  key: string
-  value: string
-  sourceNodeId?: string
-  sourceTaskTitle?: string
-  milestoneId?: string
-  createdAt: Date
-  updatedAt: Date
-}
+export type { KnowledgeEntry }
 
 type KnowledgeStore = {
   /** Entries keyed by projectId */

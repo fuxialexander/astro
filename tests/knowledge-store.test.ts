@@ -11,7 +11,7 @@ process.env.ASTRO_LOCAL_MODE = 'true'
 
 import { describe, it, expect } from 'vitest'
 import type { PlanNode, KnowledgeEntry, Project } from '../packages/core/src/types.js'
-import { createContextAssembler } from '../server/lib/dispatch/index.js'
+import { createContextAssembler, slugifyTitle } from '../server/lib/dispatch/index.js'
 
 // ============================================================================
 // Test Fixtures
@@ -288,19 +288,6 @@ describe('ContextAssembler — Knowledge Entries', () => {
 // slugifyTitle — Key Derivation
 // ============================================================================
 
-// We need to test slugifyTitle which is defined in dispatch.ts.
-// Since it's not exported, we replicate its logic here and test the contract.
-// This ensures the key derivation logic is correct.
-
-function slugifyTitle(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')  // strip non-alphanumeric
-    .trim()
-    .replace(/[\s-]+/g, '_')        // spaces/hyphens to underscores
-    .replace(/^_+|_+$/g, '')        // trim leading/trailing underscores
-    .slice(0, 80)                    // cap length
-}
 
 describe('slugifyTitle — Key Derivation', () => {
   it('should convert simple title to slug', () => {

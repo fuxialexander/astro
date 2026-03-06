@@ -11,6 +11,7 @@ import { z } from 'zod'
 import {
   dispatchEngine,
   capKnowledgeEntries,
+  slugifyTitle,
   type BranchPruneRequest,
   type DispatchPriority,
 } from '../lib/dispatch/index.js'
@@ -66,19 +67,6 @@ function getShortNodeId(nodeId: string, nodeNumber?: number | null): string {
   return hex || 'unknown'
 }
 
-/**
- * Slugify a task title into a deterministic knowledge key.
- * "Set up database schema" → "set_up_database_schema"
- */
-function slugifyTitle(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')  // strip non-alphanumeric
-    .trim()
-    .replace(/[\s-]+/g, '_')        // spaces/hyphens to underscores
-    .replace(/^_+|_+$/g, '')        // trim leading/trailing underscores
-    .slice(0, 80)                    // cap length
-}
 
 /**
  * Auto-extract knowledge entries from a task's execution summary.
