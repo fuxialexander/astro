@@ -41,6 +41,14 @@ export function ProductTour() {
         },
       },
       {
+        element: '[data-tour-id="yolo"]',
+        popover: {
+          title: "YOLO Mode",
+          description:
+            "Turn this on to go fully autonomous — Astro will generate a plan, execute all tasks, auto-approve everything, and notify you when it's done. Turn it off for step-by-step control.",
+        },
+      },
+      {
         element: '[data-tour-id="projects"]',
         popover: {
           title: "Projects",

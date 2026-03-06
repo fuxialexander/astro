@@ -858,6 +858,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  data-tour-id="yolo"
                   onClick={() => setYoloMode(!yoloMode)}
                   className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors"
                 >
@@ -921,7 +922,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
           {/* YOLO Mode Toggle */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
+              <div data-tour-id="yolo" className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
                 <div className="flex items-center gap-3">
                   <Zap className={cn("h-4 w-4", yoloMode ? "text-warning fill-warning" : "text-muted-foreground")} />
                   <span className="text-sm font-medium text-muted-foreground">YOLO</span>
