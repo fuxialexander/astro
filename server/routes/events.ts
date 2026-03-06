@@ -30,6 +30,7 @@ import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import type { ApprovalRequestedEvent, ApprovalRespondedEvent } from '../lib/events/types.js'
 import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
+import { isYoloMode } from '../lib/yolo-mode.js'
 import type {
   TaskTextMessage,
   TaskSessionInitMessage as RelayTaskSessionInitMessage,
@@ -69,21 +70,6 @@ eventsRoute.get('/stream', async (c) => {
 
   return streamSSE(c, async (stream) => {
     let alive = true
-
-    // Helper to read YOLO mode setting fresh from DB (not cached per connection)
-    const isYoloMode = async (): Promise<boolean> => {
-      if (!user?.id) return false
-      try {
-        const { userProfiles } = await import('../lib/db/schema.js')
-        const { eq } = await import('drizzle-orm')
-        const { db } = await import('../lib/db/index.js')
-        const [profile] = await db.select({ settings: userProfiles.settings })
-          .from(userProfiles).where(eq(userProfiles.id, user.id)).limit(1)
-        return (profile?.settings as Record<string, string> | null)?.yoloMode === 'true'
-      } catch {
-        return false // fail open — no auto-approval if we can't read settings
-      }
-    }
 
     // Stdout throttle for this connection
     const throttle = new StdoutThrottle((taskId, data) => {
@@ -279,7 +265,7 @@ eventsRoute.get('/stream', async (c) => {
       if (!isTaskOwnedByUser(msg.taskId)) return
 
       // Check YOLO mode fresh from DB (not cached) so mid-session toggles take effect
-      isYoloMode().then((yoloEnabled) => {
+      isYoloMode(user?.id).then((yoloEnabled) => {
         if (!alive) return
 
         // YOLO mode: auto-approve with first option (AI's recommendation)
@@ -362,7 +348,7 @@ eventsRoute.get('/stream', async (c) => {
       }
 
       // YOLO mode: auto-proceed for safety prompts (skip the dialog)
-      isYoloMode().then((yoloEnabled) => {
+      isYoloMode(user?.id).then((yoloEnabled) => {
         if (!alive) return
 
         if (yoloEnabled) {
