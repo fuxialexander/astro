@@ -18,6 +18,8 @@ interface BragStatsProps {
   stats: LifetimeStats
   levelInfo: LevelInfo
   className?: string
+  /** When true, only show PRs Merged, Stars Earned, Level + XP bar (the rest are shown elsewhere) */
+  showOnlyExtras?: boolean
 }
 
 interface StatCardProps {
@@ -43,39 +45,45 @@ function StatCard({ label, value, icon, color }: StatCardProps) {
   )
 }
 
-export function BragStats({ stats, levelInfo, className }: BragStatsProps) {
-  const cards: StatCardProps[] = [
+export function BragStats({ stats, levelInfo, className, showOnlyExtras }: BragStatsProps) {
+  const allCards: (StatCardProps & { id: string })[] = [
     {
+      id: "streak",
       label: "Streak",
       value: `${stats.currentStreak}d`,
       icon: <Flame className="h-4 w-4 text-orange-600 dark:text-orange-400" />,
       color: "bg-orange-100 dark:bg-orange-900/40",
     },
     {
+      id: "tasks",
       label: "Tasks Done",
       value: formatCompactNumber(stats.totalTasksCompleted),
       icon: <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />,
       color: "bg-emerald-100 dark:bg-emerald-900/40",
     },
     {
+      id: "lines",
       label: "Lines Added",
       value: formatCompactNumber(stats.totalLinesAdded),
       icon: <Code2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />,
       color: "bg-blue-100 dark:bg-blue-900/40",
     },
     {
+      id: "prs",
       label: "PRs Merged",
       value: formatCompactNumber(stats.totalPrsMerged),
       icon: <GitPullRequest className="h-4 w-4 text-purple-600 dark:text-purple-400" />,
       color: "bg-purple-100 dark:bg-purple-900/40",
     },
     {
+      id: "stars",
       label: "Stars Earned",
       value: formatCompactNumber(stats.totalStarsReceived),
       icon: <Star className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />,
       color: "bg-yellow-100 dark:bg-yellow-900/40",
     },
     {
+      id: "level",
       label: "Level",
       value: String(levelInfo.level),
       icon: <Trophy className="h-4 w-4 text-amber-600 dark:text-amber-400" />,
@@ -83,9 +91,15 @@ export function BragStats({ stats, levelInfo, className }: BragStatsProps) {
     },
   ]
 
+  const EXTRAS_ONLY = new Set(["prs", "stars", "level"])
+  const cards = showOnlyExtras ? allCards.filter((c) => EXTRAS_ONLY.has(c.id)) : allCards
+
   return (
     <div className={cn("flex flex-col gap-3", className)}>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className={cn(
+        "grid gap-2",
+        showOnlyExtras ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-6"
+      )}>
         {cards.map((card) => (
           <StatCard key={card.label} {...card} />
         ))}
