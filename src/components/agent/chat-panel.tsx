@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
-import { stripHtml, escapeHtml } from "@/lib/html-utils"
+import { stripHtml } from "@/lib/html-utils"
 import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -34,122 +34,14 @@ import {
   ChatAssistantBlock,
   MutationBlock,
 } from "@/components/activity-blocks"
-import type { PlanNode, ProviderStatus, Session, TaskActivityEvent } from "@/types"
-
-/** A node update: nodeId OR nodeTitle + any properties to patch */
-interface ParsedNodeUpdate {
-  nodeId?: string
-  nodeTitle?: string
-  type?: string  // optional: disambiguate when multiple nodes have same title
-  [key: string]: unknown
-}
-
-/** An edge operation: add or remove */
-interface ParsedEdgeOp {
-  action: "add" | "remove"
-  source: string
-  target: string
-  type?: string
-}
-
-/** A new node to create (from decomposition) */
-interface ParsedNewNode {
-  id?: string
-  title: string
-  description: string
-  type?: string
-  milestoneId?: string
-  dependencies?: string[]
-  priority?: string
-  estimate?: string
-  verification?: string
-}
-
-/** All mutations extracted from a single assistant message */
-interface AppliedMutations {
-  nodeUpdates: ParsedNodeUpdate[]
-  edgeOps: ParsedEdgeOp[]
-  newNodes: ParsedNewNode[]
-}
-
-/** Resolved mutations with guaranteed nodeIds (for activity events and storage) */
-interface ResolvedMutations {
-  nodeUpdates: Array<{ nodeId: string; [key: string]: unknown }>
-  edgeOps: Array<{ action: "add" | "remove"; source: string; target: string; type?: string }>
-  newNodes: Array<{ id?: string; title: string; description: string; type?: string; dependencies?: string[]; priority?: string; estimate?: string; verification?: string }>
-}
+import { extractMutations, applyMutationsToStore, type AppliedMutations } from "@/lib/plan-mutations"
+import type { ProviderStatus, Session, TaskActivityEvent } from "@/types"
 
 interface Message {
   role: "user" | "assistant"
   content: string
   /** Mutations applied from this message */
   appliedMutations?: AppliedMutations
-}
-
-// ---- Fields that are internal and should not be written from chat ----
-const INTERNAL_FIELDS = new Set(["id", "projectId", "createdAt", "updatedAt", "position", "boardOrder", "executionId", "executionOutput", "executionError", "executionStartedAt", "executionCompletedAt", "branchName", "prUrl", "prNumber"])
-
-// ---- Update parsing utilities ----
-
-const UPDATE_BLOCK_RE = /```astro-updates\s*\n([\s\S]*?)```/g
-const EDGE_BLOCK_RE = /```astro-edges\s*\n([\s\S]*?)```/g
-const ADD_NODES_BLOCK_RE = /```astro-add-nodes\s*\n([\s\S]*?)```/g
-
-/** Extract astro-updates, astro-edges, and astro-add-nodes blocks from a message. */
-function extractMutations(content: string): { cleanContent: string; mutations: AppliedMutations } {
-  const nodeUpdates: ParsedNodeUpdate[] = []
-  const edgeOps: ParsedEdgeOp[] = []
-  const newNodes: ParsedNewNode[] = []
-
-  let cleanContent = content.replace(UPDATE_BLOCK_RE, (match, json: string) => {
-    try {
-      const parsed = JSON.parse(json.trim())
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (item && typeof item === "object" && (item.nodeId || item.nodeTitle)) {
-            nodeUpdates.push(item as ParsedNodeUpdate)
-          }
-        }
-      }
-    } catch {
-      return match // malformed — keep visible
-    }
-    return ""
-  })
-
-  cleanContent = cleanContent.replace(EDGE_BLOCK_RE, (match, json: string) => {
-    try {
-      const parsed = JSON.parse(json.trim())
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (item && typeof item === "object" && item.action && item.source && item.target) {
-            edgeOps.push(item as ParsedEdgeOp)
-          }
-        }
-      }
-    } catch {
-      return match
-    }
-    return ""
-  })
-
-  cleanContent = cleanContent.replace(ADD_NODES_BLOCK_RE, (match, json: string) => {
-    try {
-      const parsed = JSON.parse(json.trim())
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (item && typeof item === "object" && item.title) {
-            newNodes.push(item as ParsedNewNode)
-          }
-        }
-      }
-    } catch {
-      return match
-    }
-    return ""
-  }).trim()
-
-  return { cleanContent, mutations: { nodeUpdates, edgeOps, newNodes } }
 }
 
 /** Compact label for a model id (strip dates and common prefixes). */
@@ -321,11 +213,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const rawPlanEdges = usePlanStore((s) => s.edges)
   const planEdges = useMemo(() => rawPlanEdges.filter(isLive), [rawPlanEdges])
-  const updateNode = usePlanStore((s) => s.updateNode)
-  const addNode = usePlanStore((s) => s.addNode)
-  const addEdge = usePlanStore((s) => s.addEdge)
-  const removeEdge = usePlanStore((s) => s.removeEdge)
-  const reorganizeProject = usePlanStore((s) => s.reorganizeProject)
   const markNodesAsUpdating = usePlanStore((s) => s.markNodesAsUpdating)
 
   // Project store — for file tree and working directory
@@ -432,164 +319,10 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     }
   }, [displayBlocks.length, isStreaming])
 
-  /** Apply all mutations (node updates + edge operations + new nodes) to the plan store.
-   *  Returns the affected node IDs and resolved mutations (with guaranteed nodeIds). */
-  const applyMutations = useCallback((mutations: AppliedMutations): { affectedNodeIds: string[]; resolvedMutations: ResolvedMutations } => {
-    const { nodeUpdates, edgeOps, newNodes } = mutations
-    const affectedNodeIds: string[] = []
-    const resolvedNodeUpdates: Array<{ nodeId: string; [key: string]: unknown }> = []
-
-    // Create new nodes (from decomposition)
-    // Map AI-generated IDs to proper UUIDs for consistency with manually created tasks.
-    // No deduplication — if AI wants to update an existing node, it should use astro-updates with nodeTitle.
-    const idMap = new Map<string, string>() // map AI-generated IDs to real UUIDs
-
-    for (const n of newNodes) {
-      const realId = crypto.randomUUID()
-      affectedNodeIds.push(realId)
-      if (n.id) idMap.set(n.id, realId)
-
-      const now = new Date()
-      const node: PlanNode = {
-        id: realId,
-        projectId,
-        type: (n.type as PlanNode["type"]) ?? "task",
-        title: n.title,
-        description: n.description,
-        content: n.description ? `<p>${escapeHtml(n.description)}</p>` : '',
-        status: "planned",
-        parentId: null,
-        dependencies: (n.dependencies ?? []).map((d) => idMap.get(d) ?? d),
-        verification: (n.verification as PlanNode["verification"]) ?? "auto",
-        position: { x: 40, y: 40 },
-        priority: (n.priority as PlanNode["priority"]) ?? "medium",
-        estimate: (n.estimate as PlanNode["estimate"]) ?? undefined,
-        milestoneId: n.milestoneId ?? undefined,
-        createdAt: now,
-        updatedAt: now,
-      }
-      addNode(node)
-
-      // Add edges for dependencies
-      for (const dep of node.dependencies) {
-        addEdge({ id: crypto.randomUUID(), source: dep, target: realId, type: "dependency" })
-      }
-    }
-
-    if (newNodes.length > 0) {
-      // Auto-layout after adding new nodes
-      reorganizeProject(projectId)
-    }
-
-    // Apply node property updates
-    for (const u of nodeUpdates) {
-      // Resolve nodeId: either directly provided, or looked up by nodeTitle
-      let resolvedNodeId: string | undefined = u.nodeId
-
-      if (!resolvedNodeId && u.nodeTitle) {
-        // Title-based lookup: find node by title (case-insensitive)
-        const normalizedTitle = u.nodeTitle.trim().toLowerCase()
-        const projectNodes = planNodes.filter((n) => n.projectId === projectId)
-        let candidates = projectNodes.filter((n) => n.title.trim().toLowerCase() === normalizedTitle)
-
-        // If type is specified, filter by type for disambiguation
-        if (u.type && candidates.length > 1) {
-          candidates = candidates.filter((n) => n.type === u.type)
-        }
-
-        if (candidates.length === 0) {
-          console.warn(`[chat-panel] Node update failed: no node found with title "${u.nodeTitle}"${u.type ? ` and type "${u.type}"` : ''}`)
-          continue
-        } else if (candidates.length > 1) {
-          console.warn(`[chat-panel] Node update ambiguous: multiple nodes found with title "${u.nodeTitle}"${u.type ? ` and type "${u.type}"` : ''}. Specify type to disambiguate.`)
-          continue
-        }
-
-        resolvedNodeId = candidates[0].id
-      }
-
-      if (!resolvedNodeId) {
-        console.warn('[chat-panel] Node update failed: neither nodeId nor nodeTitle provided')
-        continue
-      }
-
-      affectedNodeIds.push(resolvedNodeId)
-
-      // Build resolved update object for activity events
-      const resolvedUpdate: { nodeId: string; [key: string]: unknown } = { nodeId: resolvedNodeId }
-      const patch: Partial<PlanNode> = {}
-      for (const [key, value] of Object.entries(u)) {
-        if (key === "nodeId" || key === "nodeTitle" || key === "type") continue // not properties to patch
-        if (INTERNAL_FIELDS.has(key)) continue // skip internal fields
-        ;(patch as Record<string, unknown>)[key] = value
-        resolvedUpdate[key] = value
-      }
-
-      resolvedNodeUpdates.push(resolvedUpdate)
-
-      // When description is updated, also generate the HTML content field
-      // (UI renders content, not description)
-      if (typeof patch.description === 'string' && !patch.content) {
-        patch.content = `<p>${escapeHtml(patch.description)}</p>`
-      }
-
-      // If dependencies were updated, reconcile edges automatically
-      if (Array.isArray(u.dependencies)) {
-        const currentNode = planNodes.find((n) => n.id === resolvedNodeId)
-        if (currentNode) {
-          const newDeps = new Set(u.dependencies as string[])
-          const oldDeps = new Set(currentNode.dependencies)
-          // Remove edges for removed dependencies
-          for (const dep of oldDeps) {
-            if (!newDeps.has(dep)) removeEdge(dep, resolvedNodeId)
-          }
-          // Add edges for new dependencies
-          for (const dep of newDeps) {
-            if (!oldDeps.has(dep)) {
-              addEdge({ id: `e-${dep}-${resolvedNodeId}`, source: dep, target: resolvedNodeId, type: "dependency" })
-            }
-          }
-        }
-      }
-
-      if (Object.keys(patch).length > 0) {
-        updateNode(resolvedNodeId, patch)
-      }
-    }
-
-    // Apply edge operations
-    for (const op of edgeOps) {
-      if (op.action === "add") {
-        addEdge({
-          id: `e-${op.source}-${op.target}`,
-          source: op.source,
-          target: op.target,
-          type: (op.type as "dependency" | "branch") ?? "dependency",
-        })
-        // Also update the target node's dependencies array
-        const targetNode = planNodes.find((n) => n.id === op.target)
-        if (targetNode && !targetNode.dependencies.includes(op.source)) {
-          updateNode(op.target, { dependencies: [...targetNode.dependencies, op.source] })
-        }
-      } else if (op.action === "remove") {
-        removeEdge(op.source, op.target)
-        // Also update the target node's dependencies array
-        const targetNode = planNodes.find((n) => n.id === op.target)
-        if (targetNode) {
-          updateNode(op.target, { dependencies: targetNode.dependencies.filter((d) => d !== op.source) })
-        }
-      }
-    }
-
-    return {
-      affectedNodeIds,
-      resolvedMutations: {
-        nodeUpdates: resolvedNodeUpdates,
-        edgeOps: edgeOps,
-        newNodes: newNodes,
-      }
-    }
-  }, [planNodes, projectId, updateNode, addNode, addEdge, removeEdge, reorganizeProject])
+  /** Apply all mutations to the plan store via the shared module. */
+  const applyMutations = useCallback((mutations: AppliedMutations) => {
+    return applyMutationsToStore(projectId, mutations)
+  }, [projectId])
 
   const sendMessage = useCallback(async (text: string) => {
     // Read session fresh from store — never use stale ref

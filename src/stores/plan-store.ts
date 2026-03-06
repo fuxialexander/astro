@@ -437,17 +437,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
   setProjectPlan: (projectId, newNodes, newEdges) => {
     console.log(`[plan-store] setProjectPlan called: projectId=${projectId}, ${newNodes.length} nodes, ${newEdges.length} edges`)
-    // Guard: if the project already has nodes with the same titles (different UUIDs from a
-    // racing second call, e.g. SSE vs WebSocket), skip to keep the first set's IDs stable.
-    const existingProjectNodes = get().nodes.filter((n) => n.projectId === projectId)
-    if (existingProjectNodes.length > 0 && existingProjectNodes.length === newNodes.length) {
-      const existingTitles = new Set(existingProjectNodes.map((n) => n.title))
-      const allMatch = newNodes.every((n) => existingTitles.has(n.title))
-      if (allMatch) {
-        console.log(`[plan-store] Skipping duplicate setProjectPlan for ${projectId} — same ${newNodes.length} titles already exist`)
-        return
-      }
-    }
+    // Always replace the project's plan — the agent outputs the complete updated plan each time.
     // Numbers are assigned server-side — add optimistically without numbers
     const otherNodes = get().nodes.filter((n) => n.projectId !== projectId)
     const otherEdges = get().edges.filter((e) => {
