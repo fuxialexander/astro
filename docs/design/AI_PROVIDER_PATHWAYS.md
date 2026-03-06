@@ -6,139 +6,457 @@ How AI providers (Claude Agent SDK, Codex, OpenClaw, OpenCode) are used across a
 
 ---
 
-## 1. Interaction Modes
+## 1. Pathway Classification
 
-Astro has **14 relay-dispatched pathways** + **2 direct Anthropic API calls** where an AI model is invoked. They fall into 6 categories:
+Astro has **14 relay-dispatched pathways** + **2 direct Anthropic API calls** where an AI model is invoked. They are classified by **complexity** and **purpose**:
 
-### A. Task Execution (full agentic coding)
+### Class A: Agentic (multi-turn, tools, files, long-running)
 
-| # | Pathway | Frontend Trigger | API Endpoint | Task Type | Description |
-|---|---------|-----------------|--------------|-----------|-------------|
-| 1 | **Task Execution** | "Execute" button on plan node | `POST /api/dispatch/task` | `execution` | Full agentic session: reads/writes files, runs commands, creates PRs. The core work loop. |
-| 2 | **Playground** | Submit in playground | `POST /api/dispatch/task` | `execution` | Same dispatch path as task execution, but with an ephemeral project (`projectType: 'playground'`). |
-| 3 | **Interactive Plan** | "Brainstorm" button | `POST /api/dispatch/task` | `execution` (interactive) | Brainstorm/plan interactively without worktree. Uses `buildInteractivePlanPrompt()`. Skips working directory requirement. |
-| 4 | **HPC/Slurm Dispatch** | HPC dispatch UI | `POST /api/relay/slurm/dispatch` | `execution` | Dispatch tasks to HPC clusters with Slurm resource config (partition, GPU, nodes). Forces `claude-sdk` provider. Requires `hpcCapability` on target machine. |
+These are full agentic sessions. The AI reads/writes files, runs commands, iterates across turns, and may take minutes to complete. They require a working directory, skills, and compute environment context.
 
-### B. Planning (structured plan generation)
+| # | Pathway | API Endpoint | Workflow |
+|---|---------|--------------|----------|
+| 1 | **Task Execution** | `POST /api/dispatch/task` | Dispatch -> Agent session -> tool loop -> result -> PR/push/branch |
+| 2 | **Playground** | `POST /api/dispatch/task` | Same as #1 but ephemeral project, supports steering for follow-ups |
+| 3 | **Interactive Plan** | `POST /api/dispatch/task` | Dispatch -> Agent session -> brainstorm -> extract plan JSON |
+| 4 | **HPC/Slurm Dispatch** | `POST /api/relay/slurm/dispatch` | Dispatch -> Agent session ON HPC machine -> Slurm job submission |
 
-| # | Pathway | Frontend Trigger | API Endpoint | Task Type | Description |
-|---|---------|-----------------|--------------|-----------|-------------|
-| 5 | **Plan Generation** | "Create Plan" dialog submit | `POST /api/agent/generate-plan` | `plan` | Generates a DAG of tasks with dependencies. Uses structured JSON output (`PLAN_GRAPH_SCHEMA`). Falls back to `retryPlanExtractionWithHaiku()` if JSON extraction fails. |
+### Class B: Conversational (multi-turn chat, read-only tools)
 
-### C. Chat (conversational, may use tools)
+These are chat sessions. The AI can read files but not write. They support multi-turn via message history (6-7) or adapter-level session resume (8). Used for discussion and analysis, not execution.
 
-| # | Pathway | Frontend Trigger | API Endpoint | Task Type | Description |
-|---|---------|-----------------|--------------|-----------|-------------|
-| 6 | **Project Chat** | Chat sidebar | `POST /api/agent/chat` | `chat` | General conversation about the project. Has read-only tool access. |
-| 7 | **Plan Chat** | "Ask AI" in plan view | `POST /api/agent/plan-chat` | `chat` | Refine plan decomposition. Receives plan nodes/edges as context. Defaults to Haiku for speed. |
-| 8 | **Task Chat** | Chat panel in task detail | `POST /api/agent/task-chat` | `chat` | Discuss a specific task's execution output. Receives task title, description, output, branch/PR context. Supports session resume. |
-| 9 | **Compact** | Auto when context exceeds limit | `POST /api/agent/compact` | `chat` | Summarizes conversation history for context compression. Single-turn (`maxTurns: 1`). Preserves decisions, action items, technical details. |
+| # | Pathway | API Endpoint | Workflow |
+|---|---------|--------------|----------|
+| 5 | **Plan Generation** | `POST /api/agent/generate-plan` | Stream -> structured JSON plan output -> extract nodes/edges |
+| 6 | **Project Chat** | `POST /api/agent/chat` | Stream chat with read-only tools, message history continuity |
+| 7 | **Plan Chat** | `POST /api/agent/plan-chat` | Stream chat about plan, defaults to Haiku, history continuity |
+| 8 | **Task Chat** | `POST /api/agent/task-chat` | Stream chat about task output, supports adapter session resume |
+| 9 | **Compact** | `POST /api/agent/compact` | Single-turn summarization of conversation history |
 
-### D. Auxiliary (lightweight, single-turn via relay)
+### Class C: One-Shot (single turn, no tools, fire-and-forget)
 
-| # | Pathway | Frontend Trigger | API Endpoint | Task Type | Description |
-|---|---------|-----------------|--------------|-----------|-------------|
-| 10 | **Task Summary** | Auto after execution | `POST /api/agent/summarize` | `summarize` | Generates structured `ExecutionSummary` (status, findings, artifacts). Uses `executeViaRelay()`. |
-| 11 | **Title Generation** | Auto on project load | `POST /api/agent/generate-title` | `summarize` | Single-turn: generates concise title from description (max 80 chars). |
-| 12 | **Refine** | "Refine" button on task/project | `POST /api/agent/refine` | `summarize` | Improves task/project title and description. Returns `{ refinedTitle, refinedDescription, confidence }`. |
-| 13 | **Label Suggestion** | Auto on task creation | `POST /api/agent/suggest-labels` | `summarize` | Suggests category labels (Frontend, Backend, Testing, Infrastructure, Research) for tasks. Returns 0-2 label IDs. |
+These are simple single-turn completions. No tools, no file access, no skills needed. They go through the relay (`executeViaRelay()`) but use `maxTurns: 1` and `type: 'summarize'`. All have graceful fallbacks if the AI call fails.
 
-### E. Steering (modifies active execution)
+| # | Pathway | API Endpoint | Fallback if AI fails |
+|---|---------|--------------|---------------------|
+| 10 | **Task Summary** | `POST /api/agent/summarize` | Truncated execution output |
+| 11 | **Title Generation** | `POST /api/agent/generate-title` | First 80 chars of description |
+| 12 | **Refine** | `POST /api/agent/refine` | Original title + description unchanged |
+| 13 | **Label Suggestion** | `POST /api/agent/suggest-labels` | Empty array `[]` |
 
-| # | Pathway | Frontend Trigger | API Endpoint | Task Type | Description |
-|---|---------|-----------------|--------------|-----------|-------------|
-| 14 | **Steering** | Send message during execution | `POST /api/dispatch/steer` | -- | Mid-execution guidance injected into running session. Not a new task -- modifies active one. Routes to `injectMessage()` (running) or `resumeTask()` (completed). |
+### Class D: Control Signal (no AI invocation itself)
 
-### F. Direct Anthropic API Calls (bypass relay)
+| # | Pathway | API Endpoint | What it does |
+|---|---------|--------------|-------------|
+| 14 | **Steering** | `POST /api/dispatch/steer` | Injects message into running task or resumes completed task |
 
-These do NOT go through the relay/agent-runner pipeline. They call the Anthropic API directly from the server process.
+### Class E: Direct API Fallbacks (bypass relay, server-side only)
 
-| # | Pathway | Trigger | Location | Model | Description |
-|---|---------|---------|----------|-------|-------------|
-| 15 | **Plan Extraction Retry** | Auto when plan JSON extraction fails | `packages/core/src/plan-extraction-retry.ts` | `claude-haiku-4-5-20251001` | Fallback: sends accumulated plan text to Haiku for structured JSON extraction. 30s timeout. Non-blocking (returns null on error). |
-| 16 | **Server-Side Summary** | Auto during PR body generation | `packages/core/src/dispatch/summary-utils.ts` | `claude-3-haiku-20240307` | Layer 3 of 5-layer PR summary fallback chain. Generates `ExecutionSummary` from task output. 15s timeout. Only called if layers 1-2 (cached/regex) fail. |
+These call the Anthropic API directly from the server process. They are **non-blocking fallbacks** that gracefully return `null` if no `ANTHROPIC_API_KEY` is set. They do NOT require an agent runner or relay connection.
 
----
-
-## 2. Data Flow
-
-### Relay-Dispatched Pathways (1-14)
-
-```
-Frontend Store          Astro Server              Relay (WebSocket)         Agent Runner
-----                    ----                      ----                      ----
-api-client.ts    ->     routes/agent.ts      ->   relayServer            -> websocket-client.ts
-execution-store  ->     routes/dispatch.ts   ->   .dispatchTask()        -> task-executor.ts
-agent-store      ->     routes/relay.ts      ->   .steerTask()           -> provider adapter
-                                                                           |-- claude-sdk-adapter
-                                                                           |-- codex-adapter
-                                                                           |-- openclaw-adapter
-                                                                           |-- opencode-adapter
-                                                                           +-- claude-code-adapter
-```
-
-### Direct API Calls (15-16)
-
-```
-Astro Server                          Anthropic API
-----                                  ----
-plan-extraction-retry.ts    ->        messages.create() [Haiku 4.5]
-dispatch/summary-utils.ts   ->        messages.create() [Haiku 3]
-```
-
-**Key routing decisions:**
-
-1. **Server builds system prompt** (`prompt-templates.ts`) and injects: vision doc, skills, env context, dependency outputs, repo context.
-2. **Relay dispatches** to the correct machine via WebSocket (machine selection based on `targetMachineId` or first available).
-3. **Task executor** selects adapter based on `preferredProvider` or auto-detection order.
-4. **Adapter executes** via SDK (in-process) or CLI subprocess, streams events back.
-5. **Direct API calls** are fire-and-forget fallbacks that bypass the relay entirely. They use the server's `ANTHROPIC_API_KEY`, not the agent runner's credentials.
+| # | Pathway | When triggered | Model | If no API key |
+|---|---------|---------------|-------|---------------|
+| 15 | **Plan Extraction Retry** | Plan JSON regex fails | `claude-haiku-4-5-20251001` | Returns `null`, plan extraction fails gracefully |
+| 16 | **Server-Side Summary** | PR body needs summary, layers 1-2 failed | `claude-3-haiku-20240307` | Returns `null`, falls to layer 4 (git diff) then layer 5 (task description) |
 
 ---
 
-## 3. Provider Routing in Agent Runner
+## 2. Workflow Diagrams
 
-### Adapter Selection
-
-The task executor picks the adapter in this priority:
-1. `task.preferredProvider` if specified (user's default provider setting)
-2. First available from registered providers list
-3. For `claude-code` type: prefers `ClaudeSdkAdapter` over `ClaudeCodeAdapter` (CLI fallback)
-
-### Task Type Routing (inside adapters)
+### Class A: Agentic Workflow (Pathways 1-4)
 
 ```
-Claude SDK Adapter:
-  |-- execution -> full path: settingSources, all tools, MCP, sandbox, summary
-  |-- plan     -> text-only fast path (runTextOnlyQuery): no tools, no settingSources
-  |-- chat     -> text-only fast path: read-only tools + Skill, settingSources loaded
-  +-- summarize -> text-only fast path: no tools, json_schema output
-
-CLI Adapters (Codex, OpenClaw, OpenCode, Claude Code):
-  +-- All types -> same execute() path: spawn CLI with prompt
+User clicks "Execute"
+        |
+        v
+  ┌─────────────────────────┐
+  │   Astro Server           │
+  │   routes/dispatch.ts     │
+  │                          │
+  │  1. Build system prompt  │
+  │     - vision doc         │
+  │     - skills (backend-   │
+  │       scoped)            │
+  │     - env context        │
+  │     - dependency outputs │
+  │  2. Select machine       │
+  │  3. Dispatch via relay   │
+  └──────────┬──────────────┘
+             │ WebSocket
+             v
+  ┌─────────────────────────┐
+  │   Agent Runner            │
+  │   task-executor.ts        │
+  │                           │
+  │  1. Select adapter        │
+  │  2. adapter.execute()     │
+  │                           │
+  │  ┌─────────────────────┐  │
+  │  │  Agent Loop          │  │
+  │  │  (multi-turn)        │  │
+  │  │                      │  │
+  │  │  LLM -> tool_use ->  │  │
+  │  │  tool_result -> LLM  │  │
+  │  │  -> tool_use -> ...  │  │
+  │  │                      │  │
+  │  │  Skills loaded via   │  │
+  │  │  settingSources or   │  │
+  │  │  native CLI loading  │  │
+  │  └─────────────────────┘  │
+  │                           │
+  │  Stream events back:      │
+  │  text, tool_use,          │
+  │  tool_result, file_change │
+  └──────────┬───────────────┘
+             │
+             v
+  ┌─────────────────────────┐
+  │  SSE -> Frontend          │
+  │  + streaming_events DB    │
+  │  + taskExecutions DB      │
+  │  + planNodes DB           │
+  └───────────────────────────┘
 ```
 
-The "text-only fast path" in the Claude SDK adapter (`runTextOnlyQuery()`) is an optimization that skips heavy setup (MCP servers, sandbox, full tool list) to minimize time-to-first-token.
+### Class B: Chat Workflow (Pathways 6-8)
+
+```
+User sends message
+        |
+        v
+  ┌─────────────────────────┐
+  │   Astro Server            │
+  │   routes/agent.ts         │
+  │                           │
+  │  1. Build system prompt   │
+  │     (vision doc, plan     │
+  │      context, task output)│
+  │  2. streamChatViaRelay()  │
+  └──────────┬───────────────┘
+             │ WebSocket
+             v
+  ┌─────────────────────────┐
+  │   Agent Runner            │
+  │   runTextOnlyQuery()      │
+  │                           │
+  │  - Read-only tools        │
+  │    [Read, Grep, Glob,     │
+  │     WebSearch, WebFetch,  │
+  │     Skill]                │
+  │  - settingSources loaded  │
+  │  - maxTurns: 10 (default) │
+  │                           │
+  │  No file writes,          │
+  │  no command execution     │
+  └──────────┬───────────────┘
+             │
+             v
+  ┌─────────────────────────┐
+  │  SSE -> Frontend          │
+  │  + streaming_events DB    │
+  │  (NO taskExecutions)      │
+  └───────────────────────────┘
+```
+
+### Class C: One-Shot Workflow (Pathways 10-13)
+
+```
+Server needs summary/title/labels
+        |
+        v
+  ┌─────────────────────────┐
+  │   executeViaRelay()       │
+  │                           │
+  │  - maxTurns: 1            │
+  │  - type: 'summarize'      │
+  │  - No tools               │
+  │  - No skills              │
+  │  - No streaming to client │
+  │  - 120s timeout           │
+  └──────────┬───────────────┘
+             │ WebSocket
+             v
+  ┌─────────────────────────┐
+  │  Agent Runner             │
+  │  runTextOnlyQuery()       │
+  │  - No tools               │
+  │  - No settingSources      │
+  │  - json_schema output     │
+  │  - Single completion      │
+  └──────────┬───────────────┘
+             │
+             v
+  ┌─────────────────────────┐
+  │  JSON response to caller  │
+  │  (NOT persisted to DB)    │
+  │  Falls back on failure    │
+  └───────────────────────────┘
+```
+
+### Class E: Direct API Fallback (Pathways 15-16)
+
+```
+Trigger: regex extraction fails / PR body needed
+        |
+        v
+  ┌─────────────────────────┐
+  │  Server Process            │
+  │                            │
+  │  if (!ANTHROPIC_API_KEY)   │
+  │    return null  ──────────►  Fallback path
+  │                            │  (no AI, use heuristics)
+  │  Anthropic.messages.create │
+  │  model: haiku              │
+  │  timeout: 15-30s           │
+  │                            │
+  │  Parse JSON from response  │
+  │  Return structured result  │
+  └────────────────────────────┘
+
+  NO relay, NO agent runner, NO provider adapter.
+  Just a direct HTTP call to api.anthropic.com.
+```
 
 ---
 
-## 4. Provider Capabilities Matrix
+## 3. Answering Key Questions
+
+### Q: Why does Pathway 9 (Compact) not need skills?
+
+Compact is a **summarization task**, not an execution task. It receives the full conversation transcript as input and produces a compressed summary. It doesn't need to read files, invoke tools, or follow specialized workflows. The AI's job is purely textual: distill key decisions, facts, and action items from a conversation. Loading skills would add latency for no benefit.
+
+However, Compact **does use an LLM** via relay dispatch (`streamChatViaRelay` with `type: 'chat'`, `maxTurns: 1`). It just doesn't need skills or tools.
+
+### Q: Pathway 10 (Task Summary) -- does it extract from output without needing a model?
+
+No -- **it does use an LLM**. `POST /api/agent/summarize` calls `executeViaRelay()` which dispatches to an agent runner, which runs `runTextOnlyQuery()` on the Claude SDK adapter. The LLM reads the raw execution output and produces a structured `ExecutionSummary` JSON.
+
+The confusion may be that it has a **fallback**: if the relay call fails (timeout, no agent runner), it returns a degraded summary using the first 500 chars of execution output + file change paths. So it _can_ work without an LLM, but the quality is much worse.
+
+### Q: Why does Pathway 15 (Plan Extraction Retry) exist? Not all machines have Haiku/Anthropic API key.
+
+You're right to question this. Pathway 15 is a **non-critical, graceful-degradation fallback**:
+
+```typescript
+// plan-extraction-retry.ts line 19
+if (!apiKey) return null  // No API key? Just skip, no error.
+```
+
+**What actually happens:**
+1. Plan generation (Pathway 5) streams text from the agent runner
+2. Server tries to extract plan JSON from the streamed text using regex (`extractPlanJsonFromText`)
+3. **If regex succeeds** (the common case): done, no Haiku call needed
+4. **If regex fails** (malformed/truncated output): fire-and-forget Haiku call to clean up the JSON
+5. **If no `ANTHROPIC_API_KEY`**: returns `null`, plan extraction fails, user sees an error
+
+So this pathway is:
+- **Not required** for normal operation (regex usually works)
+- **Not required** if you don't have an Anthropic API key (gracefully skips)
+- **Only useful** as a recovery mechanism for edge cases where the agent's output was truncated or malformed
+
+**Recommendation**: This could be made more robust by using the agent runner itself (via relay) for retry, instead of requiring a server-side API key. That way it would work with any provider.
+
+### Q: Why does Pathway 4 (HPC/Slurm) need a language model?
+
+The AI doesn't run ON the HPC cluster. The AI runs on the **agent-runner machine** that has access to the Slurm cluster. The workflow is:
+
+```
+Agent Runner (has Claude SDK installed)
+    |
+    |  Agent uses tools (Bash, Write, etc.) to:
+    |  1. Write Slurm job scripts (.sbatch files)
+    |  2. Submit them via `sbatch` command
+    |  3. Monitor with `squeue`, `sacct`
+    |  4. Collect results from shared filesystem
+    |
+    v
+Slurm Cluster (GPU nodes, compute nodes)
+    |  No AI here -- just computational workloads
+    v
+Results back to agent via shared filesystem
+```
+
+The `hpcCapability` flag means: "this machine has Slurm tools installed (`sbatch`, `squeue`, etc.) and can submit jobs to a cluster." It's auto-detected when the agent-runner starts by checking if Slurm commands are available.
+
+The constraint `claude-sdk` only is because only the Claude SDK adapter has the full tool access needed to write job scripts and run Slurm commands interactively.
+
+### Q: Which pathways are one-shot vs multi-step?
+
+| Pathway | Turns | Workflow Complexity |
+|---------|-------|---------------------|
+| **1-4** (Execution) | Multi-turn (10-100+) | Full agent loop: think -> tool -> result -> think -> ... |
+| **5** (Plan Generation) | Multi-turn (5-20) | Generate structured plan, may iterate on JSON schema |
+| **6-8** (Chat) | Multi-turn (1-10) | Conversational, may read files |
+| **9** (Compact) | **1 turn** | Single summarization pass |
+| **10** (Summary) | **1 turn** | Single structured extraction |
+| **11** (Title Gen) | **1 turn** | Single text generation |
+| **12** (Refine) | **1 turn** | Single structured generation |
+| **13** (Labels) | **1 turn** | Single classification |
+| **14** (Steering) | **0 turns** (control signal) | Injects message, no AI invocation |
+| **15** (Plan Retry) | **1 turn** | Single extraction |
+| **16** (Server Summary) | **1 turn** | Single structured extraction |
+
+**Pathways 10-13 are structurally identical**: single-turn, no tools, `type: 'summarize'`, via `executeViaRelay()`, each with a different prompt builder and fallback.
+
+---
+
+## 4. Model and Skill Requirements Matrix
+
+### Which providers/models are supported?
+
+| # | Pathway | Supported Providers | Model Selection | Default Model |
+|---|---------|--------------------|-----------------|--------------|
+| 1-3 | Execution/Playground/Interactive | All 5 (SDK, Codex, OpenClaw, OpenCode, CC CLI) | User override via UI | Agent runner default |
+| 4 | HPC/Slurm | **Claude SDK only** | User override | Agent runner default |
+| 5 | Plan Generation | All 5 | User override via UI | Agent runner default |
+| 6 | Project Chat | All 5 | User override via UI | Agent runner default |
+| 7 | Plan Chat | All 5 | User override via UI | **Haiku** (hardcoded default) |
+| 8 | Task Chat | All 5 | User override via UI | Agent runner default |
+| 9 | Compact | All 5 | **Bug: `model` param accepted but discarded** | Agent runner default |
+| 10-13 | Summary/Title/Refine/Labels | All 5 | **No model param** (uses agent runner default) | Agent runner default |
+| 14 | Steering | N/A (control signal) | N/A | N/A |
+| 15 | Plan Extract Retry | **Anthropic API only** (not via relay) | Hardcoded | `claude-haiku-4-5-20251001` |
+| 16 | Server Summary | **Anthropic API only** (not via relay) | Hardcoded | `claude-3-haiku-20240307` (outdated) |
+
+### Which pathways need skills?
+
+| # | Pathway | Provider Skills | Compute Backend Skills | User Skills | Rationale |
+|---|---------|----------------|----------------------|-------------|-----------|
+| 1-3 | Execution | **Yes** (settingSources) | **Yes** (backend-scoped) | **Yes** | Full agentic work needs all context |
+| 4 | HPC/Slurm | **Yes** (settingSources) | **Yes** (HPC-specific) | **Yes** | Agent needs HPC workflow knowledge |
+| 5 | Plan Generation | **No** (text-only path) | **Yes** (server-side injection) | CLI providers: Yes | Plan prompt includes skills summary |
+| 6-8 | Chat | **Yes** (settingSources + Skill tool) | **Yes** (server-side) | **Yes** | Users may invoke skills in chat |
+| 9 | Compact | **No** | **No** | **No** | Pure summarization, no tool use |
+| 10-13 | One-shots | **No** | **No** | **No** | Simple completion, no tools needed |
+| 14 | Steering | N/A | N/A | N/A | Control signal, not a task |
+| 15-16 | Direct API | **No** | **No** | **No** | Server-side fallback, no adapter |
+
+**Key distinction:**
+- **Provider skills** = loaded by the adapter itself (settingSources for Claude SDK, native loading for CLI providers)
+- **Compute backend skills** = injected server-side into the system prompt by `skillManager.getBackendScopedSkillInjection()`
+- **User skills** = custom skills in `~/.claude/skills/` or `~/.codex/skills/` loaded by the provider
+
+---
+
+## 5. Data Storage and Observability
+
+### What is persisted to Supabase?
+
+| # | Pathway | `streaming_events` | `taskExecutions` | `planNodes` | Queryable after refresh? |
+|---|---------|-------------------|------------------|-------------|--------------------------|
+| 1-3 | Execution | **Yes** (full event log) | **Yes** (result, metrics, cost) | **Yes** (output, error, timestamps) | **Yes** -- hydrated via `useRestoredExecution` |
+| 4 | HPC/Slurm | **Yes** (same as execution) | **Yes** | **Yes** | **Yes** |
+| 5 | Plan Generation | **Yes** (text, plan_result) | No | No (plan stored in frontend state) | **Yes** -- via streamId |
+| 6-8 | Chat | **Yes** (text, tool_use, tool_result, session_init) | No | No | **Yes** -- via streamId |
+| 9 | Compact | **Yes** (same handler as chat) | No | No | **Yes** -- via streamId |
+| 10 | Summary | **No** | No | No | **No** -- result returned to caller only |
+| 11 | Title Gen | **No** | No | No | **No** -- result returned to caller only |
+| 12 | Refine | **No** | No | No | **No** -- result returned to caller only |
+| 13 | Labels | **No** | No | No | **No** -- result returned to caller only |
+| 14 | Steering | **Yes** (`steer_message` event) | No | No | **Yes** -- included in event replay |
+| 15 | Plan Retry | **Yes** (`plan_result` event if successful) | No | No | **Yes** -- appended to existing stream |
+| 16 | Server Summary | **No** | No | No | **No** -- result used for PR body only |
+
+### Observability Gaps
+
+**Pathways 10-13 (One-Shots) have ZERO observability.** They use `executeViaRelay()` which:
+- Does NOT persist events to `streaming_events`
+- Does NOT create `taskExecutions` records
+- Does NOT track cost, tokens, or model used
+- Result is returned to caller and discarded
+
+This means:
+- No way to audit how many summary/title/refine/label calls are made
+- No way to track cost of these auxiliary AI calls
+- No way to debug failures (timeout? bad output? wrong model?)
+
+**Recommendation**: Add lightweight persistence to `executeViaRelay()` -- at minimum, log the task type, input length, output length, model used, duration, and success/failure to a metrics table.
+
+---
+
+## 6. Data Flow Architecture
+
+### Full Architecture Diagram
+
+```
+┌──────────────┐     ┌──────────────────────────────────────────────────────────┐
+│  Frontend     │     │  Astro Server                                            │
+│              │     │                                                          │
+│  api-client  │────►│  routes/agent.ts                                         │
+│  stores      │     │  ├── /generate-plan ─► streamChatViaRelay() ──────────┐  │
+│              │     │  ├── /chat ──────────► streamChatViaRelay() ──────────┤  │
+│              │     │  ├── /plan-chat ─────► streamChatViaRelay() ──────────┤  │
+│              │     │  ├── /task-chat ─────► streamChatViaRelay() ──────────┤  │
+│              │     │  ├── /compact ───────► streamChatViaRelay() ──────────┤  │
+│              │     │  ├── /summarize ─────► executeViaRelay() ────────────┤  │
+│              │     │  ├── /generate-title ► executeViaRelay() ────────────┤  │
+│              │     │  ├── /refine ────────► executeViaRelay() ────────────┤  │
+│              │     │  └── /suggest-labels ► executeViaRelay() ────────────┤  │
+│              │     │                                                      │  │
+│              │     │  routes/dispatch.ts                                   │  │
+│              │────►│  ├── /task ──────────► dispatchViaRelay() ───────────┤  │
+│              │     │  └── /steer ─────────► relayServer.steerTask() ─────┤  │
+│              │     │                                                      │  │
+│              │     │  routes/relay.ts                                      │  │
+│              │────►│  └── /slurm/dispatch ► relayServer.dispatchTask() ──┤  │
+│              │     │                                                      │  │
+│              │     │  ┌─────────────────────────────────────────────────┐ │  │
+│              │     │  │  streamChatViaRelay()          SSE streaming    │ │  │
+│              │◄────│  │  - Persists to streaming_events DB              │ │  │
+│              │     │  │  - Streams SSE to browser                       │ │  │
+│              │     │  │  - Heartbeat + activity timeout                 │ │  │
+│              │     │  └─────────────────────────────────────────────────┘ │  │
+│              │     │                                                      │  │
+│              │     │  ┌─────────────────────────────────────────────────┐ │  │
+│              │     │  │  executeViaRelay()              Non-streaming   │ │  │
+│              │     │  │  - NO persistence (gap!)                        │ │  │
+│              │     │  │  - Returns JSON to caller                       │ │  │
+│              │     │  │  - 120s timeout                                 │ │  │
+│              │     │  └─────────────────────────────────────────────────┘ │  │
+│              │     │                                                      │  │
+│              │     │  Direct API (no relay):                              │  │
+│              │     │  ├── plan-extraction-retry.ts → Haiku 4.5            │  │
+│              │     │  └── summary-utils.ts → Haiku 3 (outdated)           │  │
+│              │     └──────────────────────────────┬───────────────────────┘  │
+└──────────────┘                                    │                          │
+                                                    │ WebSocket                │
+                                              ┌─────▼──────────────────┐       │
+                                              │  Agent Runner            │      │
+                                              │                          │      │
+                                              │  task-executor.ts        │      │
+                                              │  ├── ClaudeSdkAdapter    │      │
+                                              │  ├── CodexAdapter        │      │
+                                              │  ├── OpenClawAdapter     │      │
+                                              │  ├── OpenCodeAdapter     │      │
+                                              │  └── ClaudeCodeAdapter   │      │
+                                              │                          │      │
+                                              │  Type routing:           │      │
+                                              │  execution → full path   │      │
+                                              │  plan → text-only        │      │
+                                              │  chat → text-only+tools  │      │
+                                              │  summarize → text-only   │      │
+                                              └──────────────────────────┘      │
+```
+
+---
+
+## 7. Provider Capabilities Matrix
 
 ### Operations Support
 
-|                      | execute | resumeTask | injectMessage | generateSummary | text-only path |
-|----------------------|---------|------------|---------------|-----------------|----------------|
-| **Claude SDK**       | Yes     | Yes        | Yes           | Yes             | Yes            |
-| **Codex**            | Yes     | Yes (PR #42) | No (returns false) | No        | No             |
-| **OpenClaw**         | Yes     | Yes (PR #52) | No (returns false) | No        | No             |
-| **OpenCode**         | Yes     | Yes (PR #52) | No (returns false) | No        | No             |
-| **Claude Code CLI**  | Yes     | No         | No            | No              | No             |
+|                      | execute | resumeTask | injectMessage | text-only path |
+|----------------------|---------|------------|---------------|----------------|
+| **Claude SDK**       | Yes     | Yes        | Yes           | Yes            |
+| **Codex**            | Yes     | Yes (PR #42) | No          | No             |
+| **OpenClaw**         | Yes     | Yes (PR #52) | No          | No             |
+| **OpenCode**         | Yes     | Yes (PR #52) | No          | No             |
+| **Claude Code CLI**  | Yes     | No         | No            | No             |
 
 ### Skills & Plugin Loading
 
 | Provider | Skill System | Storage | Loaded During Execution? | Loaded During Chat? |
 |----------|-------------|---------|--------------------------|---------------------|
-| **Claude SDK** | `settingSources: ['user','project','local']` + `Skill` tool | `~/.claude/skills/` | **Yes** (full path) | **Yes** (chat path now loads `settingSources` + `Skill`) |
+| **Claude SDK** | `settingSources: ['user','project','local']` + `Skill` tool | `~/.claude/skills/` | **Yes** (full path) | **Yes** (chat path loads settingSources + Skill) |
 | **Codex** | Native (stable, no feature flag) | `~/.codex/skills/` | **Yes** (CLI loads natively) | Yes (same CLI path) |
 | **OpenClaw** | Workspace-scoped skill system | Managed skills dir | **Yes** (CLI loads natively) | Yes (same CLI path) |
 | **OpenCode** | Claude-compatible | `~/.claude/skills/` | **Yes** (reads `.claude/` by default) | Yes (same CLI path) |
@@ -166,227 +484,76 @@ The "text-only fast path" in the Claude SDK adapter (`runTextOnlyQuery()`) is an
 
 ---
 
-## 5. Pathway x Provider Detail
+## 8. Comprehensive Pathway Summary
 
-### Pathways 1-2: Task Execution + Playground
-
-```
-POST /api/dispatch/task
-  -> routes/dispatch.ts builds system prompt (buildTaskExecutionPrompt)
-  -> Injects: vision doc, skills (backend-scoped), env context, dependency outputs
-  -> relayServer.dispatchTask() -> agent-runner
-  -> task-executor selects adapter -> adapter.execute()
-  -> Events stream back: text, tool_use, tool_result, file_change, session_init, result
-```
-
-**Provider skills:** All providers load native skills (Claude SDK via `settingSources`, CLI providers via native CLI loading).
-
-**Multi-turn:** Playground uses steering (`POST /api/dispatch/steer`) for follow-up messages. Maps to `injectMessage()` (running) or `resumeTask()` (completed).
-
-### Pathway 3: Interactive Plan
-
-```
-POST /api/dispatch/task (isInteractivePlan=true)
-  -> routes/dispatch.ts builds system prompt (buildInteractivePlanPrompt)
-  -> Injects: vision doc, skills, GitHub context, replan context
-  -> Skips working directory validation
-  -> relayServer.dispatchTask() -> agent-runner
-  -> Events: text (streaming plan discussion), plan_result (extracted plan JSON)
-  -> Server-side plan extraction via retryPlanExtractionWithHaiku() if needed
-```
-
-**Provider skills:** Same as task execution -- loaded via `settingSources` (SDK) or natively (CLI).
-
-### Pathway 4: HPC/Slurm Dispatch
-
-```
-POST /api/relay/slurm/dispatch
-  -> routes/relay.ts validates Slurm config (partition, GPU, nodes, mem, time)
-  -> Forces claude-sdk provider
-  -> Verifies target machine has hpcCapability
-  -> relayServer.dispatchTask() with slurmConfig in metadata
-  -> Events: same as task execution
-```
-
-**Special constraints:** Requires `hpcCapability` flag on provider. Machine selection prioritizes HPC-capable machines. Slurm config (partition, nodes, GPU, modules) passed in task metadata.
-
-### Pathway 5: Plan Generation
-
-```
-POST /api/agent/generate-plan
-  -> routes/agent.ts builds system prompt (buildPlanSystemPrompt)
-  -> Injects: vision doc, skills, env context, file tree, git state, GitHub context
-  -> relayServer.dispatchTask() with type='plan'
-  -> agent-runner: Claude SDK uses json_schema structured output
-  -> CLI adapters: system prompt inlined into user prompt
-  -> Events: text (streaming plan), plan_result (final graph JSON)
-  -> On JSON extraction failure: retryPlanExtractionWithHaiku() (Pathway 15)
-```
-
-**Provider skills:** Claude SDK skips skills (text-only path). CLI providers load skills natively but plan generation doesn't invoke them.
-
-**Multi-turn:** Plan steering via `POST /api/dispatch/steer` during generation.
-
-### Pathways 6-8: Chat (Project / Plan / Task)
-
-```
-POST /api/agent/{chat,plan-chat,task-chat}
-  -> routes/agent.ts builds system prompt (buildChatSystemPrompt / buildTaskChatSystemPrompt)
-  -> Injects: vision doc, plan context (plan-chat), task output (task-chat), skills, env context
-  -> streamChatViaRelay() -> relayServer.dispatchTask() with type='chat'
-  -> agent-runner: Claude SDK uses runTextOnlyQuery() (fast path)
-  -> CLI adapters: standard execute() with prompt
-  -> Events: text, tool_use, tool_result (read-only tools), session_init, done
-```
-
-**Provider skills:** Claude SDK chat path now loads `settingSources` + includes `'Skill'` in allowed tools (fixed in PR #52). CLI providers load skills natively.
-
-**Multi-turn:** Project Chat and Plan Chat achieve continuity via message history arrays (no adapter-level resume). Task Chat supports true session resume via `resumeSessionId` → `resumeTask()` on the adapter. Supported by Claude SDK, Codex (PR #42), OpenClaw (PR #52), OpenCode (PR #52).
-
-**Tools available in chat (Claude SDK):**
-- With working directory: `['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch', 'Skill']`
-- Without working directory: `['WebSearch', 'WebFetch', 'Skill']`
-
-### Pathway 9: Compact
-
-```
-POST /api/agent/compact
-  -> routes/agent.ts builds compact prompt from message transcript
-  -> streamChatViaRelay() with type='chat', maxTurns=1
-  -> Returns: structured summary of conversation (decisions, facts, action items)
-```
-
-**Provider skills:** Not needed (summarization task).
-
-### Pathway 10: Task Summary
-
-```
-POST /api/agent/summarize
-  -> executeViaRelay() with type='summarize'
-  -> Claude SDK: runTextOnlyQuery() with no tools, json_schema output
-  -> Returns: ExecutionSummary { status, executiveSummary, keyFindings }
-```
-
-**Provider skills:** Not needed (structured extraction task).
-
-### Pathways 11-13: Title Generation, Refine, Label Suggestion
-
-```
-POST /api/agent/{generate-title,refine,suggest-labels}
-  -> executeViaRelay() with type='summarize', maxTurns=1
-  -> Single-turn structured output (title string, refinement JSON, label IDs)
-```
-
-All three are lightweight single-turn tasks that use `executeViaRelay()` for synchronous execution. No tools, no skills, no multi-turn.
-
-| Sub-pathway | Prompt Builder | Output |
-|-------------|---------------|--------|
-| Title Gen | `buildTitleGenerationPrompt()` | Plain text (first line, max 80 chars) |
-| Refine | `buildRefinementPrompt()` | JSON: `{ refinedTitle, refinedDescription, confidence }` |
-| Labels | `buildLabelSuggestionPrompt()` | JSON: `{ labelIds: ['l1','l3'] }` (0-2 from: Frontend, Backend, Testing, Infrastructure, Research) |
-
-### Pathway 14: Steering
-
-```
-POST /api/dispatch/steer
-  -> relayServer.steerTask() -> WebSocket TaskSteerMessage
-  -> agent-runner: task-executor routes to adapter
-  -> Running task: adapter.injectMessage(taskId, message, interrupt)
-  -> Completed task: adapter.resumeTask(taskId, message, ...)
-```
-
-**Provider support:** Claude SDK (both inject + resume), Codex (resume only), OpenClaw (resume only), OpenCode (resume only).
-
-### Pathway 15: Plan Extraction Retry (Direct API)
-
-```
-plan-extraction-retry.ts:retryPlanExtractionWithHaiku()
-  -> Called when regex-based plan JSON extraction fails
-  -> Truncates text to last 200K chars
-  -> Direct Anthropic API: claude-haiku-4-5-20251001, max_tokens=16384
-  -> Feeds response through extractPlanJsonFromText()
-  -> 30s timeout, returns null on any error
-```
-
-**Not relay-dispatched.** Uses server-side `ANTHROPIC_API_KEY`. Called from plan generation post-processing in `dispatch.ts`.
-
-### Pathway 16: Server-Side Summary (Direct API)
-
-```
-dispatch/summary-utils.ts:generateServerSideSummary()
-  -> Layer 3 of 5-layer PR summary fallback chain:
-     L1: Cached structured summary (no API)
-     L2: Regex extraction from execution output (no API)
-     L3: Direct Anthropic API call (this pathway)
-     L4: Git diff summary (no API)
-     L5: Raw task description fallback (no API)
-  -> Direct Anthropic API: claude-3-haiku-20240307, max_tokens=1024
-  -> 15s timeout, returns null on failure (chain continues to L4)
-```
-
-**Not relay-dispatched.** Uses server-side `ANTHROPIC_API_KEY`. Only invoked when layers 1-2 fail to produce a PR body summary.
+| # | Pathway | Class | Turns | Provider | Skills | Backend Skills | Stored in DB | Model Control |
+|---|---------|-------|-------|----------|--------|---------------|-------------|---------------|
+| 1 | Task Execution | A | Multi | All 5 | Yes | Yes | streaming_events + taskExecutions + planNodes | User override |
+| 2 | Playground | A | Multi | All 5 | Yes | Yes | streaming_events + taskExecutions | User override |
+| 3 | Interactive Plan | A | Multi | All 5 | Yes | Yes | streaming_events | User override |
+| 4 | HPC/Slurm | A | Multi | SDK only | Yes | Yes (HPC) | streaming_events + taskExecutions | User override |
+| 5 | Plan Generation | B | Multi | All 5 | Server-side only | Yes | streaming_events | User override |
+| 6 | Project Chat | B | Multi | All 5 | Yes | Yes | streaming_events | User override |
+| 7 | Plan Chat | B | Multi | All 5 | Yes | Yes | streaming_events | Default Haiku |
+| 8 | Task Chat | B | Multi | All 5 | Yes | Yes | streaming_events | User override |
+| 9 | Compact | B | 1 | All 5 | No | No | streaming_events | Bug: discarded |
+| 10 | Summary | C | 1 | All 5 | No | No | **None** | Agent default |
+| 11 | Title Gen | C | 1 | All 5 | No | No | **None** | Agent default |
+| 12 | Refine | C | 1 | All 5 | No | No | **None** | Agent default |
+| 13 | Labels | C | 1 | All 5 | No | No | **None** | Agent default |
+| 14 | Steering | D | 0 | N/A | N/A | N/A | streaming_events (steer_message) | N/A |
+| 15 | Plan Retry | E | 1 | Anthropic only | No | No | streaming_events (plan_result) | Haiku 4.5 |
+| 16 | Server Summary | E | 1 | Anthropic only | No | No | **None** | Haiku 3 |
 
 ---
 
-## 6. Identified Gaps
+## 9. Identified Gaps and Recommendations
 
-### GAP-1: Claude SDK Chat Missing Skills
+### GAP-1: Claude SDK Chat Missing Skills -- FIXED (PR #52)
 
-**Status:** Fixed in PR #52 (agent-runner repo).
+### GAP-2: OpenClaw Missing Resume/Steer -- FIXED (PR #52)
 
-**Location:** `claude-sdk-adapter.ts:runTextOnlyQuery()`
-
-**Problem:** The text-only fast path for chat tasks did NOT set `settingSources` and did NOT include `'Skill'` in `allowedTools`.
-
-**Fix:** Added `settingSources: ['user', 'project', 'local']` and `'Skill'` to `allowedTools` in the chat path. Summarize path unchanged (no skills needed).
-
-**Affected pathways:** 6 (Project Chat), 7 (Plan Chat), 8 (Task Chat)
-
-### GAP-2: OpenClaw Missing Resume/Steer
-
-**Status:** Fixed in PR #52 (agent-runner repo).
-
-**Location:** `openclaw-adapter.ts`
-
-**Problem:** No `resumeTask()` or `injectMessage()` methods.
-
-**Fix:** Implemented `resumeTask()` using gateway WebSocket `chat.send` to same `sessionKey`. Session preserved after successful execution. `injectMessage()` returns false (gateway does not support mid-execution injection).
-
-**Affected pathways:** 2 (Playground steering), 6-8 (Chat resume), 14 (Steering)
-
-### GAP-3: OpenCode Missing Resume/Steer
-
-**Status:** Fixed in PR #52 (agent-runner repo).
-
-**Location:** `opencode-adapter.ts`
-
-**Problem:** No `resumeTask()` or `injectMessage()` methods.
-
-**Fix:** Implemented `resumeTask()` using `opencode run --session <id> --print`. Session ID captured from `system` event. Session preserved after successful execution with 30-minute TTL. `injectMessage()` returns false.
-
-**Affected pathways:** 2 (Playground steering), 6-8 (Chat resume), 14 (Steering)
+### GAP-3: OpenCode Missing Resume/Steer -- FIXED (PR #52)
 
 ### GAP-4: Submodule Behind
 
-**Location:** `packages/agent-runner/` submodule pointer
-
-**Problem:** Submodule points to an older commit. Standalone repo has Codex multi-turn (PR #42), OpenClaw/OpenCode resume (PR #52), and Claude SDK chat skills fix.
-
 **Fix:** Update submodule pointer to latest `main` after PRs merge.
 
-### GAP-5: Direct API Calls Use Outdated Models
+### GAP-5: Server-Side Summary Uses Outdated Model
 
 **Location:** `packages/core/src/dispatch/summary-utils.ts:489`
 
-**Problem:** `generateServerSideSummary()` uses `claude-3-haiku-20240307` (older model), while `retryPlanExtractionWithHaiku()` uses `claude-haiku-4-5-20251001` (current). Both should use the latest Haiku.
+**Problem:** Uses `claude-3-haiku-20240307` while plan extraction retry uses `claude-haiku-4-5-20251001`.
 
-**Fix:** Update `generateServerSideSummary()` to use `claude-haiku-4-5-20251001`.
+**Fix:** Update to `claude-haiku-4-5-20251001`.
 
-**Affected pathways:** 16 (Server-Side Summary)
+### GAP-6: One-Shot Pathways Have Zero Observability
+
+**Location:** `executeViaRelay()` in `server/routes/agent.ts:350`
+
+**Problem:** Pathways 10-13 (Summary, Title, Refine, Labels) produce no persisted data. No cost tracking, no audit trail, no debugging capability. If these are called frequently, untracked costs accumulate silently.
+
+**Fix:** Add lightweight metrics logging -- at minimum: task type, duration, input/output token counts, model, success/failure. Could be a separate `ai_metrics` table or appended to an existing observability table.
+
+### GAP-7: Compact Ignores Model Parameter
+
+**Location:** `server/routes/agent.ts:905-946`
+
+**Problem:** `/compact` endpoint accepts `model` and `providerId` in the request body but never passes them to `streamChatViaRelay()`.
+
+**Fix:** Either pass `model` to `streamChatViaRelay()` or remove the unused parameters from the schema.
+
+### GAP-8: Direct API Calls Require Anthropic API Key
+
+**Location:** Pathways 15 and 16
+
+**Problem:** These call the Anthropic API directly using `process.env.ANTHROPIC_API_KEY`. If the server doesn't have this key (e.g., using only Codex or OpenClaw), these fallbacks silently fail. This is acceptable for pathway 16 (5-layer fallback chain), but pathway 15 means plan extraction retry won't work without an Anthropic key even if the plan was generated by a different provider.
+
+**Recommendation:** Consider routing plan extraction retry through the relay (using the same provider that generated the plan) instead of hardcoding Anthropic.
 
 ---
 
-## 7. Provider Skill Systems Reference
+## 10. Provider Skill Systems Reference
 
 ### Claude Agent SDK
 - **Mechanism:** `settingSources: ['user', 'project', 'local']` in query options
@@ -396,47 +563,21 @@ dispatch/summary-utils.ts:generateServerSideSummary()
 
 ### Codex CLI
 - **Mechanism:** Native skill discovery at startup. Scans `~/.codex/skills/` for `SKILL.md` files.
-- **Feature flags:** Skills graduated to stable (no flag needed). Related flags: `skill_mcp_dependency_install` (stable), `steer` (stable).
+- **Feature flags:** Skills graduated to stable (no flag needed).
 - **System skills:** `~/.codex/skills/.system/` contains `skill-creator` and `skill-installer`.
-- **CLI flag:** `--enable skills` was the old flag; now default.
 
 ### OpenCode CLI
 - **Mechanism:** Reads Claude's `.claude/skills/` directory by default (Claude-compatible).
 - **Env vars:** `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS` to block, `OPENCODE_DISABLE_CLAUDE_CODE` to block all `.claude/` reading.
-- **Config:** Agent configuration via `opencode agent create`.
 
 ### OpenClaw CLI
 - **Mechanism:** Workspace-scoped skill system. `openclaw skills list/info/check` CLI commands.
 - **Bundled skills:** Shipped with the CLI, eligibility-gated by platform requirements.
 - **User skills:** Managed skills directory, separate from Claude's.
-- **Config:** `~/.openclaw/config.json` for model, workspace config for skills.
 
 ---
 
-## 8. Pathway Summary Matrix
-
-| # | Pathway | Endpoint | Task Type | Via Relay? | Skills? | Multi-Turn? | Provider Constraint |
-|---|---------|----------|-----------|------------|---------|-------------|---------------------|
-| 1 | Task Execution | `POST /api/dispatch/task` | execution | Yes | Yes (all) | Yes (steer) | Any |
-| 2 | Playground | `POST /api/dispatch/task` | execution | Yes | Yes (all) | Yes (steer) | Any |
-| 3 | Interactive Plan | `POST /api/dispatch/task` | execution | Yes | Yes (all) | Yes (steer) | Any |
-| 4 | HPC/Slurm | `POST /api/relay/slurm/dispatch` | execution | Yes | No | No | `claude-sdk` only |
-| 5 | Plan Generation | `POST /api/agent/generate-plan` | plan | Yes | CLI only | Yes (steer) | Any |
-| 6 | Project Chat | `POST /api/agent/chat` | chat | Yes | Yes (all) | History replay | Any |
-| 7 | Plan Chat | `POST /api/agent/plan-chat` | chat | Yes | Yes (all) | History replay | Any (default Haiku) |
-| 8 | Task Chat | `POST /api/agent/task-chat` | chat | Yes | Yes (all) | Yes (resume) | Any |
-| 9 | Compact | `POST /api/agent/compact` | chat | Yes | No | No (1 turn) | Any |
-| 10 | Task Summary | `POST /api/agent/summarize` | summarize | Yes | No | No (1 turn) | Any |
-| 11 | Title Gen | `POST /api/agent/generate-title` | summarize | Yes | No | No (1 turn) | Any |
-| 12 | Refine | `POST /api/agent/refine` | summarize | Yes | No | No (1 turn) | Any |
-| 13 | Label Suggestion | `POST /api/agent/suggest-labels` | summarize | Yes | No | No (1 turn) | Any |
-| 14 | Steering | `POST /api/dispatch/steer` | -- | Yes | N/A | N/A (modifies) | Any |
-| 15 | Plan Extract Retry | (internal) | -- | **No** | No | No | Haiku 4.5 |
-| 16 | Server Summary | (internal) | -- | **No** | No | No | Haiku 3 |
-
----
-
-## 9. File Reference
+## 11. File Reference
 
 | Component | Path |
 |-----------|------|
