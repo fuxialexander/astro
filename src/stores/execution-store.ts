@@ -2513,7 +2513,10 @@ function handleSSEEvent(
 
         if (!finalStatus) {
           const deliveryOk = !parsed.deliveryStatus || parsed.deliveryStatus === 'success' || parsed.deliveryStatus === 'skipped'
-          const yoloOn = useSettingsStore.getState().yoloMode
+          const isPlaygroundTask = nodeId.startsWith('playground-')
+          const yoloOn = isPlaygroundTask
+            ? useSettingsStore.getState().playgroundYoloMode
+            : useSettingsStore.getState().yoloMode
           if (isSuccess) {
             finalStatus = ((node?.verification === "auto" || yoloOn) && deliveryOk) ? "auto_verified" : "awaiting_judgment"
           } else {
@@ -2572,7 +2575,9 @@ function handleSSEEvent(
         // Summary generation: use structured summary from agent result if available,
         // otherwise fall back to parsing from stream text, then relay-based /api/agent/summarize.
         // In YOLO mode, always store summaries (needed for batch summary notifications).
-        const yoloOn = useSettingsStore.getState().yoloMode
+        const yoloOn = nodeId.startsWith('playground-')
+          ? useSettingsStore.getState().playgroundYoloMode
+          : useSettingsStore.getState().yoloMode
         if (execution && (yoloOn || finalStatus === "awaiting_judgment" || (isSuccess && node?.verification !== "auto"))) {
           const freshExec = get().executions.get(nodeId)
 

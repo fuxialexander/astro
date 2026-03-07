@@ -77,6 +77,7 @@ interface SettingsState {
   customModelMap: CustomModelMap // user overrides for tier → provider → model
   editorType: 'cursor' | 'vscode'
   yoloMode: boolean // auto-approve agent decisions
+  playgroundYoloMode: boolean // separate YOLO for playground sessions
   connectionStatus: "connected" | "disconnected" | "checking"
   loaded: boolean
   loading: boolean
@@ -88,6 +89,7 @@ interface SettingsState {
   setDefaultProvider: (provider: string) => void
   setEditorType: (type: 'cursor' | 'vscode') => void
   setYoloMode: (enabled: boolean) => void
+  setPlaygroundYoloMode: (enabled: boolean) => void
   setCustomModel: (tier: ModelTier, provider: string, model: string) => Promise<void>
   removeCustomModel: (tier: ModelTier, provider: string) => void
   /** Resolve current tier to a model ID for the given provider. Returns undefined if no mapping exists (adapter picks its own default). */
@@ -114,6 +116,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   customModelMap: {},
   editorType: "cursor",
   yoloMode: true, // Default ON for new users — fully autonomous execution
+  playgroundYoloMode: false, // Default OFF for playground — users often want interactive chat
   connectionStatus: "disconnected",
   loaded: false,
   loading: false,
@@ -144,6 +147,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         updates.yoloMode = false
       }
       // If yoloMode is unset in DB (new user), keep the default (true)
+      if (settings.playgroundYoloMode === 'true') {
+        updates.playgroundYoloMode = true
+      } else if (settings.playgroundYoloMode === 'false') {
+        updates.playgroundYoloMode = false
+      }
       if (settings.modelTier) {
         const tier = settings.modelTier as ModelTier
         updates.modelTier = tier
@@ -195,6 +203,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setYoloMode: (enabled) => {
     set({ yoloMode: enabled })
     dataClient.updateSettings({ yoloMode: String(enabled) }).catch(() => {})
+  },
+
+  setPlaygroundYoloMode: (enabled) => {
+    set({ playgroundYoloMode: enabled })
+    dataClient.updateSettings({ playgroundYoloMode: String(enabled) }).catch(() => {})
   },
 
   setDefaultProvider: (defaultProvider) => {

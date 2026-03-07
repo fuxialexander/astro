@@ -744,7 +744,10 @@ function reconcileResultFromCatchUp(
     // Use server-computed finalStatus (includes YOLO check) if available,
     // otherwise fall back to local computation for backward compat
     const deliveryOk = !hydrated.deliveryStatus || hydrated.deliveryStatus === 'success' || hydrated.deliveryStatus === 'skipped'
-    const yoloOn = useSettingsStore.getState().yoloMode
+    const isPlaygroundTask = node.id.startsWith('playground-')
+    const yoloOn = isPlaygroundTask
+      ? useSettingsStore.getState().playgroundYoloMode
+      : useSettingsStore.getState().yoloMode
     const finalStatus = hydrated.finalStatus || (isSuccess
       ? ((node.verification === 'auto' || yoloOn) && deliveryOk ? 'auto_verified' : 'awaiting_judgment')
       : 'awaiting_judgment')
@@ -981,7 +984,10 @@ function handleRealtimeEvent(
       if (node) {
         // Use finalStatus from server if provided
         const deliveryOk = !data.deliveryStatus || data.deliveryStatus === 'success' || data.deliveryStatus === 'skipped'
-        const yoloOn = useSettingsStore.getState().yoloMode
+        const isPlaygroundTask = taskId.startsWith('playground-')
+        const yoloOn = isPlaygroundTask
+          ? useSettingsStore.getState().playgroundYoloMode
+          : useSettingsStore.getState().yoloMode
         const finalStatus = (data.finalStatus as string) || (
           isSuccess
             ? ((node.verification === 'auto' || yoloOn) && deliveryOk ? 'auto_verified' : 'awaiting_judgment')

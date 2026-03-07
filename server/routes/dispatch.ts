@@ -1209,7 +1209,11 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         try {
           const [profile] = await db.select({ settings: userProfiles.settings })
             .from(userProfiles).where(eq(userProfiles.id, user.id)).limit(1)
-          yoloEnabled = (profile?.settings as Record<string, string> | null)?.yoloMode === 'true'
+          const settings = profile?.settings as Record<string, string> | null
+          // Playground tasks use separate playgroundYoloMode setting
+          yoloEnabled = nodeId.startsWith('playground-')
+            ? settings?.playgroundYoloMode === 'true'
+            : settings?.yoloMode === 'true'
         } catch { /* fail closed — no auto-verify */ }
       }
       const finalNodeStatus = isSuccess
@@ -1911,12 +1915,17 @@ dispatchRoute.post('/request-dynamic-approval', async (c) => {
   }
 
   // Check YOLO mode: auto-approve with first option
+  // Playground tasks (exec-playground-*) use separate playgroundYoloMode setting
   const user = c.get('user') as AuthUser | undefined
   if (user?.id) {
     try {
       const [profile] = await db.select({ settings: userProfiles.settings })
         .from(userProfiles).where(eq(userProfiles.id, user.id)).limit(1)
-      const yoloMode = (profile?.settings as Record<string, string> | null)?.yoloMode === 'true'
+      const settings = profile?.settings as Record<string, string> | null
+      const isPlayground = executionId.includes('playground-')
+      const yoloMode = isPlayground
+        ? settings?.playgroundYoloMode === 'true'
+        : settings?.yoloMode === 'true'
       if (yoloMode && options.length > 0) {
         console.log(`[dispatch] YOLO auto-approved: execution=${executionId} answer="${options[0]}"`)
         return c.json({ success: true, selectedOption: options[0] })

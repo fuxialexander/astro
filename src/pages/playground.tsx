@@ -23,6 +23,7 @@ import {
   Sparkles,
   X,
   Pencil,
+  Zap,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -147,6 +148,7 @@ export function Playground() {
   const addMessage = useSessionStore((s) => s.addMessage)
   const setProviderSessionId = useSessionStore((s) => s.setProviderSessionId)
   const settingsModel = useSettingsStore((s) => s.model)
+  const playgroundYolo = useSettingsStore((s) => s.playgroundYoloMode)
 
   // Load machines, providers, and sessions on mount
   useEffect(() => {
@@ -592,7 +594,7 @@ export function Playground() {
   // Edit & Retry: go back to landing with the session's details pre-filled
   const handleRetry = useCallback(() => {
     if (!project) return
-    setDescription(project.name || "")
+    setDescription(project.description || project.name || "")
     setWorkingDir(project.workingDirectory || "")
     if (execution?.machineId) {
       const machine = allMachines.find((m) => m.machineId === execution.machineId)
@@ -698,11 +700,11 @@ export function Playground() {
             )}
 
             {/* Original prompt bubble */}
-            {project?.name && (
+            {(project?.description || project?.name) && (
               <div className="flex flex-col items-end gap-1 px-4 py-1.5">
                 <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">You</span>
                 <div className="group/prompt relative rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground max-w-[80%]">
-                  <p className="whitespace-pre-wrap">{project.name}</p>
+                  <p className="whitespace-pre-wrap">{project.description || project.name}</p>
                   {!isRunning && (
                     <button
                       onClick={handleRetry}
@@ -986,8 +988,22 @@ export function Playground() {
             </div>
           )}
 
-          {/* Submit button */}
+          {/* Submit row: YOLO toggle + Start button */}
           <div className="flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => useSettingsStore.getState().setPlaygroundYoloMode(!playgroundYolo)}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
+                playgroundYolo
+                  ? "border-warning/50 bg-warning/10 text-warning"
+                  : "border-border hover:bg-muted text-muted-foreground"
+              )}
+              title={playgroundYolo ? "YOLO ON — auto-approve all agent decisions" : "YOLO OFF — agent will ask before acting"}
+            >
+              <Zap className={cn("h-3.5 w-3.5", playgroundYolo && "fill-warning")} />
+              YOLO
+            </button>
             <Button
               onClick={handleSubmit}
               disabled={!description.trim() || !selectedMachine || !workingDir.trim() || isSubmitting}
