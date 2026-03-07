@@ -303,9 +303,24 @@ main ─── A ─── B                              (untouched)
                                                → planning problem, not execution
 ```
 
-### Merge Conflict Resolution
+### Pre-Merge Rebase (Conflict Avoidance)
 
-When a merge conflict is detected, the agent session is **resumed** with conflict resolution instructions. The agent rebases onto the project branch, resolves conflict markers, and the merge is retried — up to 3 attempts (`MAX_MERGE_ATTEMPTS = 3`).
+Before attempting the squash merge, `tryPreMergeRebase()` proactively rebases the task branch onto the latest project branch tip. This handles the common case where the project branch moved forward (another task merged) but changes don't overlap — the rebase succeeds silently and the subsequent merge is guaranteed clean.
+
+```
+Without pre-rebase:  merge → conflict → resume agent → rebase → retry merge
+With pre-rebase:     rebase (auto) → merge (clean on first try)
+```
+
+**Branch mode:** `tryPreMergeRebase(workdir, projectBranch, false)` — local rebase before acquiring the merge lock.
+
+**PR mode:** `tryPreMergeRebase(workdir, baseBranch, true)` — fetches from origin + rebases before the initial push. No force-push needed since the branch hasn't been pushed yet.
+
+On any failure (conflicts or git errors), the rebase is silently aborted and the existing merge retry loop handles it. This is a best-effort optimization, not a required step.
+
+### Merge Conflict Resolution (Agent Resume)
+
+When a merge conflict is detected *after* the pre-rebase attempt, the agent session is **resumed** with conflict resolution instructions. The agent rebases onto the project branch, resolves conflict markers, and the merge is retried — up to 3 attempts (`MAX_MERGE_ATTEMPTS = 3`).
 
 **Branch mode:** Merge lock released during resolution (agent may take minutes), re-acquired for each retry attempt. Agent runs `git rebase <projectBranch>`, resolves conflicts, then `git rebase --continue`.
 
@@ -313,7 +328,9 @@ When a merge conflict is detected, the agent session is **resumed** with conflic
 
 **"Push to GitHub" node:** The prompt explicitly instructs the agent to rebase the project branch onto the latest base branch before creating the PR, and to resolve conflicts if GitHub reports them after PR creation.
 
-All 4 providers support this via `isResumableAdapter()` — each implements `resumeTask()` and `getTaskContext()`. If the adapter is not resumable or has no active session, the executor falls back to immediate failure.
+**Security:** Branch names and file paths in conflict resolution prompts are sanitized via `sanitizeGitRef()` to strip shell metacharacters before embedding in command examples. This is defense-in-depth — branch names follow the `astro/{id}` convention which shouldn't contain metacharacters.
+
+All 4 providers support session resume via `isResumableAdapter()` — each implements `resumeTask()` and `getTaskContext()`. If the adapter is not resumable or has no active session, the executor falls back to immediate failure.
 
 Persistent merge conflicts (3 failed attempts) indicate a **planning problem** — tasks were decomposed with overlapping changes. The correct response is to re-plan, not to keep retrying.
 
