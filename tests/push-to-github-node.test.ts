@@ -18,8 +18,6 @@ import {
   sanitizeGitHubName,
   sanitizeGitBranch,
   type GitHubContextForPrompt,
-  type RepoContextForPrompt,
-  type GitStateForPrompt,
 } from '../packages/core/src/prompt-templates'
 
 // ─── Shared regex (mirrors dispatch.ts and plan-store.ts) ───────────────────
