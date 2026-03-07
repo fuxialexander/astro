@@ -187,6 +187,128 @@ After Task 2 merge:
   main is UNTOUCHED — user inspects results on the project branch
 ```
 
+### Branch Workflow: Complete Lifecycle (Local Git)
+
+The following diagram shows the full lifecycle of branches in local git mode, including parallel task execution, merge-only locking, merge outcomes, and how delivery status feeds back into YOLO/non-YOLO auto-verification.
+
+```mermaid
+flowchart TD
+  Start["User creates project<br/>(workingDirectory = local repo, remoteType = 'none')"]
+  Start --> Plan["Plan generation (P3)<br/>Produces task nodes n1, n2, n3"]
+  Plan --> Dispatch{"YOLO mode?"}
+  Dispatch -->|"Yes (auto-execute)"| Wave1["executeAllProject()<br/>Dispatch Wave 1: all ready tasks"]
+  Dispatch -->|"No"| Manual["User manually dispatches tasks"]
+  Manual --> Wave1
+
+  subgraph "Parallel Execution (tasks run concurrently)"
+    Wave1 --> Ensure1["ensureProjectBranch()<br/>Creates local branch astro/7b19a9 from main"]
+    Wave1 --> Ensure2["ensureProjectBranch()<br/>(idempotent — branch already exists)"]
+    Ensure1 --> WT1["git worktree add<br/>astro/7b19a9-n1<br/>(branches from astro/7b19a9 @ SHA X)"]
+    Ensure2 --> WT2["git worktree add<br/>astro/7b19a9-n2<br/>(branches from astro/7b19a9 @ SHA X)"]
+    WT1 --> Agent1["Agent executes task n1"]
+    WT2 --> Agent2["Agent executes task n2"]
+  end
+
+  subgraph "Merge Phase (serialized via merge lock)"
+    Agent1 --> Lock1["Acquire merge lock<br/>Key: /path/to/repo::7b19a9"]
+    Lock1 --> Merge1["localMergeIntoProjectBranch()<br/>squash-merge onto project branch"]
+    Merge1 --> Result1{"Merge result?"}
+    Result1 -->|"merged"| OK1["deliveryStatus = 'success'<br/>Project branch: SHA X → SHA Y"]
+    Result1 -->|"conflict"| Fail1["deliveryStatus = 'failed'"]
+    OK1 --> Release1["Release merge lock"]
+    Fail1 --> Release1
+
+    Agent2 --> Lock2["Acquire merge lock<br/>(waits for n1's merge to finish)"]
+    Release1 --> Lock2
+    Lock2 --> Merge2["localMergeIntoProjectBranch()<br/>merge-base=SHA X, applied onto SHA Y<br/>(n1's changes already on project branch)"]
+    Merge2 --> Result2{"Merge result?"}
+    Result2 -->|"merged"| OK2["deliveryStatus = 'success'<br/>Project branch: SHA Y → SHA Z"]
+    Result2 -->|"conflict"| Fail2["deliveryStatus = 'failed'<br/>(n1 and n2 touched same files)"]
+    OK2 --> Release2["Release merge lock"]
+    Fail2 --> Release2
+  end
+
+  subgraph "Status Resolution"
+    Release2 --> StatusCheck{"Task status + YOLO?"}
+    StatusCheck -->|"success + deliveryOk"| AV["auto_verified<br/>→ next task auto-dispatches"]
+    StatusCheck -->|"success + delivery failed + YOLO"| AV2["auto_verified (YOLO override)<br/>→ next task dispatches<br/>(may also conflict)"]
+    StatusCheck -->|"success + delivery failed + !YOLO"| AJ["awaiting_judgment<br/>→ chain STOPS<br/>→ user reviews conflict"]
+    StatusCheck -->|"execution failure"| AJ2["awaiting_judgment<br/>→ chain STOPS"]
+  end
+```
+
+**Branch state after both tasks succeed:**
+
+```
+main ─── A ─── B                              (untouched)
+               │
+               └── astro/7b19a9               (project branch, accumulates work)
+                     │
+                     ├── [squash: n1 work]     (file-a.txt added)
+                     │
+                     └── [squash: n2 work]     (file-b.txt added, sees file-a.txt)
+                           │
+                           User inspects: git checkout astro/7b19a9
+```
+
+**Branch state after merge conflict on n2:**
+
+```
+main ─── A ─── B                              (untouched)
+               │
+               └── astro/7b19a9               (project branch)
+                     │
+                     └── [squash: n1 work]     (only n1 merged)
+                           │
+                           astro/7b19a9-n2     (task branch, NOT merged)
+                                               conflict in: shared-file.ts
+                                               deliveryStatus = 'failed'
+```
+
+### Merge Conflict Handling (Not Yet Implemented)
+
+Currently, merge conflicts report `deliveryStatus='failed'` and stop. The planned retry strategy:
+
+1. **Attempt 1**: Conflict detected → re-dispatch task from updated project branch tip
+2. **Attempt 2**: Agent re-executes with full context of prior merged work → retry merge
+3. **Attempt 3**: If still conflicting → `deliveryStatus='failed'` → chain halts
+
+Persistent merge conflicts indicate a **planning problem** — tasks were decomposed with overlapping changes. The correct response is to re-plan, not to keep retrying.
+
+See issue #719 for the retry implementation plan.
+
+### Three Delivery Scenarios Compared
+
+```mermaid
+flowchart LR
+  subgraph "No Git (direct mode)"
+    D1["Agent modifies files in-place"]
+    D1 --> D2["No branches, no merge"]
+    D2 --> D3["deliveryStatus: undefined"]
+  end
+
+  subgraph "Local Git (branch mode)"
+    L1["Task branch created"]
+    L1 --> L2["Agent works in worktree"]
+    L2 --> L3["localMergeIntoProjectBranch()"]
+    L3 --> L4{"Result"}
+    L4 -->|success| L5["deliveryStatus: success<br/>commitSha captured"]
+    L4 -->|conflict| L6["deliveryStatus: failed<br/>conflictFiles reported"]
+    L4 -->|no changes| L7["deliveryStatus: skipped"]
+  end
+
+  subgraph "Remote GitHub (pr mode)"
+    G1["Task branch created + pushed"]
+    G1 --> G2["Agent works in worktree"]
+    G2 --> G3["git push + gh pr create"]
+    G3 --> G4["Auto-merge PR into project branch"]
+    G4 --> G5{"Result"}
+    G5 -->|success| G6["deliveryStatus: success<br/>prUrl + commitSha"]
+    G5 -->|merge failed| G7["deliveryStatus: failed<br/>PR created but not merged"]
+    G5 -->|push failed| G8["deliveryStatus: failed<br/>no PR created"]
+  end
+```
+
 ### Differences from GitHub Mode
 
 | Aspect | GitHub Mode | Local Git Mode |
@@ -249,21 +371,56 @@ flowchart LR
 
 **Cleanup**: Task branch cleaned up. Worktree directory removed. Project branch **never deleted**.
 
-### Branch Lock Serialization
+### Merge-Only Lock (Parallel Execution)
 
-All tasks in the same project share a **project-scoped lock** in `BranchLockManager`.
+Tasks in the same project execute **in parallel** and serialize only at merge time via a short-held **merge lock**.
 
 ```
-Lock key: {resolvedWorkdir}::{shortProjectId}
+Merge lock key: {resolvedWorkdir}::{shortProjectId}
+Lock held: only during squash-merge (seconds, not minutes)
 ```
 
-This ensures tasks serialize:
-1. Task A creates worktree from project branch tip
-2. Task A executes, merges (PR or local squash)
-3. Lock released → Task B acquires lock
-4. Task B creates worktree from **updated** project branch tip (includes Task A's work)
+**How parallel execution works:**
 
-Without serialization, Task B might branch from a stale project branch and miss Task A's changes.
+```mermaid
+sequenceDiagram
+  participant A as Task A
+  participant B as Task B
+  participant Lock as Merge Lock
+  participant PB as Project Branch
+
+  Note over PB: tip = SHA X
+  A->>PB: worktree add (branches from SHA X)
+  B->>PB: worktree add (branches from SHA X)
+  Note over A,B: Both execute in parallel
+  A->>A: Agent executes (minutes)
+  B->>B: Agent executes (minutes)
+  A->>Lock: acquire merge lock
+  Lock-->>A: granted
+  A->>PB: merge --squash (onto SHA X)
+  Note over PB: tip moves to SHA Y
+  A->>Lock: release
+  B->>Lock: acquire merge lock
+  Lock-->>B: granted
+  Note over B: Project branch moved X→Y
+  B->>PB: merge --squash (merge-base=X, applied onto Y)
+  Note over PB: tip moves to SHA Z
+  B->>Lock: release
+```
+
+**Why no explicit rebase is needed:** `git merge --squash` computes the diff from the merge-base (SHA X where the task branched) and applies it onto the current project branch tip (SHA Y, which includes Task A's work). If the changes don't overlap, the merge succeeds. If they do overlap, git reports a conflict and `deliveryStatus='failed'`.
+
+**Race condition handling:** When two parallel tasks both call `ensureProjectBranch()` simultaneously (first-ever dispatch for a project), the second call may fail with "branch already exists". This is handled gracefully — `ensureProjectBranch()` catches the error and proceeds.
+
+**Comparison with the previous approach:**
+
+| Aspect | Previous (execution-wide lock) | Current (merge-only lock) |
+|--------|-------------------------------|--------------------------|
+| Lock scope | Worktree creation → execution → merge | Merge only |
+| Lock duration | Minutes (full agent execution) | Seconds (squash merge) |
+| Parallelism | None — tasks fully serialize | Full — tasks execute in parallel |
+| Task B sees Task A's changes | Always (branched after A merged) | At merge time (squash merge resolves) |
+| Merge conflicts | Impossible (sequential execution) | Possible (reported as delivery failure) |
 
 ## GitHub Mode: Multi-Round Workflow
 
