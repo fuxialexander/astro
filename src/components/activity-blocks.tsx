@@ -34,7 +34,7 @@ import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface DisplayBlock {
-  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment' | 'branch_linked'
+  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment' | 'branch_linked' | 'system_message'
   events: TaskActivityEvent[]
 }
 
@@ -178,6 +178,11 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
         flushText()
         flushTools()
         blocks.push({ type: 'branch_linked', events: [event] })
+        break
+      case 'system_message':
+        flushText()
+        flushTools()
+        blocks.push({ type: 'system_message', events: [event] })
         break
     }
   }
@@ -1082,6 +1087,19 @@ export function NewCommentComposer({ githubContext }: {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Centered system divider (e.g. "Context compacted: 42 messages → 8").
+ */
+export function SystemMessageBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'system_message' }> }) {
+  return (
+    <div className="flex items-center gap-3 py-2 px-4">
+      <div className="flex-1 border-t border-border/40" />
+      <span className="text-[11px] text-muted-foreground/70 whitespace-nowrap">{event.message}</span>
+      <div className="flex-1 border-t border-border/40" />
     </div>
   )
 }

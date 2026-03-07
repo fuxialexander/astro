@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { homedir } from 'os'
 import { join } from 'path'
 import { mkdirSync } from 'fs'
-import { buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, buildTitleGenerationPrompt, buildRefinementPrompt, buildLabelSuggestionPrompt } from '../lib/prompt-templates.js'
+import { buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, buildTitleGenerationPrompt, buildRefinementPrompt, buildLabelSuggestionPrompt, buildCompactionPrompt } from '../lib/prompt-templates.js'
 import { skillManager } from '../lib/skill-manager.js'
 import { relayServer } from '../lib/relay-server.js'
 import { dispatchEngine } from '../lib/dispatch/index.js'
@@ -87,6 +87,8 @@ async function streamChatViaRelay(
     streamId?: string
     /** Pathway type for observability (stored in init event) */
     pathwayType?: string
+    /** SSE events to emit before dispatching the relay task (e.g. compaction notice) */
+    preStreamEvents?: Array<{ event: string; data: string }>
   }
 ) {
   // persistId: where streaming events are stored. Defaults to taskId (relay routing key),
@@ -300,6 +302,13 @@ async function streamChatViaRelay(
       if (persistId !== opts.taskId) activeDispatchStreams.delete(persistId)
     }
 
+    // Emit pre-stream events (e.g. compaction notice) before dispatch
+    if (opts.preStreamEvents) {
+      for (const evt of opts.preStreamEvents) {
+        await stream.writeSSE({ event: evt.event, data: evt.data }).catch(() => { alive = false })
+      }
+    }
+
     // Dispatch after listeners are registered
     const dispatched = relayServer.dispatchTask(task, opts.targetMachineId, user?.id)
 
@@ -496,6 +505,56 @@ agentRoute.post('/project-chat', async (c) => {
   // Persist user message for catch-up hydration
   await streamingEventLog.append(streamId || taskId, 'steer_message', { message })
 
+  // ── Compaction: summarize long history ────────────────────────────
+  const COMPACTION_CHAR_THRESHOLD = 30_000
+  const COMPACTION_KEEP_RECENT = 6
+
+  let compactedMessages = historyMessages ?? undefined
+  const preStreamEvents: Array<{ event: string; data: string }> = []
+
+  if (historyMessages && historyMessages.length > COMPACTION_KEEP_RECENT) {
+    const totalChars = historyMessages.reduce((sum, m) => sum + m.content.length, 0)
+    if (totalChars > COMPACTION_CHAR_THRESHOLD) {
+      const olderMessages = historyMessages.slice(0, -COMPACTION_KEEP_RECENT)
+      const recentMessages = historyMessages.slice(-COMPACTION_KEEP_RECENT)
+
+      try {
+        const compactionPrompt = buildCompactionPrompt(olderMessages)
+        const compactionResult = await executeViaRelay({
+          taskId: `compact-${taskId}-${Date.now()}`,
+          projectId,
+          nodeId: '',
+          prompt: compactionPrompt,
+          type: 'summarize',
+          maxTurns: 1,
+          userId: chatUser.id,
+          preferredProvider: providerId || undefined,
+          pathwayType: 'compaction',
+        })
+
+        if (compactionResult.success && compactionResult.output) {
+          const summary = compactionResult.output.trim()
+          compactedMessages = [
+            { role: 'user' as const, content: `[Earlier conversation summary]\n${summary}` },
+            { role: 'assistant' as const, content: 'Understood, I have context from our earlier conversation.' },
+            ...recentMessages,
+          ]
+          preStreamEvents.push({
+            event: 'compaction',
+            data: JSON.stringify({
+              originalCount: historyMessages.length,
+              compactedCount: compactedMessages.length,
+              summary,
+            }),
+          })
+        }
+        // If compaction fails, fall through with original messages
+      } catch (err) {
+        console.warn(`[project-chat] Compaction failed, using full history:`, err)
+      }
+    }
+  }
+
   return streamChatViaRelay(c, {
     taskId,
     projectId,
@@ -503,7 +562,7 @@ agentRoute.post('/project-chat', async (c) => {
     prompt: message,
     systemPrompt,
     type: 'execution',
-    messages: historyMessages,
+    messages: compactedMessages,
     model: model || undefined,
     preferredProvider: providerId || undefined,
     workingDirectory: project?.workingDirectory ?? undefined,
@@ -511,6 +570,7 @@ agentRoute.post('/project-chat', async (c) => {
     resumeSessionId: existingSessionId || undefined,
     streamId,
     pathwayType: 'project-chat',
+    preStreamEvents,
   })
 })
 
