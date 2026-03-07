@@ -10,6 +10,7 @@ import { apiUrl } from './api-url'
 
 export type RealtimeEventType =
   | 'machines:snapshot'
+  | 'task:init'
   | 'task:result'
   | 'task:stdout'
   | 'task:text'
@@ -145,6 +146,7 @@ export class RealtimeClient {
     // Register known event types
     const eventTypes: RealtimeEventType[] = [
       'machines:snapshot',
+      'task:init',
       'task:result',
       'task:stdout',
       'task:text',

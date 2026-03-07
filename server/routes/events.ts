@@ -160,6 +160,14 @@ eventsRoute.get('/stream', async (c) => {
     })
 
     // Event handlers
+    const onTaskInit = async (msg: { executionId: string; nodeId: string; projectId: string; machineId?: string; providerId?: string; providerName?: string; computeBackend?: string }) => {
+      if (!alive) return
+      if (!await isProjectOwnedByUser(msg.projectId)) return
+      const data = JSON.stringify(msg)
+      const id = eventBuffer.push('task:init', data)
+      stream.writeSSE({ id, event: 'task:init', data }).catch(() => { alive = false })
+    }
+
     const onTaskReady = async (msg: { nodeId: string; projectId: string }) => {
       if (!alive) return
       // Filter by project ownership
@@ -558,6 +566,7 @@ eventsRoute.get('/stream', async (c) => {
     }
 
     // Subscribe to execution events (bridged from relay by dispatch.ts)
+    executionEventBus.on('task:init', onTaskInit)
     executionEventBus.on('task:ready', onTaskReady)
     executionEventBus.on('task:result', onTaskResult)
     executionEventBus.on('task:stdout', onTaskStdout)
@@ -620,6 +629,7 @@ eventsRoute.get('/stream', async (c) => {
       relayServer.off('session:event', onSessionEvent)
 
       // Execution event bus cleanup
+      executionEventBus.off('task:init', onTaskInit)
       executionEventBus.off('task:ready', onTaskReady)
       executionEventBus.off('task:result', onTaskResult)
       executionEventBus.off('task:stdout', onTaskStdout)

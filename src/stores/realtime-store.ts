@@ -1568,6 +1568,67 @@ function handleRealtimeEvent(
       break
     }
 
+    case 'task:init': {
+      // Server-side dispatch started — bootstrap frontend tracking so the UI
+      // shows live progress (progress bar, activity events, etc.) for tasks
+      // that were auto-dispatched (YOLO cascading) without a browser SSE bridge.
+      const execId = data.executionId as string
+      const initNodeId = data.nodeId as string
+      const initProjectId = data.projectId as string
+      const initMachineId = data.machineId as string | undefined
+
+      // 1. Update plan node with executionId + in_progress status
+      const planStore = usePlanStore.getState()
+      const node = planStore.nodes.find((n) => n.id === initNodeId)
+      if (node && node.status !== 'completed' && node.status !== 'auto_verified') {
+        const now = new Date()
+        planStore.updateNode(initNodeId, {
+          status: 'in_progress',
+          executionId: execId,
+          executionStartedAt: now,
+          startDate: now.toISOString(),
+          ...(!node.actualStartDate ? { actualStartDate: now } : {}),
+        })
+      }
+
+      // 2. Create execution entry so ExecutionPanel can render
+      const execStore = useExecutionStore.getState()
+      if (!execStore.executions.has(initNodeId)) {
+        useExecutionStore.setState((state) => {
+          const newExecs = new Map(state.executions)
+          newExecs.set(initNodeId, {
+            nodeId: initNodeId,
+            projectId: initProjectId,
+            executionId: execId,
+            status: 'running',
+            streamText: '',
+            toolTraces: [],
+            fileChanges: [],
+            activityEvents: [],
+            startedAt: new Date(),
+            machineId: initMachineId,
+          })
+          return { executions: newExecs }
+        })
+      }
+
+      // 3. Create taskStream entry so progress/text events can be routed
+      set((state) => {
+        const streams = new Map(state.taskStreams)
+        if (!streams.has(execId)) {
+          streams.set(execId, createEmptyTaskStream(execId))
+        }
+        const existing = streams.get(execId)!
+        streams.set(execId, { ...existing, status: 'running', machineId: initMachineId })
+        return { taskStreams: streams }
+      })
+
+      addActivity(set, 'info', `Task "${node?.title || initNodeId}" dispatched automatically`, {
+        taskId: execId,
+      })
+      break
+    }
+
     case 'task:ready': {
       addActivity(set, 'info', `Downstream task dispatching server-side`)
       // Server handles dispatch — frontend just tracks status via SSE

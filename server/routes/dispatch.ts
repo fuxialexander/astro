@@ -1469,10 +1469,36 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       alive = false
     }
 
-    const onApprovalRequest = (msg: { taskId: string; requestId: string; question: string; options: string[]; machineId?: string }) => {
+    const onApprovalRequest = async (msg: { taskId: string; requestId: string; question: string; options: string[]; machineId?: string }) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
       hasReceivedEvent = true
+
+      // YOLO mode: auto-approve with first option instead of showing card
+      if (user?.id && msg.options.length > 0) {
+        try {
+          const [profile] = await db.select({ settings: userProfiles.settings })
+            .from(userProfiles).where(eq(userProfiles.id, user.id)).limit(1)
+          const settings = profile?.settings as Record<string, string> | null
+          const isPlayground = nodeId.startsWith('playground-')
+          const yoloOn = isPlayground
+            ? settings?.playgroundYoloMode === 'true'
+            : settings?.yoloMode === 'true'
+          if (yoloOn) {
+            const targetMachineId = msg.machineId || machineId || ''
+            const autoAnswer = msg.options[0]
+            console.log(`[dispatch] YOLO auto-approved relay approval: execution=${executionId} requestId=${msg.requestId} answer="${autoAnswer}"`)
+            relayServer.sendApprovalResponse(executionId, targetMachineId, msg.requestId, true, autoAnswer)
+            // Persist both request and response so hydration shows it as answered
+            streamingEventLog.append(executionId, 'approval_request', { requestId: msg.requestId, question: msg.question, options: msg.options, machineId: targetMachineId }).catch(() => {})
+            streamingEventLog.append(executionId, 'approval_response', { requestId: msg.requestId, answer: autoAnswer, answered: true }).catch(() => {})
+            return
+          }
+        } catch {
+          // fail open — proceed with normal approval flow
+        }
+      }
+
       waitingForApproval = true
       // Persist approval_request so it survives page refresh
       const approvalData = { requestId: msg.requestId, question: msg.question, options: msg.options, machineId: msg.machineId || machineId }
@@ -1491,7 +1517,12 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 
     // Mark this task as having an active dispatch stream so events.ts
     // relay-direct handlers skip it (avoiding duplicate SSE events).
-    activeDispatchStreams.add(executionId)
+    // Skip for server-side dispatch: no browser SSE consumer, so events.ts
+    // must forward relay events to the frontend's realtime SSE.
+    const isServerSideDispatch = c.req.header('X-Server-Dispatch') === 'true'
+    if (!isServerSideDispatch) {
+      activeDispatchStreams.add(executionId)
+    }
 
     relayServer.on('task:result', onResult)
     relayServer.on('task:text', onText)
@@ -1504,7 +1535,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     relayServer.on('task:safety_prompt', onSafetyPrompt)
 
     const cleanup = () => {
-      activeDispatchStreams.delete(executionId)
+      if (!isServerSideDispatch) activeDispatchStreams.delete(executionId)
       relayServer.off('task:result', onResult)
       relayServer.off('task:text', onText)
       relayServer.off('task:session_init', onSessionInit)
@@ -1554,6 +1585,39 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       event: 'init',
       data: JSON.stringify(initDataForSSE),
     })
+
+    // Update plan_nodes.status to in_progress server-side.
+    // The frontend also sets this via Zustand on the init SSE event, but for
+    // server-side dispatch (auto-cascading) there is no frontend listener,
+    // so the DB must be updated here to keep status accurate.
+    if (!nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
+      db.update(planNodes)
+        .set({
+          status: 'in_progress',
+          executionId,
+          executionStartedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+        .execute()
+        .catch((err: unknown) => {
+          console.error('[dispatch] Failed to set plan_node in_progress:', err)
+        })
+    }
+
+    // For server-side dispatch, emit task:init via event bus so the frontend
+    // learns the executionId→nodeId mapping and can track live progress.
+    if (isServerSideDispatch) {
+      executionEventBus.emit('task:init', {
+        executionId,
+        nodeId,
+        projectId,
+        machineId,
+        providerId: initDataForSSE.providerId,
+        providerName: initDataForSSE.providerName,
+        computeBackend,
+      })
+    }
 
     // Keepalive + two-tier activity timeout
     // Tier 1 (STARTUP_TIMEOUT_MS): If no events at all after dispatch, agent-runner
