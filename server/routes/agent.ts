@@ -472,7 +472,9 @@ agentRoute.post('/project-chat', async (c) => {
 
   const { message, sessionId: existingSessionId, streamId, projectId, model, providerId, visionDoc, planNodes, planEdges, selectedBackends, messages: historyMessages } = body
   const chatUser = c.get('user') as AuthUser
-  const taskId = existingSessionId || `project-chat-${projectId}-${Date.now()}`
+  // Use streamId as stable taskId across turns (streamId = frontend session.id, stable per conversation).
+  // Don't use existingSessionId — that's a provider session ID and changes the relay routing key.
+  const taskId = streamId || `project-chat-${projectId}-${Date.now()}`
 
   // Verify project ownership
   if (!await verifyProjectAccess(projectId, chatUser)) {
@@ -506,6 +508,7 @@ agentRoute.post('/project-chat', async (c) => {
     preferredProvider: providerId || undefined,
     workingDirectory: project?.workingDirectory ?? undefined,
     targetMachineId: project?.defaultMachineId ?? undefined,
+    resumeSessionId: existingSessionId || undefined,
     streamId,
     pathwayType: 'project-chat',
   })
@@ -560,7 +563,9 @@ agentRoute.post('/task-chat', async (c) => {
   } = body
 
   const isResumedSession = !!existingSessionId
-  const taskId = existingSessionId || `task-chat-${nodeId}-${Date.now()}`
+  // Use streamId as stable taskId across turns — don't use existingSessionId as taskId
+  // since that changes the relay routing key and breaks agent-runner preservedSessions lookup.
+  const taskId = streamId || `task-chat-${nodeId}-${Date.now()}`
 
   // Verify project ownership
   const taskChatUser = c.get('user') as AuthUser
