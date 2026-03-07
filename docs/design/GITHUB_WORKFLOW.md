@@ -47,18 +47,29 @@ flowchart TD
     B --> C["Agent executes task"]
     C --> D["Push task branch + Create PR"]
     D --> E["Auto-merge PR into project branch"]
+    E --> E1{"Merge result"}
+    E1 -->|success| E2["deliveryStatus = success"]
+    E1 -->|conflict| E3{"Resumable + attempt < 3?"}
+    E3 -->|Yes| E4["Resume agent: rebase + force-push"]
+    E4 --> E5["Retry gh pr merge --squash"]
+    E5 --> E1
+    E3 -->|No| E6["deliveryStatus = failed"]
   end
 
   subgraph "Push to GitHub (final node)"
-    F["All tasks complete"] --> G["Create PR: project branch -> base branch"]
-    G --> H["Wait for CI checks"]
+    F["All tasks complete"] --> F1["Rebase project branch onto latest base branch"]
+    F1 --> G["Create PR: project branch -> base branch"]
+    G --> G1{"GitHub reports conflicts?"}
+    G1 -->|No| H["Wait for CI checks"]
+    G1 -->|Yes| G2["Rebase + force-push with --force-with-lease"]
+    G2 --> H
     H --> I{"CI passes?"}
     I -->|Yes| J["Report success"]
     I -->|No| K["Fix & retry (3 cycles)"]
     K --> H
   end
 
-  E --> F
+  E2 --> F
 ```
 
 ### Detailed Flow
@@ -104,13 +115,23 @@ flowchart TD
     A["ensureProjectBranch()
     (local branch only, no push)"] --> B["Create worktree on task branch"]
     B --> C["Agent executes task"]
-    C --> D["localMergeIntoProjectBranch()"]
-    D --> E{"Merge result"}
-    E -->|merged| F["Project branch updated
+    C --> D["Acquire merge lock"]
+    D --> E["localMergeIntoProjectBranch()"]
+    E --> F{"Merge result"}
+    F -->|merged| G["Release lock
     deliveryStatus = 'success'"]
-    E -->|conflict| G["deliveryStatus = 'failed'
+    F -->|no changes| H["Release lock
+    deliveryStatus = 'skipped'"]
+    F -->|conflict| I["Release lock"]
+    I --> J{"Resumable adapter
+    + attempt < 3?"}
+    J -->|Yes| K["Resume agent session
+    (conflict resolution prompt)"]
+    K --> L["Agent rebases onto project branch
+    resolves conflict markers"]
+    L --> D
+    J -->|No| M["deliveryStatus = 'failed'
     conflictFiles reported"]
-    E -->|no changes| H["deliveryStatus = 'skipped'"]
   end
 ```
 
@@ -214,18 +235,18 @@ flowchart TD
     Lock1 --> Merge1["localMergeIntoProjectBranch()<br/>squash-merge onto project branch"]
     Merge1 --> Result1{"Merge result?"}
     Result1 -->|"merged"| OK1["deliveryStatus = 'success'<br/>Project branch: SHA X → SHA Y"]
-    Result1 -->|"conflict"| Fail1["deliveryStatus = 'failed'"]
+    Result1 -->|"conflict"| Resolve1["Release lock → resume agent<br/>(rebase onto project branch)"]
+    Resolve1 --> Lock1
     OK1 --> Release1["Release merge lock"]
-    Fail1 --> Release1
 
     Agent2 --> Lock2["Acquire merge lock<br/>(waits for n1's merge to finish)"]
     Release1 --> Lock2
     Lock2 --> Merge2["localMergeIntoProjectBranch()<br/>merge-base=SHA X, applied onto SHA Y<br/>(n1's changes already on project branch)"]
     Merge2 --> Result2{"Merge result?"}
     Result2 -->|"merged"| OK2["deliveryStatus = 'success'<br/>Project branch: SHA Y → SHA Z"]
-    Result2 -->|"conflict"| Fail2["deliveryStatus = 'failed'<br/>(n1 and n2 touched same files)"]
+    Result2 -->|"conflict"| Resolve2["Release lock → resume agent<br/>(rebase, up to 3 attempts)"]
+    Resolve2 --> Lock2
     OK2 --> Release2["Release merge lock"]
-    Fail2 --> Release2
   end
 
   subgraph "Status Resolution"
@@ -251,7 +272,22 @@ main ─── A ─── B                              (untouched)
                            User inspects: git checkout astro/7b19a9
 ```
 
-**Branch state after merge conflict on n2:**
+**Branch state after merge conflict on n2 (agent resolves):**
+
+```
+main ─── A ─── B                              (untouched)
+               │
+               └── astro/7b19a9               (project branch)
+                     │
+                     ├── [squash: n1 work]     (n1 merged first)
+                     │
+                     └── [squash: n2 work]     (n2 merged after agent resolved conflict)
+                           Agent was resumed with conflict prompt,
+                           rebased onto project branch, resolved markers,
+                           merge retried successfully (attempt 2/3)
+```
+
+**Branch state after persistent conflict (3 failed attempts):**
 
 ```
 main ─── A ─── B                              (untouched)
@@ -263,6 +299,8 @@ main ─── A ─── B                              (untouched)
                            astro/7b19a9-n2     (task branch, NOT merged)
                                                conflict in: shared-file.ts
                                                deliveryStatus = 'failed'
+                                               3 resolution attempts exhausted
+                                               → planning problem, not execution
 ```
 
 ### Merge Conflict Resolution
@@ -279,7 +317,7 @@ All 4 providers support this via `isResumableAdapter()` — each implements `res
 
 Persistent merge conflicts (3 failed attempts) indicate a **planning problem** — tasks were decomposed with overlapping changes. The correct response is to re-plan, not to keep retrying.
 
-See issue #722 and `docs/design/MERGE_CONFLICT_RESOLUTION.md` for the full design.
+See `docs/design/MERGE_CONFLICT_RESOLUTION.md` for the full design with sequence diagrams and prompt examples.
 
 ### Three Delivery Scenarios Compared
 
@@ -527,7 +565,7 @@ If Tasks 1, 2, 3 completed and Task 2 is reset:
 | `copy` | Worktree preserved, no git operations | None |
 | `direct` | No worktree, work in-place | None |
 
-**Mode derivation**: `deriveDeliveryMode()` in `src/lib/project-source.ts` maps `remoteType='none'` to `deliveryMode='branch'`.
+**Mode derivation**: `deriveDeliveryMode()` in `src/lib/project-source.ts` (frontend) and `packages/agent-runner/src/lib/repo-utils.ts` (agent-runner) maps `remoteType='none'` to `deliveryMode='branch'`.
 
 ## Schema
 
@@ -552,15 +590,15 @@ All columns nullable. Migration: `supabase/migrations/20260302000000_project_bra
 
 | File | Role |
 |------|------|
-| `packages/core/src/prompt-templates.ts` | `GitHubContextForPrompt` interface, injects Push node instructions into plan prompts |
+| `packages/core/src/prompt-templates.ts` | `GitHubContextForPrompt` interface, `buildInteractivePlanPrompt()` injects Push node instructions + conflict resolution guidance |
 | `server/routes/dispatch.ts` | Computes `projectBranch`, detects Push nodes, injects special dispatch instructions |
-| `server/routes/agent.ts` | Passes GitHub context to `buildPlanSystemPrompt` |
+| `server/routes/agent.ts` | Passes GitHub context to plan generation prompts |
 | `src/stores/plan-store.ts` | Auto-wires new tasks as dependencies of Push node |
 | `packages/agent-runner/src/lib/worktree.ts` | `ensureProjectBranch()` (remote + local), branches from project branch |
 | `packages/agent-runner/src/lib/git-pr.ts` | `mergePullRequest()`, auto-merge + SHA capture |
 | `packages/agent-runner/src/lib/local-merge.ts` | `localMergeIntoProjectBranch()` — local squash-merge for no-remote repos |
 | `packages/agent-runner/src/lib/workdir-safety.ts` | `repoHasRemote()` — detects whether repo has remotes |
-| `packages/agent-runner/src/lib/branch-lock.ts` | Project-scoped lock key |
-| `packages/agent-runner/src/lib/task-executor.ts` | Wires `autoMerge` (GitHub) or local merge (no remote), passes commit SHAs |
+| `packages/agent-runner/src/lib/branch-lock.ts` | `BranchLockManager` — merge-only lock for parallel execution |
+| `packages/agent-runner/src/lib/task-executor.ts` | Delivery phase: merge retry loops (branch + PR modes), conflict resolution via session resume |
 | `server/lib/events/hooks/pr-creation-hook.ts` | Persists commit SHAs |
 | `server/lib/events/hooks/project-completion-hook.ts` | Legacy fallback: creates final PR on project completion (skipped when Push node exists) |
