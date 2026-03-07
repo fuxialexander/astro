@@ -121,9 +121,10 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   const { flowToScreenPosition, screenToFlowPosition, fitView: rfFitView, zoomIn: rfZoomIn, zoomOut: rfZoomOut } = useReactFlow()
 
   const projectNodes = useMemo(() => {
-    let nodes = planNodes.filter((n) => n.projectId === projectId)
+    // Always exclude pruned nodes — they are abandoned, not completed
+    let nodes = planNodes.filter((n) => n.projectId === projectId && n.status !== "pruned")
     if (!graphDisplaySettings.showCompleted) {
-      nodes = nodes.filter((n) => n.status !== "completed" && n.status !== "auto_verified" && n.status !== "pruned")
+      nodes = nodes.filter((n) => n.status !== "completed" && n.status !== "auto_verified")
     }
     // Hide milestones — edge bridging creates transitive edges through them
     nodes = nodes.filter((n) => n.type !== "milestone")
