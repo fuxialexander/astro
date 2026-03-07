@@ -48,6 +48,25 @@ function getShortId(id: string): string {
 }
 
 /**
+ * Derive the default delivery mode from remoteType.
+ * Mirrors the agent-runner's deriveDeliveryMode() logic so the server
+ * sends the correct mode instead of always defaulting to 'pr'.
+ */
+function deriveDefaultDeliveryMode(remoteType?: string): 'pr' | 'push' | 'branch' {
+  switch (remoteType) {
+    case 'github':
+    case 'gitlab':
+    case 'bitbucket':
+      return 'pr'
+    case 'generic':
+      return 'push'
+    case 'none':
+    default:
+      return 'branch'
+  }
+}
+
+/**
  * Derive a unique short node ID that avoids collision with the project ID prefix.
  * AI-generated node IDs are prefixed with projectId.slice(0,8), so getShortId()
  * produces identical results for both project and node. This function uses the
@@ -884,7 +903,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 
     // Build delivery-mode-aware workspace instructions
     {
-      const effectiveDelivery = deliveryMode ?? 'pr'
+      const effectiveDelivery = deliveryMode ?? deriveDefaultDeliveryMode(remoteType)
       const effectiveUseWorktree = useWorktree !== false
       const effectiveAgentDir = agentDir ?? '.astro'
       const usesWorktree = workingDirectory && effectiveUseWorktree && effectiveDelivery !== 'direct'
@@ -1078,7 +1097,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         astroBaseUrl,
         githubIssueUrl,
         githubIssueNumber,
-        deliveryMode: isPushToGithub ? 'push' : (deliveryMode ?? 'pr'),
+        deliveryMode: isPushToGithub ? 'push' : (deliveryMode ?? deriveDefaultDeliveryMode(remoteType)),
         shortProjectId,
         shortNodeId,
       },
@@ -1132,7 +1151,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     executionStrategy: computeBackend,
     priority: priority === 'critical' ? 0 : priority === 'high' ? 1 : priority === 'normal' ? 2 : 3,
     workingDirectory,
-    deliveryMode: isPushToGithub ? 'push' : (deliveryMode ?? 'pr'),
+    deliveryMode: isPushToGithub ? 'push' : (deliveryMode ?? deriveDefaultDeliveryMode(remoteType)),
     remoteType,
     baseBranch: baseBranch || undefined,
     projectBranch,
