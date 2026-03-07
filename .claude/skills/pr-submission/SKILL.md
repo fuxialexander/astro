@@ -186,9 +186,14 @@ gantt
 
 ### ASCII Timelines
 
-For before/after comparisons that need horizontal layout (mermaid gantt renders vertically):
+For before/after comparisons that need horizontal layout (mermaid gantt renders vertically).
+**Wrap in `<details>` blocks** to keep the PR body scannable — mermaid diagrams should be the primary visuals:
 
-```
+```markdown
+<details>
+<summary>Text diagram</summary>
+
+\```
 Previous (serialized):
 Task A: [===== entire operation =====]
 Task B:                                [===== entire operation =====]
@@ -196,19 +201,29 @@ Task B:                                [===== entire operation =====]
 New (parallel):
 Task A: [── execute ──────────][merge]
 Task B:   [── execute ────][wait][merge]
+\```
+
+</details>
 ```
 
 ### ASCII Branch Diagrams
 
-For git branch flows:
+For git branch flows. Wrap in `<details>` if a mermaid equivalent is also provided:
 
-```
+```markdown
+<details>
+<summary>Text diagram</summary>
+
+\```
 main ── A ── B
               │
               └── feature/branch ── C ── D
                     │
                     ├── task-1 (worktree)
                     └── task-2 (worktree)
+\```
+
+</details>
 ```
 
 ### Tables
