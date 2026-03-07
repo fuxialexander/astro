@@ -10,7 +10,7 @@ export const PLAN_GRAPH_SCHEMA = {
           id: { type: "string" as const, description: "Unique node ID (e.g. n1, n2)" },
           type: { type: "string" as const, enum: ["milestone", "task", "branch", "decision"] },
           title: { type: "string" as const, description: "Short title for the task/milestone" },
-          description: { type: "string" as const, description: "Detailed description of what needs to be done" },
+          description: { type: "string" as const, description: "Detailed task description: what to do, why, which files/modules, constraints, and what done looks like. This is the prompt sent to the AI agent — write it as a concrete developer brief, not a vague summary." },
           status: { type: "string" as const, enum: ["planned"] },
           parentId: { type: ["string", "null"] as const },
           dependencies: { type: "array" as const, items: { type: "string" as const }, description: "Array of node IDs this depends on" },
@@ -312,6 +312,47 @@ You decompose the project into a directed acyclic graph of tasks and milestones.
 
   return `${outputInstructions}
 ${visionSection}${repoSection}${gitStateSection}${skillsSection}${githubSection}${parallelBranchSection}
+## Task Description Quality
+
+The description field is the primary prompt sent to the AI agent that executes the task. Write each description as if you were briefing a capable developer who has never seen the codebase.
+
+**A good task description includes:**
+- **What to do** — the concrete deliverable (files to create/modify, APIs to implement, tests to write)
+- **Why** — brief context on how this fits the larger goal
+- **Where** — specific file paths, directories, or modules to work in
+- **Constraints** — naming conventions, architectural patterns to follow, backwards-compatibility requirements
+- **Acceptance** — what "done" looks like (e.g., "tests pass", "API returns 200 with schema X")
+
+**Avoid vague descriptions like:**
+- "Implement the backend" — which backend? What endpoints? What data model?
+- "Add tests" — which functions? What coverage? Unit or integration?
+- "Fix the bug" — what's the symptom? Where's the likely root cause?
+
+**Instead write:**
+- "Create a REST endpoint for creating new items. Add POST /api/items to the routes directory, accepting {name, description, categoryId} in the request body. Validate input at the boundary. Insert into the items table and return 201 with the created object. Follow the existing endpoint patterns in the same directory."
+- "Add unit tests for the merge utility function. Cover these cases: successful merge, conflict detection that returns the list of conflicting files, no-changes-to-merge returns gracefully, and underlying command errors propagate correctly. Use the existing test mock patterns in the same test directory."
+
+## Parallel Task File Separation
+
+Tasks that can execute in parallel (no dependency edge between them) run as separate AI agents in isolated git worktrees. Each agent works on its own branch, and results are merged into the shared project branch when done.
+
+**To minimize merge conflicts between parallel tasks:**
+- Split work by **file boundaries** — each parallel task should touch a distinct set of files whenever possible
+- If two tasks must modify the same file (e.g., both add exports to an index file), make one depend on the other
+- Group related changes (e.g., a new component + its CSS + its test) into the same task rather than splitting them
+- Put shared interface/type changes in an earlier task that parallel tasks depend on
+- For large refactors, prefer a single sequential task over parallel tasks that touch overlapping files
+
+**Example — good parallel split:**
+- Task A: "Add UserProfile component in src/components/user-profile.tsx" (new file)
+- Task B: "Add SettingsPanel component in src/components/settings-panel.tsx" (new file)
+- Task C (depends on A, B): "Wire UserProfile and SettingsPanel into the app router" (modifies shared files)
+
+**Example — bad parallel split (will conflict):**
+- Task A: "Add user routes to server/routes/index.ts"
+- Task B: "Add settings routes to server/routes/index.ts"
+(Both modify the same file — make B depend on A instead)
+
 ## Node rules
 - Each node has a unique id: "n1", "n2", etc.
 - type: "milestone" for checkpoints, "task" for work items, "decision" for human-judgment points.
@@ -969,7 +1010,7 @@ When ready, output a single JSON object with this structure:
       "id": "n1",
       "type": "task",
       "title": "Task title",
-      "description": "Detailed description of what needs to be done",
+      "description": "Concrete developer brief: what to build, which files to modify, constraints to follow, and what done looks like. This is the prompt sent to the AI agent.",
       "status": "planned",
       "parentId": null,
       "dependencies": [],
@@ -999,6 +1040,18 @@ When ready, output a single JSON object with this structure:
   ]
 }
 \`\`\`
+
+## Task Description Quality
+
+The description field is the primary prompt sent to the AI agent that executes the task. Write each description as a concrete brief: what to do, why, which files/modules, constraints, and what "done" looks like. Avoid vague descriptions like "implement the backend" — specify endpoints, data models, file paths, and patterns to follow.
+
+## Parallel Task File Separation
+
+Parallel tasks (no dependency edge between them) run as separate agents in isolated git worktrees, then merge into a shared project branch. To minimize merge conflicts:
+- Split by file boundaries — each parallel task should touch distinct files
+- If two tasks must modify the same file, add a dependency edge between them
+- Put shared types/interfaces in an earlier task that parallel tasks depend on
+- Group related changes (component + test + styles) into one task
 
 ## Node Rules
 - type: "milestone" for checkpoints, "task" for work items, "decision" for human-judgment points
