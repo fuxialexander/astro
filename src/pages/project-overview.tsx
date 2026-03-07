@@ -16,6 +16,7 @@ import {
   Check,
   RotateCcw,
   GitPullRequest,
+  GitBranch,
   ListPlus,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -437,7 +438,7 @@ export function OverviewTab({
                     {project.source.baseBranch}
                   </Badge>
                 )}
-                {project.projectPrUrl && (
+                {project.projectPrUrl ? (
                   <a
                     href={project.projectPrUrl}
                     target="_blank"
@@ -449,7 +450,12 @@ export function OverviewTab({
                       PR #{project.projectPrNumber}
                     </Badge>
                   </a>
-                )}
+                ) : project.projectBranch && project.source?.remoteType === 'none' ? (
+                  <Badge variant="outline" className="text-[10px] h-5 px-1.5 gap-1 text-emerald-600 dark:text-emerald-400 font-mono" title={`Results on branch: ${project.projectBranch}\ngit checkout ${project.projectBranch}`}>
+                    <GitBranch className="h-3 w-3" />
+                    {project.projectBranch}
+                  </Badge>
+                ) : null}
               </div>
             )}
             {/* Compute backends selector */}

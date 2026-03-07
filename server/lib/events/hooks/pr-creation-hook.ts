@@ -73,9 +73,14 @@ export const prCreationHook: EventHook = async (event: AstroEvent) => {
     return
   }
 
-  // Path 2: Branch only, no PR → record branch for tracking
-  if (result.branchName) {
-    console.log(`[pr-creation-hook] Recording branch: ${result.branchName}`)
-    await persistPrData(node.id, node, { branchName: result.branchName })
+  // Path 2: Branch only, no PR → record branch + commit SHAs for tracking
+  // This covers local merge (deliveryMode='branch') where commitAfterSha is set but no PR
+  if (result.branchName || result.commitAfterSha) {
+    console.log(`[pr-creation-hook] Recording branch: ${result.branchName}, commitAfterSha: ${result.commitAfterSha}`)
+    await persistPrData(node.id, node, {
+      branchName: result.branchName,
+      commitBeforeSha: result.commitBeforeSha,
+      commitAfterSha: result.commitAfterSha,
+    })
   }
 }
