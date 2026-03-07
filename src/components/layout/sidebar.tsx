@@ -14,6 +14,7 @@ import { useSidebarStore } from "@/stores/sidebar-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
+import { useSessionStore } from "@/stores/session-store"
 import { useAutoReveal } from "@/hooks/use-auto-reveal"
 import { isServerMode } from "@/lib/app-mode"
 import { TERMINAL_NODE_STATUSES } from "@/lib/status-config"
@@ -93,6 +94,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
 
   // Active task tracking for sidebar indicators
   const executions = useExecutionStore((s) => s.executions)
+  const batchExecutions = useExecutionStore((s) => s.batchExecutions)
+  const streamingSessions = useSessionStore((s) => s.streamingSessions)
+  const allSessions = useSessionStore((s) => s.sessions)
 
   // Navigate to generation activity view if plan is actively generating, otherwise list view
   const navigateToProject = useCallback((projectId: string) => {
@@ -112,7 +116,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     return map
   }, [planNodes])
 
-  // Count total active tasks + generations, and which projects have running work
+  // Count total active tasks + generations + chat streams, and which projects have running work
   const { activeCount, projectsWithRunning } = useMemo(() => {
     let count = 0
     const running = new Set<string>()
@@ -137,8 +141,22 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
       }
     }
 
+    // Include projects with active batch executions
+    for (const [projectId, batch] of batchExecutions) {
+      if (batch.active) running.add(projectId)
+    }
+
+    // Include projects with active chat/playground streaming sessions
+    for (const sessionId of streamingSessions) {
+      const session = allSessions.get(sessionId)
+      if (session?.projectId) {
+        count++
+        running.add(session.projectId)
+      }
+    }
+
     return { activeCount: count, projectsWithRunning: running }
-  }, [executions, planNodes, planNodesById])
+  }, [executions, planNodes, planNodesById, batchExecutions, streamingSessions, allSessions])
 
   // Count pending plan approvals for the Plan nav badge
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)

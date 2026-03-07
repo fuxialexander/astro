@@ -265,9 +265,9 @@ describe('Component rename: plan-session/ → plan-generation/', () => {
 // ============================================================================
 
 describe('All callers use new names consistently', () => {
-  it('chat-panel.tsx uses projectChatWithAgent', () => {
+  it('session-store.ts uses projectChatWithAgent (chat SSE moved to store)', () => {
     const source = readFileSync(
-      join(ROOT, 'src/components/agent/chat-panel.tsx'),
+      join(ROOT, 'src/stores/session-store.ts'),
       'utf-8',
     )
     expect(source).toContain('projectChatWithAgent')

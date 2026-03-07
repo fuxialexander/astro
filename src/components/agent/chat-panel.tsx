@@ -13,17 +13,14 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { FileCompletionTextarea, type MentionItem, type SlashCommand } from "@/components/ui/file-completion-textarea"
 import { TypingIndicator } from "@/components/ui/typing-indicator"
-import { projectChatWithAgent, fetchSlashCommands, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
+import { fetchSlashCommands, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { useSettingsStore, resolveModel } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
-import { useUsageStore } from "@/stores/usage-store"
 import { useSessionStore, getSessionTitle } from "@/stores/session-store"
 import { SessionDialog } from "@/components/session-dialog"
 import { useProjectMachineId } from "@/hooks/use-project-machine"
-import { useRealtimeStore } from "@/stores/realtime-store"
-import { useToastStore } from "@/stores/toast-store"
 import { useChatActivityEvents } from "@/hooks/use-chat-activity-events"
 import {
   TextBlock,
@@ -36,7 +33,7 @@ import {
   ChatAssistantBlock,
   MutationBlock,
 } from "@/components/activity-blocks"
-import { extractMutations, applyMutationsToStore, type AppliedMutations } from "@/lib/plan-mutations"
+import type { AppliedMutations } from "@/lib/plan-mutations"
 import type { ProviderStatus, Session, TaskActivityEvent } from "@/types"
 
 interface Message {
@@ -68,16 +65,16 @@ interface ChatPanelProps {
 
 export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, headerActions }: ChatPanelProps) {
   const [input, setInput] = useState("")
-  const [isStreaming, setIsStreaming] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const abortRef = useRef<AbortController | null>(null)
   const initialMessageSent = useRef(false)
   // Session store for persistent chat
   const createSession = useSessionStore((s) => s.createSession)
   const addMessage = useSessionStore((s) => s.addMessage)
-  const appendToLastAssistantMessage = useSessionStore((s) => s.appendToLastAssistantMessage)
-  const updateLastAssistantMessage = useSessionStore((s) => s.updateLastAssistantMessage)
-  const setProviderSessionId = useSessionStore((s) => s.setProviderSessionId)
+  const sendChatMessage = useSessionStore((s) => s.sendChatMessage)
+  const abortChatStream = useSessionStore((s) => s.abortChatStream)
+  const streamingSessions = useSessionStore((s) => s.streamingSessions)
+  const registerMounted = useSessionStore((s) => s.registerMounted)
+  const unregisterMounted = useSessionStore((s) => s.unregisterMounted)
   const getSessionsForProject = useSessionStore((s) => s.getSessionsForProject)
   const getActiveSessionId = useSessionStore((s) => s.getActiveSessionId)
   const setActiveSessionId = useSessionStore((s) => s.setActiveSessionId)
@@ -136,15 +133,24 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     }
   }, [currentSession, createSession, projectId, activeSessionId, setActiveSessionId])
 
+  // Derive streaming state from store
+  const isStreaming = currentSession ? streamingSessions.has(currentSession.id) : false
+
+  // Register/unregister mounted state for background notification detection
+  const currentSessionId = currentSession?.id
+  useEffect(() => {
+    if (!currentSessionId) return
+    registerMounted(currentSessionId)
+    return () => unregisterMounted(currentSessionId)
+  }, [currentSessionId, registerMounted, unregisterMounted])
+
   // Handler to switch to a different session — abort any in-flight stream first
   const handleSessionSwitch = useCallback((sessionId: string) => {
-    if (abortRef.current) {
-      abortRef.current.abort()
-      abortRef.current = null
+    if (currentSession?.id) {
+      abortChatStream(currentSession.id)
     }
-    setIsStreaming(false)
     setActiveSessionId(projectId, "project-chat", sessionId)
-  }, [projectId, setActiveSessionId])
+  }, [projectId, setActiveSessionId, currentSession?.id, abortChatStream])
 
   // Handler to create a new session
   const handleNewSession = useCallback(() => {
@@ -210,12 +216,11 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     isStreaming,
   )
 
-  // Plan store — read nodes/edges for context, write updates
+  // Plan store — read nodes/edges for context
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const rawPlanEdges = usePlanStore((s) => s.edges)
   const planEdges = useMemo(() => rawPlanEdges.filter(isLive), [rawPlanEdges])
-  const markNodesAsUpdating = usePlanStore((s) => s.markNodesAsUpdating)
 
   // Project store — for file tree and working directory
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
@@ -305,26 +310,13 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     return resolveModel("small", effectiveProviderId, customModelMap)
   })()
 
-  // Abort any in-flight SSE stream on unmount (e.g. page navigation)
-  useEffect(() => {
-    return () => {
-      if (abortRef.current) {
-        abortRef.current.abort()
-        abortRef.current = null
-      }
-    }
-  }, [])
+  // No unmount abort needed — SSE is owned by session-store, survives navigation
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [displayBlocks.length, isStreaming])
-
-  /** Apply all mutations to the plan store via the shared module. */
-  const applyMutations = useCallback((mutations: AppliedMutations) => {
-    return applyMutationsToStore(projectId, mutations)
-  }, [projectId])
 
   const sendMessage = useCallback(async (text: string) => {
     // Read session fresh from store — never use stale ref
@@ -336,175 +328,29 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     setInput("")
     const sid = session.id
     addMessage(sid, { role: "user", content: text })
-    setIsStreaming(true)
     addMessage(sid, { role: "assistant", content: "" })
 
-    // Abort any in-flight request before starting a new one
-    if (abortRef.current) {
-      abortRef.current.abort()
-    }
-    abortRef.current = new AbortController()
-
-    // Re-read messages from store after adding user msg + placeholder to get fresh state
+    // Re-read messages from store after adding user msg + placeholder
     const freshSession = useSessionStore.getState().sessions.get(sid)
     const freshMessages = freshSession?.messages || []
-    // Exclude the just-added user message and empty assistant placeholder
     const historyMessages = freshMessages
       .slice(0, -2)
       .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
 
-    // Only send providerSessionId if the session has completed at least one exchange
-    const hasCompletedExchange = (freshSession?.messages || []).some(
-      (m) => m.role === "assistant" && m.content.length > 0
-    )
-
-    // Push user message to realtime store for activity timeline
-    // session.id is always available and stable across all turns
-    useRealtimeStore.getState().pushActivityEvent(session.id, {
-      type: 'chat_user',
+    // Delegate to store-owned SSE — survives navigation
+    sendChatMessage({
+      sessionId: sid,
+      projectId,
       message: text,
-      timestamp: new Date(),
+      visionDoc,
+      model: effectiveModel,
+      providerId: effectiveProviderId,
+      planNodes: planNodeContext,
+      planEdges: planEdgeContext,
+      messages: historyMessages,
     })
-
-    // Track raw assistant text outside React state so it's available
-    // synchronously in onDone (React 18 batches setState updaters).
-    let rawAssistantText = ""
-
-    // Plan-mutating MCP tools that should trigger a plan refresh
-    const PLAN_MUTATING_TOOLS = new Set(["create_task", "update_task", "delete_task", "create_dependency"])
-    let needsPlanRefresh = false
-
-    // Use session.id as the stable key for pushing activity events.
-    // It's always available (unlike providerSessionId which comes back from onDone).
-    const resolvedTaskId = session.id
-    let localToolCount = 0
-
-    try {
-      await projectChatWithAgent(
-        {
-          message: text,
-          sessionId: hasCompletedExchange ? session.providerSessionId : undefined,
-          streamId: session.id,
-          projectId,
-          visionDoc,
-          model: effectiveModel,
-          providerId: effectiveProviderId,
-          planNodes: planNodeContext,
-          planEdges: planEdgeContext,
-          messages: historyMessages,
-        },
-        {
-          onText: (chunk) => {
-            rawAssistantText += chunk
-            appendToLastAssistantMessage(sid, chunk)
-            useRealtimeStore.getState().pushActivityEvent(resolvedTaskId, {
-              type: 'text',
-              content: chunk,
-              timestamp: new Date(),
-            })
-          },
-          onToolUse: (data) => {
-            if (PLAN_MUTATING_TOOLS.has(data.toolName)) {
-              needsPlanRefresh = true
-            }
-            localToolCount++
-            useRealtimeStore.getState().pushActivityEvent(resolvedTaskId, {
-              type: 'tool_use',
-              id: `tool-${localToolCount}`,
-              toolName: data.toolName,
-              toolInput: data.toolInput,
-              timestamp: new Date(),
-            })
-          },
-          onToolResult: (data) => {
-            if (PLAN_MUTATING_TOOLS.has(data.toolName)) {
-              needsPlanRefresh = true
-            }
-            useRealtimeStore.getState().pushActivityEvent(resolvedTaskId, {
-              type: 'tool_result',
-              id: `tool-${localToolCount}`,
-              toolName: data.toolName,
-              toolResult: data.result,
-              success: data.success,
-              timestamp: new Date(),
-            })
-          },
-          onDone: (newProviderSessionId) => {
-            if (newProviderSessionId) {
-              setProviderSessionId(sid, newProviderSessionId)
-            }
-
-            // Refresh plan from server if MCP tools modified the plan
-            if (needsPlanRefresh) {
-              usePlanStore.getState().load()
-            }
-
-            // Extract mutations from the raw text (available synchronously,
-            // unlike React state which may be batched).
-            // This is a fallback for text-block mutations; MCP tool calls
-            // are handled above via plan refresh.
-            const { cleanContent, mutations } = extractMutations(rawAssistantText)
-            const hasMutations = mutations.nodeUpdates.length > 0 || mutations.edgeOps.length > 0 || mutations.newNodes.length > 0
-
-            if (hasMutations) {
-              // Apply side-effects outside setState to avoid React StrictMode
-              // double-invocation duplicating nodes/edges.
-              const { affectedNodeIds, resolvedMutations } = applyMutations(mutations)
-              if (affectedNodeIds.length > 0) {
-                markNodesAsUpdating(affectedNodeIds)
-              }
-
-              // Push mutation event to realtime store for activity timeline
-              useRealtimeStore.getState().pushActivityEvent(resolvedTaskId, {
-                type: 'mutation',
-                nodeUpdates: resolvedMutations.nodeUpdates,
-                edgeOps: resolvedMutations.edgeOps,
-                newNodes: resolvedMutations.newNodes,
-                timestamp: new Date(),
-              })
-
-              // Update message display with clean content and resolved mutation record
-              updateLastAssistantMessage(sid, cleanContent, resolvedMutations)
-            } else {
-              // Warn if the text looks like it contains mutation data but wasn't extracted
-              const looksLikeMutations = /\[\s*\{[^}]*"(?:nodeId|nodeTitle|action|title)"/.test(rawAssistantText)
-              if (looksLikeMutations && rawAssistantText.length > 100) {
-                console.warn("[chat-panel] Response contains JSON-like mutation data but no mutations were extracted")
-                useToastStore.getState().add({
-                  type: "warning",
-                  title: "Plan changes not applied",
-                  description: "The AI described changes but they weren't in the expected format. Try asking again.",
-                })
-              }
-              // Force an immediate save — appendToLastAssistantMessage only
-              // debounce-saves to the database and never calls the API, so without
-              // this the final content can be lost on reload.
-              updateLastAssistantMessage(sid, rawAssistantText)
-            }
-            setIsStreaming(false)
-          },
-          onError: (error) => {
-            appendToLastAssistantMessage(sid, `\nError: ${error}`)
-            setIsStreaming(false)
-          },
-          onMetrics: (m) => {
-            useUsageStore.getState().addTaskMetrics({
-              durationMs: m.durationMs,
-              inputTokens: m.inputTokens,
-              outputTokens: m.outputTokens,
-              estimatedCostUsd: m.totalCost,
-              model: m.model,
-              turnsUsed: m.numTurns,
-            }, true)
-          },
-        },
-        abortRef.current.signal,
-      )
-    } catch {
-      setIsStreaming(false)
-    }
-  }, [isStreaming, projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, applyMutations, markNodesAsUpdating, addMessage, appendToLastAssistantMessage, updateLastAssistantMessage, setProviderSessionId])
+  }, [isStreaming, projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, addMessage, sendChatMessage])
 
   function handleSend() {
     const text = input.trim()

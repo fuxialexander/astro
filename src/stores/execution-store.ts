@@ -18,6 +18,7 @@ import { applyPlanFromText, planNodeIdToProjectId } from "@/lib/plan-extraction"
 import { getSigningPrivateKey, signDispatchIntent, generateNonce, type DispatchSigningPayload } from "@/lib/dispatch-signing"
 import { useAuthStore } from "./auth-store"
 import { useSettingsStore } from "./settings-store"
+import { showBatchCompleteNotification } from "@/lib/notifications"
 
 // ─── Page Unload Detection ────────────────────────────────────────────
 // `document.visibilityState` is unreliable during page refresh — it may
@@ -2929,11 +2930,28 @@ function dispatchNextBatchWave(projectId: string) {
     const noPlannedLeft = projectNodes.every((n) => n.status !== "planned")
 
     if (allDone || noPlannedLeft) {
+      // Compute batch stats before deactivating
+      const dispatched = projectNodes.filter((n) => batch.dispatchedNodeIds.has(n.id))
+      const succeeded = dispatched.filter((n) => ["completed", "auto_verified"].includes(n.status)).length
+      const failed = dispatched.filter((n) => ["pruned"].includes(n.status) || n.executionError).length
+
       useExecutionStore.setState((state) => {
         const newBatch = new Map(state.batchExecutions)
         const b = newBatch.get(projectId)
         if (b) newBatch.set(projectId, { ...b, active: false })
         return { batchExecutions: newBatch }
+      })
+
+      // Fire completion notification + toast
+      const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
+      const projectName = project?.name || "Project"
+      const stats = { total: dispatched.length, succeeded, failed }
+
+      showBatchCompleteNotification(projectName, stats)
+      useToastStore.getState().add({
+        type: failed > 0 ? "warning" : "success",
+        title: `Execution complete: ${projectName}`,
+        description: `${stats.total} tasks — ${succeeded} succeeded${failed > 0 ? `, ${failed} failed` : ""}`,
       })
     }
     return

@@ -53,8 +53,6 @@ import {
 import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
 import { useClaudeSessionsStore, type ClaudeCodeSession } from "@/stores/claude-sessions-store"
 import { useSessionStore } from "@/stores/session-store"
-import { chatWithTask } from "@/lib/api-client"
-import { useUsageStore } from "@/stores/usage-store"
 import { requestNotificationPermission } from "@/lib/notifications"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
@@ -93,11 +91,9 @@ export function Playground() {
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
   const [pendingSteerText, setPendingSteerText] = useState<string | null>(null)
-  const [isChatStreaming, setIsChatStreaming] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const abortRef = useRef<AbortController | null>(null)
 
   // Stores
   const startPlaygroundSession = useExecutionStore((s) => s.startPlaygroundSession)
@@ -146,7 +142,10 @@ export function Playground() {
   const sessionsLoaded = useSessionStore((s) => s.loaded)
   const createSessionAction = useSessionStore((s) => s.createSession)
   const addMessage = useSessionStore((s) => s.addMessage)
-  const setProviderSessionId = useSessionStore((s) => s.setProviderSessionId)
+  const sendPlaygroundChat = useSessionStore((s) => s.sendPlaygroundChat)
+  const streamingSessions = useSessionStore((s) => s.streamingSessions)
+  const registerMounted = useSessionStore((s) => s.registerMounted)
+  const unregisterMounted = useSessionStore((s) => s.unregisterMounted)
   const settingsModel = useSettingsStore((s) => s.model)
   const playgroundYolo = useSettingsStore((s) => s.playgroundYoloMode)
 
@@ -251,6 +250,19 @@ export function Playground() {
     }
   }, [sessionsLoaded, chatSession, createSessionAction, activeProjectId, playgroundNodeId])
 
+  // Derive chat streaming state from store
+  const isChatStreaming = chatSession ? streamingSessions.has(chatSession.id) : false
+
+  // Chat session ID used for streaming, activity merge, and mount tracking
+  const chatSessionId = chatSession?.id || ''
+
+  // Register/unregister mounted state for background notification detection
+  useEffect(() => {
+    if (!chatSessionId) return
+    registerMounted(chatSessionId)
+    return () => unregisterMounted(chatSessionId)
+  }, [chatSessionId, registerMounted, unregisterMounted])
+
   // Get activity events — live during execution, restored from observations after refresh
   const { activityEvents, isRestoring } = useRestoredExecution(
     executionId,
@@ -259,13 +271,15 @@ export function Playground() {
     isRunning,
   )
 
-  // Chat stream events (proper text/tool_use/tool_result tracking for live streaming)
+  // Chat stream events — live events from store-owned SSE land in realtime store
+  const chatTaskStream = useRealtimeStore(useCallback((s) => s.taskStreams.get(chatSessionId), [chatSessionId]))
+  const liveChatEvents = chatTaskStream?.activityEvents || []
+
+  // Local pushChatEvent for immediate user events (before store takes over)
   const {
     chatEventsRef,
     chatEventsVersion,
     pushChatEvent,
-    flushChatEvents,
-    chatToolCounterRef,
   } = useChatStreamEvents()
 
   // Hydrate chat events from streaming_events DB after page refresh
@@ -276,13 +290,17 @@ export function Playground() {
     isChatStreaming,
   )
 
-  // Merge: during live streaming use chatEventsRef; after refresh use hydrated events
+  // Merge: live store events > local ref events > hydrated events
   const allActivityEvents: TaskActivityEvent[] = useMemo(() => {
     void chatEventsVersion
-    const chatEvents = chatEventsRef.current.length > 0 ? chatEventsRef.current : hydratedChatEvents
+    const chatEvents = liveChatEvents.length > 0
+      ? liveChatEvents
+      : chatEventsRef.current.length > 0
+        ? chatEventsRef.current
+        : hydratedChatEvents
     return [...activityEvents, ...chatEvents]
   // eslint-disable-next-line react-hooks/exhaustive-deps -- chatEventsRef is a stable ref
-  }, [activityEvents, chatEventsVersion, hydratedChatEvents])
+  }, [activityEvents, chatEventsVersion, liveChatEvents, hydratedChatEvents])
 
   const displayBlocks = useMemo(() => groupActivityEvents(allActivityEvents), [allActivityEvents])
 
@@ -410,8 +428,8 @@ export function Playground() {
     }
   }, [sending, activeProjectId, execution?.executionId, addSteerMessage, steerPlaygroundSession])
 
-  // Chat message handler (post-completion)
-  const handleChat = useCallback(async (text: string) => {
+  // Chat message handler (post-completion) — delegates to store-owned SSE
+  const handleChat = useCallback((text: string) => {
     if (!text || isChatStreaming || !chatSession || !activeProjectId) return
 
     const sid = chatSession.id
@@ -419,102 +437,32 @@ export function Playground() {
     // Add user event for display
     pushChatEvent({ type: 'chat_user', message: text, timestamp: new Date() })
 
-    // Store in session for conversation history (sent to backend on subsequent turns)
+    // Store in session for conversation history
     addMessage(sid, { role: "user", content: text })
-
-    setIsChatStreaming(true)
-    abortRef.current = new AbortController()
 
     const historyMessages = (chatSession.messages || [])
       .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
 
     const sessionTitle = project?.name || "Playground Session"
-    let rawText = ""
-    try {
-      await chatWithTask(
-        {
-          message: text,
-          sessionId: chatSession.providerSessionId || undefined,
-          streamId: sid,
-          nodeId: playgroundNodeId,
-          projectId: activeProjectId,
-          taskTitle: sessionTitle,
-          taskDescription: `Playground coding session: ${sessionTitle}`,
-          taskOutput: activityEvents
-            .filter((e): e is Extract<TaskActivityEvent, { type: 'text' }> => e.type === 'text')
-            .map((e) => e.content)
-            .join(''),
-          visionDoc: project?.visionDoc,
-          model: settingsModel,
-          messages: historyMessages,
-        },
-        {
-          onText: (chunk) => {
-            rawText += chunk
-            pushChatEvent({ type: 'text', content: chunk, timestamp: new Date() })
-          },
-          onToolUse: (data) => {
-            const id = `chat-tool-${++chatToolCounterRef.current}`
-            pushChatEvent({
-              type: 'tool_use',
-              id,
-              toolName: data.toolName,
-              toolInput: data.toolInput,
-              timestamp: new Date(),
-            })
-          },
-          onToolResult: (data) => {
-            const events = chatEventsRef.current
-            let matchId = `chat-tool-result-${++chatToolCounterRef.current}`
-            for (let i = events.length - 1; i >= 0; i--) {
-              const e = events[i]
-              if (e.type === 'tool_use' && e.toolName === data.toolName) {
-                const hasResult = events.some(r => r.type === 'tool_result' && r.id === e.id)
-                if (!hasResult) {
-                  matchId = e.id
-                  break
-                }
-              }
-            }
-            pushChatEvent({
-              type: 'tool_result',
-              id: matchId,
-              toolName: data.toolName,
-              toolResult: data.result,
-              success: data.success,
-              timestamp: new Date(),
-            })
-          },
-          onDone: (newSessionId) => {
-            if (newSessionId) setProviderSessionId(sid, newSessionId)
-            addMessage(sid, { role: "assistant", content: rawText })
-            flushChatEvents()
-            setIsChatStreaming(false)
-          },
-          onError: (error) => {
-            pushChatEvent({ type: 'error', error, timestamp: new Date() })
-            flushChatEvents()
-            setIsChatStreaming(false)
-          },
-          onMetrics: (m) => {
-            useUsageStore.getState().addTaskMetrics({
-              durationMs: m.durationMs,
-              inputTokens: m.inputTokens,
-              outputTokens: m.outputTokens,
-              estimatedCostUsd: m.totalCost,
-              model: m.model,
-              turnsUsed: m.numTurns,
-            }, true)
-          },
-        },
-        abortRef.current.signal,
-      )
-    } catch {
-      flushChatEvents()
-      setIsChatStreaming(false)
-    }
-  }, [isChatStreaming, chatSession, activeProjectId, playgroundNodeId, project, settingsModel, activityEvents, addMessage, pushChatEvent, flushChatEvents, chatEventsRef, chatToolCounterRef, setProviderSessionId])
+
+    // Delegate to store-owned SSE — survives navigation
+    sendPlaygroundChat({
+      sessionId: sid,
+      projectId: activeProjectId,
+      nodeId: playgroundNodeId,
+      message: text,
+      taskTitle: sessionTitle,
+      taskDescription: `Playground coding session: ${sessionTitle}`,
+      taskOutput: activityEvents
+        .filter((e): e is Extract<TaskActivityEvent, { type: 'text' }> => e.type === 'text')
+        .map((e) => e.content)
+        .join(''),
+      visionDoc: project?.visionDoc,
+      model: settingsModel,
+      messages: historyMessages,
+    })
+  }, [isChatStreaming, chatSession, activeProjectId, playgroundNodeId, project, settingsModel, activityEvents, addMessage, pushChatEvent, sendPlaygroundChat])
 
   // Route: steer during execution, chat after completion
   const handleSend = useCallback(() => {

@@ -12,6 +12,13 @@
 
 import { create } from "zustand"
 import { dataClient } from "@/lib/data-client"
+import { projectChatWithAgent, chatWithTask, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
+import { extractMutations, applyMutationsToStore } from "@/lib/plan-mutations"
+import { usePlanStore } from "./plan-store"
+import { useRealtimeStore } from "./realtime-store"
+import { useUsageStore } from "./usage-store"
+import { useToastStore } from "./toast-store"
+import { showChatCompleteNotification } from "@/lib/notifications"
 import type {
   Session,
   SessionType,
@@ -25,11 +32,53 @@ import type {
   UsageMetrics,
 } from "@/types"
 
+// ─── Module-Level Streaming Infrastructure ──────────────────────────
+// AbortControllers and streaming state live outside React so they
+// survive component unmounts (same pattern as execution-store.ts).
+const chatAbortControllers = new Map<string, AbortController>()
+
+// Plan-mutating MCP tools that should trigger a plan refresh
+const PLAN_MUTATING_TOOLS = new Set(["create_task", "update_task", "delete_task", "create_dependency"])
+
+/** Parameters for sendChatMessage (project chat / replan) */
+export interface SendChatMessageParams {
+  sessionId: string
+  projectId: string
+  message: string
+  visionDoc?: string
+  model?: string
+  providerId?: string
+  planNodes?: ChatPlanNodeContext[]
+  planEdges?: ChatPlanEdgeContext[]
+  messages?: Array<{ role: 'user' | 'assistant'; content: string }>
+}
+
+/** Parameters for sendPlaygroundChat (playground post-completion chat) */
+export interface SendPlaygroundChatParams {
+  sessionId: string
+  projectId: string
+  nodeId: string
+  message: string
+  taskTitle: string
+  taskDescription: string
+  taskOutput?: string
+  visionDoc?: string
+  model?: string
+  providerId?: string
+  messages?: Array<{ role: 'user' | 'assistant'; content: string }>
+  branchName?: string
+  prUrl?: string
+}
+
 interface SessionState {
   sessions: Map<string, Session>
   loaded: boolean
   // Track active session per project+type combination (e.g. "projectId:project-chat" -> sessionId)
   activeSessionIds: Map<string, string>
+  // Session IDs currently streaming (store-owned SSE connections)
+  streamingSessions: Set<string>
+  // Session IDs whose components are currently mounted
+  mountedSessionIds: Set<string>
 
   // Lifecycle
   load: () => Promise<void>
@@ -84,6 +133,14 @@ interface SessionState {
   addSteerMessage: (sessionId: string, message: string, interrupted?: boolean) => void
   updateSteerMessage: (sessionId: string, index: number, update: { accepted?: boolean; ackMessage?: string }) => void
 
+  // Store-owned chat streaming
+  sendChatMessage: (params: SendChatMessageParams) => void
+  sendPlaygroundChat: (params: SendPlaygroundChatParams) => void
+  abortChatStream: (sessionId: string) => void
+  isStreaming: (sessionId: string) => boolean
+  registerMounted: (sessionId: string) => void
+  unregisterMounted: (sessionId: string) => void
+
   // Cleanup
   deleteSession: (sessionId: string) => void
   clearSessionsForNode: (nodeId: string) => void
@@ -101,6 +158,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: new Map(),
   loaded: false,
   activeSessionIds: new Map(),
+  streamingSessions: new Set(),
+  mountedSessionIds: new Set(),
 
   load: async () => {
     try {
@@ -592,6 +651,343 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       activityEvents: updated.activityEvents,
       updatedAt: updated.updatedAt
     }).catch(() => {})
+  },
+
+  // ─── Store-owned chat streaming ──────────────────────────────────
+
+  sendChatMessage: (params) => {
+    const { sessionId: sid, projectId, message, visionDoc, model, providerId, planNodes, planEdges, messages } = params
+    const session = get().sessions.get(sid)
+    if (!session) return
+
+    // Mark streaming
+    set((state) => {
+      const ss = new Set(state.streamingSessions)
+      ss.add(sid)
+      return { streamingSessions: ss }
+    })
+
+    // Abort any existing stream for this session
+    const existing = chatAbortControllers.get(sid)
+    if (existing) existing.abort()
+    const abortController = new AbortController()
+    chatAbortControllers.set(sid, abortController)
+
+    // Track raw text outside React state for synchronous access in onDone
+    let rawAssistantText = ""
+    let needsPlanRefresh = false
+    let localToolCount = 0
+
+    // Push user event to realtime store
+    useRealtimeStore.getState().pushActivityEvent(sid, {
+      type: 'chat_user',
+      message,
+      timestamp: new Date(),
+    })
+
+    // Only send providerSessionId if session has completed exchanges
+    const hasCompletedExchange = session.messages.some(
+      (m) => m.role === "assistant" && m.content.length > 0
+    )
+
+    // Fire-and-forget — stream runs in background
+    projectChatWithAgent(
+      {
+        message,
+        sessionId: hasCompletedExchange ? session.providerSessionId : undefined,
+        streamId: sid,
+        projectId,
+        visionDoc,
+        model,
+        providerId,
+        planNodes,
+        planEdges,
+        messages,
+      },
+      {
+        onText: (chunk) => {
+          rawAssistantText += chunk
+          get().appendToLastAssistantMessage(sid, chunk)
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'text',
+            content: chunk,
+            timestamp: new Date(),
+          })
+        },
+        onToolUse: (data) => {
+          if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
+          localToolCount++
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'tool_use',
+            id: `tool-${localToolCount}`,
+            toolName: data.toolName,
+            toolInput: data.toolInput,
+            timestamp: new Date(),
+          })
+        },
+        onToolResult: (data) => {
+          if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'tool_result',
+            id: `tool-${localToolCount}`,
+            toolName: data.toolName,
+            toolResult: data.result,
+            success: data.success,
+            timestamp: new Date(),
+          })
+        },
+        onDone: (newProviderSessionId) => {
+          if (newProviderSessionId) {
+            get().setProviderSessionId(sid, newProviderSessionId)
+          }
+
+          // Refresh plan from server if MCP tools modified the plan
+          if (needsPlanRefresh) {
+            usePlanStore.getState().load()
+          }
+
+          // Extract and apply mutations from raw text
+          const { cleanContent, mutations } = extractMutations(rawAssistantText)
+          const hasMutations = mutations.nodeUpdates.length > 0 || mutations.edgeOps.length > 0 || mutations.newNodes.length > 0
+
+          if (hasMutations) {
+            const { affectedNodeIds, resolvedMutations } = applyMutationsToStore(projectId, mutations)
+            if (affectedNodeIds.length > 0) {
+              usePlanStore.getState().markNodesAsUpdating(affectedNodeIds)
+            }
+            useRealtimeStore.getState().pushActivityEvent(sid, {
+              type: 'mutation',
+              nodeUpdates: resolvedMutations.nodeUpdates,
+              edgeOps: resolvedMutations.edgeOps,
+              newNodes: resolvedMutations.newNodes,
+              timestamp: new Date(),
+            })
+            get().updateLastAssistantMessage(sid, cleanContent, resolvedMutations)
+          } else {
+            const looksLikeMutations = /\[\s*\{[^}]*"(?:nodeId|nodeTitle|action|title)"/.test(rawAssistantText)
+            if (looksLikeMutations && rawAssistantText.length > 100) {
+              console.warn("[session-store] Response contains JSON-like mutation data but no mutations were extracted")
+              useToastStore.getState().add({
+                type: "warning",
+                title: "Plan changes not applied",
+                description: "The AI described changes but they weren't in the expected format. Try asking again.",
+              })
+            }
+            get().updateLastAssistantMessage(sid, rawAssistantText)
+          }
+
+          // Clear streaming state
+          chatAbortControllers.delete(sid)
+          set((state) => {
+            const ss = new Set(state.streamingSessions)
+            ss.delete(sid)
+            return { streamingSessions: ss }
+          })
+
+          // Notify if component is not mounted
+          if (!get().mountedSessionIds.has(sid)) {
+            const proj = get().sessions.get(sid)
+            const projectName = proj?.metadata?.projectName as string || "Project"
+            showChatCompleteNotification(projectName)
+            useToastStore.getState().add({
+              type: "info",
+              title: "Chat response ready",
+              description: `Response for "${projectName}" is ready.`,
+            })
+          }
+        },
+        onError: (error) => {
+          get().appendToLastAssistantMessage(sid, `\nError: ${error}`)
+          chatAbortControllers.delete(sid)
+          set((state) => {
+            const ss = new Set(state.streamingSessions)
+            ss.delete(sid)
+            return { streamingSessions: ss }
+          })
+        },
+        onMetrics: (m) => {
+          useUsageStore.getState().addTaskMetrics({
+            durationMs: m.durationMs,
+            inputTokens: m.inputTokens,
+            outputTokens: m.outputTokens,
+            estimatedCostUsd: m.totalCost,
+            model: m.model,
+            turnsUsed: m.numTurns,
+          }, true)
+        },
+      },
+      abortController.signal,
+    ).catch(() => {
+      // Stream errored at fetch level — clean up
+      chatAbortControllers.delete(sid)
+      set((state) => {
+        const ss = new Set(state.streamingSessions)
+        ss.delete(sid)
+        return { streamingSessions: ss }
+      })
+    })
+  },
+
+  sendPlaygroundChat: (params) => {
+    const { sessionId: sid, projectId, nodeId, message, taskTitle, taskDescription, taskOutput, visionDoc, model, providerId, messages, branchName, prUrl } = params
+    const session = get().sessions.get(sid)
+    if (!session) return
+
+    // Mark streaming
+    set((state) => {
+      const ss = new Set(state.streamingSessions)
+      ss.add(sid)
+      return { streamingSessions: ss }
+    })
+
+    // Abort any existing stream for this session
+    const existing = chatAbortControllers.get(sid)
+    if (existing) existing.abort()
+    const abortController = new AbortController()
+    chatAbortControllers.set(sid, abortController)
+
+    let rawText = ""
+    let chatToolCounter = 0
+
+    // Push user event
+    useRealtimeStore.getState().pushActivityEvent(sid, {
+      type: 'chat_user',
+      message,
+      timestamp: new Date(),
+    })
+
+    const hasCompletedExchange = session.messages.some(
+      (m) => m.role === "assistant" && m.content.length > 0
+    )
+
+    chatWithTask(
+      {
+        message,
+        sessionId: hasCompletedExchange ? session.providerSessionId : undefined,
+        streamId: sid,
+        nodeId,
+        projectId,
+        taskTitle,
+        taskDescription,
+        taskOutput,
+        visionDoc,
+        model,
+        providerId,
+        messages,
+        branchName,
+        prUrl,
+      },
+      {
+        onText: (chunk) => {
+          rawText += chunk
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'text',
+            content: chunk,
+            timestamp: new Date(),
+          })
+        },
+        onToolUse: (data) => {
+          chatToolCounter++
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'tool_use',
+            id: `chat-tool-${chatToolCounter}`,
+            toolName: data.toolName,
+            toolInput: data.toolInput,
+            timestamp: new Date(),
+          })
+        },
+        onToolResult: (data) => {
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'tool_result',
+            id: `chat-tool-${chatToolCounter}`,
+            toolName: data.toolName,
+            toolResult: data.result,
+            success: data.success,
+            timestamp: new Date(),
+          })
+        },
+        onDone: (newSessionId) => {
+          if (newSessionId) get().setProviderSessionId(sid, newSessionId)
+          get().addMessage(sid, { role: "assistant", content: rawText })
+
+          chatAbortControllers.delete(sid)
+          set((state) => {
+            const ss = new Set(state.streamingSessions)
+            ss.delete(sid)
+            return { streamingSessions: ss }
+          })
+
+          // Notify if component is not mounted
+          if (!get().mountedSessionIds.has(sid)) {
+            showChatCompleteNotification("Playground")
+          }
+        },
+        onError: (error) => {
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'error',
+            error,
+            timestamp: new Date(),
+          })
+          chatAbortControllers.delete(sid)
+          set((state) => {
+            const ss = new Set(state.streamingSessions)
+            ss.delete(sid)
+            return { streamingSessions: ss }
+          })
+        },
+        onMetrics: (m) => {
+          useUsageStore.getState().addTaskMetrics({
+            durationMs: m.durationMs,
+            inputTokens: m.inputTokens,
+            outputTokens: m.outputTokens,
+            estimatedCostUsd: m.totalCost,
+            model: m.model,
+            turnsUsed: m.numTurns,
+          }, true)
+        },
+      },
+      abortController.signal,
+    ).catch(() => {
+      chatAbortControllers.delete(sid)
+      set((state) => {
+        const ss = new Set(state.streamingSessions)
+        ss.delete(sid)
+        return { streamingSessions: ss }
+      })
+    })
+  },
+
+  abortChatStream: (sessionId) => {
+    const controller = chatAbortControllers.get(sessionId)
+    if (controller) {
+      controller.abort()
+      chatAbortControllers.delete(sessionId)
+    }
+    set((state) => {
+      const ss = new Set(state.streamingSessions)
+      ss.delete(sessionId)
+      return { streamingSessions: ss }
+    })
+  },
+
+  isStreaming: (sessionId) => {
+    return get().streamingSessions.has(sessionId)
+  },
+
+  registerMounted: (sessionId) => {
+    set((state) => {
+      const ms = new Set(state.mountedSessionIds)
+      ms.add(sessionId)
+      return { mountedSessionIds: ms }
+    })
+  },
+
+  unregisterMounted: (sessionId) => {
+    set((state) => {
+      const ms = new Set(state.mountedSessionIds)
+      ms.delete(sessionId)
+      return { mountedSessionIds: ms }
+    })
   },
 
   deleteSession: (sessionId) => {

@@ -54,3 +54,33 @@ export function showPlanCompleteNotification(projectName: string): void {
     tag: `plan-complete-${Date.now()}`,
   })
 }
+
+export function showBatchCompleteNotification(
+  projectName: string,
+  stats: { total: number; succeeded: number; failed: number }
+): void {
+  if (typeof window === 'undefined' || !('Notification' in window)) return
+  if (Notification.permission !== 'granted') return
+  if (document.hasFocus()) return
+
+  const parts: string[] = []
+  if (stats.succeeded > 0) parts.push(`${stats.succeeded} succeeded`)
+  if (stats.failed > 0) parts.push(`${stats.failed} failed`)
+  const body = parts.length > 0 ? parts.join(', ') : `All ${stats.total} tasks processed`
+
+  new Notification(`Execution complete: ${projectName}`, {
+    body,
+    tag: `batch-complete-${Date.now()}`,
+  })
+}
+
+export function showChatCompleteNotification(projectName: string): void {
+  if (typeof window === 'undefined' || !('Notification' in window)) return
+  if (Notification.permission !== 'granted') return
+  if (document.hasFocus()) return
+
+  new Notification(`Response ready: ${projectName}`, {
+    body: `Chat response for "${projectName}" is ready.`,
+    tag: `chat-complete-${Date.now()}`,
+  })
+}
