@@ -283,6 +283,8 @@ export function applyMutationsToStore(
       const currentNode = planNodes.find((n) => n.id === resolvedNodeId)
       if (currentNode) {
         const resolvedDeps = (u.dependencies as string[]).map(d => idMap.get(d) ?? d)
+        // Update patch with resolved IDs so the node's dependencies field is correct
+        patch.dependencies = resolvedDeps
         const newDeps = new Set(resolvedDeps)
         const oldDeps = new Set(currentNode.dependencies)
         for (const dep of oldDeps) {
