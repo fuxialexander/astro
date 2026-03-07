@@ -14,7 +14,6 @@
 
 import { describe, it, expect } from 'vitest'
 import {
-  buildPlanSystemPrompt,
   buildInteractivePlanPrompt,
   sanitizeGitHubName,
   sanitizeGitBranch,
@@ -26,9 +25,9 @@ import {
 // ─── Shared regex (mirrors dispatch.ts and plan-store.ts) ───────────────────
 const PUSH_TO_GITHUB_RE = /push\s+to\s+github|publish\s+to\s+github/i
 
-// ─── 1. buildPlanSystemPrompt — GitHub Integration section ──────────────────
+// ─── 1. buildInteractivePlanPrompt — GitHub Integration section (detailed) ──
 
-describe('buildPlanSystemPrompt — GitHub integration', () => {
+describe('buildInteractivePlanPrompt — GitHub integration (detailed)', () => {
   const ctx: GitHubContextForPrompt = {
     hasRepo: true,
     owner: 'acme',
@@ -37,14 +36,14 @@ describe('buildPlanSystemPrompt — GitHub integration', () => {
   }
 
   it('injects the section when hasRepo + owner + repo are set', () => {
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, ctx)
+    const prompt = buildInteractivePlanPrompt('test', { githubContext: ctx })
     expect(prompt).toContain('## GitHub Integration')
     expect(prompt).toContain('`acme/widgets`')
     expect(prompt).toContain('`develop` branch')
   })
 
   it('describes the node title, type, verification, estimate, and labels', () => {
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, ctx)
+    const prompt = buildInteractivePlanPrompt('test', { githubContext: ctx })
     expect(prompt).toContain('"Push to GitHub"')
     expect(prompt).toContain('type: "task"')
     expect(prompt).toContain('verification: "auto"')
@@ -53,51 +52,51 @@ describe('buildPlanSystemPrompt — GitHub integration', () => {
   })
 
   it('includes acceptance criteria with gh pr checks command', () => {
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, ctx)
+    const prompt = buildInteractivePlanPrompt('test', { githubContext: ctx })
     expect(prompt).toContain('ci-pass')
     expect(prompt).toContain('gh pr checks --required')
     expect(prompt).toContain('autoVerifiable: true')
   })
 
   it('mentions the repo name in the description text', () => {
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, ctx)
+    const prompt = buildInteractivePlanPrompt('test', { githubContext: ctx })
     expect(prompt).toContain('acme/widgets')
     expect(prompt).toContain('merges the project branch into `develop`')
   })
 
   it('mentions retry cycles in the description', () => {
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, ctx)
+    const prompt = buildInteractivePlanPrompt('test', { githubContext: ctx })
     expect(prompt).toContain('3 retry cycles')
   })
 
   it('states the node depends on ALL other task nodes', () => {
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, ctx)
+    const prompt = buildInteractivePlanPrompt('test', { githubContext: ctx })
     expect(prompt).toContain('Depends on ALL other task nodes')
   })
 
   // ── Omission cases ────────────────────────────────────────────────────────
 
   it('omits section when githubContext is undefined', () => {
-    const prompt = buildPlanSystemPrompt()
+    const prompt = buildInteractivePlanPrompt('test')
     expect(prompt).not.toContain('## GitHub Integration')
     expect(prompt).not.toContain('Push to GitHub')
   })
 
   it('omits section when hasRepo is false', () => {
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, { hasRepo: false })
+    const prompt = buildInteractivePlanPrompt('test', { githubContext: { hasRepo: false } })
     expect(prompt).not.toContain('## GitHub Integration')
   })
 
   it('omits section when owner is missing', () => {
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, {
-      hasRepo: true, repo: 'widgets',
+    const prompt = buildInteractivePlanPrompt('test', {
+      githubContext: { hasRepo: true, repo: 'widgets' },
     })
     expect(prompt).not.toContain('## GitHub Integration')
   })
 
   it('omits section when repo is missing', () => {
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, {
-      hasRepo: true, owner: 'acme',
+    const prompt = buildInteractivePlanPrompt('test', {
+      githubContext: { hasRepo: true, owner: 'acme' },
     })
     expect(prompt).not.toContain('## GitHub Integration')
   })
@@ -106,23 +105,23 @@ describe('buildPlanSystemPrompt — GitHub integration', () => {
 
   it('defaults to `main` when baseBranch is not set', () => {
     const noBase: GitHubContextForPrompt = { hasRepo: true, owner: 'acme', repo: 'widgets' }
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, noBase)
+    const prompt = buildInteractivePlanPrompt('test', { githubContext: noBase })
     expect(prompt).toContain('`main` branch')
     expect(prompt).toContain('into `main`')
   })
 
   // ── Ordering relative to other sections ───────────────────────────────────
 
-  it('appears before ## Node rules', () => {
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, ctx)
+  it('appears before ## Node Rules', () => {
+    const prompt = buildInteractivePlanPrompt('test', { githubContext: ctx })
     const gh = prompt.indexOf('## GitHub Integration')
-    const nr = prompt.indexOf('## Node rules')
+    const nr = prompt.indexOf('## Node Rules')
     expect(gh).toBeGreaterThan(-1)
     expect(nr).toBeGreaterThan(gh)
   })
 
   it('appears after skills section when both are present', () => {
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, 'skill list here', ctx)
+    const prompt = buildInteractivePlanPrompt('test', { skillsSummary: 'skill list here', githubContext: ctx })
     const skills = prompt.indexOf('## Available Agent Skills')
     const gh = prompt.indexOf('## GitHub Integration')
     expect(skills).toBeGreaterThan(-1)
@@ -132,16 +131,20 @@ describe('buildPlanSystemPrompt — GitHub integration', () => {
   // ── Coexistence with other prompt sections ────────────────────────────────
 
   it('coexists with vision doc, repo context, git state, and skills', () => {
-    const repo: RepoContextForPrompt = { readmeMd: '# Readme' }
-    const git: GitStateForPrompt = { currentBranch: 'main', targetBranch: 'main', isDirty: false }
-    const prompt = buildPlanSystemPrompt('vision text', repo, git, 'skill info', ctx)
+    const prompt = buildInteractivePlanPrompt('test', {
+      visionDoc: 'vision text',
+      repoContext: { readmeMd: '# Readme' },
+      gitState: { currentBranch: 'main', targetBranch: 'main', isDirty: false },
+      skillsSummary: 'skill info',
+      githubContext: ctx,
+    })
 
     expect(prompt).toContain('## Project Vision Document')
     expect(prompt).toContain('## README.md')
     expect(prompt).toContain('## Git Repository State')
     expect(prompt).toContain('## Available Agent Skills')
     expect(prompt).toContain('## GitHub Integration')
-    expect(prompt).toContain('## Node rules')
+    expect(prompt).toContain('## Node Rules')
   })
 })
 
@@ -812,10 +815,10 @@ describe('sanitizeGitBranch', () => {
   })
 })
 
-describe('Prompt sanitization — integration with buildPlanSystemPrompt', () => {
+describe('Prompt sanitization — integration with buildInteractivePlanPrompt', () => {
   it('strips shell injection from owner/repo in system prompt', () => {
     const ctx: GitHubContextForPrompt = { hasRepo: true, owner: 'acme; rm -rf /', repo: 'app$(whoami)', baseBranch: 'main' }
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, ctx)
+    const prompt = buildInteractivePlanPrompt('test', { githubContext: ctx })
     expect(prompt).not.toContain('; rm')
     expect(prompt).not.toContain('$(whoami)')
     expect(prompt).toContain('acmerm-rf/appwhoami')
@@ -823,18 +826,18 @@ describe('Prompt sanitization — integration with buildPlanSystemPrompt', () =>
 
   it('strips newlines from baseBranch', () => {
     const ctx: GitHubContextForPrompt = { hasRepo: true, owner: 'o', repo: 'r', baseBranch: 'ma\nin' }
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, ctx)
+    const prompt = buildInteractivePlanPrompt('test', { githubContext: ctx })
     expect(prompt).not.toContain('ma\nin')
     expect(prompt).toContain('main')
   })
 
   it('skips GitHub section but returns full prompt when owner sanitizes to empty', () => {
     const ctx: GitHubContextForPrompt = { hasRepo: true, owner: '; $()', repo: 'app', baseBranch: 'main' }
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, ctx)
+    const prompt = buildInteractivePlanPrompt('test', { githubContext: ctx })
     // Should skip the GitHub section but NOT return empty
     expect(prompt).not.toContain('## GitHub Integration')
     expect(prompt.length).toBeGreaterThan(100) // rest of prompt still present
-    expect(prompt).toContain('## Node rules') // core section still present
+    expect(prompt).toContain('## Node Rules') // core section still present
   })
 })
 
