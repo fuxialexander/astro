@@ -66,6 +66,7 @@ interface ChatPanelProps {
 
 export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, headerActions }: ChatPanelProps) {
   const [input, setInput] = useState("")
+  const [autoScroll, setAutoScroll] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
   const initialMessageSent = useRef(false)
   // Session store for persistent chat
@@ -314,10 +315,16 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   // No unmount abort needed — SSE is owned by session-store, survives navigation
 
   useEffect(() => {
-    if (scrollRef.current) {
+    if (autoScroll && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [displayBlocks.length, isStreaming])
+  }, [displayBlocks.length, isStreaming, autoScroll])
+
+  const handleScroll = useCallback(() => {
+    if (!scrollRef.current) return
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
+    setAutoScroll(scrollHeight - scrollTop - clientHeight < 50)
+  }, [])
 
   const sendMessage = useCallback(async (text: string) => {
     // Read session fresh from store — never use stale ref
@@ -423,7 +430,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   }, [preprocessNodeRefs])
 
   return (
-    <div className="flex h-full flex-col border-l border-border/60 bg-card">
+    <div className="flex h-full flex-col border-l border-border/60 bg-card relative">
       {/* Header with session switcher and model/provider picker */}
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4 border-b border-border/60">
         <div className="flex items-center gap-2">
@@ -592,7 +599,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       </div>
 
       {/* Activity Timeline */}
-      <div className="flex-1 overflow-auto py-3 bg-muted/20" ref={scrollRef}>
+      <div className="flex-1 overflow-auto py-3 bg-muted/20 relative" ref={scrollRef} onScroll={handleScroll}>
         {displayBlocks.length === 0 && !isStreaming && (
           <div className="flex items-center justify-center h-full">
             {isRestoring ? (
@@ -684,6 +691,22 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
           </div>
         )}
       </div>
+
+      {/* Scroll to bottom button */}
+      {!autoScroll && (
+        <Button
+          variant="secondary"
+          size="sm"
+          className="absolute bottom-16 right-4 h-8 gap-1.5 shadow-md z-10"
+          onClick={() => {
+            setAutoScroll(true)
+            scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })
+          }}
+        >
+          <ChevronDown className="h-3.5 w-3.5" />
+          Bottom
+        </Button>
+      )}
 
       {/* Input */}
       <div className="flex items-end gap-2 border-t border-border/60 p-3">
