@@ -19,6 +19,7 @@ import { getSigningPrivateKey, signDispatchIntent, generateNonce, type DispatchS
 import { useAuthStore } from "./auth-store"
 import { useSettingsStore } from "./settings-store"
 import { showBatchCompleteNotification } from "@/lib/notifications"
+import { useNotificationStore } from "./notification-store"
 
 // ─── Page Unload Detection ────────────────────────────────────────────
 // `document.visibilityState` is unreliable during page refresh — it may
@@ -2578,6 +2579,12 @@ function handleSSEEvent(
                 title: allSuccess ? 'All tasks complete' : 'All tasks finished',
                 description: desc,
                 duration: 8000,
+              })
+              useNotificationStore.getState().add({
+                type: allSuccess ? 'success' : 'warning',
+                title: allSuccess ? 'All tasks complete' : 'All tasks finished',
+                description: desc,
+                projectId: pid,
               })
             }
           }

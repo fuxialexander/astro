@@ -20,6 +20,7 @@ import { applyPlanFromText, planNodeIdToProjectId } from '@/lib/plan-extraction'
 import type { TaskActivityEvent } from '@/types'
 import { useSettingsStore } from './settings-store'
 import { useToastStore } from './toast-store'
+import { useNotificationStore } from './notification-store'
 
 export interface HpcCapability {
   clusterName?: string
@@ -1645,13 +1646,21 @@ function handleRealtimeEvent(
 
       if (prUrl && alreadyNotified) {
         // Follow-up: PR was created after the initial completion toast
+        const followUpDesc = projectName
+          ? `"${projectName}": PR created from \`${projectBranch}\` → \`${baseBranch || 'main'}\`.`
+          : `PR created: ${projectBranch} → ${baseBranch || 'main'}.`
         useToastStore.getState().add({
           type: 'success',
           title: 'PR ready for review',
-          description: projectName
-            ? `"${projectName}": PR created from \`${projectBranch}\` → \`${baseBranch || 'main'}\`.`
-            : `PR created: ${projectBranch} → ${baseBranch || 'main'}.`,
+          description: followUpDesc,
           duration: 12000,
+        })
+        useNotificationStore.getState().add({
+          type: 'success',
+          title: 'PR ready for review',
+          description: followUpDesc,
+          projectId,
+          prUrl,
         })
       } else if (!alreadyNotified) {
         // Server event arrived first (rare) — show full completion toast
@@ -1675,6 +1684,13 @@ function handleRealtimeEvent(
           title: prUrl ? 'Project complete — PR ready' : 'Project complete',
           description,
           duration: 12000,
+        })
+        useNotificationStore.getState().add({
+          type: 'success',
+          title: prUrl ? 'Project complete — PR ready' : 'Project complete',
+          description,
+          projectId,
+          prUrl: prUrl || undefined,
         })
 
         // Mark as notified so execution-store doesn't double-toast

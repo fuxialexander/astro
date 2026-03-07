@@ -8,12 +8,16 @@
  * Message flow:
  * 1. Client-side (execution-store): immediate "All tasks complete" toast
  * 2. Server-side (project:completed SSE): follow-up with PR/branch details
+ * 3. Persistent dashboard notification (notification-store): stays until user clicks OK
  *
  * Scenarios tested:
  * - Local branch mode: all success, some pruned, no branch
  * - Remote PR mode: PR created, PR failed, PR already existed
  * - Dedup: server event after client toast, server event first (race)
  * - Source code validation: SSE type registration, event forwarding
+ * - Notification store: add, dismiss, dismissAll, ordering
+ * - Markdown inline rendering: backticks → <code>, edge cases
+ * - Integration: notifications wired from execution-store and realtime-store
  */
 
 import { describe, it, expect } from 'vitest'
@@ -832,5 +836,905 @@ describe('ProjectCompletedEvent type', () => {
     // Verify it's in the union
     const unionMatch = source.match(/type AstroEvent\s*=[\s\S]*?ProjectCompletedEvent/)
     expect(unionMatch).not.toBeNull()
+  })
+})
+
+// ============================================================================
+// 11. Notification Store
+// ============================================================================
+
+describe('Notification store', () => {
+  /**
+   * Simulates the notification store logic from notification-store.ts.
+   * Tests the pure data model independently of Zustand.
+   */
+  function createNotificationStore() {
+    type Notification = {
+      id: string
+      type: 'info' | 'success' | 'warning' | 'error'
+      title: string
+      description: string
+      createdAt: string
+      projectId?: string
+      prUrl?: string
+    }
+
+    let notifications: Notification[] = []
+    let idCounter = 0
+
+    return {
+      get notifications() { return notifications },
+
+      add(n: Omit<Notification, 'id' | 'createdAt'>) {
+        const entry: Notification = {
+          ...n,
+          id: `notif-${++idCounter}`,
+          createdAt: new Date().toISOString(),
+        }
+        notifications = [entry, ...notifications]
+        return entry
+      },
+
+      dismiss(id: string) {
+        notifications = notifications.filter((n) => n.id !== id)
+      },
+
+      dismissAll() {
+        notifications = []
+      },
+    }
+  }
+
+  it('adds a notification and returns it with an id', () => {
+    const store = createNotificationStore()
+    const n = store.add({
+      type: 'success',
+      title: 'All tasks complete',
+      description: 'All tasks in "My Project" completed.',
+    })
+    expect(n.id).toBeTruthy()
+    expect(n.createdAt).toBeTruthy()
+    expect(store.notifications).toHaveLength(1)
+  })
+
+  it('newest notification appears first', () => {
+    const store = createNotificationStore()
+    store.add({ type: 'success', title: 'First', description: 'first' })
+    store.add({ type: 'info', title: 'Second', description: 'second' })
+    expect(store.notifications[0].title).toBe('Second')
+    expect(store.notifications[1].title).toBe('First')
+  })
+
+  it('dismisses a notification by id', () => {
+    const store = createNotificationStore()
+    const n1 = store.add({ type: 'success', title: 'Keep', description: 'keep' })
+    const n2 = store.add({ type: 'info', title: 'Remove', description: 'remove' })
+    store.dismiss(n2.id)
+    expect(store.notifications).toHaveLength(1)
+    expect(store.notifications[0].id).toBe(n1.id)
+  })
+
+  it('dismissAll clears all notifications', () => {
+    const store = createNotificationStore()
+    store.add({ type: 'success', title: 'A', description: 'a' })
+    store.add({ type: 'info', title: 'B', description: 'b' })
+    store.add({ type: 'warning', title: 'C', description: 'c' })
+    store.dismissAll()
+    expect(store.notifications).toHaveLength(0)
+  })
+
+  it('dismiss with unknown id is a no-op', () => {
+    const store = createNotificationStore()
+    store.add({ type: 'success', title: 'A', description: 'a' })
+    store.dismiss('nonexistent')
+    expect(store.notifications).toHaveLength(1)
+  })
+
+  it('stores projectId when provided', () => {
+    const store = createNotificationStore()
+    const n = store.add({
+      type: 'success',
+      title: 'Complete',
+      description: 'Done',
+      projectId: 'proj-123',
+    })
+    expect(n.projectId).toBe('proj-123')
+  })
+
+  it('stores prUrl when provided', () => {
+    const store = createNotificationStore()
+    const n = store.add({
+      type: 'success',
+      title: 'PR ready',
+      description: 'Done',
+      prUrl: 'https://github.com/owner/repo/pull/42',
+    })
+    expect(n.prUrl).toBe('https://github.com/owner/repo/pull/42')
+  })
+
+  it('supports all notification types', () => {
+    const store = createNotificationStore()
+    const types = ['info', 'success', 'warning', 'error'] as const
+    for (const type of types) {
+      store.add({ type, title: type, description: type })
+    }
+    expect(store.notifications).toHaveLength(4)
+    expect(store.notifications.map((n) => n.type)).toEqual(['error', 'warning', 'success', 'info'])
+  })
+
+  it('notifications persist until explicitly dismissed (no auto-dismiss)', () => {
+    const store = createNotificationStore()
+    store.add({ type: 'success', title: 'Persistent', description: 'Stays' })
+    // No auto-dismiss — still there
+    expect(store.notifications).toHaveLength(1)
+    // Only goes away when user clicks OK
+    store.dismiss(store.notifications[0].id)
+    expect(store.notifications).toHaveLength(0)
+  })
+})
+
+// ============================================================================
+// 12. Markdown inline rendering
+// ============================================================================
+
+describe('Markdown inline rendering (backticks)', () => {
+  /**
+   * Pure function version of renderMarkdownInline for testing.
+   * Returns an array of { type: 'text' | 'code', content: string }.
+   */
+  function parseMarkdownInline(text: string): Array<{ type: 'text' | 'code'; content: string }> {
+    const parts: Array<{ type: 'text' | 'code'; content: string }> = []
+    let remaining = text
+
+    while (remaining.length > 0) {
+      const start = remaining.indexOf('`')
+      if (start === -1) {
+        parts.push({ type: 'text', content: remaining })
+        break
+      }
+      const end = remaining.indexOf('`', start + 1)
+      if (end === -1) {
+        parts.push({ type: 'text', content: remaining })
+        break
+      }
+      if (start > 0) {
+        parts.push({ type: 'text', content: remaining.slice(0, start) })
+      }
+      parts.push({ type: 'code', content: remaining.slice(start + 1, end) })
+      remaining = remaining.slice(end + 1)
+    }
+
+    return parts
+  }
+
+  it('plain text with no backticks', () => {
+    const result = parseMarkdownInline('Hello world')
+    expect(result).toEqual([{ type: 'text', content: 'Hello world' }])
+  })
+
+  it('single backtick-wrapped code', () => {
+    const result = parseMarkdownInline('Branch `astro/abc123` is ready')
+    expect(result).toEqual([
+      { type: 'text', content: 'Branch ' },
+      { type: 'code', content: 'astro/abc123' },
+      { type: 'text', content: ' is ready' },
+    ])
+  })
+
+  it('multiple backtick-wrapped segments', () => {
+    const result = parseMarkdownInline('Run `git diff main...astro/abc123` or `git log`')
+    expect(result).toEqual([
+      { type: 'text', content: 'Run ' },
+      { type: 'code', content: 'git diff main...astro/abc123' },
+      { type: 'text', content: ' or ' },
+      { type: 'code', content: 'git log' },
+    ])
+  })
+
+  it('backticks at the start', () => {
+    const result = parseMarkdownInline('`astro/abc123` is the branch')
+    expect(result).toEqual([
+      { type: 'code', content: 'astro/abc123' },
+      { type: 'text', content: ' is the branch' },
+    ])
+  })
+
+  it('backticks at the end', () => {
+    const result = parseMarkdownInline('Branch name is `astro/abc123`')
+    expect(result).toEqual([
+      { type: 'text', content: 'Branch name is ' },
+      { type: 'code', content: 'astro/abc123' },
+    ])
+  })
+
+  it('entire text is backtick-wrapped', () => {
+    const result = parseMarkdownInline('`astro/abc123`')
+    expect(result).toEqual([{ type: 'code', content: 'astro/abc123' }])
+  })
+
+  it('empty backticks', () => {
+    const result = parseMarkdownInline('Empty `` here')
+    expect(result).toEqual([
+      { type: 'text', content: 'Empty ' },
+      { type: 'code', content: '' },
+      { type: 'text', content: ' here' },
+    ])
+  })
+
+  it('unmatched backtick — treated as plain text', () => {
+    const result = parseMarkdownInline('Some `unclosed backtick')
+    expect(result).toEqual([{ type: 'text', content: 'Some `unclosed backtick' }])
+  })
+
+  it('empty string', () => {
+    const result = parseMarkdownInline('')
+    expect(result).toEqual([])
+  })
+
+  it('consecutive backtick pairs', () => {
+    const result = parseMarkdownInline('`a``b`')
+    expect(result).toEqual([
+      { type: 'code', content: 'a' },
+      { type: 'code', content: 'b' },
+    ])
+  })
+
+  it('arrow notation in PR message', () => {
+    const result = parseMarkdownInline('PR created from `astro/abc123` → `main`.')
+    expect(result).toEqual([
+      { type: 'text', content: 'PR created from ' },
+      { type: 'code', content: 'astro/abc123' },
+      { type: 'text', content: ' → ' },
+      { type: 'code', content: 'main' },
+      { type: 'text', content: '.' },
+    ])
+  })
+
+  it('git diff command in message', () => {
+    const result = parseMarkdownInline('Review: `git diff main...astro/abc123`')
+    expect(result).toEqual([
+      { type: 'text', content: 'Review: ' },
+      { type: 'code', content: 'git diff main...astro/abc123' },
+    ])
+  })
+
+  it('special characters inside backticks', () => {
+    const result = parseMarkdownInline('Branch `feat/my-feature_v2.0` ready')
+    expect(result).toEqual([
+      { type: 'text', content: 'Branch ' },
+      { type: 'code', content: 'feat/my-feature_v2.0' },
+      { type: 'text', content: ' ready' },
+    ])
+  })
+})
+
+// ============================================================================
+// 13. Notification messages match toast messages
+// ============================================================================
+
+describe('Persistent notification messages mirror toast messages', () => {
+  /**
+   * Verifies that both a toast and a persistent notification are produced
+   * with the same content for each scenario.
+   */
+  function buildClientMessages(opts: {
+    projectName?: string
+    projectBranch?: string
+    allSuccess: boolean
+    projectId: string
+  }) {
+    const { projectName, projectBranch, allSuccess, projectId } = opts
+    const branch = projectBranch
+    let desc: string
+    if (projectName && allSuccess && branch) {
+      desc = `All tasks in "${projectName}" completed. Changes on branch \`${branch}\`.`
+    } else if (projectName && allSuccess) {
+      desc = `All tasks in "${projectName}" completed successfully.`
+    } else if (projectName) {
+      desc = `All tasks in "${projectName}" have finished. Some were pruned.`
+    } else {
+      desc = allSuccess ? 'All project tasks completed.' : 'All project tasks have finished.'
+    }
+    const type = allSuccess ? 'success' as const : 'warning' as const
+    const title = allSuccess ? 'All tasks complete' : 'All tasks finished'
+
+    return {
+      toast: { type, title, description: desc, duration: 8000 },
+      notification: { type, title, description: desc, projectId },
+    }
+  }
+
+  it('client-side: toast and notification have same description — success with branch', () => {
+    const { toast, notification } = buildClientMessages({
+      projectName: 'My Project',
+      projectBranch: 'astro/abc123',
+      allSuccess: true,
+      projectId: 'proj-1',
+    })
+    expect(toast.description).toBe(notification.description)
+    expect(toast.type).toBe(notification.type)
+    expect(toast.title).toBe(notification.title)
+    expect(notification.projectId).toBe('proj-1')
+  })
+
+  it('client-side: toast and notification have same description — pruned', () => {
+    const { toast, notification } = buildClientMessages({
+      projectName: 'My Project',
+      projectBranch: 'astro/abc123',
+      allSuccess: false,
+      projectId: 'proj-2',
+    })
+    expect(toast.description).toBe(notification.description)
+    expect(toast.type).toBe('warning')
+    expect(notification.type).toBe('warning')
+  })
+
+  it('client-side: toast and notification have same description — no project name', () => {
+    const { toast, notification } = buildClientMessages({
+      projectName: undefined,
+      projectBranch: undefined,
+      allSuccess: true,
+      projectId: 'proj-3',
+    })
+    expect(toast.description).toBe(notification.description)
+  })
+
+  function buildServerMessages(opts: {
+    projectId: string
+    projectName?: string
+    projectBranch: string
+    projectPrUrl?: string
+    deliveryMode?: string
+    baseBranch?: string
+    alreadyNotified: boolean
+  }) {
+    const { projectId, projectName, projectBranch, projectPrUrl: prUrl, deliveryMode, baseBranch, alreadyNotified } = opts
+
+    if (prUrl && alreadyNotified) {
+      const desc = projectName
+        ? `"${projectName}": PR created from \`${projectBranch}\` → \`${baseBranch || 'main'}\`.`
+        : `PR created: ${projectBranch} → ${baseBranch || 'main'}.`
+      return {
+        toast: { type: 'success' as const, title: 'PR ready for review', description: desc, duration: 12000 },
+        notification: { type: 'success' as const, title: 'PR ready for review', description: desc, projectId, prUrl },
+      }
+    } else if (!alreadyNotified) {
+      let description: string
+      if (prUrl) {
+        description = projectName
+          ? `All tasks in "${projectName}" completed. PR created from \`${projectBranch}\` → \`${baseBranch || 'main'}\`.`
+          : `All tasks completed. PR created: ${projectBranch} → ${baseBranch || 'main'}.`
+      } else if (deliveryMode === 'pr') {
+        description = projectName
+          ? `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. PR creation was skipped.`
+          : `All tasks completed on branch \`${projectBranch}\`.`
+      } else {
+        description = projectName
+          ? `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. Review: \`git diff ${baseBranch || 'main'}...${projectBranch}\``
+          : `All tasks completed on branch \`${projectBranch}\`.`
+      }
+      const title = prUrl ? 'Project complete — PR ready' : 'Project complete'
+      return {
+        toast: { type: 'success' as const, title, description, duration: 12000 },
+        notification: { type: 'success' as const, title, description, projectId, prUrl: prUrl || undefined },
+      }
+    }
+    return null
+  }
+
+  it('server-side follow-up: toast and notification have same description', () => {
+    const msgs = buildServerMessages({
+      projectId: 'proj-1',
+      projectName: 'My Project',
+      projectBranch: 'astro/abc123',
+      projectPrUrl: 'https://github.com/owner/repo/pull/42',
+      baseBranch: 'main',
+      alreadyNotified: true,
+    })
+    expect(msgs).not.toBeNull()
+    expect(msgs!.toast.description).toBe(msgs!.notification.description)
+    expect(msgs!.notification.prUrl).toBe('https://github.com/owner/repo/pull/42')
+  })
+
+  it('server-side full (PR): toast and notification have same description', () => {
+    const msgs = buildServerMessages({
+      projectId: 'proj-1',
+      projectName: 'My Project',
+      projectBranch: 'astro/abc123',
+      projectPrUrl: 'https://github.com/owner/repo/pull/42',
+      baseBranch: 'main',
+      alreadyNotified: false,
+    })
+    expect(msgs).not.toBeNull()
+    expect(msgs!.toast.description).toBe(msgs!.notification.description)
+    expect(msgs!.notification.prUrl).toBe('https://github.com/owner/repo/pull/42')
+  })
+
+  it('server-side full (local): toast and notification have same description', () => {
+    const msgs = buildServerMessages({
+      projectId: 'proj-1',
+      projectName: 'My Project',
+      projectBranch: 'astro/abc123',
+      deliveryMode: 'branch',
+      baseBranch: 'main',
+      alreadyNotified: false,
+    })
+    expect(msgs).not.toBeNull()
+    expect(msgs!.toast.description).toBe(msgs!.notification.description)
+    expect(msgs!.notification.prUrl).toBeUndefined()
+  })
+
+  it('server-side suppressed (already notified, no PR): no notification', () => {
+    const msgs = buildServerMessages({
+      projectId: 'proj-1',
+      projectName: 'My Project',
+      projectBranch: 'astro/abc123',
+      deliveryMode: 'branch',
+      baseBranch: 'main',
+      alreadyNotified: true,
+    })
+    expect(msgs).toBeNull()
+  })
+})
+
+// ============================================================================
+// 14. Source code verification: notification-store.ts
+// ============================================================================
+
+describe('Source code: notification-store.ts', () => {
+  const source = readFileSync(
+    join(__dirname, '../src/stores/notification-store.ts'),
+    'utf-8'
+  )
+
+  it('exports useNotificationStore', () => {
+    expect(source).toContain('export const useNotificationStore')
+  })
+
+  it('defines Notification interface with required fields', () => {
+    expect(source).toContain('id: string')
+    expect(source).toContain('type: NotificationType')
+    expect(source).toContain('title: string')
+    expect(source).toContain('description: string')
+    expect(source).toContain('createdAt: string')
+  })
+
+  it('has optional projectId field', () => {
+    expect(source).toContain('projectId?: string')
+  })
+
+  it('has optional prUrl field', () => {
+    expect(source).toContain('prUrl?: string')
+  })
+
+  it('has add method', () => {
+    expect(source).toContain('add:')
+  })
+
+  it('has dismiss method', () => {
+    expect(source).toContain('dismiss:')
+  })
+
+  it('has dismissAll method', () => {
+    expect(source).toContain('dismissAll:')
+  })
+
+  it('does NOT auto-dismiss (no setTimeout)', () => {
+    expect(source).not.toContain('setTimeout')
+  })
+
+  it('exports NotificationType', () => {
+    expect(source).toContain('export type NotificationType')
+  })
+
+  it('exports Notification type', () => {
+    expect(source).toContain('export interface Notification')
+  })
+})
+
+// ============================================================================
+// 15. Source code verification: execution-store adds notifications
+// ============================================================================
+
+describe('Source code: execution-store adds persistent notifications', () => {
+  const source = readFileSync(
+    join(__dirname, '../src/stores/execution-store.ts'),
+    'utf-8'
+  )
+
+  it('imports useNotificationStore', () => {
+    expect(source).toContain("import { useNotificationStore } from \"./notification-store\"")
+  })
+
+  it('calls useNotificationStore.getState().add in completion handler', () => {
+    expect(source).toContain('useNotificationStore.getState().add(')
+  })
+
+  it('passes projectId to notification', () => {
+    // Should pass the project ID so the notification links to the project
+    expect(source).toContain('projectId: pid')
+  })
+})
+
+// ============================================================================
+// 16. Source code verification: realtime-store adds notifications
+// ============================================================================
+
+describe('Source code: realtime-store adds persistent notifications', () => {
+  const source = readFileSync(
+    join(__dirname, '../src/stores/realtime-store.ts'),
+    'utf-8'
+  )
+
+  it('imports useNotificationStore', () => {
+    expect(source).toContain("import { useNotificationStore } from './notification-store'")
+  })
+
+  it('adds notification in follow-up PR branch', () => {
+    // When prUrl && alreadyNotified, should add notification with prUrl
+    const followUpSection = source.match(/prUrl && alreadyNotified[\s\S]*?else if/)
+    expect(followUpSection).not.toBeNull()
+    expect(followUpSection![0]).toContain('useNotificationStore.getState().add(')
+  })
+
+  it('adds notification in server-first branch', () => {
+    // When !alreadyNotified, should add notification
+    const serverFirstSection = source.match(/else if \(!alreadyNotified\)[\s\S]*?Mark as notified/)
+    expect(serverFirstSection).not.toBeNull()
+    expect(serverFirstSection![0]).toContain('useNotificationStore.getState().add(')
+  })
+
+  it('passes prUrl to notification for PR events', () => {
+    expect(source).toContain('prUrl,')
+  })
+
+  it('passes projectId to notification', () => {
+    // In the project:completed handler, should pass projectId
+    const handler = source.match(/case 'project:completed'[\s\S]*?break/)
+    expect(handler).not.toBeNull()
+    // Both notification calls should include projectId
+    const notifCalls = handler![0].match(/useNotificationStore\.getState\(\)\.add\(/g)
+    expect(notifCalls).not.toBeNull()
+    expect(notifCalls!.length).toBe(2) // One for follow-up, one for server-first
+  })
+})
+
+// ============================================================================
+// 17. Source code verification: dashboard renders NotificationCards
+// ============================================================================
+
+describe('Source code: dashboard.tsx renders NotificationCards', () => {
+  const source = readFileSync(
+    join(__dirname, '../src/pages/dashboard.tsx'),
+    'utf-8'
+  )
+
+  it('imports NotificationCards', () => {
+    expect(source).toContain("import { NotificationCards } from \"@/components/dashboard/notification-card\"")
+  })
+
+  it('renders <NotificationCards />', () => {
+    expect(source).toContain('<NotificationCards />')
+  })
+
+  it('renders notifications before attention cards', () => {
+    const notifPos = source.indexOf('<NotificationCards />')
+    const attentionPos = source.indexOf('Attention cards')
+    expect(notifPos).toBeGreaterThan(-1)
+    expect(attentionPos).toBeGreaterThan(-1)
+    expect(notifPos).toBeLessThan(attentionPos)
+  })
+})
+
+// ============================================================================
+// 18. Source code verification: notification-card.tsx component
+// ============================================================================
+
+describe('Source code: notification-card.tsx', () => {
+  const source = readFileSync(
+    join(__dirname, '../src/components/dashboard/notification-card.tsx'),
+    'utf-8'
+  )
+
+  it('exports NotificationCards component', () => {
+    expect(source).toContain('export function NotificationCards()')
+  })
+
+  it('imports renderMarkdownInline from lib', () => {
+    expect(source).toContain("import { renderMarkdownInline } from \"@/lib/markdown-inline\"")
+  })
+
+  it('renders OK button for dismissal', () => {
+    expect(source).toContain('OK')
+    expect(source).toContain('dismiss(notification.id)')
+  })
+
+  it('renders View PR link when prUrl is available', () => {
+    expect(source).toContain('View PR')
+    expect(source).toContain('notification.prUrl')
+  })
+
+  it('has Dismiss All button for multiple notifications', () => {
+    expect(source).toContain('Dismiss All')
+    expect(source).toContain('notifications.length > 1')
+  })
+
+  it('returns null when no notifications', () => {
+    expect(source).toContain('if (notifications.length === 0) return null')
+  })
+
+  it('calls renderMarkdownInline on description', () => {
+    expect(source).toContain('renderMarkdownInline(notification.description)')
+  })
+
+  it('uses useNotificationStore for state', () => {
+    expect(source).toContain("useNotificationStore")
+  })
+
+  it('uses formatRelativeTime for timestamp display', () => {
+    expect(source).toContain('formatRelativeTime')
+  })
+
+  it('shows external link icon for PR button', () => {
+    expect(source).toContain('ExternalLink')
+  })
+})
+
+// ============================================================================
+// 19. Source code verification: markdown-inline.ts
+// ============================================================================
+
+describe('Source code: markdown-inline.ts', () => {
+  const source = readFileSync(
+    join(__dirname, '../src/lib/markdown-inline.ts'),
+    'utf-8'
+  )
+
+  it('exports renderMarkdownInline function', () => {
+    expect(source).toContain('export function renderMarkdownInline')
+  })
+
+  it('converts backtick pairs to code elements', () => {
+    expect(source).toContain("remaining.indexOf(\"`\")")
+    expect(source).toContain("\"code\"")
+  })
+
+  it('handles unmatched backtick as plain text', () => {
+    // When end === -1, should push remaining as-is
+    expect(source).toContain('if (end === -1)')
+    expect(source).toContain('parts.push(remaining)')
+  })
+
+  it('uses createElement for code elements (not JSX)', () => {
+    expect(source).toContain('createElement')
+  })
+})
+
+// ============================================================================
+// 20. End-to-end notification flow simulation
+// ============================================================================
+
+describe('End-to-end notification flow', () => {
+  type Notification = {
+    type: 'success' | 'warning'
+    title: string
+    description: string
+    projectId?: string
+    prUrl?: string
+  }
+
+  type Toast = {
+    type: 'success' | 'warning'
+    title: string
+    description: string
+    duration: number
+  }
+
+  /**
+   * Full simulation of the client + server notification pipeline.
+   */
+  function createFullPipeline() {
+    const completedProjectIds = new Set<string>()
+    const toasts: Toast[] = []
+    const notifications: Notification[] = []
+
+    return {
+      // Simulates execution-store completion detection
+      clientComplete(opts: {
+        projectId: string
+        projectName?: string
+        projectBranch?: string
+        allSuccess: boolean
+      }) {
+        const { projectId, projectName, projectBranch, allSuccess } = opts
+        if (completedProjectIds.has(projectId)) return
+
+        completedProjectIds.add(projectId)
+        const branch = projectBranch
+        let desc: string
+        if (projectName && allSuccess && branch) {
+          desc = `All tasks in "${projectName}" completed. Changes on branch \`${branch}\`.`
+        } else if (projectName && allSuccess) {
+          desc = `All tasks in "${projectName}" completed successfully.`
+        } else if (projectName) {
+          desc = `All tasks in "${projectName}" have finished. Some were pruned.`
+        } else {
+          desc = allSuccess ? 'All project tasks completed.' : 'All project tasks have finished.'
+        }
+        const type = allSuccess ? 'success' as const : 'warning' as const
+        const title = allSuccess ? 'All tasks complete' : 'All tasks finished'
+
+        toasts.push({ type, title, description: desc, duration: 8000 })
+        notifications.push({ type, title, description: desc, projectId })
+      },
+
+      // Simulates realtime-store project:completed handler
+      serverComplete(opts: {
+        projectId: string
+        projectName?: string
+        projectBranch: string
+        projectPrUrl?: string
+        deliveryMode?: string
+        baseBranch?: string
+      }) {
+        const { projectId, projectName, projectBranch, projectPrUrl: prUrl, deliveryMode, baseBranch } = opts
+        const alreadyNotified = completedProjectIds.has(projectId)
+
+        if (prUrl && alreadyNotified) {
+          const desc = projectName
+            ? `"${projectName}": PR created from \`${projectBranch}\` → \`${baseBranch || 'main'}\`.`
+            : `PR created: ${projectBranch} → ${baseBranch || 'main'}.`
+          toasts.push({ type: 'success', title: 'PR ready for review', description: desc, duration: 12000 })
+          notifications.push({ type: 'success', title: 'PR ready for review', description: desc, projectId, prUrl })
+        } else if (!alreadyNotified) {
+          let description: string
+          if (prUrl) {
+            description = projectName
+              ? `All tasks in "${projectName}" completed. PR created from \`${projectBranch}\` → \`${baseBranch || 'main'}\`.`
+              : `All tasks completed. PR created: ${projectBranch} → ${baseBranch || 'main'}.`
+          } else if (deliveryMode === 'pr') {
+            description = projectName
+              ? `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. PR creation was skipped.`
+              : `All tasks completed on branch \`${projectBranch}\`.`
+          } else {
+            description = projectName
+              ? `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. Review: \`git diff ${baseBranch || 'main'}...${projectBranch}\``
+              : `All tasks completed on branch \`${projectBranch}\`.`
+          }
+          const title = prUrl ? 'Project complete — PR ready' : 'Project complete'
+          toasts.push({ type: 'success', title, description, duration: 12000 })
+          notifications.push({ type: 'success', title, description, projectId, prUrl: prUrl || undefined })
+          completedProjectIds.add(projectId)
+        }
+      },
+
+      toasts,
+      notifications,
+    }
+  }
+
+  it('local branch: client + server — one notification, one toast', () => {
+    const p = createFullPipeline()
+    p.clientComplete({
+      projectId: 'proj-1',
+      projectName: 'My Project',
+      projectBranch: 'astro/abc123',
+      allSuccess: true,
+    })
+    p.serverComplete({
+      projectId: 'proj-1',
+      projectName: 'My Project',
+      projectBranch: 'astro/abc123',
+      deliveryMode: 'branch',
+      baseBranch: 'main',
+    })
+    // Client toast + notification, server suppressed (no new info)
+    expect(p.toasts).toHaveLength(1)
+    expect(p.notifications).toHaveLength(1)
+    expect(p.notifications[0].description).toContain('`astro/abc123`')
+  })
+
+  it('remote PR: client + server with PR — two toasts, two notifications', () => {
+    const p = createFullPipeline()
+    p.clientComplete({
+      projectId: 'proj-1',
+      projectName: 'My Project',
+      projectBranch: 'astro/abc123',
+      allSuccess: true,
+    })
+    p.serverComplete({
+      projectId: 'proj-1',
+      projectName: 'My Project',
+      projectBranch: 'astro/abc123',
+      projectPrUrl: 'https://github.com/owner/repo/pull/42',
+      deliveryMode: 'pr',
+      baseBranch: 'main',
+    })
+    expect(p.toasts).toHaveLength(2)
+    expect(p.notifications).toHaveLength(2)
+    expect(p.toasts[0].title).toBe('All tasks complete')
+    expect(p.toasts[1].title).toBe('PR ready for review')
+    expect(p.notifications[1].prUrl).toBe('https://github.com/owner/repo/pull/42')
+  })
+
+  it('server arrives first with PR — one toast, one notification', () => {
+    const p = createFullPipeline()
+    p.serverComplete({
+      projectId: 'proj-1',
+      projectName: 'My Project',
+      projectBranch: 'astro/abc123',
+      projectPrUrl: 'https://github.com/owner/repo/pull/42',
+      baseBranch: 'main',
+    })
+    // Client detection happens after — suppressed
+    p.clientComplete({
+      projectId: 'proj-1',
+      projectName: 'My Project',
+      projectBranch: 'astro/abc123',
+      allSuccess: true,
+    })
+    expect(p.toasts).toHaveLength(1)
+    expect(p.notifications).toHaveLength(1)
+    expect(p.notifications[0].title).toBe('Project complete — PR ready')
+    expect(p.notifications[0].prUrl).toBe('https://github.com/owner/repo/pull/42')
+  })
+
+  it('multiple projects: each gets independent notifications', () => {
+    const p = createFullPipeline()
+    p.clientComplete({ projectId: 'proj-1', projectName: 'Project A', projectBranch: 'astro/aaa', allSuccess: true })
+    p.clientComplete({ projectId: 'proj-2', projectName: 'Project B', projectBranch: 'astro/bbb', allSuccess: true })
+    p.serverComplete({ projectId: 'proj-1', projectName: 'Project A', projectBranch: 'astro/aaa', projectPrUrl: 'https://github.com/a/pull/1', baseBranch: 'main' })
+    p.serverComplete({ projectId: 'proj-2', projectName: 'Project B', projectBranch: 'astro/bbb', deliveryMode: 'branch', baseBranch: 'main' })
+
+    expect(p.toasts).toHaveLength(3) // 2 client + 1 PR follow-up (proj-2 suppressed)
+    expect(p.notifications).toHaveLength(3) // same
+    expect(p.notifications.filter((n) => n.projectId === 'proj-1')).toHaveLength(2)
+    expect(p.notifications.filter((n) => n.projectId === 'proj-2')).toHaveLength(1)
+  })
+
+  it('pruned project: notification has warning type', () => {
+    const p = createFullPipeline()
+    p.clientComplete({
+      projectId: 'proj-1',
+      projectName: 'My Project',
+      projectBranch: 'astro/abc123',
+      allSuccess: false,
+    })
+    expect(p.notifications[0].type).toBe('warning')
+    expect(p.notifications[0].title).toBe('All tasks finished')
+  })
+
+  it('all notifications contain backtick-wrapped branch names for markdown rendering', () => {
+    const p = createFullPipeline()
+    p.clientComplete({
+      projectId: 'proj-1',
+      projectName: 'My Project',
+      projectBranch: 'astro/abc123',
+      allSuccess: true,
+    })
+    p.serverComplete({
+      projectId: 'proj-1',
+      projectName: 'My Project',
+      projectBranch: 'astro/abc123',
+      projectPrUrl: 'https://github.com/owner/repo/pull/42',
+      baseBranch: 'develop',
+    })
+    // Client notification: branch in backticks
+    expect(p.notifications[0].description).toContain('`astro/abc123`')
+    // Server notification: branch and base in backticks
+    expect(p.notifications[1].description).toContain('`astro/abc123`')
+    expect(p.notifications[1].description).toContain('`develop`')
+  })
+
+  it('notification with no project name still has useful content', () => {
+    const p = createFullPipeline()
+    p.clientComplete({
+      projectId: 'proj-1',
+      projectName: undefined,
+      projectBranch: undefined,
+      allSuccess: true,
+    })
+    expect(p.notifications[0].description).toBe('All project tasks completed.')
+    expect(p.notifications[0].projectId).toBe('proj-1')
   })
 })

@@ -29,6 +29,7 @@ import { useStatsStore } from "@/stores/stats-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { ApprovalCard } from "@/components/approval-card"
 import { InlineApprovalCard } from "@/components/plan-generation/inline-approval-card"
+import { NotificationCards } from "@/components/dashboard/notification-card"
 import { ActivityOverview } from "@/components/dashboard/activity-overview"
 import { BragStats } from "@/components/dashboard/brag-stats"
 import { AchievementsPanel } from "@/components/dashboard/achievements-panel"
@@ -332,6 +333,9 @@ export function Dashboard() {
           }
         }}
       />
+
+      {/* ── TIER 1.5: Persistent Notifications ── */}
+      <NotificationCards />
 
       {/* ── TIER 2: Attention cards ── */}
       <div ref={attentionRef}>
