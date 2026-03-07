@@ -23,39 +23,15 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { buildClientCompletionMessage, buildServerCompletionMessage } from '../src/lib/completion-messages'
 
 // ============================================================================
 // 1. Client-side completion toast (execution-store)
 // ============================================================================
 
 describe('Client-side completion toast messages', () => {
-  /**
-   * Simulates the toast message logic from execution-store.ts.
-   * This is the FIRST toast the user sees — instant, client-side.
-   */
-  function buildClientToast(opts: {
-    projectName?: string
-    projectBranch?: string
-    allSuccess: boolean
-  }): { type: 'success' | 'warning'; title: string; description: string } {
-    const { projectName, projectBranch, allSuccess } = opts
-    const branch = projectBranch
-    let desc: string
-    if (projectName && allSuccess && branch) {
-      desc = `All tasks in "${projectName}" completed. Changes on branch \`${branch}\`.`
-    } else if (projectName && allSuccess) {
-      desc = `All tasks in "${projectName}" completed successfully.`
-    } else if (projectName) {
-      desc = `All tasks in "${projectName}" have finished. Some were pruned.`
-    } else {
-      desc = allSuccess ? 'All project tasks completed.' : 'All project tasks have finished.'
-    }
-    return {
-      type: allSuccess ? 'success' : 'warning',
-      title: allSuccess ? 'All tasks complete' : 'All tasks finished',
-      description: desc,
-    }
-  }
+  /** Uses the shared builder — same code path as execution-store.ts */
+  const buildClientToast = buildClientCompletionMessage
 
   it('all success with branch — includes branch name', () => {
     const toast = buildClientToast({
@@ -65,7 +41,7 @@ describe('Client-side completion toast messages', () => {
     })
     expect(toast.type).toBe('success')
     expect(toast.title).toBe('All tasks complete')
-    expect(toast.description).toBe('All tasks in "My Project" completed. Changes on branch `astro/abc123`.')
+    expect(toast.description).toBe('All tasks in "My Project" completed. Changes on branch `astro/abc123`. Use `git checkout astro/abc123` to review.')
   })
 
   it('all success without branch — generic success message', () => {
@@ -116,53 +92,8 @@ describe('Client-side completion toast messages', () => {
 // ============================================================================
 
 describe('Server-side project:completed toast messages', () => {
-  /**
-   * Simulates the toast message logic from realtime-store.ts project:completed handler.
-   * This arrives AFTER the server hook runs (potentially with PR info).
-   */
-  function buildServerToast(opts: {
-    projectName?: string
-    projectBranch: string
-    projectPrUrl?: string
-    deliveryMode?: string
-    baseBranch?: string
-    alreadyNotified: boolean
-  }): { title: string; description: string } | null {
-    const { projectName, projectBranch, projectPrUrl: prUrl, deliveryMode, baseBranch, alreadyNotified } = opts
-
-    if (prUrl && alreadyNotified) {
-      // Follow-up: PR was created after the initial completion toast
-      return {
-        title: 'PR ready for review',
-        description: projectName
-          ? `"${projectName}": PR created from \`${projectBranch}\` → \`${baseBranch || 'main'}\`.`
-          : `PR created: ${projectBranch} → ${baseBranch || 'main'}.`,
-      }
-    } else if (!alreadyNotified) {
-      // Server event arrived first (rare) — show full completion toast
-      let description: string
-      if (prUrl) {
-        description = projectName
-          ? `All tasks in "${projectName}" completed. PR created from \`${projectBranch}\` → \`${baseBranch || 'main'}\`.`
-          : `All tasks completed. PR created: ${projectBranch} → ${baseBranch || 'main'}.`
-      } else if (deliveryMode === 'pr') {
-        description = projectName
-          ? `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. PR creation was skipped.`
-          : `All tasks completed on branch \`${projectBranch}\`.`
-      } else {
-        description = projectName
-          ? `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. Review: \`git diff ${baseBranch || 'main'}...${projectBranch}\``
-          : `All tasks completed on branch \`${projectBranch}\`.`
-      }
-      return {
-        title: prUrl ? 'Project complete — PR ready' : 'Project complete',
-        description,
-      }
-    }
-
-    // Already notified, no PR — no follow-up toast
-    return null
-  }
+  /** Uses the shared builder — same code path as realtime-store.ts */
+  const buildServerToast = buildServerCompletionMessage
 
   // ── Remote PR mode: PR created ──────────────────────────────────────
 
@@ -282,7 +213,7 @@ describe('Server-side project:completed toast messages', () => {
     expect(toast).not.toBeNull()
     expect(toast!.title).toBe('Project complete')
     expect(toast!.description).toBe(
-      'All tasks in "My Project" completed. Changes on branch `astro/abc123`. Review: `git diff main...astro/abc123`'
+      'All tasks in "My Project" completed. Changes on branch `astro/abc123`. Run `git checkout astro/abc123` or `git diff main...astro/abc123` to review.'
     )
   })
 
@@ -307,7 +238,7 @@ describe('Server-side project:completed toast messages', () => {
       baseBranch: 'main',
       alreadyNotified: false,
     })
-    expect(toast!.description).toBe('All tasks completed on branch `astro/abc123`.')
+    expect(toast!.description).toBe('All tasks completed on branch `astro/abc123`. Run `git checkout astro/abc123` to review.')
   })
 
   // ── baseBranch defaults ─────────────────────────────────────────────
@@ -749,13 +680,14 @@ describe('Source code: realtime-store handles project:completed', () => {
     expect(source).toContain('completedProjectIds')
   })
 
-  it('shows follow-up PR toast when already notified', () => {
-    expect(source).toContain('PR ready for review')
+  it('delegates message building to buildServerCompletionMessage', () => {
+    expect(source).toContain('buildServerCompletionMessage(')
   })
 
-  it('shows full completion toast when not yet notified', () => {
-    expect(source).toContain('Project complete — PR ready')
-    expect(source).toContain('Project complete')
+  it('conditionally shows toast and notification when msg is non-null', () => {
+    expect(source).toContain('if (msg)')
+    expect(source).toContain('useToastStore.getState().add(')
+    expect(source).toContain('useNotificationStore.getState().add(')
   })
 
   it('marks project as notified in completedProjectIds', () => {
@@ -768,13 +700,9 @@ describe('Source code: realtime-store handles project:completed', () => {
     expect(source).toContain('projectPrUrl: prUrl')
   })
 
-  it('handles PR mode with failed PR creation', () => {
-    expect(source).toContain("deliveryMode === 'pr'")
-    expect(source).toContain('PR creation was skipped')
-  })
-
-  it('shows git diff hint for local branch mode', () => {
-    expect(source).toContain('git diff')
+  it('uses shared builder for message logic', () => {
+    expect(source).toContain("import { buildServerCompletionMessage } from '@/lib/completion-messages'")
+    expect(source).toContain('buildServerCompletionMessage(')
   })
 
   it('imports useToastStore', () => {
@@ -786,18 +714,20 @@ describe('Source code: realtime-store handles project:completed', () => {
 // 9. Source code verification: execution-store.ts enhanced toast
 // ============================================================================
 
-describe('Source code: execution-store completion toast includes branch', () => {
+describe('Source code: execution-store completion toast uses shared builder', () => {
   const source = readFileSync(
     join(__dirname, '../src/stores/execution-store.ts'),
     'utf-8'
   )
 
-  it('reads projectBranch from project', () => {
-    expect(source).toContain('proj?.projectBranch')
+  it('imports buildClientCompletionMessage', () => {
+    expect(source).toContain("import { buildClientCompletionMessage } from \"@/lib/completion-messages\"")
   })
 
-  it('includes branch in success message', () => {
-    expect(source).toContain('Changes on branch')
+  it('calls buildClientCompletionMessage with project data', () => {
+    expect(source).toContain('buildClientCompletionMessage(')
+    expect(source).toContain('projectName: proj?.name')
+    expect(source).toContain('projectBranch: proj?.projectBranch')
   })
 
   it('uses completedProjectIds for dedup', () => {
@@ -836,6 +766,54 @@ describe('ProjectCompletedEvent type', () => {
     // Verify it's in the union
     const unionMatch = source.match(/type AstroEvent\s*=[\s\S]*?ProjectCompletedEvent/)
     expect(unionMatch).not.toBeNull()
+  })
+})
+
+// ============================================================================
+// 10.5. Source code verification: completion-messages.ts (shared builder)
+// ============================================================================
+
+describe('Source code: completion-messages.ts shared builder', () => {
+  const source = readFileSync(
+    join(__dirname, '../src/lib/completion-messages.ts'),
+    'utf-8'
+  )
+
+  it('exports buildClientCompletionMessage', () => {
+    expect(source).toContain('export function buildClientCompletionMessage')
+  })
+
+  it('exports buildServerCompletionMessage', () => {
+    expect(source).toContain('export function buildServerCompletionMessage')
+  })
+
+  it('exports CompletionMessage interface', () => {
+    expect(source).toContain('export interface CompletionMessage')
+  })
+
+  it('handles all client scenarios: success+branch, success, pruned, fallback', () => {
+    expect(source).toContain('Changes on branch')
+    expect(source).toContain('completed successfully')
+    expect(source).toContain('Some were pruned')
+    expect(source).toContain('All project tasks completed.')
+  })
+
+  it('handles all server scenarios: PR created, PR failed, local branch', () => {
+    expect(source).toContain('PR created from')
+    expect(source).toContain('PR creation was skipped')
+    expect(source).toContain('git diff')
+  })
+
+  it('handles deliveryMode === pr check', () => {
+    expect(source).toContain("deliveryMode === 'pr'")
+  })
+
+  it('defaults baseBranch to main', () => {
+    expect(source).toContain("baseBranch || 'main'")
+  })
+
+  it('returns null when suppressed', () => {
+    expect(source).toContain('return null')
   })
 })
 
@@ -1114,43 +1092,20 @@ describe('Markdown inline rendering (backticks)', () => {
 
 describe('Persistent notification messages mirror toast messages', () => {
   /**
-   * Verifies that both a toast and a persistent notification are produced
-   * with the same content for each scenario.
+   * Both stores (execution-store + realtime-store) call the shared builders
+   * from completion-messages.ts and spread the result into both toast and
+   * notification. This section proves the messages are identical by design.
    */
-  function buildClientMessages(opts: {
-    projectName?: string
-    projectBranch?: string
-    allSuccess: boolean
-    projectId: string
-  }) {
-    const { projectName, projectBranch, allSuccess, projectId } = opts
-    const branch = projectBranch
-    let desc: string
-    if (projectName && allSuccess && branch) {
-      desc = `All tasks in "${projectName}" completed. Changes on branch \`${branch}\`.`
-    } else if (projectName && allSuccess) {
-      desc = `All tasks in "${projectName}" completed successfully.`
-    } else if (projectName) {
-      desc = `All tasks in "${projectName}" have finished. Some were pruned.`
-    } else {
-      desc = allSuccess ? 'All project tasks completed.' : 'All project tasks have finished.'
-    }
-    const type = allSuccess ? 'success' as const : 'warning' as const
-    const title = allSuccess ? 'All tasks complete' : 'All tasks finished'
-
-    return {
-      toast: { type, title, description: desc, duration: 8000 },
-      notification: { type, title, description: desc, projectId },
-    }
-  }
 
   it('client-side: toast and notification have same description — success with branch', () => {
-    const { toast, notification } = buildClientMessages({
+    const msg = buildClientCompletionMessage({
       projectName: 'My Project',
       projectBranch: 'astro/abc123',
       allSuccess: true,
-      projectId: 'proj-1',
     })
+    // execution-store spreads msg into both toast and notification
+    const toast = { ...msg, duration: 8000 }
+    const notification = { ...msg, projectId: 'proj-1' }
     expect(toast.description).toBe(notification.description)
     expect(toast.type).toBe(notification.type)
     expect(toast.title).toBe(notification.title)
@@ -1158,122 +1113,74 @@ describe('Persistent notification messages mirror toast messages', () => {
   })
 
   it('client-side: toast and notification have same description — pruned', () => {
-    const { toast, notification } = buildClientMessages({
+    const msg = buildClientCompletionMessage({
       projectName: 'My Project',
       projectBranch: 'astro/abc123',
       allSuccess: false,
-      projectId: 'proj-2',
     })
-    expect(toast.description).toBe(notification.description)
-    expect(toast.type).toBe('warning')
-    expect(notification.type).toBe('warning')
+    expect(msg.type).toBe('warning')
+    // Both toast and notification come from the same msg object
   })
 
   it('client-side: toast and notification have same description — no project name', () => {
-    const { toast, notification } = buildClientMessages({
+    const msg = buildClientCompletionMessage({
       projectName: undefined,
       projectBranch: undefined,
       allSuccess: true,
-      projectId: 'proj-3',
     })
-    expect(toast.description).toBe(notification.description)
+    // Same msg spreads into both — guaranteed identical
+    expect(msg.description).toBe('All project tasks completed.')
   })
 
-  function buildServerMessages(opts: {
-    projectId: string
-    projectName?: string
-    projectBranch: string
-    projectPrUrl?: string
-    deliveryMode?: string
-    baseBranch?: string
-    alreadyNotified: boolean
-  }) {
-    const { projectId, projectName, projectBranch, projectPrUrl: prUrl, deliveryMode, baseBranch, alreadyNotified } = opts
-
-    if (prUrl && alreadyNotified) {
-      const desc = projectName
-        ? `"${projectName}": PR created from \`${projectBranch}\` → \`${baseBranch || 'main'}\`.`
-        : `PR created: ${projectBranch} → ${baseBranch || 'main'}.`
-      return {
-        toast: { type: 'success' as const, title: 'PR ready for review', description: desc, duration: 12000 },
-        notification: { type: 'success' as const, title: 'PR ready for review', description: desc, projectId, prUrl },
-      }
-    } else if (!alreadyNotified) {
-      let description: string
-      if (prUrl) {
-        description = projectName
-          ? `All tasks in "${projectName}" completed. PR created from \`${projectBranch}\` → \`${baseBranch || 'main'}\`.`
-          : `All tasks completed. PR created: ${projectBranch} → ${baseBranch || 'main'}.`
-      } else if (deliveryMode === 'pr') {
-        description = projectName
-          ? `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. PR creation was skipped.`
-          : `All tasks completed on branch \`${projectBranch}\`.`
-      } else {
-        description = projectName
-          ? `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. Review: \`git diff ${baseBranch || 'main'}...${projectBranch}\``
-          : `All tasks completed on branch \`${projectBranch}\`.`
-      }
-      const title = prUrl ? 'Project complete — PR ready' : 'Project complete'
-      return {
-        toast: { type: 'success' as const, title, description, duration: 12000 },
-        notification: { type: 'success' as const, title, description, projectId, prUrl: prUrl || undefined },
-      }
-    }
-    return null
-  }
-
-  it('server-side follow-up: toast and notification have same description', () => {
-    const msgs = buildServerMessages({
-      projectId: 'proj-1',
+  it('server-side follow-up: single msg object used for both toast and notification', () => {
+    const msg = buildServerCompletionMessage({
       projectName: 'My Project',
       projectBranch: 'astro/abc123',
       projectPrUrl: 'https://github.com/owner/repo/pull/42',
       baseBranch: 'main',
       alreadyNotified: true,
     })
-    expect(msgs).not.toBeNull()
-    expect(msgs!.toast.description).toBe(msgs!.notification.description)
-    expect(msgs!.notification.prUrl).toBe('https://github.com/owner/repo/pull/42')
+    expect(msg).not.toBeNull()
+    // realtime-store spreads this same msg into both toast and notification
+    expect(msg!.prUrl).toBe('https://github.com/owner/repo/pull/42')
+    expect(msg!.title).toBe('PR ready for review')
   })
 
-  it('server-side full (PR): toast and notification have same description', () => {
-    const msgs = buildServerMessages({
-      projectId: 'proj-1',
+  it('server-side full (PR): single msg object used for both', () => {
+    const msg = buildServerCompletionMessage({
       projectName: 'My Project',
       projectBranch: 'astro/abc123',
       projectPrUrl: 'https://github.com/owner/repo/pull/42',
       baseBranch: 'main',
       alreadyNotified: false,
     })
-    expect(msgs).not.toBeNull()
-    expect(msgs!.toast.description).toBe(msgs!.notification.description)
-    expect(msgs!.notification.prUrl).toBe('https://github.com/owner/repo/pull/42')
+    expect(msg).not.toBeNull()
+    expect(msg!.prUrl).toBe('https://github.com/owner/repo/pull/42')
+    expect(msg!.title).toBe('Project complete — PR ready')
   })
 
-  it('server-side full (local): toast and notification have same description', () => {
-    const msgs = buildServerMessages({
-      projectId: 'proj-1',
+  it('server-side full (local): single msg object, no prUrl', () => {
+    const msg = buildServerCompletionMessage({
       projectName: 'My Project',
       projectBranch: 'astro/abc123',
       deliveryMode: 'branch',
       baseBranch: 'main',
       alreadyNotified: false,
     })
-    expect(msgs).not.toBeNull()
-    expect(msgs!.toast.description).toBe(msgs!.notification.description)
-    expect(msgs!.notification.prUrl).toBeUndefined()
+    expect(msg).not.toBeNull()
+    expect(msg!.prUrl).toBeUndefined()
+    expect(msg!.title).toBe('Project complete')
   })
 
-  it('server-side suppressed (already notified, no PR): no notification', () => {
-    const msgs = buildServerMessages({
-      projectId: 'proj-1',
+  it('server-side suppressed (already notified, no PR): returns null', () => {
+    const msg = buildServerCompletionMessage({
       projectName: 'My Project',
       projectBranch: 'astro/abc123',
       deliveryMode: 'branch',
       baseBranch: 'main',
       alreadyNotified: true,
     })
-    expect(msgs).toBeNull()
+    expect(msg).toBeNull()
   })
 })
 
@@ -1336,7 +1243,7 @@ describe('Source code: notification-store.ts', () => {
 // 15. Source code verification: execution-store adds notifications
 // ============================================================================
 
-describe('Source code: execution-store adds persistent notifications', () => {
+describe('Source code: execution-store uses shared builder + adds notifications', () => {
   const source = readFileSync(
     join(__dirname, '../src/stores/execution-store.ts'),
     'utf-8'
@@ -1346,13 +1253,17 @@ describe('Source code: execution-store adds persistent notifications', () => {
     expect(source).toContain("import { useNotificationStore } from \"./notification-store\"")
   })
 
-  it('calls useNotificationStore.getState().add in completion handler', () => {
-    expect(source).toContain('useNotificationStore.getState().add(')
+  it('imports buildClientCompletionMessage from shared lib', () => {
+    expect(source).toContain("import { buildClientCompletionMessage } from \"@/lib/completion-messages\"")
   })
 
-  it('passes projectId to notification', () => {
-    // Should pass the project ID so the notification links to the project
-    expect(source).toContain('projectId: pid')
+  it('calls buildClientCompletionMessage', () => {
+    expect(source).toContain('buildClientCompletionMessage(')
+  })
+
+  it('spreads msg into both toast and notification', () => {
+    expect(source).toContain('useToastStore.getState().add({ ...msg, duration: 8000 })')
+    expect(source).toContain('useNotificationStore.getState().add({ ...msg, projectId: pid })')
   })
 })
 
@@ -1360,7 +1271,7 @@ describe('Source code: execution-store adds persistent notifications', () => {
 // 16. Source code verification: realtime-store adds notifications
 // ============================================================================
 
-describe('Source code: realtime-store adds persistent notifications', () => {
+describe('Source code: realtime-store uses shared builder + adds notifications', () => {
   const source = readFileSync(
     join(__dirname, '../src/stores/realtime-store.ts'),
     'utf-8'
@@ -1370,32 +1281,28 @@ describe('Source code: realtime-store adds persistent notifications', () => {
     expect(source).toContain("import { useNotificationStore } from './notification-store'")
   })
 
-  it('adds notification in follow-up PR branch', () => {
-    // When prUrl && alreadyNotified, should add notification with prUrl
-    const followUpSection = source.match(/prUrl && alreadyNotified[\s\S]*?else if/)
-    expect(followUpSection).not.toBeNull()
-    expect(followUpSection![0]).toContain('useNotificationStore.getState().add(')
+  it('imports buildServerCompletionMessage from shared lib', () => {
+    expect(source).toContain("import { buildServerCompletionMessage } from '@/lib/completion-messages'")
   })
 
-  it('adds notification in server-first branch', () => {
-    // When !alreadyNotified, should add notification
-    const serverFirstSection = source.match(/else if \(!alreadyNotified\)[\s\S]*?Mark as notified/)
-    expect(serverFirstSection).not.toBeNull()
-    expect(serverFirstSection![0]).toContain('useNotificationStore.getState().add(')
-  })
-
-  it('passes prUrl to notification for PR events', () => {
-    expect(source).toContain('prUrl,')
-  })
-
-  it('passes projectId to notification', () => {
-    // In the project:completed handler, should pass projectId
+  it('calls buildServerCompletionMessage in project:completed handler', () => {
     const handler = source.match(/case 'project:completed'[\s\S]*?break/)
     expect(handler).not.toBeNull()
-    // Both notification calls should include projectId
-    const notifCalls = handler![0].match(/useNotificationStore\.getState\(\)\.add\(/g)
-    expect(notifCalls).not.toBeNull()
-    expect(notifCalls!.length).toBe(2) // One for follow-up, one for server-first
+    expect(handler![0]).toContain('buildServerCompletionMessage(')
+  })
+
+  it('spreads msg into both toast and notification', () => {
+    const handler = source.match(/case 'project:completed'[\s\S]*?break/)
+    expect(handler).not.toBeNull()
+    expect(handler![0]).toContain('useToastStore.getState().add({ ...msg, duration: 12000 })')
+    expect(handler![0]).toContain('useNotificationStore.getState().add(')
+  })
+
+  it('passes projectId and prUrl to notification', () => {
+    const handler = source.match(/case 'project:completed'[\s\S]*?break/)
+    expect(handler).not.toBeNull()
+    expect(handler![0]).toContain('projectId')
+    expect(handler![0]).toContain('msg.prUrl')
   })
 })
 
@@ -1532,6 +1439,7 @@ describe('End-to-end notification flow', () => {
 
   /**
    * Full simulation of the client + server notification pipeline.
+   * Uses the same shared builders as the real stores.
    */
   function createFullPipeline() {
     const completedProjectIds = new Set<string>()
@@ -1546,26 +1454,13 @@ describe('End-to-end notification flow', () => {
         projectBranch?: string
         allSuccess: boolean
       }) {
-        const { projectId, projectName, projectBranch, allSuccess } = opts
+        const { projectId } = opts
         if (completedProjectIds.has(projectId)) return
 
         completedProjectIds.add(projectId)
-        const branch = projectBranch
-        let desc: string
-        if (projectName && allSuccess && branch) {
-          desc = `All tasks in "${projectName}" completed. Changes on branch \`${branch}\`.`
-        } else if (projectName && allSuccess) {
-          desc = `All tasks in "${projectName}" completed successfully.`
-        } else if (projectName) {
-          desc = `All tasks in "${projectName}" have finished. Some were pruned.`
-        } else {
-          desc = allSuccess ? 'All project tasks completed.' : 'All project tasks have finished.'
-        }
-        const type = allSuccess ? 'success' as const : 'warning' as const
-        const title = allSuccess ? 'All tasks complete' : 'All tasks finished'
-
-        toasts.push({ type, title, description: desc, duration: 8000 })
-        notifications.push({ type, title, description: desc, projectId })
+        const msg = buildClientCompletionMessage(opts)
+        toasts.push({ ...msg, duration: 8000 })
+        notifications.push({ ...msg, projectId })
       },
 
       // Simulates realtime-store project:completed handler
@@ -1577,34 +1472,14 @@ describe('End-to-end notification flow', () => {
         deliveryMode?: string
         baseBranch?: string
       }) {
-        const { projectId, projectName, projectBranch, projectPrUrl: prUrl, deliveryMode, baseBranch } = opts
+        const { projectId } = opts
         const alreadyNotified = completedProjectIds.has(projectId)
+        const msg = buildServerCompletionMessage({ ...opts, alreadyNotified })
 
-        if (prUrl && alreadyNotified) {
-          const desc = projectName
-            ? `"${projectName}": PR created from \`${projectBranch}\` → \`${baseBranch || 'main'}\`.`
-            : `PR created: ${projectBranch} → ${baseBranch || 'main'}.`
-          toasts.push({ type: 'success', title: 'PR ready for review', description: desc, duration: 12000 })
-          notifications.push({ type: 'success', title: 'PR ready for review', description: desc, projectId, prUrl })
-        } else if (!alreadyNotified) {
-          let description: string
-          if (prUrl) {
-            description = projectName
-              ? `All tasks in "${projectName}" completed. PR created from \`${projectBranch}\` → \`${baseBranch || 'main'}\`.`
-              : `All tasks completed. PR created: ${projectBranch} → ${baseBranch || 'main'}.`
-          } else if (deliveryMode === 'pr') {
-            description = projectName
-              ? `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. PR creation was skipped.`
-              : `All tasks completed on branch \`${projectBranch}\`.`
-          } else {
-            description = projectName
-              ? `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. Review: \`git diff ${baseBranch || 'main'}...${projectBranch}\``
-              : `All tasks completed on branch \`${projectBranch}\`.`
-          }
-          const title = prUrl ? 'Project complete — PR ready' : 'Project complete'
-          toasts.push({ type: 'success', title, description, duration: 12000 })
-          notifications.push({ type: 'success', title, description, projectId, prUrl: prUrl || undefined })
-          completedProjectIds.add(projectId)
+        if (msg) {
+          toasts.push({ ...msg, duration: 12000 })
+          notifications.push({ ...msg, projectId, prUrl: msg.prUrl })
+          if (!alreadyNotified) completedProjectIds.add(projectId)
         }
       },
 

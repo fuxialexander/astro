@@ -21,6 +21,7 @@ import type { TaskActivityEvent } from '@/types'
 import { useSettingsStore } from './settings-store'
 import { useToastStore } from './toast-store'
 import { useNotificationStore } from './notification-store'
+import { buildServerCompletionMessage } from '@/lib/completion-messages'
 
 export interface HpcCapability {
   clusterName?: string
@@ -1643,62 +1644,25 @@ function handleRealtimeEvent(
       // This server-side event arrives later with delivery details (PR URL, branch).
       // Only show a follow-up toast if there's actionable info (e.g., PR created).
       const alreadyNotified = useExecutionStore.getState().completedProjectIds.has(projectId)
+      const msg = buildServerCompletionMessage({
+        projectName, projectBranch, projectPrUrl: prUrl,
+        deliveryMode, baseBranch, alreadyNotified,
+      })
 
-      if (prUrl && alreadyNotified) {
-        // Follow-up: PR was created after the initial completion toast
-        const followUpDesc = projectName
-          ? `"${projectName}": PR created from \`${projectBranch}\` → \`${baseBranch || 'main'}\`.`
-          : `PR created: ${projectBranch} → ${baseBranch || 'main'}.`
-        useToastStore.getState().add({
-          type: 'success',
-          title: 'PR ready for review',
-          description: followUpDesc,
-          duration: 12000,
-        })
+      if (msg) {
+        useToastStore.getState().add({ ...msg, duration: 12000 })
         useNotificationStore.getState().add({
-          type: 'success',
-          title: 'PR ready for review',
-          description: followUpDesc,
-          projectId,
-          prUrl,
+          ...msg, projectId, prUrl: msg.prUrl,
         })
-      } else if (!alreadyNotified) {
-        // Server event arrived first (rare) — show full completion toast
-        let description: string
-        if (prUrl) {
-          description = projectName
-            ? `All tasks in "${projectName}" completed. PR created from \`${projectBranch}\` → \`${baseBranch || 'main'}\`.`
-            : `All tasks completed. PR created: ${projectBranch} → ${baseBranch || 'main'}.`
-        } else if (deliveryMode === 'pr') {
-          description = projectName
-            ? `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. PR creation was skipped.`
-            : `All tasks completed on branch \`${projectBranch}\`.`
-        } else {
-          description = projectName
-            ? `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. Review: \`git diff ${baseBranch || 'main'}...${projectBranch}\``
-            : `All tasks completed on branch \`${projectBranch}\`.`
+
+        if (!alreadyNotified) {
+          // Mark as notified so execution-store doesn't double-toast
+          useExecutionStore.setState((state) => {
+            const next = new Set(state.completedProjectIds)
+            next.add(projectId)
+            return { completedProjectIds: next }
+          })
         }
-
-        useToastStore.getState().add({
-          type: 'success',
-          title: prUrl ? 'Project complete — PR ready' : 'Project complete',
-          description,
-          duration: 12000,
-        })
-        useNotificationStore.getState().add({
-          type: 'success',
-          title: prUrl ? 'Project complete — PR ready' : 'Project complete',
-          description,
-          projectId,
-          prUrl: prUrl || undefined,
-        })
-
-        // Mark as notified so execution-store doesn't double-toast
-        useExecutionStore.setState((state) => {
-          const next = new Set(state.completedProjectIds)
-          next.add(projectId)
-          return { completedProjectIds: next }
-        })
       }
 
       // Update project store with PR info if returned by server

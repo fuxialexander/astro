@@ -20,6 +20,7 @@ import { useAuthStore } from "./auth-store"
 import { useSettingsStore } from "./settings-store"
 import { showBatchCompleteNotification } from "@/lib/notifications"
 import { useNotificationStore } from "./notification-store"
+import { buildClientCompletionMessage } from "@/lib/completion-messages"
 
 // ─── Page Unload Detection ────────────────────────────────────────────
 // `document.visibilityState` is unreliable during page refresh — it may
@@ -2563,29 +2564,13 @@ function handleSSEEvent(
               })
               const proj = useProjectStore.getState().projects.find((p) => p.id === pid)
               const allSuccess = projectNodes.every((n) => n.status === 'completed' || n.status === 'auto_verified')
-              const branch = proj?.projectBranch
-              let desc: string
-              if (proj && allSuccess && branch) {
-                desc = `All tasks in "${proj.name}" completed. Changes on branch \`${branch}\`.`
-              } else if (proj && allSuccess) {
-                desc = `All tasks in "${proj.name}" completed successfully.`
-              } else if (proj) {
-                desc = `All tasks in "${proj.name}" have finished. Some were pruned.`
-              } else {
-                desc = allSuccess ? 'All project tasks completed.' : 'All project tasks have finished.'
-              }
-              useToastStore.getState().add({
-                type: allSuccess ? 'success' : 'warning',
-                title: allSuccess ? 'All tasks complete' : 'All tasks finished',
-                description: desc,
-                duration: 8000,
+              const msg = buildClientCompletionMessage({
+                projectName: proj?.name,
+                projectBranch: proj?.projectBranch,
+                allSuccess,
               })
-              useNotificationStore.getState().add({
-                type: allSuccess ? 'success' : 'warning',
-                title: allSuccess ? 'All tasks complete' : 'All tasks finished',
-                description: desc,
-                projectId: pid,
-              })
+              useToastStore.getState().add({ ...msg, duration: 8000 })
+              useNotificationStore.getState().add({ ...msg, projectId: pid })
             }
           }
         }
