@@ -12,6 +12,7 @@ import {
 import { apiUrl } from "@/lib/api-url"
 import { Button } from "@/components/ui/button"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
+import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { useRealtimeStore, type TaskStream } from "@/stores/realtime-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore } from "@/stores/session-store"
@@ -46,8 +47,18 @@ import { useRestoredExecution } from "@/hooks/use-restored-execution"
 import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
 import type { GitHubReviewThread } from "@/types"
 import { FileBrowser } from "@/components/file-browser"
+import { useMediaQuery } from "@/hooks/use-media-query"
 
 const EMPTY_REVIEW_THREADS: GitHubReviewThread[] = []
+
+function resolveFilePathForBrowsing(filePath: string, workingDirectory: string): string {
+  const worktreeMatch = filePath.match(/\.astro\/worktrees\/[^/]+\/(.+)/)
+  if (worktreeMatch) {
+    return `${workingDirectory.replace(/\/$/, '')}/${worktreeMatch[1]}`
+  }
+  if (filePath.startsWith('/')) return filePath
+  return `${workingDirectory.replace(/\/$/, '')}/${filePath}`
+}
 
 interface UnifiedActivityViewProps {
   node: PlanNode
@@ -74,7 +85,50 @@ export function UnifiedActivityView({
   const [isChatStreaming, setIsChatStreaming] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false)
+  const [initialFilePath, setInitialFilePath] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const isMobile = useMediaQuery("(max-width: 767px)")
+
+  // Resizable file browser panel (desktop only)
+  const [fileBrowserWidth, setFileBrowserWidth] = useState(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("astro:fileBrowserWidth")
+      if (stored) return Math.max(200, Math.min(500, parseInt(stored, 10)))
+    }
+    return 280
+  })
+  const isDraggingRef = useRef(false)
+  const dragStartPosRef = useRef(0)
+  const dragStartSizeRef = useRef(0)
+
+  useEffect(() => {
+    localStorage.setItem("astro:fileBrowserWidth", String(fileBrowserWidth))
+  }, [fileBrowserWidth])
+
+  useEffect(() => {
+    const handleMove = (clientX: number) => {
+      if (!isDraggingRef.current) return
+      const delta = dragStartPosRef.current - clientX
+      const maxW = Math.min(500, window.innerWidth * 0.5)
+      setFileBrowserWidth(Math.max(200, Math.min(maxW, dragStartSizeRef.current + delta)))
+    }
+    const handleMouseMove = (e: MouseEvent) => handleMove(e.clientX)
+    const handleTouchMove = (e: TouchEvent) => {
+      if (isDraggingRef.current) e.preventDefault()
+      handleMove(e.touches[0].clientX)
+    }
+    const handleEnd = () => { isDraggingRef.current = false }
+    document.addEventListener("mousemove", handleMouseMove)
+    document.addEventListener("mouseup", handleEnd)
+    document.addEventListener("touchmove", handleTouchMove, { passive: false })
+    document.addEventListener("touchend", handleEnd)
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove)
+      document.removeEventListener("mouseup", handleEnd)
+      document.removeEventListener("touchmove", handleTouchMove)
+      document.removeEventListener("touchend", handleEnd)
+    }
+  }, [])
   const abortRef = useRef<AbortController | null>(null)
   /** Per-turn chat stream state for disconnect catch-up */
   const chatStreamRef = useRef<{ streamId: string; lastSeq: number }>({ streamId: '', lastSeq: 0 })
@@ -604,15 +658,15 @@ export function UnifiedActivityView({
 
   const isInputDisabled = sending || isChatStreaming
 
-  // Handler for FileChangeBlock clicks — opens FileBrowser and navigates to directory
-  const handleFileSelect = useCallback((filePath: string) => {
-    setFileBrowserOpen(true)
-    // File browser will show the directory listing; the path is informational
-    void filePath
-  }, [])
-
   // Derive working directory for file browser from project
   const fileBrowserDir = project?.workingDirectory || ""
+
+  // Handler for FileChangeBlock clicks — opens FileBrowser and navigates to file
+  const handleFileSelect = useCallback((filePath: string) => {
+    const resolved = resolveFilePathForBrowsing(filePath, fileBrowserDir)
+    setInitialFilePath(resolved)
+    setFileBrowserOpen(true)
+  }, [fileBrowserDir])
 
   return (
     <div className="flex h-full">
@@ -917,13 +971,44 @@ export function UnifiedActivityView({
       </div>
     </div>
 
-    {/* File Browser Sidebar */}
-    {fileBrowserOpen && machineId && fileBrowserDir && (
-      <FileBrowser
-        machineId={machineId}
-        workingDirectory={fileBrowserDir}
-        onClose={() => setFileBrowserOpen(false)}
-      />
+    {/* File Browser Sidebar — Desktop: resizable inline panel, Mobile: bottom Sheet */}
+    {fileBrowserOpen && machineId && fileBrowserDir && !isMobile && (
+      <div className="relative shrink-0 flex border-l border-border" style={{ width: fileBrowserWidth }}>
+        {/* Drag handle */}
+        <div
+          className="w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 shrink-0 touch-none"
+          onMouseDown={(e) => {
+            isDraggingRef.current = true
+            dragStartPosRef.current = e.clientX
+            dragStartSizeRef.current = fileBrowserWidth
+          }}
+          onTouchStart={(e) => {
+            isDraggingRef.current = true
+            dragStartPosRef.current = e.touches[0].clientX
+            dragStartSizeRef.current = fileBrowserWidth
+          }}
+        />
+        <FileBrowser
+          machineId={machineId}
+          workingDirectory={fileBrowserDir}
+          embedded
+          onClose={() => { setFileBrowserOpen(false); setInitialFilePath(null) }}
+          initialFilePath={initialFilePath}
+        />
+      </div>
+    )}
+    {isMobile && machineId && fileBrowserDir && (
+      <Sheet open={fileBrowserOpen} onOpenChange={(open) => { setFileBrowserOpen(open); if (!open) setInitialFilePath(null) }}>
+        <SheetContent side="bottom" className="h-[70vh] p-0">
+          <FileBrowser
+            machineId={machineId}
+            workingDirectory={fileBrowserDir}
+            embedded
+            onClose={() => { setFileBrowserOpen(false); setInitialFilePath(null) }}
+            initialFilePath={initialFilePath}
+          />
+        </SheetContent>
+      </Sheet>
     )}
     </div>
   )
