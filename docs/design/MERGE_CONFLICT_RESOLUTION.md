@@ -3,8 +3,9 @@
 > How AI agents detect, resolve, and retry merge conflicts across both local and GitHub delivery modes.
 
 **Status:** Implemented
-**Issue:** #722
-**Related:** PR #721 (merge-only lock), `docs/design/GITHUB_WORKFLOW.md`
+**Issues:** #722 (closed), #719 (closed)
+**PRs:** #724 (astro: prompt enhancements), agent-runner #64 (merge-only lock), agent-runner #65 (conflict resolution retry loops)
+**Related:** `docs/design/GITHUB_WORKFLOW.md`
 
 ---
 
