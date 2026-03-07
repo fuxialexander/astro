@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest'
 import type { TaskResult } from '../server/types/relay'
 import type { TaskResult as DispatchTaskResult } from '../packages/core/src/dispatch/types'
-import { buildPlanSystemPrompt, type GitHubContextForPrompt } from '../packages/core/src/prompt-templates'
+import { buildInteractivePlanPrompt, type GitHubContextForPrompt } from '../packages/core/src/prompt-templates'
 
 // ============================================================================
 // 1. Relay TaskResult type includes commit SHA fields
@@ -328,13 +328,13 @@ describe('Plan prompt — Push to GitHub node for local repos', () => {
       baseBranch: 'main',
     }
 
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, githubContext)
+    const prompt = buildInteractivePlanPrompt('test', { githubContext })
     expect(prompt).toContain('Push to GitHub')
     expect(prompt).toContain('fuxialexander/astro')
   })
 
   it('omits Push to GitHub instructions when no GitHub context', () => {
-    const prompt = buildPlanSystemPrompt()
+    const prompt = buildInteractivePlanPrompt('test')
     expect(prompt).not.toContain('Push to GitHub')
   })
 
@@ -343,7 +343,7 @@ describe('Plan prompt — Push to GitHub node for local repos', () => {
       hasRepo: false,
     }
 
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, githubContext)
+    const prompt = buildInteractivePlanPrompt('test', { githubContext })
     expect(prompt).not.toContain('Push to GitHub')
   })
 
@@ -354,7 +354,7 @@ describe('Plan prompt — Push to GitHub node for local repos', () => {
       // repo is missing
     }
 
-    const prompt = buildPlanSystemPrompt(undefined, undefined, undefined, undefined, githubContext)
+    const prompt = buildInteractivePlanPrompt('test', { githubContext })
     expect(prompt).not.toContain('Push to GitHub')
   })
 })

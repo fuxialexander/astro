@@ -1,8 +1,8 @@
 # Merge Conflict Resolution Design
 
-> How AI agents should detect, resolve, and retry merge conflicts across both local and GitHub delivery modes.
+> How AI agents detect, resolve, and retry merge conflicts across both local and GitHub delivery modes.
 
-**Status:** Proposed
+**Status:** Implemented
 **Issue:** #722
 **Related:** PR #721 (merge-only lock), `docs/design/GITHUB_WORKFLOW.md`
 
@@ -10,383 +10,231 @@
 
 ## Problem Statement
 
-Astro's accumulative branch model has parallel tasks merging into a shared project branch. When two tasks modify overlapping files, the second task's merge will conflict. Currently, conflicts are handled by **immediately failing** — the AI agent never sees the conflict and can't resolve it.
+Astro's accumulative branch model has parallel tasks merging into a shared project branch. When two tasks modify overlapping files, the second task's merge will conflict. Previously, conflicts were handled by **immediately failing** — the AI agent never saw the conflict and couldn't resolve it.
 
 This creates a poor experience: the agent did the work correctly, but delivery fails because of a mechanical merge issue that the agent could easily fix.
 
 The same problem exists at two levels:
-1. **Per-task merge** (task branch → project branch) — parallel tasks conflict
-2. **Final delivery** (project branch → base branch) — project branch diverges from main
+1. **Per-task merge** (task branch -> project branch) — parallel tasks conflict
+2. **Final delivery** (project branch -> base branch) — project branch diverges from main
 
 ---
 
-## Current Behavior
+## Solution Overview
 
-### Level 1: Per-Task Merge (task branch → project branch)
+### Per-Task Merge Conflict Resolution
 
-#### Local Mode (`branch`)
+**Core idea:** After the agent finishes execution, attempt the merge. On conflict, **resume the agent session** with conflict resolution instructions, then retry the merge. Up to 3 attempts.
 
-```
-Agent finishes → result sent → agent session OVER
-         |
-         v
-localMergeIntoProjectBranch()      (task-executor.ts:1063)
-         |
-         v
-git merge --squash taskBranch      (local-merge.ts:74)
-         |
-    Conflict?
-    /        \
-  NO          YES
-   |           |
-   v           v
-commit       git status --porcelain (find UU/AA/DD files)
-   |           |
-   v           v
-success      return { merged: false, conflict: true, conflictFiles }
-              |
-              v
-           deliveryStatus = 'failed'
-           deliveryError = "Merge conflict in: file-a.ts, file-b.ts"
-           NO RETRY. Agent is already gone.
-```
+This works for all 4 providers via `isResumableAdapter()` — each provider implements `resumeTask()` and `getTaskContext()`.
 
-#### GitHub Mode (`pr`)
+### Final PR Conflict Resolution
 
-```
-Agent finishes → result sent → agent session OVER
-         |
-         v
-pushAndCreatePR() with autoMerge: true   (task-executor.ts:1125)
-         |
-         v
-git push → gh pr create → gh pr merge --squash
-         |
-    Merge fails?
-    /        \
-  NO          YES
-   |           |
-   v           v
-success      autoMergeFailed = true
-              |
-              v
-           deliveryStatus = 'failed'
-           deliveryError = "PR created but auto-merge into project branch failed"
-           NO RETRY. Agent is already gone.
-```
-
-### Level 2: Final Delivery (project branch → base branch)
-
-#### GitHub Mode — "Push to GitHub" Node
-
-The "Push to GitHub" task IS an AI agent task with prompt instructions:
-```
-"After creating the PR, wait for CI checks. If any check fails or a reviewer
-requests changes, read the feedback, fix the issues, push to the project branch,
-and re-check — up to 3 retry cycles."
-```
-
-**Gap:** The prompt only mentions CI failures and reviewer feedback. It does NOT mention merge conflicts. If `main` has diverged while the project ran, the PR may have conflicts and the agent has no explicit instructions to rebase.
-
-#### Local Mode — No Final Delivery Step
-
-There is no "Push to GitHub" equivalent in local mode. The project branch IS the deliverable. Users must manually merge it. No conflict detection or resolution.
+The "Push to GitHub" task prompt explicitly instructs the agent to rebase the project branch onto the target before creating the PR, and to resolve conflicts if GitHub reports them after PR creation.
 
 ---
 
-## Proposed Solution
+## Architecture
 
-### P1: Per-Task Merge Conflict Resolution (Both Modes)
-
-**Core idea:** Move the merge attempt into the agent's session, BEFORE the result is sent. On conflict, inject a message telling the agent to resolve it.
-
-#### Architecture Change
-
-```
-Current:
-  Agent executes → send result → merge (mechanical, post-session) → fail on conflict
-
-Proposed:
-  Agent executes → attempt merge (pre-result) → conflict? → tell agent → agent resolves → retry merge → send result
-```
+### Branch Mode (Local) — `task-executor.ts`
 
 ```mermaid
 sequenceDiagram
-    participant A as Agent (in session)
-    participant E as Task Executor
-    participant G as Git
-    participant PB as Project Branch
+    participant E as Executor
+    participant L as BranchLockManager
+    participant G as Git (local)
+    participant A as Agent (any provider)
 
-    A->>E: Execution complete (code written)
-    E->>G: git merge --squash taskBranch into projectBranch
-    alt No conflict
-        G-->>E: merged successfully
-        E->>A: Send result (deliveryStatus=success)
-    else Conflict detected
-        G-->>E: conflict in file-a.ts, file-b.ts
-        E->>A: Inject message: "Merge conflict detected..."
-        A->>A: Fetch latest project branch
-        A->>A: Rebase onto project branch tip
-        A->>A: Resolve conflicts in files
-        A->>A: Commit resolved changes
-        E->>G: Retry merge --squash
+    Note over E: Agent execution complete
+    E->>L: acquire merge lock
+    E->>G: squash-merge task->project
+    alt Clean merge
+        G-->>E: merged
+        E->>L: release lock
+        Note over E: deliveryStatus = success
+    else Conflict
+        G-->>E: conflict (file list)
+        E->>L: release lock
+        E->>A: resumeTask(conflict prompt)
+        Note over A: Agent rebases onto project branch,<br/>resolves conflict markers,<br/>continues rebase
+        A-->>E: session complete
+        E->>L: acquire merge lock (retry)
+        E->>G: squash-merge (retry)
         alt Retry succeeds
-            G-->>E: merged successfully
-            E->>A: Send result (deliveryStatus=success)
+            G-->>E: merged
+            E->>L: release lock
+            Note over E: deliveryStatus = success
         else Still conflicts (attempt 3)
             G-->>E: conflict
-            E->>A: Send result (deliveryStatus=failed, conflictFiles)
+            E->>L: release lock
+            Note over E: deliveryStatus = failed
         end
     end
 ```
 
-#### Implementation Details
+Key properties:
+- **Merge lock released during resolution** — agent may take minutes to resolve, lock held only during squash-merge (seconds)
+- **Lock re-acquired for each retry** — serializes merge attempts across parallel tasks
+- **Up to 3 attempts** — `MAX_MERGE_ATTEMPTS = 3`
 
-**Step 1: Pre-result merge attempt in task-executor.ts**
+### PR Mode (GitHub) — `task-executor.ts`
 
-Currently, the delivery phase runs AFTER the provider adapter returns. Move it to run while the agent session is still active:
+```mermaid
+sequenceDiagram
+    participant E as Executor
+    participant GH as GitHub API
+    participant A as Agent (any provider)
 
-```typescript
-// CURRENT (simplified):
-const agentResult = await providerAdapter.execute(task);
-// Agent session is now OVER
-const mergeResult = await localMergeIntoProjectBranch(...);
-// Can't ask agent to fix conflicts
-
-// PROPOSED:
-const agentResult = await providerAdapter.execute(task, {
-  onBeforeResult: async () => {
-    // Called after agent thinks it's done but before session closes
-    return await attemptMergeWithRetry(task, providerAdapter);
-  }
-});
+    Note over E: Agent execution complete
+    E->>GH: pushAndCreatePR()
+    E->>GH: gh pr merge --squash
+    alt Clean merge
+        GH-->>E: merged
+        Note over E: deliveryStatus = success
+    else autoMergeFailed
+        GH-->>E: merge failed
+        E->>A: resumeTask(PR conflict prompt)
+        Note over A: Agent fetches target branch,<br/>rebases, resolves conflicts,<br/>force-pushes with --force-with-lease
+        A-->>E: session complete
+        E->>GH: gh pr merge --squash (retry)
+        alt Retry succeeds
+            GH-->>E: merged
+            Note over E: deliveryStatus = success
+        else Still fails (attempt 3)
+            GH-->>E: merge failed
+            Note over E: deliveryStatus = failed
+        end
+    end
 ```
 
-**Step 2: Conflict resolution message injection**
+Key differences from branch mode:
+- **No merge lock** — GitHub API handles serialization
+- **Agent must force-push** — rebase changes branch history, needs `--force-with-lease`
+- **PR already exists** — retry calls `mergePullRequest()` directly, not `pushAndCreatePR()`
 
-When a merge conflict is detected, inject a message into the agent's session:
+### Provider Support
+
+All 4 providers support session resume via `isResumableAdapter()`:
+
+| Provider | `resumeTask()` | `getTaskContext()` | Resume mechanism |
+|---|---|---|---|
+| Claude SDK | Yes | Yes | SDK `resume` option with `sessionId` |
+| Codex | Yes | Yes | `codex exec resume <threadId>` |
+| OpenClaw | Yes | Yes | Generic CLI resume |
+| OpenCode | Yes | Yes | Generic CLI resume |
+
+The check is: `this.isResumableAdapter(adapter) && !!adapter.getTaskContext(task.id)?.sessionId`
+
+If the adapter is not resumable or has no active session, the executor falls back to the previous behavior (immediate failure with conflict file list).
+
+---
+
+## Conflict Resolution Prompts
+
+### Branch Mode Prompt (`buildConflictResolutionPrompt`)
 
 ```
-MERGE CONFLICT DETECTED
+MERGE CONFLICT DETECTED (attempt N/3)
 
 Your task branch cannot be cleanly merged into the project branch because
-parallel tasks have modified overlapping files.
+parallel tasks have modified overlapping files since you branched.
 
 Conflicting files:
 - src/lib/api-client.ts
 - src/stores/plan-store.ts
 
-The project branch tip is at: astro/{projectId}
+The project branch is: astro/7b19a9
 
 Please resolve this:
-1. Run: git fetch origin && git rebase astro/{projectId}
-2. Resolve the conflicts in each file
-3. Run: git add <resolved-files> && git rebase --continue
-4. Verify your changes still work (run tests if applicable)
+1. Fetch the latest project branch: git fetch origin 2>/dev/null; git fetch . astro/7b19a9:astro/7b19a9 2>/dev/null || true
+2. Rebase onto the project branch: git rebase astro/7b19a9
+3. For each conflict, open the file, resolve the conflict markers
+4. Stage resolved files: git add <resolved-files>
+5. Continue the rebase: git rebase --continue
+6. Verify your changes still work
 
-After resolving, I will retry the merge automatically.
+IMPORTANT: Do NOT create a merge commit. Use rebase so the merge will be clean.
+After you finish resolving, I will automatically retry the merge.
 ```
 
-**Step 3: Retry loop**
-
-```typescript
-async function attemptMergeWithRetry(
-  task: Task,
-  adapter: ProviderAdapter,
-  maxRetries: number = 3,
-): Promise<LocalMergeResult> {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    const result = await localMergeIntoProjectBranch(
-      gitRoot, taskBranch, projectBranch, commitMessage,
-    );
-
-    if (result.merged || !result.conflict) {
-      return result; // Success or non-conflict error
-    }
-
-    if (attempt === maxRetries) {
-      return result; // Final failure
-    }
-
-    // Inject conflict resolution message into agent session
-    await adapter.injectMessage(task.id, buildConflictResolutionPrompt(
-      result.conflictFiles, projectBranch, attempt, maxRetries,
-    ));
-
-    // Wait for agent to resolve (it will call git rebase, edit files, etc.)
-    await adapter.waitForIdle(task.id, { timeout: 300_000 }); // 5 min
-  }
-}
-```
-
-**Step 4: Provider adapter support**
-
-The `injectMessage` capability is needed. Current support:
-
-| Provider | `injectMessage` | Notes |
-|----------|:--------------:|-------|
-| Claude SDK | Yes | Uses `resumeTask` with injected user turn |
-| Codex | No | Would need to signal via stdin or restart |
-| OpenClaw | No | Would need extension |
-| OpenCode | No | Would need extension |
-| Claude Code CLI | No | No message injection API |
-
-For providers without `injectMessage`, fall back to current behavior (fail immediately).
-
-#### GitHub Mode Variant
-
-For `pr` mode, the same pattern applies but with different git commands:
+### PR Mode Prompt (`buildPRConflictResolutionPrompt`)
 
 ```
-Conflict detected during gh pr merge --squash
-         |
-         v
-Tell agent: "Your PR cannot be auto-merged because the project branch
-has new commits. Please:
-1. git fetch origin
-2. git rebase origin/astro/{projectId}
-3. Resolve conflicts
-4. git push --force-with-lease
-I will retry the PR merge."
-         |
-         v
-Agent resolves, force-pushes
-         |
-         v
-Retry gh pr merge --squash
+MERGE CONFLICT DETECTED ON GITHUB (attempt N/3)
+
+Your pull request cannot be automatically merged into the project branch because
+parallel tasks have modified overlapping files.
+
+Your task branch is: astro/7b19a9-a3f2b1
+The target branch is: astro/7b19a9
+
+Please resolve this:
+1. Fetch the latest target branch: git fetch origin astro/7b19a9
+2. Rebase onto the target branch: git rebase origin/astro/7b19a9
+3. For each conflict, resolve the conflict markers
+4. Stage resolved files: git add <resolved-files>
+5. Continue the rebase: git rebase --continue
+6. Verify your changes still work
+7. Force-push the rebased branch: git push --force-with-lease origin astro/7b19a9-a3f2b1
+
+IMPORTANT: Do NOT create a merge commit. Use rebase so the history is clean.
+After you force-push, I will automatically retry the GitHub merge.
 ```
 
----
+### "Push to GitHub" Task Prompt
 
-### P2: Final PR Conflict Resolution (GitHub Mode)
+The "Push to GitHub" plan node description (in `prompt-templates.ts`) now includes:
 
-**Core idea:** Update the "Push to GitHub" prompt to explicitly handle merge conflicts with main.
-
-#### Current Prompt Gap
-
-The current prompt says:
-> "If any check fails or a reviewer requests changes, read the feedback, fix the issues..."
-
-It doesn't mention merge conflicts with the base branch.
-
-#### Proposed Prompt Addition
-
-Add to the "Push to GitHub" task description in `prompt-templates.ts`:
-
-```
-Before creating the PR, ensure the project branch is up to date with the
-base branch:
-  git fetch origin ${target}
-  git rebase origin/${target}
-
-If the rebase has conflicts:
-1. Resolve each conflicting file
-2. git add <resolved-files> && git rebase --continue
-3. git push --force-with-lease origin ${projectBranch}
-
-After creating the PR, if GitHub reports merge conflicts:
-1. Pull the latest base branch: git fetch origin ${target}
-2. Rebase: git rebase origin/${target}
-3. Resolve conflicts and force-push
-4. Verify the PR is now mergeable
-
-This conflict resolution should happen BEFORE waiting for CI checks.
-```
-
-#### Implementation
-
-Edit `packages/core/src/prompt-templates.ts` — the `githubSection` in `buildInteractivePlanPrompt()`:
-
-```typescript
-- description: "Open a pull request on ${ghOwner}/${ghRepo} that merges
-  the project branch into \`${target}\`. The PR description should include
-  a comprehensive summary of every completed task..."
-
-+ description: "Open a pull request on ${ghOwner}/${ghRepo} that merges
-  the project branch into \`${target}\`. Before creating the PR, rebase
-  the project branch onto the latest \`${target}\` to ensure a clean merge.
-  If the rebase has conflicts, resolve them. The PR description should
-  include a comprehensive summary of every completed task...
-  After creating the PR, check if GitHub reports merge conflicts. If so,
-  rebase onto the latest \`${target}\`, resolve conflicts, and
-  force-push with --force-with-lease. Then wait for CI checks..."
-```
-
----
-
-### P3: Local Mode Final Delivery
-
-**Current state:** No equivalent of "Push to GitHub" in local mode. The project branch is the deliverable.
-
-#### Options
-
-| Option | Description | Pros | Cons |
-|--------|------------|------|------|
-| **A: Keep as-is** | Project branch is deliverable, user merges manually | Simple, no risk | User must know git |
-| **B: Auto-rebase** | After all tasks, rebase project branch onto main | Clean history | Could fail silently |
-| **C: Suggest merge** | Show UI prompt: "Project branch ready. Merge into main?" | User in control | Requires UI work |
-
-**Recommendation:** Option A for now (keep as-is). The local mode is for `git init` repos with no remote — these are typically single-developer projects where the user is comfortable with git. Add Option C as a future enhancement.
-
----
-
-## Implementation Plan
-
-### Phase 1: Prompt Fix (Low effort, high impact)
-
-Update the "Push to GitHub" task description to include merge conflict resolution instructions. This is a one-line change in `prompt-templates.ts` that covers the **final PR** scenario immediately.
-
-**Files:** `packages/core/src/prompt-templates.ts`
-**Effort:** 1 hour
-
-### Phase 2: Per-Task Merge Retry (Medium effort, high impact)
-
-Restructure the delivery phase in `task-executor.ts` to attempt merge while the agent session is still active. Start with Claude SDK (which supports `injectMessage`), fall back to current behavior for other providers.
-
-**Files:**
-- `packages/agent-runner/src/lib/task-executor.ts` — restructure delivery timing
-- `packages/agent-runner/src/lib/local-merge.ts` — no changes needed
-- `packages/agent-runner/src/lib/git-pr.ts` — add retry-with-rebase for PR mode
-- `packages/agent-runner/src/providers/claude-sdk-adapter.ts` — ensure injectMessage works post-execution
-
-**Effort:** 1-2 days
-**Prerequisite:** Provider adapter must support message injection while execution is "paused"
-
-### Phase 3: Smart Pre-Merge Rebase (Future)
-
-Before attempting the merge, proactively check if the project branch has diverged and rebase first — avoiding conflicts entirely in many cases.
-
-```
-Before merge:
-  git fetch origin projectBranch
-  git log projectBranch..origin/projectBranch --oneline
-  If diverged → git rebase origin/projectBranch
-```
-
-**Effort:** 1 day (after Phase 2 infrastructure exists)
+> Before creating the PR, ensure the project branch is rebased onto the latest `main`:
+> run `git fetch origin main && git rebase origin/main`. If the rebase has conflicts,
+> resolve each conflicting file, then `git add` the resolved files and `git rebase --continue`.
+> After resolving, force-push with `git push --force-with-lease origin <project-branch>`.
+>
+> After creating the PR, if GitHub reports merge conflicts, rebase onto the latest `main`,
+> resolve conflicts, and force-push with `--force-with-lease`.
 
 ---
 
 ## Edge Cases
 
-| Scenario | Current Behavior | Proposed Behavior |
-|----------|-----------------|-------------------|
-| Two tasks modify same file, different lines | Merge succeeds (git resolves) | No change needed |
-| Two tasks modify same lines | `deliveryStatus='failed'`, no retry | Agent resolves, retry up to 3x |
-| Three tasks, middle one conflicts | 2nd fails, 3rd may or may not | 2nd agent resolves, 3rd works |
-| Agent can't resolve conflict | N/A (never tries) | After 3 retries → `deliveryStatus='failed'` with details |
-| Provider doesn't support injectMessage | Fails immediately | Same (graceful fallback) |
-| Final PR conflicts with main | Agent may not handle | Agent explicitly instructed to rebase |
-| Local mode, project branch conflicts with main | User deals with it | Same (Phase 3 may add rebase option) |
+| Scenario | Behavior |
+|----------|----------|
+| Two tasks modify same file, different lines | Git auto-resolves, no conflict |
+| Two tasks modify same lines | Agent resolves, retry up to 3x |
+| Three parallel tasks, middle one conflicts | 2nd agent resolves, 3rd may also need to |
+| Agent can't resolve conflict | After 3 retries, `deliveryStatus='failed'` with details |
+| Provider doesn't support resume | Falls through to immediate failure (same as before) |
+| Agent session has no sessionId | Not resumable, immediate failure |
+| Agent resume throws an error | Retry loop breaks, `deliveryStatus='failed'` |
+| No project branch set | Merge phase skipped entirely |
+| Final PR conflicts with main | Agent instructed to rebase in "Push to GitHub" prompt |
+| Playground (direct mode) | No git workflow, no merge, no conflicts |
 
 ---
 
 ## Key Files
 
-| File | Current Role | Changes Needed |
-|------|-------------|---------------|
-| `packages/agent-runner/src/lib/task-executor.ts` | Delivery phase after agent completes | Restructure to attempt merge during session |
-| `packages/agent-runner/src/lib/local-merge.ts` | Mechanical squash-merge | No changes |
-| `packages/agent-runner/src/lib/git-pr.ts` | Push + PR + auto-merge | Add retry-with-rebase |
-| `packages/core/src/prompt-templates.ts` | "Push to GitHub" description | Add conflict resolution instructions |
-| `packages/agent-runner/src/providers/claude-sdk-adapter.ts` | Provider with injectMessage | Ensure post-execution injection works |
+| File | Role |
+|------|------|
+| `packages/agent-runner/src/lib/task-executor.ts` | Merge retry loops for both `branch` and `pr` modes |
+| `packages/agent-runner/src/lib/local-merge.ts` | Squash-merge with conflict detection + file listing |
+| `packages/agent-runner/src/lib/git-pr.ts` | Push + PR creation + `mergePullRequest()` for retry |
+| `packages/agent-runner/src/lib/branch-lock.ts` | Merge-only lock manager |
+| `packages/core/src/prompt-templates.ts` | "Push to GitHub" task description with conflict instructions |
+| `packages/agent-runner/src/providers/*-adapter.ts` | All 4 providers implement `resumeTask()` + `getTaskContext()` |
+
+---
+
+## Implementation Phases
+
+### Phase 1: Prompt Fix (Done)
+Updated "Push to GitHub" task description in `prompt-templates.ts` to include rebase and conflict resolution instructions before and after PR creation.
+
+### Phase 2: Per-Task Merge Retry (Done)
+Restructured delivery phase in `task-executor.ts`:
+- **Branch mode:** Retry loop with acquire-merge-release per attempt, agent resume on conflict
+- **PR mode:** On `autoMergeFailed`, resume agent to rebase + force-push, retry `gh pr merge`
+- Works with all 4 providers via `isResumableAdapter()`
+
+### Phase 3: Smart Pre-Merge Rebase (Future)
+Before attempting the merge, proactively check if the project branch has diverged and rebase first — avoiding conflicts entirely in many cases. Not yet implemented.
