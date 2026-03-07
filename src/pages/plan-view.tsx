@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, Globe, GitFork, X, Settings2, PlayCircle, Square, Zap } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, Globe, GitFork, X, Settings2, PlayCircle, Square, Zap, Scissors } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { ReplanDialog } from "@/components/replan-dialog"
@@ -1197,17 +1197,26 @@ export function PlanListView({
   const columns = useMemo(() => makePlanColumns(project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels, handleExecute), [project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels, handleExecute])
 
   const tasks = useMemo(() => {
-    let filtered = allProjectNodes.filter((n) => n.type !== "milestone")
+    // Exclude pruned from the active task list — they appear in a separate "Deprecated" group
+    let filtered = allProjectNodes.filter((n) => n.type !== "milestone" && n.status !== "pruned")
     if (applyCompletedFilter && !displaySettings.showCompleted) {
-      filtered = filtered.filter((n) => n.status !== "completed" && n.status !== "auto_verified" && n.status !== "pruned")
+      filtered = filtered.filter((n) => n.status !== "completed" && n.status !== "auto_verified")
     }
     const dir = displaySettings.orderDirection === "asc" ? 1 : -1
     return sortPlanNodes(filtered, displaySettings.orderBy, dir)
   }, [allProjectNodes, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted, applyCompletedFilter])
 
+  // Pruned tasks shown in a separate "Deprecated" group at the bottom
+  const prunedTasks = useMemo(() =>
+    allProjectNodes.filter((n) => n.type !== "milestone" && n.status === "pruned"),
+    [allProjectNodes],
+  )
+
   const groups = useMemo((): ListGroup<PlanNode>[] => {
+    let result: ListGroup<PlanNode>[]
+
     if (displaySettings.groupBy === "milestone") {
-      const result: ListGroup<PlanNode>[] = []
+      result = []
       for (const m of milestones) {
         const grouped = tasks.filter((n) => n.milestoneId === m.id)
         const completedCount = grouped.filter((t) => t.status === "completed" || t.status === "auto_verified").length
@@ -1228,36 +1237,29 @@ export function PlanListView({
           items: unassigned,
         })
       }
-      return result
-    }
-
-    if (displaySettings.groupBy === "status") {
+    } else if (displaySettings.groupBy === "status") {
       const grouped: Record<string, PlanNode[]> = {}
       for (const node of tasks) {
         const key = statusLabels[node.status] ?? node.status
         ;(grouped[key] ??= []).push(node)
       }
-      return Object.entries(grouped).map(([label, items]) => ({
+      result = Object.entries(grouped).map(([label, items]) => ({
         key: label,
         label,
         items,
       }))
-    }
-
-    if (displaySettings.groupBy === "priority") {
+    } else if (displaySettings.groupBy === "priority") {
       const grouped: Record<string, PlanNode[]> = {}
       for (const node of tasks) {
         const key = node.priority ? (node.priority.charAt(0).toUpperCase() + node.priority.slice(1)) : "No priority"
         ;(grouped[key] ??= []).push(node)
       }
-      return Object.entries(grouped).map(([label, items]) => ({
+      result = Object.entries(grouped).map(([label, items]) => ({
         key: label,
         label,
         items,
       }))
-    }
-
-    if (displaySettings.groupBy === "project") {
+    } else if (displaySettings.groupBy === "project") {
       const projectMap = new Map(projects.map((p) => [p.id, p.name]))
       // Start with all projects so empty ones get a group too
       const grouped: Record<string, PlanNode[]> = {}
@@ -1268,17 +1270,15 @@ export function PlanListView({
         const key = projectMap.get(node.projectId) ?? "Unknown Project"
         ;(grouped[key] ??= []).push(node)
       }
-      return Object.entries(grouped).map(([label, items]) => ({
+      result = Object.entries(grouped).map(([label, items]) => ({
         key: label,
         label,
         items,
       }))
-    }
-
-    if (displaySettings.groupBy === "label") {
+    } else if (displaySettings.groupBy === "label") {
       const allLabels = project?.labels ?? []
       const labelMap = new Map(allLabels.map((l) => [l.id, l]))
-      const result: ListGroup<PlanNode>[] = []
+      result = []
       for (const l of allLabels) {
         const grouped = tasks.filter((n) => n.labelIds?.includes(l.id))
         result.push({
@@ -1299,11 +1299,26 @@ export function PlanListView({
       if (noLabel.length > 0) {
         result.push({ key: "no-label", label: "No label", items: noLabel })
       }
-      return result
+    } else {
+      result = [{ key: "all", label: "All Tasks", items: tasks }]
     }
 
-    return [{ key: "all", label: "All Tasks", items: tasks }]
-  }, [tasks, milestones, projects, displaySettings.groupBy, project?.labels])
+    // Append "Deprecated" group at the bottom for pruned/abandoned tasks
+    if (prunedTasks.length > 0) {
+      result.push({
+        key: "deprecated",
+        label: "Deprecated",
+        icon: <Scissors className="h-3 w-3 text-muted-foreground" />,
+        items: prunedTasks,
+        meta: <span className="text-[11px] text-muted-foreground">{prunedTasks.length} tasks</span>,
+        defaultCollapsed: true,
+        headerClassName: "bg-muted/50 border-t border-dashed border-border",
+        itemClassName: "opacity-60",
+      })
+    }
+
+    return result
+  }, [tasks, prunedTasks, milestones, projects, displaySettings.groupBy, project?.labels])
 
   // Open creation row for the first group when Enter is pressed globally
   useEffect(() => {
@@ -1556,9 +1571,10 @@ export function PlanTimelineView({
   const milestones = useMemo(() => allProjectNodes.filter((n) => n.type === "milestone"), [allProjectNodes])
 
   const tasks = useMemo(() => {
-    let filtered = allProjectNodes.filter((n) => n.type !== "milestone")
+    // Always exclude pruned nodes — they are abandoned, not completed
+    let filtered = allProjectNodes.filter((n) => n.type !== "milestone" && n.status !== "pruned")
     if (applyCompletedFilter && !displaySettings.showCompleted) {
-      filtered = filtered.filter((n) => n.status !== "completed" && n.status !== "auto_verified" && n.status !== "pruned")
+      filtered = filtered.filter((n) => n.status !== "completed" && n.status !== "auto_verified")
     }
     const dir = displaySettings.orderDirection === "asc" ? 1 : -1
     return sortPlanNodes(filtered, displaySettings.orderBy, dir)

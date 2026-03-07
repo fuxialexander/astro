@@ -42,6 +42,10 @@ export interface ListGroup<T> {
   items: T[]
   meta?: ReactNode          // e.g. "45% · 12 tasks"
   defaultCollapsed?: boolean
+  /** Extra class for the group header bar */
+  headerClassName?: string
+  /** Extra class applied to each item row in this group */
+  itemClassName?: string
 }
 
 export interface BatchAction {
@@ -380,7 +384,7 @@ export function ItemListView<T>({
     return <div className="flex-1 overflow-auto">{emptyState}</div>
   }
 
-  function renderRow(item: T, groupKey: string, withDnd: boolean) {
+  function renderRow(item: T, groupKey: string, withDnd: boolean, itemClassName?: string) {
     const itemId = getItemId(item)
     const isSelected = selected.has(itemId)
     const isFocused = focusedId === itemId
@@ -402,7 +406,8 @@ export function ItemListView<T>({
           indentGroupedRows && hasMultipleGroups && showGroupHeaders && !withDnd && "pl-12",
           isSelected && "bg-primary/5",
           isFocused && "shadow-[0_0_0_2px_rgba(var(--primary),0.3)] bg-accent/20 scale-[1.005]",
-          getItemClass?.(item)
+          getItemClass?.(item),
+          itemClassName,
         )}
       >
         {/* Checkbox */}
@@ -459,7 +464,7 @@ export function ItemListView<T>({
         <div key={group.key}>
           {/* Group header */}
           {showGroupHeaders && hasMultipleGroups && (
-            <div className="flex items-center gap-2 bg-muted px-6 h-8 w-full">
+            <div className={cn("flex items-center gap-2 bg-muted px-6 h-8 w-full", group.headerClassName)}>
               {selectable && (
                 <div className="w-8 shrink-0 flex items-center" onClick={(e) => e.stopPropagation()}>
                   <Checkbox
@@ -484,7 +489,7 @@ export function ItemListView<T>({
           )}
 
           {/* Rows */}
-          {!isCollapsed && group.items.map((item) => renderRow(item, group.key, withDnd))}
+          {!isCollapsed && group.items.map((item) => renderRow(item, group.key, withDnd, group.itemClassName))}
 
           {/* Footer */}
           {!isCollapsed && footer?.(group.key)}
@@ -515,7 +520,7 @@ export function ItemListView<T>({
                   <button
                     type="button"
                     onClick={() => toggleGroup(group.key)}
-                    className="flex items-center gap-2 px-2 mb-3 w-full text-left"
+                    className={cn("flex items-center gap-2 px-2 mb-3 w-full text-left", group.headerClassName)}
                   >
                     <ChevronRight className={cn("h-4 w-4 text-muted-foreground transition-transform", !isGroupCollapsed && "rotate-90")} />
                     {group.icon}
