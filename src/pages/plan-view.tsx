@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, FileText, Globe, GitFork, X, Settings2 } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, FileText, Globe, GitFork, X, Settings2, Zap } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { ReplanDialog } from "@/components/replan-dialog"
@@ -26,11 +26,13 @@ import { InlineRenameInput } from "@/components/inline-rename-input"
 import { validateProjectName } from "@/lib/project-validation"
 import { OverviewTab } from "@/pages/project-overview"
 import { UseTemplateSheet } from "@/components/templates/use-template-sheet"
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { PublishDialog } from "@/components/community/publish-dialog"
 import { GitHubSyncSettingsDialog } from "@/components/github-sync-settings-dialog"
 import { SyncHealthDot } from "@/components/github-sync-health"
 import { useMachinesStore } from "@/stores/machines-store"
+import { useSkillStore } from "@/stores/skill-store"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore, type DisplaySettings, type ViewKey } from "@/stores/display-settings-store"
@@ -145,6 +147,91 @@ const PLAN_VIEW_AS_OPTIONS = [
   { value: "graph", label: "Graph" },
 ]
 
+// --- Skills popover for the workdir bar ---
+function SkillsPopover() {
+  const skills = useSkillStore((s) => s.skills)
+  const toggleSkill = useSkillStore((s) => s.toggleSkill)
+  const skillEntries = Array.from(skills.values())
+  const enabledCount = skillEntries.filter((s) => s.enabled).length
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className="flex items-center gap-1 px-2 py-0.5 rounded-md hover:bg-muted hover:text-foreground transition-colors cursor-pointer text-xs text-muted-foreground shrink-0"
+          title="Select compute skills"
+        >
+          <Zap className="h-3 w-3" />
+          <span>Skills</span>
+          {enabledCount > 0 && (
+            <Badge variant="secondary" className="text-[9px] h-4 px-1 min-w-[16px] justify-center">
+              {enabledCount}
+            </Badge>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72 p-0">
+        <div className="px-3 py-2 border-b border-border">
+          <span className="text-xs font-semibold">Compute Skills</span>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Toggle skills to inject into agent prompts
+          </p>
+        </div>
+        <div className="max-h-64 overflow-y-auto">
+          {skillEntries.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+              <Zap className="mb-1.5 h-5 w-5 opacity-40" />
+              <span className="text-xs">No skills installed</span>
+            </div>
+          ) : (
+            skillEntries.map((skill) => {
+              const emoji = skill.metadata?.openclaw?.emoji || ""
+              return (
+                <button
+                  key={skill.id}
+                  onClick={() => toggleSkill(skill.id)}
+                  className="flex items-center gap-2.5 w-full px-3 py-2 hover:bg-muted/50 transition-colors text-left"
+                >
+                  <div
+                    className={cn(
+                      "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
+                      skill.enabled
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-muted-foreground/30"
+                    )}
+                  >
+                    {skill.enabled && (
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                        <path d="M2 5L4.5 7.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-0 min-w-0 flex-1">
+                    <span className="text-xs font-medium truncate">
+                      {emoji ? `${emoji} ` : ""}{skill.name}
+                    </span>
+                    {skill.description && (
+                      <span className="text-[11px] text-muted-foreground truncate">
+                        {skill.description}
+                      </span>
+                    )}
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className="text-[9px] h-4 px-1 shrink-0 border-0 bg-muted/50"
+                  >
+                    {skill.source}
+                  </Badge>
+                </button>
+              )
+            })
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 // --- Compact workdir bar shown below the header ---
 function WorkdirBar({ project }: { project: Project }) {
   const [repoOpen, setRepoOpen] = useState(false)
@@ -227,6 +314,7 @@ function WorkdirBar({ project }: { project: Project }) {
                 </span>
               )}
             </button>
+            <SkillsPopover />
             <div className="flex items-center gap-1 ml-auto shrink-0">
               <Badge
                 variant="outline"
@@ -254,13 +342,16 @@ function WorkdirBar({ project }: { project: Project }) {
             </div>
           </>
         ) : (
-          <button
-            onClick={() => setRepoOpen(true)}
-            className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-          >
-            <FolderGit2 className="h-3.5 w-3.5 shrink-0" />
-            <span>Set working directory</span>
-          </button>
+          <>
+            <button
+              onClick={() => setRepoOpen(true)}
+              className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            >
+              <FolderGit2 className="h-3.5 w-3.5 shrink-0" />
+              <span>Set working directory</span>
+            </button>
+            <SkillsPopover />
+          </>
         )}
       </div>
     </>
