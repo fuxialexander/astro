@@ -19,6 +19,8 @@ import { getSigningPrivateKey, signDispatchIntent, generateNonce, type DispatchS
 import { useAuthStore } from "./auth-store"
 import { useSettingsStore } from "./settings-store"
 import { showBatchCompleteNotification } from "@/lib/notifications"
+import { useNotificationStore } from "./notification-store"
+import { buildClientCompletionMessage } from "@/lib/completion-messages"
 
 // ─── Page Unload Detection ────────────────────────────────────────────
 // `document.visibilityState` is unreliable during page refresh — it may
@@ -2562,16 +2564,13 @@ function handleSSEEvent(
               })
               const proj = useProjectStore.getState().projects.find((p) => p.id === pid)
               const allSuccess = projectNodes.every((n) => n.status === 'completed' || n.status === 'auto_verified')
-              useToastStore.getState().add({
-                type: allSuccess ? 'success' : 'warning',
-                title: allSuccess ? 'All tasks complete' : 'All tasks finished',
-                description: proj
-                  ? (allSuccess
-                    ? `All tasks in "${proj.name}" completed successfully.`
-                    : `All tasks in "${proj.name}" have finished. Some were pruned.`)
-                  : (allSuccess ? 'All project tasks completed.' : 'All project tasks have finished.'),
-                duration: 8000,
+              const msg = buildClientCompletionMessage({
+                projectName: proj?.name,
+                projectBranch: proj?.projectBranch,
+                allSuccess,
               })
+              useToastStore.getState().add({ ...msg, duration: 8000 })
+              useNotificationStore.getState().add({ ...msg, projectId: pid })
             }
           }
         }

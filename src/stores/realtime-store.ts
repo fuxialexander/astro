@@ -19,6 +19,9 @@ import { useMachinesStore } from './machines-store'
 import { applyPlanFromText, planNodeIdToProjectId } from '@/lib/plan-extraction'
 import type { TaskActivityEvent } from '@/types'
 import { useSettingsStore } from './settings-store'
+import { useToastStore } from './toast-store'
+import { useNotificationStore } from './notification-store'
+import { buildServerCompletionMessage } from '@/lib/completion-messages'
 
 export interface HpcCapability {
   clusterName?: string
@@ -1626,6 +1629,57 @@ function handleRealtimeEvent(
       addActivity(set, 'info', `Task "${node?.title || initNodeId}" dispatched automatically`, {
         taskId: execId,
       })
+      break
+    }
+
+    case 'project:completed': {
+      const projectId = data.projectId as string
+      const projectBranch = data.projectBranch as string
+      const prUrl = data.projectPrUrl as string | undefined
+      const projectName = data.projectName as string | undefined
+      const deliveryMode = data.deliveryMode as string | undefined
+      const baseBranch = data.baseBranch as string | undefined
+
+      // The execution-store already shows a "All tasks complete" toast (client-side detection).
+      // This server-side event arrives later with delivery details (PR URL, branch).
+      // Only show a follow-up toast if there's actionable info (e.g., PR created).
+      const alreadyNotified = useExecutionStore.getState().completedProjectIds.has(projectId)
+      const msg = buildServerCompletionMessage({
+        projectName, projectBranch, projectPrUrl: prUrl,
+        deliveryMode, baseBranch, alreadyNotified,
+      })
+
+      if (msg) {
+        useToastStore.getState().add({ ...msg, duration: 12000 })
+        useNotificationStore.getState().add({
+          ...msg, projectId, prUrl: msg.prUrl,
+        })
+
+        if (!alreadyNotified) {
+          // Mark as notified so execution-store doesn't double-toast
+          useExecutionStore.setState((state) => {
+            const next = new Set(state.completedProjectIds)
+            next.add(projectId)
+            return { completedProjectIds: next }
+          })
+        }
+      }
+
+      // Update project store with PR info if returned by server
+      if (prUrl) {
+        useProjectStore.getState().updateProject(projectId, {
+          projectPrUrl: prUrl,
+          projectPrNumber: data.projectPrNumber as number | undefined,
+        })
+      }
+
+      addActivity(
+        set,
+        'success',
+        prUrl
+          ? `Project "${projectName || projectId}" completed — PR created`
+          : `Project "${projectName || projectId}" completed on branch ${projectBranch}`,
+      )
       break
     }
 

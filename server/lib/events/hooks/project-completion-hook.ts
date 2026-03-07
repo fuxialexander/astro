@@ -13,6 +13,7 @@ import { projects, planNodes } from '../../db/schema.js'
 import { eq } from 'drizzle-orm'
 import type { Project, PlanNode } from '../../../../src/types/index.js'
 import { resolveGitHubToken } from '../../github-client.js'
+import { astroEventTransport } from '../astro-event-transport.js'
 
 const TERMINAL_STATUSES = new Set(['completed', 'auto_verified', 'pruned'])
 
@@ -231,28 +232,9 @@ export const projectCompletionHook: EventHook = async (event: AstroEvent) => {
   const { projectId, project } = event
   if (!project) return
 
-  // Only process projects with a GitHub repo
-  if (!project.githubOwner || !project.githubRepo) return
-
   // Check if all nodes are complete
   const { complete, nodes } = await allNodesComplete(projectId)
   if (!complete) return
-
-  // Skip if project has an explicit "Push to GitHub" task node — that node handles PR creation
-  const pushToGithubNode = nodes.find(n =>
-    n.type === 'task' && !n.deletedAt && n.status !== 'pruned' &&
-    /push\s+to\s+github|publish\s+to\s+github/i.test(n.title)
-  )
-  if (pushToGithubNode) {
-    console.log(`[project-completion-hook] Skipping — project has explicit Push to GitHub node (${pushToGithubNode.id})`)
-    return
-  }
-
-  // Skip if we already created a project PR
-  if (project.projectPrUrl) {
-    console.log(`[project-completion-hook] Project ${projectId} already has a PR: ${project.projectPrUrl}`)
-    return
-  }
 
   // Determine the project branch
   const projectBranch = project.projectBranch
@@ -264,64 +246,91 @@ export const projectCompletionHook: EventHook = async (event: AstroEvent) => {
   // Determine the base branch (where the final PR targets)
   const baseBranch = (project.source as { baseBranch?: string } | undefined)?.baseBranch ?? 'main'
 
-  console.log(`[project-completion-hook] All tasks complete for project ${projectId}, creating final PR: ${projectBranch} → ${baseBranch}`)
+  console.log(`[project-completion-hook] All tasks complete for project ${projectId} (branch: ${projectBranch})`)
 
-  // Resolve GitHub token via the unified priority chain
-  // (DB lookup for ownerId/teamId — not exposed on the Project interface)
-  const [dbProject] = await db
-    .select({ ownerId: projects.ownerId, teamId: projects.teamId })
-    .from(projects)
-    .where(eq(projects.id, projectId))
-    .limit(1)
+  // Try to create a final PR for GitHub projects
+  let prUrl: string | undefined
+  let prNumber: number | undefined
 
-  if (!dbProject) {
-    console.warn(`[project-completion-hook] Project ${projectId} not found in DB, cannot resolve token`)
-    return
-  }
-
-  const tokenResult = await resolveGitHubToken(
-    project.githubOwner!,
-    project.githubRepo!,
-    dbProject.ownerId,
-    dbProject.teamId,
-  )
-
-  if (!tokenResult) {
-    console.warn(
-      `[project-completion-hook] No GitHub token available for ${project.githubOwner}/${project.githubRepo} ` +
-      `— final PR will not be created. Configure GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY or connect GitHub.`
+  const hasGitHub = project.githubOwner && project.githubRepo
+  if (hasGitHub && !project.projectPrUrl) {
+    // Skip if project has an explicit "Push to GitHub" task node — that node handles PR creation
+    const pushToGithubNode = nodes.find(n =>
+      n.type === 'task' && !n.deletedAt && n.status !== 'pruned' &&
+      /push\s+to\s+github|publish\s+to\s+github/i.test(n.title)
     )
-    return
+    if (pushToGithubNode) {
+      console.log(`[project-completion-hook] Skipping PR — project has explicit Push to GitHub node (${pushToGithubNode.id})`)
+    } else {
+      // Resolve GitHub token via the unified priority chain
+      const [dbProject] = await db
+        .select({ ownerId: projects.ownerId, teamId: projects.teamId })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .limit(1)
+
+      if (dbProject) {
+        const tokenResult = await resolveGitHubToken(
+          project.githubOwner!,
+          project.githubRepo!,
+          dbProject.ownerId,
+          dbProject.teamId,
+        )
+
+        if (tokenResult) {
+          console.log(
+            `[project-completion-hook] Using ${tokenResult.type} token (${tokenResult.source}) ` +
+            `for final PR in ${project.githubOwner}/${project.githubRepo}`
+          )
+
+          const prResult = await createProjectPr(
+            project,
+            projectBranch,
+            baseBranch,
+            nodes,
+            tokenResult.token,
+          )
+          prUrl = prResult.prUrl
+          prNumber = prResult.prNumber
+
+          if (prUrl) {
+            try {
+              await db.update(projects)
+                .set({
+                  projectBranch,
+                  projectPrUrl: prUrl,
+                  projectPrNumber: prNumber,
+                  updatedAt: new Date(),
+                })
+                .where(eq(projects.id, projectId))
+              console.log(`[project-completion-hook] Persisted final PR data to project ${projectId}`)
+            } catch (dbErr) {
+              const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
+              console.error(`[project-completion-hook] Failed to persist PR data: ${msg}`)
+            }
+          }
+        } else {
+          console.warn(
+            `[project-completion-hook] No GitHub token available for ${project.githubOwner}/${project.githubRepo} ` +
+            `— final PR will not be created.`
+          )
+        }
+      }
+    }
+  } else if (project.projectPrUrl) {
+    // Already has a PR — carry forward its info
+    prUrl = project.projectPrUrl
+    prNumber = project.projectPrNumber ?? undefined
   }
 
-  console.log(
-    `[project-completion-hook] Using ${tokenResult.type} token (${tokenResult.source}) ` +
-    `for final PR in ${project.githubOwner}/${project.githubRepo}`
-  )
-
-  const { prUrl, prNumber } = await createProjectPr(
+  // Emit project.completed event for ALL projects (both remote and local)
+  await astroEventTransport.emitEvent({
+    type: 'project.completed',
+    projectId,
     project,
     projectBranch,
-    baseBranch,
-    nodes,
-    tokenResult.token,
-  )
-
-  if (prUrl) {
-    // Persist to project record
-    try {
-      await db.update(projects)
-        .set({
-          projectBranch,
-          projectPrUrl: prUrl,
-          projectPrNumber: prNumber,
-          updatedAt: new Date(),
-        })
-        .where(eq(projects.id, projectId))
-      console.log(`[project-completion-hook] Persisted final PR data to project ${projectId}`)
-    } catch (dbErr) {
-      const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
-      console.error(`[project-completion-hook] Failed to persist PR data: ${msg}`)
-    }
-  }
+    projectPrUrl: prUrl,
+    projectPrNumber: prNumber,
+    timestamp: new Date(),
+  })
 }
