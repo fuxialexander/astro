@@ -1266,6 +1266,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         branchName: msg.result.branchName,
         prUrl: msg.result.prUrl,
         prNumber: msg.result.prNumber,
+        commitBeforeSha: msg.result.commitBeforeSha,
+        commitAfterSha: msg.result.commitAfterSha,
         deliveryStatus: msg.result.deliveryStatus,
         deliveryError: msg.result.deliveryError,
       }
@@ -1317,6 +1319,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       if (msg.result.branchName) nodePatch.branchName = msg.result.branchName
       if (msg.result.prUrl) nodePatch.prUrl = msg.result.prUrl
       if (msg.result.prNumber) nodePatch.prNumber = msg.result.prNumber
+      if (msg.result.commitBeforeSha) nodePatch.commitBeforeSha = msg.result.commitBeforeSha
+      if (msg.result.commitAfterSha) nodePatch.commitAfterSha = msg.result.commitAfterSha
 
       db.update(planNodes)
         .set(nodePatch)

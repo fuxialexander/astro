@@ -203,7 +203,7 @@ function WorkdirBar({ project }: { project: Project }) {
                       <span className="shrink-0">{project.source.baseBranch}</span>
                     </>
                   )}
-                  {project.projectPrUrl && (
+                  {project.projectPrUrl ? (
                     <>
                       <span className="opacity-30 mx-0.5">|</span>
                       <a
@@ -217,7 +217,15 @@ function WorkdirBar({ project }: { project: Project }) {
                         <span>PR #{project.projectPrNumber}</span>
                       </a>
                     </>
-                  )}
+                  ) : project.projectBranch && project.source?.remoteType === 'none' ? (
+                    <>
+                      <span className="opacity-30 mx-0.5">|</span>
+                      <span className="flex items-center gap-0.5 shrink-0" title={`Results on branch: ${project.projectBranch}`}>
+                        <GitBranch className="h-3 w-3 text-emerald-500" />
+                        <span className="text-emerald-600 dark:text-emerald-400">{project.projectBranch}</span>
+                      </span>
+                    </>
+                  ) : null}
                   <span className="opacity-30 mx-0.5">|</span>
                 </>
               )}

@@ -365,6 +365,10 @@ export interface TaskResult {
   branchName?: string;
   prUrl?: string;
   prNumber?: number;
+  /** Git SHA of the project branch before this task's merge */
+  commitBeforeSha?: string;
+  /** Git SHA of the project branch after this task's merge */
+  commitAfterSha?: string;
   /** Delivery outcome — separate from execution status */
   deliveryStatus?: 'success' | 'failed' | 'skipped';
   /** Error message when deliveryStatus is 'failed' */

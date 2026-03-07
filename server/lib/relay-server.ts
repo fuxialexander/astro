@@ -526,6 +526,8 @@ interface AgentRunnerTaskResultMessage {
     branchName?: string;
     prUrl?: string;
     prNumber?: number;
+    commitBeforeSha?: string;
+    commitAfterSha?: string;
     deliveryStatus?: 'success' | 'failed' | 'skipped';
     deliveryError?: string;
     summary?: ExecutionSummaryResult;
@@ -2111,7 +2113,7 @@ export class RelayServer extends EventEmitter {
 
   private handleAgentRunnerTaskResult(message: AgentRunnerTaskResultMessage): void {
     const { payload } = message;
-    const { taskId, status, exitCode, output, error, artifacts, metrics, branchName, prUrl, prNumber, deliveryStatus, deliveryError, summary } = payload;
+    const { taskId, status, exitCode, output, error, artifacts, metrics, branchName, prUrl, prNumber, commitBeforeSha, commitAfterSha, deliveryStatus, deliveryError, summary } = payload;
     this.taskToMachine.delete(taskId);
 
     // Convert to standard result message
@@ -2137,6 +2139,8 @@ export class RelayServer extends EventEmitter {
         branchName,
         prUrl,
         prNumber,
+        commitBeforeSha,
+        commitAfterSha,
         deliveryStatus,
         deliveryError,
         summary,
