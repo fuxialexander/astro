@@ -116,7 +116,7 @@ interface SessionState {
   truncateAfterMessage: (sessionId: string, messageId: string) => string | undefined
 
   // Session state
-  setProviderSessionId: (sessionId: string, providerSessionId: string) => void
+  setProviderSessionId: (sessionId: string, providerSessionId: string, providerId?: string) => void
   setStatus: (sessionId: string, status: SessionStatus) => void
   setSummary: (sessionId: string, summary: ExecutionSummary) => void
   setMetrics: (sessionId: string, metrics: UsageMetrics) => void
@@ -400,7 +400,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     return removedMessage.content
   },
 
-  setProviderSessionId: (sessionId, providerSessionId) => {
+  setProviderSessionId: (sessionId, providerSessionId, providerId?) => {
     const sessions = new Map(get().sessions)
     const session = sessions.get(sessionId)
     if (!session) return
@@ -408,6 +408,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const updated = {
       ...session,
       providerSessionId,
+      ...(providerId !== undefined && { providerId }),
       updatedAt: new Date(),
     }
 
@@ -415,7 +416,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set({ sessions })
 
     // Fire-and-forget API call
-    dataClient.updateSession(sessionId, { providerSessionId, updatedAt: updated.updatedAt }).catch(() => {})
+    const updates: Record<string, unknown> = { providerSessionId, updatedAt: updated.updatedAt }
+    if (providerId !== undefined) updates.providerId = providerId
+    dataClient.updateSession(sessionId, updates).catch(() => {})
   },
 
   setStatus: (sessionId, status) => {
@@ -686,15 +689,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     })
 
     // Only send providerSessionId if session has completed exchanges
+    // and the provider hasn't changed (resume on a different provider would fail)
     const hasCompletedExchange = session.messages.some(
       (m) => m.role === "assistant" && m.content.length > 0
     )
+    const providerUnchanged = !session.providerId || session.providerId === providerId
 
     // Fire-and-forget — stream runs in background
     projectChatWithAgent(
       {
         message,
-        sessionId: hasCompletedExchange ? session.providerSessionId : undefined,
+        sessionId: (hasCompletedExchange && providerUnchanged) ? session.providerSessionId : undefined,
         streamId: sid,
         projectId,
         visionDoc,
@@ -738,7 +743,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         },
         onDone: (newProviderSessionId) => {
           if (newProviderSessionId) {
-            get().setProviderSessionId(sid, newProviderSessionId)
+            get().setProviderSessionId(sid, newProviderSessionId, providerId)
           }
 
           // Refresh plan from server if MCP tools modified the plan
