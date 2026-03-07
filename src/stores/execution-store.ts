@@ -201,6 +201,9 @@ interface ExecutionState {
   // Projects that should auto-execute after plan generation completes
   autoExecuteProjectIds: Set<string>
 
+  // Projects that already showed the "all tasks complete" toast (avoid duplicates)
+  completedProjectIds: Set<string>
+
   // Pending approval requests
   pendingApprovals: Map<string, ApprovalRequest>
 
@@ -338,6 +341,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   selectedExecutionId: null,
   batchExecutions: new Map(),
   autoExecuteProjectIds: new Set(),
+  completedProjectIds: new Set(),
   pendingApprovals: new Map(),
   loaded: false,
 
@@ -2540,6 +2544,36 @@ function handleSSEEvent(
             ...(parsed.prUrl && { prUrl: parsed.prUrl }),
             ...(parsed.prNumber && { prNumber: parsed.prNumber }),
           })
+        }
+
+        // Check if all tasks in the project are now complete
+        if (isRealPlanNode(nodeId) && execution?.projectId) {
+          const pid = execution.projectId
+          if (!get().completedProjectIds.has(pid)) {
+            const TERMINAL = new Set(['completed', 'auto_verified', 'pruned'])
+            const projectNodes = usePlanStore.getState().nodes.filter(
+              (n) => n.projectId === pid && n.type === 'task'
+            )
+            if (projectNodes.length > 0 && projectNodes.every((n) => TERMINAL.has(n.status))) {
+              set((state) => {
+                const next = new Set(state.completedProjectIds)
+                next.add(pid)
+                return { completedProjectIds: next }
+              })
+              const proj = useProjectStore.getState().projects.find((p) => p.id === pid)
+              const allSuccess = projectNodes.every((n) => n.status === 'completed' || n.status === 'auto_verified')
+              useToastStore.getState().add({
+                type: allSuccess ? 'success' : 'warning',
+                title: allSuccess ? 'All tasks complete' : 'All tasks finished',
+                description: proj
+                  ? (allSuccess
+                    ? `All tasks in "${proj.name}" completed successfully.`
+                    : `All tasks in "${proj.name}" have finished. Some were pruned.`)
+                  : (allSuccess ? 'All project tasks completed.' : 'All project tasks have finished.'),
+                duration: 8000,
+              })
+            }
+          }
         }
 
         // Auto-assign defaultMachineId on the project if not set
