@@ -164,10 +164,8 @@ const dispatchTaskSchema = z.object({
     (path) => !path.includes('..'),
     { message: 'Path traversal not allowed' }
   ).optional(),
-  sourceDirectory: z.string().max(1000).refine(
-    (path) => !path.includes('..'),
-    { message: 'Path traversal not allowed' }
-  ).optional(),
+  /** @deprecated Always equals workingDirectory. Kept for backward compat with in-flight requests. */
+  sourceDirectory: z.string().max(1000).optional(),
   force: z.boolean().optional(),
   dryRun: z.boolean().optional(),
   computeBackend: z.string().max(100).optional(),
@@ -251,7 +249,6 @@ dispatchRoute.post('/task', async (c) => {
     priority = 'normal',
     preferredProvider,
     model,
-    sourceDirectory,
     force = false,
     dryRun = false,
     computeBackend,
@@ -556,7 +553,6 @@ dispatchRoute.post('/task', async (c) => {
     maxTurns,
     priority,
     workingDirectory,
-    sourceDirectory,
     computeBackend,
     projectComputeBackends,
     deliveryMode,
@@ -602,7 +598,6 @@ async function dispatchViaRelay(
     maxTurns?: number
     priority: DispatchPriority
     workingDirectory?: string
-    sourceDirectory?: string
     computeBackend?: string
     projectComputeBackends?: string[]
     deliveryMode?: string
@@ -645,7 +640,6 @@ async function dispatchViaRelay(
     maxTurns,
     priority,
     workingDirectory,
-    sourceDirectory,
     computeBackend,
     projectComputeBackends,
     deliveryMode,
@@ -955,10 +949,6 @@ There is no branch isolation — changes are made in-place.
       }
     }
 
-    if (sourceDirectory) {
-      promptParts.push(`## Data Access\n\nThe original project directory is: ${sourceDirectory}\nLarge untracked files (training data, model caches, datasets) remain in the original directory. Use absolute paths to reference them. Always use absolute paths when writing code that accesses data files.`)
-    }
-
     promptParts.push(`## Current Task\n\n**${title}**\n\n${description}`)
 
     // Inject available skills so the agent knows what tools are available
@@ -1142,7 +1132,6 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     executionStrategy: computeBackend,
     priority: priority === 'critical' ? 0 : priority === 'high' ? 1 : priority === 'normal' ? 2 : 3,
     workingDirectory,
-    sourceDirectory,
     deliveryMode: isPushToGithub ? 'push' : (deliveryMode ?? 'pr'),
     remoteType,
     baseBranch: baseBranch || undefined,

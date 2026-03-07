@@ -22,6 +22,7 @@ export const projects = pgTable('projects', {
   color: text('color').default('#3b82f6'),
   icon: text('icon').default('📋'),
   workingDirectory: text('working_directory'),
+  /** @deprecated Always equalled workingDirectory. Kept for DB backward compat; will be dropped in a future migration. */
   sourceDirectory: text('source_directory'),
   repository: text('repository'),
   defaultEnvironment: text('default_environment'),

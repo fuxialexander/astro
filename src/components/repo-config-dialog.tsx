@@ -156,7 +156,6 @@ export function RepoConfigDialog({
       updateProject(project.id, {
         repository: userRepo,
         workingDirectory: userWorkDir,
-        sourceDirectory: userWorkDir,
         defaultMachineId: selectedMachineId || undefined,
         ...(effectiveBranch && project.source ? {
           source: { ...project.source, baseBranch: effectiveBranch },
@@ -177,7 +176,6 @@ export function RepoConfigDialog({
           if (result?.workingDirectory) {
             updateProject(project.id, {
               workingDirectory: result.workingDirectory,
-              sourceDirectory: result.workingDirectory,
             })
             setWorkDir(result.workingDirectory)
           }

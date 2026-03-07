@@ -36,7 +36,7 @@ export class ContextAssembler {
     const dependencyOutputs = this.gatherDependencyOutputs(node, allNodes)
     const graphPosition = this.calculateGraphPosition(node, allNodes, allEdges)
 
-    const projectDir = project?.sourceDirectory ?? project?.workingDirectory
+    const projectDir = project?.workingDirectory
 
     return {
       node,

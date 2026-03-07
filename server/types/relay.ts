@@ -181,7 +181,6 @@ export interface TaskDispatch {
   priority?: number;
   timeout?: number;  // Timeout in milliseconds
   workingDirectory?: string;
-  sourceDirectory?: string;  // Original project directory (for data access from worktrees)
   dependencies?: string[];  // Other task IDs that must complete first
   metadata?: Record<string, string>;
   /** Pre-built prompt — bypasses automatic prompt construction from title/description */

@@ -258,14 +258,14 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
     }
   }, [selectedTemplate, projectName])
 
-  // Auto-fill sourceDirectory from workingDirectory when it changes
+  // Auto-fill workingDirectory parameter from project workingDirectory when it changes
   useEffect(() => {
     if (workingDirectory && selectedTemplate) {
-      const hasSourceDir = selectedTemplate.requiredParameters?.some(
-        (p) => p.id === "sourceDirectory"
+      const hasWorkDir = selectedTemplate.requiredParameters?.some(
+        (p) => p.id === "workingDirectory"
       )
-      if (hasSourceDir && !parameterValues["sourceDirectory"]) {
-        setParameterValue("sourceDirectory", workingDirectory)
+      if (hasWorkDir && !parameterValues["workingDirectory"]) {
+        setParameterValue("workingDirectory", workingDirectory)
       }
     }
   }, [workingDirectory, selectedTemplate, parameterValues, setParameterValue])
