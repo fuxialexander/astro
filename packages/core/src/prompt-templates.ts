@@ -1019,3 +1019,30 @@ When ready, output a single JSON object with this structure:
 
 ${importantSection}`
 }
+
+// ─── Compaction ──────────────────────────────────────────────────────
+
+/**
+ * Build a prompt for compacting chat history into a concise summary.
+ * Used when the serialized conversation history exceeds the char threshold.
+ */
+export function buildCompactionPrompt(
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+): string {
+  const formatted = messages
+    .map((m) => `${m.role === 'user' ? 'Human' : 'Assistant'}: ${m.content}`)
+    .join('\n\n')
+
+  return `Summarize the following conversation into a concise context paragraph (max 2000 chars).
+Preserve:
+- All decisions made and their rationale
+- Action items and commitments
+- Key technical details (file paths, function names, error messages)
+- Current state of any ongoing work
+
+Do NOT include pleasantries, filler, or restate the instruction.
+Output ONLY the summary paragraph, no preamble.
+
+---
+${formatted}`
+}

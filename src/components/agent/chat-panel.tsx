@@ -32,6 +32,7 @@ import {
   ChatUserBlock,
   ChatAssistantBlock,
   MutationBlock,
+  SystemMessageBlock,
 } from "@/components/activity-blocks"
 import type { AppliedMutations } from "@/lib/plan-mutations"
 import type { ProviderStatus, Session, TaskActivityEvent } from "@/types"
@@ -662,6 +663,13 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                   event={block.events[0] as Extract<TaskActivityEvent, { type: 'mutation' }>}
                   getNodeTitle={getNodeTitle}
                   onNodeSelect={onNodeSelect}
+                />
+              )
+            case 'system_message':
+              return (
+                <SystemMessageBlock
+                  key={i}
+                  event={block.events[0] as Extract<TaskActivityEvent, { type: 'system_message' }>}
                 />
               )
             default:

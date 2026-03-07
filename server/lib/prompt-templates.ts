@@ -14,6 +14,7 @@ export {
   buildLabelSuggestionPrompt,
   buildSummaryPrompt,
   buildInteractivePlanPrompt,
+  buildCompactionPrompt,
   sanitizeGitHubName,
   sanitizeGitBranch,
 } from '../../packages/core/src/prompt-templates.js'

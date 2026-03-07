@@ -85,6 +85,8 @@ export async function projectChatWithAgent(
     onSeq?: (seq: number) => void
     /** Called when the done event includes usage metrics */
     onMetrics?: (metrics: { durationMs?: number; inputTokens?: number; outputTokens?: number; totalCost?: number; model?: string; numTurns?: number }) => void
+    /** Called when conversation history was compacted before this turn */
+    onCompaction?: (data: { originalCount: number; compactedCount: number; summary: string }) => void
   },
   signal?: AbortSignal,
 ): Promise<void> {
@@ -110,6 +112,7 @@ export async function projectChatWithAgent(
     onError: callbacks.onError,
     onSeq: callbacks.onSeq,
     onMetrics: callbacks.onMetrics,
+    onCompaction: callbacks.onCompaction,
   })
 }
 

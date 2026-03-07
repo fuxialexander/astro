@@ -109,6 +109,8 @@ export async function parseChatSSE(
     onSeq?: (seq: number) => void
     /** Called when an SSE `id:` field is received — tracks last seq for reconnection */
     onId?: (id: string) => void
+    /** Called when conversation history was compacted before this turn */
+    onCompaction?: (data: { originalCount: number; compactedCount: number; summary: string }) => void
   },
 ): Promise<void> {
   await parseSSEStream(response, {
@@ -152,6 +154,9 @@ export async function parseChatSSE(
           } catch {
             handlers.onDone?.("")
           }
+          break
+        case "compaction":
+          try { handlers.onCompaction?.(JSON.parse(data)) } catch { /* ignore */ }
           break
         case "error":
           handlers.onError?.(data)

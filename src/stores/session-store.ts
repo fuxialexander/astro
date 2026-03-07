@@ -810,6 +810,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             return { streamingSessions: ss }
           })
         },
+        onCompaction: (data) => {
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'system_message',
+            message: `Context compacted: ${data.originalCount} messages → ${data.compactedCount}`,
+            timestamp: new Date(),
+          })
+        },
         onMetrics: (m) => {
           useUsageStore.getState().addTaskMetrics({
             durationMs: m.durationMs,
