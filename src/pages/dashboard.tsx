@@ -88,7 +88,7 @@ export function Dashboard() {
     for (const approval of dynamicApprovals.values()) {
       respondToDynamicApproval(approval.taskId, approval.requestId, approval.options[0])
     }
-  }, [yoloMode, dynamicApprovals.size, respondToDynamicApproval])
+  }, [yoloMode, dynamicApprovals, respondToDynamicApproval])
   const heatmapData = useStatsStore((s) => s.heatmapData)
   const hourlyData = useStatsStore((s) => s.hourlyData)
   const stats = useStatsStore((s) => s.stats)
