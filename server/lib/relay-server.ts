@@ -563,6 +563,7 @@ export interface RelayServerEvents {
   'task:session_init': (msg: TaskSessionInitMessage) => void;
   'task:approval_request': (msg: { taskId: string; requestId: string; question: string; options: string[]; machineId?: string }) => void;
   'task:safety_prompt': (msg: { taskId: string; safetyTier: string; warning?: string; machineId?: string; options: Array<{ id: string; label: string; description?: string }> }) => void;
+  'task:dead': (data: { taskId: string; machineId: string; reason: string }) => void;
   'machine:connected': (machineId: string) => void;
   'machine:disconnected': (machineId: string, reason?: string) => void;
   // Session attachment events (MCP bridge)
@@ -593,6 +594,9 @@ export class RelayServer extends EventEmitter {
   private taskToMachine: Map<string, string> = new Map();
   // Grace period timers for machines that disconnected — delays task failure to allow reconnection
   private disconnectGracePeriods: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  // Dead job detection: periodic cross-reference of heartbeat task IDs vs server-side tracking
+  private deadJobCheckInterval: ReturnType<typeof setInterval> | null = null;
+  private consecutiveMisses: Map<string, number> = new Map();
 
   constructor(config: Partial<RelayServerConfig> = {}) {
     super();
@@ -624,6 +628,9 @@ export class RelayServer extends EventEmitter {
       this.wss.on('listening', () => {
         // Start heartbeat interval
         this.startHeartbeatInterval();
+
+        // Start dead job cross-reference checker (P2)
+        this.startDeadJobChecker();
 
         // Listen for registry events
         machineRegistry.on('machine:heartbeat-timeout', (machineId: string) => {
@@ -661,6 +668,13 @@ export class RelayServer extends EventEmitter {
         clearInterval(this.heartbeatInterval);
         this.heartbeatInterval = null;
       }
+
+      // Stop dead job checker
+      if (this.deadJobCheckInterval) {
+        clearInterval(this.deadJobCheckInterval);
+        this.deadJobCheckInterval = null;
+      }
+      this.consecutiveMisses.clear();
 
       // Clear all pending disconnect grace periods
       for (const timer of this.disconnectGracePeriods.values()) {
@@ -1433,6 +1447,75 @@ export class RelayServer extends EventEmitter {
   }
 
   /**
+   * Get all task IDs the server believes are running on a specific machine.
+   * Used by dead job detection to cross-reference against heartbeat data.
+   */
+  getTasksForMachine(machineId: string): string[] {
+    const tasks: string[] = [];
+    for (const [taskId, mId] of this.taskToMachine) {
+      if (mId === machineId) {
+        tasks.push(taskId);
+      }
+    }
+    return tasks;
+  }
+
+  /**
+   * Start the periodic dead job checker (P2 heartbeat cross-reference).
+   * Every 60 seconds, compares server-side task tracking against agent runner
+   * heartbeat reports. After 2 consecutive misses (~2 minutes), emits 'task:dead'.
+   */
+  private startDeadJobChecker(): void {
+    if (this.deadJobCheckInterval) return;
+
+    const DEAD_JOB_CHECK_INTERVAL_MS = 60_000;  // 60 seconds
+    const CONSECUTIVE_MISS_THRESHOLD = 2;        // 2 misses = ~2 minutes
+
+    this.deadJobCheckInterval = setInterval(() => {
+      const allMachines = machineRegistry.getAll();
+
+      for (const machine of allMachines) {
+        if (machine.connectionStatus !== 'connected') continue;
+
+        // Skip machines that haven't sent a heartbeat with task IDs yet
+        if (!machine.activeTaskIds) continue;
+
+        const runnerTaskIds = new Set(machine.activeTaskIds);
+        const serverTaskIds = this.getTasksForMachine(machine.machineId);
+
+        for (const taskId of serverTaskIds) {
+          if (runnerTaskIds.has(taskId)) {
+            // Task is alive — reset miss count
+            this.consecutiveMisses.delete(taskId);
+          } else {
+            // Task missing from heartbeat — increment miss count
+            const misses = (this.consecutiveMisses.get(taskId) ?? 0) + 1;
+            this.consecutiveMisses.set(taskId, misses);
+
+            if (misses >= CONSECUTIVE_MISS_THRESHOLD) {
+              console.warn(
+                `[relay] Dead job detected: task ${taskId} missing from machine ${machine.machineId} ` +
+                `heartbeat for ${misses} consecutive checks (~${misses} minutes)`
+              );
+              this.consecutiveMisses.delete(taskId);
+              this.taskToMachine.delete(taskId);
+
+              // Emit event for dispatch layer to handle DB reset
+              this.emit('task:dead', {
+                taskId,
+                machineId: machine.machineId,
+                reason: `Task not reported in agent runner heartbeat for ${misses} consecutive checks`,
+              });
+            }
+          }
+        }
+      }
+    }, DEAD_JOB_CHECK_INTERVAL_MS);
+
+    console.log('[relay] Dead job checker started (60s interval, 2-miss threshold)');
+  }
+
+  /**
    * Send a cleanup command to an agent runner to remove worktree + local branch.
    * Used by the reset function to clean up before re-execution.
    */
@@ -1633,12 +1716,28 @@ export class RelayServer extends EventEmitter {
     // Detach socket but keep machine in registry (status → 'reconnecting')
     machineRegistry.detachSocket(machineId);
 
+    // Reset miss counts so reconnection starts with a clean slate (prevents false task:dead)
+    for (const [taskId, mId] of this.taskToMachine) {
+      if (mId === machineId) {
+        this.consecutiveMisses.delete(taskId);
+      }
+    }
+
     const gracePeriodMs = this.config.disconnectGracePeriodMs;
     console.log(`[relay] Machine ${machineId} entering disconnect grace period (${gracePeriodMs / 1000}s) — reason: ${reason}`);
 
     const timer = setTimeout(() => {
       this.disconnectGracePeriods.delete(machineId);
       console.log(`[relay] Grace period expired for machine ${machineId} — disconnecting`);
+
+      // Clean up task tracking for disconnected machine to prevent memory leak
+      for (const [taskId, mId] of this.taskToMachine) {
+        if (mId === machineId) {
+          this.taskToMachine.delete(taskId);
+          this.consecutiveMisses.delete(taskId);
+        }
+      }
+
       machineRegistry.disconnect(machineId, reason);
       this.rateLimitState.delete(machineId);
       this.emit('machine:disconnected', machineId, reason);
@@ -1888,6 +1987,9 @@ export class RelayServer extends EventEmitter {
         activeTasks: activeTasks.length,
         queuedTasks: 0,
       });
+
+      // Store actual task IDs for dead job cross-reference detection (P2)
+      machineRegistry.updateActiveTaskIds(machine.machineId, activeTasks);
 
       // Reset heartbeat timer
       this.resetHeartbeatTimer(machine.machineId);

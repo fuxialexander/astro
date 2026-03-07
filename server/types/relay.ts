@@ -103,6 +103,8 @@ export interface MachineRegistryEntry extends MachineInfo {
   sessionId: string;
   /** Owner user ID (from JWT at registration time) */
   userId?: string;
+  /** Task IDs the agent runner reports as actively running (from heartbeat cross-ref) */
+  activeTaskIds?: string[];
 }
 
 // ============================================================================

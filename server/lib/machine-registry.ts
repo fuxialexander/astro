@@ -258,6 +258,20 @@ export class MachineRegistry extends EventEmitter {
   }
 
   /**
+   * Update the active task IDs reported by the agent runner via heartbeat.
+   * Used by dead job detection to cross-reference against server-side tracking.
+   */
+  updateActiveTaskIds(machineId: string, taskIds: string[]): boolean {
+    const connection = this.machines.get(machineId);
+    if (!connection) {
+      return false;
+    }
+
+    connection.entry.activeTaskIds = taskIds;
+    return true;
+  }
+
+  /**
    * Record heartbeat from machine
    */
   recordHeartbeat(machineId: string): boolean {
