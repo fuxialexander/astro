@@ -187,32 +187,24 @@ export function useRestoredExecution(
     }
   }
 
-  // Case 2: Post-refresh with restored data — merge restored history with
-  // any new live events from the realtime store (global SSE after reconnect)
-  if (restoredData) {
-    const streamEvents = taskStream?.activityEvents || []
-    console.log('[use-restored] Case 2: restored=%d stream=%d', restoredData.activityEvents.length, streamEvents.length)
-    if (streamEvents.length > 0) {
-      // Merge: restored history + new realtime events, sorted by timestamp.
-      // Only include stream events strictly newer than the last restored event
-      // to prevent duplicates in the merged array.
-      const restoredEndTime = restoredData.activityEvents.length > 0
-        ? new Date(restoredData.activityEvents[restoredData.activityEvents.length - 1].timestamp).getTime()
-        : 0
-      const newStreamEvents = streamEvents.filter(
-        e => new Date(e.timestamp).getTime() > restoredEndTime
-      )
-      const mergedEvents = [...restoredData.activityEvents, ...newStreamEvents]
-      mergedEvents.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-
-      return {
-        activityEvents: mergedEvents,
-        toolTraces: restoredData.toolTraces,
-        fileChanges: liveFileChanges.length > 0 ? liveFileChanges : restoredData.fileChanges,
-        isRestoring: false,
-      }
+  // Case 2: Post-refresh — streaming catch-up has data in the realtime store.
+  // Prefer streaming events over observation data since both cover the same
+  // execution but streaming events are the primary source (directly from
+  // streaming_events table). Merging the two causes duplication because
+  // observation timestamps (generation startTime) differ from streaming
+  // timestamps (DB createdAt), defeating the timestamp-based dedup.
+  if (liveActivityEvents.length > 0) {
+    return {
+      activityEvents: liveActivityEvents,
+      toolTraces: liveToolTraces,
+      fileChanges: liveFileChanges,
+      isRestoring: false,
     }
+  }
 
+  // Case 3: Post-refresh with restored observation data only (streaming
+  // catch-up returned empty — e.g., events already expired from streaming_events table)
+  if (restoredData) {
     return {
       activityEvents: restoredData.activityEvents,
       toolTraces: restoredData.toolTraces,
@@ -221,7 +213,7 @@ export function useRestoredExecution(
     }
   }
 
-  // Case 3: No restored data yet — return whatever live data exists
+  // Case 4: No restored data yet — return whatever live data exists
   // (may be empty during initial load / observation fetch)
   return {
     activityEvents: liveActivityEvents,

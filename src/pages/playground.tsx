@@ -323,11 +323,13 @@ export function Playground() {
 
   const headerStatus = execution?.status === "cancelled"
     ? 'stopped'
-    : execution?.status === "success" || execution?.status === "failure"
-      ? (execution.error ? 'error' : 'completed')
-      : pendingApprovals.length > 0
-        ? 'waiting'
-        : 'running'
+    : isChatStreaming
+      ? 'running'
+      : execution?.status === "success" || execution?.status === "failure"
+        ? (execution.error ? 'error' : 'completed')
+        : pendingApprovals.length > 0
+          ? 'waiting'
+          : 'running'
 
   // Auto-scroll
   const eventsLength = allActivityEvents.length
