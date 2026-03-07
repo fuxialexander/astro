@@ -15,7 +15,7 @@ import {
   Download,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { buildContentUrl } from "../file-type-utils"
+import { downloadFile } from "../download-utils"
 import { cn } from "@/lib/utils"
 
 interface DownloadCardProps {
@@ -38,16 +38,10 @@ export function DownloadCard({ machineId, filePath, className }: DownloadCardPro
   const ext = filename.split(".").pop()?.toLowerCase() ?? ""
   const extDisplay = ext.toUpperCase()
   const Icon = useMemo(() => DOWNLOAD_ICON_MAP[ext] ?? File, [ext])
-  const downloadUrl = buildContentUrl(machineId, filePath, true)
-
   const handleDownload = () => {
-    // Create a temporary anchor to trigger browser download
-    const a = document.createElement("a")
-    a.href = downloadUrl
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
+    downloadFile(machineId, filePath).catch(() => {
+      // Download error handled silently — browser will show failure
+    })
   }
 
   return (
