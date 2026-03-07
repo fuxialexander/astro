@@ -120,11 +120,32 @@ gantt
 ```
 ````
 
-### 3. Comparative ASCII Timelines
+### 3. ASCII Diagrams in Collapsible Blocks
 
-For before/after comparisons, use side-by-side or stacked ASCII art with box-drawing characters:
+ASCII diagrams are **always wrapped in `<details>` blocks** so mermaid diagrams take visual priority. ASCII serves as a fallback for non-mermaid renderers.
 
+**Required pattern** — every ASCII diagram code block must be wrapped like this:
+
+```markdown
+<details>
+<summary>Text diagram</summary>
+
+\```
++---------------------------+
+|  ASCII diagram goes here  |
++---------------------------+
+\```
+
+</details>
 ```
+
+For before/after comparisons, use side-by-side or stacked ASCII art with box-drawing characters, wrapped in `<details>`:
+
+```markdown
+<details>
+<summary>Text diagram</summary>
+
+\```
 Previous (serialized):
 Task A: [===== lock held: worktree + execute + merge =====]
 Task B:                                                     [===== lock held =====]
@@ -132,7 +153,12 @@ Task B:                                                     [===== lock held ===
 New (parallel with merge-only lock):
 Task A: [── worktree ── execute ──────────────────][merge]
 Task B:   [── worktree ── execute ────────────][wait][merge]
+\```
+
+</details>
 ```
+
+**NEVER leave an ASCII diagram code block unwrapped.** Mermaid diagrams are always shown directly (no `<details>`). Only ASCII/text diagrams go inside collapsible blocks.
 
 ### 4. Rich Tables
 

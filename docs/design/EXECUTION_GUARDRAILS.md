@@ -106,15 +106,16 @@ Timeline:
 **Current guardrail:** Two-tier timeout with retry.
 
 ```
-                    STARTUP_TIMEOUT_MS (currently 5 days)
-                    |<--------------------------------------------->|
-  t=0              t=timeout                    t=timeout           t=timeout
-  dispatch ------> retry #1 ------> retry #2 ------> retry #3 ------> KILL
-                    cancelTask()     cancelTask()     cancelTask()     status='planned'
-                    re-dispatch      re-dispatch      re-dispatch      error msg saved
+                    STARTUP_TIMEOUT_MS (3 minutes)
+                    |<---->|
+  t=0     t=3m     t=6m         ...        t=30m      t=40m
+  dispatch retry#1  retry#2      ...        retry#10   KILL
+           cancel   cancel                  cancel     status='planned'
+           re-send  re-send                 re-send    error msg saved
+                                            (10 min final timeout)
 
-  After each retry, timer resets for another STARTUP_TIMEOUT_MS period.
-  Total worst case: (MAX_STARTUP_RETRIES + 1) * STARTUP_TIMEOUT_MS = 4 * 5 days = 20 days
+  After each retry, timer resets. Last attempt uses FINAL_STARTUP_TIMEOUT_MS (10 min).
+  Total worst case: 10 * 3 min + 10 min = ~40 minutes, 11 dispatch attempts.
 ```
 
 **Code location:** `server/routes/dispatch.ts:1193-1194, 1657-1673`
@@ -126,7 +127,7 @@ Timeline:
 **Definition:** From first event received (`hasReceivedEvent = true`) to `onResult`.
 
 ```
-                    ACTIVITY_TIMEOUT_MS (currently 5 days)
+                    ACTIVITY_TIMEOUT_MS (2 hours)
                     |<--------------------------------------------->|
   event ---------> event ---------> event ---------> event -------->
   lastActivity     lastActivity     lastActivity     lastActivity
@@ -241,16 +242,19 @@ RESULT: After task completes, no timeout can fire. awaiting_judgment persists
 
 | Constant | Value | Location | Purpose |
 |----------|-------|----------|---------|
-| `STARTUP_TIMEOUT_MS` | 5 days | `dispatch.ts:1193` | Wait for first event from agent runner |
-| `ACTIVITY_TIMEOUT_MS` | 5 days | `dispatch.ts:1196` | Wait between events during execution |
-| `MAX_STARTUP_RETRIES` | 3 | `dispatch.ts:1194` | Re-dispatch attempts before giving up |
-| Heartbeat interval | 15 sec | `dispatch.ts:1712` | Polling frequency for timeout checks |
+| `STARTUP_TIMEOUT_MS` | 3 minutes | `dispatch.ts` | Wait for first event from agent runner |
+| `FINAL_STARTUP_TIMEOUT_MS` | 10 minutes | `dispatch.ts` | Last startup attempt (slow cold starts) |
+| `ACTIVITY_TIMEOUT_MS` | 2 hours | `dispatch.ts` | Wait between events during execution |
+| `MAX_STARTUP_RETRIES` | 10 | `dispatch.ts` | Re-dispatch attempts before giving up |
+| Heartbeat interval | 15 sec | `dispatch.ts` | Polling frequency for timeout checks |
 | One-shot task timeout | 2 min | `agent.ts:413` | Non-streaming operations (compaction, summary) |
 | Relay machine heartbeat | 30 sec | `websocket-client.ts:62` | Agent runner liveness ping |
 
 ### History
 
 PR #688 changed startup and activity timeouts from `3 min / 2 hours` to `5 days / 5 days`.
+PR #726 restored sane timeouts: `3 min / 2 hours`, increased retries to 10, added `FINAL_STARTUP_TIMEOUT_MS`,
+added `task:stdout` listener, and added Session Liveness instructions to compute backend skills.
 Motivation was to prevent killing tasks waiting for user approval. However, the approval pause
 mechanism (`waitingForApproval` flag + `hasPendingApprovalForExecution()` check) already handles
 this case correctly — it resets the timer every 15 seconds while any approval is pending.
@@ -273,20 +277,14 @@ Every relay event handler in the dispatch SSE stream resets `lastActivity = Date
 | onFileChange        | task:file_change          | Agent creates/modifies a file     |
 | onApprovalRequest   | task:approval_request     | Agent asks user a question        |
 | onSafetyPrompt      | task:safety_prompt        | Workdir safety check fires        |
-+---------------------+---------------------------+-----------------------------------+
-
-NOT listened to (gap):
-+---------------------+---------------------------+-----------------------------------+
-| (none)              | task:stdout               | Raw stdout from adapters          |
+| onStdout            | task:stdout               | Raw stdout from adapters          |
 |                     |                           | (SLURM output tailing, blocking   |
-|                     |                           |  bash commands)                   |
+|                     |                           |  bash commands) — added in #726   |
 +---------------------+---------------------------+-----------------------------------+
 ```
 
-**Key gap:** `task:stdout` is emitted by the relay server when the agent runner sends
-`task_output` messages (used by SLURM adapter's output file tailing and any adapter's
-`stream.stdout()` calls). But `dispatch.ts` does not register a listener for it, so raw
-stdout does NOT reset the activity timer.
+**Resolved (PR #726):** `task:stdout` listener added. Raw stdout from SLURM output tailing,
+blocking Bash commands, and any adapter's `stream.stdout()` calls now resets the activity timer.
 
 ---
 
@@ -388,8 +386,8 @@ stream.toolUse()   -----> task_tool_use -----> handleAgentRunnerTaskToolUse()
                                                                                 lastActivity = now  [OK]
 
 stream.stdout(data) ----> task_output -------> handleAgentRunnerTaskOutput()
-                                               emit('task:stdout', msg) ------> (no listener)
-                                                                                lastActivity UNCHANGED [GAP]
+                                               emit('task:stdout', msg) ------> onStdout()
+                                                                                lastActivity = now  [FIXED #726]
 
 stream.status()    -----> task_status -------> handleAgentRunnerTaskStatus()
                                                emit('task:progress', msg) ----> onProgress()
@@ -431,40 +429,40 @@ Agent did not poll. No events flow. Timeout fires correctly from the system's
 perspective, but the user's job is still running on the cluster.
 ```
 
-### Scenario 3: Agent runs blocking command (BAD)
+### Scenario 3: Agent runs blocking command (FIXED by P3)
 
 ```
 Agent: Bash("kubectl logs -f pod/train")  --> tool_use event --> lastActivity resets [OK]
        [bash blocks, streaming stdout for hours]
-       stdout lines flow:                 --> task:stdout events --> (no listener) [GAP]
-       [ACTIVITY_TIMEOUT_MS later]        --> KILLED (false negative)
+       stdout lines flow:                 --> task:stdout events --> onStdout() [FIXED #726]
+       [activity timer resets on each stdout line]
 
-The Bash tool call resets the timer once. Then stdout flows through stream.stdout()
-which becomes task:stdout on the relay -- but dispatch.ts doesn't listen for it.
+Previously: dispatch.ts had no listener for task:stdout, so blocking commands timed out.
+Now: onStdout resets lastActivity, keeping the session alive.
 ```
 
-### Scenario 4: Native SLURM adapter (BAD with current code)
+### Scenario 4: Native SLURM adapter (FIXED by P3)
 
 ```
 SlurmAdapter.execute():
   sbatch script.sh                 --> stream.status("running")  --> task:progress --> lastActivity [OK]
   monitorJob() polls every 5s:
     squeue -j 123 (state=RUNNING)  --> [no event, state unchanged]
-    tail output file               --> stream.stdout(data) --> task:stdout --> (no listener) [GAP]
+    tail output file               --> stream.stdout(data) --> task:stdout --> onStdout() [FIXED #726]
     squeue -j 123 (state=RUNNING)  --> [no event, state unchanged]
-    tail output file               --> stream.stdout(data) --> task:stdout --> (no listener) [GAP]
+    tail output file               --> stream.stdout(data) --> task:stdout --> onStdout() [FIXED #726]
     ...repeats for hours...
   squeue -j 123 (state=COMPLETED)  --> stream.status("completed") --> task:progress --> lastActivity [OK]
 
-Only state TRANSITIONS reset the timer. A job in RUNNING state for hours with
-no transitions produces only task:stdout events -- invisible to the timeout.
+Previously: only state transitions reset the timer. Now: stdout from output file tailing
+resets the timer every 5 seconds, keeping long-running SLURM jobs alive.
 ```
 
 ---
 
 ## Known Gaps
 
-### Gap 1: Both timeouts are 5 days
+### Gap 1: Both timeouts are 5 days — RESOLVED (#726)
 
 The approval pause mechanism already prevents killing tasks during human intervention.
 The 5-day timeout only matters for genuine dead agents (no approval pending, no events).
@@ -472,7 +470,9 @@ A dead agent is detectable within minutes, not days.
 
 **Impact:** Dead tasks hang for up to 20 days (4 attempts * 5 days) before recovery.
 
-### Gap 2: `task:stdout` not listened to
+**Resolution:** Startup timeout → 3 min × 10 retries + 10 min final (~40 min). Activity timeout → 2 hours.
+
+### Gap 2: `task:stdout` not listened to — RESOLVED (#726)
 
 `dispatch.ts` registers listeners for `task:text`, `task:progress`, `task:tool_trace`,
 etc. but NOT `task:stdout`. Any adapter or execution path that produces raw stdout
@@ -480,8 +480,7 @@ etc. but NOT `task:stdout`. Any adapter or execution path that produces raw stdo
 
 **Impact:** SLURM jobs and blocking commands appear dead despite active output.
 
-**Fix:** Add `relayServer.on('task:stdout', onStdout)` in `dispatch.ts` where `onStdout`
-resets `lastActivity` and marks `hasReceivedEvent = true`.
+**Resolution:** Added `relayServer.on('task:stdout', onStdout)` — resets `lastActivity` and sets `hasReceivedEvent = true`.
 
 ### Gap 3: No `dispatched` recovery on frontend
 
@@ -511,7 +510,7 @@ in `activeTasks` is a dead task — detectable within ~1 minute.
 server-tracked dispatched tasks. If a task is missing from the runner's active list
 for 2+ consecutive heartbeats, mark it as dead.
 
-### Gap 5: Compute backend skills don't instruct polling
+### Gap 5: Compute backend skills don't instruct polling — RESOLVED (#726)
 
 The skills (`skills/compute_backend_default/{slurm,k8s-exec,docker}/SKILL.md`) teach
 agents how to submit and monitor jobs but don't instruct them to poll regularly. An
@@ -519,9 +518,9 @@ agent may submit a job and go silent, producing no tool events.
 
 **Impact:** Long-running compute jobs look dead because the agent doesn't poll.
 
-**Fix:** Add "Session Liveness" instructions to each skill, telling agents to poll
-every 60 seconds with discrete tool calls and never use blocking commands as sole
-monitoring.
+**Resolution:** "Session Liveness" section added to all three compute backend skills (slurm, docker, k8s-exec).
+Agents instructed to: poll every 60s with discrete tool calls, tail output between polls, never go silent,
+avoid blocking commands as sole monitoring, and report progress to the user.
 
 ### Gap 6: Server-side dispatch SSE can die silently
 
@@ -538,7 +537,7 @@ against recent `streaming_events` entries.
 
 ## Proposed Changes
 
-### P1: Reduce startup timeout + increase retries (Low risk)
+### P1: Reduce startup timeout + increase retries — DONE (#726)
 
 ```
 BEFORE (PR #688):
@@ -546,7 +545,7 @@ BEFORE (PR #688):
   MAX_STARTUP_RETRIES = 3
   Total worst case: 4 * 5 days = 20 days
 
-PROPOSED:
+IMPLEMENTED:
   STARTUP_TIMEOUT_MS = 3 minutes
   MAX_STARTUP_RETRIES = 10
   FINAL_STARTUP_TIMEOUT_MS = 10 minutes (last attempt only)
@@ -583,10 +582,10 @@ Benefits:
   - Independent of timeout values
 ```
 
-### P3: Listen for `task:stdout` (Low effort)
+### P3: Listen for `task:stdout` — DONE (#726)
 
 ```
-// In dispatch.ts, add alongside existing listeners:
+// In dispatch.ts, added alongside existing listeners:
 
 const onStdout = (msg: TaskStdoutMessage) => {
   if (!alive || msg.output.taskId !== executionId) return
@@ -601,10 +600,10 @@ relayServer.off('task:stdout', onStdout)
 
 This ensures SLURM output tailing and blocking Bash commands reset the activity timer.
 
-### P4: Activity timeout — keep reasonable but not extreme
+### P4: Activity timeout — DONE (#726)
 
 ```
-PROPOSED:
+IMPLEMENTED:
   ACTIVITY_TIMEOUT_MS = 2 hours
 
 Rationale:
@@ -615,7 +614,7 @@ Rationale:
   - If P2 is implemented, activity timeout becomes a fallback only
 ```
 
-### P5: Compute backend skill instructions (Prompt engineering)
+### P5: Compute backend skill instructions — DONE (#726)
 
 Add "Session Liveness" sections to each compute skill instructing agents to:
 - Poll job status every 60 seconds with discrete `Bash` tool calls
