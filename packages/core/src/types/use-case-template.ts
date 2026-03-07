@@ -194,7 +194,7 @@ export interface PromptConfig {
    * System prompt for plan generation.
    *
    * This is the primary prompt that guides the AI in decomposing a project
-   * into a plan graph. It replaces or extends the default buildPlanSystemPrompt()
+   * into a plan graph. It replaces or extends the default buildInteractivePlanPrompt()
    * when this template is active.
    *
    * Should include:

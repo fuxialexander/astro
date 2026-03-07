@@ -596,9 +596,9 @@ Prompt templates are the instructions we give to the AI. Just as a manager gives
 
 ### 8.1 Plan Generation Prompt
 
-`buildPlanSystemPrompt(visionDoc?, repoContext?)`:
+`buildInteractivePlanPrompt(visionDoc?, repoContext?, options?)`:
 
-This prompt tells the AI how to generate a plan -- a directed graph of tasks and milestones. Key rules:
+This prompt tells the AI how to generate a plan -- a directed graph of tasks and milestones. It uses the Claude Agent SDK with tool-based interaction (the agent calls `save_plan` to commit its plan). Key rules:
 - Aim for 6–15 nodes, but this is flexible — use more for complex projects, fewer for simple ones (too few means the plan is too vague; too many means it is too granular)
 - Must be a valid DAG (Directed Acyclic Graph -- no circular dependencies, because you cannot have task A depend on task B which depends on task A)
 - Top-to-bottom layout for visual clarity

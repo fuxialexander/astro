@@ -53,7 +53,7 @@ Astro's planning pipeline has three phases, each with its own prompt template, o
 | Function | File | Used By | Output Format |
 |---|---|---|---|
 | `buildInteractivePlanPrompt()` | `packages/core/src/prompt-templates.ts:792` | Plan generation, replan | Full plan JSON in ` ```json ` fence |
-| `buildPlanSystemPrompt()` | `packages/core/src/prompt-templates.ts:145` | One-shot plan (no tools) | Raw JSON (no fences) |
+| ~~`buildPlanSystemPrompt()`~~ | Removed | Was one-shot plan (no tools), replaced by `buildInteractivePlanPrompt()` | N/A |
 | `buildChatSystemPrompt()` | `packages/core/src/prompt-templates.ts:375` | Project chat (refinement) | ` ```json ` mutation blocks (shape-detected) |
 | `buildTaskChatSystemPrompt()` | `packages/core/src/prompt-templates.ts:551` | Task-level chat | Plain text (no plan mutations) |
 | `buildTaskExecutionPrompt()` | `packages/core/src/prompt-templates.ts:612` | Task dispatch | Plain text with executive summary |

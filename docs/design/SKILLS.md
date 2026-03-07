@@ -291,7 +291,7 @@ Execute tasks on Kubernetes clusters...
 
 | Context | Location | Function |
 |---------|----------|----------|
-| Plan generation | `server/routes/agent.ts` `/generate-plan` | `buildPlanSystemPrompt(..., skillsSummary)` |
+| Plan generation | `server/routes/dispatch.ts` `/generate-plan` | `buildInteractivePlanPrompt(..., { skillsSummary })` |
 | Interactive plan chat | `server/routes/dispatch.ts` | `buildInteractivePlanPrompt(..., { skillsSummary })` |
 | Task execution | `server/routes/dispatch.ts` | Appended to relay system prompt |
 

@@ -237,5 +237,8 @@ Restructured delivery phase in `task-executor.ts`:
 - **PR mode:** On `autoMergeFailed`, resume agent to rebase + force-push, retry `gh pr merge`
 - Works with all 4 providers via `isResumableAdapter()`
 
-### Phase 3: Smart Pre-Merge Rebase (Future)
-Before attempting the merge, proactively check if the project branch has diverged and rebase first — avoiding conflicts entirely in many cases. Not yet implemented.
+### Phase 3: Smart Pre-Merge Rebase (Done)
+`tryPreMergeRebase()` proactively rebases the task branch onto the latest project branch tip before the merge attempt. Handles the common non-overlapping case silently; on conflict, aborts and falls through to the agent resume retry loop. Added for both branch mode (local rebase) and PR mode (fetch + rebase before push).
+
+### Phase 4: Git Ref Sanitization (Done)
+`sanitizeGitRef()` strips shell metacharacters from branch names before embedding in conflict resolution prompts. Defense-in-depth against command injection if branch naming conventions are violated.

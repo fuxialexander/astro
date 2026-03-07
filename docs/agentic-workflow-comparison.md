@@ -100,7 +100,7 @@ A deep analysis of the agentic workflow logic, prompt engineering, and architect
 Plan Generation:
   User description
     --> POST /api/agent/generate-plan
-    --> buildPlanSystemPrompt() + vision doc + repo context
+    --> buildInteractivePlanPrompt() + vision doc + repo context
     --> RelayTaskDispatch { prompt, outputFormat: JSON_SCHEMA }
     --> relayServer.dispatchTask()
     --> Agent Runner executes with Claude
@@ -395,7 +395,7 @@ Astro uses 6 distinct prompt templates:
 
 | Template | Purpose | Key Characteristics |
 |----------|---------|---------------------|
-| `buildPlanSystemPrompt` | Initial plan generation | JSON schema output, 6-15 node DAG, milestone grouping |
+| `buildInteractivePlanPrompt` | Plan generation (interactive, tool-based) | Agent calls `save_plan` tool, 6-15 node DAG, milestone grouping |
 | `buildChatSystemPrompt` | Plan refinement | Conversational, structured update blocks (astro-updates/edges/add-nodes) |
 | `buildTaskChatSystemPrompt` | Task understanding | Concise Q&A about specific tasks |
 | `buildTaskExecutionPrompt` | Task execution | Vision + deps + instructions, commit guidance |

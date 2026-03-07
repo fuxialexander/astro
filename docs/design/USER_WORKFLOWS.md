@@ -105,7 +105,7 @@ For a summary of component responsibilities and mode differences, see `ARCHITECT
 | 5 | **Frontend** | If repo URL provided: `POST /api/repo/setup` → Relay → Agent Runner clones repo, returns `git ls-files` → update `project.fileTree` |
 | 6 | **Frontend** | `agentStore.startGeneration()` → `POST /api/agent/generate-plan` |
 | 7 | **Backend** | Validate input (Zod: description ≤ 50K, fileTree ≤ 10K items, visionDoc ≤ 100K) |
-| 8 | **Backend** | Build system prompt: `buildPlanSystemPrompt(visionDoc, repoContext)` |
+| 8 | **Backend** | Build system prompt: `buildInteractivePlanPrompt(visionDoc, repoContext)` |
 | 9 | **Backend** | Route to Agent Runner via Relay (or call AI directly in current state) |
 | 10 | **Agent Runner** | Claude SDK `query()` with plan prompt. Stream text chunks back. |
 | 11 | **Frontend** | Receive SSE `"text"` events → append to `agentStore.session.streamText` (live preview in generation overlay) |

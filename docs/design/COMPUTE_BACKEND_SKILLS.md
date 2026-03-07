@@ -204,7 +204,7 @@ Backend-scoped skills and environment context are injected in **all four** promp
 
 | Context | Route | Prompt Builder | Skills | Env Context |
 |---------|-------|----------------|--------|-------------|
-| Plan generation | `POST /generate-plan` | `buildPlanSystemPrompt()` | `skillsSummary` param | `environmentContext` param |
+| Plan generation | `POST /generate-plan` | `buildInteractivePlanPrompt()` | `skillsSummary` param | `environmentContext` param |
 | Plan chat | `POST /project-chat` | `buildChatSystemPrompt()` | `skillsInjection` param | `environmentContext` param |
 | Task chat | `POST /task-chat` | `buildTaskChatSystemPrompt()` | `skillsInjection` in context | `environmentContext` in context |
 | Task dispatch | `POST /dispatch/task` | Relay system prompt | `skillsInjection` appended | (via execution strategy) |
@@ -338,7 +338,7 @@ Frontend calls generatePlan({ ..., selectedBackends: project.computeBackends })
     → returns only skills tagged "kubernetes" or "k8s" + non-backend skills
   → loadEnvironmentContext(userId, ["k8s-exec"], machineId)
     → queries environment_configs for k8s-exec → sectioned markdown
-  → buildPlanSystemPrompt(..., skillsSummary, ..., environmentContext)
+  → buildInteractivePlanPrompt(..., { skillsSummary, environmentContext })
   → Claude generates plan with K8s-aware context
 ```
 
