@@ -326,7 +326,7 @@ describe('Plan Mutation Pipeline (end-to-end)', () => {
 
   describe('combined mutations — addNodes + updateEdges with temp IDs', () => {
     it('resolves temp IDs from addNodes in updateEdges', () => {
-      const { getEdge, getNode } = seedStore()
+      const { getEdge } = seedStore()
 
       const aiResponse = `I'll add a caching layer between the API and deployment.
 
