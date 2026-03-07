@@ -1545,6 +1545,21 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       streamingEventLog.append(executionId, 'safety_prompt', safetyData).catch(() => {})
     }
 
+    // P2: Handle dead job detection — terminate this SSE stream when relay detects task is dead
+    const onTaskDead = (data: { taskId: string; machineId: string; reason: string }) => {
+      if (!alive || data.taskId !== executionId) return
+      console.log(`[dispatch] Task ${executionId} declared dead by heartbeat cross-ref: ${data.reason}`)
+      const errorData = { error: `Dead job detected: ${data.reason}`, recoverable: true }
+      streamingEventLog.append(executionId, 'error', errorData).then((seq) => {
+        stream.writeSSE({ id: String(seq), event: 'error', data: JSON.stringify(errorData) }).catch(() => {})
+        stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+      }).catch(() => {
+        stream.writeSSE({ event: 'error', data: JSON.stringify(errorData) }).catch(() => {})
+        stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+      })
+      alive = false
+    }
+
     // Mark this task as having an active dispatch stream so events.ts
     // relay-direct handlers skip it (avoiding duplicate SSE events).
     // Skip for server-side dispatch: no browser SSE consumer, so events.ts
@@ -1564,6 +1579,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     relayServer.on('machine:disconnected', onMachineDisconnected)
     relayServer.on('task:approval_request', onApprovalRequest)
     relayServer.on('task:safety_prompt', onSafetyPrompt)
+    relayServer.on('task:dead', onTaskDead)
 
     const cleanup = () => {
       if (!isServerSideDispatch) activeDispatchStreams.delete(executionId)
@@ -1577,6 +1593,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       relayServer.off('machine:disconnected', onMachineDisconnected)
       relayServer.off('task:approval_request', onApprovalRequest)
       relayServer.off('task:safety_prompt', onSafetyPrompt)
+      relayServer.off('task:dead', onTaskDead)
     }
 
     // Dispatch after listeners registered
