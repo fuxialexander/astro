@@ -599,7 +599,7 @@ Prompt templates are the instructions we give to the AI. Just as a manager gives
 `buildPlanSystemPrompt(visionDoc?, repoContext?)`:
 
 This prompt tells the AI how to generate a plan -- a directed graph of tasks and milestones. Key rules:
-- Generate 6-15 nodes (too few means the plan is too vague; too many means it is too granular)
+- Aim for 6–15 nodes, but this is flexible — use more for complex projects, fewer for simple ones (too few means the plan is too vague; too many means it is too granular)
 - Must be a valid DAG (Directed Acyclic Graph -- no circular dependencies, because you cannot have task A depend on task B which depends on task A)
 - Top-to-bottom layout for visual clarity
 - Node types: `milestone` (a major checkpoint), `task` (a concrete unit of work), `branch` (an alternative approach), `decision` (a point where a human must choose)

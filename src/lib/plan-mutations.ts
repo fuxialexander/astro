@@ -56,65 +56,125 @@ const INTERNAL_FIELDS = new Set(["id", "projectId", "createdAt", "updatedAt", "p
 
 // ---- Extraction ----
 
-const UPDATE_BLOCK_RE = /```astro-updates\s*\n([\s\S]*?)```/g
-const EDGE_BLOCK_RE = /```astro-edges\s*\n([\s\S]*?)```/g
-const ADD_NODES_BLOCK_RE = /```astro-add-nodes\s*\n([\s\S]*?)```/g
+// Matches ```json fences (the only format we instruct the AI to use)
+const JSON_FENCE_RE = /```json\s*\n([\s\S]*?)```/g
 
-/** Extract astro-updates, astro-edges, and astro-add-nodes blocks from a message. */
+// Legacy formats kept for backward compat with older chat history
+const LEGACY_BLOCK_RE = /```(?:astro-plan-change|astro-updates|astro-edges|astro-add-nodes)\s*\n([\s\S]*?)```/g
+
+/** Check if a parsed JSON object is a mutation block by its top-level keys */
+function isMutationObject(obj: Record<string, unknown>): boolean {
+  return Array.isArray(obj.updateNodes) || Array.isArray(obj.addNodes) || Array.isArray(obj.updateEdges)
+}
+
+/** Collect items from an array into the correct mutation bucket, classifying by shape */
+function collectItems(
+  arr: unknown[],
+  category: "updates" | "edges" | "addNodes",
+  nodeUpdates: ParsedNodeUpdate[],
+  edgeOps: ParsedEdgeOp[],
+  newNodes: ParsedNewNode[],
+) {
+  for (const item of arr) {
+    if (!item || typeof item !== "object") continue
+    const obj = item as Record<string, unknown>
+    if (category === "updates" && (obj.nodeId || obj.nodeTitle)) {
+      nodeUpdates.push(obj as ParsedNodeUpdate)
+    } else if (category === "edges" && obj.action && obj.source && obj.target) {
+      edgeOps.push(obj as unknown as ParsedEdgeOp)
+    } else if (category === "addNodes" && obj.title) {
+      newNodes.push(obj as unknown as ParsedNewNode)
+    }
+  }
+}
+
+/** Extract mutations from a parsed JSON object with updateNodes/addNodes/updateEdges keys */
+function extractFromMutationObject(
+  parsed: Record<string, unknown>,
+  nodeUpdates: ParsedNodeUpdate[],
+  edgeOps: ParsedEdgeOp[],
+  newNodes: ParsedNewNode[],
+): boolean {
+  let found = false
+  if (Array.isArray(parsed.updateNodes)) {
+    collectItems(parsed.updateNodes, "updates", nodeUpdates, edgeOps, newNodes)
+    found = true
+  }
+  if (Array.isArray(parsed.updateEdges)) {
+    collectItems(parsed.updateEdges, "edges", nodeUpdates, edgeOps, newNodes)
+    found = true
+  }
+  if (Array.isArray(parsed.addNodes)) {
+    collectItems(parsed.addNodes, "addNodes", nodeUpdates, edgeOps, newNodes)
+    found = true
+  }
+  return found
+}
+
+/**
+ * Extract plan mutations from a chat message.
+ *
+ * Looks for ```json fenced code blocks containing a mutation object with
+ * "updateNodes", "addNodes", and/or "updateEdges" top-level keys.
+ * The shape of the JSON (not a special fence tag) identifies it as a mutation.
+ *
+ * Also handles legacy astro-plan-change/astro-updates/astro-edges/astro-add-nodes
+ * fences for backward compatibility with older chat history.
+ */
 export function extractMutations(content: string): { cleanContent: string; mutations: AppliedMutations } {
   const nodeUpdates: ParsedNodeUpdate[] = []
   const edgeOps: ParsedEdgeOp[] = []
   const newNodes: ParsedNewNode[] = []
 
-  let cleanContent = content.replace(UPDATE_BLOCK_RE, (match, json: string) => {
+  // ── Primary: find ```json blocks with mutation shape ──
+  let cleanContent = content.replace(JSON_FENCE_RE, (match, json: string) => {
     try {
       const parsed = JSON.parse(json.trim())
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (item && typeof item === "object" && (item.nodeId || item.nodeTitle)) {
-            nodeUpdates.push(item as ParsedNodeUpdate)
-          }
+      // Object with updateNodes/addNodes/updateEdges keys → mutation block
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        if (isMutationObject(parsed as Record<string, unknown>)) {
+          extractFromMutationObject(parsed as Record<string, unknown>, nodeUpdates, edgeOps, newNodes)
+          return ""
         }
       }
     } catch {
-      return match // malformed — keep visible
+      // Not valid JSON — leave as-is
     }
-    return ""
+    return match
   })
 
-  cleanContent = cleanContent.replace(EDGE_BLOCK_RE, (match, json: string) => {
-    try {
-      const parsed = JSON.parse(json.trim())
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (item && typeof item === "object" && item.action && item.source && item.target) {
-            edgeOps.push(item as ParsedEdgeOp)
+  // ── Legacy: handle astro-plan-change / astro-updates / etc. from older sessions ──
+  if (nodeUpdates.length === 0 && edgeOps.length === 0 && newNodes.length === 0) {
+    cleanContent = cleanContent.replace(LEGACY_BLOCK_RE, (match, json: string) => {
+      try {
+        const parsed = JSON.parse(json.trim())
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          if (extractFromMutationObject(parsed as Record<string, unknown>, nodeUpdates, edgeOps, newNodes)) {
+            return ""
           }
         }
-      }
-    } catch {
-      return match
-    }
-    return ""
-  })
-
-  cleanContent = cleanContent.replace(ADD_NODES_BLOCK_RE, (match, json: string) => {
-    try {
-      const parsed = JSON.parse(json.trim())
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (item && typeof item === "object" && item.title) {
-            newNodes.push(item as ParsedNewNode)
+        // Legacy array format (astro-updates was an array of node updates, etc.)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const sample = parsed[0] as Record<string, unknown>
+          if (sample && typeof sample === "object") {
+            if ("action" in sample && "source" in sample) {
+              collectItems(parsed, "edges", nodeUpdates, edgeOps, newNodes)
+            } else if ("nodeId" in sample || "nodeTitle" in sample) {
+              collectItems(parsed, "updates", nodeUpdates, edgeOps, newNodes)
+            } else if ("title" in sample && "description" in sample) {
+              collectItems(parsed, "addNodes", nodeUpdates, edgeOps, newNodes)
+            }
+            if (nodeUpdates.length > 0 || edgeOps.length > 0 || newNodes.length > 0) return ""
           }
         }
+      } catch {
+        // Not valid JSON
       }
-    } catch {
       return match
-    }
-    return ""
-  }).trim()
+    })
+  }
 
-  return { cleanContent, mutations: { nodeUpdates, edgeOps, newNodes } }
+  return { cleanContent: cleanContent.trim(), mutations: { nodeUpdates, edgeOps, newNodes } }
 }
 
 // ---- Application ----
@@ -206,7 +266,7 @@ export function applyMutationsToStore(
     const resolvedUpdate: { nodeId: string; [key: string]: unknown } = { nodeId: resolvedNodeId }
     const patch: Partial<PlanNode> = {}
     for (const [key, value] of Object.entries(u)) {
-      if (key === "nodeId" || key === "nodeTitle" || key === "type") continue
+      if (key === "nodeId" || key === "nodeTitle") continue
       if (INTERNAL_FIELDS.has(key)) continue
       ;(patch as Record<string, unknown>)[key] = value
       resolvedUpdate[key] = value
@@ -218,11 +278,12 @@ export function applyMutationsToStore(
       patch.content = `<p>${escapeHtml(patch.description)}</p>`
     }
 
-    // Reconcile edges when dependencies change
+    // Reconcile edges when dependencies change (resolve temp IDs from addNodes)
     if (Array.isArray(u.dependencies)) {
       const currentNode = planNodes.find((n) => n.id === resolvedNodeId)
       if (currentNode) {
-        const newDeps = new Set(u.dependencies as string[])
+        const resolvedDeps = (u.dependencies as string[]).map(d => idMap.get(d) ?? d)
+        const newDeps = new Set(resolvedDeps)
         const oldDeps = new Set(currentNode.dependencies)
         for (const dep of oldDeps) {
           if (!newDeps.has(dep)) removeEdge(dep, resolvedNodeId)
@@ -240,24 +301,29 @@ export function applyMutationsToStore(
     }
   }
 
-  // Apply edge operations
+  // Apply edge operations (resolve temp IDs from addNodes through idMap)
   for (const op of edgeOps) {
+    const resolvedSource = idMap.get(op.source) ?? op.source
+    const resolvedTarget = idMap.get(op.target) ?? op.target
+
     if (op.action === "add") {
       addEdge({
-        id: `e-${op.source}-${op.target}`,
-        source: op.source,
-        target: op.target,
+        id: `e-${resolvedSource}-${resolvedTarget}`,
+        source: resolvedSource,
+        target: resolvedTarget,
         type: (op.type as "dependency" | "branch") ?? "dependency",
       })
-      const targetNode = planNodes.find((n) => n.id === op.target)
-      if (targetNode && !targetNode.dependencies.includes(op.source)) {
-        updateNode(op.target, { dependencies: [...targetNode.dependencies, op.source] })
+      // Look up target in both existing planNodes and newly added nodes
+      const targetNode = planNodes.find((n) => n.id === resolvedTarget)
+        ?? store.nodes.find((n) => n.id === resolvedTarget)
+      if (targetNode && !targetNode.dependencies.includes(resolvedSource)) {
+        updateNode(resolvedTarget, { dependencies: [...targetNode.dependencies, resolvedSource] })
       }
     } else if (op.action === "remove") {
-      removeEdge(op.source, op.target)
-      const targetNode = planNodes.find((n) => n.id === op.target)
+      removeEdge(resolvedSource, resolvedTarget)
+      const targetNode = planNodes.find((n) => n.id === resolvedTarget)
       if (targetNode) {
-        updateNode(op.target, { dependencies: targetNode.dependencies.filter((d) => d !== op.source) })
+        updateNode(resolvedTarget, { dependencies: targetNode.dependencies.filter((d) => d !== resolvedSource) })
       }
     }
   }

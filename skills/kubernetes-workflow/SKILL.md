@@ -2,7 +2,7 @@
 name: kubernetes-workflow
 version: "1.0.0"
 description: "This skill should be used when the user asks to 'run on Kubernetes', 'create a pod', 'deploy to k8s', 'kubectl exec', 'copy code to pod', 'run training on cluster', 'create a deployment', mentions 'Kubernetes', 'k8s', 'kubectl', 'pod', 'namespace', or needs to execute code on a Kubernetes cluster."
-category: tools
+category: workflows
 tags: [kubernetes, k8s, cloud, devops, infrastructure, gpu, training]
 allowedTools: [Bash, Read, Write, Glob, Grep]
 ---

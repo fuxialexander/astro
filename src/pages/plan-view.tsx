@@ -1200,7 +1200,7 @@ export function PlanListView({
   const tasks = useMemo(() => {
     let filtered = allProjectNodes.filter((n) => n.type !== "milestone")
     if (applyCompletedFilter && !displaySettings.showCompleted) {
-      filtered = filtered.filter((n) => n.status !== "completed" && n.status !== "auto_verified")
+      filtered = filtered.filter((n) => n.status !== "completed" && n.status !== "auto_verified" && n.status !== "pruned")
     }
     const dir = displaySettings.orderDirection === "asc" ? 1 : -1
     return sortPlanNodes(filtered, displaySettings.orderBy, dir)
@@ -1559,7 +1559,7 @@ export function PlanTimelineView({
   const tasks = useMemo(() => {
     let filtered = allProjectNodes.filter((n) => n.type !== "milestone")
     if (applyCompletedFilter && !displaySettings.showCompleted) {
-      filtered = filtered.filter((n) => n.status !== "completed" && n.status !== "auto_verified")
+      filtered = filtered.filter((n) => n.status !== "completed" && n.status !== "auto_verified" && n.status !== "pruned")
     }
     const dir = displaySettings.orderDirection === "asc" ? 1 : -1
     return sortPlanNodes(filtered, displaySettings.orderBy, dir)

@@ -16,6 +16,8 @@ Comprehensive design documentation for the Astro platform. Use these documents a
 | [IMPLEMENTATION_PIPELINE.md](./IMPLEMENTATION_PIPELINE.md) | Implementation priorities and pipeline |
 | [REFRESH_ROBUSTNESS.md](./REFRESH_ROBUSTNESS.md) | Page-refresh recovery: three-layer architecture (live SSE → streaming_events DB → observation fallback), data lifecycle on reset, store initialization |
 | [AGENTIC_WORKFLOW.md](./AGENTIC_WORKFLOW.md) | Agentic workflow architecture: context flow, observability, event streaming pipeline, token budgets, parallel execution |
+| [PLAN_AND_REPLAN.md](./PLAN_AND_REPLAN.md) | Plan generation, refinement & replan: prompt templates, extraction pipelines, mutation format, error handling |
+| [KNOWLEDGE_SHARING.md](./KNOWLEDGE_SHARING.md) | Project-level knowledge sharing: dependency outputs, vision documents, project knowledge store, cross-task context flow |
 | [CURRENT_CONFLICT_VIEW.md](./CURRENT_CONFLICT_VIEW.md) | Known conflicts between design docs and actual code/technical docs |
 
 ## How to Use

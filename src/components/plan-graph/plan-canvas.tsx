@@ -123,7 +123,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   const projectNodes = useMemo(() => {
     let nodes = planNodes.filter((n) => n.projectId === projectId)
     if (!graphDisplaySettings.showCompleted) {
-      nodes = nodes.filter((n) => n.status !== "completed" && n.status !== "auto_verified")
+      nodes = nodes.filter((n) => n.status !== "completed" && n.status !== "auto_verified" && n.status !== "pruned")
     }
     // Hide milestones — edge bridging creates transitive edges through them
     nodes = nodes.filter((n) => n.type !== "milestone")

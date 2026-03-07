@@ -14,7 +14,8 @@ export function exportProject(projectId: string): AstroExportBundle {
   const allNodes = usePlanStore.getState().nodes.filter(isLive)
   const allEdges = usePlanStore.getState().edges.filter(isLive)
 
-  const projectNodes = allNodes.filter((n) => n.projectId === projectId)
+  // Export only active nodes — exclude pruned tasks
+  const projectNodes = allNodes.filter((n) => n.projectId === projectId && n.status !== 'pruned')
   const nodeIds = new Set(projectNodes.map((n) => n.id))
   const projectEdges = allEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
 

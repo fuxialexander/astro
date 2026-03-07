@@ -2,7 +2,7 @@
 name: skypilot-workflow
 version: "1.0.0"
 description: "This skill should be used when the user asks to 'launch a SkyPilot job', 'use sky to run', 'run on cloud with SkyPilot', 'sky jobs launch', 'check sky logs', 'sky status', mentions 'SkyPilot', 'sky', 'sky jobs', or needs to launch distributed training or inference jobs on cloud or Kubernetes clusters via SkyPilot."
-category: tools
+category: workflows
 tags: [skypilot, cloud, kubernetes, gpu, training, distributed, infrastructure]
 allowedTools: [Bash, Read, Write, Glob, Grep]
 ---
