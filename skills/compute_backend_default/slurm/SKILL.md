@@ -55,3 +55,13 @@ allowedTools: [Bash, Read, Write, Glob, Grep]
 - Use `$SCRATCH` or `$WORK` for large data (not `$HOME`)
 - Check quota: `quota -s` or cluster-specific command
 - Stage data before job starts, copy results after completion
+
+## Session Liveness (IMPORTANT)
+
+Your session has an activity timeout. If you stop producing tool calls, the system assumes you are dead and will kill your session. Follow these rules to stay alive:
+
+1. **Poll every 60 seconds** — After submitting a job with `sbatch`, poll its status with `squeue -j <jobid>` at least once per minute using discrete `Bash` tool calls.
+2. **Tail output between polls** — Run `tail -n 20 <output_file>` between status checks to surface progress.
+3. **Never go silent** — Do NOT submit a job and then wait without making tool calls. Even a simple `squeue -u $USER` keeps the session alive.
+4. **Avoid long-blocking commands** — Do NOT use `srun` to block until a batch job completes. Instead, use `sbatch` + polling.
+5. **Report progress** — Between polls, tell the user what the job is doing (e.g., "Job 12345 has been running for 5 minutes, output shows epoch 3/10").

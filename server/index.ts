@@ -40,6 +40,10 @@ import { dispatchEngine } from './lib/dispatch/index.js'
 import { updateMachineConnectionStatus, ensureMachineRegistered, resetAllConnectionStatuses, getMachine } from './lib/registered-machines-store.js'
 import { validateEnvironment, getRelayConfig, getRedisConfig, isProduction, isTest, isLocalMode as isLocalModeEnv } from './lib/environment.js'
 import { startCleanupScheduler, stopCleanupScheduler } from './lib/cleanup-scheduler.js'
+import { startExecutionWatchdog, stopExecutionWatchdog } from './lib/execution-watchdog.js'
+import { db } from './lib/db/index.js'
+import { planNodes } from './lib/db/schema.js'
+import { eq } from 'drizzle-orm'
 import { astroEventTransport } from './lib/events/astro-event-transport.js'
 import { sseNotificationHook } from './lib/events/hooks/sse-notification-hook.js'
 import { auditLogHook } from './lib/events/hooks/audit-log-hook.js'
@@ -399,6 +403,21 @@ async function start() {
       dispatchEngine.emit('relay:task:result', message)
     })
 
+    // Handle dead job detection (P2 heartbeat cross-reference)
+    relayServer.on('task:dead', async (data) => {
+      console.warn(`[relay] Dead task ${data.taskId} on machine ${data.machineId}: ${data.reason}`)
+      try {
+        const errorMsg = `Dead job detected: ${data.reason}. Task reset for re-execution.`
+        // Clear executionId to prevent stale task_result from overwriting the reset
+        await db.update(planNodes)
+          .set({ status: 'planned', executionId: null, executionError: errorMsg, updatedAt: new Date() })
+          .where(eq(planNodes.executionId, data.taskId))
+        console.log(`[relay] Dead task ${data.taskId} reset to planned`)
+      } catch (err) {
+        console.error(`[relay] Failed to reset dead task ${data.taskId}:`, (err as Error).message)
+      }
+    })
+
     relayServer.on('machine:connected', async (machineId: string, userId: string) => {
       console.log(`[relay] Machine ${machineId} connected for user ${userId}`)
       const entry = machineRegistry.get(machineId)
@@ -477,6 +496,16 @@ async function start() {
     console.log('[cleanup] Cleanup scheduler started')
   }
 
+  // Start execution watchdog (P7: server-side in_progress safety net)
+  if (!isTest()) {
+    startExecutionWatchdog({
+      enabled: true,
+      intervalMs: 5 * 60 * 1000,           // 5 minutes
+      staleThresholdMs: 2 * 60 * 60 * 1000, // 2 hours
+    })
+    console.log('[watchdog] Execution watchdog started')
+  }
+
   // Periodic cleanup tasks
   if (!isTest()) {
     // Clean expired WebAuthn challenges every minute
@@ -550,6 +579,7 @@ async function shutdown(signal: string) {
 
   try {
     stopCleanupScheduler()
+    stopExecutionWatchdog()
     await observationCollector.stop()
     await streamingEventLog.flushAll()
     dispatchEngine.stop()

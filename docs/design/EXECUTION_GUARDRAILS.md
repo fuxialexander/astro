@@ -559,21 +559,20 @@ Rationale:
   - Approval pause mechanism is unaffected (only fires after hasReceivedEvent)
 ```
 
-### P2: Cross-reference `activeTasks` heartbeat (Medium effort, highest value)
+### P2: Cross-reference `activeTasks` heartbeat (Medium effort, highest value) ✅
 
 ```
-Current:
-  Agent runner heartbeat: { activeTasks: ["task-1", "task-2"] }
-  Server stores: activeTasks: 2  (count only, IDs discarded)
+Implementation:
+  MachineRegistryEntry.activeTaskIds: string[]  — stores actual task IDs from heartbeat
+  RelayServer.startDeadJobChecker(): 60-second interval, 2-miss threshold
+  RelayServer.getTasksForMachine(): reverse lookup of taskToMachine Map
+  Emits 'task:dead' event → server/index.ts handler resets plan_node to 'planned'
 
-Proposed:
-  Server stores: activeTaskIds: ["task-1", "task-2"]  (actual IDs)
-  Every 60 seconds, compare:
-    server_dispatched_tasks = tasks server thinks are running on machine X
-    runner_active_tasks = tasks machine X reports in heartbeat
-    dead_tasks = server_dispatched_tasks - runner_active_tasks
-  If a task is in dead_tasks for 2+ consecutive checks:
-    --> mark as dead, reset to 'planned', notify user
+Flow:
+  1. Agent runner heartbeat: { activeTasks: ["task-1", "task-2"] }
+  2. handleAgentRunnerHeartbeat() stores IDs via machineRegistry.updateActiveTaskIds()
+  3. Every 60s, dead job checker compares server taskToMachine vs runner activeTaskIds
+  4. After 2 consecutive misses (~2 min), emits task:dead → DB reset to 'planned'
 
 Benefits:
   - Detects dead tasks within ~1-2 minutes regardless of event patterns
@@ -629,13 +628,21 @@ In the execution store, add a timeout check: if a node has been in `dispatched` 
 for >2 minutes with no SSE `init` event received, reset it to `planned` with an error
 message and allow the user to retry.
 
-### P7: Server-side `in_progress` watchdog (Medium effort)
+### P7: Server-side `in_progress` watchdog (Medium effort) ✅
 
-A periodic server-side job (every 5 minutes) that queries:
-```sql
-SELECT * FROM plan_nodes
-WHERE status = 'in_progress'
-  AND updated_at < NOW() - INTERVAL '2 hours'
+```
+Implementation:
+  server/lib/execution-watchdog.ts — standalone module (cleanup-scheduler pattern)
+  startExecutionWatchdog() / stopExecutionWatchdog() — started in server/index.ts
+  5-minute interval, 2-hour stale threshold
+
+Flow:
+  1. Query plan_nodes WHERE status IN ('in_progress', 'dispatched')
+     AND updated_at < NOW() - 2 hours AND deleted_at IS NULL
+  2. For each stale node, check:
+     a. dispatchEngine.hasPendingApprovalForExecution() — skip if approval pending
+     b. streaming_events for any recent events — skip if activity found
+  3. If truly stale: reset to 'planned' with descriptive error message
 ```
 
 Cross-references against `streaming_events` — if no recent events and no pending
@@ -646,13 +653,13 @@ approval, reset to `planned`. Handles server restarts and dead internal SSE conn
 ## Implementation Priority
 
 ```
-Priority   Proposal   Effort    Impact
---------   --------   ------    ------
-HIGH       P1         Low       Reduces 20-day worst case to 40 minutes for startup failures
-HIGH       P3         Low       Fixes task:stdout gap — one listener addition
-HIGH       P5         Low       Prevents silent agents on compute backends
-MEDIUM     P2         Medium    Most robust dead job detection (heartbeat cross-reference)
-MEDIUM     P4         Low       Restores original 2-hour activity timeout safely
-LOW        P6         Low       Frontend dispatched recovery
-LOW        P7         Medium    Server-side in_progress watchdog (belt-and-suspenders)
+Priority   Proposal   Effort    Impact                                                       Status
+--------   --------   ------    ------                                                       ------
+HIGH       P1         Low       Reduces 20-day worst case to 40 min for startup failures     ✅ Done (#720)
+HIGH       P3         Low       Fixes task:stdout gap — one listener addition                ✅ Done (#720)
+HIGH       P5         Low       Prevents silent agents on compute backends                   ✅ Done (#720)
+MEDIUM     P2         Medium    Most robust dead job detection (heartbeat cross-reference)    ✅ Done
+MEDIUM     P4         Low       Restores original 2-hour activity timeout safely              ✅ Done (#720)
+LOW        P6         Low       Frontend dispatched recovery                                  Deferred (server-side covers)
+LOW        P7         Medium    Server-side in_progress watchdog (belt-and-suspenders)        ✅ Done
 ```
