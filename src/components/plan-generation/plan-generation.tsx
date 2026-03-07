@@ -212,11 +212,13 @@ export function PlanGeneration({
     ? 'stopped' as const
     : execution.status === "cancelled"
       ? 'stopped' as const
-      : execution.status === "success" || execution.status === "failure"
-        ? (execution.error ? 'error' as const : !hasPlan ? 'waiting' as const : 'completed' as const)
-        : pendingApprovals.length > 0
-          ? 'waiting' as const
-          : 'planning' as const
+      : isChatStreaming
+        ? 'planning' as const
+        : execution.status === "success" || execution.status === "failure"
+          ? (execution.error ? 'error' as const : !hasPlan ? 'waiting' as const : 'completed' as const)
+          : pendingApprovals.length > 0
+            ? 'waiting' as const
+            : 'planning' as const
 
   // Auto-scroll
   const eventsLength = allActivityEvents.length
