@@ -45,6 +45,7 @@ export interface OpenClawSkill {
   metadata?: OpenClawSkillMetadata
 
   tags?: string[]
+  category?: string                    // 'tools' | 'workflows' | 'templates' | 'integrations'
 
   // Astro-specific extensions
   source: 'builtin' | 'workspace' | 'clawhub' | 'plugin' | 'user' | 'catalog'

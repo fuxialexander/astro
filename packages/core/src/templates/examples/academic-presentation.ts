@@ -442,7 +442,7 @@ This task uses the \`academic-presentation\` skill. Consult the skill's SKILL.md
 
   // ── Relationships ─────────────────────────────────────────────────────
   domains: ['scientific-computing', 'web-development'],
-  recommendedSkills: ['academic-presentation'],
+  recommendedSkills: ['academic-presentation', 'pdf'],
   source: 'builtin',
   enabled: true,
 }

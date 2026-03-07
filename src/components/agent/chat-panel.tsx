@@ -23,6 +23,7 @@ import { useSessionStore, getSessionTitle } from "@/stores/session-store"
 import { SessionDialog } from "@/components/session-dialog"
 import { useProjectMachineId } from "@/hooks/use-project-machine"
 import { useRealtimeStore } from "@/stores/realtime-store"
+import { useToastStore } from "@/stores/toast-store"
 import { useChatActivityEvents } from "@/hooks/use-chat-activity-events"
 import {
   TextBlock,
@@ -466,6 +467,16 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
               // Update message display with clean content and resolved mutation record
               updateLastAssistantMessage(sid, cleanContent, resolvedMutations)
             } else {
+              // Warn if the text looks like it contains mutation data but wasn't extracted
+              const looksLikeMutations = /\[\s*\{[^}]*"(?:nodeId|nodeTitle|action|title)"/.test(rawAssistantText)
+              if (looksLikeMutations && rawAssistantText.length > 100) {
+                console.warn("[chat-panel] Response contains JSON-like mutation data but no mutations were extracted")
+                useToastStore.getState().add({
+                  type: "warning",
+                  title: "Plan changes not applied",
+                  description: "The AI described changes but they weren't in the expected format. Try asking again.",
+                })
+              }
               // Force an immediate save — appendToLastAssistantMessage only
               // debounce-saves to the database and never calls the API, so without
               // this the final content can be lost on reload.

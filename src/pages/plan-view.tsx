@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, FileText, Globe, GitFork, X, Settings2, PlayCircle, Square, Zap } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, Globe, GitFork, X, Settings2, PlayCircle, Square, Zap } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { ReplanDialog } from "@/components/replan-dialog"
@@ -26,7 +26,6 @@ import { InlineRenameInput } from "@/components/inline-rename-input"
 import { validateProjectName } from "@/lib/project-validation"
 import { OverviewTab } from "@/pages/project-overview"
 import { KnowledgePanel } from "@/components/knowledge-panel"
-import { UseTemplateSheet } from "@/components/templates/use-template-sheet"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { PublishDialog } from "@/components/community/publish-dialog"
@@ -1200,7 +1199,7 @@ export function PlanListView({
   const tasks = useMemo(() => {
     let filtered = allProjectNodes.filter((n) => n.type !== "milestone")
     if (applyCompletedFilter && !displaySettings.showCompleted) {
-      filtered = filtered.filter((n) => n.status !== "completed" && n.status !== "auto_verified")
+      filtered = filtered.filter((n) => n.status !== "completed" && n.status !== "auto_verified" && n.status !== "pruned")
     }
     const dir = displaySettings.orderDirection === "asc" ? 1 : -1
     return sortPlanNodes(filtered, displaySettings.orderBy, dir)
@@ -1559,7 +1558,7 @@ export function PlanTimelineView({
   const tasks = useMemo(() => {
     let filtered = allProjectNodes.filter((n) => n.type !== "milestone")
     if (applyCompletedFilter && !displaySettings.showCompleted) {
-      filtered = filtered.filter((n) => n.status !== "completed" && n.status !== "auto_verified")
+      filtered = filtered.filter((n) => n.status !== "completed" && n.status !== "auto_verified" && n.status !== "pruned")
     }
     const dir = displaySettings.orderDirection === "asc" ? 1 : -1
     return sortPlanNodes(filtered, displaySettings.orderBy, dir)

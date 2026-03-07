@@ -162,7 +162,7 @@ export async function bootstrapBuiltinSkills(builtinSkills: BuiltinSkillDefiniti
 
 
 /** Map a DB skill row to the shape expected by SkillManager */
-function mapSkillRow(s: { name: string; description: string; instructions: string; source: string | null; enabled: boolean; config: Record<string, unknown> | null; teamId: string | null; tags?: string[] | null }) {
+function mapSkillRow(s: { name: string; description: string; instructions: string; source: string | null; enabled: boolean; config: Record<string, unknown> | null; teamId: string | null; tags?: string[] | null; category?: string | null }) {
   return {
     name: s.name,
     description: s.description,
@@ -174,6 +174,7 @@ function mapSkillRow(s: { name: string; description: string; instructions: strin
     disableModelInvocation: (s.config?.disableModelInvocation as boolean | undefined),
     teamId: s.teamId,
     tags: s.tags ?? [],
+    category: s.category ?? undefined,
   }
 }
 
@@ -193,7 +194,7 @@ export async function syncSkillsFromDb(
 ): Promise<void> {
   const rows = await db.select().from(skills).where(eq(skills.enabled, true))
   // rows inherits `any[]` from the dual-driver db proxy — annotate explicitly
-  const mapped = (rows as Array<{ name: string; description: string; instructions: string; source: string | null; enabled: boolean; config: Record<string, unknown> | null; teamId: string | null; tags?: string[] | null }>).map(mapSkillRow)
+  const mapped = (rows as Array<{ name: string; description: string; instructions: string; source: string | null; enabled: boolean; config: Record<string, unknown> | null; teamId: string | null; tags?: string[] | null; category?: string | null }>).map(mapSkillRow)
   skillManager.loadSkills(mapped)
 }
 
@@ -216,7 +217,7 @@ export async function syncSkillById(
   )
 
   if (row) {
-    skillManager.addSkill(mapSkillRow(row as { name: string; description: string; instructions: string; source: string | null; enabled: boolean; config: Record<string, unknown> | null; teamId: string | null; tags?: string[] | null }))
+    skillManager.addSkill(mapSkillRow(row as { name: string; description: string; instructions: string; source: string | null; enabled: boolean; config: Record<string, unknown> | null; teamId: string | null; tags?: string[] | null; category?: string | null }))
   } else {
     // Skill was deleted or disabled — need to remove from cache.
     // Fetch the skill regardless of enabled status to get its name/teamId for removal.

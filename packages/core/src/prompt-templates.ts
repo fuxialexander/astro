@@ -332,7 +332,7 @@ ${visionSection}${repoSection}${gitStateSection}${skillsSection}${githubSection}
 - type: "dependency" for sequential, "branch" for parallel paths from a common node.
 
 ## Constraints
-- 6–15 nodes. Valid DAG (no cycles).
+- Aim for 6–15 nodes, but this is flexible — use more for complex projects, fewer for simple ones. Valid DAG (no cycles).
 - Every task node MUST have a milestoneId set. Group related tasks under milestones.
 - projectName MUST be at most 7 words. Use title case. No articles or filler words (avoid 'A', 'The', 'An' at the start). No trailing punctuation.
 - Output MUST be a single JSON object with keys: projectName (string), nodes (array), edges (array).
@@ -445,96 +445,70 @@ ${visionSection}${planSection}${skillsInjection ? `\n\n## Available Skills & Too
 
 When the user asks to update, modify, or change anything in the plan, you MUST:
 1. Identify the relevant tasks/edges from the plan above.
-2. Apply changes by including structured update blocks at the END of your response.
-3. Explain what you changed conversationally BEFORE the update blocks.
+2. Apply changes by including a single structured JSON block at the END of your response.
+3. Explain what you changed conversationally BEFORE the JSON block.
 
-### Updating Node Properties
+### Mutation Format
 
-Use a fenced code block with language \`astro-updates\` containing a JSON array:
+Output a single \`\`\`json code block containing a JSON object with up to three optional arrays:
 
-\`\`\`astro-updates
-[
-  { "nodeId": "n1", "title": "New title", "priority": "high" },
-  { "nodeTitle": "Review PR", "type": "task", "priority": "urgent" }
-]
+- **"updateNodes"** — Modify existing nodes. Each object needs **"nodeId"** (exact ID, preferred) OR **"nodeTitle"** (case-insensitive title match), plus fields to change:
+  - "title", "description" (plain text), "content" (HTML — set BOTH when changing descriptions)
+  - "type": "milestone" | "task" | "decision"
+  - "status": "planned" | "completed" | "pruned" | "dispatched" | "in_progress" | "auto_verified" | "awaiting_judgment"
+  - "priority": "urgent" | "high" | "medium" | "low" | "none"
+  - "estimate": "XS" | "S" | "M" | "L" | "XL"
+  - "milestoneId", "dueDate" (YYYY-MM-DD), "startDate", "endDate", "verification" ("auto"|"human")
+  - "dependencies" (string[]) — replaces the full list; edges are auto-reconciled
+
+- **"addNodes"** — Create new nodes. "title" and "description" are required:
+  - "id" (optional temp ID for cross-referencing within the same block)
+  - "type" (default "task"), "milestoneId", "dependencies" (string[]), "priority", "estimate", "verification"
+
+- **"updateEdges"** — Add or remove edges:
+  - "action": "add" | "remove", "source": node ID, "target": node ID, "type": "dependency" | "branch"
+
+### Example
+
+User: "Reprioritize the API tasks and add a caching layer before deployment"
+
+\`\`\`json
+{
+  "updateNodes": [
+    { "nodeId": "abc-123", "priority": "urgent", "estimate": "M" },
+    { "nodeTitle": "Deploy to production", "type": "task", "priority": "low" }
+  ],
+  "addNodes": [
+    {
+      "id": "cache1",
+      "title": "Add Redis caching layer",
+      "description": "Set up Redis cache for API responses to reduce DB load",
+      "milestoneId": "m1",
+      "dependencies": ["abc-123"],
+      "priority": "high",
+      "estimate": "M"
+    }
+  ],
+  "updateEdges": [
+    { "action": "add", "source": "cache1", "target": "deploy-node-id", "type": "dependency" }
+  ]
+}
 \`\`\`
 
-Each object must have EITHER "nodeId" OR "nodeTitle" (required) plus any fields to change:
-- "nodeId" (string) — exact node ID (preferred when available)
-- "nodeTitle" (string) — node title for lookup (case-insensitive). Use when you don't have the ID but know the task name.
-- "type" (string) — disambiguate when multiple nodes have the same title (e.g., "Review PR" as both task and milestone)
+### Decomposition
 
-**When to use nodeTitle:** When the user asks to update a task by name (e.g., "mark Review PR as high priority"), or when referencing an existing node in follow-up chat. If multiple nodes match the title, specify "type" to disambiguate, otherwise the update will fail with a warning.
-
-Additional fields to change:
-- "title" (string) — node title
-- "description" (string) — plain text description (short summary)
-- "content" (string) — rich HTML description (rendered in the UI). When the user asks to change a task's description/content, always set BOTH: "description" with plain text and "content" with HTML (use <p>, <ul>, <li>, <strong>, <code> tags as appropriate)
-- "type" (string) — "milestone" | "task" | "decision"
-- "status" (string) — "planned" | "dispatched" | "in_progress" | "auto_verified" | "awaiting_judgment" | "completed" | "pruned"
-- "priority" (string) — "urgent" | "high" | "medium" | "low" | "none"
-- "estimate" (string) — "XS" | "S" | "M" | "L" | "XL"
-- "milestoneId" (string) — ID of the milestone this task belongs to
-- "dueDate" (string) — ISO YYYY-MM-DD or null to clear
-- "startDate" (string) — ISO YYYY-MM-DD (milestones only) or null to clear
-- "endDate" (string) — ISO YYYY-MM-DD (milestones only) or null to clear
-- "verification" (string) — "auto" | "human"
-- "dependencies" (string[]) — array of node IDs this node depends on (replaces the full list; edges are auto-reconciled)
-
-### Adding or Removing Edges
-
-Use a fenced code block with language \`astro-edges\` containing a JSON array:
-
-\`\`\`astro-edges
-[
-  { "action": "add", "source": "n1", "target": "n3", "type": "dependency" },
-  { "action": "remove", "source": "n2", "target": "n3" }
-]
-\`\`\`
-
-Edge fields:
-- "action" (required) — "add" or "remove"
-- "source" (required) — source node ID
-- "target" (required) — target node ID
-- "type" (for add) — "dependency" or "branch". Defaults to "dependency".
-
-### Decomposing / Exploding a Task into Sub-tasks
-
-When the user asks to decompose, explode, or break down a task, use a fenced code block with language \`astro-add-nodes\`:
-
-\`\`\`astro-add-nodes
-[
-  { "id": "sub1", "title": "Sub-task 1", "description": "...", "milestoneId": "m1", "dependencies": ["parent_id"], "priority": "medium", "estimate": "S" },
-  { "id": "sub2", "title": "Sub-task 2", "description": "...", "milestoneId": "m1", "dependencies": ["sub1"], "priority": "medium", "estimate": "S" }
-]
-\`\`\`
-
-Fields:
-- "id" (string, optional) — temporary ID for referencing between new nodes in the same block
-- "title" (required) — task title
-- "description" (required) — detailed description of what needs to be done
-- "type" (string) — defaults to "task"
-- "milestoneId" (string) — inherit from the parent task being decomposed
-- "dependencies" (string[]) — can reference other new node IDs from the same block, or existing node IDs
-- "priority", "estimate", "verification" — same as node properties
-
-**IMPORTANT:** \`astro-add-nodes\` always creates NEW nodes. If you want to update an existing node (e.g., change its description, mark it as completed), use \`astro-updates\` with "nodeTitle" instead. Never add a node with the same title as an existing one unless the user explicitly wants a duplicate.
-
-When decomposing, also use \`astro-updates\` to mark the original task as "completed" or "pruned" (since it's been replaced by sub-tasks), and use \`astro-edges\` if the sub-tasks need to connect to other existing nodes.
-
-Decomposition rules:
-- Prioritize orthogonal sub-tasks that can be independently verified — each sub-task should touch a distinct area of the codebase or concern so that one failing does not block or invalidate the others.
-- Target each sub-task at roughly 20 minutes of expert work time, or < 1000 lines of code expected. Use estimate "XS" (~5 min / <100 LOC), "S" (~15 min / <500 LOC), or "M" (~30 min / <1000 LOC). Never larger than "M".
+When breaking down a task into sub-tasks:
+- Target each sub-task at ~20 min / <1000 LOC. Estimate "XS"/"S"/"M" — never larger than "M"
 - Preserve the original task's milestone assignment
-- Wire dependencies so sub-tasks form a clear sequence or parallel branches; prefer parallel branches when sub-tasks are truly independent
+- Mark the original task as "completed" or "pruned" via updateNodes
+- Wire dependencies so sub-tasks form a clear DAG; prefer parallel branches when independent
 
 ### Rules
 - Only include fields that should change. Omit unchanged fields.
-- You can combine \`astro-updates\`, \`astro-edges\`, and \`astro-add-nodes\` in the same response.
-- Do NOT include update blocks if no changes are needed (e.g. the user is just asking a question).
-- **CRITICAL:** When the user asks to change, update, add, remove, or modify ANYTHING in the plan, you MUST include the corresponding mutation blocks (\`astro-updates\`, \`astro-edges\`, or \`astro-add-nodes\`). These blocks are the ONLY way changes are applied to the graph — without them, nothing happens regardless of what you say in text. Never just describe what to do; always emit the blocks.
-- Do NOT output a full plan JSON object. Only use the mutation block formats above. Full JSON replacement is handled by a separate system.
-- When modifying dependencies via "dependencies" in astro-updates, edges are automatically synchronized. Alternatively use astro-edges for individual add/remove.`
+- Do NOT include the JSON block if no changes are needed (e.g. the user is just asking a question).
+- Do NOT output any other \`\`\`json code blocks in your response — the only JSON block should be the mutation.
+- **CRITICAL:** When the user asks to change, update, add, remove, or modify ANYTHING in the plan, you MUST include the JSON block. This is the ONLY way changes are applied to the graph — without it, nothing happens. Never just describe what to do; always emit the block.
+- Do NOT output a full plan JSON object (with "projectName", "nodes", "edges" top-level keys). Only use the mutation format above ("updateNodes", "addNodes", "updateEdges").`
 }
 
 export interface TaskExecutionContext {
@@ -936,92 +910,43 @@ You MUST include a final task node titled "Push to GitHub" that:
   }
 
   const hasCodebase = !!options?.repoContext
-  const isDirectPlan = options?.providerId === 'codex'
 
-  // Codex: generate best-guess plan immediately, list uncertainties at the end.
-  // Codex doesn't support AskUserQuestion, so it can't do multi-turn questioning.
-  // Claude Code and other providers: interactive multi-turn questioning approach.
   let approachSection: string
-  if (isDirectPlan) {
-    approachSection = hasCodebase ? `
+  if (hasCodebase) {
+    approachSection = `
 1. **Quick survey of the codebase** — Get a high-level understanding first. Read READMEs, CLAUDE.md, package.json, and use Glob to see the directory/file tree structure. Do NOT dive into individual source files yet — just get the lay of the land.
 
-2. **Deep-dive into relevant files** — Use Read, Glob, and Grep to examine the specific files and code sections that are relevant to the plan. Share what you find as you go.
+2. **Ask clarifying questions** — If you have a tool to ask the user questions (e.g., AskUserQuestion or an MCP equivalent), use it to clarify:
+   - Architectural decisions (e.g., which approach to take)
+   - Scope choices (e.g., what to include/exclude)
+   - Technology tradeoffs (e.g., library choices)
+   **Ask only one question per call.** Calibrate how many you ask: short/vague descriptions deserve more questions; long/detailed descriptions need fewer — only critical clarifications.
+   If no question-asking tool is available, make reasonable assumptions and list them after the plan.
 
-3. **Share your reasoning** — Think out loud as you explore. Explain what you're finding, what patterns you see, and how they inform the plan.
+3. **Deep-dive into relevant files** — Use Read, Glob, and Grep to examine the specific files and code sections that are relevant to the plan. Share what you find as you go.
 
-4. **Produce the plan immediately** — Based on what you've learned, generate your best-guess plan as a JSON object. Do NOT ask clarifying questions — make reasonable assumptions and move forward. Default verification to "auto" for programmatically verifiable tasks and "human" for design/product decisions.
+4. **Share your reasoning** — Think out loud as you explore. Explain what you're finding, what patterns you see, and how they inform the plan.
 
-5. **List uncertainties** — After the JSON plan, list any assumptions you made or questions that could refine the plan. Format as a bulleted list under a "## Assumptions & Open Questions" heading. The user can address these in a follow-up chat and the plan can be refined.` : `
-1. **Use web search** — Use WebSearch and WebFetch to research relevant technologies, libraries, best practices, or documentation that would inform the plan.
-
-2. **Share your reasoning** — Think out loud. Explain your thought process, what tradeoffs you see, and how they inform the plan.
-
-3. **Produce the plan immediately** — Based on the user's description, generate your best-guess plan as a JSON object. Do NOT ask clarifying questions — make reasonable assumptions and move forward. Default verification to "auto" for programmatically verifiable tasks and "human" for design/product decisions.
-
-4. **List uncertainties** — After the JSON plan, list any assumptions you made or questions that could refine the plan. Format as a bulleted list under a "## Assumptions & Open Questions" heading. The user can address these in a follow-up chat and the plan can be refined.`
+5. **Produce the final plan** — Once you have enough information, output the complete plan as a JSON object in a \`\`\`json code fence. After the JSON, list any assumptions and open questions.`
   } else {
-    approachSection = hasCodebase ? `
-1. **Quick survey of the codebase** — Get a high-level understanding first. Read READMEs, CLAUDE.md, package.json, and use Glob to see the directory/file tree structure. Do NOT dive into individual source files yet — just get the lay of the land.
-
-2. **Ask clarifying questions** — Use AskUserQuestion to get the user's input on:
-   - Architectural decisions (e.g., which approach to take)
-   - Scope choices (e.g., what to include/exclude)
-   - Technology tradeoffs (e.g., library choices)
-   - Priority decisions (e.g., what to tackle first)
-   Keep questions focused and provide concrete options when possible.
-   **Ask only one question per AskUserQuestion call** — the tool supports one question at a time. If you have multiple questions, call it multiple times sequentially.
-   **Calibrate how many questions you ask based on the user's description:**
-   - If the description is short or vague (under ~200 words), be proactive — ask questions to help sharpen the plan.
-   - If the description is long and detailed (over ~200 words) with a clear roadmap, be less proactive — only ask critical technical clarification questions that would materially change the plan.
-
-3. **Deep-dive into relevant files** — Now that you understand the user's intent, use Read, Glob, and Grep to examine the specific files and code sections that are relevant to the plan. Share what you find as you go.
-
-4. **Share your reasoning** — Think out loud as you explore. Explain what you're finding, what patterns you see, and how they inform the plan. The user can see your text output in real-time.
-
-5. **Clarify verification requirements** — Before the final plan, ask the user about verification using AskUserQuestion:
-   "How should completed tasks be verified?"
-   Options: "Automated only", "Automated + human review", "Mixed — auto for testable, human for design", "I'll specify per-task"
-   Based on their answer, set each node's \`verification\` field and populate \`acceptanceCriteria\` with specific checks.
-
-6. **Produce the final plan** — Once you have enough information, output the complete plan as a JSON object. The JSON MUST be the last thing you output.`
-: `
-1. **Ask clarifying questions** — Use AskUserQuestion to get the user's input on:
-   - Architectural decisions (e.g., which approach to take)
-   - Scope choices (e.g., what to include/exclude)
-   - Technology tradeoffs (e.g., library choices)
-   - Priority decisions (e.g., what to tackle first)
-   Keep questions focused and provide concrete options when possible.
-   **Ask only one question per AskUserQuestion call** — the tool supports one question at a time. If you have multiple questions, call it multiple times sequentially.
-   **Calibrate how many questions you ask based on the user's description:**
-   - If the description is short or vague (under ~200 words), be proactive — ask questions to help sharpen the plan.
-   - If the description is long and detailed (over ~200 words) with a clear roadmap, be less proactive — only ask critical technical clarification questions that would materially change the plan.
+    approachSection = `
+1. **Ask clarifying questions** — If you have a tool to ask the user questions (e.g., AskUserQuestion or an MCP equivalent), use it to clarify:
+   - Architectural decisions, scope choices, technology tradeoffs, priority decisions
+   **Ask only one question per call.** Short/vague descriptions deserve more questions; long/detailed ones need fewer.
+   If no question-asking tool is available, make reasonable assumptions and list them after the plan.
 
 2. **Use web search** — Use WebSearch and WebFetch to research relevant technologies, libraries, best practices, or documentation that would inform the plan.
 
-3. **Share your reasoning** — Think out loud. Explain your thought process, what tradeoffs you see, and how they inform the plan. The user can see your text output in real-time.
+3. **Share your reasoning** — Think out loud. Explain your thought process, what tradeoffs you see, and how they inform the plan.
 
-4. **Clarify verification requirements** — Before the final plan, ask the user about verification using AskUserQuestion:
-   "How should completed tasks be verified?"
-   Options: "Automated only", "Automated + human review", "Mixed — auto for testable, human for design", "I'll specify per-task"
-   Based on their answer, set each node's \`verification\` field and populate \`acceptanceCriteria\`.
-
-5. **Produce the final plan** — Once you have enough information, output the complete plan as a JSON object. The JSON MUST be the last thing you output.`
+4. **Produce the final plan** — Output the complete plan as a JSON object in a \`\`\`json code fence. After the JSON, list any assumptions and open questions.`
   }
 
-  const importantSection = isDirectPlan
-    ? `## Important
-- Do NOT ask clarifying questions. Generate the best plan you can with the information available.
+  const importantSection = `## Important
 - Do NOT write code, create files, or build anything. Your only job is to plan — the tasks you create will be executed later by agents.
 - Your text output is visible to the user in real-time as a chat conversation.
-- The JSON plan should be the LAST thing you output, wrapped in a \`\`\`json code fence.
-- After the JSON, list your assumptions and open questions so the user can refine the plan in a follow-up chat.`
-    : `## Important
-- Do NOT rush to produce the plan. Take time to explore and ask questions first.
-- Do NOT write code, create files, or build anything. Your only job is to plan — the tasks you create will be executed later by agents.
-- Your text output is visible to the user in real-time as a chat conversation.
-- The JSON plan should be the LAST thing you output, wrapped in a \`\`\`json code fence.
-- After the JSON, do not output any more text.`
+- The JSON plan MUST be wrapped in a \`\`\`json code fence.
+- After the JSON, you may list assumptions and open questions so the user can refine the plan.`
 
   return `You are an interactive project planning assistant. Your goal is to help the user create a detailed, actionable project plan through exploration and discussion.
 
@@ -1086,7 +1011,7 @@ When ready, output a single JSON object with this structure:
 - milestoneId: REQUIRED for tasks — every task must reference a milestone
 - labelIds: from {l1: Frontend/UI, l2: Backend/API, l3: Testing/QA, l4: Infrastructure/DevOps, l5: Research}
 - acceptanceCriteria: optional array of verification checks with {id, description, type, command?, autoVerifiable}
-- 6–15 nodes. Valid DAG (no cycles)
+- Aim for 6–15 nodes, but this is flexible — use more for complex projects, fewer for simple ones. Valid DAG (no cycles)
 - projectName: at most 7 words, title case, no filler words
 
 ## Edge Rules

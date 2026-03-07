@@ -206,11 +206,12 @@ export const academicReviewTemplate: UseCaseTemplate = {
 ## Skill Reference
 This project uses the \`academic-review\` skill. The skill's SKILL.md contains:
 - The complete Review Scoring Rubric (1-10 scale across 8 dimensions)
-- Document parsing instructions per format (PDF skill, DOCX skill, LaTeX/MD direct)
 - The 6-phase review pipeline specification
 - Logic flow diagram generation guidelines
 - Report LaTeX/Markdown template and styling
 - Literature comparison methodology
+
+When source format is PDF or DOCX, the corresponding skill (pdf or docx) is also loaded with format-specific extraction instructions.
 
 **The SKILL.md is the single source of truth for review criteria and report format.**
 
@@ -290,17 +291,13 @@ Save ALL output files (reports, diagrams, notes, PDFs) under the \`outputs/\` di
 - Focus Areas: {{focusAreas}}
 - Target Venue: {{targetVenue}}
 
-## CRITICAL: Document Reading Tools
+## Document Reading — Source Format: {{sourceFormat}}
 
-The PDF and DOCX skills are pre-loaded and available in your skill instructions. Follow them for document processing.
-
-**For PDF files**: Use the PDF skill instructions to read and extract content from PDF documents (pypdf, pdfplumber, or the Read tool on .pdf files).
-
-**For DOCX files**: Use the DOCX skill instructions to read and extract content from Word documents.
-
-**For LaTeX files**: Read .tex files directly with the Read tool. Parse \\section, \\subsection, equations (\\begin{equation}), figures (\\includegraphics), and bibliography.
-
-**For Markdown files**: Read .md files directly with the Read tool.
+Use the appropriate tool for the selected source format:
+- **PDF**: The PDF skill is included in your skill instructions. Follow it for extraction (pypdf, pdfplumber, or the Read tool on .pdf files).
+- **DOCX**: The DOCX skill is included in your skill instructions. Follow it for extraction.
+- **LaTeX**: Read .tex files directly with the Read tool. Parse \\section, \\subsection, equations (\\begin{equation}), figures (\\includegraphics), and bibliography.
+- **Markdown**: Read .md files directly with the Read tool.
 
 ## Skill Reference
 Consult the \`academic-review\` skill's SKILL.md for:
@@ -385,11 +382,12 @@ Weighted average of all 8 dimensions. Final verdict:
 - 3.5-4.9: **Weak Reject** — significant issues
 - 1.0-3.4: **Reject** — fundamental problems
 
-## Document Reading Tools
-- **PDF**: Use the PDF skill (Read tool on .pdf files)
-- **DOCX**: Use the DOCX skill (Bash extraction for .docx files)
-- **LaTeX**: Read .tex files directly
-- **Markdown**: Read .md files directly
+## Document Reading
+Use the tool matching the source format ({{sourceFormat}}):
+- **PDF**: Follow the PDF skill instructions (loaded when sourceFormat is pdf)
+- **DOCX**: Follow the DOCX skill instructions (loaded when sourceFormat is docx)
+- **LaTeX**: Read .tex files directly with the Read tool
+- **Markdown**: Read .md files directly with the Read tool
 
 ## Report Structure
 The final review report follows this structure:
@@ -478,6 +476,12 @@ The final review report follows this structure:
   // ── Relationships ─────────────────────────────────────────────────────
   domains: ['scientific-computing'],
   recommendedSkills: ['academic-review'],
+  conditionalSkills: {
+    sourceFormat: {
+      pdf: ['pdf'],
+      docx: ['docx'],
+    },
+  },
   source: 'builtin',
   enabled: true,
 }

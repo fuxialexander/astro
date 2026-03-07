@@ -1136,10 +1136,22 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
                 const result = applyPlanFromText(projectId, exec.streamText, exec.executionId || undefined)
                 if (result.applied) {
                   console.log(`[plan-generation] Plan extracted: ${result.nodeCount} nodes`)
+                } else {
+                  console.warn("[plan-generation] Plan extraction returned no result — model output may not contain valid JSON")
+                  useToastStore.getState().add({
+                    type: "warning",
+                    title: "Plan extraction failed",
+                    description: "The AI's response didn't contain a valid plan JSON. Try regenerating the plan or refining your description.",
+                  })
                 }
               }
             } catch (e) {
               console.error("[plan-generation] Failed to extract plan:", e)
+              useToastStore.getState().add({
+                type: "error",
+                title: "Plan extraction error",
+                description: e instanceof Error ? e.message : "Unknown error extracting plan",
+              })
             }
           }
         }, abortController.signal)

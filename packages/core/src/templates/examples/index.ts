@@ -3,9 +3,8 @@
  *
  * Curated example templates available to all Astro users.
  *
- * Note: Previous templates (web-app, ml-pipeline, etc.) remain on disk
- * but are not imported. They can be restored by re-adding their imports
- * and entries to BUILTIN_TEMPLATES.
+ * Only the active 3 templates are maintained here.
+ * Obsolete templates (web-app, ml-pipeline, etc.) have been removed.
  */
 
 export { academicPresentationTemplate } from './academic-presentation.js'

@@ -788,6 +788,18 @@ export interface UseCaseTemplate {
   recommendedSkills?: string[]
 
   /**
+   * Skills that are conditionally loaded based on parameter values.
+   *
+   * Maps a parameter ID to a record of value → skill name(s). When the user
+   * selects a specific value for the parameter, the corresponding skills are
+   * fetched and included in the visionDoc alongside `recommendedSkills`.
+   *
+   * Example: `{ sourceFormat: { pdf: ['pdf'], docx: ['docx'] } }`
+   * → When sourceFormat is 'pdf', the 'pdf' skill is loaded.
+   */
+  conditionalSkills?: Record<string, Record<string, string[]>>
+
+  /**
    * IDs of templates that this template extends or refines.
    *
    * When extending, the child template inherits parameters and prompts

@@ -30,10 +30,13 @@ function sanitizeInstructions(text: string): string {
 }
 
 /**
- * Filter skills eligible for prompt injection (enabled + not model-invocation-disabled)
+ * Filter skills eligible for prompt injection.
+ * Excludes disabled skills, model-invocation-disabled skills, and domain-specific
+ * workflow skills (category: 'workflows') which are example-specific and should not
+ * be injected into every prompt. Users can still view/manage workflow skills in the UI.
  */
 export function getEligibleSkills(skills: OpenClawSkill[]): OpenClawSkill[] {
-  return skills.filter(s => s.enabled && !s.disableModelInvocation)
+  return skills.filter(s => s.enabled && !s.disableModelInvocation && s.category !== 'workflows')
 }
 
 /**

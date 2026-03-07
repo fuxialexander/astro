@@ -970,7 +970,7 @@ You decompose the project into a directed acyclic graph of tasks and milestones.
 - type: "dependency" for sequential, "branch" for parallel paths from a common node.
 
 ## Constraints
-- 6-15 nodes. Valid DAG (no cycles).
+- Aim for 6–15 nodes, but this is flexible — use more for complex projects, fewer for simple ones. Valid DAG (no cycles).
 - Every task node MUST have a milestoneId set.
 - projectName MUST be at most 7 words. Use title case. No articles or filler words.
 - Output MUST be a single JSON object with keys: projectName (string), nodes (array), edges (array).
