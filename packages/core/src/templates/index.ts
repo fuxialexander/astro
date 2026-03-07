@@ -115,3 +115,6 @@ export {
   validateExample,
   formatValidationResult,
 } from './template-validator.js'
+
+// ── Skill Resolution ──────────────────────────────────────────────────
+export { deriveEffectiveSkills } from './skill-resolution.js'

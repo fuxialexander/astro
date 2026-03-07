@@ -37,6 +37,7 @@ import {
   Rocket,
   Sparkles,
 } from "lucide-react"
+import { deriveEffectiveSkills } from "@astro/core/templates"
 import type { UseCaseTemplateSummary } from "@astro/core/templates"
 import { previewExample as previewExampleApi } from "@/lib/api-client"
 import type { LaunchExampleResult } from "@/lib/api-client"
@@ -181,18 +182,10 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
   const [skillsLoading, setSkillsLoading] = useState(false)
 
   // Derive the full skill list: recommendedSkills + conditionalSkills based on parameter values
-  const effectiveSkillNames = useMemo(() => {
-    const names = new Set(selectedTemplate?.recommendedSkills ?? [])
-    if (selectedTemplate?.conditionalSkills) {
-      for (const [paramId, valueMap] of Object.entries(selectedTemplate.conditionalSkills)) {
-        const paramValue = parameterValues[paramId]
-        if (typeof paramValue === 'string' && valueMap[paramValue]) {
-          for (const skill of valueMap[paramValue]) names.add(skill)
-        }
-      }
-    }
-    return Array.from(names).sort()
-  }, [selectedTemplate?.recommendedSkills, selectedTemplate?.conditionalSkills, parameterValues])
+  const effectiveSkillNames = useMemo(
+    () => deriveEffectiveSkills(selectedTemplate, parameterValues as Record<string, unknown>),
+    [selectedTemplate, parameterValues],
+  )
 
   // Stable key for the skill list — prevents re-fetch when array reference changes but contents don't
   const skillNamesKey = effectiveSkillNames.join(',')
