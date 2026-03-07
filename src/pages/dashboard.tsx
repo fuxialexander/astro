@@ -26,6 +26,7 @@ import { useRealtimeStore, type ActivityEvent } from "@/stores/realtime-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useStatsStore } from "@/stores/stats-store"
+import { useSettingsStore } from "@/stores/settings-store"
 import { ApprovalCard } from "@/components/approval-card"
 import { InlineApprovalCard } from "@/components/plan-generation/inline-approval-card"
 import { ActivityOverview } from "@/components/dashboard/activity-overview"
@@ -79,6 +80,15 @@ export function Dashboard() {
   const [resettingId, setResettingId] = useState<string | null>(null)
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
+  const yoloMode = useSettingsStore((s) => s.yoloMode)
+
+  // Auto-dismiss any approval cards that leaked through in YOLO mode
+  useEffect(() => {
+    if (!yoloMode || dynamicApprovals.size === 0) return
+    for (const approval of dynamicApprovals.values()) {
+      respondToDynamicApproval(approval.taskId, approval.requestId, approval.options[0])
+    }
+  }, [yoloMode, dynamicApprovals.size, respondToDynamicApproval])
   const heatmapData = useStatsStore((s) => s.heatmapData)
   const hourlyData = useStatsStore((s) => s.hourlyData)
   const stats = useStatsStore((s) => s.stats)
