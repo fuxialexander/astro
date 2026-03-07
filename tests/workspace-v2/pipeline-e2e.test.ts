@@ -89,10 +89,8 @@ const dispatchTaskSchema = z.object({
     (path) => !path.includes('..'),
     { message: 'Path traversal not allowed' },
   ).optional(),
-  sourceDirectory: z.string().max(1000).refine(
-    (path) => !path.includes('..'),
-    { message: 'Path traversal not allowed' },
-  ).optional(),
+  /** @deprecated Always equals workingDirectory. Kept for backward compat with in-flight requests. */
+  sourceDirectory: z.string().max(1000).optional(),
   force: z.boolean().optional(),
   dryRun: z.boolean().optional(),
   computeBackend: z.string().max(100).optional(),
@@ -262,7 +260,6 @@ describe('B. Dispatch schema validation', () => {
       agentDir: '.myagent',
       worktreeStrategy: 'reference' as const,
       remoteType: 'github' as const,
-      sourceDirectory: '/tmp/original',
     }
 
     const result = dispatchTaskSchema.safeParse(fullBody)
@@ -273,7 +270,6 @@ describe('B. Dispatch schema validation', () => {
       expect(result.data.agentDir).toBe('.myagent')
       expect(result.data.worktreeStrategy).toBe('reference')
       expect(result.data.remoteType).toBe('github')
-      expect(result.data.sourceDirectory).toBe('/tmp/original')
     }
   })
 

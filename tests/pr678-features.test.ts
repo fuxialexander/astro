@@ -97,12 +97,11 @@ describe('Output directory prompt injection logic', () => {
    * Only inject when the task uses a worktree (files will be lost on cleanup).
    */
   function shouldInjectOutputDirectoryPrompt(
-    sourceDirectory: string | undefined,
     workingDirectory: string | undefined,
     useWorktree: boolean | undefined,
     deliveryMode: string | undefined,
   ): boolean {
-    const outputBase = sourceDirectory || workingDirectory
+    const outputBase = workingDirectory
     const usesWorktreeForOutput =
       !!outputBase &&
       useWorktree !== false &&
@@ -112,70 +111,63 @@ describe('Output directory prompt injection logic', () => {
 
   it('injects when worktree with PR delivery', () => {
     expect(shouldInjectOutputDirectoryPrompt(
-      '/project', '/project', true, 'pr'
+      '/project', true, 'pr'
     )).toBe(true)
   })
 
   it('injects when worktree with push delivery', () => {
     expect(shouldInjectOutputDirectoryPrompt(
-      '/project', '/project', true, 'push'
+      '/project', true, 'push'
     )).toBe(true)
   })
 
   it('injects when worktree with branch delivery', () => {
     expect(shouldInjectOutputDirectoryPrompt(
-      '/project', '/project', true, 'branch'
+      '/project', true, 'branch'
     )).toBe(true)
   })
 
   it('injects when worktree with copy delivery', () => {
     expect(shouldInjectOutputDirectoryPrompt(
-      '/project', '/project', true, 'copy'
+      '/project', true, 'copy'
     )).toBe(true)
   })
 
   it('does NOT inject for direct delivery (no worktree cleanup)', () => {
     expect(shouldInjectOutputDirectoryPrompt(
-      '/project', '/project', true, 'direct'
+      '/project', true, 'direct'
     )).toBe(false)
   })
 
   it('does NOT inject when useWorktree is false', () => {
     expect(shouldInjectOutputDirectoryPrompt(
-      '/project', '/project', false, 'pr'
+      '/project', false, 'pr'
     )).toBe(false)
   })
 
   it('does NOT inject when no directory available', () => {
     expect(shouldInjectOutputDirectoryPrompt(
-      undefined, undefined, true, 'pr'
+      undefined, true, 'pr'
     )).toBe(false)
   })
 
-  it('falls back to workingDirectory when sourceDirectory is undefined', () => {
+  it('injects with workingDirectory', () => {
     expect(shouldInjectOutputDirectoryPrompt(
-      undefined, '/project', true, 'pr'
-    )).toBe(true)
-  })
-
-  it('prefers sourceDirectory when both provided', () => {
-    // sourceDirectory || workingDirectory → sourceDirectory wins
-    expect(shouldInjectOutputDirectoryPrompt(
-      '/source', '/working', true, 'pr'
+      '/project', true, 'pr'
     )).toBe(true)
   })
 
   it('defaults delivery mode to pr when undefined', () => {
     // (deliveryMode ?? 'pr') !== 'direct' → 'pr' !== 'direct' → true
     expect(shouldInjectOutputDirectoryPrompt(
-      '/project', '/project', true, undefined
+      '/project', true, undefined
     )).toBe(true)
   })
 
   it('defaults useWorktree to true when undefined', () => {
     // useWorktree !== false → undefined !== false → true
     expect(shouldInjectOutputDirectoryPrompt(
-      '/project', '/project', undefined, 'pr'
+      '/project', undefined, 'pr'
     )).toBe(true)
   })
 })

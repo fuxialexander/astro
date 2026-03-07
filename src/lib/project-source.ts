@@ -57,7 +57,7 @@ export function resolveProjectSource(project: Project): ProjectSource | undefine
   // If source is already populated, return it
   if (project.source) return project.source
 
-  const localPath = project.sourceDirectory || project.workingDirectory
+  const localPath = project.workingDirectory
   if (!localPath) return undefined
 
   const remoteUrl = project.repository || undefined

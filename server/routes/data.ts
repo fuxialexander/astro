@@ -127,7 +127,6 @@ app.post('/projects', async (c) => {
       icon: body.icon ?? '📋',
       number: assignedNumber ?? (body.number ?? null),
       workingDirectory: body.workingDirectory || null,
-      sourceDirectory: body.sourceDirectory || null,
       repository: body.repository || null,
       // Use pre-validated GitHub variables, with auto-extraction fallback from repository URL
       githubOwner: finalGithubOwner,
@@ -208,7 +207,6 @@ app.patch('/projects/:id', async (c) => {
   if (body.icon !== undefined) patch.icon = body.icon
   if (body.number !== undefined) patch.number = body.number
   if (body.workingDirectory !== undefined) patch.workingDirectory = body.workingDirectory || null
-  if (body.sourceDirectory !== undefined) patch.sourceDirectory = body.sourceDirectory || null
   if (body.repository !== undefined) patch.repository = body.repository || null
   if (body.githubOwner !== undefined) patch.githubOwner = body.githubOwner || null
   if (body.githubRepo !== undefined) patch.githubRepo = body.githubRepo || null

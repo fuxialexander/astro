@@ -504,7 +504,7 @@ describe('Launch with visionDoc reflects conditional skill loading', () => {
       `/api/examples/${encodeURIComponent('astro--academic-review')}/preview`,
       {
         parameters: {
-          sourceDirectory: '/tmp/test-papers',
+          workingDirectory: '/tmp/test-papers',
           documentType: 'paper',
           sourceFormat: 'pdf',
         },
@@ -525,7 +525,7 @@ describe('Launch with visionDoc reflects conditional skill loading', () => {
       `/api/examples/${encodeURIComponent('astro--academic-review')}/preview`,
       {
         parameters: {
-          sourceDirectory: '/tmp/test-papers',
+          workingDirectory: '/tmp/test-papers',
           documentType: 'paper',
           sourceFormat: 'latex',
         },

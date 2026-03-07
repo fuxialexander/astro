@@ -13,7 +13,6 @@ import { describe, it, expect } from 'vitest'
 // Extract the repoContext construction logic from plan-canvas.tsx
 // so we can test it without a full React render.
 interface ProjectLike {
-  sourceDirectory?: string
   workingDirectory?: string
   repository?: string
   defaultMachineId?: string
@@ -25,8 +24,8 @@ interface RepoContext {
 }
 
 function buildRepoContext(project: ProjectLike): RepoContext | undefined {
-  return (project.sourceDirectory || project.workingDirectory || project.repository || project.defaultMachineId) ? {
-    workingDirectory: project.sourceDirectory || project.workingDirectory || project.repository || '',
+  return (project.workingDirectory || project.repository || project.defaultMachineId) ? {
+    workingDirectory: project.workingDirectory || project.repository || '',
     targetMachineId: project.defaultMachineId,
   } : undefined
 }
@@ -39,7 +38,6 @@ describe('buildRepoContext for plan regeneration', () => {
 
     it('returns undefined when all fields are undefined', () => {
       expect(buildRepoContext({
-        sourceDirectory: undefined,
         workingDirectory: undefined,
         repository: undefined,
         defaultMachineId: undefined,
@@ -47,11 +45,10 @@ describe('buildRepoContext for plan regeneration', () => {
     })
   })
 
-  describe('priority: sourceDirectory > workingDirectory > repository', () => {
-    it('uses sourceDirectory when available', () => {
+  describe('priority: workingDirectory > repository', () => {
+    it('uses workingDirectory when available', () => {
       const ctx = buildRepoContext({
-        sourceDirectory: '/home/user/project',
-        workingDirectory: '/home/user/other',
+        workingDirectory: '/home/user/project',
         repository: 'https://github.com/user/repo',
       })
       expect(ctx).toEqual({
@@ -60,18 +57,7 @@ describe('buildRepoContext for plan regeneration', () => {
       })
     })
 
-    it('falls back to workingDirectory when no sourceDirectory', () => {
-      const ctx = buildRepoContext({
-        workingDirectory: '/home/user/other',
-        repository: 'https://github.com/user/repo',
-      })
-      expect(ctx).toEqual({
-        workingDirectory: '/home/user/other',
-        targetMachineId: undefined,
-      })
-    })
-
-    it('falls back to repository when no sourceDirectory or workingDirectory', () => {
+    it('falls back to repository when no workingDirectory', () => {
       const ctx = buildRepoContext({
         repository: 'https://github.com/user/repo',
       })
@@ -85,7 +71,7 @@ describe('buildRepoContext for plan regeneration', () => {
   describe('machine ID propagation', () => {
     it('includes defaultMachineId when present', () => {
       const ctx = buildRepoContext({
-        sourceDirectory: '/home/user/project',
+        workingDirectory: '/home/user/project',
         defaultMachineId: 'machine-123',
       })
       expect(ctx).toEqual({
@@ -106,7 +92,7 @@ describe('buildRepoContext for plan regeneration', () => {
 
     it('omits targetMachineId when defaultMachineId is undefined', () => {
       const ctx = buildRepoContext({
-        sourceDirectory: '/home/user/project',
+        workingDirectory: '/home/user/project',
       })
       expect(ctx?.targetMachineId).toBeUndefined()
     })
@@ -115,7 +101,7 @@ describe('buildRepoContext for plan regeneration', () => {
   describe('real-world scenarios', () => {
     it('local project with directory and machine', () => {
       const ctx = buildRepoContext({
-        sourceDirectory: '/home/user/my-app',
+        workingDirectory: '/home/user/my-app',
         defaultMachineId: 'local-macbook',
       })
       expect(ctx).toEqual({

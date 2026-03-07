@@ -192,9 +192,9 @@ describe('resolveProjectSource', () => {
     expect(resolveProjectSource(project)).toBeUndefined()
   })
 
-  it('resolves from sourceDirectory', () => {
+  it('resolves from workingDirectory with repository', () => {
     const project = {
-      sourceDirectory: '/home/user/project',
+      workingDirectory: '/home/user/project',
       repository: 'https://github.com/user/repo.git',
     } as Project
 
@@ -205,7 +205,7 @@ describe('resolveProjectSource', () => {
     expect(source!.isGit).toBe(true)
   })
 
-  it('resolves from workingDirectory when sourceDirectory absent', () => {
+  it('resolves from workingDirectory alone', () => {
     const project = {
       workingDirectory: '/home/user/work',
     } as Project

@@ -177,7 +177,6 @@ export interface Project {
   color?: string;
   icon?: string;
   workingDirectory?: string;
-  sourceDirectory?: string;
   repository?: string;
   resourcePaths?: string[];
   fileTree?: string[];

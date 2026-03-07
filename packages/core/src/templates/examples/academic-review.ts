@@ -34,8 +34,8 @@ export const academicReviewTemplate: UseCaseTemplate = {
 
   requiredParameters: [
     {
-      id: 'sourceDirectory',
-      name: 'Source Directory',
+      id: 'workingDirectory',
+      name: 'Working Directory',
       description:
         'Path to the directory containing the document(s) to review. The directory should contain files in the selected source format.',
       type: 'string',
@@ -192,7 +192,7 @@ export const academicReviewTemplate: UseCaseTemplate = {
     planGeneration: `You are a world-class academic reviewer generating a superhuman-level review pipeline for a document.
 
 ## Document Specification
-- Source Directory: {{sourceDirectory}}
+- Working Directory: {{workingDirectory}}
 - Document Type: {{documentType}}
 - Source Format: {{sourceFormat}}
 - Review Depth: {{reviewDepth}}
@@ -284,7 +284,7 @@ Decompose this review into a DAG of tasks following the 6-phase pipeline:
 Save ALL output files (reports, diagrams, notes, PDFs) under the \`outputs/\` directory in the working directory. Never write results to the repository root or git worktree root. Intermediate files (LaTeX sources, raw notes) and final deliverables (PDFs, SVGs) must all go under \`outputs/\`.
 
 ## Context
-- Source Directory: {{sourceDirectory}}
+- Working Directory: {{workingDirectory}}
 - Document Type: {{documentType}}
 - Source Format: {{sourceFormat}}
 - Review Depth: {{reviewDepth}}
