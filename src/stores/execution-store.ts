@@ -2562,14 +2562,21 @@ function handleSSEEvent(
               })
               const proj = useProjectStore.getState().projects.find((p) => p.id === pid)
               const allSuccess = projectNodes.every((n) => n.status === 'completed' || n.status === 'auto_verified')
+              const branch = proj?.projectBranch
+              let desc: string
+              if (proj && allSuccess && branch) {
+                desc = `All tasks in "${proj.name}" completed. Changes on branch \`${branch}\`.`
+              } else if (proj && allSuccess) {
+                desc = `All tasks in "${proj.name}" completed successfully.`
+              } else if (proj) {
+                desc = `All tasks in "${proj.name}" have finished. Some were pruned.`
+              } else {
+                desc = allSuccess ? 'All project tasks completed.' : 'All project tasks have finished.'
+              }
               useToastStore.getState().add({
                 type: allSuccess ? 'success' : 'warning',
                 title: allSuccess ? 'All tasks complete' : 'All tasks finished',
-                description: proj
-                  ? (allSuccess
-                    ? `All tasks in "${proj.name}" completed successfully.`
-                    : `All tasks in "${proj.name}" have finished. Some were pruned.`)
-                  : (allSuccess ? 'All project tasks completed.' : 'All project tasks have finished.'),
+                description: desc,
                 duration: 8000,
               })
             }

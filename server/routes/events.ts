@@ -27,7 +27,7 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { getMachine } from '../lib/registered-machines-store.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
-import type { ApprovalRequestedEvent, ApprovalRespondedEvent } from '../lib/events/types.js'
+import type { ApprovalRequestedEvent, ApprovalRespondedEvent, ProjectCompletedEvent } from '../lib/events/types.js'
 import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { isYoloMode } from '../lib/yolo-mode.js'
@@ -578,6 +578,24 @@ eventsRoute.get('/stream', async (c) => {
     executionEventBus.on('merge_queue:failed', onMergeQueueFailed)
     executionEventBus.on('merge_queue:succeeded', onMergeQueueSucceeded)
 
+    // Project completion handler — forward to browser as SSE
+    const onProjectCompleted = async (event: ProjectCompletedEvent) => {
+      if (!alive) return
+      if (!await isProjectOwnedByUser(event.projectId)) return
+      const data = JSON.stringify({
+        projectId: event.projectId,
+        projectBranch: event.projectBranch,
+        projectPrUrl: event.projectPrUrl,
+        projectPrNumber: event.projectPrNumber,
+        deliveryMode: event.project?.deliveryMode,
+        baseBranch: (event.project?.source as { baseBranch?: string } | undefined)?.baseBranch ?? 'main',
+        projectName: event.project?.name,
+        timestamp: event.timestamp,
+      })
+      const id = eventBuffer.push('project:completed', data)
+      stream.writeSSE({ id, event: 'project:completed', data }).catch(() => { alive = false })
+    }
+
     // Subscribe to approval events from astroEventTransport
     const astroEventHandler = (event: { type: string; [key: string]: unknown }) => {
       if (!alive) return
@@ -585,6 +603,8 @@ eventsRoute.get('/stream', async (c) => {
         onApprovalRequested(event as ApprovalRequestedEvent)
       } else if (event.type === 'approval.responded') {
         onApprovalResponded(event as ApprovalRespondedEvent)
+      } else if (event.type === 'project.completed') {
+        onProjectCompleted(event as unknown as ProjectCompletedEvent)
       }
     }
     astroEventTransport.on('event', astroEventHandler)

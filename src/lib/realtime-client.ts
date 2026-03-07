@@ -33,6 +33,7 @@ export type RealtimeEventType =
   | 'task:ready'
   | 'merge_queue:failed'
   | 'merge_queue:succeeded'
+  | 'project:completed'
   | 'heartbeat'
 
 export interface RealtimeEvent {
@@ -169,6 +170,7 @@ export class RealtimeClient {
       'task:ready',
       'merge_queue:failed',
       'merge_queue:succeeded',
+      'project:completed',
       'heartbeat',
     ]
 
