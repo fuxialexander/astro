@@ -1,12 +1,11 @@
 /**
- * PdfViewer — Renders PDFs using native browser embed
- *
- * Falls back to a download card if the browser doesn't support embedded PDFs.
+ * PdfViewer — Renders PDFs fetched with auth headers via blob URL
  */
 
-import { useState } from "react"
-import { FileText, Loader2 } from "lucide-react"
-import { buildContentUrl } from "../file-type-utils"
+import { FileText, Loader2, Download } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { useAuthenticatedContent } from "./use-authenticated-content"
+import { downloadFile } from "../download-utils"
 import { cn } from "@/lib/utils"
 
 interface PdfViewerProps {
@@ -16,24 +15,21 @@ interface PdfViewerProps {
 }
 
 export function PdfViewer({ machineId, filePath, className }: PdfViewerProps) {
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(false)
-
-  const src = buildContentUrl(machineId, filePath)
-  const filename = filePath.split("/").pop() ?? "document.pdf"
+  const { blobUrl, loading, error } = useAuthenticatedContent(machineId, filePath, "blob")
 
   if (error) {
     return (
       <div className={cn("flex flex-col items-center justify-center h-full gap-3 p-4", className)}>
         <FileText className="h-10 w-10 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">Unable to preview PDF</p>
-        <a
-          href={buildContentUrl(machineId, filePath, true)}
-          download={filename}
-          className="text-xs text-primary hover:underline"
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => downloadFile(machineId, filePath).catch(() => {})}
         >
+          <Download className="h-3.5 w-3.5 mr-1.5" />
           Download instead
-        </a>
+        </Button>
       </div>
     )
   }
@@ -45,16 +41,13 @@ export function PdfViewer({ machineId, filePath, className }: PdfViewerProps) {
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       )}
-      <embed
-        src={src}
-        type="application/pdf"
-        className="h-full w-full"
-        onLoad={() => setLoading(false)}
-        onError={() => {
-          setLoading(false)
-          setError(true)
-        }}
-      />
+      {blobUrl && (
+        <embed
+          src={blobUrl}
+          type="application/pdf"
+          className="h-full w-full"
+        />
+      )}
     </div>
   )
 }
