@@ -40,7 +40,7 @@ export function BackendMultiSelect({
         >
           <Server className="h-3 w-3" />
           <span className="max-w-[200px] truncate">
-            {selectedBackends.length === 0 ? "Select compute skills…" : selectedNames}
+            {selectedBackends.length === 0 ? "Compute backends" : selectedNames}
           </span>
           <ChevronDown className="h-3 w-3 opacity-50" />
         </Button>
