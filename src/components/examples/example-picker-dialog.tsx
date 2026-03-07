@@ -175,21 +175,39 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
     }
   }, [selectedMachine?.machineId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Skill state — fetched from recommended skills, editable by user
+  // Skill state — fetched from recommended + conditional skills, editable by user
   const [skillInstructions, setSkillInstructions] = useState<Record<string, string>>({})
   const [skillsExpanded, setSkillsExpanded] = useState<string | null>(null)
   const [skillsLoading, setSkillsLoading] = useState(false)
 
-  // Fetch SKILL.md files when template has recommendedSkills
+  // Derive the full skill list: recommendedSkills + conditionalSkills based on parameter values
+  const effectiveSkillNames = useMemo(() => {
+    const names = new Set(selectedTemplate?.recommendedSkills ?? [])
+    if (selectedTemplate?.conditionalSkills) {
+      for (const [paramId, valueMap] of Object.entries(selectedTemplate.conditionalSkills)) {
+        const paramValue = parameterValues[paramId]
+        if (typeof paramValue === 'string' && valueMap[paramValue]) {
+          for (const skill of valueMap[paramValue]) names.add(skill)
+        }
+      }
+    }
+    return Array.from(names).sort()
+  }, [selectedTemplate?.recommendedSkills, selectedTemplate?.conditionalSkills, parameterValues])
+
+  // Stable key for the skill list — prevents re-fetch when array reference changes but contents don't
+  const skillNamesKey = effectiveSkillNames.join(',')
+
+  // Fetch SKILL.md files when effective skill list changes
   useEffect(() => {
-    if (!selectedTemplate?.recommendedSkills?.length) {
+    const names = skillNamesKey ? skillNamesKey.split(',') : []
+    if (!names.length) {
       setSkillInstructions({})
       return
     }
     let cancelled = false
     setSkillsLoading(true)
     Promise.all(
-      selectedTemplate.recommendedSkills.map(async (name) => {
+      names.map(async (name) => {
         try {
           const res = await fetch(apiUrl(`/api/skills/files/${encodeURIComponent(name)}/SKILL.md`))
           if (!res.ok) return [name, ''] as const
@@ -211,7 +229,7 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
       setSkillsLoading(false)
     })
     return () => { cancelled = true }
-  }, [selectedTemplate?.recommendedSkills])
+  }, [skillNamesKey])
 
   // Reset wizard state when dialog opens/closes
   useEffect(() => {
