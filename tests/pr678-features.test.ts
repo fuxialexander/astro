@@ -422,8 +422,8 @@ describe('Source code: events.ts YOLO + per-project safety', () => {
     const projectCheckIdx = source.indexOf('safetyApprovedProjects.has(')
     expect(projectCheckIdx).toBeGreaterThan(-1)
     // Find the isYoloMode call AFTER the per-project check (same handler)
-    // isYoloMode now takes user?.id as argument
-    const yoloAfterProjectIdx = source.indexOf('isYoloMode(user?.id).then(', projectCheckIdx)
+    // isYoloMode now takes (user?.id, msg.taskId) for playground-aware YOLO
+    const yoloAfterProjectIdx = source.indexOf('isYoloMode(user?.id, msg.taskId).then(', projectCheckIdx)
     expect(yoloAfterProjectIdx).toBeGreaterThan(-1)
     expect(projectCheckIdx).toBeLessThan(yoloAfterProjectIdx)
   })

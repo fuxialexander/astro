@@ -265,7 +265,8 @@ eventsRoute.get('/stream', async (c) => {
       if (!isTaskOwnedByUser(msg.taskId)) return
 
       // Check YOLO mode fresh from DB (not cached) so mid-session toggles take effect
-      isYoloMode(user?.id).then((yoloEnabled) => {
+      // Pass taskId so playground tasks check playgroundYoloMode separately
+      isYoloMode(user?.id, msg.taskId).then((yoloEnabled) => {
         if (!alive) return
 
         // YOLO mode: auto-approve with first option (AI's recommendation)
@@ -348,7 +349,7 @@ eventsRoute.get('/stream', async (c) => {
       }
 
       // YOLO mode: auto-proceed for safety prompts (skip the dialog)
-      isYoloMode(user?.id).then((yoloEnabled) => {
+      isYoloMode(user?.id, msg.taskId).then((yoloEnabled) => {
         if (!alive) return
 
         if (yoloEnabled) {
