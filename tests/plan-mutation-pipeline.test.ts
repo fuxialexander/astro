@@ -584,4 +584,386 @@ All done!`
       expect(getNode('t1')!.priority).toBe('low')
     })
   })
+
+  // ─── Additional Edge Cases (deployment-realistic) ──────────────────
+
+  describe('realistic AI output patterns', () => {
+    it('handles AI that outputs mutation block in the middle of text', () => {
+      const { getNode } = seedStore()
+
+      const aiResponse = `Let me reprioritize that for you.
+
+\`\`\`json
+{
+  "updateNodes": [
+    { "nodeId": "t1", "priority": "urgent" }
+  ]
+}
+\`\`\`
+
+I've set "Set up API" to urgent priority. Let me know if you want any other changes.`
+
+      const { cleanContent, mutations } = extractMutations(aiResponse)
+      applyMutationsToStore(PROJECT_ID, mutations)
+
+      expect(getNode('t1')!.priority).toBe('urgent')
+      expect(cleanContent).toContain('Let me reprioritize')
+      expect(cleanContent).toContain('Let me know if you want')
+      expect(cleanContent).not.toContain('updateNodes')
+    })
+
+    it('handles AI that outputs extra whitespace in JSON', () => {
+      const { getNode } = seedStore()
+
+      const aiResponse = `\`\`\`json
+
+{
+  "updateNodes":   [
+    {   "nodeId" :  "t1" ,  "priority" :  "low"   }
+  ]
+}
+
+\`\`\``
+
+      const { mutations } = extractMutations(aiResponse)
+      applyMutationsToStore(PROJECT_ID, mutations)
+
+      expect(getNode('t1')!.priority).toBe('low')
+    })
+
+    it('handles full plan JSON without treating it as mutation (projectName/nodes/edges)', () => {
+      seedStore()
+      const initialNodes = usePlanStore.getState().nodes.length
+
+      // AI accidentally outputs a full plan JSON — should NOT be treated as mutation
+      const aiResponse = `Here's what the plan looks like:
+
+\`\`\`json
+{
+  "projectName": "My Plan",
+  "nodes": [
+    { "id": "n1", "title": "Task", "type": "task", "status": "planned" }
+  ],
+  "edges": []
+}
+\`\`\``
+
+      const { mutations } = extractMutations(aiResponse)
+      const hasMutations = mutations.nodeUpdates.length > 0 || mutations.edgeOps.length > 0 || mutations.newNodes.length > 0
+      expect(hasMutations).toBe(false)
+
+      // No nodes should be added
+      expect(usePlanStore.getState().nodes.length).toBe(initialNodes)
+    })
+
+    it('handles description with HTML special chars (XSS prevention)', () => {
+      const { getNode } = seedStore()
+
+      // Use JSON.stringify to properly escape the description inside the JSON block
+      const desc = `<script>alert('xss')</script> & "quotes"`
+      const jsonBlock = JSON.stringify({
+        updateNodes: [{ nodeId: 't1', description: desc }]
+      }, null, 2)
+
+      const aiResponse = `\`\`\`json\n${jsonBlock}\n\`\`\``
+
+      const { mutations } = extractMutations(aiResponse)
+      applyMutationsToStore(PROJECT_ID, mutations)
+
+      const node = getNode('t1')!
+      expect(node.description).toBe(desc)
+      // HTML content should be escaped
+      expect(node.content).toContain('&lt;script&gt;')
+      expect(node.content).toContain('&amp;')
+      expect(node.content).not.toContain('<script>')
+    })
+
+    it('handles addNodes with description containing HTML special chars', () => {
+      seedStore()
+
+      const aiResponse = `\`\`\`json
+{
+  "addNodes": [
+    { "title": "Fix <bug>", "description": "Handle <div> & 'special' chars" }
+  ]
+}
+\`\`\``
+
+      const { mutations } = extractMutations(aiResponse)
+      const { affectedNodeIds } = applyMutationsToStore(PROJECT_ID, mutations)
+
+      const node = usePlanStore.getState().nodes.find(n => n.id === affectedNodeIds[0])!
+      expect(node.title).toBe('Fix <bug>')
+      expect(node.content).toContain('&lt;div&gt;')
+      expect(node.content).toContain('&amp;')
+    })
+  })
+
+  describe('complex graph operations', () => {
+    it('adds node with dependency on another new node in same block', () => {
+      const { getNodes, getEdge } = seedStore()
+      const initialCount = getNodes().length
+
+      const aiResponse = `\`\`\`json
+{
+  "addNodes": [
+    { "id": "a", "title": "Design", "description": "Design phase" },
+    { "id": "b", "title": "Implement", "description": "Build it", "dependencies": ["a"] },
+    { "id": "c", "title": "Test", "description": "Test it", "dependencies": ["b"] }
+  ]
+}
+\`\`\``
+
+      const { mutations } = extractMutations(aiResponse)
+      const { affectedNodeIds } = applyMutationsToStore(PROJECT_ID, mutations)
+
+      expect(getNodes().length).toBe(initialCount + 3)
+      const [idA, idB, idC] = affectedNodeIds
+
+      // Chain: a → b → c
+      expect(getEdge(idA, idB)).toBeDefined()
+      expect(getEdge(idB, idC)).toBeDefined()
+
+      // Verify dependencies are resolved UUIDs, not temp IDs
+      const nodeB = usePlanStore.getState().nodes.find(n => n.id === idB)!
+      expect(nodeB.dependencies).toContain(idA)
+      expect(nodeB.dependencies).not.toContain('a')
+
+      const nodeC = usePlanStore.getState().nodes.find(n => n.id === idC)!
+      expect(nodeC.dependencies).toContain(idB)
+      expect(nodeC.dependencies).not.toContain('b')
+    })
+
+    it('removes all dependencies from a node', () => {
+      const { getNode, getEdge } = seedStore()
+
+      // t2 initially depends on t1
+      expect(getNode('t2')!.dependencies).toEqual(['t1'])
+      expect(getEdge('t1', 't2')).toBeDefined()
+
+      const aiResponse = `\`\`\`json
+{
+  "updateNodes": [
+    { "nodeId": "t2", "dependencies": [] }
+  ]
+}
+\`\`\``
+
+      const { mutations } = extractMutations(aiResponse)
+      applyMutationsToStore(PROJECT_ID, mutations)
+
+      expect(getNode('t2')!.dependencies).toEqual([])
+      expect(getEdge('t1', 't2')).toBeUndefined()
+    })
+
+    it('adds multiple edges in one block', () => {
+      const { getEdge, getNode } = seedStore()
+
+      const aiResponse = `\`\`\`json
+{
+  "updateEdges": [
+    { "action": "add", "source": "t1", "target": "t3", "type": "dependency" },
+    { "action": "add", "source": "t3", "target": "t2", "type": "branch" }
+  ]
+}
+\`\`\``
+
+      const { mutations } = extractMutations(aiResponse)
+      applyMutationsToStore(PROJECT_ID, mutations)
+
+      const edge1 = getEdge('t1', 't3')
+      expect(edge1).toBeDefined()
+      expect(edge1!.type).toBe('dependency')
+      expect(getNode('t3')!.dependencies).toContain('t1')
+
+      const edge2 = getEdge('t3', 't2')
+      expect(edge2).toBeDefined()
+      expect(edge2!.type).toBe('branch')
+    })
+
+    it('handles updateEdges remove for nonexistent edge gracefully', () => {
+      seedStore()
+
+      // Try to remove an edge that doesn't exist — should not crash
+      const aiResponse = `\`\`\`json
+{
+  "updateEdges": [
+    { "action": "remove", "source": "t1", "target": "t3" }
+  ]
+}
+\`\`\``
+
+      const { mutations } = extractMutations(aiResponse)
+      // Should not throw
+      expect(() => applyMutationsToStore(PROJECT_ID, mutations)).not.toThrow()
+    })
+
+    it('cross-references new node in updateEdges using temp ID as target', () => {
+      const { getEdge } = seedStore()
+
+      const aiResponse = `\`\`\`json
+{
+  "addNodes": [
+    { "id": "review", "title": "Code Review", "description": "Review all code" }
+  ],
+  "updateEdges": [
+    { "action": "add", "source": "t2", "target": "review", "type": "dependency" }
+  ]
+}
+\`\`\``
+
+      const { mutations } = extractMutations(aiResponse)
+      const { affectedNodeIds } = applyMutationsToStore(PROJECT_ID, mutations)
+      const reviewId = affectedNodeIds[0]
+
+      // Edge should use resolved UUID, not "review"
+      expect(getEdge('t2', reviewId)).toBeDefined()
+    })
+  })
+
+  describe('extraction edge cases', () => {
+    it('ignores mutation-shaped JSON inside non-json fences', () => {
+      const aiResponse = `\`\`\`typescript
+const mutation = {
+  "updateNodes": [{ "nodeId": "t1", "priority": "high" }]
+}
+\`\`\``
+
+      const { mutations } = extractMutations(aiResponse)
+      expect(mutations.nodeUpdates).toHaveLength(0)
+    })
+
+    it('handles JSON with trailing comma gracefully (invalid JSON)', () => {
+      const aiResponse = `\`\`\`json
+{
+  "updateNodes": [
+    { "nodeId": "t1", "priority": "high", }
+  ],
+}
+\`\`\``
+
+      // JSON.parse will fail — no mutations extracted, no crash
+      const { mutations } = extractMutations(aiResponse)
+      expect(mutations.nodeUpdates).toHaveLength(0)
+    })
+
+    it('handles empty json fence', () => {
+      const aiResponse = `\`\`\`json
+\`\`\``
+
+      const { mutations } = extractMutations(aiResponse)
+      expect(mutations.nodeUpdates).toHaveLength(0)
+    })
+
+    it('handles json fence with only whitespace', () => {
+      const aiResponse = `\`\`\`json
+
+\`\`\``
+
+      const { mutations } = extractMutations(aiResponse)
+      expect(mutations.nodeUpdates).toHaveLength(0)
+    })
+
+    it('handles multiple json fences where only one is a mutation', () => {
+      seedStore()
+
+      const aiResponse = `Here's the package config:
+
+\`\`\`json
+{ "name": "my-package", "version": "2.0.0" }
+\`\`\`
+
+And the type definition:
+
+\`\`\`json
+{ "type": "module", "exports": { ".": "./dist/index.js" } }
+\`\`\`
+
+And here are the plan changes:
+
+\`\`\`json
+{
+  "updateNodes": [{ "nodeId": "t1", "priority": "urgent" }]
+}
+\`\`\``
+
+      const { cleanContent, mutations } = extractMutations(aiResponse)
+
+      // Only the mutation block extracted
+      expect(mutations.nodeUpdates).toHaveLength(1)
+      expect(mutations.nodeUpdates[0].nodeId).toBe('t1')
+
+      // Other JSON blocks preserved
+      expect(cleanContent).toContain('"name": "my-package"')
+      expect(cleanContent).toContain('"type": "module"')
+      // Mutation block stripped
+      expect(cleanContent).not.toContain('"priority": "urgent"')
+    })
+
+    it('prefers json fence over legacy when both present', () => {
+      seedStore()
+
+      const aiResponse = `\`\`\`json
+{
+  "updateNodes": [{ "nodeId": "t1", "priority": "urgent" }]
+}
+\`\`\`
+
+\`\`\`astro-plan-change
+{
+  "updateNodes": [{ "nodeId": "t1", "priority": "low" }]
+}
+\`\`\``
+
+      const { mutations } = extractMutations(aiResponse)
+
+      // json fence found mutations → legacy skipped
+      expect(mutations.nodeUpdates).toHaveLength(1)
+      expect(mutations.nodeUpdates[0].priority).toBe('urgent')
+    })
+  })
+
+  describe('internal field protection', () => {
+    it('blocks all INTERNAL_FIELDS from updateNodes', () => {
+      const { getNode } = seedStore()
+
+      const aiResponse = `\`\`\`json
+{
+  "updateNodes": [{
+    "nodeId": "t1",
+    "id": "hacked",
+    "projectId": "evil",
+    "createdAt": "2020-01-01",
+    "updatedAt": "2020-01-01",
+    "position": { "x": 999, "y": 999 },
+    "boardOrder": 99,
+    "executionId": "fake-exec",
+    "executionOutput": "fake output",
+    "executionError": "fake error",
+    "executionStartedAt": "2020-01-01",
+    "executionCompletedAt": "2020-01-01",
+    "branchName": "evil-branch",
+    "prUrl": "https://evil.com",
+    "prNumber": 666,
+    "title": "Allowed change"
+  }]
+}
+\`\`\``
+
+      const { mutations } = extractMutations(aiResponse)
+      applyMutationsToStore(PROJECT_ID, mutations)
+
+      const node = getNode('t1')!
+      // Internal fields unchanged
+      expect(node.id).toBe('t1')
+      expect(node.projectId).toBe(PROJECT_ID)
+      expect(node.position).toEqual({ x: 40, y: 40 })
+      expect(node.executionId).toBeUndefined()
+      expect(node.branchName).toBeUndefined()
+      expect(node.prUrl).toBeUndefined()
+      expect(node.prNumber).toBeUndefined()
+      // Non-internal field DID update
+      expect(node.title).toBe('Allowed change')
+    })
+  })
 })
