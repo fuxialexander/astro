@@ -1216,8 +1216,11 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
             : settings?.yoloMode === 'true'
         } catch { /* fail closed — no auto-verify */ }
       }
+      // In YOLO mode, auto-verify even if delivery failed — the user opted out of
+      // manual review. Delivery errors are still visible in the UI. Without YOLO,
+      // delivery failure requires human judgment (the work is done but not shipped).
       const finalNodeStatus = isSuccess
-        ? ((verification === 'auto' || yoloEnabled) && deliveryOk ? 'auto_verified' : 'awaiting_judgment')
+        ? ((verification === 'auto' || yoloEnabled) && (deliveryOk || yoloEnabled) ? 'auto_verified' : 'awaiting_judgment')
         : 'awaiting_judgment'
 
       const resultData = {
