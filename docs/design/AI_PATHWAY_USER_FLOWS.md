@@ -102,7 +102,7 @@ User opens Astro
 | **Skills loaded** | Yes (settingSources on SDK, native on CLI) | No (text-only fast path on SDK) |
 | **Multi-turn** | Yes -- agent loop with many turns | Limited -- 1-3 turns for JSON generation |
 | **User can steer** | Yes -- user sends messages during generation | Limited |
-| **Prompt builder** | `buildInteractivePlanPrompt()` | `buildPlanSystemPrompt()` |
+| **Prompt builder** | `buildInteractivePlanPrompt()` | ~~`buildPlanSystemPrompt()`~~ (removed) |
 | **Follow-up** | Transitions to Pathway 7 (project-chat) | None |
 
 **Key insight: Pathway 5 is entirely dead code.** Both callers of `generatePlan()` are unreachable:
@@ -323,7 +323,7 @@ Compute Backend Skills (server-side injection into prompt):
   [P2] Playground             -- YES
   [P3] Interactive Plan       -- YES (via buildInteractivePlanPrompt)
   [P4] HPC/Slurm             -- YES (HPC-specific)
-  [P5] Plan Generation        -- YES (via buildPlanSystemPrompt)
+  [P5] Plan Generation        -- DEAD CODE (buildPlanSystemPrompt removed; pathway unreachable)
   [P6] Project Chat           -- YES (via buildChatSystemPrompt)
   [P7] Plan Chat              -- YES (via buildChatSystemPrompt)
   [P8] Task Chat              -- YES (via buildTaskChatSystemPrompt)
