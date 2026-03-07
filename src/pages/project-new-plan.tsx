@@ -8,9 +8,10 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useSearchParams, useLocation, useNavigate } from "react-router"
-import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, Info, Monitor, Bot, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate } from "lucide-react"
+import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, Info, Monitor, Bot, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
@@ -69,6 +70,7 @@ export function ProjectNewPlan() {
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
   const [pendingUploads, setPendingUploads] = useState(0)
   const autoExecute = useSettingsStore((s) => s.yoloMode)
+  const [showYoloWarning, setShowYoloWarning] = useState(false)
   const modelTier: ModelTier = "large"
 
   // Reset all form fields to initial state
@@ -566,8 +568,15 @@ export function ProjectNewPlan() {
     })
   }, [templateLaunchFromExamples, handleTemplateLaunch])
 
-  async function handleSubmit() {
+  async function handleSubmit(skipAutoExecute = false) {
     if (!description.trim() || isSubmitting || pendingUploads > 0) return
+
+    // Warn if YOLO mode is on but no working directory — auto-execute will silently fail
+    if (autoExecute && !workingDir.trim() && !skipAutoExecute) {
+      setShowYoloWarning(true)
+      return
+    }
+
     setIsSubmitting(true)
 
     try {
@@ -625,8 +634,8 @@ export function ProjectNewPlan() {
         projectId = result.projectId
       }
 
-      // Register auto-execute if YOLO mode is on
-      if (autoExecute) {
+      // Register auto-execute if YOLO mode is on (unless user chose plan-only)
+      if (autoExecute && !skipAutoExecute) {
         setStoreAutoExecute(projectId, true)
       }
 
@@ -956,7 +965,7 @@ export function ProjectNewPlan() {
           {/* Submit button */}
           <div className="flex items-center justify-end gap-3">
             <Button
-              onClick={handleSubmit}
+              onClick={() => handleSubmit()}
               disabled={!description.trim() || isSubmitting || pendingUploads > 0}
               className="gap-2"
             >
@@ -1036,6 +1045,35 @@ export function ProjectNewPlan() {
             </div>
           </div>
         )}
+
+        {/* YOLO + no working directory warning dialog */}
+        <Dialog open={showYoloWarning} onOpenChange={setShowYoloWarning}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-warning" />
+                YOLO Mode — No Working Directory
+              </DialogTitle>
+              <DialogDescription>
+                YOLO mode auto-executes tasks after planning, but execution requires a working directory. Without one, tasks will silently fail to dispatch.
+              </DialogDescription>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              You can go back to set a working directory, or proceed with planning only (auto-execution will be skipped).
+            </p>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setShowYoloWarning(false)}>
+                Cancel
+              </Button>
+              <Button onClick={() => {
+                setShowYoloWarning(false)
+                handleSubmit(true)
+              }}>
+                Proceed (Plan Only)
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Remote path browser dialog */}
         {selectedMachine && (
