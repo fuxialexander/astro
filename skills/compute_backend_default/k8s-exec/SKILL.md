@@ -47,3 +47,12 @@ allowedTools: [Bash, Read, Write, Glob, Grep]
 - List namespaces: `kubectl get namespaces`
 - Set default namespace: `kubectl config set-context --current --namespace=<ns>`
 - Always verify target namespace before destructive operations
+
+## Session Liveness (IMPORTANT)
+
+Your session has an activity timeout. If you stop producing tool calls, the system assumes you are dead and will kill your session. Follow these rules to stay alive:
+
+1. **Poll every 60 seconds** — After creating a Job or starting a long-running pod, check its status with `kubectl get pod <name>` or `kubectl logs --tail=20 <pod>` at least once per minute.
+2. **Never use `kubectl logs -f` as sole monitoring** — Blocking follow commands keep the process alive but may not reset the activity timer. Instead, use periodic `kubectl logs --tail=20 <pod>` calls.
+3. **Never go silent** — Do NOT submit a Job and then wait without making tool calls. Keep polling to stay alive.
+4. **Report progress** — Between polls, tell the user what the workload is doing (e.g., "Pod training-pod is Running, logs show epoch 5/20").

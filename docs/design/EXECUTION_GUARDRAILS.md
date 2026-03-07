@@ -647,13 +647,13 @@ approval, reset to `planned`. Handles server restarts and dead internal SSE conn
 ## Implementation Priority
 
 ```
-Priority   Proposal   Effort    Impact
---------   --------   ------    ------
-HIGH       P1         Low       Reduces 20-day worst case to 40 minutes for startup failures
-HIGH       P3         Low       Fixes task:stdout gap — one listener addition
-HIGH       P5         Low       Prevents silent agents on compute backends
-MEDIUM     P2         Medium    Most robust dead job detection (heartbeat cross-reference)
-MEDIUM     P4         Low       Restores original 2-hour activity timeout safely
-LOW        P6         Low       Frontend dispatched recovery
-LOW        P7         Medium    Server-side in_progress watchdog (belt-and-suspenders)
+Priority   Proposal   Effort    Impact                                                       Status
+--------   --------   ------    ------                                                       ------
+HIGH       P1         Low       Reduces 20-day worst case to 40 min for startup failures     ✅ Done (#720)
+HIGH       P3         Low       Fixes task:stdout gap — one listener addition                ✅ Done (#720)
+HIGH       P5         Low       Prevents silent agents on compute backends                   ✅ Done (#720)
+MEDIUM     P2         Medium    Most robust dead job detection (heartbeat cross-reference)    Planned
+MEDIUM     P4         Low       Restores original 2-hour activity timeout safely              ✅ Done (#720)
+LOW        P6         Low       Frontend dispatched recovery                                  Deferred (server-side covers)
+LOW        P7         Medium    Server-side in_progress watchdog (belt-and-suspenders)        Planned
 ```

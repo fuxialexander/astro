@@ -1190,10 +1190,11 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     // Two-tier timeout: short startup period, longer once events are flowing.
     // If the agent-runner never picks up the task (crash, busy, bad state),
     // we detect it quickly instead of hanging for days.
-    const STARTUP_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000 // 5 days — wait for user to approve / act
-    const MAX_STARTUP_RETRIES = 3 // Retry dispatch up to 3 times before failing
+    const STARTUP_TIMEOUT_MS = 3 * 60 * 1000 // 3 minutes — session_init arrives within seconds for all providers
+    const MAX_STARTUP_RETRIES = 10 // Retry dispatch up to 10 times before failing
+    const FINAL_STARTUP_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes — last attempt covers slow machine cold starts
     let startupRetries = 0
-    const ACTIVITY_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000 // 5 days — wait for user to approve / act
+    const ACTIVITY_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 hours — approval pause mechanism protects human-in-the-loop
 
     const onResult = async (msg: import('../types/relay.js').TaskResultMessage) => {
       if (!alive || msg.result.taskId !== executionId) return
@@ -1527,6 +1528,13 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       streamingEventLog.append(executionId, 'approval_request', approvalData).catch(() => {})
     }
 
+    // P3: Listen for task:stdout to reset activity timer (fixes SLURM output tailing + blocking Bash commands)
+    const onStdout = (msg: import('../types/relay.js').TaskStdoutMessage) => {
+      if (!alive || msg.output.taskId !== executionId) return
+      lastActivity = Date.now()
+      hasReceivedEvent = true
+    }
+
     const onSafetyPrompt = (msg: { taskId: string; safetyTier: string; warning?: string; options: Array<{ id: string; label: string; description?: string }>; machineId?: string }) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
@@ -1552,6 +1560,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     relayServer.on('task:progress', onProgress)
     relayServer.on('task:tool_trace', onToolTrace)
     relayServer.on('task:file_change', onFileChange)
+    relayServer.on('task:stdout', onStdout)
     relayServer.on('machine:disconnected', onMachineDisconnected)
     relayServer.on('task:approval_request', onApprovalRequest)
     relayServer.on('task:safety_prompt', onSafetyPrompt)
@@ -1564,6 +1573,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       relayServer.off('task:progress', onProgress)
       relayServer.off('task:tool_trace', onToolTrace)
       relayServer.off('task:file_change', onFileChange)
+      relayServer.off('task:stdout', onStdout)
       relayServer.off('machine:disconnected', onMachineDisconnected)
       relayServer.off('task:approval_request', onApprovalRequest)
       relayServer.off('task:safety_prompt', onSafetyPrompt)
@@ -1642,13 +1652,16 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     }
 
     // Keepalive + two-tier activity timeout
-    // Tier 1 (STARTUP_TIMEOUT_MS): If no events at all after dispatch, agent-runner
-    //   likely failed to pick up the task (crash, busy, bad state). Retries up to 3x.
-    // Tier 2 (ACTIVITY_TIMEOUT_MS): After first event, allow longer gaps between
-    //   events (long tool calls, builds, API waits). Still detect true stalls.
+    // Tier 1 (STARTUP_TIMEOUT_MS): 3 min startup, 10 retries + 10 min final = ~40 min worst case.
+    //   If no events at all, agent-runner likely failed (crash, busy, bad state).
+    // Tier 2 (ACTIVITY_TIMEOUT_MS): 2 hours between events during execution.
+    //   Approval pause mechanism resets timer indefinitely while approvals are pending.
+    //   task:stdout listener keeps SLURM/blocking-command sessions alive.
     const heartbeat = setInterval(() => {
       if (!alive) { clearInterval(heartbeat); return }
-      const timeoutMs = hasReceivedEvent ? ACTIVITY_TIMEOUT_MS : STARTUP_TIMEOUT_MS
+      // Use longer timeout on the final startup attempt to cover slow cold starts
+      const startupTimeout = startupRetries >= MAX_STARTUP_RETRIES ? FINAL_STARTUP_TIMEOUT_MS : STARTUP_TIMEOUT_MS
+      const timeoutMs = hasReceivedEvent ? ACTIVITY_TIMEOUT_MS : startupTimeout
       if (Date.now() - lastActivity > timeoutMs) {
         // Don't timeout if we're waiting for user approval (ask_user_question)
         if (dispatchEngine.hasPendingApprovalForExecution(executionId) || waitingForApproval) {
@@ -1673,8 +1686,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           }
 
           const errorMsg = hasReceivedEvent
-            ? 'Activity timeout — agent runner stopped responding after 5 days of inactivity'
-            : `Startup timeout — agent runner did not start after ${MAX_STARTUP_RETRIES + 1} attempts. The machine may be busy or the agent process failed to launch. Try re-executing the task.`
+            ? 'Activity timeout — agent runner stopped responding after 2 hours of inactivity'
+            : `Startup timeout — agent runner did not start after ${MAX_STARTUP_RETRIES + 1} attempts (~${Math.round((MAX_STARTUP_RETRIES * STARTUP_TIMEOUT_MS + FINAL_STARTUP_TIMEOUT_MS) / 60000)} min). The machine may be busy or the agent process failed to launch. Try re-executing the task.`
           const errorData = { error: errorMsg, recoverable: true }
 
           // Update plan_nodes so the node doesn't stay in_progress if browser is disconnected

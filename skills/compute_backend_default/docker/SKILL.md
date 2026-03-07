@@ -42,3 +42,12 @@ allowedTools: [Bash, Read, Write, Glob, Grep]
 - Build image: `docker build -t <tag> .`
 - List images: `docker images`
 - Pull image: `docker pull <image>`
+
+## Session Liveness (IMPORTANT)
+
+Your session has an activity timeout. If you stop producing tool calls, the system assumes you are dead and will kill your session. Follow these rules to stay alive:
+
+1. **Poll every 60 seconds** — After starting a long-running container, check its status with `docker ps` or `docker logs --tail=20 <container>` at least once per minute.
+2. **Never use `docker logs -f` as sole monitoring** — Blocking follow commands keep the process alive but may not reset the activity timer. Instead, use periodic `docker logs --tail=20 <container>` calls.
+3. **Never go silent** — Do NOT start a container and then wait without making tool calls. Keep polling to stay alive.
+4. **Report progress** — Between polls, tell the user what the container is doing (e.g., "Container training-run has been running for 10 minutes, logs show step 500/1000").
