@@ -217,7 +217,7 @@ function WorkdirBar({ project }: { project: Project }) {
                         <span>PR #{project.projectPrNumber}</span>
                       </a>
                     </>
-                  ) : project.projectBranch && project.source.remoteType === 'none' ? (
+                  ) : project.projectBranch && project.source?.remoteType === 'none' ? (
                     <>
                       <span className="opacity-30 mx-0.5">|</span>
                       <span className="flex items-center gap-0.5 shrink-0" title={`Results on branch: ${project.projectBranch}`}>

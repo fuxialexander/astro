@@ -526,6 +526,8 @@ interface AgentRunnerTaskResultMessage {
     branchName?: string;
     prUrl?: string;
     prNumber?: number;
+    commitBeforeSha?: string;
+    commitAfterSha?: string;
     deliveryStatus?: 'success' | 'failed' | 'skipped';
     deliveryError?: string;
     summary?: ExecutionSummaryResult;
