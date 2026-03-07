@@ -749,7 +749,7 @@ function reconcileResultFromCatchUp(
       ? useSettingsStore.getState().playgroundYoloMode
       : useSettingsStore.getState().yoloMode
     const finalStatus = hydrated.finalStatus || (isSuccess
-      ? ((node.verification === 'auto' || yoloOn) && deliveryOk ? 'auto_verified' : 'awaiting_judgment')
+      ? ((node.verification === 'auto' || yoloOn) && (deliveryOk || yoloOn) ? 'auto_verified' : 'awaiting_judgment')
       : 'awaiting_judgment')
     planStore.updateNode(node.id, {
       status: finalStatus as import('@/types').PlanNode['status'],
@@ -990,7 +990,7 @@ function handleRealtimeEvent(
           : useSettingsStore.getState().yoloMode
         const finalStatus = (data.finalStatus as string) || (
           isSuccess
-            ? ((node.verification === 'auto' || yoloOn) && deliveryOk ? 'auto_verified' : 'awaiting_judgment')
+            ? ((node.verification === 'auto' || yoloOn) && (deliveryOk || yoloOn) ? 'auto_verified' : 'awaiting_judgment')
             : 'awaiting_judgment'
         )
         const completionTime = new Date()

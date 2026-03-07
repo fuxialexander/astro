@@ -2519,7 +2519,7 @@ function handleSSEEvent(
             ? useSettingsStore.getState().playgroundYoloMode
             : useSettingsStore.getState().yoloMode
           if (isSuccess) {
-            finalStatus = ((node?.verification === "auto" || yoloOn) && deliveryOk) ? "auto_verified" : "awaiting_judgment"
+            finalStatus = ((node?.verification === "auto" || yoloOn) && (deliveryOk || yoloOn)) ? "auto_verified" : "awaiting_judgment"
           } else {
             finalStatus = "awaiting_judgment"
           }
