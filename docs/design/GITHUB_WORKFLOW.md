@@ -265,17 +265,21 @@ main ─── A ─── B                              (untouched)
                                                deliveryStatus = 'failed'
 ```
 
-### Merge Conflict Handling (Not Yet Implemented)
+### Merge Conflict Resolution
 
-Currently, merge conflicts report `deliveryStatus='failed'` and stop. The planned retry strategy:
+When a merge conflict is detected, the agent session is **resumed** with conflict resolution instructions. The agent rebases onto the project branch, resolves conflict markers, and the merge is retried — up to 3 attempts (`MAX_MERGE_ATTEMPTS = 3`).
 
-1. **Attempt 1**: Conflict detected → re-dispatch task from updated project branch tip
-2. **Attempt 2**: Agent re-executes with full context of prior merged work → retry merge
-3. **Attempt 3**: If still conflicting → `deliveryStatus='failed'` → chain halts
+**Branch mode:** Merge lock released during resolution (agent may take minutes), re-acquired for each retry attempt. Agent runs `git rebase <projectBranch>`, resolves conflicts, then `git rebase --continue`.
 
-Persistent merge conflicts indicate a **planning problem** — tasks were decomposed with overlapping changes. The correct response is to re-plan, not to keep retrying.
+**PR mode:** On `autoMergeFailed`, agent is resumed to `git rebase origin/<target>`, resolve conflicts, and `git push --force-with-lease`. Retry calls `mergePullRequest()` directly.
 
-See issue #719 for the retry implementation plan.
+**"Push to GitHub" node:** The prompt explicitly instructs the agent to rebase the project branch onto the latest base branch before creating the PR, and to resolve conflicts if GitHub reports them after PR creation.
+
+All 4 providers support this via `isResumableAdapter()` — each implements `resumeTask()` and `getTaskContext()`. If the adapter is not resumable or has no active session, the executor falls back to immediate failure.
+
+Persistent merge conflicts (3 failed attempts) indicate a **planning problem** — tasks were decomposed with overlapping changes. The correct response is to re-plan, not to keep retrying.
+
+See issue #722 and `docs/design/MERGE_CONFLICT_RESOLUTION.md` for the full design.
 
 ### Three Delivery Scenarios Compared
 
