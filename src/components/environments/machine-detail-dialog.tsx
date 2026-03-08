@@ -20,11 +20,8 @@ import { useSettingsStore } from "@/stores/settings-store"
 import type { RegisteredMachine } from "@/stores/machines-store"
 import type { MachineEntry } from "@/stores/realtime-store"
 
-const providerDisplayName: Record<string, string> = {
-  "claude-sdk": "Claude Agent SDK",
-  "claude-code": "Claude Code",
-  "codex": "OpenAI Codex",
-}
+// Re-use the shared AI agent display names
+import { PROVIDER_NAMES as providerDisplayName } from "@/components/execution/provider-utils"
 
 
 const platformLabel: Record<string, string> = {

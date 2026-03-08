@@ -10,8 +10,14 @@
 // Core Types
 // ============================================================================
 
-/** Provider types available on a machine */
-export type ProviderType = 'claude-code' | 'claude-sdk' | 'codex' | 'aws' | 'gcp' | 'custom' | 'openclaw';
+/**
+ * AI agent types available on a machine.
+ *
+ * "Provider" is legacy terminology — these represent the AI agents
+ * (AI service providers) that can execute tasks. Compute backends
+ * (AWS, GCP, Slurm) are separate from AI agents.
+ */
+export type ProviderType = 'claude-sdk' | 'codex' | 'openclaw' | 'opencode' | 'custom';
 
 /** Status of a machine connection */
 export type MachineConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
