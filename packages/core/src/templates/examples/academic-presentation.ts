@@ -293,6 +293,7 @@ Save ALL output files (slides, blog posts, posters, figures, PDFs) under the \`o
 - **PDF**: The PDF skill is included in your skill instructions. Follow it for extraction.
 - **arXiv**: Fetch LaTeX source from arXiv API or parse the abstract page. No PDF skill needed.
 - **Mixed**: Check each source — use PDF skill for .pdf files, fetch for arXiv links.
+
 ## IMPORTANT: Skill Reference
 This task uses the \`academic-presentation\` skill. Consult the skill's SKILL.md for:
 - Complete HTML/CSS templates for each slide layout type
