@@ -191,7 +191,7 @@ Skills are stored at: `skills-catalog/anthropic/{skill-name}/SKILL.md`
 
 Converts academic papers into slides (PDF), blog posts (Markdown), and conference posters (PDF). Uses HTML-based rendering with a low-saturation color palette and Playwright for PDF generation.
 
-Key parameters: `paperSource` (required), `deliverables` (required multi-select), `slideCount`, `targetAudience`, `slideTheme`, `blogStyle`, `posterOrientation`
+Key parameters: `workingDirectory` (required), `sourceFormat` (required, pdf/latex/markdown/docx), `deliverables` (required multi-select), `paperLink` (optional), `slideCount`, `targetAudience`, `slideTheme`, `blogStyle`, `posterOrientation`
 
 ### Academic Paper/Book Review (`astro/academic-review`)
 

@@ -11,7 +11,7 @@
  * - PDF skill is loaded only when sourceFormat is 'pdf'
  * - DOCX skill is loaded only when sourceFormat is 'docx'
  * - LaTeX and Markdown formats load no extra skills
- * - academic-presentation always loads PDF (no sourceFormat parameter)
+ * - academic-presentation conditionally loads PDF based on sourceFormat parameter
  * - moat-fragility has no conditional skills
  * - Edge cases: null templates, empty params, unknown values, overlapping skills
  */
@@ -294,6 +294,13 @@ describe('Template Skill Configuration Integrity', () => {
       expect(sourceFormat!.default).toBe('pdf')
     })
 
+    it('has paperLink optional parameter', () => {
+      const paperLink = academicReviewTemplate.optionalParameters.find(p => p.id === 'paperLink')
+      expect(paperLink).toBeDefined()
+      expect(paperLink!.type).toBe('string')
+      expect(paperLink!.required).toBe(false)
+    })
+
     it('conditionalSkills only references parameters that exist on the template', () => {
       const allParamIds = new Set([
         ...academicReviewTemplate.requiredParameters.map(p => p.id),
@@ -345,39 +352,130 @@ describe('Template Skill Configuration Integrity', () => {
   })
 
   describe('academic-presentation template', () => {
-    it('has recommendedSkills containing academic-presentation and pdf', () => {
-      expect(academicPresentationTemplate.recommendedSkills).toEqual(
-        expect.arrayContaining(['academic-presentation', 'pdf'])
-      )
-      expect(academicPresentationTemplate.recommendedSkills!.length).toBe(2)
+    it('has recommendedSkills containing only the core skill', () => {
+      expect(academicPresentationTemplate.recommendedSkills).toEqual(['academic-presentation'])
     })
 
-    it('does not have conditionalSkills (always loads pdf)', () => {
-      expect(
-        academicPresentationTemplate.conditionalSkills === undefined ||
-        Object.keys(academicPresentationTemplate.conditionalSkills!).length === 0
-      ).toBe(true)
+    it('has conditionalSkills mapping sourceFormat to pdf and docx', () => {
+      expect(academicPresentationTemplate.conditionalSkills).toBeDefined()
+      expect(academicPresentationTemplate.conditionalSkills!.sourceFormat).toBeDefined()
+      expect(academicPresentationTemplate.conditionalSkills!.sourceFormat.pdf).toEqual(['pdf'])
+      expect(academicPresentationTemplate.conditionalSkills!.sourceFormat.docx).toEqual(['docx'])
     })
 
-    it('always includes pdf regardless of parameter values', () => {
-      const result = deriveEffectiveSkills(academicPresentationTemplate, {})
-      expect(result).toContain('pdf')
-      expect(result).toContain('academic-presentation')
+    it('does not have latex or markdown in conditionalSkills', () => {
+      expect(academicPresentationTemplate.conditionalSkills!.sourceFormat.latex).toBeUndefined()
+      expect(academicPresentationTemplate.conditionalSkills!.sourceFormat.markdown).toBeUndefined()
     })
 
-    it('pdf cannot be removed by any parameter change', () => {
-      // Try various parameter values — pdf should always be present
-      const scenarios = [
-        {},
-        { deliverables: ['slides'] },
-        { deliverables: ['blog-post'] },
-        { slideTheme: 'dark' },
-        { targetAudience: 'general' },
+    it('sourceFormat parameter exists with pdf/latex/markdown/docx options', () => {
+      const allParams = [
+        ...academicPresentationTemplate.requiredParameters,
+        ...academicPresentationTemplate.optionalParameters,
       ]
-      for (const params of scenarios) {
-        const result = deriveEffectiveSkills(academicPresentationTemplate, params)
-        expect(result).toContain('pdf')
+      const sourceFormat = allParams.find(p => p.id === 'sourceFormat')
+      expect(sourceFormat).toBeDefined()
+      expect(sourceFormat!.type).toBe('select')
+      const values = sourceFormat!.options!.map(o => o.value)
+      expect(values).toContain('pdf')
+      expect(values).toContain('latex')
+      expect(values).toContain('markdown')
+      expect(values).toContain('docx')
+    })
+
+    it('sourceFormat default is pdf', () => {
+      const allParams = [
+        ...academicPresentationTemplate.requiredParameters,
+        ...academicPresentationTemplate.optionalParameters,
+      ]
+      const sourceFormat = allParams.find(p => p.id === 'sourceFormat')
+      expect(sourceFormat!.default).toBe('pdf')
+    })
+
+    it('has paperLink optional parameter', () => {
+      const paperLink = academicPresentationTemplate.optionalParameters.find(p => p.id === 'paperLink')
+      expect(paperLink).toBeDefined()
+      expect(paperLink!.type).toBe('textarea')
+      expect(paperLink!.required).toBe(false)
+    })
+
+    it('inputParallelization.parameterId references an existing parameter', () => {
+      const allParamIds = new Set([
+        ...academicPresentationTemplate.requiredParameters.map(p => p.id),
+        ...academicPresentationTemplate.optionalParameters.map(p => p.id),
+      ])
+      expect(academicPresentationTemplate.inputParallelization).toBeDefined()
+      expect(allParamIds.has(academicPresentationTemplate.inputParallelization!.parameterId)).toBe(true)
+    })
+
+    it('conditionalSkills only references parameters that exist on the template', () => {
+      const allParamIds = new Set([
+        ...academicPresentationTemplate.requiredParameters.map(p => p.id),
+        ...academicPresentationTemplate.optionalParameters.map(p => p.id),
+      ])
+      for (const paramId of Object.keys(academicPresentationTemplate.conditionalSkills!)) {
+        expect(allParamIds.has(paramId)).toBe(true)
       }
+    })
+
+    it('conditionalSkills values only reference valid parameter option values', () => {
+      const allParams = [
+        ...academicPresentationTemplate.requiredParameters,
+        ...academicPresentationTemplate.optionalParameters,
+      ]
+      for (const [paramId, valueMap] of Object.entries(academicPresentationTemplate.conditionalSkills!)) {
+        const param = allParams.find(p => p.id === paramId)
+        expect(param).toBeDefined()
+        if (param!.options) {
+          const validValues = new Set(param!.options.map(o => o.value))
+          for (const value of Object.keys(valueMap)) {
+            expect(validValues.has(value)).toBe(true)
+          }
+        }
+      }
+    })
+  })
+
+  describe('academic-presentation effective skills per sourceFormat', () => {
+    it('sourceFormat=pdf → [academic-presentation, pdf]', () => {
+      const result = deriveEffectiveSkills(academicPresentationTemplate, { sourceFormat: 'pdf' })
+      expect(result).toEqual(['academic-presentation', 'pdf'])
+    })
+
+    it('sourceFormat=docx → [academic-presentation, docx]', () => {
+      const result = deriveEffectiveSkills(academicPresentationTemplate, { sourceFormat: 'docx' })
+      expect(result).toEqual(['academic-presentation', 'docx'])
+    })
+
+    it('sourceFormat=latex → [academic-presentation]', () => {
+      const result = deriveEffectiveSkills(academicPresentationTemplate, { sourceFormat: 'latex' })
+      expect(result).toEqual(['academic-presentation'])
+    })
+
+    it('sourceFormat=markdown → [academic-presentation]', () => {
+      const result = deriveEffectiveSkills(academicPresentationTemplate, { sourceFormat: 'markdown' })
+      expect(result).toEqual(['academic-presentation'])
+    })
+
+    it('no sourceFormat → [academic-presentation] (no pdf)', () => {
+      const result = deriveEffectiveSkills(academicPresentationTemplate, {})
+      expect(result).toEqual(['academic-presentation'])
+    })
+  })
+
+  describe('academic-review and academic-presentation share the same conditionalSkills structure', () => {
+    it('both have identical conditionalSkills keys (sourceFormat → pdf, docx)', () => {
+      expect(academicReviewTemplate.conditionalSkills).toEqual(academicPresentationTemplate.conditionalSkills)
+    })
+
+    it('both have matching sourceFormat options (pdf/latex/markdown/docx)', () => {
+      const reviewParams = [...academicReviewTemplate.requiredParameters, ...academicReviewTemplate.optionalParameters]
+      const presentationParams = [...academicPresentationTemplate.requiredParameters, ...academicPresentationTemplate.optionalParameters]
+      const reviewFormat = reviewParams.find(p => p.id === 'sourceFormat')
+      const presentationFormat = presentationParams.find(p => p.id === 'sourceFormat')
+      const reviewValues = reviewFormat!.options!.map(o => o.value).sort()
+      const presentationValues = presentationFormat!.options!.map(o => o.value).sort()
+      expect(reviewValues).toEqual(presentationValues)
     })
   })
 
@@ -560,12 +658,36 @@ describe('Launch with visionDoc reflects conditional skill loading', () => {
     expect(skills).not.toContain('pdf')
   })
 
-  it('launch academic-presentation always includes pdf skill', async () => {
+  it('launch academic-presentation with sourceFormat=pdf includes pdf skill', async () => {
     const skills = deriveEffectiveSkills(academicPresentationTemplate, {
-      paperSource: 'https://arxiv.org/abs/2301.00001',
+      workingDirectory: '/path/to/papers/',
+      sourceFormat: 'pdf',
       deliverables: ['slides', 'blog-post'],
     })
     expect(skills).toContain('pdf')
+    expect(skills).toContain('academic-presentation')
+    expect(skills).not.toContain('docx')
+  })
+
+  it('launch academic-presentation with sourceFormat=latex does not include pdf skill', async () => {
+    const skills = deriveEffectiveSkills(academicPresentationTemplate, {
+      workingDirectory: '/path/to/papers/',
+      sourceFormat: 'latex',
+      deliverables: ['slides', 'blog-post'],
+    })
+    expect(skills).not.toContain('pdf')
+    expect(skills).not.toContain('docx')
+    expect(skills).toContain('academic-presentation')
+  })
+
+  it('launch academic-presentation with sourceFormat=docx includes docx skill', async () => {
+    const skills = deriveEffectiveSkills(academicPresentationTemplate, {
+      workingDirectory: '/path/to/papers/',
+      sourceFormat: 'docx',
+      deliverables: ['slides'],
+    })
+    expect(skills).toContain('docx')
+    expect(skills).not.toContain('pdf')
     expect(skills).toContain('academic-presentation')
   })
 })

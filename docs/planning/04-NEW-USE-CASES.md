@@ -314,8 +314,8 @@ const paperReviewTemplate: UseCaseTemplate = {
 
   parameters: {
     required: [
-      { id: 'paperSource', name: 'Paper Source', type: 'textarea',
-        description: 'arXiv URL, PDF path, or paper text' },
+      { id: 'workingDirectory', name: 'Working Directory', type: 'string',
+        description: 'Path to directory containing the paper file(s)' },
       { id: 'venue', name: 'Review Venue', type: 'string',
         description: 'Conference/journal this review is for' },
       { id: 'reviewStyle', name: 'Review Style', type: 'select',
@@ -362,7 +362,7 @@ Generate tasks for:
   },
 
   inputParallelization: {
-    parameterId: 'paperSource',
+    parameterId: 'paperLink',
     splitStrategy: 'newline',
     mergeStrategy: 'individual',
     branchLabelFormat: 'Paper {{index}}',
