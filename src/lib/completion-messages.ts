@@ -4,12 +4,27 @@
  * Single source of truth for all project completion notification text.
  * Both execution-store (client-side) and realtime-store (server-side)
  * call these builders so toast + persistent notification always match.
+ *
+ * Markdown conventions used in description text:
+ * - `code` — inline code (branch names, git commands)
+ * - {{path}} — file path with distinct amber highlight
  */
 
 export interface CompletionMessage {
   type: 'success' | 'warning'
   title: string
   description: string
+}
+
+/**
+ * Derive the project worktree path from a project branch name.
+ * Project branch: astro/{shortProjectId} → worktree: .astro/worktrees/{shortProjectId}/
+ */
+function worktreePath(projectBranch: string): string {
+  // Strip the prefix (e.g., 'astro/') to get just the shortProjectId
+  const parts = projectBranch.split('/')
+  const suffix = parts[parts.length - 1]
+  return `.astro/worktrees/${suffix}/`
 }
 
 /**
@@ -24,7 +39,8 @@ export function buildClientCompletionMessage(opts: {
   const { projectName, projectBranch, allSuccess } = opts
   let description: string
   if (projectName && allSuccess && projectBranch) {
-    description = `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. Use \`git checkout ${projectBranch}\` to review.`
+    const wtPath = worktreePath(projectBranch)
+    description = `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. Browse files at {{${wtPath}}} or run \`git checkout ${projectBranch}\` to review. The .astro directory is hidden by default — enable "show hidden files" in your file manager to see it.`
   } else if (projectName && allSuccess) {
     description = `All tasks in "${projectName}" completed successfully.`
   } else if (projectName) {
@@ -55,6 +71,7 @@ export function buildServerCompletionMessage(opts: {
   alreadyNotified: boolean
 }): (CompletionMessage & { prUrl?: string }) | null {
   const { projectName, projectBranch, projectPrUrl: prUrl, deliveryMode, baseBranch, alreadyNotified } = opts
+  const wtPath = worktreePath(projectBranch)
 
   if (prUrl && alreadyNotified) {
     // Follow-up: PR was created after the initial completion toast
@@ -81,8 +98,8 @@ export function buildServerCompletionMessage(opts: {
         : `All tasks completed on branch \`${projectBranch}\`.`
     } else {
       description = projectName
-        ? `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. Run \`git checkout ${projectBranch}\` or \`git diff ${baseBranch || 'main'}...${projectBranch}\` to review.`
-        : `All tasks completed on branch \`${projectBranch}\`. Run \`git checkout ${projectBranch}\` to review.`
+        ? `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. Browse files at {{${wtPath}}} or run \`git checkout ${projectBranch}\` to review. The .astro directory is hidden by default — enable "show hidden files" in your file manager to see it.`
+        : `All tasks completed on branch \`${projectBranch}\`. Browse files at {{${wtPath}}} or run \`git checkout ${projectBranch}\` to review.`
     }
     return {
       type: 'success',

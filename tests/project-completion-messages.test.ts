@@ -23,7 +23,9 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { isValidElement } from 'react'
 import { buildClientCompletionMessage, buildServerCompletionMessage } from '../src/lib/completion-messages'
+import { renderMarkdownInline } from '../src/lib/markdown-inline'
 
 // ============================================================================
 // 1. Client-side completion toast (execution-store)
@@ -41,7 +43,7 @@ describe('Client-side completion toast messages', () => {
     })
     expect(toast.type).toBe('success')
     expect(toast.title).toBe('All tasks complete')
-    expect(toast.description).toBe('All tasks in "My Project" completed. Changes on branch `astro/abc123`. Use `git checkout astro/abc123` to review.')
+    expect(toast.description).toBe('All tasks in "My Project" completed. Changes on branch `astro/abc123`. Browse files at {{.astro/worktrees/abc123/}} or run `git checkout astro/abc123` to review. The .astro directory is hidden by default — enable "show hidden files" in your file manager to see it.')
   })
 
   it('all success without branch — generic success message', () => {
@@ -213,11 +215,11 @@ describe('Server-side project:completed toast messages', () => {
     expect(toast).not.toBeNull()
     expect(toast!.title).toBe('Project complete')
     expect(toast!.description).toBe(
-      'All tasks in "My Project" completed. Changes on branch `astro/abc123`. Run `git checkout astro/abc123` or `git diff main...astro/abc123` to review.'
+      'All tasks in "My Project" completed. Changes on branch `astro/abc123`. Browse files at {{.astro/worktrees/abc123/}} or run `git checkout astro/abc123` to review. The .astro directory is hidden by default — enable "show hidden files" in your file manager to see it.'
     )
   })
 
-  it('local branch mode, custom base branch — git diff uses it', () => {
+  it('local branch mode, custom base branch — includes worktree path', () => {
     const toast = buildServerToast({
       projectName: 'My Project',
       projectBranch: 'astro/abc123',
@@ -226,7 +228,8 @@ describe('Server-side project:completed toast messages', () => {
       baseBranch: 'develop',
       alreadyNotified: false,
     })
-    expect(toast!.description).toContain('git diff develop...astro/abc123')
+    expect(toast!.description).toContain('{{.astro/worktrees/abc123/}}')
+    expect(toast!.description).toContain('`git checkout astro/abc123`')
   })
 
   it('local mode, no project name', () => {
@@ -238,7 +241,7 @@ describe('Server-side project:completed toast messages', () => {
       baseBranch: 'main',
       alreadyNotified: false,
     })
-    expect(toast!.description).toBe('All tasks completed on branch `astro/abc123`. Run `git checkout astro/abc123` to review.')
+    expect(toast!.description).toBe('All tasks completed on branch `astro/abc123`. Browse files at {{.astro/worktrees/abc123/}} or run `git checkout astro/abc123` to review.')
   })
 
   // ── baseBranch defaults ─────────────────────────────────────────────
@@ -254,7 +257,7 @@ describe('Server-side project:completed toast messages', () => {
     expect(toast!.description).toContain('→ `main`')
   })
 
-  it('defaults baseBranch to "main" in git diff hint', () => {
+  it('defaults baseBranch — local branch mode includes worktree path', () => {
     const toast = buildServerToast({
       projectName: 'My Project',
       projectBranch: 'astro/abc123',
@@ -263,7 +266,8 @@ describe('Server-side project:completed toast messages', () => {
       baseBranch: undefined,
       alreadyNotified: false,
     })
-    expect(toast!.description).toContain('git diff main...astro/abc123')
+    expect(toast!.description).toContain('{{.astro/worktrees/abc123/}}')
+    expect(toast!.description).toContain('`git checkout astro/abc123`')
   })
 
   // ── Direct delivery mode ────────────────────────────────────────────
@@ -801,7 +805,7 @@ describe('Source code: completion-messages.ts shared builder', () => {
   it('handles all server scenarios: PR created, PR failed, local branch', () => {
     expect(source).toContain('PR created from')
     expect(source).toContain('PR creation was skipped')
-    expect(source).toContain('git diff')
+    expect(source).toContain('Browse files at')
   })
 
   it('handles deliveryMode === pr check', () => {
@@ -1083,6 +1087,280 @@ describe('Markdown inline rendering (backticks)', () => {
       { type: 'code', content: 'feat/my-feature_v2.0' },
       { type: 'text', content: ' ready' },
     ])
+  })
+})
+
+// ============================================================================
+// 12.5. Markdown inline rendering: {{path}} syntax
+// ============================================================================
+
+describe('Markdown inline rendering (path markers)', () => {
+  /**
+   * Extended pure function version of renderMarkdownInline for testing.
+   * Supports both `code` and {{path}} syntax, returning typed segments.
+   */
+  function parseMarkdownFull(text: string): Array<{ type: 'text' | 'code' | 'path'; content: string }> {
+    const parts: Array<{ type: 'text' | 'code' | 'path'; content: string }> = []
+    let remaining = text
+
+    while (remaining.length > 0) {
+      const pathStart = remaining.indexOf('{{')
+      const codeStart = remaining.indexOf('`')
+
+      if (pathStart === -1 && codeStart === -1) {
+        parts.push({ type: 'text', content: remaining })
+        break
+      }
+
+      const usePathMarker = pathStart !== -1 && (codeStart === -1 || pathStart < codeStart)
+
+      if (usePathMarker) {
+        const end = remaining.indexOf('}}', pathStart + 2)
+        if (end === -1) {
+          parts.push({ type: 'text', content: remaining })
+          break
+        }
+        if (pathStart > 0) {
+          parts.push({ type: 'text', content: remaining.slice(0, pathStart) })
+        }
+        parts.push({ type: 'path', content: remaining.slice(pathStart + 2, end) })
+        remaining = remaining.slice(end + 2)
+      } else {
+        const end = remaining.indexOf('`', codeStart + 1)
+        if (end === -1) {
+          parts.push({ type: 'text', content: remaining })
+          break
+        }
+        if (codeStart > 0) {
+          parts.push({ type: 'text', content: remaining.slice(0, codeStart) })
+        }
+        parts.push({ type: 'code', content: remaining.slice(codeStart + 1, end) })
+        remaining = remaining.slice(end + 1)
+      }
+    }
+
+    return parts
+  }
+
+  it('single path marker', () => {
+    const result = parseMarkdownFull('Browse at {{.astro/worktrees/abc123/}}')
+    expect(result).toEqual([
+      { type: 'text', content: 'Browse at ' },
+      { type: 'path', content: '.astro/worktrees/abc123/' },
+    ])
+  })
+
+  it('path marker at start', () => {
+    const result = parseMarkdownFull('{{.astro/worktrees/abc123/}} is the worktree')
+    expect(result).toEqual([
+      { type: 'path', content: '.astro/worktrees/abc123/' },
+      { type: 'text', content: ' is the worktree' },
+    ])
+  })
+
+  it('path marker at end', () => {
+    const result = parseMarkdownFull('Files at {{/home/user/.astro/worktrees/abc/}}')
+    expect(result).toEqual([
+      { type: 'text', content: 'Files at ' },
+      { type: 'path', content: '/home/user/.astro/worktrees/abc/' },
+    ])
+  })
+
+  it('mixed path and code markers — path first', () => {
+    const result = parseMarkdownFull('Browse {{.astro/worktrees/abc123/}} or run `git checkout astro/abc123`')
+    expect(result).toEqual([
+      { type: 'text', content: 'Browse ' },
+      { type: 'path', content: '.astro/worktrees/abc123/' },
+      { type: 'text', content: ' or run ' },
+      { type: 'code', content: 'git checkout astro/abc123' },
+    ])
+  })
+
+  it('mixed path and code markers — code first', () => {
+    const result = parseMarkdownFull('Run `ls -la` to see {{.astro/worktrees/}}')
+    expect(result).toEqual([
+      { type: 'text', content: 'Run ' },
+      { type: 'code', content: 'ls -la' },
+      { type: 'text', content: ' to see ' },
+      { type: 'path', content: '.astro/worktrees/' },
+    ])
+  })
+
+  it('multiple path markers', () => {
+    const result = parseMarkdownFull('{{/path/a}} and {{/path/b}}')
+    expect(result).toEqual([
+      { type: 'path', content: '/path/a' },
+      { type: 'text', content: ' and ' },
+      { type: 'path', content: '/path/b' },
+    ])
+  })
+
+  it('interleaved code and path markers', () => {
+    const result = parseMarkdownFull('`cmd1` then {{/path}} then `cmd2` then {{/other}}')
+    expect(result).toEqual([
+      { type: 'code', content: 'cmd1' },
+      { type: 'text', content: ' then ' },
+      { type: 'path', content: '/path' },
+      { type: 'text', content: ' then ' },
+      { type: 'code', content: 'cmd2' },
+      { type: 'text', content: ' then ' },
+      { type: 'path', content: '/other' },
+    ])
+  })
+
+  it('unmatched {{ — treated as plain text', () => {
+    const result = parseMarkdownFull('Some {{unclosed path')
+    expect(result).toEqual([{ type: 'text', content: 'Some {{unclosed path' }])
+  })
+
+  it('empty path markers', () => {
+    const result = parseMarkdownFull('Empty {{}} here')
+    expect(result).toEqual([
+      { type: 'text', content: 'Empty ' },
+      { type: 'path', content: '' },
+      { type: 'text', content: ' here' },
+    ])
+  })
+
+  it('no markers at all — plain text', () => {
+    const result = parseMarkdownFull('Just plain text')
+    expect(result).toEqual([{ type: 'text', content: 'Just plain text' }])
+  })
+
+  it('real completion message — client side with project worktree', () => {
+    const msg = buildClientCompletionMessage({
+      projectName: 'My Project',
+      projectBranch: 'astro/abc123',
+      allSuccess: true,
+    })
+    const result = parseMarkdownFull(msg.description)
+    // Should contain: text, code (branch), text, path (worktree), text, code (git checkout), text
+    const types = result.map(p => p.type)
+    expect(types).toContain('code')
+    expect(types).toContain('path')
+    // Path should be the worktree directory
+    const pathPart = result.find(p => p.type === 'path')
+    expect(pathPart!.content).toBe('.astro/worktrees/abc123/')
+    // Code parts should include branch name and git command
+    const codeParts = result.filter(p => p.type === 'code')
+    expect(codeParts.some(p => p.content === 'astro/abc123')).toBe(true)
+    expect(codeParts.some(p => p.content === 'git checkout astro/abc123')).toBe(true)
+  })
+
+  it('real completion message — server side local branch', () => {
+    const msg = buildServerCompletionMessage({
+      projectName: 'Test',
+      projectBranch: 'astro/def456',
+      deliveryMode: 'branch',
+      baseBranch: 'main',
+      alreadyNotified: false,
+    })
+    const result = parseMarkdownFull(msg!.description)
+    const pathPart = result.find(p => p.type === 'path')
+    expect(pathPart!.content).toBe('.astro/worktrees/def456/')
+  })
+
+  it('PR mode messages do NOT contain path markers', () => {
+    const msg = buildServerCompletionMessage({
+      projectName: 'Test',
+      projectBranch: 'astro/abc123',
+      projectPrUrl: 'https://github.com/owner/repo/pull/42',
+      baseBranch: 'main',
+      alreadyNotified: true,
+    })
+    const result = parseMarkdownFull(msg!.description)
+    expect(result.some(p => p.type === 'path')).toBe(false)
+  })
+
+  it('path with special characters (dots, hyphens, underscores)', () => {
+    const result = parseMarkdownFull('See {{.astro/worktrees/my-project_v2.0/}}')
+    expect(result).toEqual([
+      { type: 'text', content: 'See ' },
+      { type: 'path', content: '.astro/worktrees/my-project_v2.0/' },
+    ])
+  })
+
+  it('consecutive path and code without space', () => {
+    const result = parseMarkdownFull('{{/path}}`code`')
+    expect(result).toEqual([
+      { type: 'path', content: '/path' },
+      { type: 'code', content: 'code' },
+    ])
+  })
+
+  it('backtick inside path markers is treated as literal', () => {
+    const result = parseMarkdownFull('{{path/with`tick}}')
+    expect(result).toEqual([
+      { type: 'path', content: 'path/with`tick' },
+    ])
+  })
+
+  it('{{ inside backtick-wrapped code is treated as literal', () => {
+    const result = parseMarkdownFull('`echo {{hello}}`')
+    expect(result).toEqual([
+      { type: 'code', content: 'echo {{hello}}' },
+    ])
+  })
+})
+
+// ============================================================================
+// 12.7. worktreePath helper
+// ============================================================================
+
+describe('worktreePath derivation from project branch', () => {
+  /**
+   * Pure version of the private worktreePath() helper in completion-messages.ts.
+   * Tests the branch → path mapping logic.
+   */
+  function worktreePath(projectBranch: string): string {
+    const parts = projectBranch.split('/')
+    const suffix = parts[parts.length - 1]
+    return `.astro/worktrees/${suffix}/`
+  }
+
+  it('standard astro branch — strips prefix', () => {
+    expect(worktreePath('astro/abc123')).toBe('.astro/worktrees/abc123/')
+  })
+
+  it('custom prefix — strips prefix', () => {
+    expect(worktreePath('myprefix/def456')).toBe('.astro/worktrees/def456/')
+  })
+
+  it('multi-segment prefix — takes last segment', () => {
+    expect(worktreePath('org/team/abc123')).toBe('.astro/worktrees/abc123/')
+  })
+
+  it('no prefix (bare branch name) — uses as-is', () => {
+    expect(worktreePath('abc123')).toBe('.astro/worktrees/abc123/')
+  })
+
+  it('client message worktree path matches expected', () => {
+    const msg = buildClientCompletionMessage({
+      projectName: 'Test',
+      projectBranch: 'astro/7b19a9',
+      allSuccess: true,
+    })
+    expect(msg.description).toContain('{{.astro/worktrees/7b19a9/}}')
+  })
+
+  it('server message worktree path matches expected', () => {
+    const msg = buildServerCompletionMessage({
+      projectName: 'Test',
+      projectBranch: 'astro/7b19a9',
+      deliveryMode: 'branch',
+      baseBranch: 'main',
+      alreadyNotified: false,
+    })
+    expect(msg!.description).toContain('{{.astro/worktrees/7b19a9/}}')
+  })
+
+  it('different project IDs produce different paths', () => {
+    const msg1 = buildClientCompletionMessage({ projectName: 'A', projectBranch: 'astro/aaa111', allSuccess: true })
+    const msg2 = buildClientCompletionMessage({ projectName: 'B', projectBranch: 'astro/bbb222', allSuccess: true })
+    expect(msg1.description).toContain('{{.astro/worktrees/aaa111/}}')
+    expect(msg2.description).toContain('{{.astro/worktrees/bbb222/}}')
+    expect(msg1.description).not.toContain('bbb222')
+    expect(msg2.description).not.toContain('aaa111')
   })
 })
 
@@ -1401,8 +1679,9 @@ describe('Source code: markdown-inline.ts', () => {
     expect(source).toContain('export function renderMarkdownInline')
   })
 
-  it('converts backtick pairs to code elements', () => {
+  it('converts backtick pairs and path markers to code elements', () => {
     expect(source).toContain("remaining.indexOf(\"`\")")
+    expect(source).toContain("remaining.indexOf(\"{{\")")
     expect(source).toContain("\"code\"")
   })
 
@@ -1414,6 +1693,101 @@ describe('Source code: markdown-inline.ts', () => {
 
   it('uses createElement for code elements (not JSX)', () => {
     expect(source).toContain('createElement')
+  })
+})
+
+// ============================================================================
+// 19.5. renderMarkdownInline — real React implementation
+// ============================================================================
+
+describe('renderMarkdownInline (real React createElement output)', () => {
+  /** Extract type and content from a React element for assertion */
+  function describe_node(node: unknown): { kind: 'text'; value: string } | { kind: 'code'; value: string; className: string } {
+    if (typeof node === 'string') {
+      return { kind: 'text', value: node }
+    }
+    if (isValidElement(node)) {
+      const el = node as { props: { className?: string; children?: string } }
+      return {
+        kind: 'code',
+        value: el.props.children ?? '',
+        className: el.props.className ?? '',
+      }
+    }
+    throw new Error(`Unexpected node type: ${typeof node}`)
+  }
+
+  it('plain text returns single string', () => {
+    const nodes = renderMarkdownInline('Hello world')
+    expect(nodes).toHaveLength(1)
+    expect(nodes[0]).toBe('Hello world')
+  })
+
+  it('backtick code returns createElement("code") with muted bg', () => {
+    const nodes = renderMarkdownInline('Branch `astro/abc123` ready')
+    expect(nodes).toHaveLength(3)
+    const d = nodes.map(describe_node)
+    expect(d[0]).toEqual({ kind: 'text', value: 'Branch ' })
+    expect(d[1].kind).toBe('code')
+    expect((d[1] as { value: string }).value).toBe('astro/abc123')
+    expect((d[1] as { className: string }).className).toContain('bg-muted')
+    expect(d[2]).toEqual({ kind: 'text', value: ' ready' })
+  })
+
+  it('{{path}} returns createElement("code") with amber styling', () => {
+    const nodes = renderMarkdownInline('Files at {{.astro/worktrees/abc123/}}')
+    expect(nodes).toHaveLength(2)
+    const d = nodes.map(describe_node)
+    expect(d[0]).toEqual({ kind: 'text', value: 'Files at ' })
+    expect(d[1].kind).toBe('code')
+    expect((d[1] as { value: string }).value).toBe('.astro/worktrees/abc123/')
+    expect((d[1] as { className: string }).className).toContain('bg-amber-500/10')
+    expect((d[1] as { className: string }).className).toContain('text-amber-700')
+    expect((d[1] as { className: string }).className).toContain('dark:text-amber-400')
+  })
+
+  it('mixed code and path — different classNames', () => {
+    const nodes = renderMarkdownInline('Browse {{/path}} or `git log`')
+    const d = nodes.map(describe_node)
+    const pathNode = d.find(n => n.kind === 'code' && (n as { value: string }).value === '/path')
+    const codeNode = d.find(n => n.kind === 'code' && (n as { value: string }).value === 'git log')
+    expect(pathNode).toBeDefined()
+    expect(codeNode).toBeDefined()
+    // Path has amber styling
+    expect((pathNode as { className: string }).className).toContain('amber')
+    // Code has muted styling
+    expect((codeNode as { className: string }).className).toContain('bg-muted')
+    // They are different styles
+    expect((pathNode as { className: string }).className).not.toBe((codeNode as { className: string }).className)
+  })
+
+  it('real completion message renders correctly', () => {
+    const msg = buildClientCompletionMessage({
+      projectName: 'Test',
+      projectBranch: 'astro/abc123',
+      allSuccess: true,
+    })
+    const nodes = renderMarkdownInline(msg.description)
+    const d = nodes.map(describe_node)
+    // Should have path nodes with amber and code nodes with muted
+    const pathNodes = d.filter(n => n.kind === 'code' && (n as { className: string }).className.includes('amber'))
+    const codeNodes = d.filter(n => n.kind === 'code' && (n as { className: string }).className.includes('bg-muted'))
+    expect(pathNodes.length).toBeGreaterThanOrEqual(1)
+    expect(codeNodes.length).toBeGreaterThanOrEqual(1)
+    // Path node contains worktree path
+    expect((pathNodes[0] as { value: string }).value).toBe('.astro/worktrees/abc123/')
+  })
+
+  it('empty string returns empty array', () => {
+    expect(renderMarkdownInline('')).toEqual([])
+  })
+
+  it('all elements have sequential keys', () => {
+    const nodes = renderMarkdownInline('`a` then {{b}} then `c`')
+    const elements = nodes.filter(isValidElement) as Array<{ key: string | null }>
+    // Keys should be 0, 1, 2
+    const keys = elements.map(e => e.key)
+    expect(keys).toEqual(['0', '1', '2'])
   })
 })
 
