@@ -5,7 +5,7 @@
  * preserving headings, lists, bold/italic, links, images, task lists, etc.
  */
 import { MarkdownSerializer, type MarkdownSerializerState } from '@tiptap/pm/markdown'
-import type { Node as ProseMirrorNode, Mark } from '@tiptap/pm/model'
+import type { Node as ProseMirrorNode, Mark, Fragment, Schema } from '@tiptap/pm/model'
 
 // ── Node serializers ──────────────────────────────────────────────────
 
@@ -120,5 +120,14 @@ const serializer = new MarkdownSerializer(nodes, marks)
  * Serialize a ProseMirror document node to Markdown.
  */
 export function prosemirrorToMarkdown(doc: ProseMirrorNode): string {
+  return serializer.serialize(doc)
+}
+
+/**
+ * Serialize a ProseMirror Fragment (e.g. clipboard slice content) to Markdown.
+ * Wraps the fragment in a temporary doc node so the serializer can process it.
+ */
+export function fragmentToMarkdown(fragment: Fragment, schema: Schema): string {
+  const doc = schema.topNodeType.create(null, fragment)
   return serializer.serialize(doc)
 }
