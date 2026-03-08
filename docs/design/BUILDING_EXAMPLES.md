@@ -45,7 +45,7 @@ Agent executes with project-specific context
 │  packages/core/src/templates/examples/academic-presentation.ts  │
 │                                                                 │
 │  - id: 'academic-presentation'                                  │
-│  - parameters: [paperSource, audienceLevel, ...]                │
+│  - parameters: [workingDirectory, sourceFormat, paperLink, ...] │
 │  - prompts.planGeneration: "Create a presentation..."           │
 │  - execution.skills: ['academic-presentation']  ◄── skill ref   │
 │  - description: "Convert papers into slides..."                 │
@@ -98,7 +98,7 @@ Template parameters are **not** passed as structured data to the AI. They are in
 │                                                                  │
 │     parameterValues (Zustand store):                             │
 │     {                                                            │
-│       paperSource: "https://arxiv.org/abs/2401.12345",           │
+│       workingDirectory: "/path/to/papers/",                      │
 │       deliverables: ["slides", "blog-post"],                     │
 │       slideCount: "standard",    ← from default                  │
 │       targetAudience: "researcher", ← from default               │
@@ -131,12 +131,12 @@ Template parameters are **not** passed as structured data to the AI. They are in
 │  4. interpolatePrompt(planGeneration, resolvedParams)            │
 │                                                                  │
 │     Template prompt:                                             │
-│       "- Paper Source: {{paperSource}}"                           │
+│       "- Working Directory: {{workingDirectory}}"                 │
 │       "- Deliverables: {{deliverables}}"                         │
 │       "- Slide Count: {{slideCount}}"                            │
 │                                                                  │
 │     After interpolation:                                         │
-│       "- Paper Source: https://arxiv.org/abs/2401.12345"         │
+│       "- Working Directory: /path/to/papers/"                    │
 │       "- Deliverables: slides, blog-post"                        │
 │       "- Slide Count: standard"                                  │
 │                                                                  │

@@ -399,6 +399,15 @@ describe('Template Skill Configuration Integrity', () => {
       expect(paperLink!.required).toBe(false)
     })
 
+    it('inputParallelization.parameterId references an existing parameter', () => {
+      const allParamIds = new Set([
+        ...academicPresentationTemplate.requiredParameters.map(p => p.id),
+        ...academicPresentationTemplate.optionalParameters.map(p => p.id),
+      ])
+      expect(academicPresentationTemplate.inputParallelization).toBeDefined()
+      expect(allParamIds.has(academicPresentationTemplate.inputParallelization!.parameterId)).toBe(true)
+    })
+
     it('conditionalSkills only references parameters that exist on the template', () => {
       const allParamIds = new Set([
         ...academicPresentationTemplate.requiredParameters.map(p => p.id),
