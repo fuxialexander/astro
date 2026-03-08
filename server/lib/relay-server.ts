@@ -1359,7 +1359,7 @@ export class RelayServer extends EventEmitter {
         id: task.taskId,
         projectId: task.projectId,
         planNodeId: task.nodeId,
-        provider: task.preferredProvider || 'claude-sdk',
+        provider: task.preferredProvider || connection.entry.providers.find(p => p.status === 'available')?.type || connection.entry.providers[0]?.type || 'claude-sdk',
         prompt: finalPrompt,
         workingDirectory: task.workingDirectory || '',
         timeout: task.timeout,
@@ -1869,7 +1869,7 @@ export class RelayServer extends EventEmitter {
         hostname: resources.hostname,
         platform: resources.platform,
         providers: providers.map((p) => ({
-          type: (['claude-code', 'claude-sdk', 'codex', 'aws', 'gcp', 'openclaw'].includes(p.type) ? p.type : 'custom') as ProviderType,
+          type: (['claude-sdk', 'codex', 'openclaw', 'opencode'].includes(p.type) ? p.type : 'custom') as ProviderType,
           version: p.version || undefined,
           status: p.available ? 'available' : 'unavailable',
           maxConcurrentTasks: p.capabilities.maxConcurrentTasks,

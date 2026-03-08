@@ -435,10 +435,10 @@ export class MachineRegistry extends EventEmitter {
   } {
     const machines = this.getAll();
     const byProvider: Record<string, number> = {
-      'claude-code': 0,
       'claude-sdk': 0,
-      aws: 0,
-      gcp: 0,
+      codex: 0,
+      openclaw: 0,
+      opencode: 0,
       custom: 0,
     };
     let totalActiveTasks = 0;

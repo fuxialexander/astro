@@ -1,10 +1,16 @@
 import type { ProviderStatus } from "@/types"
 
-/** Human-readable names for known provider types */
+/**
+ * Human-readable display names for AI agents.
+ *
+ * "Provider" is legacy terminology — these are the AI agents (AI service
+ * providers) that can execute tasks on connected machines.
+ */
 export const PROVIDER_NAMES: Record<string, string> = {
   'claude-sdk': 'Claude Agent SDK',
-  'claude-code': 'Claude Code',
   'codex': 'OpenAI Codex',
+  'openclaw': 'OpenClaw',
+  'opencode': 'OpenCode',
 }
 
 export interface MachineProvider {

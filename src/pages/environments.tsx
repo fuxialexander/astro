@@ -37,6 +37,7 @@ import { isServerMode } from "@/lib/app-mode"
 import { formatRelativeTime } from "@/lib/date-utils"
 import { compactGpuName } from "@/lib/utils"
 import { useToastStore } from "@/stores/toast-store"
+import { PROVIDER_NAMES as providerDisplayName } from "@/components/execution/provider-utils"
 import type { MachineInstruction } from "@/types"
 
 function StatCard({ label, value, icon: Icon, iconBg, iconColor }: {
@@ -72,12 +73,6 @@ const backendStyleMap: Record<string, { color: string; bg: string }> = {
 function getBackendStyle(id: string) {
   if (id.startsWith('ssh:')) return backendStyleMap.ssh!
   return backendStyleMap[id] ?? backendStyleMap.direct!
-}
-
-const providerDisplayName: Record<string, string> = {
-  "claude-sdk": "Claude Agent SDK",
-  "claude-code": "Claude Code",
-  "codex": "Codex",
 }
 
 function formatResourceSummary(resources?: MachineEntry["resources"]): string | null {

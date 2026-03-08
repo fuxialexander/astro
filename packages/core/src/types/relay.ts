@@ -5,5 +5,10 @@
  * The full relay protocol types remain in server/types/relay.ts.
  */
 
-/** Provider types available on a machine */
-export type ProviderType = 'claude-code' | 'claude-sdk' | 'codex' | 'openclaw' | 'aws' | 'gcp' | 'custom';
+/**
+ * AI agent types available on a machine.
+ *
+ * "Provider" is legacy terminology — these represent the AI agents
+ * (AI service providers) that can execute tasks.
+ */
+export type ProviderType = 'claude-sdk' | 'codex' | 'openclaw' | 'opencode' | 'custom';

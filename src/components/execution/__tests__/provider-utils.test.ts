@@ -118,7 +118,7 @@ describe("deriveAvailableProviders", () => {
     const machineProviders = [
       { type: "claude-sdk", status: "available" },
       { type: "codex", status: "unavailable" },
-      { type: "claude-code", status: "available" },
+      { type: "openclaw", status: "available" },
     ]
     const result = deriveAvailableProviders(machineProviders, [])
 
@@ -162,10 +162,11 @@ describe("isProviderAvailable", () => {
 })
 
 describe("PROVIDER_NAMES", () => {
-  it("contains entries for claude-sdk, claude-code, and codex", () => {
+  it("contains entries for all known AI agents", () => {
     expect(PROVIDER_NAMES["claude-sdk"]).toBe("Claude Agent SDK")
-    expect(PROVIDER_NAMES["claude-code"]).toBe("Claude Code")
     expect(PROVIDER_NAMES["codex"]).toBe("OpenAI Codex")
+    expect(PROVIDER_NAMES["openclaw"]).toBe("OpenClaw")
+    expect(PROVIDER_NAMES["opencode"]).toBe("OpenCode")
   })
 
   it("returns undefined for unknown provider types", () => {
