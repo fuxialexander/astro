@@ -7,7 +7,7 @@
  */
 
 import { Hono } from 'hono'
-import { eq, and, or } from 'drizzle-orm'
+import { eq, and, or, desc } from 'drizzle-orm'
 import { db } from '../lib/db/index.js'
 import { machineInstructions, registeredMachines } from '../lib/db/schema.js'
 import { errorMessage } from '../lib/error-utils.js'
@@ -34,7 +34,7 @@ function scopeFilter(user: AuthUser) {
 machineInstructionsRoute.get('/', async (c) => {
   try {
     const user = c.get('user')! as AuthUser
-    const rows = await db.select().from(machineInstructions).where(scopeFilter(user))
+    const rows = await db.select().from(machineInstructions).where(scopeFilter(user)).orderBy(desc(machineInstructions.updatedAt))
     return c.json({ instructions: rows })
   } catch (e) {
     console.error('[machine-instructions] GET / error:', e)
