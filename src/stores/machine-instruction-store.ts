@@ -118,6 +118,12 @@ export const useMachineInstructionStore = create<MachineInstructionState>((set, 
     set((state) => ({
       instructions: state.instructions.filter((i) => i.id !== id),
     }))
+    // Clear stale defaultInstructionId on any machines that referenced this instruction
+    useMachinesStore.setState((state) => ({
+      machines: state.machines.map((m) =>
+        m.defaultInstructionId === id ? { ...m, defaultInstructionId: null } : m
+      ),
+    }))
   },
 
   async assignToMachine(machineId, instructionId) {

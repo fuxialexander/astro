@@ -170,6 +170,7 @@ function ConnectedMachineCard({ machine, onRemove, onMachineClick, onAssignInstr
   const loadPercent = Math.round(machine.load.cpuPercent)
   const loadColor = loadPercent > 75 ? "bg-warning" : "bg-info"
   const resourceSummary = formatResourceSummary(machine.resources)
+  const registeredMachine = useMachinesStore((s) => s.machines.find((m) => m.id === machine.machineId))
 
   return (
     <Card
@@ -188,7 +189,7 @@ function ConnectedMachineCard({ machine, onRemove, onMachineClick, onAssignInstr
             {onAssignInstruction && (
               <div className="relative shrink-0">
                 <InstructionPicker
-                  currentInstructionId={(machine as MachineEntry & { defaultInstructionId?: string }).defaultInstructionId}
+                  currentInstructionId={registeredMachine?.defaultInstructionId}
                   onSelect={(id) => onAssignInstruction(machine.machineId, id)}
                 />
               </div>
