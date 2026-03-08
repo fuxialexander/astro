@@ -14,9 +14,32 @@ export function planNodeIdToProjectId(nodeId: string): string | null {
 }
 
 /**
+ * Fingerprint of the last plan applied per project.
+ * Prevents duplicate application when multiple event sources (plan_result,
+ * result, realtime catch-up) deliver the same plan.
+ */
+const lastAppliedFingerprint = new Map<string, string>()
+
+/** Build a stable fingerprint from a plan JSON — node count + sorted node IDs + titles. */
+function planFingerprint(plan: PlanJsonResult): string {
+  const parts = plan.nodes.map((n: Record<string, unknown>) => `${n.id}:${n.title}`).sort()
+  return `${plan.nodes.length}|${parts.join(',')}`
+}
+
+/** Clear the idempotency cache for a project (e.g., before a replan). */
+export function clearPlanFingerprint(projectId: string): void {
+  lastAppliedFingerprint.delete(projectId)
+}
+
+/**
  * Extracts plan JSON from text and applies it to the plan store.
  * Always replaces the existing plan for the project — the agent is expected
  * to output the complete, updated plan each time.
+ *
+ * Includes idempotency: if the same plan (by fingerprint) was already applied
+ * for this project, the call is a no-op. This prevents duplicate milestones
+ * when multiple event sources (plan_result SSE, result SSE, realtime catch-up)
+ * deliver the same plan.
  *
  * @param projectId - The project ID to associate nodes with
  * @param text - The text containing the plan JSON
@@ -33,6 +56,12 @@ export function applyPlanFromText(
 ): { applied: boolean; nodeCount: number } {
   const planJson = preExtracted || extractPlanJsonFromText(text)
   if (!planJson) return { applied: false, nodeCount: 0 }
+
+  // Idempotency: skip if this exact plan was already applied for this project
+  const fp = planFingerprint(planJson)
+  if (lastAppliedFingerprint.get(projectId) === fp) {
+    return { applied: true, nodeCount: planJson.nodes.length }
+  }
 
   // Build a reverse map from existing export IDs (n1, m1, etc.) back to real UUIDs.
   // When the agent outputs an updated plan reusing the same short IDs, this preserves
@@ -103,6 +132,9 @@ export function applyPlanFromText(
   const planStore = usePlanStore.getState()
   planStore.setProjectPlan(projectId, nodes, edges)
   planStore.reorganizeProject(projectId)
+
+  // Record fingerprint after successful application
+  lastAppliedFingerprint.set(projectId, fp)
 
   if (planJson.projectName) {
     useProjectStore.getState().updateProject(projectId, { name: planJson.projectName })
