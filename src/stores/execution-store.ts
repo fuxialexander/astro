@@ -14,7 +14,7 @@ import { apiUrl } from "@/lib/api-url"
 import { useTaskChatStore } from "./task-chat-store"
 import { useSessionStore } from "./session-store"
 import { resolveWorkingDirectory, buildDependencyOutputs } from "@astro/core/dispatch"
-import { applyPlanFromText, planNodeIdToProjectId } from "@/lib/plan-extraction"
+import { applyPlanFromText, planNodeIdToProjectId, clearPlanFingerprint } from "@/lib/plan-extraction"
 import { getSigningPrivateKey, signDispatchIntent, generateNonce, type DispatchSigningPayload } from "@/lib/dispatch-signing"
 import { useAuthStore } from "./auth-store"
 import { useSettingsStore } from "./settings-store"
@@ -1045,6 +1045,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   startPlanGeneration: async (description, projectName, options) => {
     // 1. Create project
     const projectId = crypto.randomUUID()
+    clearPlanFingerprint(projectId)
     const displayName = projectName || "New Project"
     await useProjectStore.getState().addProject({
       id: projectId,
@@ -1288,6 +1289,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   startPlanGenerationForProject: async (projectId, description, options) => {
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
     if (!project) throw new Error(`Project ${projectId} not found`)
+    clearPlanFingerprint(projectId)
 
     const nodeId = `plan-${projectId}`
 
@@ -1429,6 +1431,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   startReplanSession: async (projectId, changeDescription, lessons, previousPlanSummary, options) => {
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
     if (!project) throw new Error(`Project ${projectId} not found`)
+    clearPlanFingerprint(projectId)
 
     const nodeId = `plan-${projectId}`
 
