@@ -480,9 +480,7 @@ When you drill into a specific task, you see its full execution history. These c
 
 - **`file-changes-view.tsx`** -- A list of every file the AI agent created, modified, or deleted, with diff display (showing exactly what lines were added or removed, similar to a Git diff).
 
-- **`steer-chat.tsx`** -- A chat interface for "steering" a running agent. If you see the agent going in the wrong direction, you can type a message here to give it guidance without stopping the execution. Like a co-pilot giving course corrections to the pilot.
-
-- **`task-chat.tsx`** -- A general chat interface tied to this task. Unlike steer-chat (which is for real-time guidance during execution), task-chat is for discussing the task at any time -- before, during, or after execution.
+- **`unified-activity-view.tsx`** -- The primary task detail view. Combines execution activity (text output, tool calls, file changes), steering (mid-execution guidance and post-completion session resume), and follow-up chat into a single chronological timeline. Handles both real-time SSE streaming during execution and post-completion conversation with the agent.
 
 - **`session-activity-view.tsx`** -- A unified timeline that merges all activity for a session: text output, tool calls, file changes, chat messages, and errors, all in chronological order. Gives a complete narrative of what happened.
 
