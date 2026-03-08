@@ -82,6 +82,27 @@ export function extractBlobUrls(html: string | null | undefined): string[] {
 }
 
 /**
+ * Resolve raw text (plain text or markdown) to HTML for the rich text editor.
+ *
+ * This is the shared logic used when content may come from different sources:
+ * - Template-generated prompts (raw markdown)
+ * - GitHub-imported node descriptions (raw markdown)
+ * - Previously rich-text-edited content (already HTML)
+ * - Plain text
+ *
+ * Same pattern as used for GitHub-imported node descriptions in task-content-tab.
+ */
+export function resolveEditorContent(text: string | null | undefined): string {
+  if (!text) return ''
+  // Already HTML (e.g., from a previous rich-text edit via tiptap)
+  if (/<[a-z][\s\S]*>/i.test(text)) return text
+  // Raw markdown (e.g., from template interpolation or GitHub import)
+  if (looksLikeMarkdown(text)) return markdownToHtml(text)
+  // Plain text fallback — wrap in <p> tag
+  return `<p>${escapeHtml(text)}</p>`
+}
+
+/**
  * Convert a File object to a base64 string.
  */
 export function fileToBase64(file: File): Promise<string> {

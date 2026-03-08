@@ -37,7 +37,7 @@ import { useMachinesStore } from "@/stores/machines-store"
 import { cn } from "@/lib/utils"
 import { deliveryModeLabel, remoteTypeLabel } from "@/lib/project-source"
 import { dataClient } from "@/lib/data-client"
-import { fileToBase64 } from "@/lib/html-utils"
+import { fileToBase64, resolveEditorContent } from "@/lib/html-utils"
 import { exportProject, downloadBundle } from "@/lib/sharing/export-project"
 import { apiUrl } from "@/lib/api-url"
 import { BackendMultiSelect } from "@/components/execution/backend-multi-select"
@@ -96,7 +96,10 @@ export function OverviewTab({
   const [editingStartDate, setEditingStartDate] = useState(false)
   const [editingTargetDate, setEditingTargetDate] = useState(false)
   const [editingInitiative, setEditingInitiative] = useState(false)
-  const [descriptionDraft, setDescriptionDraft] = useState(project.description)
+  // Resolve description: may be stored as raw markdown (template-generated) or
+  // HTML (previously edited via RichTextEditor). Use the same pattern as
+  // task-content-tab for GitHub-imported node descriptions.
+  const [descriptionDraft, setDescriptionDraft] = useState(() => resolveEditorContent(project.description))
   const [descriptionSaveStatus, setDescriptionSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
   const [sharing, setSharing] = useState(false)
   const [shareCopied, setShareCopied] = useState(false)

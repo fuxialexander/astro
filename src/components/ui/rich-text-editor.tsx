@@ -32,7 +32,7 @@ import {
 import { cn, getShortId } from '@/lib/utils'
 import { MentionSuggestion, type MentionSuggestionItem, type MentionSuggestionRef } from './mention-suggestion'
 import { stripHtml } from '@/lib/html-utils'
-import { prosemirrorToMarkdown } from '@/lib/prosemirror-markdown'
+import { prosemirrorToMarkdown, fragmentToMarkdown } from '@/lib/prosemirror-markdown'
 
 export interface RichTextEditorRef {
   focus: () => void
@@ -212,6 +212,19 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
             '[&_ul[data-type="taskList"]_li]:flex [&_ul[data-type="taskList"]_li]:items-start [&_ul[data-type="taskList"]_li]:gap-2',
             '[&_ul[data-type="taskList"]_li>label]:mt-0.5 [&_ul[data-type="taskList"]_li>div]:flex-1',
           ),
+        },
+        // Export as markdown when copying (text/plain clipboard flavor)
+        clipboardTextSerializer: (slice) => {
+          try {
+            const schema = editorInstanceRef.current?.schema
+            if (!schema || !slice.content.childCount) {
+              return slice.content.textBetween(0, slice.content.size, '\n\n')
+            }
+            return fragmentToMarkdown(slice.content, schema)
+          } catch {
+            // Fallback: let TipTap handle it normally
+            return slice.content.textBetween(0, slice.content.size, '\n\n')
+          }
         },
         handlePaste: (_view, event) => {
           const items = event.clipboardData?.items
