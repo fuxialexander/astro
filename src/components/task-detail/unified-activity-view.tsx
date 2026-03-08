@@ -38,6 +38,7 @@ import {
   NewCommentComposer,
   BranchLinkedBlock,
   SystemPromptBlock,
+  PlanGraphBlock,
 } from "@/components/activity-blocks"
 import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 import { InlineApprovalCard } from "@/components/plan-generation/inline-approval-card"
@@ -813,6 +814,8 @@ export function UnifiedActivityView({
               return <BranchLinkedBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'branch_linked' }>} />
             case 'system_prompt':
               return <SystemPromptBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'system_prompt' }>} />
+            case 'plan_result':
+              return <PlanGraphBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'plan_result' }>} />
             default:
               return null
           }

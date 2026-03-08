@@ -2446,6 +2446,33 @@ function handleSSEEvent(
           if (planProjectId) {
             const exec = get().executions.get(nodeId)
             applyPlanFromText(planProjectId, '', exec?.executionId || undefined, false, parsed)
+
+            // Emit plan_result activity event for inline graph rendering
+            set((state) => {
+              const newExecutions = new Map(state.executions)
+              const existingExec = newExecutions.get(nodeId)
+              if (existingExec) {
+                newExecutions.set(nodeId, {
+                  ...existingExec,
+                  activityEvents: [...existingExec.activityEvents, {
+                    type: 'plan_result' as const,
+                    nodes: (parsed.nodes as Array<Record<string, unknown>>).map((n: Record<string, unknown>) => ({
+                      id: (n.id as string) || '',
+                      title: (n.title as string) || '',
+                      type: (n.type as string) || 'task',
+                      status: (n.status as string) || undefined,
+                    })),
+                    edges: ((parsed.edges as Array<Record<string, unknown>>) || []).map((e: Record<string, unknown>) => ({
+                      source: (e.source as string) || '',
+                      target: (e.target as string) || '',
+                    })),
+                    projectName: (parsed.projectName as string) || undefined,
+                    timestamp: new Date(),
+                  }],
+                })
+              }
+              return { executions: newExecutions }
+            })
           } else {
             console.warn(`[execution-store] plan_result received for non-plan node ${nodeId} — ignoring`)
           }

@@ -209,6 +209,22 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
               nodes,
               edges: (data.edges as Record<string, unknown>[]) || [],
             }
+            // Emit plan_result activity event for inline graph rendering
+            activityEvents.push({
+              type: 'plan_result',
+              nodes: nodes.map((n) => ({
+                id: (n.id as string) || '',
+                title: (n.title as string) || '',
+                type: (n.type as string) || 'task',
+                status: (n.status as string) || undefined,
+              })),
+              edges: ((data.edges as Record<string, unknown>[]) || []).map((e) => ({
+                source: (e.source as string) || '',
+                target: (e.target as string) || '',
+              })),
+              projectName: (data.projectName as string) || undefined,
+              timestamp,
+            })
           }
         }
         break

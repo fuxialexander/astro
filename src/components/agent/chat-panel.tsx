@@ -719,8 +719,8 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
           mentionItems={mentionItems}
           value={input}
           onChange={setInput}
-          placeholder="Type a message, @ for files or tasks..."
-          rows={1}
+          placeholder="Ask about the project, modify tasks, or explore ideas..."
+          rows={2}
           disabled={isStreaming}
           onSubmit={handleSend}
           className="flex-1 rounded-lg border border-border/20 bg-muted/30 px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/50 focus:bg-muted/40 transition-colors"

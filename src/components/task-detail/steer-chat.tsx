@@ -333,8 +333,8 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
           value={input}
           onChange={setInput}
           onSubmit={handleSend}
-          placeholder={resuming ? "Session resumed..." : "Guide the agent... (@ for files/tasks)"}
-          rows={1}
+          placeholder={resuming ? "Session resumed..." : "Ask about this task's approach, results, or suggest changes..."}
+          rows={2}
           className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
         <Button
