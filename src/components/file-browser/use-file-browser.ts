@@ -128,7 +128,7 @@ async function uploadFileToMachine(
 export function useFileBrowser({
   machineId,
   workingDirectory,
-  showHiddenFiles: initialShowHidden = true,
+  showHiddenFiles: initialShowHidden = false,
 }: UseFileBrowserOptions): UseFileBrowserReturn {
   const [path, setPath] = useState(workingDirectory)
   const [allEntries, setAllEntries] = useState<DirectoryEntry[]>([])

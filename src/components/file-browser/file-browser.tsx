@@ -10,7 +10,7 @@
  * - Hidden file filtering
  */
 
-import { useState, useCallback, useRef } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
 import {
   Folder,
   FolderOpen,
@@ -23,6 +23,7 @@ import {
   X,
   Upload,
   Eye,
+  EyeOff,
   Download,
   FileText,
   FileCode,
@@ -61,6 +62,8 @@ export interface FileBrowserProps {
   embedded?: boolean
   /** Callback when a file is selected (e.g., from FileChangeBlock linking) */
   onFileSelect?: (path: string) => void
+  /** When set, navigates to the parent directory and previews the file */
+  initialFilePath?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +161,7 @@ export function FileBrowser({
   onClose,
   embedded = false,
   onFileSelect,
+  initialFilePath,
 }: FileBrowserProps) {
   const [activeEditor, setActiveEditor] = useState<EditorType>(initialEditorType)
   const [useLocal, setUseLocal] = useState(true)
@@ -174,17 +178,28 @@ export function FileBrowser({
     loading,
     error,
     selectedIndex,
+    showHiddenFiles,
     previewPath,
     listRef,
     navigateTo,
     goUp,
     goHome,
     refresh,
+    toggleHiddenFiles,
     setPreviewPath,
     handleKeyDown: hookKeyDown,
     breadcrumbs,
     entries,
   } = useFileBrowser({ machineId, workingDirectory })
+
+  // Navigate to initialFilePath when provided
+  useEffect(() => {
+    if (!initialFilePath) return
+    const parentDir = initialFilePath.substring(0, initialFilePath.lastIndexOf('/'))
+    if (parentDir) navigateTo(parentDir)
+    setPreviewPath(initialFilePath)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- only trigger on initialFilePath change
+  }, [initialFilePath])
 
   // File upload with validation, progress, and overwrite detection
   const {
@@ -395,6 +410,19 @@ export function FileBrowser({
             <Upload className={cn("h-4 w-4 md:h-3 md:w-3", isUploading && "animate-pulse")} />
           </Button>
           <Button
+            variant={showHiddenFiles ? "secondary" : "ghost"}
+            size="icon"
+            className="h-8 w-8 md:h-6 md:w-6"
+            onClick={toggleHiddenFiles}
+            title={showHiddenFiles ? "Hide hidden files" : "Show hidden files"}
+          >
+            {showHiddenFiles ? (
+              <EyeOff className="h-4 w-4 md:h-3 md:w-3" />
+            ) : (
+              <Eye className="h-4 w-4 md:h-3 md:w-3" />
+            )}
+          </Button>
+          <Button
             variant="ghost"
             size="icon"
             className="h-8 w-8 md:h-6 md:w-6"
@@ -474,6 +502,19 @@ export function FileBrowser({
               title="Upload files"
             >
               <Upload className={cn("h-3.5 w-3.5 md:h-2.5 md:w-2.5", isUploading && "animate-pulse")} />
+            </Button>
+            <Button
+              variant={showHiddenFiles ? "secondary" : "ghost"}
+              size="icon"
+              className="h-7 w-7 md:h-5 md:w-5"
+              onClick={toggleHiddenFiles}
+              title={showHiddenFiles ? "Hide hidden files" : "Show hidden files"}
+            >
+              {showHiddenFiles ? (
+                <EyeOff className="h-3.5 w-3.5 md:h-2.5 md:w-2.5" />
+              ) : (
+                <Eye className="h-3.5 w-3.5 md:h-2.5 md:w-2.5" />
+              )}
             </Button>
             <Button
               variant="ghost"
