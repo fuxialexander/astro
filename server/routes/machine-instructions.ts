@@ -73,11 +73,20 @@ machineInstructionsRoute.post('/', async (c) => {
     if (!body.name || typeof body.name !== 'string' || !body.name.trim()) {
       return c.json({ error: 'name is required' }, 400)
     }
+    if (body.name.length > 500) {
+      return c.json({ error: 'name must be at most 500 characters' }, 400)
+    }
     if (body.content !== undefined && typeof body.content !== 'string') {
       return c.json({ error: 'content must be a string' }, 400)
     }
+    if (typeof body.content === 'string' && body.content.length > 200000) {
+      return c.json({ error: 'content must be at most 200000 characters' }, 400)
+    }
     if (body.tags !== undefined && !Array.isArray(body.tags)) {
       return c.json({ error: 'tags must be an array' }, 400)
+    }
+    if (Array.isArray(body.tags) && !body.tags.every((t: unknown) => typeof t === 'string')) {
+      return c.json({ error: 'tags must be an array of strings' }, 400)
     }
 
     const now = new Date()
@@ -120,17 +129,26 @@ machineInstructionsRoute.put('/:id', async (c) => {
       if (typeof body.name !== 'string' || !body.name.trim()) {
         return c.json({ error: 'name must be a non-empty string' }, 400)
       }
+      if (body.name.length > 500) {
+        return c.json({ error: 'name must be at most 500 characters' }, 400)
+      }
       patch.name = body.name.trim()
     }
     if (body.content !== undefined) {
       if (typeof body.content !== 'string') {
         return c.json({ error: 'content must be a string' }, 400)
       }
+      if (body.content.length > 200000) {
+        return c.json({ error: 'content must be at most 200000 characters' }, 400)
+      }
       patch.content = body.content
     }
     if (body.tags !== undefined) {
       if (!Array.isArray(body.tags)) {
         return c.json({ error: 'tags must be an array' }, 400)
+      }
+      if (!body.tags.every((t: unknown) => typeof t === 'string')) {
+        return c.json({ error: 'tags must be an array of strings' }, 400)
       }
       patch.tags = body.tags
     }
@@ -158,12 +176,13 @@ machineInstructionsRoute.delete('/:id', async (c) => {
     )
     if (!existing) return c.json({ error: 'Instruction not found' }, 404)
 
-    // Nullify any machine references before deleting
-    await db.update(registeredMachines)
-      .set({ defaultInstructionId: null })
-      .where(eq(registeredMachines.defaultInstructionId, id))
-
-    await db.delete(machineInstructions).where(eq(machineInstructions.id, id))
+    // Nullify machine references and delete in a single transaction
+    await db.transaction(async (tx) => {
+      await tx.update(registeredMachines)
+        .set({ defaultInstructionId: null })
+        .where(eq(registeredMachines.defaultInstructionId, id))
+      await tx.delete(machineInstructions).where(eq(machineInstructions.id, id))
+    })
     return c.json({ ok: true, id })
   } catch (e) {
     console.error('[machine-instructions] DELETE /:id error:', e)
@@ -208,7 +227,7 @@ machineInstructionsRoute.post('/auto-generate', async (c) => {
       // Strip YAML frontmatter — only keep the markdown content
       content = raw.replace(/^---[\s\S]*?---\s*\n?/, '')
     } catch {
-      return c.json({ error: `Seed template not found: ${seedPath}` }, 500)
+      return c.json({ error: `Seed template not found for backend: ${template.dir}` }, 500)
     }
 
     const now = new Date()

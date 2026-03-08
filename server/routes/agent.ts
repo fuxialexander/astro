@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { homedir } from 'os'
 import { join } from 'path'
 import { mkdirSync } from 'fs'
-import { buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, buildTitleGenerationPrompt, buildRefinementPrompt, buildLabelSuggestionPrompt, buildCompactionPrompt } from '../lib/prompt-templates.js'
+import { buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, buildTitleGenerationPrompt, buildRefinementPrompt, buildLabelSuggestionPrompt, buildCompactionPrompt, formatMachineInstruction } from '../lib/prompt-templates.js'
 import { relayServer } from '../lib/relay-server.js'
 import { dispatchEngine } from '../lib/dispatch/index.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
@@ -513,7 +513,7 @@ agentRoute.post('/project-chat', async (c) => {
         const [instruction] = await db.select({ content: machineInstructions.content, name: machineInstructions.name })
           .from(machineInstructions).where(eq(machineInstructions.id, machine.defaultInstructionId)).limit(1)
         if (instruction?.content) {
-          chatSkills = `<machine_instructions name="${instruction.name}">\n${instruction.content}\n</machine_instructions>`
+          chatSkills = formatMachineInstruction(instruction.name, instruction.content)
         }
       }
     } catch (err) {
@@ -666,7 +666,7 @@ agentRoute.post('/task-chat', async (c) => {
         const [instruction] = await db.select({ content: machineInstructions.content, name: machineInstructions.name })
           .from(machineInstructions).where(eq(machineInstructions.id, machine.defaultInstructionId)).limit(1)
         if (instruction?.content) {
-          tcSkills = `<machine_instructions name="${instruction.name}">\n${instruction.content}\n</machine_instructions>`
+          tcSkills = formatMachineInstruction(instruction.name, instruction.content)
         }
       }
     } catch (err) {

@@ -96,6 +96,15 @@ export interface GitHubContextForPrompt {
 }
 
 /**
+ * Format a machine instruction for XML-wrapped prompt injection.
+ * Escapes the name for safe use in an XML attribute.
+ */
+export function formatMachineInstruction(name: string, content: string): string {
+  const safeName = name.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return `<machine_instructions name="${safeName}">\n${content}\n</machine_instructions>`
+}
+
+/**
  * Whitelist-sanitize a GitHub owner or repo name.
  * GitHub allows only [a-zA-Z0-9._-] for these fields.
  * Returns empty string if nothing valid remains.
