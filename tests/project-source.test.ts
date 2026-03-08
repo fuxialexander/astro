@@ -1,11 +1,13 @@
 /**
  * Tests for project source utility functions.
  *
- * Covers: detectRemoteType, deriveDeliveryMode, resolveProjectSource, urlsMatchSameRepo
+ * Covers: extractGitHubOwnerRepo, detectRemoteType, deriveDeliveryMode,
+ *         resolveProjectSource, urlsMatchSameRepo, and plan creation metadata assembly
  * These are the frontend utilities in src/lib/project-source.ts
  */
 import { describe, it, expect } from 'vitest'
 import {
+  extractGitHubOwnerRepo,
   detectRemoteType,
   deriveDeliveryMode,
   resolveProjectSource,
@@ -32,7 +34,6 @@ describe('detectRemoteType', () => {
   it('detects GitLab URLs (including self-hosted)', () => {
     expect(detectRemoteType('https://gitlab.com/user/repo.git')).toBe('gitlab')
     expect(detectRemoteType('git@gitlab.com:user/repo.git')).toBe('gitlab')
-    // Self-hosted GitLab
     expect(detectRemoteType('https://gitlab.company.com/group/repo.git')).toBe('gitlab')
     expect(detectRemoteType('git@gitlab.internal.corp:group/project.git')).toBe('gitlab')
   })
@@ -40,7 +41,6 @@ describe('detectRemoteType', () => {
   it('detects Bitbucket URLs (including self-hosted)', () => {
     expect(detectRemoteType('https://bitbucket.org/user/repo.git')).toBe('bitbucket')
     expect(detectRemoteType('git@bitbucket.org:user/repo.git')).toBe('bitbucket')
-    // Self-hosted Bitbucket
     expect(detectRemoteType('https://bitbucket.company.com/scm/proj/repo.git')).toBe('bitbucket')
   })
 
@@ -259,4 +259,350 @@ describe('remoteTypeLabel', () => {
     expect(remoteTypeLabel('generic')).toBe('Git Remote')
     expect(remoteTypeLabel('none')).toBe('No Remote')
   })
+})
+
+// ─── extractGitHubOwnerRepo ─────────────────────────────────────
+
+describe('extractGitHubOwnerRepo', () => {
+  // ── Positive: standard URL formats ──────────────────────────
+  it('extracts from HTTPS URL with .git suffix', () => {
+    expect(extractGitHubOwnerRepo('https://github.com/acme/widgets.git'))
+      .toEqual({ owner: 'acme', repo: 'widgets' })
+  })
+
+  it('extracts from HTTPS URL without .git suffix', () => {
+    expect(extractGitHubOwnerRepo('https://github.com/acme/widgets'))
+      .toEqual({ owner: 'acme', repo: 'widgets' })
+  })
+
+  it('extracts from SSH URL with .git suffix', () => {
+    expect(extractGitHubOwnerRepo('git@github.com:acme/widgets.git'))
+      .toEqual({ owner: 'acme', repo: 'widgets' })
+  })
+
+  it('extracts from SSH URL without .git suffix', () => {
+    expect(extractGitHubOwnerRepo('git@github.com:acme/widgets'))
+      .toEqual({ owner: 'acme', repo: 'widgets' })
+  })
+
+  it('extracts from ssh:// protocol URL', () => {
+    expect(extractGitHubOwnerRepo('ssh://git@github.com/acme/widgets'))
+      .toEqual({ owner: 'acme', repo: 'widgets' })
+  })
+
+  it('extracts from ssh:// protocol URL with .git suffix', () => {
+    expect(extractGitHubOwnerRepo('ssh://git@github.com/acme/widgets.git'))
+      .toEqual({ owner: 'acme', repo: 'widgets' })
+  })
+
+  it('extracts from HTTP (non-HTTPS) URL', () => {
+    expect(extractGitHubOwnerRepo('http://github.com/acme/widgets.git'))
+      .toEqual({ owner: 'acme', repo: 'widgets' })
+  })
+
+  // ── Owner/repo with special characters ──────────────────────
+  it('handles owner with hyphens', () => {
+    expect(extractGitHubOwnerRepo('git@github.com:my-org/repo.git'))
+      .toEqual({ owner: 'my-org', repo: 'repo' })
+  })
+
+  it('handles repo with hyphens', () => {
+    expect(extractGitHubOwnerRepo('git@github.com:acme/my-project.git'))
+      .toEqual({ owner: 'acme', repo: 'my-project' })
+  })
+
+  it('handles owner with underscores', () => {
+    expect(extractGitHubOwnerRepo('https://github.com/my_org/repo'))
+      .toEqual({ owner: 'my_org', repo: 'repo' })
+  })
+
+  it('handles repo with dots', () => {
+    expect(extractGitHubOwnerRepo('git@github.com:acme/my.repo.name.git'))
+      .toEqual({ owner: 'acme', repo: 'my.repo.name' })
+  })
+
+  it('handles numeric owner/repo', () => {
+    expect(extractGitHubOwnerRepo('https://github.com/12345/67890'))
+      .toEqual({ owner: '12345', repo: '67890' })
+  })
+
+  // ── Whitespace and trailing characters ──────────────────────
+  it('trims leading/trailing whitespace', () => {
+    expect(extractGitHubOwnerRepo('  https://github.com/acme/widgets.git  '))
+      .toEqual({ owner: 'acme', repo: 'widgets' })
+  })
+
+  it('strips trailing slashes', () => {
+    expect(extractGitHubOwnerRepo('https://github.com/acme/widgets/'))
+      .toEqual({ owner: 'acme', repo: 'widgets' })
+  })
+
+  it('strips .git/ with trailing slash', () => {
+    expect(extractGitHubOwnerRepo('https://github.com/acme/widgets.git/'))
+      .toEqual({ owner: 'acme', repo: 'widgets' })
+  })
+
+  // ── Case insensitivity ──────────────────────────────────────
+  it('is case-insensitive for domain matching', () => {
+    expect(extractGitHubOwnerRepo('git@GitHub.COM:Acme/Widgets.git'))
+      .toEqual({ owner: 'Acme', repo: 'Widgets' })
+  })
+
+  it('preserves original case of owner/repo', () => {
+    expect(extractGitHubOwnerRepo('https://GITHUB.com/MyOrg/MyRepo'))
+      .toEqual({ owner: 'MyOrg', repo: 'MyRepo' })
+  })
+
+  // ── Negative cases ──────────────────────────────────────────
+  it('returns null for undefined', () => {
+    expect(extractGitHubOwnerRepo(undefined)).toBeNull()
+  })
+
+  it('returns null for empty string', () => {
+    expect(extractGitHubOwnerRepo('')).toBeNull()
+  })
+
+  it('returns null for whitespace-only string', () => {
+    expect(extractGitHubOwnerRepo('   ')).toBeNull()
+  })
+
+  it('returns null for GitLab SSH URL', () => {
+    expect(extractGitHubOwnerRepo('git@gitlab.com:acme/widgets.git')).toBeNull()
+  })
+
+  it('returns null for GitLab HTTPS URL', () => {
+    expect(extractGitHubOwnerRepo('https://gitlab.com/acme/widgets.git')).toBeNull()
+  })
+
+  it('returns null for Bitbucket URL', () => {
+    expect(extractGitHubOwnerRepo('git@bitbucket.org:acme/widgets.git')).toBeNull()
+  })
+
+  it('returns null for self-hosted GitLab URL', () => {
+    expect(extractGitHubOwnerRepo('https://gitlab.company.com/org/project.git')).toBeNull()
+  })
+
+  it('returns null for generic git remote', () => {
+    expect(extractGitHubOwnerRepo('git@internal.server:org/repo.git')).toBeNull()
+  })
+
+  it('returns null for non-URL string', () => {
+    expect(extractGitHubOwnerRepo('not-a-url')).toBeNull()
+  })
+
+  it('returns null for local path', () => {
+    expect(extractGitHubOwnerRepo('/home/user/project')).toBeNull()
+  })
+
+  it('returns null for GitHub URL with only owner (no repo)', () => {
+    expect(extractGitHubOwnerRepo('https://github.com/acme')).toBeNull()
+  })
+})
+
+// ─── Plan creation metadata assembly ─────────────────────────────
+// These tests simulate the logic in project-new-plan.tsx to verify
+// that the correct metadata flows from directory detection to plan creation.
+
+describe('plan creation — GitHub metadata assembly', () => {
+  /**
+   * Simulates the metadata assembly logic from project-new-plan.tsx
+   * for the normal (new project) flow.
+   */
+  function assembleNormalFlowOptions(detection: {
+    remoteUrl?: string
+    remoteType?: string
+  } | null) {
+    const github = detection?.remoteType === 'github'
+      ? extractGitHubOwnerRepo(detection.remoteUrl)
+      : null
+
+    return {
+      repository: detection?.remoteUrl || undefined,
+      ...(github ? { githubOwner: github.owner, githubRepo: github.repo } : {}),
+    }
+  }
+
+  /**
+   * Simulates the metadata assembly logic from project-new-plan.tsx
+   * for the regeneration (existing project) flow.
+   */
+  function assembleRegenFlowUpdates(
+    detection: { remoteUrl?: string; remoteType?: string } | null,
+    existingProject: { repository?: string; githubOwner?: string; githubRepo?: string },
+  ) {
+    const github = detection?.remoteType === 'github'
+      ? extractGitHubOwnerRepo(detection.remoteUrl)
+      : null
+
+    return {
+      repository: detection?.remoteUrl || existingProject.repository || undefined,
+      ...(github && !existingProject.githubOwner
+        ? { githubOwner: github.owner, githubRepo: github.repo }
+        : {}),
+    }
+  }
+
+  // ── Normal flow ─────────────────────────────────────────────
+  it('normal flow: passes owner/repo for GitHub SSH detection', () => {
+    const result = assembleNormalFlowOptions({
+      remoteUrl: 'git@github.com:fuxialexander/astro.git',
+      remoteType: 'github',
+    })
+    expect(result).toEqual({
+      repository: 'git@github.com:fuxialexander/astro.git',
+      githubOwner: 'fuxialexander',
+      githubRepo: 'astro',
+    })
+  })
+
+  it('normal flow: passes owner/repo for GitHub HTTPS detection', () => {
+    const result = assembleNormalFlowOptions({
+      remoteUrl: 'https://github.com/acme/widgets.git',
+      remoteType: 'github',
+    })
+    expect(result).toEqual({
+      repository: 'https://github.com/acme/widgets.git',
+      githubOwner: 'acme',
+      githubRepo: 'widgets',
+    })
+  })
+
+  it('normal flow: no github metadata for GitLab repos', () => {
+    const result = assembleNormalFlowOptions({
+      remoteUrl: 'git@gitlab.com:team/project.git',
+      remoteType: 'gitlab',
+    })
+    expect(result).toEqual({
+      repository: 'git@gitlab.com:team/project.git',
+    })
+    expect(result).not.toHaveProperty('githubOwner')
+    expect(result).not.toHaveProperty('githubRepo')
+  })
+
+  it('normal flow: no github metadata for generic git remotes', () => {
+    const result = assembleNormalFlowOptions({
+      remoteUrl: 'git@internal.company.com:team/project.git',
+      remoteType: 'generic',
+    })
+    expect(result).toEqual({
+      repository: 'git@internal.company.com:team/project.git',
+    })
+    expect(result).not.toHaveProperty('githubOwner')
+    expect(result).not.toHaveProperty('githubRepo')
+  })
+
+  it('normal flow: no metadata when detection is null', () => {
+    const result = assembleNormalFlowOptions(null)
+    expect(result).toEqual({ repository: undefined })
+    expect(result).not.toHaveProperty('githubOwner')
+    expect(result).not.toHaveProperty('githubRepo')
+  })
+
+  it('normal flow: no metadata when remoteUrl is undefined (local dir)', () => {
+    const result = assembleNormalFlowOptions({ remoteType: 'none' })
+    expect(result).toEqual({ repository: undefined })
+    expect(result).not.toHaveProperty('githubOwner')
+    expect(result).not.toHaveProperty('githubRepo')
+  })
+
+  it('normal flow: passes repository even for non-github remotes', () => {
+    const result = assembleNormalFlowOptions({
+      remoteUrl: 'git@bitbucket.org:team/project.git',
+      remoteType: 'bitbucket',
+    })
+    expect(result.repository).toBe('git@bitbucket.org:team/project.git')
+  })
+
+  // ── Regeneration flow ───────────────────────────────────────
+  it('regen flow: patches github metadata when existing project has none', () => {
+    const result = assembleRegenFlowUpdates(
+      { remoteUrl: 'git@github.com:acme/widgets.git', remoteType: 'github' },
+      { repository: undefined, githubOwner: undefined, githubRepo: undefined },
+    )
+    expect(result).toEqual({
+      repository: 'git@github.com:acme/widgets.git',
+      githubOwner: 'acme',
+      githubRepo: 'widgets',
+    })
+  })
+
+  it('regen flow: does NOT overwrite existing github metadata', () => {
+    const result = assembleRegenFlowUpdates(
+      { remoteUrl: 'git@github.com:new-org/new-repo.git', remoteType: 'github' },
+      { repository: 'git@github.com:old-org/old-repo.git', githubOwner: 'old-org', githubRepo: 'old-repo' },
+    )
+    expect(result.repository).toBe('git@github.com:new-org/new-repo.git')
+    expect(result).not.toHaveProperty('githubOwner')
+    expect(result).not.toHaveProperty('githubRepo')
+  })
+
+  it('regen flow: preserves existing repository when detection has none', () => {
+    const result = assembleRegenFlowUpdates(
+      null,
+      { repository: 'git@github.com:acme/widgets.git', githubOwner: 'acme', githubRepo: 'widgets' },
+    )
+    expect(result.repository).toBe('git@github.com:acme/widgets.git')
+  })
+
+  it('regen flow: no github metadata for non-github detection', () => {
+    const result = assembleRegenFlowUpdates(
+      { remoteUrl: 'git@gitlab.com:team/project.git', remoteType: 'gitlab' },
+      { repository: undefined, githubOwner: undefined, githubRepo: undefined },
+    )
+    expect(result).toEqual({
+      repository: 'git@gitlab.com:team/project.git',
+    })
+    expect(result).not.toHaveProperty('githubOwner')
+    expect(result).not.toHaveProperty('githubRepo')
+  })
+
+  it('regen flow: detection URL takes precedence over existing repository', () => {
+    const result = assembleRegenFlowUpdates(
+      { remoteUrl: 'git@github.com:new-org/new-repo.git', remoteType: 'github' },
+      { repository: 'git@github.com:old-org/old-repo.git', githubOwner: undefined, githubRepo: undefined },
+    )
+    expect(result.repository).toBe('git@github.com:new-org/new-repo.git')
+    expect(result).toHaveProperty('githubOwner', 'new-org')
+    expect(result).toHaveProperty('githubRepo', 'new-repo')
+  })
+
+  it('regen flow: falls back to existing repository when detection has no URL', () => {
+    const result = assembleRegenFlowUpdates(
+      { remoteType: 'none' },
+      { repository: 'git@github.com:acme/widgets.git' },
+    )
+    expect(result.repository).toBe('git@github.com:acme/widgets.git')
+  })
+})
+
+// ─── Consistency: extractGitHubOwnerRepo vs detectRemoteType ─────
+
+describe('extractGitHubOwnerRepo and detectRemoteType consistency', () => {
+  const githubUrls = [
+    'https://github.com/acme/widgets.git',
+    'git@github.com:acme/widgets.git',
+    'ssh://git@github.com/acme/widgets',
+    'http://github.com/acme/widgets',
+  ]
+
+  const nonGithubUrls = [
+    'git@gitlab.com:acme/widgets.git',
+    'https://gitlab.com/acme/widgets.git',
+    'git@bitbucket.org:acme/widgets.git',
+    'git@internal.server:acme/widgets.git',
+  ]
+
+  for (const url of githubUrls) {
+    it(`both agree "${url}" is GitHub`, () => {
+      expect(detectRemoteType(url)).toBe('github')
+      expect(extractGitHubOwnerRepo(url)).not.toBeNull()
+    })
+  }
+
+  for (const url of nonGithubUrls) {
+    it(`both agree "${url}" is NOT GitHub`, () => {
+      expect(detectRemoteType(url)).not.toBe('github')
+      expect(extractGitHubOwnerRepo(url)).toBeNull()
+    })
+  }
 })
