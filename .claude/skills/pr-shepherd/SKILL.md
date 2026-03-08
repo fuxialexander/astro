@@ -222,6 +222,34 @@ For each Critical/Important issue:
 5. After CI passes, check for new AI review comments. Repeat from Phase 2 if the reviewer
    flags new Critical or Important issues.
 
+## Phase 5.5: Local AI Review (replaces GitHub Actions AI review)
+
+GitHub Actions CI may be unavailable (exhausted minutes, disabled workflows). Run the AI
+code review locally using a subagent, then post it as a PR comment.
+
+1. **Launch a subagent** to perform the AI review. The subagent should:
+   - Read the full diff (`gh pr diff <number>`)
+   - Read all changed files in full context
+   - Apply the review criteria from `.github/workflows/ai-review.yml` (security, data
+     integrity, logic errors, Astro-specific principles, provider parity, user isolation)
+   - Produce a structured review with Critical/Important/Suggestions and a verdict
+
+2. **Post the review as a PR comment**:
+   ```bash
+   gh pr comment <number> --body "$(cat <<'EOF'
+   ## 🤖 AI Code Review
+
+   <review content from subagent>
+
+   ---
+   <sub>Reviewed by Claude Code (local) via Astro CI</sub>
+   EOF
+   )"
+   ```
+
+3. **If the review finds Critical or Important issues** that weren't caught in Phase 2-4,
+   go back and fix them before proceeding to Phase 6.
+
 ## Phase 6: Report
 
 Produce a structured report summarizing what was found and fixed.

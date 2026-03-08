@@ -28,7 +28,7 @@ import { projects, planNodes, planNodeDependencies, blobs, userProfiles, taskExe
 import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
-import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch } from '../lib/prompt-templates.js'
+import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction } from '../lib/prompt-templates.js'
 import { extractPlanJsonFromText } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { autoDispatchDownstream } from './data.js'
@@ -735,7 +735,7 @@ async function dispatchViaRelay(
         const [instruction] = await db.select({ content: machineInstructions.content, name: machineInstructions.name })
           .from(machineInstructions).where(eq(machineInstructions.id, machine.defaultInstructionId)).limit(1)
         if (instruction?.content) {
-          skillsInjection = `<machine_instructions name="${instruction.name}">\n${instruction.content}\n</machine_instructions>`
+          skillsInjection = formatMachineInstruction(instruction.name, instruction.content)
         }
       }
     } catch (err) {
