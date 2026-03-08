@@ -20,8 +20,6 @@ export {
 } from '../../packages/core/src/prompt-templates.js'
 
 export type {
-  RepoContextForPrompt,
-  GitStateForPrompt,
   GitHubContextForPrompt,
   ChatPlanNode,
   ChatPlanEdge,

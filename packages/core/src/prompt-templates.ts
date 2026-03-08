@@ -69,24 +69,6 @@ export const PLAN_GRAPH_SCHEMA = {
   required: ["projectName", "nodes", "edges"],
 }
 
-export interface RepoContextForPrompt {
-  claudeMd?: string
-  readmeMd?: string
-  packageInfo?: string
-  fileTreeSummary?: string
-}
-
-
-export interface GitStateForPrompt {
-  currentBranch: string
-  targetBranch: string
-  isDirty: boolean
-  dirtyDetails?: {
-    staged: number
-    unstaged: number
-    untracked: number
-  }
-}
 
 export interface GitHubContextForPrompt {
   hasRepo: boolean
@@ -566,8 +548,8 @@ export function buildInteractivePlanPrompt(
   description: string,
   options?: {
     visionDoc?: string
-    repoContext?: RepoContextForPrompt
-    gitState?: GitStateForPrompt
+    /** Whether the project has a local working directory (enables codebase exploration approach) */
+    hasWorkingDirectory?: boolean
     skillsSummary?: string
     githubContext?: GitHubContextForPrompt
     replanContext?: import('./types.js').ReplanContext
@@ -577,49 +559,6 @@ export function buildInteractivePlanPrompt(
   const visionSection = options?.visionDoc
     ? `\n## Project Vision Document\n<user_vision>\n${options.visionDoc}\n</user_vision>\n`
     : ""
-
-  let repoSection = ""
-  if (options?.repoContext) {
-    const parts: string[] = []
-    if (options.repoContext.claudeMd) {
-      parts.push(`## CLAUDE.md (Project Instructions)\n<user_content>\n${options.repoContext.claudeMd}\n</user_content>`)
-    }
-    if (options.repoContext.readmeMd) {
-      parts.push(`## README.md\n<user_content>\n${options.repoContext.readmeMd}\n</user_content>`)
-    }
-    if (options.repoContext.packageInfo) {
-      parts.push(`## Package Metadata\n<user_content>\n${options.repoContext.packageInfo}\n</user_content>`)
-    }
-    if (options.repoContext.fileTreeSummary) {
-      parts.push(`## File Tree\n<user_content>\n${options.repoContext.fileTreeSummary}\n</user_content>`)
-    }
-    if (parts.length > 0) {
-      repoSection = '\n' + parts.join('\n\n') + '\n'
-    }
-  }
-
-  let gitStateSection = ""
-  if (options?.gitState) {
-    const gs = options.gitState
-    const sanitizeBranch = (b: string) => b.replace(/[`\n\r]/g, '')
-    const parts: string[] = [`## Git Repository State`]
-    parts.push(`- Current branch: \`${sanitizeBranch(gs.currentBranch)}\``)
-    parts.push(`- Target branch: \`${sanitizeBranch(gs.targetBranch)}\``)
-    if (gs.isDirty) {
-      const d = gs.dirtyDetails
-      if (d) {
-        const details = [
-          d.staged > 0 ? `${d.staged} staged` : null,
-          d.unstaged > 0 ? `${d.unstaged} modified` : null,
-          d.untracked > 0 ? `${d.untracked} untracked` : null,
-        ].filter(Boolean).join(', ')
-        parts.push(`- Working directory has uncommitted changes: ${details} files`)
-      } else {
-        parts.push('- Working directory has uncommitted changes')
-      }
-    }
-    gitStateSection = '\n' + parts.join('\n') + '\n'
-  }
 
   // Build skills section if available
   let skillsSection = ""
@@ -689,12 +628,12 @@ You MUST include a final task node titled "Push to GitHub" that:
     replanSection = '\n' + parts.join('\n') + '\n'
   }
 
-  const hasCodebase = !!options?.repoContext
+  const hasCodebase = !!options?.hasWorkingDirectory
 
   let approachSection: string
   if (hasCodebase) {
     approachSection = `
-1. **Quick survey of the codebase** — Get a high-level understanding first. Read READMEs, CLAUDE.md, package.json, and use Glob to see the directory/file tree structure. Do NOT dive into individual source files yet — just get the lay of the land.
+1. **Quick survey of the codebase** — Get a high-level understanding first. Use Glob to see the directory/file tree structure, then read key project files (README, package manifests, project instruction files). Do NOT dive into individual source files yet — just get the lay of the land.
 
 2. **Ask clarifying questions** — If you have a tool to ask the user questions (e.g., AskUserQuestion or an MCP equivalent), use it to clarify:
    - Architectural decisions (e.g., which approach to take)
@@ -734,7 +673,7 @@ You MUST include a final task node titled "Push to GitHub" that:
 <user_goal>
 ${description}
 </user_goal>
-${visionSection}${replanSection}${repoSection}${gitStateSection}${skillsSection}${githubSection}
+${visionSection}${replanSection}${skillsSection}${githubSection}
 ## Your Approach
 ${approachSection}
 

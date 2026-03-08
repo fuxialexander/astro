@@ -219,7 +219,7 @@ export function validateTemplate(
     ].join(' ')
 
     const referencedParams = Array.from(allPromptText.matchAll(/\{\{(\w+)\}\}/g)).map((m) => m[1])
-    const builtinParams = ['projectName', 'visionDoc', 'repoContext', 'gitState', 'timestamp', 'userName']
+    const builtinParams = ['projectName', 'visionDoc', 'timestamp', 'userName']
 
     for (const ref of referencedParams) {
       if (!parameterIds.has(ref) && !builtinParams.includes(ref)) {
