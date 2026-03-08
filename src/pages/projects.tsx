@@ -729,7 +729,7 @@ export function Projects() {
         </div>
 
         {viewTab === "all" && (
-          projects.length === 0 ? (
+          projects.length === 0 && !creating ? (
             <div className="flex-1 overflow-auto">
               <EmptyState
                 icon={Folder}
@@ -737,10 +737,37 @@ export function Projects() {
                 description="Create your first project and let AI help you break it down into a structured plan with clear dependencies and verification steps."
                 action={{
                   label: "Create Project",
-                  onClick: () => setCreating(true),
+                  href: "/plan",
                 }}
                 className="h-full"
               />
+            </div>
+          ) : projects.length === 0 && creating ? (
+            <div className="flex-1 overflow-auto flex items-start justify-center pt-24">
+              <div className="flex items-center gap-2.5 px-6 py-2.5 w-full max-w-md">
+                <Plus className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <input
+                  ref={createInputRef}
+                  type="text"
+                  placeholder="Project name... (Enter to create, Esc to cancel)"
+                  className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground border-b border-border pb-1"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      handleInlineCreate((e.target as HTMLInputElement).value)
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault()
+                      setCreating(false)
+                    }
+                  }}
+                  onBlur={(e) => {
+                    const val = e.target.value.trim()
+                    if (val) handleInlineCreate(val)
+                    else setCreating(false)
+                  }}
+                />
+              </div>
             </div>
           ) : (
             <ItemListView
@@ -885,7 +912,7 @@ export function Projects() {
                 icon={Folder}
                 title="No projects to display"
                 description="Create a project to see it on the timeline."
-                action={{ label: "Create Project", onClick: () => setCreating(true) }}
+                action={{ label: "Create Project", href: "/plan" }}
                 className="h-full"
               />
             </div>
@@ -902,7 +929,7 @@ export function Projects() {
                   description="Create your first project and let AI help you break it down into a structured plan."
                   action={{
                     label: "Create Project",
-                    onClick: () => setCreating(true),
+                    href: "/plan",
                   }}
                 />
               </div>
