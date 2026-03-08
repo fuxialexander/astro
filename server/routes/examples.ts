@@ -305,13 +305,30 @@ function validateParameterValue(
 /**
  * Interpolate template parameters into a prompt string.
  * Uses {{paramName}} mustache-style placeholders.
+ *
+ * When a parameter value is empty/undefined, the entire line containing that
+ * placeholder is removed (e.g. "- Paper Link: {{paperLink}}" → stripped).
+ * This prevents ugly dangling labels like "- Paper Link: " in the output.
  */
 function interpolatePrompt(prompt: string, parameters: ResolvedParameters): string {
   let result = prompt
   for (const [key, value] of Object.entries(parameters)) {
     const placeholder = `{{${key}}}`
-    const stringValue = Array.isArray(value) ? value.join(', ') : String(value)
-    result = result.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), stringValue)
+    const escapedPlaceholder = placeholder.replace(/[{}]/g, '\\$&')
+    const stringValue = Array.isArray(value)
+      ? value.join(', ')
+      : value != null ? String(value) : ''
+
+    if (!stringValue) {
+      // Remove the entire line that contains this empty placeholder so we don't
+      // leave behind dangling label lines like "- Paper Link: "
+      result = result.replace(
+        new RegExp(`[^\n]*${escapedPlaceholder}[^\n]*\n?`, 'g'),
+        ''
+      )
+    } else {
+      result = result.replace(new RegExp(escapedPlaceholder, 'g'), stringValue)
+    }
   }
   return result
 }

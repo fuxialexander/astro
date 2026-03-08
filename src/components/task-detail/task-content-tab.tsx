@@ -10,7 +10,7 @@ import { useProjectStore } from '@/stores/project-store'
 import { useUserProfileStore } from '@/stores/user-profile-store'
 import { useContentSaveStore } from '@/stores/content-save-store'
 import { dataClient } from '@/lib/data-client'
-import { fileToBase64, looksLikeMarkdown, markdownToHtml } from '@/lib/html-utils'
+import { fileToBase64, resolveEditorContent } from '@/lib/html-utils'
 import { cn } from '@/lib/utils'
 import type { PlanNode, TaskAttachment, TaskLink } from '@/types'
 import type { MentionSuggestionItem } from '@/components/ui/mention-suggestion'
@@ -34,16 +34,12 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
 
   // Initialize with content or fall back to description for backward compat.
   // When `content` (HTML) is absent but `description` exists (e.g., GitHub-synced
-  // issues store raw markdown in `description`), convert markdown → HTML so the
-  // tiptap editor renders formatting correctly instead of showing raw markdown text.
+  // issues or template-generated prompts store raw markdown in `description`),
+  // resolveEditorContent() converts markdown → HTML so the tiptap editor renders
+  // formatting correctly instead of showing raw markdown text.
   const initialContent = useMemo(() => {
     if (node.content) return node.content
-    if (!node.description) return ''
-    if (looksLikeMarkdown(node.description)) {
-      return markdownToHtml(node.description)
-    }
-    // Plain text fallback — wrap in <p> tag
-    return `<p>${node.description}</p>`
+    return resolveEditorContent(node.description)
   }, [node.content, node.description])
   const [draftContent, setDraftContent] = useState(initialContent)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
