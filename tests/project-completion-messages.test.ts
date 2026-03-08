@@ -41,7 +41,7 @@ describe('Client-side completion toast messages', () => {
     })
     expect(toast.type).toBe('success')
     expect(toast.title).toBe('All tasks complete')
-    expect(toast.description).toBe('All tasks in "My Project" completed. Changes on branch `astro/abc123`. Use `git checkout astro/abc123` to review.')
+    expect(toast.description).toBe('All tasks in "My Project" completed. Changes on branch `astro/abc123`. Browse files at {{.astro/worktrees/abc123/}} or run `git checkout astro/abc123` to review. The .astro directory is hidden by default — enable "show hidden files" in your file manager to see it.')
   })
 
   it('all success without branch — generic success message', () => {
@@ -213,11 +213,11 @@ describe('Server-side project:completed toast messages', () => {
     expect(toast).not.toBeNull()
     expect(toast!.title).toBe('Project complete')
     expect(toast!.description).toBe(
-      'All tasks in "My Project" completed. Changes on branch `astro/abc123`. Run `git checkout astro/abc123` or `git diff main...astro/abc123` to review.'
+      'All tasks in "My Project" completed. Changes on branch `astro/abc123`. Browse files at {{.astro/worktrees/abc123/}} or run `git checkout astro/abc123` to review. The .astro directory is hidden by default — enable "show hidden files" in your file manager to see it.'
     )
   })
 
-  it('local branch mode, custom base branch — git diff uses it', () => {
+  it('local branch mode, custom base branch — includes worktree path', () => {
     const toast = buildServerToast({
       projectName: 'My Project',
       projectBranch: 'astro/abc123',
@@ -226,7 +226,8 @@ describe('Server-side project:completed toast messages', () => {
       baseBranch: 'develop',
       alreadyNotified: false,
     })
-    expect(toast!.description).toContain('git diff develop...astro/abc123')
+    expect(toast!.description).toContain('{{.astro/worktrees/abc123/}}')
+    expect(toast!.description).toContain('`git checkout astro/abc123`')
   })
 
   it('local mode, no project name', () => {
@@ -238,7 +239,7 @@ describe('Server-side project:completed toast messages', () => {
       baseBranch: 'main',
       alreadyNotified: false,
     })
-    expect(toast!.description).toBe('All tasks completed on branch `astro/abc123`. Run `git checkout astro/abc123` to review.')
+    expect(toast!.description).toBe('All tasks completed on branch `astro/abc123`. Browse files at {{.astro/worktrees/abc123/}} or run `git checkout astro/abc123` to review.')
   })
 
   // ── baseBranch defaults ─────────────────────────────────────────────
@@ -254,7 +255,7 @@ describe('Server-side project:completed toast messages', () => {
     expect(toast!.description).toContain('→ `main`')
   })
 
-  it('defaults baseBranch to "main" in git diff hint', () => {
+  it('defaults baseBranch — local branch mode includes worktree path', () => {
     const toast = buildServerToast({
       projectName: 'My Project',
       projectBranch: 'astro/abc123',
@@ -263,7 +264,8 @@ describe('Server-side project:completed toast messages', () => {
       baseBranch: undefined,
       alreadyNotified: false,
     })
-    expect(toast!.description).toContain('git diff main...astro/abc123')
+    expect(toast!.description).toContain('{{.astro/worktrees/abc123/}}')
+    expect(toast!.description).toContain('`git checkout astro/abc123`')
   })
 
   // ── Direct delivery mode ────────────────────────────────────────────
@@ -801,7 +803,7 @@ describe('Source code: completion-messages.ts shared builder', () => {
   it('handles all server scenarios: PR created, PR failed, local branch', () => {
     expect(source).toContain('PR created from')
     expect(source).toContain('PR creation was skipped')
-    expect(source).toContain('git diff')
+    expect(source).toContain('Browse files at')
   })
 
   it('handles deliveryMode === pr check', () => {
@@ -1401,8 +1403,9 @@ describe('Source code: markdown-inline.ts', () => {
     expect(source).toContain('export function renderMarkdownInline')
   })
 
-  it('converts backtick pairs to code elements', () => {
+  it('converts backtick pairs and path markers to code elements', () => {
     expect(source).toContain("remaining.indexOf(\"`\")")
+    expect(source).toContain("remaining.indexOf(\"{{\")")
     expect(source).toContain("\"code\"")
   })
 

@@ -408,7 +408,9 @@ timeline
 
 ```mermaid
 flowchart LR
-  A["ensureProjectBranch()"] --> B["git worktree add
+  A["ensureProjectBranch()"] --> A2["createProjectWorktree()
+  (detached HEAD, persistent)"]
+  A2 --> B["git worktree add
   -b astro/proj-task
   {path} {startPoint}"]
   B --> C["Agent executes
@@ -419,16 +421,48 @@ flowchart LR
   D -->|push| G["Push branch only"]
   D -->|copy| H["Preserve worktree"]
   D -->|direct| I["No git ops"]
-  E --> J["Cleanup worktree"]
+  E --> J["Cleanup task worktree"]
   F --> J
   G --> J
+  J --> K["syncProjectWorktree()
+  (update detached HEAD to new tip)"]
 ```
 
-**First task**: `ensureProjectBranch()` creates the branch. Worktree branches from it.
+**First task**: `ensureProjectBranch()` creates the project branch. `createProjectWorktree()` creates a persistent worktree at `.astro/worktrees/{shortProjectId}/` using `--detach`. Task worktree branches from the project branch.
 
-**Subsequent tasks**: Branch exists (idempotent check). `git fetch origin` (if remote) ensures latest tip. Worktree branches from updated project branch — includes all prior merged task work.
+**Subsequent tasks**: Branch exists (idempotent check). `git fetch origin` (if remote) ensures latest tip. Task worktree branches from updated project branch — includes all prior merged task work.
 
-**Cleanup**: Task branch cleaned up. Worktree directory removed. Project branch **never deleted**.
+**After merge**: Task worktree cleaned up (directory removed, task branch deleted). `syncProjectWorktree()` updates the persistent project worktree's detached HEAD to the new project branch tip.
+
+**Project worktree cleanup**: Only when the project branch is deleted. `cleanupProjectWorktree()` removes the directory and prunes.
+
+### Project Worktree (Persistent)
+
+Each project gets a **persistent project worktree** at `.astro/worktrees/{shortProjectId}/` that mirrors the project branch on disk. This enables file browsing after task worktrees are cleaned up.
+
+```
+.astro/worktrees/
+├── abc123/                  ← persistent project worktree (detached HEAD at project branch tip)
+├── abc123-n1/               ← task worktree (temporary, cleaned up after merge)
+└── abc123-n2/               ← task worktree (temporary, cleaned up after merge)
+```
+
+**Why detached HEAD?** The local merge mechanism (`localMergeIntoProjectBranch()`) creates a temporary worktree that checks out the project branch for the squash-merge. Git prevents the same branch from being checked out in two worktrees simultaneously. By using a detached HEAD for the project worktree, the project branch ref remains free for the temporary merge worktree.
+
+**Sync mechanism:** After each successful merge:
+
+```bash
+git -C .astro/worktrees/{shortProjectId}/ checkout --detach refs/heads/astro/{shortProjectId}
+```
+
+This updates the working tree files to match the latest project branch state. For remote mode, a `git fetch` is performed first.
+
+**User-facing value:**
+
+- File browser always points to `.astro/worktrees/{shortProjectId}/` for browsing project files
+- Completion messages include the worktree path: "Browse files at `.astro/worktrees/abc123/`"
+- Visible in the OS file manager when "show hidden files" is enabled
+- Multiple projects each get their own worktree — no branch switching needed
 
 ### Merge-Only Lock (Parallel Execution)
 
@@ -611,7 +645,7 @@ All columns nullable. Migration: `supabase/migrations/20260302000000_project_bra
 | `server/routes/dispatch.ts` | Computes `projectBranch`, detects Push nodes, injects special dispatch instructions |
 | `server/routes/agent.ts` | Passes GitHub context to plan generation prompts |
 | `src/stores/plan-store.ts` | Auto-wires new tasks as dependencies of Push node |
-| `packages/agent-runner/src/lib/worktree.ts` | `ensureProjectBranch()` (remote + local), branches from project branch |
+| `packages/agent-runner/src/lib/worktree.ts` | `ensureProjectBranch()` (remote + local), `createProjectWorktree()`, `syncProjectWorktree()`, `cleanupProjectWorktree()` |
 | `packages/agent-runner/src/lib/git-pr.ts` | `mergePullRequest()`, auto-merge + SHA capture |
 | `packages/agent-runner/src/lib/local-merge.ts` | `localMergeIntoProjectBranch()` — local squash-merge for no-remote repos |
 | `packages/agent-runner/src/lib/workdir-safety.ts` | `repoHasRemote()` — detects whether repo has remotes |
