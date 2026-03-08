@@ -39,6 +39,7 @@ function mapRowToMachine(row: typeof registeredMachines.$inferSelect): Registere
     isConnected: row.isConnected,
     refreshTokenHash: row.refreshTokenHash,
     isRevoked: row.isRevoked,
+    defaultInstructionId: row.defaultInstructionId ?? null,
     metadata: (row.metadata ?? undefined) as Record<string, string> | undefined,
   }
 }
