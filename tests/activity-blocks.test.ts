@@ -768,7 +768,7 @@ describe('hydrateStreamingEvents — plan_result', () => {
     expect(result.planResult!.nodes).toHaveLength(1)
   })
 
-  it('should only keep first plan_result (ignore Haiku retry)', () => {
+  it('should only keep first plan_result (ignore duplicate on SSE replay)', () => {
     const events: StreamingEventRow[] = [
       {
         seq: 1,

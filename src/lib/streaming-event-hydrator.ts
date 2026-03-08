@@ -200,7 +200,7 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
         break
       }
       case 'plan_result': {
-        // Keep first successful extraction — Haiku retry may produce a truncated result
+        // Keep only the first plan_result — prevents duplicate graph blocks on SSE replay
         if (!planResult) {
           const nodes = data.nodes as Record<string, unknown>[] | undefined
           if (nodes && Array.isArray(nodes)) {
