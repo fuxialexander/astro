@@ -1654,19 +1654,21 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         })
     }
 
-    // For server-side dispatch, emit task:init via event bus so the frontend
+    // Emit task:init via event bus so the global SSE stream (/api/events/stream)
     // learns the executionId→nodeId mapping and can track live progress.
-    if (isServerSideDispatch) {
-      executionEventBus.emit('task:init', {
-        executionId,
-        nodeId,
-        projectId,
-        machineId,
-        providerId: initDataForSSE.providerId,
-        providerName: initDataForSSE.providerName,
-        computeBackend,
-      })
-    }
+    // This is essential for both server-side dispatch (no browser SSE consumer)
+    // and browser-initiated dispatch (so the realtime store bootstraps tracking,
+    // enabling the dashboard/active-tasks to show the task even after page refresh).
+    // The realtime store handler is idempotent (skips if execution entry exists).
+    executionEventBus.emit('task:init', {
+      executionId,
+      nodeId,
+      projectId,
+      machineId,
+      providerId: initDataForSSE.providerId,
+      providerName: initDataForSSE.providerName,
+      computeBackend,
+    })
 
     // Keepalive + two-tier activity timeout
     // Tier 1 (STARTUP_TIMEOUT_MS): 3 min startup, 10 retries + 10 min final = ~40 min worst case.

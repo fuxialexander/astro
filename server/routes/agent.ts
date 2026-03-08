@@ -127,6 +127,17 @@ async function streamChatViaRelay(
     })
   }
 
+  // Emit task:init to global SSE so the frontend realtime store can track this
+  // execution (enables dashboard/active-tasks to show it after page refresh).
+  // The realtime store handler is idempotent (skips if execution entry exists).
+  executionEventBus.emit('task:init', {
+    executionId: opts.taskId,
+    nodeId: opts.nodeId,
+    projectId: opts.projectId,
+    machineId: opts.targetMachineId,
+    providerId: opts.preferredProvider,
+  })
+
   // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)
   c.header('X-Accel-Buffering', 'no')
 

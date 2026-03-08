@@ -181,6 +181,9 @@ interface RealtimeState {
   respondToSafetyPrompt: (taskId: string, decision: string) => Promise<void>
   hydrateFromCatchUp: (executionIds: string[], afterSeq?: number) => Promise<void>
   pushActivityEvent: (executionId: string, event: TaskActivityEvent) => void
+  /** Reconcile running tasks after page refresh: bootstrap execution store + task streams
+   *  for plan nodes that are in_progress but have no execution store entries. */
+  reconcileRunningTasks: () => void
 }
 
 let activityCounter = 0
@@ -200,30 +203,30 @@ export function clearRealtimeTextBatch(taskId: string) {
 }
 
 function flushRealtimeText(
-  taskId: string,
+  execId: string,
   set: (fn: (state: RealtimeState) => Partial<RealtimeState>) => void,
 ) {
-  const timer = realtimeTextTimers.get(taskId)
+  const timer = realtimeTextTimers.get(execId)
   if (timer) {
     clearTimeout(timer)
-    realtimeTextTimers.delete(taskId)
+    realtimeTextTimers.delete(execId)
   }
 
-  const text = realtimeTextBatch.get(taskId)
-  realtimeTextBatch.delete(taskId)
+  const text = realtimeTextBatch.get(execId)
+  realtimeTextBatch.delete(execId)
 
   if (!text) return
 
-  console.log('[realtime] text for', taskId, ':', text.slice(0, 80))
+  console.log('[realtime] text for', execId, ':', text.slice(0, 80))
   set((state) => {
     const streams = new Map(state.taskStreams)
-    const existing = streams.get(taskId) || createEmptyTaskStream(taskId)
+    const existing = streams.get(execId) || createEmptyTaskStream(execId)
     const stream = {
       ...existing,
       stdout: existing.stdout + text,
       activityEvents: [...existing.activityEvents, { type: 'text' as const, content: text, timestamp: new Date() }],
     }
-    streams.set(taskId, stream)
+    streams.set(execId, stream)
     return { taskStreams: streams }
   })
 }
@@ -249,8 +252,14 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     })
     ;(window as unknown as Record<string, unknown>).__realtimeUnsub = unsub
 
-    // On SSE reconnect after network blip, catch up missed streaming events
+    // On SSE reconnect after network blip, reconcile running tasks (in case
+    // task:init events were missed during the disconnect) then catch up missed
+    // streaming events for all active executions.
     realtimeClient.onReconnect = () => {
+      // Re-run reconciliation so tasks dispatched during the disconnect get
+      // bootstrapped in the execution store + taskStreams.
+      get().reconcileRunningTasks()
+
       const { taskStreams, hydrateFromCatchUp } = get()
       // Collect execution IDs from all active (non-terminal) task streams
       const activeIds: string[] = []
@@ -638,6 +647,75 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       })
     }
   })(),
+
+  reconcileRunningTasks: () => {
+    const planStore = usePlanStore.getState()
+    const execStore = useExecutionStore.getState()
+    const state = get()
+
+    const newExecs = new Map(execStore.executions)
+    const newStreams = new Map(state.taskStreams)
+    let execChanged = false
+    let streamChanged = false
+    const catchUpIds: string[] = []
+
+    // 1. Reconcile plan nodes with in_progress/dispatched status
+    const runningNodes = planStore.nodes.filter(
+      (n) => (n.status === 'in_progress' || n.status === 'dispatched') && n.executionId
+    )
+
+    for (const node of runningNodes) {
+      const execId = node.executionId!
+
+      // Bootstrap execution store entry if missing
+      if (!newExecs.has(node.id)) {
+        newExecs.set(node.id, {
+          nodeId: node.id,
+          projectId: node.projectId,
+          executionId: execId,
+          status: 'running',
+          streamText: '',
+          toolTraces: [],
+          fileChanges: [],
+          activityEvents: [],
+          startedAt: node.executionStartedAt ? new Date(node.executionStartedAt) : new Date(),
+          machineId: node.machineId,
+        })
+        execChanged = true
+      }
+
+      // Bootstrap task stream entry if missing
+      if (!newStreams.has(execId)) {
+        newStreams.set(execId, createEmptyTaskStream(execId))
+        streamChanged = true
+        catchUpIds.push(execId)
+      }
+    }
+
+    // 2. Reconcile execution store entries (playground/plan sessions) that have
+    //    executionId but no corresponding task stream
+    for (const [, exec] of execStore.executions) {
+      if ((exec.status !== 'running' && exec.status !== 'pending') || !exec.executionId) continue
+      if (!newStreams.has(exec.executionId)) {
+        newStreams.set(exec.executionId, createEmptyTaskStream(exec.executionId))
+        streamChanged = true
+        catchUpIds.push(exec.executionId)
+      }
+    }
+
+    if (execChanged) {
+      useExecutionStore.setState({ executions: newExecs })
+    }
+    if (streamChanged) {
+      set({ taskStreams: newStreams })
+    }
+
+    // Trigger catch-up hydration for newly discovered running tasks
+    if (catchUpIds.length > 0) {
+      console.log('[realtime] Reconciling', catchUpIds.length, 'running tasks after page load')
+      get().hydrateFromCatchUp(catchUpIds, 0)
+    }
+  },
 }))
 
 /**
@@ -813,11 +891,15 @@ function handleRealtimeEvent(
 ) {
   const data = event.data as Record<string, unknown>
 
+  // NOTE: The wire protocol uses `data.taskId` for execution IDs (i.e. the ID
+  // returned by the dispatch/agent routes). To avoid confusion with plan node IDs,
+  // local variables in this handler are named `execId`.
+
   // Flush pending text batches before non-text events to preserve ordering
   if (event.type !== 'task:stdout' && event.type !== 'task:text') {
-    const taskId = (data?.taskId as string) || ''
-    if (taskId && realtimeTextBatch.has(taskId)) {
-      flushRealtimeText(taskId, set)
+    const execId = (data?.taskId as string) || ''
+    if (execId && realtimeTextBatch.has(execId)) {
+      flushRealtimeText(execId, set)
     }
   }
 
@@ -875,58 +957,58 @@ function handleRealtimeEvent(
 
     case 'task:stdout':
     case 'task:text': {
-      const taskId = data.taskId as string
+      const execId = data.taskId as string
       const text = data.data as string
       // Batch text chunks — flush every 50ms for smooth ~20fps rendering
-      realtimeTextBatch.set(taskId, (realtimeTextBatch.get(taskId) || '') + text)
-      if (!realtimeTextTimers.has(taskId)) {
-        realtimeTextTimers.set(taskId, setTimeout(() => {
-          realtimeTextTimers.delete(taskId)
-          flushRealtimeText(taskId, set)
+      realtimeTextBatch.set(execId, (realtimeTextBatch.get(execId) || '') + text)
+      if (!realtimeTextTimers.has(execId)) {
+        realtimeTextTimers.set(execId, setTimeout(() => {
+          realtimeTextTimers.delete(execId)
+          flushRealtimeText(execId, set)
         }, 50))
       }
       break
     }
 
     case 'task:session_init': {
-      const taskId = data.taskId as string
+      const execId = data.taskId as string
       const sessionId = data.sessionId as string
       const model = data.model as string | undefined
       set((state) => {
         const streams = new Map(state.taskStreams)
-        const existing = streams.get(taskId) || createEmptyTaskStream(taskId)
-        streams.set(taskId, { ...existing, sessionId, model })
+        const existing = streams.get(execId) || createEmptyTaskStream(execId)
+        streams.set(execId, { ...existing, sessionId, model })
         return { taskStreams: streams }
       })
       break
     }
 
     case 'task:progress': {
-      const taskId = data.taskId as string
+      const execId = data.taskId as string
       const progress = data.progress as number
       const message = data.message as string | undefined
       set((state) => {
         const streams = new Map(state.taskStreams)
-        const existing = streams.get(taskId) || createEmptyTaskStream(taskId)
-        streams.set(taskId, { ...existing, progress, progressMessage: message })
+        const existing = streams.get(execId) || createEmptyTaskStream(execId)
+        streams.set(execId, { ...existing, progress, progressMessage: message })
         return { taskStreams: streams }
       })
       // Update plan node if in_progress
       if (progress > 0) {
         addActivity(set, 'progress', `Task progress: ${progress}%${message ? ` - ${message}` : ''}`, {
-          taskId,
+          taskId: execId,
         })
       }
       break
     }
 
     case 'task:result': {
-      const taskId = data.taskId as string
+      const execId = data.taskId as string
       const status = data.status as string
       set((state) => {
         const streams = new Map(state.taskStreams)
-        const existing = streams.get(taskId) || createEmptyTaskStream(taskId)
-        streams.set(taskId, {
+        const existing = streams.get(execId) || createEmptyTaskStream(execId)
+        streams.set(execId, {
           ...existing,
           status,
           output: data.output as string | undefined,
@@ -937,7 +1019,7 @@ function handleRealtimeEvent(
         const newApprovals = new Map(state.dynamicApprovals)
         let changed = false
         for (const [reqId, approval] of newApprovals) {
-          if (approval.taskId === taskId) {
+          if (approval.taskId === execId) {
             newApprovals.delete(reqId)
             changed = true
           }
@@ -953,8 +1035,8 @@ function handleRealtimeEvent(
       addActivity(
         set,
         isSuccess ? 'success' : 'failure',
-        `Task ${isSuccess ? 'completed' : 'failed'}: ${taskId}`,
-        { taskId }
+        `Task ${isSuccess ? 'completed' : 'failed'}: ${execId}`,
+        { taskId: execId }
       )
 
       // Update execution store entry (so UI reflects terminal status after refresh)
@@ -962,7 +1044,7 @@ function handleRealtimeEvent(
       const execStore = useExecutionStore.getState()
       const newExecs = new Map(execStore.executions)
       for (const [nid, exec] of execStore.executions) {
-        if (exec.executionId === taskId) {
+        if (exec.executionId === execId) {
           newExecs.set(nid, {
             ...exec,
             status: isSuccess ? 'success' : 'failure',
@@ -982,12 +1064,12 @@ function handleRealtimeEvent(
       // Update plan node status via plan store
       const planStore = usePlanStore.getState()
       const node = planStore.nodes.find(
-        (n) => n.executionId === taskId
+        (n) => n.executionId === execId
       )
       if (node) {
         // Use finalStatus from server if provided
         const deliveryOk = !data.deliveryStatus || data.deliveryStatus === 'success' || data.deliveryStatus === 'skipped'
-        const isPlaygroundTask = taskId.startsWith('playground-')
+        const isPlaygroundTask = execId.startsWith('playground-')
         const yoloOn = isPlaygroundTask
           ? useSettingsStore.getState().playgroundYoloMode
           : useSettingsStore.getState().yoloMode
@@ -1021,13 +1103,13 @@ function handleRealtimeEvent(
 
       // If this is a plan session result, extract plan nodes from accumulated stdout
       for (const [nid, exec] of execStore.executions) {
-        if (exec.executionId === taskId && nid.startsWith('plan-')) {
+        if (exec.executionId === execId && nid.startsWith('plan-')) {
           const planProjectId = planNodeIdToProjectId(nid)!
           // Get accumulated stdout from task stream — use executionId for idempotency
           // to prevent race duplication with the SSE path in execution-store
-          const stream = useRealtimeStore.getState().taskStreams.get(taskId)
+          const stream = useRealtimeStore.getState().taskStreams.get(execId)
           if (stream?.stdout) {
-            const result = applyPlanFromText(planProjectId, stream.stdout, taskId)
+            const result = applyPlanFromText(planProjectId, stream.stdout, execId)
             if (result.applied) {
               console.log('[realtime] Plan extracted from live SSE result:', result.nodeCount, 'nodes')
             }
@@ -1039,7 +1121,7 @@ function handleRealtimeEvent(
     }
 
     case 'task:tool_trace': {
-      const taskId = data.taskId as string
+      const execId = data.taskId as string
       const now = new Date()
       const toolName = data.toolName as string
       const hasInput = data.toolInput !== undefined
@@ -1047,7 +1129,7 @@ function handleRealtimeEvent(
 
       set((state) => {
         const streams = new Map(state.taskStreams)
-        const existing = streams.get(taskId) || createEmptyTaskStream(taskId)
+        const existing = streams.get(execId) || createEmptyTaskStream(execId)
 
         // Build new arrays (avoid mutating existing references)
         let newToolTraces = [...existing.toolTraces]
@@ -1160,7 +1242,7 @@ function handleRealtimeEvent(
           }
         }
 
-        streams.set(taskId, {
+        streams.set(execId, {
           ...existing,
           toolTraces: newToolTraces,
           activityEvents: newActivityEvents,
@@ -1175,12 +1257,12 @@ function handleRealtimeEvent(
     }
 
     case 'task:file_change': {
-      const taskId = data.taskId as string
+      const execId = data.taskId as string
       const now = new Date()
       set((state) => {
         const streams = new Map(state.taskStreams)
-        const existing = streams.get(taskId) || createEmptyTaskStream(taskId)
-        streams.set(taskId, {
+        const existing = streams.get(execId) || createEmptyTaskStream(execId)
+        streams.set(execId, {
           ...existing,
           fileChanges: [...existing.fileChanges, {
             path: data.path as string,
@@ -1202,18 +1284,18 @@ function handleRealtimeEvent(
         })
         return { taskStreams: streams }
       })
-      addActivity(set, 'file_change', `File ${data.action}: ${data.path}`, { taskId })
+      addActivity(set, 'file_change', `File ${data.action}: ${data.path}`, { taskId: execId })
       // NOTE: No dual-write to execution store - realtime events stay in realtime store only
       // The UI will use either execution store (for local dispatch) OR realtime store (for relay)
       break
     }
 
     case 'task:steer_ack': {
-      const taskId = data.taskId as string
+      const execId = data.taskId as string
       const accepted = data.accepted as boolean
       set((state) => {
         const streams = new Map(state.taskStreams)
-        const existing = streams.get(taskId)
+        const existing = streams.get(execId)
         if (existing && existing.steerMessages.length > 0) {
           // Create new arrays to trigger Zustand selector re-renders
           const newSteerMessages = [...existing.steerMessages]
@@ -1255,7 +1337,7 @@ function handleRealtimeEvent(
               timestamp: steerMsg.timestamp,
             })
           }
-          streams.set(taskId, { ...existing, steerMessages: newSteerMessages, activityEvents: newActivityEvents })
+          streams.set(execId, { ...existing, steerMessages: newSteerMessages, activityEvents: newActivityEvents })
         }
         return { taskStreams: streams }
       })
@@ -1265,7 +1347,7 @@ function handleRealtimeEvent(
     // Session attachment events (MCP bridge)
     case 'session:attached': {
       const sessionId = data.sessionId as string
-      const taskId = data.taskId as string
+      const execId = data.taskId as string
       const machineId = data.machineId as string
       const attachedAt = data.attachedAt ? new Date(data.attachedAt as string) : new Date()
 
@@ -1273,7 +1355,7 @@ function handleRealtimeEvent(
         const sessions = new Map(state.attachedSessions)
         sessions.set(sessionId, {
           sessionId,
-          taskId,
+          taskId: execId,
           machineId,
           attachedAt,
           eventCount: 0,
@@ -1282,13 +1364,13 @@ function handleRealtimeEvent(
         return { attachedSessions: sessions }
       })
 
-      addActivity(set, 'session', `Session attached to task ${taskId}`, { taskId, machineId })
+      addActivity(set, 'session', `Session attached to task ${execId}`, { taskId: execId, machineId })
       break
     }
 
     case 'session:detached': {
       const sessionId = data.sessionId as string
-      const taskId = data.taskId as string
+      const execId = data.taskId as string
       const reason = data.reason as string | undefined
 
       set((state) => {
@@ -1297,13 +1379,13 @@ function handleRealtimeEvent(
         return { attachedSessions: sessions }
       })
 
-      addActivity(set, 'session', `Session detached from task ${taskId}${reason ? `: ${reason}` : ''}`, { taskId })
+      addActivity(set, 'session', `Session detached from task ${execId}${reason ? `: ${reason}` : ''}`, { taskId: execId })
       break
     }
 
     case 'session:event': {
       const sessionId = data.sessionId as string
-      const taskId = data.taskId as string
+      const execId = data.taskId as string
       const eventData = data.event as { type: string; [key: string]: unknown }
 
       set((state) => {
@@ -1327,14 +1409,14 @@ function handleRealtimeEvent(
       // Add activity for significant events
       if (eventData.type === 'tool_call') {
         const toolName = (eventData as { toolName?: string }).toolName || 'unknown'
-        addActivity(set, 'tool', `Tool call: ${toolName}`, { taskId })
+        addActivity(set, 'tool', `Tool call: ${toolName}`, { taskId: execId })
       } else if (eventData.type === 'file_change') {
         const path = (eventData as { path?: string }).path || 'unknown'
         const action = (eventData as { action?: string }).action || 'changed'
-        addActivity(set, 'file_change', `File ${action}: ${path}`, { taskId })
+        addActivity(set, 'file_change', `File ${action}: ${path}`, { taskId: execId })
       } else if (eventData.type === 'error') {
         const message = (eventData as { message?: string }).message || 'Unknown error'
-        addActivity(set, 'error', `Session error: ${message}`, { taskId })
+        addActivity(set, 'error', `Session error: ${message}`, { taskId: execId })
       }
       break
     }
@@ -1419,7 +1501,7 @@ function handleRealtimeEvent(
     }
 
     case 'task:approval_request': {
-      const taskId = data.taskId as string
+      const execId = data.taskId as string
       const requestId = data.requestId as string
       const question = data.question as string
       const options = data.options as string[]
@@ -1431,12 +1513,12 @@ function handleRealtimeEvent(
         const newApprovals = new Map(state.dynamicApprovals)
         // Remove previous pending approvals for the same task (e.g., timed-out retries)
         for (const [oldReqId, oldApproval] of newApprovals) {
-          if (oldApproval.taskId === taskId && oldReqId !== requestId) {
+          if (oldApproval.taskId === execId && oldReqId !== requestId) {
             newApprovals.delete(oldReqId)
           }
         }
         newApprovals.set(requestId, {
-          taskId,
+          taskId: execId,
           requestId,
           question,
           options,
@@ -1449,7 +1531,7 @@ function handleRealtimeEvent(
         // timeline entries that the UI needs to render answered approvals.
         // Only the dynamicApprovals map (above) tracks the "pending" state.
         const streams = new Map(state.taskStreams)
-        const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
+        const stream = streams.get(execId) || createEmptyTaskStream(execId)
         // Deduplicate: skip if this exact requestId is already in the stream (e.g., from hydration)
         const alreadyExists = stream.activityEvents.some(
           e => e.type === 'approval_request' && e.requestId === requestId
@@ -1466,7 +1548,7 @@ function handleRealtimeEvent(
             },
           ]
         }
-        streams.set(taskId, stream)
+        streams.set(execId, stream)
 
         return { dynamicApprovals: newApprovals, taskStreams: streams }
       })
@@ -1476,12 +1558,12 @@ function handleRealtimeEvent(
         set,
         'approval',
         `Agent asking: ${question}`,
-        { taskId }
+        { taskId: execId }
       )
 
       // Browser notification (shows only when tab is not focused)
       const approvalProjectName = (() => {
-        const exec = useExecutionStore.getState().executions.get(taskId)
+        const exec = useExecutionStore.getState().executions.get(execId)
         if (exec?.projectId) {
           const project = useProjectStore.getState().projects.find((p) => p.id === exec.projectId)
           if (project) return project.name
@@ -1490,12 +1572,12 @@ function handleRealtimeEvent(
       })()
       showApprovalNotification(approvalProjectName, question)
 
-      console.log('[realtime] Dynamic approval request received:', { taskId, requestId, question, options })
+      console.log('[realtime] Dynamic approval request received:', { execId, requestId, question, options })
       break
     }
 
     case 'task:approval_auto_responded': {
-      const taskId = data.taskId as string
+      const execId = data.taskId as string
       const requestId = data.requestId as string
       const question = data.question as string
       const options = data.options as string[]
@@ -1505,8 +1587,8 @@ function handleRealtimeEvent(
       // Push both approval_request and approval_response (auto-approved) into task stream
       set((state) => {
         const streams = new Map(state.taskStreams)
-        const stream = streams.get(taskId) || createEmptyTaskStream(taskId)
-        streams.set(taskId, {
+        const stream = streams.get(execId) || createEmptyTaskStream(execId)
+        streams.set(execId, {
           ...stream,
           activityEvents: [
             ...stream.activityEvents,
@@ -1518,23 +1600,23 @@ function handleRealtimeEvent(
         return { taskStreams: streams }
       })
 
-      addActivity(set, 'approval', `Auto-approved: ${question} → ${answer}`, { taskId })
+      addActivity(set, 'approval', `Auto-approved: ${question} → ${answer}`, { taskId: execId })
       break
     }
 
     case 'task:safety_prompt': {
-      const taskId = data.taskId as string
+      const execId = data.taskId as string
       const safetyTier = data.safetyTier as string
       const warning = data.warning as string | undefined
       const safetyMachineId = data.machineId as string | undefined
       const options = data.options as Array<{ id: string; label: string; description?: string }>
       const timestamp = new Date()
 
-      // Add to safety prompts map (keyed by taskId)
+      // Add to safety prompts map (keyed by executionId)
       set((state) => {
         const newPrompts = new Map(state.safetyPrompts)
-        newPrompts.set(taskId, {
-          taskId,
+        newPrompts.set(execId, {
+          taskId: execId,
           safetyTier,
           warning,
           machineId: safetyMachineId,
@@ -1548,15 +1630,15 @@ function handleRealtimeEvent(
         set,
         'safety',
         `Safety prompt: ${warning || `Working directory requires attention (${safetyTier})`}`,
-        { taskId }
+        { taskId: execId }
       )
 
-      console.log('[realtime] Safety prompt received:', { taskId, safetyTier, warning })
+      console.log('[realtime] Safety prompt received:', { execId, safetyTier, warning })
       break
     }
 
     case 'task:safety_auto_proceeded': {
-      const taskId = data.taskId as string
+      const execId = data.taskId as string
       const safetyTier = data.safetyTier as string
       const warning = data.warning as string | undefined
 
@@ -1564,10 +1646,10 @@ function handleRealtimeEvent(
         set,
         'approval',
         `YOLO auto-proceed: ${warning || `non-git directory (${safetyTier})`}`,
-        { taskId }
+        { taskId: execId }
       )
 
-      console.log('[realtime] Safety auto-proceeded (YOLO):', { taskId, safetyTier })
+      console.log('[realtime] Safety auto-proceeded (YOLO):', { execId, safetyTier })
       break
     }
 

@@ -223,6 +223,18 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     }
   }, [projectsLoaded, realtimeMachines.size])
 
+  // Reconcile running tasks after both plan + execution stores are loaded.
+  // After page refresh, plan nodes may have status=in_progress with an executionId
+  // from the DB, but the execution store and realtime store lose their in-memory
+  // entries. This bootstraps task streams and execution entries so the dashboard
+  // and active-tasks page show running tasks correctly.
+  const reconcileRunningTasks = useRealtimeStore((s) => s.reconcileRunningTasks)
+  useEffect(() => {
+    if (!planLoaded || !executionsLoaded) return
+    reconcileRunningTasks()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Run once after both stores load
+  }, [planLoaded, executionsLoaded])
+
   // Auto-sync GitHub: check connection status on load, fetch repos if connected
   useEffect(() => {
     if (!shouldLoadData || !teamsLoaded) return
