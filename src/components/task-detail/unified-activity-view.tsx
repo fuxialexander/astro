@@ -51,13 +51,26 @@ import { useMediaQuery } from "@/hooks/use-media-query"
 
 const EMPTY_REVIEW_THREADS: GitHubReviewThread[] = []
 
-function resolveFilePathForBrowsing(filePath: string, workingDirectory: string): string {
+/**
+ * Derive the project worktree path from working directory + project branch.
+ * Project branch: astro/{shortProjectId} → .astro/worktrees/{shortProjectId}/
+ * This is a persistent worktree (detached HEAD) that survives task completion.
+ */
+function projectWorktreePath(workingDirectory: string, projectBranch: string): string {
+  const parts = projectBranch.split('/')
+  const suffix = parts[parts.length - 1]
+  return `${workingDirectory.replace(/\/$/, '')}/.astro/worktrees/${suffix}`
+}
+
+function resolveFilePathForBrowsing(filePath: string, browseDir: string): string {
+  // Strip worktree prefix from absolute paths — the file browser already points
+  // to the project worktree directory, so we just need the relative part.
   const worktreeMatch = filePath.match(/\.astro\/worktrees\/[^/]+\/(.+)/)
   if (worktreeMatch) {
-    return `${workingDirectory.replace(/\/$/, '')}/${worktreeMatch[1]}`
+    return `${browseDir.replace(/\/$/, '')}/${worktreeMatch[1]}`
   }
   if (filePath.startsWith('/')) return filePath
-  return `${workingDirectory.replace(/\/$/, '')}/${filePath}`
+  return `${browseDir.replace(/\/$/, '')}/${filePath}`
 }
 
 interface UnifiedActivityViewProps {
@@ -658,8 +671,17 @@ export function UnifiedActivityView({
 
   const isInputDisabled = sending || isChatStreaming
 
-  // Derive working directory for file browser from project
-  const fileBrowserDir = project?.workingDirectory || ""
+  // Derive working directory for file browser from project.
+  // Prefer the persistent project worktree (.astro/worktrees/{id}/) when a
+  // project branch exists — this has all merged task work on a detached HEAD,
+  // unlike the base working directory which stays on main/default branch.
+  const baseWorkDir = project?.workingDirectory || ""
+  const fileBrowserDir = useMemo(() => {
+    if (baseWorkDir && project?.projectBranch) {
+      return projectWorktreePath(baseWorkDir, project.projectBranch)
+    }
+    return baseWorkDir
+  }, [baseWorkDir, project?.projectBranch])
 
   // Handler for FileChangeBlock clicks — opens FileBrowser and navigates to file
   const handleFileSelect = useCallback((filePath: string) => {
