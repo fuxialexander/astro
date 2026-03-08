@@ -134,6 +134,13 @@
       "when": 1772870400000,
       "tag": "0018_drop_custom_templates",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1772956800000,
+      "tag": "0019_add_machine_instructions",
+      "breakpoints": true
     }
   ]
 }

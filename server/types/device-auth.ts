@@ -203,6 +203,8 @@ export interface RegisteredMachine {
   refreshTokenHash: string;
   /** Token revoked flag */
   isRevoked: boolean;
+  /** Default machine instruction ID for prompt injection */
+  defaultInstructionId?: string | null;
   /** Machine-specific metadata */
   metadata?: Record<string, string>;
   /** ECDSA P-256 dispatch signing public key (JWK format) */

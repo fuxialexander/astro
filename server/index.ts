@@ -25,6 +25,7 @@ import githubPrRoute from './routes/github-pr-data.js'
 import { wellKnownRoute } from './routes/well-known.js'
 import systemRoute from './routes/system.js'
 import { skillsRoute } from './routes/skills.js'
+import { machineInstructionsRoute } from './routes/machine-instructions.js'
 import { examplesRoute } from './routes/examples.js'
 import { shareRoute } from './routes/share.js'
 import { connectedAccountsRoute } from './routes/connected-accounts.js'
@@ -197,6 +198,7 @@ export function createApp() {
   app.route('/api/data', dataRoute)
   app.route('/api/system', systemRoute)
   app.route('/api/skills', skillsRoute)
+  app.route('/api/machine-instructions', machineInstructionsRoute)
   app.route('/api/examples', examplesRoute)
 
   // Backward-compat redirect: /api/templates → /api/examples

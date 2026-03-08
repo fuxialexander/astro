@@ -24,12 +24,11 @@ import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
-import { projects, planNodes, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge } from '../lib/db/schema.js'
+import { projects, planNodes, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines } from '../lib/db/schema.js'
 import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch } from '../lib/prompt-templates.js'
-import { skillManager } from '../lib/skill-manager.js'
 import { extractPlanJsonFromText } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { autoDispatchDownstream } from './data.js'
@@ -305,8 +304,6 @@ dispatchRoute.post('/task', async (c) => {
   let baseBranch: string | undefined
   let nodeNumber: number | null | undefined
   let githubContext: import('../lib/prompt-templates.js').GitHubContextForPrompt | undefined
-  let projectComputeBackends: string[] | undefined
-
   // ── Early serial execution check for 'direct' delivery mode ──────
   // Fail-fast optimization: if the client explicitly sends deliveryMode='direct',
   // we can reject duplicate dispatches before the DB lookups (saves ~2 queries).
@@ -441,11 +438,6 @@ dispatchRoute.post('/task', async (c) => {
         }
       }
 
-      // Resolve compute backends from project
-      if (dbProject.computeBackends?.length) {
-        projectComputeBackends = dbProject.computeBackends
-      }
-
       // Resolve working directory from project
       if (!workingDirectory) {
         if (dbProject.defaultMachineId && dbProject.workingDirectory && !dbProject.repository) {
@@ -573,7 +565,6 @@ dispatchRoute.post('/task', async (c) => {
     priority,
     workingDirectory,
     computeBackend,
-    projectComputeBackends,
     deliveryMode,
     remoteType,
     baseBranch,
@@ -618,7 +609,6 @@ async function dispatchViaRelay(
     priority: DispatchPriority
     workingDirectory?: string
     computeBackend?: string
-    projectComputeBackends?: string[]
     deliveryMode?: string
     remoteType?: string
     baseBranch?: string
@@ -660,7 +650,6 @@ async function dispatchViaRelay(
     priority,
     workingDirectory,
     computeBackend,
-    projectComputeBackends,
     deliveryMode,
     remoteType,
     baseBranch,
@@ -735,16 +724,24 @@ async function dispatchViaRelay(
   // Detect "Push to GitHub" task node — these get special dispatch instructions
   const isPushToGithub = !isInteractivePlan && /push\s+to\s+github|publish\s+to\s+github/i.test(title)
 
-  // Only inject skills when a compute backend is explicitly selected.
-  // Non-backend skills (e.g. celltype, academic-presentation) are injected
-  // via the template's recommendedSkills → visionDoc flow, not here.
-  const effectiveTeamId = user?.teamId ?? null
-  const dispatchBackends = computeBackend
-    ? [computeBackend]
-    : (projectComputeBackends ?? undefined)
-  const skillsInjection = dispatchBackends?.length
-    ? (skillManager.getBackendScopedSkillInjection(effectiveTeamId, dispatchBackends) || undefined)
-    : undefined
+  // Look up machine instruction for prompt injection.
+  // Flow: machineId → registeredMachines.defaultInstructionId → machineInstructions.content
+  let skillsInjection: string | undefined
+  if (machineId) {
+    try {
+      const [machine] = await db.select({ defaultInstructionId: registeredMachines.defaultInstructionId })
+        .from(registeredMachines).where(eq(registeredMachines.id, machineId)).limit(1)
+      if (machine?.defaultInstructionId) {
+        const [instruction] = await db.select({ content: machineInstructions.content, name: machineInstructions.name })
+          .from(machineInstructions).where(eq(machineInstructions.id, machine.defaultInstructionId)).limit(1)
+        if (instruction?.content) {
+          skillsInjection = `<machine_instructions name="${instruction.name}">\n${instruction.content}\n</machine_instructions>`
+        }
+      }
+    } catch (err) {
+      console.warn('[dispatch] Failed to fetch machine instruction:', err instanceof Error ? err.message : String(err))
+    }
+  }
 
   if (isInteractivePlan) {
     // Use the dedicated interactive plan prompt as a system prompt.

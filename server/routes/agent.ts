@@ -5,7 +5,6 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { mkdirSync } from 'fs'
 import { buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, buildTitleGenerationPrompt, buildRefinementPrompt, buildLabelSuggestionPrompt, buildCompactionPrompt } from '../lib/prompt-templates.js'
-import { skillManager } from '../lib/skill-manager.js'
 import { relayServer } from '../lib/relay-server.js'
 import { dispatchEngine } from '../lib/dispatch/index.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
@@ -16,7 +15,7 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, ProviderType } from '../types/relay.js'
 import { db } from '../lib/db/index.js'
-import { projects, taskExecutions } from '../lib/db/schema.js'
+import { projects, taskExecutions, registeredMachines, machineInstructions } from '../lib/db/schema.js'
 import { eq, isNull, and, or } from 'drizzle-orm'
 
 /** Verify the user has access to the given project (team-scoped). */
@@ -57,7 +56,6 @@ const chatSchema = z.object({
   providerId: z.string().max(100).nullish(),
   planNodes: z.array(z.any()).max(1000).nullish(),
   planEdges: z.array(z.any()).max(1000).nullish(),
-  selectedBackends: z.array(z.string().max(100)).max(20).nullish(),
   messages: z.array(z.object({
     role: z.enum(['user', 'assistant']),
     content: z.string().max(50000),
@@ -490,7 +488,7 @@ agentRoute.post('/project-chat', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400)
   }
 
-  const { message, sessionId: existingSessionId, streamId, projectId, model, providerId, visionDoc, planNodes, planEdges, selectedBackends, messages: historyMessages } = body
+  const { message, sessionId: existingSessionId, streamId, projectId, model, providerId, visionDoc, planNodes, planEdges, messages: historyMessages } = body
   const chatUser = c.get('user') as AuthUser
   // Use streamId as stable taskId across turns (streamId = frontend session.id, stable per conversation).
   // Don't use existingSessionId — that's a provider session ID and changes the relay routing key.
@@ -501,15 +499,27 @@ agentRoute.post('/project-chat', async (c) => {
     return c.json({ error: 'Project not found' }, 404)
   }
 
-  // Look up the project's working directory, default machine, and compute backends
-  const [project] = await db.select({ workingDirectory: projects.workingDirectory, defaultMachineId: projects.defaultMachineId, computeBackends: projects.computeBackends }).from(projects).where(eq(projects.id, projectId)).limit(1)
+  // Look up the project's working directory and default machine
+  const [project] = await db.select({ workingDirectory: projects.workingDirectory, defaultMachineId: projects.defaultMachineId }).from(projects).where(eq(projects.id, projectId)).limit(1)
 
-  // Only inject skills when a compute backend is explicitly selected.
-  // Non-backend skills come through templates via visionDoc, not here.
-  const backends = selectedBackends ?? (project?.computeBackends as string[] | null) ?? undefined
-  const chatSkills = backends?.length
-    ? (skillManager.getBackendScopedSkillInjection(chatUser.teamId ?? null, backends) || undefined)
-    : undefined
+  // Look up machine instruction for prompt injection
+  let chatSkills: string | undefined
+  const chatMachineId = project?.defaultMachineId
+  if (chatMachineId) {
+    try {
+      const [machine] = await db.select({ defaultInstructionId: registeredMachines.defaultInstructionId })
+        .from(registeredMachines).where(eq(registeredMachines.id, chatMachineId)).limit(1)
+      if (machine?.defaultInstructionId) {
+        const [instruction] = await db.select({ content: machineInstructions.content, name: machineInstructions.name })
+          .from(machineInstructions).where(eq(machineInstructions.id, machine.defaultInstructionId)).limit(1)
+        if (instruction?.content) {
+          chatSkills = `<machine_instructions name="${instruction.name}">\n${instruction.content}\n</machine_instructions>`
+        }
+      }
+    } catch (err) {
+      console.warn('[agent/project-chat] Failed to fetch machine instruction:', err instanceof Error ? err.message : String(err))
+    }
+  }
 
   const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges, chatSkills)
 
@@ -601,7 +611,6 @@ const taskChatSchema = z.object({
     role: z.enum(['user', 'assistant']),
     content: z.string().max(50000),
   })).max(100).optional(),
-  selectedBackends: z.array(z.string().max(100)).max(20).optional(),
   // Execution context for resumed sessions
   branchName: z.string().max(500).nullable().optional(),
   prUrl: z.string().max(2000).nullable().optional(),
@@ -627,7 +636,6 @@ agentRoute.post('/task-chat', async (c) => {
     visionDoc,
     model,
     providerId,
-    selectedBackends,
     messages: historyMessages,
     branchName,
     prUrl,
@@ -644,14 +652,27 @@ agentRoute.post('/task-chat', async (c) => {
     return c.json({ error: 'Project not found' }, 404)
   }
 
-  // Look up the project's working directory, default machine, and compute backends
-  const [project] = await db.select({ workingDirectory: projects.workingDirectory, defaultMachineId: projects.defaultMachineId, computeBackends: projects.computeBackends }).from(projects).where(eq(projects.id, projectId)).limit(1)
+  // Look up the project's working directory and default machine
+  const [project] = await db.select({ workingDirectory: projects.workingDirectory, defaultMachineId: projects.defaultMachineId }).from(projects).where(eq(projects.id, projectId)).limit(1)
 
-  // Only inject skills when a compute backend is explicitly selected.
-  const tcBackends = selectedBackends ?? (project?.computeBackends as string[] | null) ?? undefined
-  const tcSkills = tcBackends?.length
-    ? (skillManager.getBackendScopedSkillInjection(taskChatUser.teamId ?? null, tcBackends) || undefined)
-    : undefined
+  // Look up machine instruction for prompt injection
+  let tcSkills: string | undefined
+  const tcMachineId = project?.defaultMachineId
+  if (tcMachineId) {
+    try {
+      const [machine] = await db.select({ defaultInstructionId: registeredMachines.defaultInstructionId })
+        .from(registeredMachines).where(eq(registeredMachines.id, tcMachineId)).limit(1)
+      if (machine?.defaultInstructionId) {
+        const [instruction] = await db.select({ content: machineInstructions.content, name: machineInstructions.name })
+          .from(machineInstructions).where(eq(machineInstructions.id, machine.defaultInstructionId)).limit(1)
+        if (instruction?.content) {
+          tcSkills = `<machine_instructions name="${instruction.name}">\n${instruction.content}\n</machine_instructions>`
+        }
+      }
+    } catch (err) {
+      console.warn('[agent/task-chat] Failed to fetch machine instruction:', err instanceof Error ? err.message : String(err))
+    }
+  }
 
   const systemPrompt = buildTaskChatSystemPrompt({
     taskTitle,
