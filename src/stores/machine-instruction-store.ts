@@ -9,6 +9,7 @@
 import { create } from 'zustand'
 import { getAccessToken } from '@/lib/supabase-client'
 import { apiUrl } from '@/lib/api-url'
+import { useMachinesStore } from '@/stores/machines-store'
 import type { MachineInstruction } from '@/types'
 
 async function authHeaders(): Promise<Record<string, string>> {
@@ -127,5 +128,11 @@ export const useMachineInstructionStore = create<MachineInstructionState>((set, 
       body: JSON.stringify({ instructionId }),
     })
     if (!res.ok) throw new Error(`${res.status}`)
+    // Optimistically update the machines store so the picker reflects the change
+    useMachinesStore.setState((state) => ({
+      machines: state.machines.map((m) =>
+        m.id === machineId ? { ...m, defaultInstructionId: instructionId } : m
+      ),
+    }))
   },
 }))
