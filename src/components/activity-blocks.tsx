@@ -25,6 +25,7 @@ import {
   Reply,
   Send,
   MessageCircle,
+  FileText,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { TaskActivityEvent, ExecutionSummary } from "@/types"
@@ -34,7 +35,7 @@ import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface DisplayBlock {
-  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment' | 'branch_linked' | 'system_message'
+  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment' | 'branch_linked' | 'system_message' | 'system_prompt'
   events: TaskActivityEvent[]
 }
 
@@ -183,6 +184,11 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
         flushText()
         flushTools()
         blocks.push({ type: 'system_message', events: [event] })
+        break
+      case 'system_prompt':
+        flushText()
+        flushTools()
+        blocks.push({ type: 'system_prompt', events: [event] })
         break
     }
   }
@@ -1100,6 +1106,48 @@ export function SystemMessageBlock({ event }: { event: Extract<TaskActivityEvent
       <div className="flex-1 border-t border-border/40" />
       <span className="text-[11px] text-muted-foreground/70 whitespace-nowrap">{event.message}</span>
       <div className="flex-1 border-t border-border/40" />
+    </div>
+  )
+}
+
+/**
+ * Collapsible system prompt block — shows at the top of the activity feed
+ * for task execution and plan generation sessions.
+ */
+export function SystemPromptBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'system_prompt' }> }) {
+  const [expanded, setExpanded] = useState(false)
+  const sizeKB = (new TextEncoder().encode(event.content).length / 1024).toFixed(1)
+
+  const pathwayLabel: Record<string, string> = {
+    'interactive-plan': 'plan-generation',
+    'execution': 'task-execution',
+    'hpc': 'hpc-execution',
+  }
+  const label = event.pathwayType ? pathwayLabel[event.pathwayType] ?? event.pathwayType : undefined
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/30 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted/50 transition-colors"
+      >
+        <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <span className="text-xs font-medium text-muted-foreground">System Prompt</span>
+        <span className="text-[10px] text-muted-foreground/60">{sizeKB} KB</span>
+        {label && (
+          <span className="text-[10px] text-muted-foreground/60 bg-muted rounded px-1.5 py-0.5">{label}</span>
+        )}
+        <div className="flex-1" />
+        {expanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+      </button>
+      {expanded && (
+        <div className="border-t border-border/40 px-3 py-2 max-h-[400px] overflow-y-auto">
+          <pre className="text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-words font-mono">
+            {event.content}
+          </pre>
+        </div>
+      )}
     </div>
   )
 }

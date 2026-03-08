@@ -37,6 +37,7 @@ import {
   GitHubCommentBlock,
   NewCommentComposer,
   BranchLinkedBlock,
+  SystemPromptBlock,
 } from "@/components/activity-blocks"
 import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 import { InlineApprovalCard } from "@/components/plan-generation/inline-approval-card"
@@ -810,6 +811,8 @@ export function UnifiedActivityView({
               return <GitHubCommentBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'github_comment' }>} githubContext={githubContext} />
             case 'branch_linked':
               return <BranchLinkedBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'branch_linked' }>} />
+            case 'system_prompt':
+              return <SystemPromptBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'system_prompt' }>} />
             default:
               return null
           }

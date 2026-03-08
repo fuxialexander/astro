@@ -64,6 +64,10 @@ function approvalResponseEvent(requestId: string, answer: string): TaskActivityE
   return { type: 'approval_response', requestId, question: 'proceed?', answer, timestamp: new Date() }
 }
 
+function systemPromptEvent(content: string, pathwayType?: string): TaskActivityEvent {
+  return { type: 'system_prompt', content, pathwayType, timestamp: new Date() }
+}
+
 function githubCommentEvent(login: string, body: string, commentType: 'issue_comment' | 'review_comment' = 'issue_comment'): TaskActivityEvent {
   return {
     type: 'github_comment',
@@ -266,6 +270,30 @@ describe('groupActivityEvents', () => {
 
       expect(blocks).toHaveLength(1)
       expect(blocks[0].type).toBe('approval_response')
+    })
+
+    it('should create individual blocks for system_prompt events', () => {
+      const blocks = groupActivityEvents([systemPromptEvent('You are an AI assistant.', 'execution')])
+
+      expect(blocks).toHaveLength(1)
+      expect(blocks[0].type).toBe('system_prompt')
+      expect(blocks[0].events).toHaveLength(1)
+      expect((blocks[0].events[0] as Extract<TaskActivityEvent, { type: 'system_prompt' }>).content).toBe('You are an AI assistant.')
+      expect((blocks[0].events[0] as Extract<TaskActivityEvent, { type: 'system_prompt' }>).pathwayType).toBe('execution')
+    })
+
+    it('should flush text and tools before system_prompt', () => {
+      const events = [
+        textEvent('hello'),
+        toolUseEvent('t1', 'Read'),
+        systemPromptEvent('System prompt content'),
+      ]
+      const blocks = groupActivityEvents(events)
+
+      expect(blocks).toHaveLength(3)
+      expect(blocks[0].type).toBe('text')
+      expect(blocks[1].type).toBe('tool')
+      expect(blocks[2].type).toBe('system_prompt')
     })
   })
 
@@ -575,5 +603,62 @@ describe('getToolStatus', () => {
         expect(s.isComplete).toBe(true)
       }
     }
+  })
+})
+
+// ─── Hydrator: system_prompt extraction ──────────────────────────────
+
+import { hydrateStreamingEvents } from '../src/lib/streaming-event-hydrator'
+import type { StreamingEventRow } from '../src/lib/api-client'
+
+describe('hydrateStreamingEvents — system_prompt', () => {
+  it('should extract system_prompt activity event from init event with systemPrompt', () => {
+    const events: StreamingEventRow[] = [
+      {
+        seq: 1,
+        executionId: 'exec-1',
+        eventType: 'init',
+        data: { machineId: 'm1', systemPrompt: 'You are helpful.', pathwayType: 'execution' },
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+    ]
+    const result = hydrateStreamingEvents(events)
+
+    expect(result.activityEvents).toHaveLength(1)
+    expect(result.activityEvents[0].type).toBe('system_prompt')
+    const sp = result.activityEvents[0] as Extract<TaskActivityEvent, { type: 'system_prompt' }>
+    expect(sp.content).toBe('You are helpful.')
+    expect(sp.pathwayType).toBe('execution')
+  })
+
+  it('should not emit system_prompt when init event has no systemPrompt', () => {
+    const events: StreamingEventRow[] = [
+      {
+        seq: 1,
+        executionId: 'exec-1',
+        eventType: 'init',
+        data: { machineId: 'm1' },
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+    ]
+    const result = hydrateStreamingEvents(events)
+
+    expect(result.activityEvents).toHaveLength(0)
+    expect(result.machineId).toBe('m1')
+  })
+
+  it('should not emit system_prompt when systemPrompt is empty string', () => {
+    const events: StreamingEventRow[] = [
+      {
+        seq: 1,
+        executionId: 'exec-1',
+        eventType: 'init',
+        data: { machineId: 'm1', systemPrompt: '' },
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+    ]
+    const result = hydrateStreamingEvents(events)
+
+    expect(result.activityEvents).toHaveLength(0)
   })
 })

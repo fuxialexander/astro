@@ -29,6 +29,7 @@ import {
   ChatUserBlock,
   ChatAssistantBlock,
   GitHubCommentBlock,
+  SystemPromptBlock,
   type DisplayBlock,
 } from "@/components/activity-blocks"
 import { InlineApprovalCard } from "./inline-approval-card"
@@ -493,6 +494,8 @@ export function PlanGeneration({
         return null
       case 'github_comment':
         return <GitHubCommentBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'github_comment' }>} />
+      case 'system_prompt':
+        return <SystemPromptBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'system_prompt' }>} />
       default:
         return null
     }
