@@ -522,7 +522,7 @@ export function PlanGeneration({
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-auto py-3 bg-muted/20"
+        className="flex-1 overflow-auto py-3 bg-muted/20 max-md:pb-16"
       >
         {/* Error state */}
         {execution?.status === "failure" && execution.error && (
@@ -652,8 +652,10 @@ export function PlanGeneration({
         </Button>
       )}
 
-      {/* Input Bar — always visible for running sessions and resuming stopped ones */}
-      <div className="border-t border-border bg-background shrink-0">
+      {/* Input Bar — always visible for running sessions and resuming stopped ones.
+          On mobile: fixed above the floating tab bar so it doesn't scroll with content.
+          On desktop: normal flex shrink-0 within the panel. */}
+      <div className="border-t border-border bg-background shrink-0 max-md:fixed max-md:bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] max-md:left-0 max-md:right-0 max-md:z-40">
         <div className="flex items-end gap-2 p-3">
           <textarea
             ref={inputRef}
