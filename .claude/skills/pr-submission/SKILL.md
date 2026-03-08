@@ -1,12 +1,12 @@
 ---
 name: pr-submission
 description: |
-  Write high-quality PR descriptions with architecture diagrams, comparative timelines,
+  Write high-quality PR descriptions with styled architecture diagrams, comparative timelines,
   and structured documentation. Produces PR bodies that serve as living design documents:
-  mermaid diagrams (flowcharts, sequence diagrams, state diagrams), ASCII timelines for
-  before/after comparisons, detailed tables, and clear test plans. Trigger when the user
-  asks to "write a PR description", "update the PR body", "document this PR", "make the
-  PR description better", or "submit this PR".
+  styled mermaid diagrams (low-saturation palette, clean typography), ASCII timelines for
+  before/after comparisons, detailed tables, and clear test plans. Enforces issue alignment
+  when a PR targets a specific issue. Trigger when the user asks to "write a PR description",
+  "update the PR body", "document this PR", "make the PR description better", or "submit this PR".
 allowed-tools:
   - Bash
   - Read
@@ -61,6 +61,13 @@ Before writing anything, **read the code**.
    gh issue list --label "related-label"
    ```
 
+6. **Check for a target issue** — if this PR fixes a specific issue, read it thoroughly:
+   ```bash
+   gh issue view <number> --json title,body
+   ```
+   The PR description MUST explain how the changes address each requirement in the issue.
+   Include `Closes #N` or `Fixes #N` in the Summary so the issue auto-closes on merge.
+
 ---
 
 ## Phase 1: Structure the PR Description
@@ -75,6 +82,8 @@ include Summary, the relevant detail sections, and Test Plan.
 
 [1-3 sentences: what changed and why. Lead with the user-visible or architectural impact,
 not implementation details.]
+
+Closes #N  <!-- if this PR targets a specific issue -->
 
 ### What changed
 
@@ -104,6 +113,18 @@ gets its own subsection with appropriate diagrams.]
 
 ---
 
+## Issue Alignment
+
+[Required when the PR targets a specific issue. Skip otherwise.]
+
+| Requirement (from issue) | Status | How addressed |
+|--------------------------|--------|---------------|
+| [Requirement 1] | Done | [Brief explanation] |
+| [Requirement 2] | Done | [Brief explanation] |
+| [Requirement 3] | Deferred | [Why, and follow-up plan] |
+
+---
+
 ## Edge Cases / Error Handling
 
 [Table or list of corner cases and how they're handled. Reviewers care about these.]
@@ -123,25 +144,81 @@ gets its own subsection with appropriate diagrams.]
 
 Every non-trivial PR MUST include visual elements. Choose the right format for the content.
 
-### Mermaid Diagrams
+### Mermaid Style
 
-Use mermaid for rendered diagrams on GitHub. Always test that syntax is valid.
+All mermaid diagrams use a consistent low-saturation palette with clean typography.
+Every diagram MUST include the theme init directive and use the classDef palette for
+semantic color-coding.
+
+**Theme init** — include at the top of every mermaid block:
+
+```
+%%{init: {'theme': 'base', 'themeVariables': {
+  'primaryColor': '#dbeafe',
+  'primaryBorderColor': '#93c5fd',
+  'primaryTextColor': '#1e293b',
+  'lineColor': '#64748b',
+  'textColor': '#334155',
+  'fontSize': '14px',
+  'fontFamily': 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+  'actorBkg': '#f1f5f9',
+  'actorBorder': '#cbd5e1',
+  'activationBkgColor': '#dbeafe',
+  'activationBorderColor': '#93c5fd'
+}}}%%
+```
+
+**classDef palette** — add after theme init in flowcharts and state diagrams.
+Apply to nodes via `:::className` suffix:
+
+```
+classDef blue fill:#dbeafe,stroke:#93c5fd,color:#1e293b
+classDef green fill:#dcfce7,stroke:#86efac,color:#1e293b
+classDef amber fill:#fef3c7,stroke:#fcd34b,color:#1e293b
+classDef rose fill:#ffe4e6,stroke:#fda4af,color:#1e293b
+classDef slate fill:#f1f5f9,stroke:#cbd5e1,color:#1e293b
+classDef violet fill:#ede9fe,stroke:#c4b5fd,color:#1e293b
+```
+
+| Role | Fill | Border | Use for |
+|------|------|--------|---------|
+| Blue | `#dbeafe` | `#93c5fd` | Default nodes, main flow |
+| Green | `#dcfce7` | `#86efac` | Success, completion |
+| Amber | `#fef3c7` | `#fcd34b` | Decisions, attention |
+| Rose | `#ffe4e6` | `#fda4af` | Failures, errors |
+| Slate | `#f1f5f9` | `#cbd5e1` | Background, context |
+| Violet | `#ede9fe` | `#c4b5fd` | Highlights, special states |
+
+**LaTeX math** — use `$$...$$` inside double-quoted node labels for formulas:
+
+```
+A["$$T_{total} = \max(T_i)$$"] --> B["$$O(n \log n)$$"]
+```
+
+### Diagram Types
 
 **Flowcharts** — for decision trees, branching logic, system flows:
 ````markdown
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#dbeafe', 'primaryBorderColor': '#93c5fd', 'primaryTextColor': '#1e293b', 'lineColor': '#64748b', 'textColor': '#334155', 'fontSize': '14px', 'fontFamily': 'Inter, -apple-system, BlinkMacSystemFont, sans-serif'}}}%%
 flowchart TD
-    A["Input"] --> B{"Decision"}
-    B -->|yes| C["Path A"]
-    B -->|no| D["Path B"]
-    C --> E["Output"]
+    classDef blue fill:#dbeafe,stroke:#93c5fd,color:#1e293b
+    classDef green fill:#dcfce7,stroke:#86efac,color:#1e293b
+    classDef amber fill:#fef3c7,stroke:#fcd34b,color:#1e293b
+    classDef rose fill:#ffe4e6,stroke:#fda4af,color:#1e293b
+
+    A["Input"]:::blue --> B{"Decision"}:::amber
+    B -->|yes| C["Path A"]:::green
+    B -->|no| D["Path B"]:::rose
+    C --> E["Output"]:::blue
     D --> E
 ```
 ````
 
-**Sequence diagrams** — for multi-component interactions, request/response flows:
+**Sequence diagrams** — for multi-component interactions (theme init styles actors and activations):
 ````markdown
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#dbeafe', 'primaryBorderColor': '#93c5fd', 'primaryTextColor': '#1e293b', 'lineColor': '#64748b', 'textColor': '#334155', 'fontSize': '14px', 'fontFamily': 'Inter, -apple-system, BlinkMacSystemFont, sans-serif', 'actorBkg': '#f1f5f9', 'actorBorder': '#cbd5e1', 'activationBkgColor': '#dbeafe', 'activationBorderColor': '#93c5fd'}}}%%
 sequenceDiagram
     participant A as Component A
     participant B as Component B
@@ -157,12 +234,22 @@ sequenceDiagram
 **State diagrams** — for lifecycle states and transitions:
 ````markdown
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#dbeafe', 'primaryBorderColor': '#93c5fd', 'primaryTextColor': '#1e293b', 'lineColor': '#64748b', 'textColor': '#334155', 'fontSize': '14px', 'fontFamily': 'Inter, -apple-system, BlinkMacSystemFont, sans-serif'}}}%%
 stateDiagram-v2
+    classDef blue fill:#dbeafe,stroke:#93c5fd,color:#1e293b
+    classDef green fill:#dcfce7,stroke:#86efac,color:#1e293b
+    classDef rose fill:#ffe4e6,stroke:#fda4af,color:#1e293b
+
     [*] --> idle
     idle --> running: start
     running --> done: complete
     running --> failed: error
     done --> [*]
+
+    class idle blue
+    class running blue
+    class done green
+    class failed rose
 ```
 ````
 
@@ -322,6 +409,13 @@ EOF
 )"
 ```
 
+### Issue Linking
+
+If the PR addresses a specific issue, the PR body MUST:
+1. Include `Closes #N` or `Fixes #N` in the Summary section (not buried at the bottom)
+2. Contain an "Issue Alignment" section mapping each issue requirement to the PR's changes
+3. Note any requirements that are deferred or out of scope with follow-up plans
+
 ### Pre-submission Checklist
 
 Before creating/updating the PR, verify:
@@ -349,13 +443,6 @@ After creating the PR:
    gh pr edit <number> --add-label "enhancement"
    ```
 
-3. **Link related issues**:
-   ```bash
-   gh pr edit <number> --body "$(gh pr view <number> --json body --jq .body)
-
-   Closes #<issue-number>"
-   ```
-
 ---
 
 ## Quality Checklist
@@ -363,13 +450,15 @@ After creating the PR:
 Before submitting, verify the PR description meets these standards:
 
 - [ ] **Summary** is 1-3 sentences, leads with impact
-- [ ] **At least one diagram** (mermaid or ASCII) for non-trivial changes
+- [ ] **Closes #N** included if the PR targets an issue
+- [ ] **Issue Alignment** section maps each issue requirement to the PR's changes
+- [ ] **At least one diagram** (mermaid with theme init + classDef) for non-trivial changes
 - [ ] **Before/after comparison** for behavioral changes
 - [ ] **Edge cases documented** in a table or list
 - [ ] **Test plan** with actionable items and expected outcomes
 - [ ] **No guessing** — all technical details verified against actual code
 - [ ] **File references** include actual paths, not guessed ones
-- [ ] **Mermaid syntax** is valid (test locally or in GitHub preview)
+- [ ] **Mermaid syntax** is valid and uses the low-saturation palette
 
 ---
 
@@ -384,3 +473,5 @@ Do NOT write PR descriptions that:
 - **Include emoji** — use text labels and formatting instead
 - **Over-explain obvious changes** — a one-line typo fix doesn't need a mermaid diagram
 - **Guess at implementation** — always read the code first
+- **Ignore the linked issue** — if the PR says Fixes #N, the description must show how
+- **Use unstyled mermaid** — every diagram needs the theme init and classDef palette

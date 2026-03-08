@@ -2,8 +2,8 @@
 name: wiki-docs
 description: |
   Write high-quality technical documentation and wiki pages for the Astro project.
-  Produces developer-facing documentation with rich visual elements: mermaid diagrams
-  (flowcharts, sequence diagrams, state diagrams), comparative ASCII timelines,
+  Produces developer-facing documentation with rich visual elements: styled mermaid diagrams
+  (low-saturation palette, clean typography, LaTeX math), comparative ASCII timelines,
   detailed tables, and clear hierarchical structure. Output is GitHub Wiki + Obsidian
   compatible markdown. Trigger when the user asks to "write a wiki page", "document X",
   "update the wiki", "write docs for", "add documentation", or "explain X in the wiki".
@@ -44,24 +44,77 @@ NEVER guess implementation details. Always read the actual source code before de
 
 ### 2. Mermaid Diagrams (Required)
 
-Every page MUST include at least 2 mermaid diagrams. Use the right diagram type for the content:
+Every page MUST include at least 2 mermaid diagrams. Use the right diagram type for the content.
+Every mermaid diagram MUST include the theme init directive and use the classDef palette.
+
+**Theme init** — include at the top of every mermaid block:
+
+```
+%%{init: {'theme': 'base', 'themeVariables': {
+  'primaryColor': '#dbeafe',
+  'primaryBorderColor': '#93c5fd',
+  'primaryTextColor': '#1e293b',
+  'lineColor': '#64748b',
+  'textColor': '#334155',
+  'fontSize': '14px',
+  'fontFamily': 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+  'actorBkg': '#f1f5f9',
+  'actorBorder': '#cbd5e1',
+  'activationBkgColor': '#dbeafe',
+  'activationBorderColor': '#93c5fd'
+}}}%%
+```
+
+**classDef palette** — add after theme init in flowcharts and state diagrams.
+Apply to nodes via `:::className` suffix:
+
+```
+classDef blue fill:#dbeafe,stroke:#93c5fd,color:#1e293b
+classDef green fill:#dcfce7,stroke:#86efac,color:#1e293b
+classDef amber fill:#fef3c7,stroke:#fcd34b,color:#1e293b
+classDef rose fill:#ffe4e6,stroke:#fda4af,color:#1e293b
+classDef slate fill:#f1f5f9,stroke:#cbd5e1,color:#1e293b
+classDef violet fill:#ede9fe,stroke:#c4b5fd,color:#1e293b
+```
+
+| Role | Fill | Border | Use for |
+|------|------|--------|---------|
+| Blue | `#dbeafe` | `#93c5fd` | Default nodes, main flow |
+| Green | `#dcfce7` | `#86efac` | Success, completion |
+| Amber | `#fef3c7` | `#fcd34b` | Decisions, attention |
+| Rose | `#ffe4e6` | `#fda4af` | Failures, errors |
+| Slate | `#f1f5f9` | `#cbd5e1` | Background, context |
+| Violet | `#ede9fe` | `#c4b5fd` | Highlights, special states |
+
+**LaTeX math** — use `$$...$$` inside double-quoted node labels for formulas:
+
+```
+A["$$T_{total} = \max(T_i)$$"] --> B["$$O(n \log n)$$"]
+```
 
 **Flowcharts** — for decision trees, branching logic, if/else flows:
 ````markdown
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#dbeafe', 'primaryBorderColor': '#93c5fd', 'primaryTextColor': '#1e293b', 'lineColor': '#64748b', 'textColor': '#334155', 'fontSize': '14px', 'fontFamily': 'Inter, -apple-system, BlinkMacSystemFont, sans-serif'}}}%%
 flowchart TD
-    A["Task dispatched"] --> B{"Safety check?"}
-    B -->|SAFE| C["Execute immediately"]
-    B -->|RISKY| D["Show dialog to user"]
-    D --> E{"User decision"}
+    classDef blue fill:#dbeafe,stroke:#93c5fd,color:#1e293b
+    classDef green fill:#dcfce7,stroke:#86efac,color:#1e293b
+    classDef amber fill:#fef3c7,stroke:#fcd34b,color:#1e293b
+    classDef rose fill:#ffe4e6,stroke:#fda4af,color:#1e293b
+
+    A["Task dispatched"]:::blue --> B{"Safety check?"}:::amber
+    B -->|SAFE| C["Execute immediately"]:::green
+    B -->|RISKY| D["Show dialog to user"]:::amber
+    D --> E{"User decision"}:::amber
     E -->|proceed| C
-    E -->|cancel| F["Abort task"]
+    E -->|cancel| F["Abort task"]:::rose
 ```
 ````
 
 **Sequence diagrams** — for multi-component interactions, request/response flows, event pipelines:
 ````markdown
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#dbeafe', 'primaryBorderColor': '#93c5fd', 'primaryTextColor': '#1e293b', 'lineColor': '#64748b', 'textColor': '#334155', 'fontSize': '14px', 'fontFamily': 'Inter, -apple-system, BlinkMacSystemFont, sans-serif', 'actorBkg': '#f1f5f9', 'actorBorder': '#cbd5e1', 'activationBkgColor': '#dbeafe', 'activationBorderColor': '#93c5fd'}}}%%
 sequenceDiagram
     participant B as Browser
     participant S as Server
@@ -85,7 +138,13 @@ sequenceDiagram
 **State diagrams** — for lifecycle states and transitions:
 ````markdown
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#dbeafe', 'primaryBorderColor': '#93c5fd', 'primaryTextColor': '#1e293b', 'lineColor': '#64748b', 'textColor': '#334155', 'fontSize': '14px', 'fontFamily': 'Inter, -apple-system, BlinkMacSystemFont, sans-serif'}}}%%
 stateDiagram-v2
+    classDef blue fill:#dbeafe,stroke:#93c5fd,color:#1e293b
+    classDef green fill:#dcfce7,stroke:#86efac,color:#1e293b
+    classDef amber fill:#fef3c7,stroke:#fcd34b,color:#1e293b
+    classDef rose fill:#ffe4e6,stroke:#fda4af,color:#1e293b
+
     [*] --> planned
     planned --> dispatched: POST /dispatch/task
     dispatched --> in_progress: session_init event
@@ -98,6 +157,15 @@ stateDiagram-v2
     completed --> [*]
     planned --> pruned: branch killed
     pruned --> [*]
+
+    class planned blue
+    class dispatched blue
+    class in_progress blue
+    class auto_verified green
+    class completed green
+    class awaiting_judgment amber
+    class awaiting_approval amber
+    class pruned rose
 ```
 ````
 
@@ -166,7 +234,7 @@ Use tables for:
 - **Configuration/constants**: name, value, purpose
 - **API endpoints**: method, path, description
 - **Status/type enums**: value, who sets it, when, what happens next
-- **Comparison matrices**: feature × mode grid
+- **Comparison matrices**: feature x mode grid
 - **File references**: file path, role/purpose
 
 Always align columns and use consistent formatting.
@@ -256,13 +324,14 @@ Do not use emoji in documentation. Use text labels, badges in tables, and format
 
 | Content Type | Best Diagram | Example |
 |-------------|-------------|---------|
-| Request/response between components | `sequenceDiagram` | Browser → Server → Relay → Agent |
+| Request/response between components | `sequenceDiagram` | Browser -> Server -> Relay -> Agent |
 | Decision tree / branching logic | `flowchart TD` | Safety tier classification |
 | State machine / lifecycle | `stateDiagram-v2` | Task status transitions |
 | Before/after comparison | ASCII timeline | Lock scope reduction |
 | Data flow pipeline | `flowchart LR` | Event persistence pipeline |
 | Component architecture | ASCII box diagram | Four-process system |
 | Timeline/scheduling | `gantt` | Parallel task execution |
+| Mathematical relationships | flowchart + LaTeX | Complexity or cost formulas |
 
 ## Wiki Structure Reference
 
