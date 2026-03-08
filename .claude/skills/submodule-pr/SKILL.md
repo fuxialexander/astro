@@ -23,7 +23,7 @@ repo, following each submodule's branching conventions.
 |------------|-------------|-------------|-------------------|-------|
 | `packages/agent-runner` | `astro-anywhere/astro-agent` | `@astroanywhere/agent` | `dev` | Releases to NPM; all PRs target `dev` first |
 | `packages/cli` | `astro-anywhere/cli` | `@astroanywhere/cli` | `main` | |
-| `packages/openclaw-plugin` | `astro-anywhere/openclaw-plugin` | — | `main` | Currently empty scaffold |
+| `packages/openclaw-plugin` | `astro-anywhere/openclaw-plugin` | `@astroanywhere/astro` | `main` | OpenClaw plugin for Astro |
 
 ## Workflow
 

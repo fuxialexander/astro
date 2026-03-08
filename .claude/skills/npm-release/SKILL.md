@@ -22,7 +22,7 @@ while CLI and openclaw-plugin release directly from `main`.
 |---------|------|-------------------|--------------|----------------|
 | `@astroanywhere/agent` | `astro-anywhere/astro-agent` | Yes | `latest` (main), `next` (dev) | `.github/workflows/release.yml` |
 | `@astroanywhere/cli` | `astro-anywhere/cli` | No | `latest` | TBD |
-| openclaw-plugin | `astro-anywhere/openclaw-plugin` | No | — | Not yet published |
+| `@astroanywhere/astro` | `astro-anywhere/openclaw-plugin` | No | `latest` | TBD |
 
 ## Release Workflow
 
