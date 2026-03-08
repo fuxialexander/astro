@@ -465,8 +465,7 @@ astro/
 │       ├── machine-registry.ts   # Connected machine tracking
 │       ├── dispatch/             # Dispatch engine, queue, context assembler
 │       ├── events/               # Event transport + hooks
-│       ├── prompt-templates.ts   # System prompts for AI tasks
-│       └── repo-context.ts       # Repository context reading
+│       └── prompt-templates.ts   # System prompts for AI tasks
 │
 ├── packages/
 │   ├── core/                     # Shared code (db, schema, dispatch types, prompt templates)
