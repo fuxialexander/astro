@@ -38,6 +38,32 @@ const dispatchedTaskDirs = new Map<string, string>()  // taskId → workingDirec
 // Track approved safety decisions per workingDirectory
 const approvedSafetyDirs = new Map<string, string>()  // workingDirectory → decision
 
+// ─── User Decision Prompt Variants ──────────────────────────────
+// Injected into the task prompt to guide how the agent handles ambiguity.
+// Selected based on provider type and YOLO mode.
+
+/** Default: agent has `ask_user_question` tool (Claude SDK, Codex, OpenCode) */
+const ASK_USER_PROMPT = `### Asking the User for Decisions
+
+You have an \`ask_user_question\` tool. When you call it, execution pauses and the user sees your question with selectable options in their dashboard. They pick an option, and you resume with their answer. **Use it actively** — it's better to ask than to guess wrong.
+
+**Ask the user when:**
+- Multiple implementation approaches are equally valid (e.g., library choice, architectural pattern)
+- A design decision affects user-facing behavior or UX
+- You're unsure about scope — should you do the minimal fix or a broader refactor?
+- Trade-offs exist where user priorities matter (performance vs. simplicity, etc.)
+- You discover something unexpected that changes the task's scope or approach
+
+**Proceed independently when:**
+- Standard best practices clearly apply
+- The decision is a technical implementation detail invisible to users
+- There's an obvious "right" answer based on codebase conventions`
+
+/** Autonomous mode: YOLO enabled or provider doesn't support interactive approvals (e.g. OpenClaw) */
+const AUTONOMOUS_PROMPT = `### Decision Making
+
+You are running in **autonomous mode**. Proceed independently for all decisions — do not pause to ask the user for guidance. Use your best judgment based on the task description, codebase conventions, and standard best practices. If multiple approaches are valid, pick the most pragmatic one and note your reasoning in the output.`
+
 /**
  * Derive a short hex ID from a UUID for compact display (like git short SHAs).
  * "550e8400-e29b-41d4-a716-446655440000" → "550e84"
@@ -680,6 +706,20 @@ async function dispatchViaRelay(
   // Extract user for ownership verification
   const user = c.get('user') as AuthUser | undefined
 
+  // Resolve YOLO mode early — affects prompt assembly (user decision section)
+  let yoloEnabled = false
+  if (user?.id) {
+    try {
+      const [profile] = await db.select({ settings: userProfiles.settings })
+        .from(userProfiles).where(eq(userProfiles.id, user.id)).limit(1)
+      const settings = profile?.settings as Record<string, string> | null
+      const isPlayground = nodeId.startsWith('playground-')
+      yoloEnabled = isPlayground
+        ? settings?.playgroundYoloMode === 'true'
+        : settings?.yoloMode === 'true'
+    } catch { /* fail closed — default non-YOLO */ }
+  }
+
   // Find target machine (skip for dry runs — prompt assembly doesn't need a machine)
   let machineId = targetMachineId
   if (!dryRun) {
@@ -1000,11 +1040,16 @@ If all checks pass, the task will be auto-approved. If any check fails, a human 
 - Clearly summarize what you did and why
 - Note any trade-offs or decisions you made
 - Highlight anything the reviewer should pay attention to
-- If you are uncertain about any implementation choice, use \`ask_user_question\` to get guidance before proceeding`
+- If you are uncertain about any implementation choice, ask for guidance before proceeding`
       if (manualChecks.length > 0) {
         verificationSection += `\n\nThe reviewer will check:\n${manualChecks.map(c => `- ${c.description}`).join('\n')}`
       }
     }
+
+    // Select the appropriate user-decision prompt based on provider and YOLO mode
+    const userDecisionPrompt = (yoloEnabled || preferredProvider === 'openclaw')
+      ? AUTONOMOUS_PROMPT
+      : ASK_USER_PROMPT
 
     promptParts.push(`## Instructions
 
@@ -1012,21 +1057,7 @@ Execute the task described above. Focus on completing the task thoroughly and co
 - Use appropriate tools to accomplish the task
 - Report progress and any issues encountered
 
-### Asking the User for Decisions
-
-You have an \`ask_user_question\` tool. When you call it, execution pauses and the user sees your question with selectable options in their dashboard. They pick an option, and you resume with their answer. **Use it actively** — it's better to ask than to guess wrong.
-
-**Ask the user when:**
-- Multiple implementation approaches are equally valid (e.g., library choice, architectural pattern)
-- A design decision affects user-facing behavior or UX
-- You're unsure about scope — should you do the minimal fix or a broader refactor?
-- Trade-offs exist where user priorities matter (performance vs. simplicity, etc.)
-- You discover something unexpected that changes the task's scope or approach
-
-**Proceed independently when:**
-- Standard best practices clearly apply
-- The decision is a technical implementation detail invisible to users
-- There's an obvious "right" answer based on codebase conventions
+${userDecisionPrompt}
 
 ### Verification
 
