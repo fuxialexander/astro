@@ -43,6 +43,22 @@ export const academicPresentationTemplate: UseCaseTemplate = {
       order: 0,
     },
     {
+      id: 'sourceFormat',
+      name: 'Source Format',
+      description:
+        'How are the papers provided? This determines whether PDF extraction tools are needed.',
+      type: 'select',
+      required: true,
+      default: 'pdf',
+      options: [
+        { label: 'PDF Files', value: 'pdf', description: 'Local PDF files — uses the PDF skill for extraction' },
+        { label: 'arXiv Links', value: 'arxiv', description: 'arXiv URLs — fetches LaTeX source or HTML directly' },
+        { label: 'Mixed (PDF + arXiv)', value: 'mixed', description: 'Combination of local PDFs and arXiv links' },
+      ],
+      group: 'source',
+      order: 1,
+    },
+    {
       id: 'deliverables',
       name: 'Output Deliverables',
       description: 'Which deliverables to generate from the paper(s). Select one or more.',
@@ -73,7 +89,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
         message: 'Must be a GitHub URL',
       },
       group: 'source',
-      order: 1,
+      order: 2,
     },
     {
       id: 'customRequirements',
@@ -83,7 +99,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
       required: false,
       placeholder: 'e.g., Focus on methods A vs B, emphasize practical implications',
       group: 'source',
-      order: 2,
+      order: 3,
     },
 
     // ── Slides group ──
@@ -180,6 +196,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
 
 ## Paper Specification
 - Paper Source: {{paperSource}}
+- Source Format: {{sourceFormat}}
 - Code Repository: {{githubUrl}}
 - Custom Requirements: {{customRequirements}}
 
@@ -215,7 +232,10 @@ All deliverables follow this narrative structure:
 ### Task Structure
 
 **Phase 1: Paper Analysis (shared across all deliverables)**
-- Fetch and parse the paper source (PDF extraction or arXiv fetch)
+- Fetch and parse the paper source based on source format ({{sourceFormat}}):
+  - PDF files → use the PDF skill for extraction
+  - arXiv links → fetch LaTeX source or abstract HTML directly
+  - Mixed → use appropriate method per paper
 - Extract structure: sections, equations, figures, bibliography
 - Identify key contributions (3-5 points)
 - If GitHub repo provided, clone and identify key code files
@@ -264,9 +284,15 @@ Save ALL output files (slides, blog posts, posters, figures, PDFs) under the \`o
 
 ## Context
 - Paper Source: {{paperSource}}
+- Source Format: {{sourceFormat}}
 - Code Repository: {{githubUrl}}
 - Deliverables: {{deliverables}}
 - Target Audience: {{targetAudience}}
+
+## Document Reading — Source Format: {{sourceFormat}}
+- **PDF**: The PDF skill is included in your skill instructions. Follow it for extraction.
+- **arXiv**: Fetch LaTeX source from arXiv API or parse the abstract page. No PDF skill needed.
+- **Mixed**: Check each source — use PDF skill for .pdf files, fetch for arXiv links.
 ## IMPORTANT: Skill Reference
 This task uses the \`academic-presentation\` skill. Consult the skill's SKILL.md for:
 - Complete HTML/CSS templates for each slide layout type
@@ -442,7 +468,13 @@ This task uses the \`academic-presentation\` skill. Consult the skill's SKILL.md
 
   // ── Relationships ─────────────────────────────────────────────────────
   domains: ['scientific-computing', 'web-development'],
-  recommendedSkills: ['academic-presentation', 'pdf'],
+  recommendedSkills: ['academic-presentation'],
+  conditionalSkills: {
+    sourceFormat: {
+      pdf: ['pdf'],
+      mixed: ['pdf'],
+    },
+  },
   source: 'builtin',
   enabled: true,
 }
