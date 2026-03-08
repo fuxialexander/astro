@@ -447,15 +447,41 @@ Each project gets a **persistent project worktree** at `.astro/worktrees/{shortP
 └── abc123-n2/               ← task worktree (temporary, cleaned up after merge)
 ```
 
-**Why detached HEAD?** The local merge mechanism (`localMergeIntoProjectBranch()`) creates a temporary worktree that checks out the project branch for the squash-merge. Git prevents the same branch from being checked out in two worktrees simultaneously. By using a detached HEAD for the project worktree, the project branch ref remains free for the temporary merge worktree.
+**Why detached HEAD?** The local merge mechanism (`localMergeIntoProjectBranch()`) creates a temporary worktree that checks out the project branch for the squash-merge:
 
-**Sync mechanism:** After each successful merge:
-
-```bash
-git -C .astro/worktrees/{shortProjectId}/ checkout --detach refs/heads/astro/{shortProjectId}
+```
+git worktree add {tmpDir} astro/{shortProjectId}
 ```
 
-This updates the working tree files to match the latest project branch state. For remote mode, a `git fetch` is performed first.
+Git prevents the same branch from being checked out in two worktrees simultaneously. If the project worktree held a regular (attached) checkout of `astro/{shortProjectId}`, this command would fail with `fatal: 'astro/{shortProjectId}' is already checked out`. By using a detached HEAD (`git worktree add --detach`), the project worktree's HEAD points directly to a commit SHA — the branch ref remains free for the merge worktree.
+
+**Why this survives merging:** The detached HEAD constraint is the key invariant. During the entire merge lifecycle:
+
+```
+1. createProjectWorktree()
+   .astro/worktrees/abc123/ → HEAD = SHA (detached)
+   refs/heads/astro/abc123 → free (not checked out)
+
+2. localMergeIntoProjectBranch() runs
+   .astro/tmp-merge/merge-xxx/ → checks out astro/abc123 (OK — branch was free)
+   git merge --squash ... → commit → refs/heads/astro/abc123 advances
+   git worktree remove .astro/tmp-merge/merge-xxx/
+
+3. syncProjectWorktree()
+   .astro/worktrees/abc123/ → checkout --detach refs/heads/astro/abc123
+   HEAD now = new SHA, files on disk updated
+```
+
+At no point are two worktrees attached to the same branch. The project worktree is always detached, and the merge worktree is temporary (created/destroyed within `localMergeIntoProjectBranch`).
+
+**Sync mechanism — ref selection by delivery mode:**
+
+| Mode | Where merge happens | Fresh ref | Sync command |
+|------|--------------------|-----------|----|
+| Branch (no remote) | `localMergeIntoProjectBranch()` advances `refs/heads/` locally | `refs/heads/{projectBranch}` | `git checkout --detach refs/heads/astro/abc123` |
+| PR (has remote) | GitHub auto-merge advances `origin/` | `origin/{projectBranch}` | `git fetch origin && git checkout --detach origin/astro/abc123` |
+
+In PR mode, `refs/heads/{projectBranch}` is stale after a GitHub merge (no local commit happened). The sync function detects whether a remote exists and uses `origin/` after fetch for PR mode, or `refs/heads/` for branch mode.
 
 **User-facing value:**
 
