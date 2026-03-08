@@ -1,12 +1,13 @@
 ---
 name: submodule-sync
-description: |
-  Release and sync git submodules. Pushes changes to the submodule's own repo,
-  merges dev → main, bumps the version, creates a GitHub release, then updates
-  the submodule pointer in the parent repo. Enforces the branching model where
-  `dev` is the golden truth and `main` is release-only. Works for any submodule
-  in the project. Trigger when the user says "sync submodule", "release agent-runner",
-  "release cli", "update submodule", "bump submodule version", or "merge dev to main".
+description: >-
+  Release and sync git submodules. Can either (1) just sync submodule pointers to
+  latest main, or (2) run the full release lifecycle: push changes, merge dev to main,
+  bump version, create GitHub release, then update the parent repo's pointer. Use this
+  skill after a submodule PR has been merged, when the user says "sync submodules",
+  "update submodule pointer", "bump agent-runner", "release agent-runner", "release cli",
+  "update submodule", "bump submodule version", or "merge dev to main". Also use
+  proactively after completing a submodule PR — check if the pointer needs bumping.
 allowed-tools:
   - Bash
   - Read
@@ -20,17 +21,27 @@ allowed-tools:
 
 # Submodule Sync & Release
 
-You manage the release lifecycle for git submodules. Each submodule lives in its own
-GitHub repo with a `dev` → `main` branching model. You handle the full pipeline:
-push changes, merge to main, bump version, release, and update the parent repo's
-submodule pointer.
+This skill manages the full lifecycle for git submodules — from pointer syncing
+to full release pipelines. Each submodule lives in its own GitHub repo.
+
+## Submodule Registry
+
+| Local Path | GitHub Repo | Track Branch | NPM Package |
+|------------|-------------|--------------|-------------|
+| `packages/agent-runner` | `astro-anywhere/astro-agent` | `main` | `@astroanywhere/agent` |
+| `packages/cli` | `astro-anywhere/cli` | `main` | `@astroanywhere/cli` |
+| `packages/openclaw-plugin` | `astro-anywhere/openclaw-plugin` | `main` | `@astroanywhere/astro` |
+
+The main repo always points submodules at `main` (the stable branch). During
+development, agent-runner PRs go to `dev` first, but the pointer only advances
+when `dev` is merged into `main` via a release.
 
 ## Input
 
 A submodule name, path, or "all":
 - `/submodule-sync agent-runner` — sync a specific submodule
 - `/submodule-sync packages/cli` — sync by path
-- `/submodule-sync all` — sync all submodules that have unpushed changes on dev
+- `/submodule-sync all` — sync all submodules that are behind
 
 ---
 
@@ -49,7 +60,109 @@ main ← release-only. Only receives merges from dev. Never commit directly.
 
 ---
 
-## Phase 0: Identify Submodules
+## Quick Sync: Pointer-Only Update
+
+Use this when a submodule's `main` already has the latest changes (e.g., after
+a release was completed) and you just need to bump the parent repo's pointer.
+
+### 1. Check which submodules are behind
+
+```bash
+# From the astro repo root
+git submodule update --init
+
+# For each submodule, fetch and compare
+for sub in packages/agent-runner packages/cli packages/openclaw-plugin; do
+  if [ -d "$sub/.git" ] || [ -f "$sub/.git" ]; then
+    echo "=== $sub ==="
+    cd "$sub"
+    git fetch origin main 2>/dev/null
+    CURRENT=$(git rev-parse HEAD)
+    LATEST=$(git rev-parse origin/main 2>/dev/null || echo "$CURRENT")
+    if [ "$CURRENT" != "$LATEST" ]; then
+      BEHIND=$(git rev-list --count HEAD..origin/main)
+      echo "  BEHIND by $BEHIND commits"
+      git log --oneline HEAD..origin/main | head -5
+    else
+      echo "  UP TO DATE"
+    fi
+    cd - > /dev/null
+  fi
+done
+```
+
+If all submodules are up to date, tell the user and stop.
+
+### 2. Update the submodule pointer(s)
+
+For each submodule that is behind:
+
+```bash
+cd <submodule-path>
+git checkout main
+git pull origin main
+cd -  # back to astro root
+```
+
+### 3. Commit the pointer update in the main repo
+
+Stage only the submodule paths that changed — never use `git add -A`:
+
+```bash
+git add packages/agent-runner   # only if it changed
+git add packages/cli            # only if it changed
+git add packages/openclaw-plugin # only if it changed
+```
+
+Create a commit with a descriptive message:
+
+```bash
+git commit -m "chore: update <submodule-name> to latest main (<short-sha> — <summary>)"
+```
+
+If multiple submodules updated, combine into one commit:
+
+```bash
+git commit -m "chore: update submodules to latest main"
+```
+
+### 4. Create a PR (never push directly to main)
+
+```bash
+BRANCH="chore/sync-submodules-$(date +%Y%m%d-%H%M)"
+git checkout -b "$BRANCH"
+git push -u origin "$BRANCH"
+
+gh pr create \
+  --title "chore: sync submodule pointers" \
+  --body "$(cat <<'EOF'
+## Summary
+Updates submodule pointer(s) to latest `main`:
+
+<list which submodules updated and key commits>
+
+## Test plan
+- [ ] Build passes (`npm run build`)
+- [ ] No submodule-related CI failures
+EOF
+)"
+```
+
+### 5. Post-PR checklist
+
+- The PR diff only shows submodule pointer changes (the `Subproject commit` lines),
+  not code changes in the main repo.
+- If there are code changes in the main repo that depend on the submodule update,
+  those should be in the same PR with an explanation in the PR body.
+
+---
+
+## Full Release: dev → main → tag → pointer update
+
+Use this when you need to release changes from `dev` to `main`, create a version
+tag, and update the parent repo's pointer. This is the full pipeline.
+
+### Phase 0: Identify Submodules
 
 1. Read `.gitmodules` in the parent repo to discover all submodules:
    ```bash
@@ -73,9 +186,7 @@ main ← release-only. Only receives merges from dev. Never commit directly.
      - Ask the user if not found
    - `SUBMODULE_URL` — GitHub URL from `.gitmodules`
 
----
-
-## Phase 1: Verify Submodule State
+### Phase 1: Verify Submodule State
 
 For each submodule, working from the **standalone repo** (not the nested path in the parent):
 
@@ -107,9 +218,7 @@ git fetch origin
    grep '"version"' package.json
    ```
 
----
-
-## Phase 2: Ensure Feature PRs Are Merged
+### Phase 2: Ensure Feature PRs Are Merged
 
 If the user's current work is on a feature branch (not `dev`):
 
@@ -123,9 +232,7 @@ If the user's current work is on a feature branch (not `dev`):
 3. If a PR exists but isn't merged, warn and ask whether to proceed anyway
    (the feature won't be in the release).
 
----
-
-## Phase 3: Bump Version
+### Phase 3: Bump Version
 
 1. Switch to `dev` and pull latest:
    ```bash
@@ -153,9 +260,7 @@ If the user's current work is on a feature branch (not `dev`):
    git push origin dev
    ```
 
----
-
-## Phase 4: Merge dev → main
+### Phase 4: Merge dev → main
 
 1. Create a PR from `dev` → `main`:
    ```bash
@@ -182,9 +287,7 @@ If the user's current work is on a feature branch (not `dev`):
    git checkout main && git pull origin main
    ```
 
----
-
-## Phase 5: Tag & Release
+### Phase 5: Tag & Release
 
 1. Create a GitHub release with auto-generated notes:
    ```bash
@@ -203,9 +306,7 @@ If the user's current work is on a feature branch (not `dev`):
    gh release view v$NEW_VERSION
    ```
 
----
-
-## Phase 6: Update Parent Repo Submodule Pointer
+### Phase 6: Update Parent Repo Submodule Pointer
 
 1. Switch to the parent repo and the appropriate branch:
    ```bash
@@ -233,9 +334,7 @@ If the user's current work is on a feature branch (not `dev`):
 5. If there's a current feature branch with an open PR, push to that branch.
    Otherwise, ask the user which branch to commit to.
 
----
-
-## Phase 7: Report
+### Phase 7: Report
 
 Produce a summary for each submodule synced:
 
@@ -254,6 +353,17 @@ Produce a summary for each submodule synced:
 
 ---
 
+## When to Run Proactively
+
+After any of these events, check if a pointer sync is needed:
+
+- A submodule PR was just merged (the user told you, or you created it via `/submodule-pr`)
+- The user ran `/npm-release` (which merges `dev` → `main` in agent-runner)
+- The user mentions the submodule is outdated or asks about version mismatches
+- Before creating a main-repo PR that depends on submodule changes
+
+---
+
 ## Important Rules
 
 ### Branch Safety
@@ -264,13 +374,17 @@ Produce a summary for each submodule synced:
   and keep dev and main in sync.
 
 ### Submodule Pointer Safety
+- The main repo pointer always tracks `main`, never `dev`. Even though agent-runner
+  development happens on `dev`, the astro repo only bumps its pointer when `dev` is
+  merged to `main` (during a release).
 - **NEVER** run `git add $SUBMODULE_PATH` unless you explicitly updated the submodule
   pointer. Accidental submodule pointer changes are a common source of CI failures.
 - Always verify `git diff --submodule` shows the expected change before committing.
-- If the submodule shows as dirty but you didn't intend to update it, restore it:
-  ```bash
-  git restore --staged $SUBMODULE_PATH
-  ```
+- If `packages/agent-runner` shows as modified in `git status` but you didn't
+  intentionally update it, unstage it (`git restore --staged packages/agent-runner`)
+  to avoid accidental pointer changes.
+- Never include unrelated changes in a pointer-sync commit. If you have both code
+  changes and pointer updates, the pointer update should be its own commit.
 
 ### Version Consistency
 - The version bump commit goes on `dev` BEFORE merging to `main`. This ensures
