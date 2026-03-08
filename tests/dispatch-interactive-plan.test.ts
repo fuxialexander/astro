@@ -84,7 +84,7 @@ vi.mock('../server/lib/machine-registry.js', () => {
 })
 
 import { setupTestServer, postJson, db } from './helpers/test-server.js'
-import { projects, skills } from '../server/lib/db/schema.js'
+import { projects, machineInstructions, registeredMachines } from '../server/lib/db/schema.js'
 
 beforeAll(async () => {
   await setupTestServer()
@@ -201,23 +201,43 @@ describe('Interactive plan dispatch overrides', { timeout: 30_000 }, () => {
     expect(mockDispatchTask).not.toHaveBeenCalled()
   })
 
-  it('dispatched task includes skill prompt injection in relay payload', async () => {
-    // Seed a test skill directly into DB and sync the skill-manager
-    await db.insert(skills).values({
-      name: 'test-dispatch-skill',
-      version: '1.0.0',
-      description: 'Test skill for dispatch injection',
-      instructions: 'UNIQUE_SKILL_MARKER: Use this test workflow',
-      source: 'builtin',
-      enabled: true,
-      allowedTools: ['Bash'],
+  it('dispatched task includes machine instruction in relay payload', async () => {
+    const { eq } = await import('drizzle-orm')
+
+    // Create a machine instruction
+    const instructionId = crypto.randomUUID()
+    await db.insert(machineInstructions).values({
+      id: instructionId,
+      ownerId: '00000000-0000-0000-0000-000000000000',
+      teamId: '00000000-0000-0000-0000-000000000001',
+      name: 'test-dispatch-instruction',
+      content: 'UNIQUE_INSTRUCTION_MARKER: Use this compute workflow',
       tags: ['test'],
+      source: 'user',
     })
 
-    // Sync the in-memory skill-manager so dispatch picks up the skill
-    const { syncSkillsFromDb } = await import('../server/lib/db/bootstrap-skills.js')
-    const { skillManager } = await import('../server/lib/skill-manager.js')
-    await syncSkillsFromDb(skillManager)
+    // Ensure the mock machine exists in DB with defaultInstructionId set.
+    // The mock machineRegistry.findBestMachine returns machineId 'test-machine-001'.
+    const machineId = 'test-machine-001'
+    try {
+      await db.insert(registeredMachines).values({
+        id: machineId,
+        userId: '00000000-0000-0000-0000-000000000000',
+        name: 'Test Machine',
+        hostname: 'test-host',
+        platform: 'linux',
+        providers: ['claude-code'],
+        refreshTokenHash: 'test-hash',
+        defaultInstructionId: instructionId,
+        isConnected: true,
+        isRevoked: false,
+      })
+    } catch {
+      // Machine may already exist from a prior test — update it
+      await db.update(registeredMachines)
+        .set({ defaultInstructionId: instructionId })
+        .where(eq(registeredMachines.id, machineId))
+    }
 
     const res = await postJson('/api/dispatch/task', {
       ...getBaseBody(),
@@ -230,14 +250,14 @@ describe('Interactive plan dispatch overrides', { timeout: 30_000 }, () => {
     expect(mockDispatchTask).toHaveBeenCalledTimes(1)
 
     const taskPayload = mockDispatchTask.mock.calls[0][0]
-    // Skills are injected into the relay `prompt` field (assembled from promptParts)
-    // for regular task dispatch, not in `systemPrompt` (which is only set for interactive plans)
-    expect(taskPayload.prompt).toContain('UNIQUE_SKILL_MARKER')
-    expect(taskPayload.prompt).toContain('test-dispatch-skill')
+    // Machine instructions are injected into the relay `prompt` field
+    expect(taskPayload.prompt).toContain('UNIQUE_INSTRUCTION_MARKER')
+    expect(taskPayload.prompt).toContain('test-dispatch-instruction')
 
-    // Clean up test skill
-    const { eq } = await import('drizzle-orm')
-    await db.delete(skills).where(eq(skills.name, 'test-dispatch-skill'))
-    await syncSkillsFromDb(skillManager)
+    // Clean up
+    await db.update(registeredMachines)
+      .set({ defaultInstructionId: null })
+      .where(eq(registeredMachines.id, machineId))
+    await db.delete(machineInstructions).where(eq(machineInstructions.id, instructionId))
   })
 })

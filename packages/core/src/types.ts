@@ -524,3 +524,15 @@ export interface EnvironmentConfig {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export interface MachineInstruction {
+  id: string;
+  ownerId: string;
+  teamId?: string | null;
+  name: string;
+  content: string;
+  tags: string[];
+  source: 'user' | 'auto';
+  createdAt: Date;
+  updatedAt: Date;
+}

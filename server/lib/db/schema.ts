@@ -19,6 +19,7 @@ export {
   taskChatSessions,
   taskChatMessages,
   pushTokens,
+  machineInstructions,
   registeredMachines,
   projectMembers,
   taskExecutions,

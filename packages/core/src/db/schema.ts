@@ -300,6 +300,26 @@ export const pushTokens = pgTable('push_tokens', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
+// ── Machine Instructions ─────────────────────────────────────────────
+// Shared pool of markdown instruction documents that tell AI agents how
+// to run computation jobs on specific environments (K8s, Slurm, etc.).
+// Instructions are not pinned to a single machine — any machine can
+// reference any instruction via registeredMachines.defaultInstructionId.
+export const machineInstructions = pgTable('machine_instructions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ownerId: uuid('owner_id').notNull(),
+  teamId: uuid('team_id').references(() => teams.id, { onDelete: 'set null' }),
+  name: text('name').notNull(),
+  content: text('content').notNull().default(''),
+  tags: text('tags').array().notNull().default([]),
+  source: text('source').notNull().default('user'), // 'user' | 'auto' (auto-generated from defaults)
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('machine_instructions_owner_id_idx').on(table.ownerId),
+  index('machine_instructions_team_id_idx').on(table.teamId),
+])
+
 // ── Registered Machines ──────────────────────────────────────────────
 export const registeredMachines = pgTable('registered_machines', {
   id: text('id').primaryKey(),
@@ -318,6 +338,7 @@ export const registeredMachines = pgTable('registered_machines', {
     settings?: Record<string, unknown>
   }>>().default([]),
   workspaceId: text('workspace_id'),
+  defaultInstructionId: uuid('default_instruction_id'),
   isConnected: boolean('is_connected').notNull().default(false),
   isRevoked: boolean('is_revoked').notNull().default(false),
   refreshTokenHash: text('refresh_token_hash').notNull(),
