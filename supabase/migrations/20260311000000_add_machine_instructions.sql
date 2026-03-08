@@ -17,3 +17,50 @@ CREATE INDEX IF NOT EXISTS machine_instructions_team_id_idx ON machine_instructi
 
 -- Add default_instruction_id column to registered_machines
 ALTER TABLE registered_machines ADD COLUMN IF NOT EXISTS default_instruction_id UUID;
+
+-- RLS: defense-in-depth for direct DB access (Supabase Dashboard, PostgREST).
+-- The Hono API server connects with service_role key (bypasses RLS);
+-- primary access control is enforced by requireAuth + scopeFilter in
+-- server/routes/machine-instructions.ts.
+ALTER TABLE machine_instructions ENABLE ROW LEVEL SECURITY;
+
+-- Users can view instructions they own or that belong to their team.
+CREATE POLICY machine_instructions_select_policy ON machine_instructions
+  FOR SELECT
+  USING (
+    owner_id = auth.uid()
+    OR team_id IN (
+      SELECT team_id FROM team_members WHERE user_id = auth.uid()
+    )
+  );
+
+-- Users can insert instructions owned by themselves.
+CREATE POLICY machine_instructions_insert_policy ON machine_instructions
+  FOR INSERT
+  WITH CHECK (owner_id = auth.uid());
+
+-- Users can update instructions they own or that belong to their team.
+CREATE POLICY machine_instructions_update_policy ON machine_instructions
+  FOR UPDATE
+  USING (
+    owner_id = auth.uid()
+    OR team_id IN (
+      SELECT team_id FROM team_members WHERE user_id = auth.uid()
+    )
+  );
+
+-- Users can delete instructions they own or that belong to their team.
+CREATE POLICY machine_instructions_delete_policy ON machine_instructions
+  FOR DELETE
+  USING (
+    owner_id = auth.uid()
+    OR team_id IN (
+      SELECT team_id FROM team_members WHERE user_id = auth.uid()
+    )
+  );
+
+-- Service role can manage all machine instructions (for server-side operations).
+CREATE POLICY machine_instructions_service_role_policy ON machine_instructions
+  FOR ALL
+  USING (auth.role() = 'service_role')
+  WITH CHECK (auth.role() = 'service_role');
