@@ -1809,6 +1809,8 @@ const steerSchema = z.object({
   message: z.string().min(1).max(50000),
   action: z.enum(['guidance', 'redirect', 'pause', 'resume']).optional(),
   interrupt: z.boolean().optional(),
+  sessionId: z.string().optional(),
+  branchName: z.string().optional(),
 })
 
 dispatchRoute.post('/steer', async (c) => {
@@ -1817,7 +1819,7 @@ dispatchRoute.post('/steer', async (c) => {
   if (!parsed.success) {
     return c.json({ success: false, error: 'taskId, machineId, and message are required' }, 400)
   }
-  const { taskId, machineId, message, action, interrupt } = parsed.data
+  const { taskId, machineId, message, action, interrupt, sessionId, branchName } = parsed.data
 
   // Validate user owns this task
   const steerUser = c.get('user') as AuthUser | undefined
@@ -1828,7 +1830,7 @@ dispatchRoute.post('/steer', async (c) => {
     }
   }
 
-  const sent = relayServer.steerTask(taskId, machineId, message, action, interrupt)
+  const sent = relayServer.steerTask(taskId, machineId, message, action, interrupt, sessionId, branchName)
 
   if (!sent) {
     return c.json(
@@ -1839,7 +1841,7 @@ dispatchRoute.post('/steer', async (c) => {
 
   // Persist steer message to streaming_events for page-refresh recovery
   streamingEventLog.append(taskId, 'steer_message', {
-    message, action, interrupt,
+    message, action, interrupt, sessionId, branchName,
   }).catch(() => {})
 
   return c.json({ success: true, taskId, machineId, message: 'Steer message sent' })

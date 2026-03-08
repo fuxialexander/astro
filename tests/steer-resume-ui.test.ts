@@ -14,6 +14,7 @@
 import { describe, it, expect } from 'vitest'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { z } from 'zod'
 
 // ─── canSteer derivation ────────────────────────────────────────────────────
 //
@@ -213,6 +214,95 @@ describe('session context notice', () => {
     expect(getSessionNotice(false, false, 'feat/other')).toBe(
       'Follow-up chat — changes on `feat/other`',
     )
+  })
+})
+
+// ─── Steer schema field threading ──────────────────────────────────────────
+//
+// Verifies that the Zod steer schema accepts sessionId and branchName,
+// and that they survive parsing (i.e., are not stripped).
+
+describe('steer schema field threading', () => {
+  const steerSchema = z.object({
+    taskId: z.string().min(1),
+    machineId: z.string().min(1),
+    message: z.string().min(1).max(50000),
+    action: z.enum(['guidance', 'redirect', 'pause', 'resume']).optional(),
+    interrupt: z.boolean().optional(),
+    sessionId: z.string().optional(),
+    branchName: z.string().optional(),
+  })
+
+  it('accepts and preserves sessionId', () => {
+    const result = steerSchema.safeParse({
+      taskId: 'task-1',
+      machineId: 'machine-1',
+      message: 'continue with tests',
+      sessionId: 'session-abc-123',
+    })
+    expect(result.success).toBe(true)
+    expect(result.data?.sessionId).toBe('session-abc-123')
+  })
+
+  it('accepts and preserves branchName', () => {
+    const result = steerSchema.safeParse({
+      taskId: 'task-1',
+      machineId: 'machine-1',
+      message: 'continue with tests',
+      branchName: 'feat/my-feature',
+    })
+    expect(result.success).toBe(true)
+    expect(result.data?.branchName).toBe('feat/my-feature')
+  })
+
+  it('accepts both sessionId and branchName together', () => {
+    const result = steerSchema.safeParse({
+      taskId: 'task-1',
+      machineId: 'machine-1',
+      message: 'continue',
+      sessionId: 'session-xyz',
+      branchName: 'fix/steer-resume',
+    })
+    expect(result.success).toBe(true)
+    expect(result.data?.sessionId).toBe('session-xyz')
+    expect(result.data?.branchName).toBe('fix/steer-resume')
+  })
+
+  it('works without sessionId and branchName (backward compat)', () => {
+    const result = steerSchema.safeParse({
+      taskId: 'task-1',
+      machineId: 'machine-1',
+      message: 'do something',
+    })
+    expect(result.success).toBe(true)
+    expect(result.data?.sessionId).toBeUndefined()
+    expect(result.data?.branchName).toBeUndefined()
+  })
+
+  it('strips unknown fields', () => {
+    const result = steerSchema.safeParse({
+      taskId: 'task-1',
+      machineId: 'machine-1',
+      message: 'test',
+      unknownField: 'should-be-stripped',
+    })
+    expect(result.success).toBe(true)
+    expect(result.data).not.toHaveProperty('unknownField')
+  })
+
+  it('preserves all fields in a full steer payload', () => {
+    const payload = {
+      taskId: 'task-abc',
+      machineId: 'machine-hpc-01',
+      message: 'Please add error handling to the API endpoint',
+      action: 'guidance' as const,
+      interrupt: false,
+      sessionId: 'session-resume-456',
+      branchName: 'feat/error-handling',
+    }
+    const result = steerSchema.safeParse(payload)
+    expect(result.success).toBe(true)
+    expect(result.data).toEqual(payload)
   })
 })
 

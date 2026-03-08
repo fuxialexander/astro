@@ -1574,7 +1574,7 @@ export class RelayServer extends EventEmitter {
   /**
    * Steer a running task on an agent runner
    */
-  steerTask(taskId: string, machineId: string, message: string, action?: 'guidance' | 'redirect' | 'pause' | 'resume', interrupt?: boolean): boolean {
+  steerTask(taskId: string, machineId: string, message: string, action?: 'guidance' | 'redirect' | 'pause' | 'resume', interrupt?: boolean, sessionId?: string, branchName?: string): boolean {
     const connection = machineRegistry.getConnection(machineId);
     if (!connection) {
       console.error(`[relay] Machine ${machineId} not found for task steering`);
@@ -1589,6 +1589,8 @@ export class RelayServer extends EventEmitter {
       message,
       action: action || 'guidance',
       interrupt,
+      sessionId,
+      branchName,
     };
 
     try {
