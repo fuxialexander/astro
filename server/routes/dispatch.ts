@@ -28,7 +28,7 @@ import { projects, planNodes, planNodeDependencies, blobs, userProfiles, taskExe
 import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
-import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction } from '../lib/prompt-templates.js'
+import { buildInteractivePlanPrompt, buildSummaryPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction } from '../lib/prompt-templates.js'
 import { extractPlanJsonFromText } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { autoDispatchDownstream } from './data.js'
@@ -154,6 +154,150 @@ async function extractKnowledgeFromSummary(
   if (entries.length > 0) {
     console.log(`[dispatch] Extracted ${entries.length} knowledge entries from task "${taskTitle}" (node ${nodeId.slice(0, 8)})`)
   }
+}
+
+/**
+ * Generate a structured execution summary for tasks that completed without one.
+ * Uses the same provider that ran the task (provider-agnostic).
+ * Called fire-and-forget after successful task completion.
+ */
+async function generatePostExecutionSummary(opts: {
+  projectId: string
+  nodeId: string
+  taskTitle: string
+  taskDescription: string
+  executionOutput: string
+  fileChanges: Array<{ path: string; action: string }>
+  status: 'success' | 'failure'
+  preferredProvider?: string
+  machineId?: string
+  userId?: string
+}): Promise<void> {
+  const summaryTaskId = `summary-${opts.nodeId}-${Date.now()}`
+  const prompt = buildSummaryPrompt({
+    taskTitle: opts.taskTitle,
+    taskDescription: opts.taskDescription,
+    executionOutput: opts.executionOutput,
+    fileChanges: opts.fileChanges,
+    status: opts.status,
+  })
+
+  const task: import('../types/relay.js').TaskDispatch = {
+    taskId: summaryTaskId,
+    projectId: opts.projectId,
+    nodeId: opts.nodeId,
+    title: 'summarize',
+    description: `Post-execution summary for ${opts.taskTitle}`.slice(0, 200),
+    prompt,
+    type: 'summarize',
+    preferredProvider: opts.preferredProvider as import('../types/relay.js').ProviderType | undefined,
+    maxTurns: 1,
+    workingDirectory: undefined,
+    skipSafetyCheck: true,
+    useWorktree: false,
+  }
+
+  const result = await new Promise<{ success: boolean; output?: string }>((resolve) => {
+    let output = ''
+    const timeout = setTimeout(() => {
+      cleanup()
+      resolve({ success: false })
+    }, 120_000)
+
+    const onText = (msg: import('../types/relay.js').TaskTextMessage) => {
+      if (msg.taskId !== summaryTaskId) return
+      output += msg.text
+    }
+
+    const onResult = (msg: import('../types/relay.js').TaskResultMessage) => {
+      if (msg.result.taskId !== summaryTaskId) return
+      clearTimeout(timeout)
+      cleanup()
+      resolve({
+        success: msg.result.status === 'completed',
+        output: msg.result.output || output,
+      })
+    }
+
+    const cleanup = () => {
+      relayServer.off('task:text', onText)
+      relayServer.off('task:result', onResult)
+    }
+
+    relayServer.on('task:text', onText)
+    relayServer.on('task:result', onResult)
+
+    const dispatched = relayServer.dispatchTask(task, opts.machineId, opts.userId)
+    if (!dispatched) {
+      clearTimeout(timeout)
+      cleanup()
+      resolve({ success: false })
+    }
+  })
+
+  if (!result.success || !result.output) {
+    console.warn(`[dispatch] Post-execution summary generation failed for node ${opts.nodeId}`)
+    return
+  }
+
+  // Parse the JSON summary from the output
+  let summary: import('../types/relay.js').ExecutionSummaryResult | undefined
+  try {
+    const jsonMatch = result.output.match(/\{[\s\S]*\}/)
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0])
+      summary = {
+        status: parsed.status || opts.status,
+        workCompleted: parsed.workCompleted || '',
+        executiveSummary: parsed.executiveSummary,
+        keyFindings: Array.isArray(parsed.keyFindings) ? parsed.keyFindings : [],
+        filesChanged: Array.isArray(parsed.filesChanged) ? parsed.filesChanged : [],
+        followUps: Array.isArray(parsed.followUps) ? parsed.followUps : [],
+      }
+    }
+  } catch {
+    // JSON parse failed — construct a text-based fallback
+    summary = {
+      status: opts.status === 'success' ? 'success' : 'failure',
+      workCompleted: result.output.slice(0, 500),
+      keyFindings: [],
+      filesChanged: opts.fileChanges.map((f) => f.path),
+      followUps: [],
+    }
+  }
+
+  if (!summary) return
+
+  console.log(`[dispatch] Generated post-execution summary for node ${opts.nodeId}: ${summary.workCompleted.slice(0, 80)}`)
+
+  // Persist concise summary to plan node so replan context picks it up.
+  // extractLessonsFromPlan reads node.executionOutput as the executionSummary string.
+  // If the raw executionOutput is already set, we prepend a structured summary block.
+  const conciseSummary = [
+    summary.workCompleted,
+    ...(summary.keyFindings.length > 0
+      ? ['Key findings:', ...summary.keyFindings.map(f => `- ${f}`)]
+      : []),
+    ...(summary.followUps.length > 0
+      ? ['Follow-ups:', ...summary.followUps.map(f => `- ${f}`)]
+      : []),
+  ].join('\n')
+
+  try {
+    await db.update(planNodes)
+      .set({ executionOutput: conciseSummary, updatedAt: new Date() })
+      .where(and(
+        eq(planNodes.clientId, opts.nodeId),
+        eq(planNodes.projectId, opts.projectId),
+        isNull(planNodes.executionOutput),  // Only set if not already populated
+      ))
+      .execute()
+  } catch (err) {
+    console.warn(`[dispatch] Failed to persist summary to plan node ${opts.nodeId}:`, err)
+  }
+
+  // Extract knowledge from the generated summary
+  await extractKnowledgeFromSummary(opts.projectId, opts.nodeId, opts.taskTitle, summary)
 }
 
 // Validation schemas
@@ -1184,6 +1328,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     // msg.result.output is equivalent for completed sessions; accumulatedText is the
     // fallback when the relay strips output from the result message.
     let accumulatedText = ''
+    // Accumulated file changes — used for post-execution summary generation
+    const collectedFileChanges: Array<{ path: string; action: string }> = []
     // Two-tier timeout: short startup period, longer once events are flowing.
     // If the agent-runner never picks up the task (crash, busy, bad state),
     // we detect it quickly instead of hanging for days.
@@ -1376,6 +1522,26 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         ).catch((err: unknown) => {
           console.error('[dispatch] Error extracting knowledge from summary:', err)
         })
+      } else if (!msg.result.summary && msg.result.status === 'completed' && !isInteractivePlan) {
+        // Provider didn't generate a structured summary — generate one server-side
+        // using the same provider that ran the task (fire-and-forget).
+        const executionOutput = accumulatedText || msg.result.output || ''
+        if (executionOutput.length > 0) {
+          generatePostExecutionSummary({
+            projectId,
+            nodeId,
+            taskTitle: title || '',
+            taskDescription: description || '',
+            executionOutput,
+            fileChanges: collectedFileChanges,
+            status: 'success',
+            preferredProvider: preferredProvider || undefined,
+            machineId: machineId || undefined,
+            userId: user?.id,
+          }).catch((err: unknown) => {
+            console.error('[dispatch] Error generating post-execution summary:', err)
+          })
+        }
       }
 
       stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
@@ -1389,7 +1555,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       waitingForApproval = false
       // Buffer text for batch persistence (flushed when next structural event arrives)
       streamingEventLog.appendText(executionId, msg.text)
-      if (isInteractivePlan) accumulatedText += msg.text
+      accumulatedText += msg.text
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
       executionEventBus.emit('task:stdout', { output: { taskId: executionId, data: msg.text, stream: 'stdout', timestamp: new Date() } })
     }
@@ -1473,6 +1639,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         data: JSON.stringify(data),
       }).catch(() => { alive = false })
       executionEventBus.emit('task:file_change', { taskId: executionId, path: msg.path, action: msg.action })
+      collectedFileChanges.push({ path: msg.path, action: msg.action })
     }
 
     const onMachineDisconnected = async (disconnectedId: string) => {
