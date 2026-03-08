@@ -17,27 +17,27 @@ export const academicPresentationTemplate: UseCaseTemplate = {
   id: 'astro--academic-presentation',
   name: 'Academic Paper Presentation',
   description:
-    'Turn your research papers into presentation-ready deliverables. Provide one or more papers (PDF files or arXiv links), optionally describe the narrative you want, and get polished slide decks, blog posts, and conference posters — all generated as PDFs. Supports customizable audience levels (researchers, students, engineers) and multiple papers at once.',
+    'Turn your research papers into presentation-ready deliverables. Provide paper files in a working directory or a link to fetch from (e.g., arXiv), select the source format, and get polished slide decks, blog posts, and conference posters — all generated as PDFs. Supports customizable audience levels (researchers, students, engineers) and multiple papers at once.',
   category: 'research',
   version: '1.0.0',
   icon: '🎓',
-  tags: ['arxiv', 'presentation', 'academic', 'paper', 'slides', 'blog', 'poster', 'pdf', 'html'],
+  tags: ['arxiv', 'presentation', 'academic', 'paper', 'slides', 'blog', 'poster', 'pdf', 'html', 'latex', 'docx'],
   maturity: 'stable',
 
   // ── Parameters ────────────────────────────────────────────────────────
 
   requiredParameters: [
     {
-      id: 'paperSource',
-      name: 'Paper Source(s)',
+      id: 'workingDirectory',
+      name: 'Working Directory',
       description:
-        'Path to a directory containing PDF files, OR arXiv links (one per line). When PDFs are provided, the PDF skill is used to extract content. For arXiv links, LaTeX source or HTML is fetched automatically.',
-      type: 'textarea',
+        'Path to the directory containing the paper file(s). The directory should contain files in the selected source format. Output deliverables will also be saved here.',
+      type: 'string',
       required: true,
-      placeholder: '/path/to/papers/  or  https://arxiv.org/abs/XXXX.XXXXX',
+      placeholder: '/path/to/papers/',
       validation: {
         min: 1,
-        message: 'Provide a PDF directory path or arXiv URL(s)',
+        message: 'Provide a path to the directory containing the paper(s)',
       },
       group: 'source',
       order: 0,
@@ -46,14 +46,15 @@ export const academicPresentationTemplate: UseCaseTemplate = {
       id: 'sourceFormat',
       name: 'Source Format',
       description:
-        'How are the papers provided? This determines whether PDF extraction tools are needed.',
+        'File format of the source paper(s). This determines which extraction tool is used. PDF files use the PDF skill; DOCX files use the DOCX skill; LaTeX and Markdown are read directly.',
       type: 'select',
       required: true,
       default: 'pdf',
       options: [
-        { label: 'PDF Files', value: 'pdf', description: 'Local PDF files — uses the PDF skill for extraction' },
-        { label: 'arXiv Links', value: 'arxiv', description: 'arXiv URLs — fetches LaTeX source or HTML directly' },
-        { label: 'Mixed (PDF + arXiv)', value: 'mixed', description: 'Combination of local PDFs and arXiv links' },
+        { label: 'PDF', value: 'pdf', description: 'Uses the PDF skill for extraction' },
+        { label: 'LaTeX (.tex)', value: 'latex', description: 'LaTeX source files — read and parsed directly' },
+        { label: 'Markdown (.md)', value: 'markdown', description: 'Markdown files — read directly' },
+        { label: 'Word (.docx)', value: 'docx', description: 'Uses the DOCX skill for extraction' },
       ],
       group: 'source',
       order: 1,
@@ -78,6 +79,17 @@ export const academicPresentationTemplate: UseCaseTemplate = {
   optionalParameters: [
     // ── Source group ──
     {
+      id: 'paperLink',
+      name: 'Paper Link(s)',
+      description:
+        'External link(s) to fetch papers from. Leave blank if files are already in the working directory.',
+      type: 'textarea',
+      required: false,
+      placeholder: 'One link per line\nhttps://arxiv.org/abs/XXXX.XXXXX',
+      group: 'source',
+      order: 2,
+    },
+    {
       id: 'githubUrl',
       name: 'Code Repository',
       description: 'GitHub URL for the paper\'s reference implementation. Used to extract code examples and architecture diagrams.',
@@ -89,7 +101,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
         message: 'Must be a GitHub URL',
       },
       group: 'source',
-      order: 2,
+      order: 3,
     },
     {
       id: 'customRequirements',
@@ -99,7 +111,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
       required: false,
       placeholder: 'e.g., Focus on methods A vs B, emphasize practical implications',
       group: 'source',
-      order: 3,
+      order: 4,
     },
 
     // ── Slides group ──
@@ -195,8 +207,9 @@ export const academicPresentationTemplate: UseCaseTemplate = {
     planGeneration: `You are an expert academic presentation designer who converts research papers into multiple polished deliverables.
 
 ## Paper Specification
-- Paper Source: {{paperSource}}
+- Working Directory: {{workingDirectory}}
 - Source Format: {{sourceFormat}}
+- Paper Link: {{paperLink}}
 - Code Repository: {{githubUrl}}
 - Custom Requirements: {{customRequirements}}
 
@@ -208,6 +221,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
 - Slide Theme: {{slideTheme}}
 - Blog Style: {{blogStyle}}
 - Poster Orientation: {{posterOrientation}}
+
 ## Skill Reference
 This project uses the \`academic-presentation\` skill. The skill's SKILL.md contains the complete rendering specification including:
 - 5 HTML slide layout types (title, section-divider, full-bullet, left-right-split, three-zone)
@@ -215,6 +229,8 @@ This project uses the \`academic-presentation\` skill. The skill's SKILL.md cont
 - Typography rules, box styles, SVG figure guidelines
 - HTML→PDF rendering via Playwright
 - Blog Markdown structure and poster CSS grid layout
+
+When source format is PDF or DOCX, the corresponding skill (pdf or docx) is also loaded with format-specific extraction instructions.
 
 **The SKILL.md is the single source of truth for all rendering details.** Reference it for slide CSS, color hex values, font sizes, and layout dimensions.
 
@@ -232,10 +248,14 @@ All deliverables follow this narrative structure:
 ### Task Structure
 
 **Phase 1: Paper Analysis (shared across all deliverables)**
-- Fetch and parse the paper source based on source format ({{sourceFormat}}):
-  - PDF files → use the PDF skill for extraction
-  - arXiv links → fetch LaTeX source or abstract HTML directly
-  - Mixed → use appropriate method per paper
+- Obtain the paper source:
+  - If a paper link is provided, fetch/download from the link first
+  - Read files from the working directory
+- Parse the paper using the appropriate tool for the source format ({{sourceFormat}}):
+  - **PDF** → use the PDF skill for extraction (pypdf, pdfplumber, or the Read tool on .pdf files)
+  - **DOCX** → use the DOCX skill for extraction
+  - **LaTeX** → read .tex files directly, parse \\section, \\subsection, equations, figures, and bibliography
+  - **Markdown** → read .md files directly
 - Extract structure: sections, equations, figures, bibliography
 - Identify key contributions (3-5 points)
 - If GitHub repo provided, clone and identify key code files
@@ -283,16 +303,24 @@ For **poster** (when selected):
 Save ALL output files (slides, blog posts, posters, figures, PDFs) under the \`outputs/\` directory in the working directory. Never write results to the repository root or git worktree root. Intermediate source files (HTML, Markdown) and final deliverables (PDFs) must all go under \`outputs/\`.
 
 ## Context
-- Paper Source: {{paperSource}}
+- Working Directory: {{workingDirectory}}
 - Source Format: {{sourceFormat}}
+- Paper Link: {{paperLink}}
 - Code Repository: {{githubUrl}}
 - Deliverables: {{deliverables}}
 - Target Audience: {{targetAudience}}
 
+## Obtaining the Paper
+- If a **paper link** is provided, fetch/download the paper from the link first into the working directory.
+- Then read the paper files from the working directory.
+
 ## Document Reading — Source Format: {{sourceFormat}}
-- **PDF**: The PDF skill is included in your skill instructions. Follow it for extraction.
-- **arXiv**: Fetch LaTeX source from arXiv API or parse the abstract page. No PDF skill needed.
-- **Mixed**: Check each source — use PDF skill for .pdf files, fetch for arXiv links.
+
+Use the appropriate tool for the selected source format:
+- **PDF**: The PDF skill is included in your skill instructions. Follow it for extraction (pypdf, pdfplumber, or the Read tool on .pdf files).
+- **DOCX**: The DOCX skill is included in your skill instructions. Follow it for extraction.
+- **LaTeX**: Read .tex files directly with the Read tool. Parse \\section, \\subsection, equations (\\begin{equation}), figures (\\includegraphics), and bibliography.
+- **Markdown**: Read .md files directly with the Read tool.
 
 ## IMPORTANT: Skill Reference
 This task uses the \`academic-presentation\` skill. Consult the skill's SKILL.md for:
@@ -380,7 +408,14 @@ This task uses the \`academic-presentation\` skill. Consult the skill's SKILL.md
 - [ ] All HTML slides are self-contained with embedded CSS
 - [ ] Playwright renders clean PDFs without clipping
 - [ ] Blog post includes proper citations and figure references
-- [ ] Poster fits single A0 page without overflow`,
+- [ ] Poster fits single A0 page without overflow
+
+## Document Reading
+Use the tool matching the source format ({{sourceFormat}}):
+- **PDF**: Follow the PDF skill instructions (loaded when sourceFormat is pdf)
+- **DOCX**: Follow the DOCX skill instructions (loaded when sourceFormat is docx)
+- **LaTeX**: Read .tex files directly with the Read tool
+- **Markdown**: Read .md files directly with the Read tool`,
   },
 
   // ── Output ────────────────────────────────────────────────────────────
@@ -417,7 +452,7 @@ This task uses the \`academic-presentation\` skill. Consult the skill's SKILL.md
 
   // ── Input Parallelization ──────────────────────────────────────────────
   inputParallelization: {
-    parameterId: 'paperSource',
+    parameterId: 'paperLink',
     splitStrategy: 'newline',
     mergeStrategy: 'individual',
     branchLabelFormat: 'Paper {{index}}: {{shortValue}}',
@@ -473,7 +508,7 @@ This task uses the \`academic-presentation\` skill. Consult the skill's SKILL.md
   conditionalSkills: {
     sourceFormat: {
       pdf: ['pdf'],
-      mixed: ['pdf'],
+      docx: ['docx'],
     },
   },
   source: 'builtin',

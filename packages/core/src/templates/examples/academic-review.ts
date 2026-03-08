@@ -83,6 +83,19 @@ export const academicReviewTemplate: UseCaseTemplate = {
   ],
 
   optionalParameters: [
+    // ── Source group ──
+    {
+      id: 'paperLink',
+      name: 'Paper Link',
+      description:
+        'External link to fetch the paper from. Leave blank if the file is already in the working directory.',
+      type: 'string',
+      required: false,
+      placeholder: 'https://arxiv.org/abs/XXXX.XXXXX',
+      group: 'source',
+      order: 3,
+    },
+
     // ── Review focus ──
     {
       id: 'reviewDepth',
@@ -195,6 +208,7 @@ export const academicReviewTemplate: UseCaseTemplate = {
 - Working Directory: {{workingDirectory}}
 - Document Type: {{documentType}}
 - Source Format: {{sourceFormat}}
+- Paper Link: {{paperLink}}
 - Review Depth: {{reviewDepth}}
 - Reviewer Expertise: {{reviewerExpertise}}
 - Focus Areas: {{focusAreas}}
@@ -218,6 +232,10 @@ When source format is PDF or DOCX, the corresponding skill (pdf or docx) is also
 ## Planning Guidelines
 
 Decompose this review into a DAG of tasks following the 6-phase pipeline:
+
+### Phase 0: Obtain the Document
+- If a **paper link** is provided ({{paperLink}}), fetch/download the document from the link first into the working directory.
+- Then proceed with parsing the files from the working directory.
 
 ### Phase 1: Document Parsing & Comprehension
 - Parse the source document using the appropriate tool:
@@ -287,9 +305,14 @@ Save ALL output files (reports, diagrams, notes, PDFs) under the \`outputs/\` di
 - Working Directory: {{workingDirectory}}
 - Document Type: {{documentType}}
 - Source Format: {{sourceFormat}}
+- Paper Link: {{paperLink}}
 - Review Depth: {{reviewDepth}}
 - Focus Areas: {{focusAreas}}
 - Target Venue: {{targetVenue}}
+
+## Obtaining the Document
+- If a **paper link** is provided, fetch/download the document from the link first into the working directory.
+- Then read the document files from the working directory.
 
 ## Document Reading — Source Format: {{sourceFormat}}
 
@@ -381,6 +404,9 @@ Weighted average of all 8 dimensions. Final verdict:
 - 5.0-6.4: **Weak Accept / Borderline** — has merit but needs revision
 - 3.5-4.9: **Weak Reject** — significant issues
 - 1.0-3.4: **Reject** — fundamental problems
+
+## Obtaining the Document
+If a paper link is provided, fetch/download the document from the link first into the working directory, then read from there.
 
 ## Document Reading
 Use the tool matching the source format ({{sourceFormat}}):
