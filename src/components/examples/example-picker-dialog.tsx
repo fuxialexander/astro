@@ -262,7 +262,7 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
   // The template parameter is hidden from the form (filtered out) to avoid duplication,
   // but it still needs to be set so prompt interpolation works.
   useEffect(() => {
-    if (workingDirectory && selectedTemplate) {
+    if (selectedTemplate) {
       const hasWorkDir = selectedTemplate.requiredParameters?.some(
         (p) => p.id === "workingDirectory"
       )
