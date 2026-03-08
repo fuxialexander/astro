@@ -48,30 +48,9 @@ import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
 import type { GitHubReviewThread } from "@/types"
 import { FileBrowser } from "@/components/file-browser"
 import { useMediaQuery } from "@/hooks/use-media-query"
+import { projectWorktreePath, resolveFilePathForBrowsing } from "./file-path-utils"
 
 const EMPTY_REVIEW_THREADS: GitHubReviewThread[] = []
-
-/**
- * Derive the project worktree path from working directory + project branch.
- * Project branch: astro/{shortProjectId} → .astro/worktrees/{shortProjectId}/
- * This is a persistent worktree (detached HEAD) that survives task completion.
- */
-function projectWorktreePath(workingDirectory: string, projectBranch: string): string {
-  const parts = projectBranch.split('/')
-  const suffix = parts[parts.length - 1]
-  return `${workingDirectory.replace(/\/$/, '')}/.astro/worktrees/${suffix}`
-}
-
-function resolveFilePathForBrowsing(filePath: string, browseDir: string): string {
-  // Strip worktree prefix from absolute paths — the file browser already points
-  // to the project worktree directory, so we just need the relative part.
-  const worktreeMatch = filePath.match(/\.astro\/worktrees\/[^/]+\/(.+)/)
-  if (worktreeMatch) {
-    return `${browseDir.replace(/\/$/, '')}/${worktreeMatch[1]}`
-  }
-  if (filePath.startsWith('/')) return filePath
-  return `${browseDir.replace(/\/$/, '')}/${filePath}`
-}
 
 interface UnifiedActivityViewProps {
   node: PlanNode
