@@ -728,7 +728,7 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
               )}
               {selectedProvider && (
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">Provider:</span>
+                  <span className="text-muted-foreground">AI Agent:</span>
                   <span className="font-medium">{PROVIDER_NAMES[selectedProvider] || selectedProvider}</span>
                 </div>
               )}

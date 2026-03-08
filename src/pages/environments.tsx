@@ -15,6 +15,9 @@ import {
   Pencil,
   Check,
   X,
+  ScrollText,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -23,14 +26,18 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { useRealtimeStore, type MachineEntry } from "@/stores/realtime-store"
 import { useMachinesStore, type RegisteredMachine } from "@/stores/machines-store"
 import { useExecutionStore, type ComputeBackendInfo } from "@/stores/execution-store"
+import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
 import { BackendDetailDialog } from "@/components/environments/backend-detail-dialog"
 import { MachineDetailDialog } from "@/components/environments/machine-detail-dialog"
+import { InstructionPicker } from "@/components/execution/instruction-picker"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { isServerMode } from "@/lib/app-mode"
 import { formatRelativeTime } from "@/lib/date-utils"
 import { compactGpuName } from "@/lib/utils"
+import { useToastStore } from "@/stores/toast-store"
+import type { MachineInstruction } from "@/types"
 
 function StatCard({ label, value, icon: Icon, iconBg, iconColor }: {
   label: string
@@ -154,14 +161,16 @@ function InlineMachineName({ machineId, name, fallback }: {
   )
 }
 
-function ConnectedMachineCard({ machine, onRemove, onMachineClick }: {
+function ConnectedMachineCard({ machine, onRemove, onMachineClick, onAssignInstruction }: {
   machine: MachineEntry
   onRemove?: (machineId: string) => void
   onMachineClick?: (machine: MachineEntry) => void
+  onAssignInstruction?: (machineId: string, instructionId: string | null) => void
 }) {
   const loadPercent = Math.round(machine.load.cpuPercent)
   const loadColor = loadPercent > 75 ? "bg-warning" : "bg-info"
   const resourceSummary = formatResourceSummary(machine.resources)
+  const registeredMachine = useMachinesStore((s) => s.machines.find((m) => m.id === machine.machineId))
 
   return (
     <Card
@@ -177,6 +186,14 @@ function ConnectedMachineCard({ machine, onRemove, onMachineClick }: {
           <div className="flex items-center gap-2 min-w-0">
             <div className="h-2 w-2 rounded-full bg-teal-500 shrink-0" />
             <InlineMachineName machineId={machine.machineId} name={machine.name} fallback={machine.machineId} />
+            {onAssignInstruction && (
+              <div className="relative shrink-0">
+                <InstructionPicker
+                  currentInstructionId={registeredMachine?.defaultInstructionId}
+                  onSelect={(id) => onAssignInstruction(machine.machineId, id)}
+                />
+              </div>
+            )}
           </div>
           {onRemove && (
             <Button
@@ -478,6 +495,7 @@ export function Environments() {
   const [detailLiveMachine, setDetailLiveMachine] = useState<MachineEntry | undefined>(undefined)
   const [confirmingUnregister, setConfirmingUnregister] = useState<{ machineId: string; name: string } | null>(null)
   const fetchRemoteBackendDetail = useExecutionStore((s) => s.fetchRemoteBackendDetail)
+  const addToast = useToastStore((s) => s.add)
 
   // Fetch backend detail from the relay's machine registry (unified path for all modes)
   const handleRemoteBackendClick = (backend: ComputeBackendInfo, machineId: string) => {
@@ -509,6 +527,21 @@ export function Environments() {
   const registeredMachines = useMachinesStore((s) => s.machines)
   const fetchMachines = useMachinesStore((s) => s.fetchMachines)
 
+  // Machine instructions
+  const miInstructions = useMachineInstructionStore((s) => s.instructions)
+  const miLoaded = useMachineInstructionStore((s) => s.loaded)
+  const miLoad = useMachineInstructionStore((s) => s.load)
+  const miCreate = useMachineInstructionStore((s) => s.create)
+  const miUpdate = useMachineInstructionStore((s) => s.update)
+  const miRemove = useMachineInstructionStore((s) => s.remove)
+  const miAssign = useMachineInstructionStore((s) => s.assignToMachine)
+
+  const [editingInstruction, setEditingInstruction] = useState<MachineInstruction | null>(null)
+  const [creatingInstruction, setCreatingInstruction] = useState(false)
+  const [instructionForm, setInstructionForm] = useState({ name: "", content: "", tags: "" })
+  const [expandedInstructionId, setExpandedInstructionId] = useState<string | null>(null)
+  const [deletingInstructionId, setDeletingInstructionId] = useState<string | null>(null)
+
   // Connect to real-time events on mount to receive live machine updates
   useEffect(() => {
     if (!realtimeConnected) {
@@ -522,6 +555,11 @@ export function Environments() {
       fetchMachines()
     }
   }, [isMultiTenant, fetchMachines])
+
+  // Load machine instructions
+  useEffect(() => {
+    if (!miLoaded) miLoad()
+  }, [miLoaded, miLoad])
 
   const liveMachines = Array.from(machines.values())
 
@@ -579,6 +617,56 @@ export function Environments() {
     }
     setDetailLiveMachine(liveMachine)
     setMachineDetailDialogOpen(true)
+  }
+
+  const openCreateInstruction = () => {
+    setEditingInstruction(null)
+    setInstructionForm({ name: "", content: "", tags: "" })
+    setCreatingInstruction(true)
+  }
+
+  const openEditInstruction = (instruction: MachineInstruction) => {
+    setEditingInstruction(instruction)
+    setInstructionForm({
+      name: instruction.name,
+      content: instruction.content,
+      tags: instruction.tags.join(", "),
+    })
+    setCreatingInstruction(true)
+  }
+
+  const handleSaveInstruction = async () => {
+    const name = instructionForm.name.trim()
+    if (!name) return
+    const tags = instructionForm.tags.split(",").map((t) => t.trim()).filter(Boolean)
+    try {
+      if (editingInstruction) {
+        await miUpdate(editingInstruction.id, { name, content: instructionForm.content, tags })
+      } else {
+        await miCreate({ name, content: instructionForm.content, tags })
+      }
+      setCreatingInstruction(false)
+      setEditingInstruction(null)
+    } catch (err) {
+      addToast({ type: "error", title: "Failed to save instruction", description: err instanceof Error ? err.message : "Unknown error" })
+    }
+  }
+
+  const handleDeleteInstruction = async (id: string) => {
+    try {
+      await miRemove(id)
+      setDeletingInstructionId(null)
+    } catch (err) {
+      addToast({ type: "error", title: "Failed to delete instruction", description: err instanceof Error ? err.message : "Unknown error" })
+    }
+  }
+
+  const handleAssignInstruction = async (machineId: string, instructionId: string | null) => {
+    try {
+      await miAssign(machineId, instructionId)
+    } catch (err) {
+      addToast({ type: "error", title: "Failed to assign instruction", description: err instanceof Error ? err.message : "Unknown error" })
+    }
   }
 
   return (
@@ -662,6 +750,7 @@ export function Environments() {
                 machine={machine}
                 onRemove={(id) => setConfirmingUnregister({ machineId: id, name: machine.name || machine.machineId })}
                 onMachineClick={handleMachineClick}
+                onAssignInstruction={handleAssignInstruction}
               />
             ))}
           </div>
@@ -693,6 +782,119 @@ export function Environments() {
           </div>
         </div>
       )}
+
+      {/* Machine Instructions */}
+      <div className="flex flex-col gap-4">
+        <div className="hidden md:flex flex-col gap-1">
+          <div className="flex items-center gap-3">
+            <ScrollText className="h-5 w-5 text-muted-foreground" />
+            <h2 className="text-lg font-semibold">Machine Instructions</h2>
+            {miInstructions.length > 0 && (
+              <Badge variant="outline">{miInstructions.length}</Badge>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground ml-8">
+            Markdown documents that tell AI agents how to run computation on specific environments. Assign an instruction to a machine using the <ScrollText className="inline h-3 w-3" /> icon.
+          </p>
+        </div>
+        <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Machine Instructions</p>
+
+        {miInstructions.length > 0 ? (
+          <Card>
+            <div className="flex flex-col divide-y">
+              {miInstructions.map((instruction) => {
+                const isExpanded = expandedInstructionId === instruction.id
+                const isDeleting = deletingInstructionId === instruction.id
+                return (
+                  <div key={instruction.id} className="flex flex-col">
+                    <button
+                      type="button"
+                      className="flex items-center gap-3 p-4 w-full text-left hover:bg-muted/50 transition-colors"
+                      onClick={() => setExpandedInstructionId(isExpanded ? null : instruction.id)}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium truncate">{instruction.name}</span>
+                          {instruction.source === 'auto' && (
+                            <Badge variant="secondary" className="text-[10px] px-1 py-0">auto</Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {instruction.tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                          {instruction.content && (
+                            <span className="text-[11px] text-muted-foreground truncate max-w-[200px]">
+                              {instruction.content.slice(0, 60)}{instruction.content.length > 60 ? "…" : ""}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {isDeleting ? (
+                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            <span className="text-xs text-muted-foreground mr-1">Delete?</span>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleDeleteInstruction(instruction.id)}>
+                              <Check className="h-3 w-3" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setDeletingInstructionId(null)}>
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground" onClick={(e) => { e.stopPropagation(); openEditInstruction(instruction) }}>
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={(e) => { e.stopPropagation(); setDeletingInstructionId(instruction.id) }}>
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </>
+                        )}
+                        {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                      </div>
+                    </button>
+                    {isExpanded && (
+                      <div className="px-4 pb-4">
+                        <div className="rounded-lg bg-muted/50 p-3 text-sm whitespace-pre-wrap font-mono text-xs leading-relaxed max-h-[300px] overflow-y-auto">
+                          {instruction.content || <span className="text-muted-foreground italic">No content</span>}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </Card>
+        ) : (
+          <Card>
+            <CardContent className="p-0">
+              <EmptyState
+                icon={ScrollText}
+                title="No instructions yet"
+                description="Create instructions that tell AI agents how to run computation jobs — include specific commands, namespaces, or resource constraints."
+                action={{
+                  label: "Create Instruction",
+                  onClick: openCreateInstruction,
+                }}
+                className="py-8"
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {miInstructions.length > 0 && (
+          <Button variant="outline" size="sm" className="w-fit" onClick={openCreateInstruction}>
+            <Plus className="h-3.5 w-3.5" />
+            Create Instruction
+          </Button>
+        )}
+      </div>
 
       {/* Compute Backends */}
       <div className="flex flex-col gap-4">
@@ -764,6 +966,55 @@ export function Environments() {
         machine={selectedMachine}
         liveMachine={detailLiveMachine}
       />
+
+      {/* Create/Edit Instruction Dialog */}
+      <Dialog open={creatingInstruction} onOpenChange={(open) => { if (!open) { setCreatingInstruction(false); setEditingInstruction(null) } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editingInstruction ? "Edit Instruction" : "Create Instruction"}</DialogTitle>
+            <DialogDescription>
+              Keep instructions succinct — tell the agent how to run computation jobs from this machine. Include specific commands, namespaces, partitions, or resource constraints the agent should know about.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium">Name</label>
+              <input
+                className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
+                placeholder="e.g., Kubernetes Execution"
+                value={instructionForm.name}
+                onChange={(e) => setInstructionForm((f) => ({ ...f, name: e.target.value }))}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium">Tags</label>
+              <input
+                className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
+                placeholder="e.g., kubernetes, k8s, gpu (comma-separated)"
+                value={instructionForm.tags}
+                onChange={(e) => setInstructionForm((f) => ({ ...f, tags: e.target.value }))}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium">Content (Markdown)</label>
+              <textarea
+                className="rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring font-mono min-h-[200px] resize-y"
+                placeholder="# How to run jobs on this machine&#10;&#10;Use `kubectl exec` to..."
+                value={instructionForm.content}
+                onChange={(e) => setInstructionForm((f) => ({ ...f, content: e.target.value }))}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => { setCreatingInstruction(false); setEditingInstruction(null) }}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handleSaveInstruction} disabled={!instructionForm.name.trim()}>
+              {editingInstruction ? "Save Changes" : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Unregister confirmation dialog */}
       <Dialog open={!!confirmingUnregister} onOpenChange={(open) => { if (!open) setConfirmingUnregister(null) }}>

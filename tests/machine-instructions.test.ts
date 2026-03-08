@@ -31,7 +31,10 @@ import {
   bootstrapSecondUser,
   SECOND_USER_ID,
   LOCAL_USER_ID,
+  LOCAL_TEAM_ID,
+  db,
 } from './helpers/test-server.js'
+import { userProfiles, teamMembers } from '../server/lib/db/schema.js'
 
 beforeAll(async () => {
   await setupTestServer()
@@ -171,6 +174,71 @@ describe('POST /api/machine-instructions', () => {
   it('rejects empty body', async () => {
     const res = await postJson('/api/machine-instructions', {})
     expect(res.status).toBe(400)
+  })
+
+  it('rejects name exceeding 500 characters', async () => {
+    const res = await postJson('/api/machine-instructions', {
+      name: 'x'.repeat(501),
+    })
+    expect(res.status).toBe(400)
+    const body = await res.json() as Record<string, unknown>
+    expect(body.error).toContain('500')
+  })
+
+  it('accepts name at exactly 500 characters', async () => {
+    const res = await postJson('/api/machine-instructions', {
+      name: 'x'.repeat(500),
+    })
+    expect(res.status).toBe(201)
+  })
+
+  it('rejects content exceeding 200000 characters', async () => {
+    const res = await postJson('/api/machine-instructions', {
+      name: 'Content Limit Test',
+      content: 'x'.repeat(200001),
+    })
+    expect(res.status).toBe(400)
+    const body = await res.json() as Record<string, unknown>
+    expect(body.error).toContain('200000')
+  })
+
+  it('accepts content at exactly 200000 characters', async () => {
+    const res = await postJson('/api/machine-instructions', {
+      name: 'Content Limit OK',
+      content: 'x'.repeat(200000),
+    })
+    expect(res.status).toBe(201)
+  })
+
+  it('rejects tags containing non-string elements', async () => {
+    const res = await postJson('/api/machine-instructions', {
+      name: 'Bad Tags',
+      tags: ['good', 42, true],
+    })
+    expect(res.status).toBe(400)
+    const body = await res.json() as Record<string, unknown>
+    expect(body.error).toContain('strings')
+  })
+
+  it('accepts tags with special characters', async () => {
+    const res = await postJson('/api/machine-instructions', {
+      name: 'Special Tags',
+      tags: ['gpu/a100', 'env:prod', 'tag with spaces', '日本語'],
+    })
+    expect(res.status).toBe(201)
+    const body = await res.json() as Record<string, unknown>
+    expect(body.tags).toEqual(['gpu/a100', 'env:prod', 'tag with spaces', '日本語'])
+  })
+
+  it('preserves markdown content with code blocks and special chars', async () => {
+    const content = '# Setup\n\n```bash\nkubectl exec -it pod -- bash\n```\n\n> **Note:** Use `--namespace=prod` flag\n\n- Item 1\n- Item 2\n\n| Col A | Col B |\n|-------|-------|\n| val1  | val2  |'
+    const res = await postJson('/api/machine-instructions', {
+      name: 'Markdown Rich',
+      content,
+    })
+    expect(res.status).toBe(201)
+    const body = await res.json() as Record<string, unknown>
+    expect(body.content).toBe(content)
   })
 })
 
@@ -354,6 +422,55 @@ describe('PUT /api/machine-instructions/:id', () => {
       name: 'Ghost',
     })
     expect(res.status).toBe(404)
+  })
+
+  it('rejects name exceeding 500 characters on update', async () => {
+    const res = await putJson(`/api/machine-instructions/${instructionId}`, {
+      name: 'x'.repeat(501),
+    })
+    expect(res.status).toBe(400)
+    const body = await res.json() as Record<string, unknown>
+    expect(body.error).toContain('500')
+  })
+
+  it('rejects content exceeding 200000 characters on update', async () => {
+    const res = await putJson(`/api/machine-instructions/${instructionId}`, {
+      content: 'x'.repeat(200001),
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects tags with non-string elements on update', async () => {
+    const res = await putJson(`/api/machine-instructions/${instructionId}`, {
+      tags: [1, 2, 3],
+    })
+    expect(res.status).toBe(400)
+    const body = await res.json() as Record<string, unknown>
+    expect(body.error).toContain('strings')
+  })
+
+  it('preserves createdAt on update (only updatedAt changes)', async () => {
+    const before = await request(`/api/machine-instructions/${instructionId}`)
+    const beforeBody = await before.json() as Record<string, unknown>
+    const beforeCreatedAt = beforeBody.createdAt as string
+
+    await new Promise(r => setTimeout(r, 50))
+
+    const res = await putJson(`/api/machine-instructions/${instructionId}`, {
+      name: 'CreatedAt Preservation Test',
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json() as Record<string, unknown>
+    expect(body.createdAt).toBe(beforeCreatedAt)
+    expect(body.updatedAt).not.toBe(beforeCreatedAt)
+  })
+
+  it('handles update with empty body (only updates timestamp)', async () => {
+    const res = await putJson(`/api/machine-instructions/${instructionId}`, {})
+    expect(res.status).toBe(200)
+    // Should succeed — updatedAt is always set even with no fields
+    const body = await res.json() as Record<string, unknown>
+    expect(body.id).toBe(instructionId)
   })
 })
 
@@ -803,5 +920,253 @@ describe('Dispatch instruction injection', () => {
     const getRes = await request(`/api/machine-instructions/${body.id}`)
     const fetched = await getRes.json() as Record<string, unknown>
     expect(fetched.content).toBe(specialContent)
+  })
+})
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CONCURRENT OPERATIONS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe('Concurrent operations', () => {
+  it('handles multiple concurrent creates without data loss', async () => {
+    const promises = Array.from({ length: 5 }, (_, i) =>
+      postJson('/api/machine-instructions', {
+        name: `Concurrent-${i}`,
+        content: `Content ${i}`,
+        tags: [`tag-${i}`],
+      })
+    )
+    const results = await Promise.all(promises)
+
+    // All should succeed
+    for (const res of results) {
+      expect(res.status).toBe(201)
+    }
+
+    // All should have unique IDs
+    const ids = await Promise.all(results.map(async (r) => {
+      const body = await r.json() as Record<string, unknown>
+      return body.id as string
+    }))
+    const uniqueIds = new Set(ids)
+    expect(uniqueIds.size).toBe(5)
+  })
+
+  it('handles concurrent assign and delete gracefully', async () => {
+    // Create an instruction and a machine
+    const createRes = await postJson('/api/machine-instructions', {
+      name: 'Concurrent Target',
+    })
+    const inst = await createRes.json() as Record<string, unknown>
+    const instId = inst.id as string
+
+    const { db } = await import('../server/lib/db/index.js')
+    const { registeredMachines } = await import('../server/lib/db/schema.js')
+    const { LOCAL_USER_ID } = await import('../server/lib/db/bootstrap-local.js')
+
+    const machineId = `concurrent-test-machine-${Date.now()}`
+    await db.insert(registeredMachines).values({
+      id: machineId,
+      userId: LOCAL_USER_ID,
+      name: 'Concurrent Machine',
+      hostname: 'test',
+      platform: 'linux',
+      providers: [],
+      refreshTokenHash: 'hash',
+      isConnected: false,
+      isRevoked: false,
+      registeredAt: new Date(),
+      lastSeenAt: new Date(),
+    })
+
+    // Assign first, then delete — should succeed in order
+    const assignRes = await putJson(`/api/machine-instructions/assign/${machineId}`, {
+      instructionId: instId,
+    })
+    expect(assignRes.status).toBe(200)
+
+    const deleteRes = await del(`/api/machine-instructions/${instId}`)
+    expect(deleteRes.status).toBe(200)
+
+    // Machine reference should be nullified
+    const { eq } = await import('drizzle-orm')
+    const [machine] = await db.select({ defaultInstructionId: registeredMachines.defaultInstructionId })
+      .from(registeredMachines).where(eq(registeredMachines.id, machineId))
+    expect(machine.defaultInstructionId).toBeNull()
+  })
+})
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TEAM SHARING — same team members can see each other's instructions
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe('Team sharing', () => {
+  const TEAM_MEMBER_USER_ID = '00000000-0000-0000-0000-000000000077'
+
+  beforeAll(async () => {
+    // Create a third user in the SAME team as the default local user
+    const { eq } = await import('drizzle-orm')
+
+    const [existing] = await db.select().from(userProfiles).where(eq(userProfiles.id, TEAM_MEMBER_USER_ID))
+    if (existing) return
+
+    await db.insert(userProfiles).values({
+      id: TEAM_MEMBER_USER_ID,
+      name: 'Team Member',
+      email: 'member@localhost',
+    })
+
+    await db.insert(teamMembers).values({
+      teamId: LOCAL_TEAM_ID,
+      userId: TEAM_MEMBER_USER_ID,
+      role: 'member',
+    })
+  })
+
+  it('team member can list instructions from same team', async () => {
+    // Create instruction as default user (who belongs to LOCAL_TEAM_ID)
+    const createRes = await postJson('/api/machine-instructions', {
+      name: 'Team Visible Instruction',
+      content: 'Shared via team',
+      tags: ['team-test'],
+    })
+    expect(createRes.status).toBe(201)
+    const inst = await createRes.json() as Record<string, unknown>
+
+    // Team member should be able to see it
+    const listRes = await getAs(TEAM_MEMBER_USER_ID, '/api/machine-instructions')
+    expect(listRes.status).toBe(200)
+    const body = await listRes.json() as { instructions: Record<string, unknown>[] }
+    const found = body.instructions.find(i => i.id === inst.id)
+    expect(found).toBeDefined()
+    expect(found?.name).toBe('Team Visible Instruction')
+  })
+
+  it('team member can read instruction by ID from same team', async () => {
+    // Use the instruction created above — find it first
+    const listRes = await request('/api/machine-instructions')
+    const list = await listRes.json() as { instructions: Record<string, unknown>[] }
+    const teamInst = list.instructions.find(i => i.name === 'Team Visible Instruction')
+    expect(teamInst).toBeDefined()
+
+    const getRes = await getAs(TEAM_MEMBER_USER_ID, `/api/machine-instructions/${teamInst!.id}`)
+    expect(getRes.status).toBe(200)
+    const body = await getRes.json() as Record<string, unknown>
+    expect(body.name).toBe('Team Visible Instruction')
+  })
+
+  it('team member can update instruction from same team', async () => {
+    const listRes = await request('/api/machine-instructions')
+    const list = await listRes.json() as { instructions: Record<string, unknown>[] }
+    const teamInst = list.instructions.find(i => i.name === 'Team Visible Instruction')
+    expect(teamInst).toBeDefined()
+
+    const updateRes = await putJsonAs(TEAM_MEMBER_USER_ID, `/api/machine-instructions/${teamInst!.id}`, {
+      name: 'Updated by Team Member',
+    })
+    expect(updateRes.status).toBe(200)
+    const body = await updateRes.json() as Record<string, unknown>
+    expect(body.name).toBe('Updated by Team Member')
+  })
+})
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// defaultInstructionId in GET /device/machines
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe('GET /api/device/machines includes defaultInstructionId', () => {
+  let deviceMachineId: string
+  let deviceInstructionId: string
+
+  beforeAll(async () => {
+    // Create a machine and an instruction, then assign
+    const { db } = await import('../server/lib/db/index.js')
+    const { registeredMachines } = await import('../server/lib/db/schema.js')
+    const { LOCAL_USER_ID } = await import('../server/lib/db/bootstrap-local.js')
+
+    // Create instruction
+    const instRes = await postJson('/api/machine-instructions', {
+      name: 'Device Test Instruction',
+      content: '# Device test',
+    })
+    const inst = await instRes.json() as Record<string, unknown>
+    deviceInstructionId = inst.id as string
+
+    // Create machine with the instruction assigned
+    deviceMachineId = `device-instr-test-${Date.now()}`
+    await db.insert(registeredMachines).values({
+      id: deviceMachineId,
+      userId: LOCAL_USER_ID,
+      name: 'Device Instruction Test Machine',
+      hostname: 'device-host',
+      platform: 'linux',
+      providers: ['claude-code'],
+      refreshTokenHash: 'test-hash',
+      defaultInstructionId: deviceInstructionId,
+      isConnected: false,
+      isRevoked: false,
+      registeredAt: new Date(),
+      lastSeenAt: new Date(),
+    })
+  })
+
+  it('includes defaultInstructionId in machine list response', async () => {
+    const res = await request('/api/device/machines')
+    expect(res.status).toBe(200)
+    const body = await res.json() as { machines: Record<string, unknown>[] }
+
+    const machine = body.machines.find(m => m.id === deviceMachineId)
+    expect(machine).toBeDefined()
+    expect(machine!.defaultInstructionId).toBe(deviceInstructionId)
+  })
+
+  it('returns null defaultInstructionId for machines without assignment', async () => {
+    const { db } = await import('../server/lib/db/index.js')
+    const { registeredMachines } = await import('../server/lib/db/schema.js')
+    const { LOCAL_USER_ID } = await import('../server/lib/db/bootstrap-local.js')
+
+    const noInstrMachineId = `no-instr-test-${Date.now()}`
+    await db.insert(registeredMachines).values({
+      id: noInstrMachineId,
+      userId: LOCAL_USER_ID,
+      name: 'No Instruction Machine',
+      hostname: 'no-instr-host',
+      platform: 'darwin',
+      providers: [],
+      refreshTokenHash: 'hash',
+      isConnected: false,
+      isRevoked: false,
+      registeredAt: new Date(),
+      lastSeenAt: new Date(),
+    })
+
+    const res = await request('/api/device/machines')
+    expect(res.status).toBe(200)
+    const body = await res.json() as { machines: Record<string, unknown>[] }
+
+    const machine = body.machines.find(m => m.id === noInstrMachineId)
+    expect(machine).toBeDefined()
+    expect(machine!.defaultInstructionId).toBeNull()
+  })
+
+  it('reflects assignment changes after PUT /assign', async () => {
+    // Create a new instruction
+    const newInstRes = await postJson('/api/machine-instructions', {
+      name: 'Reassign Test',
+    })
+    const newInst = await newInstRes.json() as Record<string, unknown>
+    const newInstructionId = newInst.id as string
+
+    // Reassign
+    const assignRes = await putJson(`/api/machine-instructions/assign/${deviceMachineId}`, {
+      instructionId: newInstructionId,
+    })
+    expect(assignRes.status).toBe(200)
+
+    // Verify in machine list
+    const res = await request('/api/device/machines')
+    const body = await res.json() as { machines: Record<string, unknown>[] }
+    const machine = body.machines.find(m => m.id === deviceMachineId)
+    expect(machine!.defaultInstructionId).toBe(newInstructionId)
   })
 })
