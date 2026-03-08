@@ -28,6 +28,8 @@ import { BranchSelector } from "@/components/branch-selector"
 import { AttachmentList } from "@/components/task-detail/attachment-list"
 import { useDirectoryDetection } from "@/hooks/use-directory-detection"
 import { dataClient } from "@/lib/data-client"
+import { apiUrl } from "@/lib/api-url"
+import { getAccessToken } from "@/lib/supabase-client"
 import { requestNotificationPermission } from "@/lib/notifications"
 import { useToastStore } from "@/stores/toast-store"
 import { OnboardingHint } from "@/components/onboarding-hint"
@@ -90,6 +92,39 @@ export function ProjectNewPlan() {
   // Git detection (debounced)
   const { detection, isDetecting } = useDirectoryDetection(workingDir, selectedMachine?.machineId)
   const effectiveBranch = selectedBranch || (detection?.isGit ? detection.baseBranch : null)
+
+  // Git init handler for non-git directories
+  const toastAdd = useToastStore((s) => s.add)
+  const handleInitGit = useCallback(async () => {
+    if (!workingDir.trim() || !selectedMachine?.machineId) return
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" }
+      const token = await getAccessToken()
+      if (token) headers["Authorization"] = `Bearer ${token}`
+      const res = await fetch(apiUrl("/api/repo/git-init"), {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          workingDirectory: workingDir.trim(),
+          projectId: "pre-project",
+          projectName: "Initializing",
+          targetMachineId: selectedMachine.machineId,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        toastAdd({ title: "Git init failed", description: data.error || "Unknown error", type: "error" })
+        return
+      }
+      toastAdd({ title: "Git initialized", description: `Initialized git repository in ${workingDir}`, type: "success" })
+      // Force re-detection by toggling path
+      const saved = workingDir
+      setWorkingDir("")
+      requestAnimationFrame(() => setWorkingDir(saved))
+    } catch (err) {
+      toastAdd({ title: "Git init failed", description: err instanceof Error ? err.message : "Unknown error", type: "error" })
+    }
+  }, [workingDir, selectedMachine?.machineId, toastAdd])
 
   // Chat phase state
   const [activeProjectId, setActiveProjectId] = useState<string | null>(projectIdParam)
@@ -732,7 +767,7 @@ export function ProjectNewPlan() {
           )}
 
           {/* Goal textarea + session resume */}
-          <div className="flex flex-col rounded-lg border border-border bg-background overflow-hidden focus-within:ring-2 focus-within:ring-ring">
+          <div className="flex flex-col rounded-lg border border-border bg-background overflow-hidden focus-within:ring-1 focus-within:ring-ring/50 transition-all duration-200">
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -875,7 +910,7 @@ export function ProjectNewPlan() {
               </div>
 
               {/* Detection feedback */}
-              <DetectionFeedback detection={detection} isDetecting={isDetecting} />
+              <DetectionFeedback detection={detection} isDetecting={isDetecting} onInitGit={detection?.exists && !detection.isGit ? handleInitGit : undefined} />
 
               {/* Branch selector */}
               {detection?.isGit && (
@@ -1135,9 +1170,11 @@ export function ProjectNewPlan() {
 function DetectionFeedback({
   detection,
   isDetecting,
+  onInitGit,
 }: {
   detection: ReturnType<typeof useDirectoryDetection>["detection"]
   isDetecting: boolean
+  onInitGit?: () => void
 }) {
   if (!detection && !isDetecting) return null
 
@@ -1176,7 +1213,16 @@ function DetectionFeedback({
   return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground">
       <Info className="h-3 w-3" />
-      No git repo detected. Fine for generating files; recommended for code projects.
+      No git repo detected. Git is recommended for code projects.
+      {onInitGit && (
+        <button
+          type="button"
+          onClick={onInitGit}
+          className="text-xs text-primary hover:underline cursor-pointer ml-1"
+        >
+          Initialize Git
+        </button>
+      )}
     </div>
   )
 }
