@@ -337,6 +337,7 @@ export type TaskActivityEvent =
   | { type: 'branch_linked'; prNumber: number; prUrl: string; branchName: string; linkSource: 'auto-branch' | 'auto-body-reference' | 'manual'; timestamp: Date }
   | { type: 'system_message'; message: string; timestamp: Date }
   | { type: 'system_prompt'; content: string; pathwayType?: string; timestamp: Date }
+  | { type: 'plan_result'; nodes: Array<{ id: string; title: string; type: string; status?: string }>; edges: Array<{ source: string; target: string }>; projectName?: string; timestamp: Date }
 
 // Usage metrics from provider execution
 export interface UsageMetrics {

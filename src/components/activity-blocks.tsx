@@ -5,7 +5,7 @@
  * and task detail views can share the same rendering components.
  */
 
-import React, { useState, useRef, useCallback } from "react"
+import React, { useState, useRef, useCallback, useEffect } from "react"
 import {
   Loader2,
   CheckCircle2,
@@ -26,16 +26,18 @@ import {
   Send,
   MessageCircle,
   FileText,
+  Network,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { TaskActivityEvent, ExecutionSummary } from "@/types"
+import { planToMermaid, type MermaidNode, type MermaidEdge } from "@/lib/plan-to-mermaid"
 import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
 import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface DisplayBlock {
-  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment' | 'branch_linked' | 'system_message' | 'system_prompt'
+  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment' | 'branch_linked' | 'system_message' | 'system_prompt' | 'plan_result'
   events: TaskActivityEvent[]
 }
 
@@ -189,6 +191,11 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
         flushText()
         flushTools()
         blocks.push({ type: 'system_prompt', events: [event] })
+        break
+      case 'plan_result':
+        flushText()
+        flushTools()
+        blocks.push({ type: 'plan_result', events: [event] })
         break
     }
   }
@@ -1146,6 +1153,108 @@ export function SystemPromptBlock({ event }: { event: Extract<TaskActivityEvent,
           <pre className="text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-words font-mono">
             {event.content}
           </pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Inline plan DAG preview — renders a Mermaid flowchart from plan_result data.
+ * Appears in the activity feed after plan generation or plan chat mutations.
+ */
+export function PlanGraphBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'plan_result' }> }) {
+  const [expanded, setExpanded] = useState(true)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [svgHtml, setSvgHtml] = useState<string>('')
+  const [renderError, setRenderError] = useState(false)
+
+  const mermaidNodes: MermaidNode[] = event.nodes.map((n) => ({
+    id: n.id,
+    title: n.title,
+    type: (n.type as MermaidNode['type']) || 'task',
+    status: n.status,
+  }))
+  const mermaidEdges: MermaidEdge[] = event.edges
+  const mermaidCode = planToMermaid(mermaidNodes, mermaidEdges)
+
+  useEffect(() => {
+    if (!expanded || !mermaidCode) return
+    let cancelled = false
+
+    async function render() {
+      try {
+        // Dynamic import to keep mermaid out of the initial bundle
+        const { default: mermaid } = await import('mermaid')
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: 'strict',
+          theme: 'base',
+          themeVariables: {
+            primaryColor: '#dbeafe',
+            primaryBorderColor: '#93c5fd',
+            primaryTextColor: '#1e293b',
+            lineColor: '#64748b',
+            textColor: '#334155',
+            fontSize: '13px',
+            fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+          },
+        })
+        const id = `plan-graph-${Date.now()}`
+        const { svg } = await mermaid.render(id, mermaidCode)
+        if (!cancelled) {
+          setSvgHtml(svg)
+          setRenderError(false)
+        }
+      } catch {
+        if (!cancelled) setRenderError(true)
+      }
+    }
+
+    render()
+    return () => { cancelled = true }
+  }, [expanded, mermaidCode])
+
+  const taskCount = event.nodes.filter((n) => n.type !== 'milestone').length
+  const milestoneCount = event.nodes.filter((n) => n.type === 'milestone').length
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/30 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted/50 transition-colors"
+      >
+        <Network className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <span className="text-xs font-medium text-muted-foreground">Plan Graph</span>
+        <span className="text-[10px] text-muted-foreground/60">
+          {taskCount} task{taskCount !== 1 ? 's' : ''}
+          {milestoneCount > 0 && `, ${milestoneCount} milestone${milestoneCount !== 1 ? 's' : ''}`}
+        </span>
+        {event.projectName && (
+          <span className="text-[10px] text-muted-foreground/60 bg-muted rounded px-1.5 py-0.5">
+            {event.projectName}
+          </span>
+        )}
+        <div className="flex-1" />
+        {expanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+      </button>
+      {expanded && (
+        <div className="border-t border-border/40 px-3 py-3 overflow-x-auto">
+          {renderError ? (
+            <p className="text-xs text-muted-foreground italic">Failed to render plan graph.</p>
+          ) : svgHtml ? (
+            <div
+              ref={containerRef}
+              className="flex justify-center [&_svg]:max-w-full [&_svg]:h-auto"
+              dangerouslySetInnerHTML={{ __html: svgHtml }}
+            />
+          ) : (
+            <div className="flex items-center gap-2 py-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Rendering graph...</span>
+            </div>
+          )}
         </div>
       )}
     </div>

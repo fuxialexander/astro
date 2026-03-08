@@ -8,10 +8,13 @@
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import { Send, Loader2, ArrowDown, Sparkles, AlertCircle, Monitor } from "lucide-react"
+import { useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
+import { useSettingsStore } from "@/stores/settings-store"
+import { useToastStore } from "@/stores/toast-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useUsageStore } from "@/stores/usage-store"
@@ -30,6 +33,7 @@ import {
   ChatAssistantBlock,
   GitHubCommentBlock,
   SystemPromptBlock,
+  PlanGraphBlock,
   type DisplayBlock,
 } from "@/components/activity-blocks"
 import { InlineApprovalCard } from "./inline-approval-card"
@@ -60,6 +64,8 @@ export function PlanGeneration({
   onBack,
   onNewPlan,
 }: PlanGenerationProps) {
+  const navigate = useNavigate()
+  const yoloMode = useSettingsStore((s) => s.yoloMode)
   const nodeId = `plan-${projectId}`
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
@@ -221,6 +227,29 @@ export function PlanGeneration({
             ? 'waiting' as const
             : 'planning' as const
 
+  // YOLO auto-navigation: when plan completes successfully in YOLO mode,
+  // auto-navigate to the project view. executeAllProject is already triggered
+  // by the execution-store's autoExecuteProjectIds mechanism.
+  const yoloNavigated = useRef(false)
+  // Reset navigation guard when projectId changes
+  useEffect(() => { yoloNavigated.current = false }, [projectId])
+  useEffect(() => {
+    if (yoloMode && headerStatus === 'completed' && hasPlan && !yoloNavigated.current) {
+      yoloNavigated.current = true
+      useToastStore.getState().add({
+        type: 'success',
+        title: 'Plan generated — starting execution...',
+        description: `Navigating to project view.`,
+        duration: 4000,
+      })
+      // Small delay for the toast to be visible before navigation
+      const timer = setTimeout(() => {
+        navigate(`/project/${projectId}`)
+      }, 500)
+      return () => clearTimeout(timer)
+    }
+  }, [yoloMode, headerStatus, hasPlan, projectId, navigate])
+
   // Auto-scroll
   const eventsLength = allActivityEvents.length
   useEffect(() => {
@@ -342,6 +371,19 @@ export function PlanGeneration({
               if (affectedNodeIds.length > 0) {
                 usePlanStore.getState().markNodesAsUpdating(affectedNodeIds)
               }
+              // Emit plan_result for inline graph after mutations
+              const updatedNodes = usePlanStore.getState().nodes.filter((n) => n.projectId === projectId)
+              const updatedEdgeSet = new Set(updatedNodes.map((n) => n.id))
+              const updatedEdges = usePlanStore.getState().edges.filter(
+                (e) => updatedEdgeSet.has(e.source) || updatedEdgeSet.has(e.target)
+              )
+              pushChatEvent({
+                type: 'plan_result',
+                nodes: updatedNodes.map((n) => ({ id: n.id, title: n.title, type: n.type, status: n.status })),
+                edges: updatedEdges.map((e) => ({ source: e.source, target: e.target })),
+                projectName: projectName,
+                timestamp: new Date(),
+              })
             }
             // Store full text in session message for conversation history
             addMessage(sid, { role: "assistant", content: rawText })
@@ -434,6 +476,8 @@ export function PlanGeneration({
     const text = input.trim()
     if (!text) return
     setInput("")
+    // Reset auto-resize height — onChange doesn't fire when React sets the value
+    if (inputRef.current) inputRef.current.style.height = 'auto'
 
     if (isRunning) {
       handleSteer(text)
@@ -496,6 +540,8 @@ export function PlanGeneration({
         return <GitHubCommentBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'github_comment' }>} />
       case 'system_prompt':
         return <SystemPromptBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'system_prompt' }>} />
+      case 'plan_result':
+        return <PlanGraphBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'plan_result' }>} />
       default:
         return null
     }
@@ -663,16 +709,22 @@ export function PlanGeneration({
           <textarea
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value)
+              // Auto-resize: reset to auto then expand to scrollHeight
+              e.target.style.height = 'auto'
+              e.target.style.height = `${Math.min(e.target.scrollHeight, window.innerHeight * 0.5)}px`
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault()
                 handleSend()
               }
             }}
-            placeholder={isRunning ? "Guide the planning session..." : !hasPlan && headerStatus === 'waiting' ? "Answer the questions or provide more details..." : "Ask about this plan..."}
-            rows={1}
-            className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+            placeholder={isRunning ? "Guide the planning session..." : !hasPlan && headerStatus === 'waiting' ? "Answer the questions or provide more details..." : "Describe changes to the plan, add constraints, or ask questions..."}
+            rows={3}
+            className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none overflow-y-auto"
+            style={{ maxHeight: '50vh' }}
           />
           <Button
             size="icon"

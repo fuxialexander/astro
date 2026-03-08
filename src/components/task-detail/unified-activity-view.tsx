@@ -38,6 +38,7 @@ import {
   NewCommentComposer,
   BranchLinkedBlock,
   SystemPromptBlock,
+  PlanGraphBlock,
 } from "@/components/activity-blocks"
 import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 import { InlineApprovalCard } from "@/components/plan-generation/inline-approval-card"
@@ -813,6 +814,8 @@ export function UnifiedActivityView({
               return <BranchLinkedBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'branch_linked' }>} />
             case 'system_prompt':
               return <SystemPromptBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'system_prompt' }>} />
+            case 'plan_result':
+              return <PlanGraphBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'plan_result' }>} />
             default:
               return null
           }
@@ -956,7 +959,7 @@ export function UnifiedActivityView({
                 : "Resume session in worktree... (type @ to reference files)"
               : "Ask about this task... (type @ to reference files)"
           }
-          rows={1}
+          rows={2}
           className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
         <Button

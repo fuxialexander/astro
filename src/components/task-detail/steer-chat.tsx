@@ -274,7 +274,7 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
         <div className="flex flex-col gap-3">
           {steerMessages.length === 0 && (
             <p className="text-xs text-muted-foreground text-center py-8">
-              Send guidance to the running agent. Your messages will be injected into the agent's session.
+              Send guidance to the running agent. Mid-task message injection is supported with Claude only — other providers will receive messages after the current turn completes.
               {"\n\n"}After execution completes, messages will resume the session in the task's worktree.
             </p>
           )}
@@ -333,8 +333,8 @@ export function SteerChat({ taskId, machineId, projectId, nodeId, steerSession }
           value={input}
           onChange={setInput}
           onSubmit={handleSend}
-          placeholder={resuming ? "Session resumed..." : "Guide the agent... (@ for files/tasks)"}
-          rows={1}
+          placeholder={resuming ? "Session resumed..." : "Guide the agent or ask about this task (mid-task steering requires Claude)..."}
+          rows={2}
           className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
         <Button

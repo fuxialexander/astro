@@ -68,6 +68,20 @@ function systemPromptEvent(content: string, pathwayType?: string): TaskActivityE
   return { type: 'system_prompt', content, pathwayType, timestamp: new Date() }
 }
 
+function planResultEvent(nodeCount: number): TaskActivityEvent {
+  const nodes = Array.from({ length: nodeCount }, (_, i) => ({
+    id: `node-${i}`,
+    title: `Task ${i + 1}`,
+    type: i === nodeCount - 1 ? 'milestone' : 'task',
+    status: 'planned',
+  }))
+  const edges = nodes.slice(0, -1).map((n, i) => ({
+    source: n.id,
+    target: nodes[i + 1].id,
+  }))
+  return { type: 'plan_result', nodes, edges, projectName: 'Test Project', timestamp: new Date() }
+}
+
 function githubCommentEvent(login: string, body: string, commentType: 'issue_comment' | 'review_comment' = 'issue_comment'): TaskActivityEvent {
   return {
     type: 'github_comment',
@@ -294,6 +308,43 @@ describe('groupActivityEvents', () => {
       expect(blocks[0].type).toBe('text')
       expect(blocks[1].type).toBe('tool')
       expect(blocks[2].type).toBe('system_prompt')
+    })
+
+    it('should create individual blocks for plan_result events', () => {
+      const blocks = groupActivityEvents([planResultEvent(3)])
+
+      expect(blocks).toHaveLength(1)
+      expect(blocks[0].type).toBe('plan_result')
+      expect(blocks[0].events).toHaveLength(1)
+      const event = blocks[0].events[0] as Extract<TaskActivityEvent, { type: 'plan_result' }>
+      expect(event.nodes).toHaveLength(3)
+      expect(event.edges).toHaveLength(2)
+      expect(event.projectName).toBe('Test Project')
+    })
+
+    it('should flush text before plan_result', () => {
+      const events = [
+        textEvent('Generating plan...'),
+        planResultEvent(2),
+      ]
+      const blocks = groupActivityEvents(events)
+
+      expect(blocks).toHaveLength(2)
+      expect(blocks[0].type).toBe('text')
+      expect(blocks[1].type).toBe('plan_result')
+    })
+
+    it('should flush tools before plan_result', () => {
+      const events = [
+        toolUseEvent('t1', 'Read'),
+        toolResultEvent('t1', 'Read'),
+        planResultEvent(4),
+      ]
+      const blocks = groupActivityEvents(events)
+
+      expect(blocks).toHaveLength(2)
+      expect(blocks[0].type).toBe('tool')
+      expect(blocks[1].type).toBe('plan_result')
     })
   })
 
@@ -660,5 +711,110 @@ describe('hydrateStreamingEvents — system_prompt', () => {
     const result = hydrateStreamingEvents(events)
 
     expect(result.activityEvents).toHaveLength(0)
+  })
+})
+
+describe('hydrateStreamingEvents — plan_result', () => {
+  it('should extract plan_result activity event from plan_result streaming event', () => {
+    const events: StreamingEventRow[] = [
+      {
+        seq: 1,
+        executionId: 'exec-1',
+        eventType: 'plan_result',
+        data: {
+          projectName: 'My Project',
+          nodes: [
+            { id: 'n1', title: 'Set up API', type: 'task' },
+            { id: 'n2', title: 'Write tests', type: 'task' },
+            { id: 'm1', title: 'MVP', type: 'milestone' },
+          ],
+          edges: [
+            { source: 'n1', target: 'n2' },
+            { source: 'n2', target: 'm1' },
+          ],
+        },
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+    ]
+    const result = hydrateStreamingEvents(events)
+
+    // Should have plan_result activity event
+    const planEvents = result.activityEvents.filter((e) => e.type === 'plan_result')
+    expect(planEvents).toHaveLength(1)
+    const pe = planEvents[0] as Extract<TaskActivityEvent, { type: 'plan_result' }>
+    expect(pe.nodes).toHaveLength(3)
+    expect(pe.edges).toHaveLength(2)
+    expect(pe.projectName).toBe('My Project')
+    expect(pe.nodes[0].title).toBe('Set up API')
+    expect(pe.edges[0].source).toBe('n1')
+  })
+
+  it('should also populate planResult metadata', () => {
+    const events: StreamingEventRow[] = [
+      {
+        seq: 1,
+        executionId: 'exec-1',
+        eventType: 'plan_result',
+        data: {
+          nodes: [{ id: 'n1', title: 'Task', type: 'task' }],
+          edges: [],
+        },
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+    ]
+    const result = hydrateStreamingEvents(events)
+
+    expect(result.planResult).toBeDefined()
+    expect(result.planResult!.nodes).toHaveLength(1)
+  })
+
+  it('should only keep first plan_result (ignore duplicate on SSE replay)', () => {
+    const events: StreamingEventRow[] = [
+      {
+        seq: 1,
+        executionId: 'exec-1',
+        eventType: 'plan_result',
+        data: {
+          projectName: 'First',
+          nodes: [{ id: 'n1', title: 'Task 1', type: 'task' }],
+          edges: [],
+        },
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+      {
+        seq: 2,
+        executionId: 'exec-1',
+        eventType: 'plan_result',
+        data: {
+          projectName: 'Second (retry)',
+          nodes: [{ id: 'n2', title: 'Task 2', type: 'task' }],
+          edges: [],
+        },
+        createdAt: '2025-01-01T00:00:01Z',
+      },
+    ]
+    const result = hydrateStreamingEvents(events)
+
+    // Only the first plan_result should be used
+    const planEvents = result.activityEvents.filter((e) => e.type === 'plan_result')
+    expect(planEvents).toHaveLength(1)
+    expect((planEvents[0] as Extract<TaskActivityEvent, { type: 'plan_result' }>).projectName).toBe('First')
+    expect(result.planResult!.projectName).toBe('First')
+  })
+
+  it('should skip plan_result with no nodes array', () => {
+    const events: StreamingEventRow[] = [
+      {
+        seq: 1,
+        executionId: 'exec-1',
+        eventType: 'plan_result',
+        data: { projectName: 'Empty' },
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+    ]
+    const result = hydrateStreamingEvents(events)
+
+    expect(result.activityEvents.filter((e) => e.type === 'plan_result')).toHaveLength(0)
+    expect(result.planResult).toBeUndefined()
   })
 })
