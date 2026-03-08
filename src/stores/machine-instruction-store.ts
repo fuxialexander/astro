@@ -68,7 +68,7 @@ export const useMachineInstructionStore = create<MachineInstructionState>((set, 
       set({ instructions, loaded: true, loading: false })
     } catch (err) {
       console.warn('[machine-instruction-store] Failed to load:', err)
-      set({ loaded: true, loading: false })
+      set({ loaded: false, loading: false })
     }
   },
 

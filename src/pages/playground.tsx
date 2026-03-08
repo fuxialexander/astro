@@ -869,7 +869,6 @@ export function Playground() {
                       </button>
                       <div className="relative">
                         <InstructionPicker
-                          machineId={m.machineId}
                           currentInstructionId={reg?.defaultInstructionId}
                           onSelect={(id) => miAssign(m.machineId, id)}
                         />

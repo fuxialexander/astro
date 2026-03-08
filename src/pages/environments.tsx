@@ -36,6 +36,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { isServerMode } from "@/lib/app-mode"
 import { formatRelativeTime } from "@/lib/date-utils"
 import { compactGpuName } from "@/lib/utils"
+import { useToastStore } from "@/stores/toast-store"
 import type { MachineInstruction } from "@/types"
 
 function StatCard({ label, value, icon: Icon, iconBg, iconColor }: {
@@ -187,7 +188,6 @@ function ConnectedMachineCard({ machine, onRemove, onMachineClick, onAssignInstr
             {onAssignInstruction && (
               <div className="relative shrink-0">
                 <InstructionPicker
-                  machineId={machine.machineId}
                   currentInstructionId={(machine as MachineEntry & { defaultInstructionId?: string }).defaultInstructionId}
                   onSelect={(id) => onAssignInstruction(machine.machineId, id)}
                 />
@@ -494,6 +494,7 @@ export function Environments() {
   const [detailLiveMachine, setDetailLiveMachine] = useState<MachineEntry | undefined>(undefined)
   const [confirmingUnregister, setConfirmingUnregister] = useState<{ machineId: string; name: string } | null>(null)
   const fetchRemoteBackendDetail = useExecutionStore((s) => s.fetchRemoteBackendDetail)
+  const addToast = useToastStore((s) => s.add)
 
   // Fetch backend detail from the relay's machine registry (unified path for all modes)
   const handleRemoteBackendClick = (backend: ComputeBackendInfo, machineId: string) => {
@@ -646,7 +647,7 @@ export function Environments() {
       setCreatingInstruction(false)
       setEditingInstruction(null)
     } catch (err) {
-      console.error('[environments] Failed to save instruction:', err)
+      addToast({ type: "error", title: "Failed to save instruction", description: err instanceof Error ? err.message : "Unknown error" })
     }
   }
 
@@ -655,17 +656,15 @@ export function Environments() {
       await miRemove(id)
       setDeletingInstructionId(null)
     } catch (err) {
-      console.error('[environments] Failed to delete instruction:', err)
+      addToast({ type: "error", title: "Failed to delete instruction", description: err instanceof Error ? err.message : "Unknown error" })
     }
   }
 
   const handleAssignInstruction = async (machineId: string, instructionId: string | null) => {
     try {
       await miAssign(machineId, instructionId)
-      // Refresh machines to get updated defaultInstructionId
-      if (isMultiTenant) fetchMachines()
     } catch (err) {
-      console.error('[environments] Failed to assign instruction:', err)
+      addToast({ type: "error", title: "Failed to assign instruction", description: err instanceof Error ? err.message : "Unknown error" })
     }
   }
 

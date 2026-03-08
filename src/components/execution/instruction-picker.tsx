@@ -14,7 +14,6 @@ import { cn } from "@/lib/utils"
 import type { MachineInstruction } from "@/types"
 
 interface InstructionPickerProps {
-  machineId?: string
   currentInstructionId?: string | null
   onSelect: (instructionId: string | null) => void
   onCreateNew?: () => void
@@ -50,7 +49,7 @@ export function InstructionPicker({
                 <button
                   type="button"
                   className={cn(
-                    "inline-flex items-center justify-center rounded-md p-1 transition-colors cursor-pointer",
+                    "relative inline-flex items-center justify-center rounded-md p-1 transition-colors cursor-pointer",
                     hasOverride
                       ? "text-primary hover:bg-primary/10"
                       : "text-muted-foreground hover:bg-muted",
