@@ -272,7 +272,9 @@ async function generatePostExecutionSummary(opts: {
 
   // Persist concise summary to plan node so replan context picks it up.
   // extractLessonsFromPlan reads node.executionOutput as the executionSummary string.
-  // If the raw executionOutput is already set, we prepend a structured summary block.
+  // The main onResult handler already wrote the raw output to executionOutput, but
+  // a structured summary is strictly more useful for replan context. Overwrite it.
+  // Raw output is preserved in streaming_events and accumulatedText.
   const conciseSummary = [
     summary.workCompleted,
     ...(summary.keyFindings.length > 0
@@ -289,7 +291,6 @@ async function generatePostExecutionSummary(opts: {
       .where(and(
         eq(planNodes.clientId, opts.nodeId),
         eq(planNodes.projectId, opts.projectId),
-        isNull(planNodes.executionOutput),  // Only set if not already populated
       ))
       .execute()
   } catch (err) {
@@ -1537,7 +1538,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
             status: 'success',
             preferredProvider: preferredProvider || undefined,
             machineId: machineId || undefined,
-            userId: user?.id,
+            userId: user?.id || LOCAL_USER_ID,
           }).catch((err: unknown) => {
             console.error('[dispatch] Error generating post-execution summary:', err)
           })
