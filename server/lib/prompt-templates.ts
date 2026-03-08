@@ -16,6 +16,7 @@ export {
   buildCompactionPrompt,
   sanitizeGitHubName,
   sanitizeGitBranch,
+  formatMachineInstruction,
 } from '../../packages/core/src/prompt-templates.js'
 
 export type {
