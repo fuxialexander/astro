@@ -182,8 +182,6 @@ export interface UseCaseParameter {
  *
  * - {{projectName}}    — The project name
  * - {{visionDoc}}      — The project vision document (if provided)
- * - {{repoContext}}    — Repository context (CLAUDE.md, README, file tree)
- * - {{gitState}}       — Current git branch and dirty state
  * - {{timestamp}}      — Current ISO 8601 timestamp
  * - {{userName}}       — Current user's display name
  *
