@@ -635,8 +635,9 @@ export function UnifiedActivityView({
     }
   }
 
-  // Allow steering on completed local tasks (resume session in worktree)
-  const canSteer = isRunning || (machineId === "local" && execution?.status === "success")
+  // Allow steering on running tasks, or resuming completed tasks that have an active session
+  // (works for all providers — the agent-runner's steerTask routes to resumeTask for completed tasks)
+  const canSteer = isRunning || (execution?.status === "success" && !!execution?.sessionId)
 
   function handleSend(interrupt = false) {
     const text = input.trim()
@@ -922,12 +923,15 @@ export function UnifiedActivityView({
 
       {/* Input Bar */}
       <div className="border-t border-border bg-background shrink-0">
-      {/* Resumed session notice */}
-      {!isRunning && !canSteer && execution?.sessionId && (
+      {/* Session context notice */}
+      {!isRunning && execution?.sessionId && (
         <div className="px-3 pt-2 pb-0 flex items-center gap-1.5 text-[10px] text-muted-foreground">
           <Info className="h-3 w-3 shrink-0" />
           <span>
-            Follow-up chat{execution.branchName ? ` — changes on \`${execution.branchName}\`` : ''}{execution.prUrl ? ` — ` : ''}
+            {canSteer
+              ? `Resume session in worktree${execution.branchName ? ` on \`${execution.branchName}\`` : ''}`
+              : `Follow-up chat${execution.branchName ? ` — changes on \`${execution.branchName}\`` : ''}`}
+            {execution.prUrl ? ` — ` : ''}
           </span>
           {execution.prUrl && (
             <a href={execution.prUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground">
