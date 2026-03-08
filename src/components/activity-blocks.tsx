@@ -1188,6 +1188,7 @@ export function PlanGraphBlock({ event }: { event: Extract<TaskActivityEvent, { 
         const { default: mermaid } = await import('mermaid')
         mermaid.initialize({
           startOnLoad: false,
+          securityLevel: 'strict',
           theme: 'base',
           themeVariables: {
             primaryColor: '#dbeafe',

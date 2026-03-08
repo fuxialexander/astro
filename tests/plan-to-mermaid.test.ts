@@ -124,6 +124,14 @@ describe('planToMermaid', () => {
 
       expect(result).toContain('#lpar;#rpar;')
     })
+
+    it('should escape hash to prevent accidental entity refs', () => {
+      const nodes: MermaidNode[] = [{ id: 'n1', title: 'Issue #42', type: 'task' }]
+      const result = planToMermaid(nodes, [])
+
+      expect(result).toContain('#num;42')
+      expect(result).not.toContain('#42')
+    })
   })
 
   describe('title truncation', () => {

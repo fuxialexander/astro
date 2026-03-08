@@ -231,6 +231,8 @@ export function PlanGeneration({
   // auto-navigate to the project view. executeAllProject is already triggered
   // by the execution-store's autoExecuteProjectIds mechanism.
   const yoloNavigated = useRef(false)
+  // Reset navigation guard when projectId changes
+  useEffect(() => { yoloNavigated.current = false }, [projectId])
   useEffect(() => {
     if (yoloMode && headerStatus === 'completed' && hasPlan && !yoloNavigated.current) {
       yoloNavigated.current = true
@@ -241,9 +243,10 @@ export function PlanGeneration({
         duration: 4000,
       })
       // Small delay for the toast to be visible before navigation
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         navigate(`/project/${projectId}`)
       }, 500)
+      return () => clearTimeout(timer)
     }
   }, [yoloMode, headerStatus, hasPlan, projectId, navigate])
 

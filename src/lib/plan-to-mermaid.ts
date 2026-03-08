@@ -20,6 +20,7 @@ export interface MermaidEdge {
 /** Escape special Mermaid characters in labels */
 function escapeLabel(text: string): string {
   return text
+    .replace(/#/g, '#num;')    // Must be first — prevents accidental entity refs
     .replace(/"/g, '#quot;')
     .replace(/\[/g, '#lsqb;')
     .replace(/\]/g, '#rsqb;')

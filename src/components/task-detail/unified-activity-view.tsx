@@ -959,7 +959,7 @@ export function UnifiedActivityView({
                 : "Resume session in worktree... (type @ to reference files)"
               : "Ask about this task... (type @ to reference files)"
           }
-          rows={1}
+          rows={2}
           className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
         <Button
