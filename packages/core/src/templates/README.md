@@ -112,8 +112,6 @@ interface PromptConfig {
 **Built-in variables** available in all prompts:
 - `{{projectName}}` — Project name
 - `{{visionDoc}}` — Project vision document
-- `{{repoContext}}` — Repository context (CLAUDE.md, README, file tree)
-- `{{gitState}}` — Current git branch and dirty state
 - `{{timestamp}}` — ISO 8601 timestamp
 - `{{userName}}` — Current user's display name
 

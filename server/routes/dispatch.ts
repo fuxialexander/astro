@@ -745,9 +745,10 @@ async function dispatchViaRelay(
 
   if (isInteractivePlan) {
     // Use the dedicated interactive plan prompt as a system prompt.
-    // It includes vision doc, repo context, git state, and planning instructions.
+    // It includes vision doc, skills, GitHub context, and planning instructions.
     relaySystemPrompt = buildInteractivePlanPrompt(description, {
       visionDoc: visionDoc || undefined,
+      hasWorkingDirectory: !!workingDirectory,
       skillsSummary: skillsInjection,
       githubContext,
       replanContext,

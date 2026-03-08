@@ -9,7 +9,7 @@
  * 5. Dispatch prompt content (branch names, gh commands, retry instructions)
  * 6. Project-completion-hook guard
  * 7. Auto-wiring logic (plan-store addNode)
- * 8. Interaction with other prompt sections (vision, repo context, skills)
+ * 8. Interaction with other prompt sections (vision, skills, GitHub)
  */
 
 import { describe, it, expect } from 'vitest'
@@ -128,21 +128,21 @@ describe('buildInteractivePlanPrompt — GitHub integration (detailed)', () => {
 
   // ── Coexistence with other prompt sections ────────────────────────────────
 
-  it('coexists with vision doc, repo context, git state, and skills', () => {
+  it('coexists with vision doc, skills, and hasWorkingDirectory', () => {
     const prompt = buildInteractivePlanPrompt('test', {
       visionDoc: 'vision text',
-      repoContext: { readmeMd: '# Readme' },
-      gitState: { currentBranch: 'main', targetBranch: 'main', isDirty: false },
+      hasWorkingDirectory: true,
       skillsSummary: 'skill info',
       githubContext: ctx,
     })
 
     expect(prompt).toContain('## Project Vision Document')
-    expect(prompt).toContain('## README.md')
-    expect(prompt).toContain('## Git Repository State')
     expect(prompt).toContain('## Available Agent Skills')
     expect(prompt).toContain('## GitHub Integration')
     expect(prompt).toContain('## Node Rules')
+    // Repo context and git state are NOT injected — agents discover via tools
+    expect(prompt).not.toContain('## README.md')
+    expect(prompt).not.toContain('## Git Repository State')
   })
 })
 

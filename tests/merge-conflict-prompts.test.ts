@@ -26,8 +26,6 @@ import {
   sanitizeGitBranch,
   PLAN_GRAPH_SCHEMA,
   type GitHubContextForPrompt,
-  type RepoContextForPrompt,
-  type GitStateForPrompt,
   type TaskExecutionContext,
   type TaskChatContext,
   type RefinementInput,
@@ -300,34 +298,11 @@ describe('buildInteractivePlanPrompt — structural integrity', () => {
     expect(prompt).toContain('</user_vision>')
   })
 
-  it('includes repo context sections when provided', () => {
-    const repoContext: RepoContextForPrompt = {
-      claudeMd: 'project instructions',
-      readmeMd: 'readme content',
-      packageInfo: '{"name": "my-package"}',
-      fileTreeSummary: 'src/\n  index.ts\n  utils.ts',
-    }
-    const prompt = buildInteractivePlanPrompt('test', { repoContext })
-    expect(prompt).toContain('CLAUDE.md')
-    expect(prompt).toContain('project instructions')
-    expect(prompt).toContain('README.md')
-    expect(prompt).toContain('readme content')
-    expect(prompt).toContain('Package Metadata')
-    expect(prompt).toContain('File Tree')
-  })
-
-  it('includes git state when provided', () => {
-    const gitState: GitStateForPrompt = {
-      currentBranch: 'feat/my-feature',
-      targetBranch: 'main',
-      isDirty: true,
-      dirtyDetails: { staged: 2, unstaged: 3, untracked: 1 },
-    }
-    const prompt = buildInteractivePlanPrompt('test', { gitState })
-    expect(prompt).toContain('feat/my-feature')
-    expect(prompt).toContain('2 staged')
-    expect(prompt).toContain('3 modified')
-    expect(prompt).toContain('1 untracked')
+  it('does not inject repo context or git state (agents discover via tools)', () => {
+    const prompt = buildInteractivePlanPrompt('test', { hasWorkingDirectory: true })
+    expect(prompt).not.toContain('CLAUDE.md')
+    expect(prompt).not.toContain('<user_content>')
+    expect(prompt).not.toContain('Git Repository State')
   })
 
   it('includes skills summary when provided', () => {
@@ -336,15 +311,13 @@ describe('buildInteractivePlanPrompt — structural integrity', () => {
     expect(prompt).toContain('kubectl, docker, helm')
   })
 
-  it('codebase approach when repo context exists', () => {
-    const prompt = buildInteractivePlanPrompt('test', {
-      repoContext: { claudeMd: 'x' },
-    })
+  it('codebase approach when hasWorkingDirectory is true', () => {
+    const prompt = buildInteractivePlanPrompt('test', { hasWorkingDirectory: true })
     expect(prompt).toContain('Quick survey of the codebase')
     expect(prompt).toContain('Deep-dive into relevant files')
   })
 
-  it('non-codebase approach when no repo context', () => {
+  it('non-codebase approach when hasWorkingDirectory is false', () => {
     const prompt = buildInteractivePlanPrompt('test')
     expect(prompt).toContain('Use web search')
     expect(prompt).not.toContain('Quick survey of the codebase')
