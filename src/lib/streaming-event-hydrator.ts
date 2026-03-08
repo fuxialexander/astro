@@ -39,6 +39,7 @@ export interface HydratedStreamData {
     success?: boolean
     duration?: number
     timestamp: Date
+    seq?: number
   }>
   fileChanges: Array<{
     path: string
@@ -47,6 +48,7 @@ export interface HydratedStreamData {
     linesRemoved?: number
     diff?: string
     timestamp: Date
+    seq?: number
   }>
   // Pending approval requests (not yet answered)
   pendingApprovals: PendingApproval[]
@@ -115,6 +117,7 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
             content: data.systemPrompt as string,
             pathwayType: (data.pathwayType as string) || undefined,
             timestamp,
+            seq: event.seq,
           })
         }
         break
@@ -122,7 +125,7 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
       case 'text': {
         const text = (data.text as string) || ''
         stdout += text
-        activityEvents.push({ type: 'text', content: text, timestamp })
+        activityEvents.push({ type: 'text', content: text, timestamp, seq: event.seq })
         break
       }
       case 'tool_use': {
@@ -137,11 +140,13 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
           toolName,
           toolInput: data.toolInput,
           timestamp,
+          seq: event.seq,
         })
         toolTraces.push({
           toolName,
           toolInput: data.toolInput,
           timestamp,
+          seq: event.seq,
         })
         break
       }
@@ -158,6 +163,7 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
           toolResult: data.result,
           success: data.success as boolean | undefined,
           timestamp,
+          seq: event.seq,
         })
         // Update matching tool trace with result
         for (let i = toolTraces.length - 1; i >= 0; i--) {
@@ -178,6 +184,7 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
           linesRemoved: data.linesRemoved as number | undefined,
           diff: data.diff as string | undefined,
           timestamp,
+          seq: event.seq,
         })
         fileChanges.push({
           path: (data.path as string) || '',
@@ -186,6 +193,7 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
           linesRemoved: data.linesRemoved as number | undefined,
           diff: data.diff as string | undefined,
           timestamp,
+          seq: event.seq,
         })
         break
       }
@@ -257,6 +265,7 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
           question: (data.question as string) || '',
           options: (data.options as string[]) || [],
           timestamp,
+          seq: event.seq,
         })
         break
       }
@@ -265,6 +274,7 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
           type: 'chat_user',
           message: (data.message as string) || '',
           timestamp,
+          seq: event.seq,
         })
         break
       }
@@ -279,6 +289,7 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
           question: originalRequest?.question || '',
           answer: (data.answer as string) || '',
           timestamp,
+          seq: event.seq,
         })
         break
       }
@@ -289,6 +300,7 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
           type: 'error' as const,
           error,
           timestamp,
+          seq: event.seq,
         })
         break
       }
