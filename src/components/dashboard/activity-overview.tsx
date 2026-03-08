@@ -213,8 +213,8 @@ function HoursDayGrid({ hourlyData }: { hourlyData: HourlyActivity[] }) {
   const gridW = 24 * (HOUR_CELL + HOUR_GAP) - HOUR_GAP
 
   return (
-    <div className="flex justify-center">
-      <div className="inline-flex" style={{ gap: HOUR_GAP * 4 }}>
+    <div className="flex justify-center overflow-x-auto">
+      <div className="inline-flex flex-col items-center sm:flex-row" style={{ gap: HOUR_GAP * 4 }}>
         {weeks.map((days, wi) => (
           <div key={wi} className="flex flex-col" style={{ gap: HOUR_GAP }}>
             {days.map((dateStr) => (
