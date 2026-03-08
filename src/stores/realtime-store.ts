@@ -775,12 +775,7 @@ function mergeBySeq<T extends { seq?: number; timestamp: Date }>(
   for (const e of hydrated) {
     if (e.seq != null) hydratedSeqs.add(e.seq)
   }
-  let maxHydratedSeq = 0
-  for (const s of hydratedSeqs) {
-    if (s > maxHydratedSeq) maxHydratedSeq = s
-  }
-
-  // For events with seq: skip if already in hydrated set or seq <= max
+  // For events with seq: skip if already in the hydrated set
   // For events without seq (e.g. text events whose seq is unavailable due
   // to server-side batching): fall back to timestamp comparison. This is
   // a known-lossy heuristic — text events within 1s of the last hydrated
@@ -789,7 +784,7 @@ function mergeBySeq<T extends { seq?: number; timestamp: Date }>(
   const lastHydratedTime = new Date(hydrated[hydrated.length - 1].timestamp).getTime()
   const newLiveItems = live.filter(e => {
     if (e.seq != null) {
-      return !hydratedSeqs.has(e.seq) && e.seq > maxHydratedSeq
+      return !hydratedSeqs.has(e.seq)
     }
     return new Date(e.timestamp).getTime() > lastHydratedTime + 1000
   })

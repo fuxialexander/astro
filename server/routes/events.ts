@@ -179,6 +179,7 @@ eventsRoute.get('/stream', async (c) => {
 
     const onTaskResult = (msg: TaskResultMessage) => {
       if (!alive) return
+      if (activeDispatchStreams.has(msg.result.taskId)) return
       if (!isTaskOwnedByUser(msg.result.taskId)) return
       const data = JSON.stringify({
         taskId: msg.result.taskId,
