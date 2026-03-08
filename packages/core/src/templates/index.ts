@@ -118,3 +118,6 @@ export {
 
 // ── Skill Resolution ──────────────────────────────────────────────────
 export { deriveEffectiveSkills } from './skill-resolution.js'
+
+// ── Template Interpolation ───────────────────────────────────────────
+export { interpolatePrompt } from './interpolate.js'
