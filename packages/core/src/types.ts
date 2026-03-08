@@ -307,6 +307,7 @@ export interface ToolTrace {
   success?: boolean;
   duration?: number;
   timestamp: Date;
+  seq?: number;
 }
 
 // File change for execution detail view
@@ -317,27 +318,30 @@ export interface FileChange {
   linesRemoved?: number;
   diff?: string;
   timestamp: Date;
+  seq?: number;
 }
 
 // Unified activity event for sequential timeline rendering
+// Each variant includes an optional `seq` (streaming_events DB sequence number)
+// used for reliable deduplication when merging hydrated and live events.
 export type TaskActivityEvent =
-  | { type: 'text'; content: string; timestamp: Date }
-  | { type: 'tool_use'; id: string; toolName: string; toolInput: unknown; timestamp: Date }
-  | { type: 'tool_result'; id: string; toolName: string; toolResult?: unknown; success?: boolean; duration?: number; timestamp: Date }
-  | { type: 'steer'; message: string; accepted?: boolean; ackMessage?: string; interrupted?: boolean; timestamp: Date }
-  | { type: 'chat_user'; message: string; timestamp: Date }
-  | { type: 'chat_assistant'; content: string; timestamp: Date }
-  | { type: 'file_change'; path: string; action: string; diff?: string; linesAdded?: number; linesRemoved?: number; timestamp: Date }
-  | { type: 'error'; error: string; timestamp: Date }
-  | { type: 'approval_request'; requestId: string; question: string; options: string[]; timestamp: Date }
-  | { type: 'approval_response'; requestId: string; question: string; answer: string; autoApproved?: boolean; timestamp: Date }
-  | { type: 'mutation'; nodeUpdates: Array<{ nodeId: string; [key: string]: unknown }>; edgeOps: Array<{ action: string; source: string; target: string; type?: string }>; newNodes: Array<{ title: string; description: string; type?: string; id?: string }>; timestamp: Date }
-  | { type: 'pr_status'; prNumber: number; prUrl: string; title?: string; state?: 'open' | 'closed' | 'merged'; branchName?: string; baseBranch?: string; additions?: number; deletions?: number; changedFiles?: number; draft?: boolean; checks?: Array<{ name: string; status: string; conclusion: string | null; startedAt?: string; completedAt?: string; htmlUrl?: string }>; reviews?: Array<{ user: { login: string; avatarUrl?: string }; state: string; submittedAt?: string }>; timestamp: Date }
-  | { type: 'github_comment'; commentId: number; author: { login: string; avatar: string }; body: string; commentType: 'issue_comment' | 'review_comment'; path?: string; line?: number; url?: string; timestamp: Date }
-  | { type: 'branch_linked'; prNumber: number; prUrl: string; branchName: string; linkSource: 'auto-branch' | 'auto-body-reference' | 'manual'; timestamp: Date }
-  | { type: 'system_message'; message: string; timestamp: Date }
-  | { type: 'system_prompt'; content: string; pathwayType?: string; timestamp: Date }
-  | { type: 'plan_result'; nodes: Array<{ id: string; title: string; type: string; status?: string }>; edges: Array<{ source: string; target: string }>; projectName?: string; timestamp: Date }
+  | { type: 'text'; content: string; timestamp: Date; seq?: number }
+  | { type: 'tool_use'; id: string; toolName: string; toolInput: unknown; timestamp: Date; seq?: number }
+  | { type: 'tool_result'; id: string; toolName: string; toolResult?: unknown; success?: boolean; duration?: number; timestamp: Date; seq?: number }
+  | { type: 'steer'; message: string; accepted?: boolean; ackMessage?: string; interrupted?: boolean; timestamp: Date; seq?: number }
+  | { type: 'chat_user'; message: string; timestamp: Date; seq?: number }
+  | { type: 'chat_assistant'; content: string; timestamp: Date; seq?: number }
+  | { type: 'file_change'; path: string; action: string; diff?: string; linesAdded?: number; linesRemoved?: number; timestamp: Date; seq?: number }
+  | { type: 'error'; error: string; timestamp: Date; seq?: number }
+  | { type: 'approval_request'; requestId: string; question: string; options: string[]; timestamp: Date; seq?: number }
+  | { type: 'approval_response'; requestId: string; question: string; answer: string; autoApproved?: boolean; timestamp: Date; seq?: number }
+  | { type: 'mutation'; nodeUpdates: Array<{ nodeId: string; [key: string]: unknown }>; edgeOps: Array<{ action: string; source: string; target: string; type?: string }>; newNodes: Array<{ title: string; description: string; type?: string; id?: string }>; timestamp: Date; seq?: number }
+  | { type: 'pr_status'; prNumber: number; prUrl: string; title?: string; state?: 'open' | 'closed' | 'merged'; branchName?: string; baseBranch?: string; additions?: number; deletions?: number; changedFiles?: number; draft?: boolean; checks?: Array<{ name: string; status: string; conclusion: string | null; startedAt?: string; completedAt?: string; htmlUrl?: string }>; reviews?: Array<{ user: { login: string; avatarUrl?: string }; state: string; submittedAt?: string }>; timestamp: Date; seq?: number }
+  | { type: 'github_comment'; commentId: number; author: { login: string; avatar: string }; body: string; commentType: 'issue_comment' | 'review_comment'; path?: string; line?: number; url?: string; timestamp: Date; seq?: number }
+  | { type: 'branch_linked'; prNumber: number; prUrl: string; branchName: string; linkSource: 'auto-branch' | 'auto-body-reference' | 'manual'; timestamp: Date; seq?: number }
+  | { type: 'system_message'; message: string; timestamp: Date; seq?: number }
+  | { type: 'system_prompt'; content: string; pathwayType?: string; timestamp: Date; seq?: number }
+  | { type: 'plan_result'; nodes: Array<{ id: string; title: string; type: string; status?: string }>; edges: Array<{ source: string; target: string }>; projectName?: string; timestamp: Date; seq?: number }
 
 // Usage metrics from provider execution
 export interface UsageMetrics {

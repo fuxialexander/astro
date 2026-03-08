@@ -179,6 +179,7 @@ eventsRoute.get('/stream', async (c) => {
 
     const onTaskResult = (msg: TaskResultMessage) => {
       if (!alive) return
+      if (activeDispatchStreams.has(msg.result.taskId)) return
       if (!isTaskOwnedByUser(msg.result.taskId)) return
       const data = JSON.stringify({
         taskId: msg.result.taskId,
@@ -197,12 +198,14 @@ eventsRoute.get('/stream', async (c) => {
 
     const onTaskStdout = (msg: TaskStdoutMessage) => {
       if (!alive) return
+      if (activeDispatchStreams.has(msg.output.taskId)) return
       if (!isTaskOwnedByUser(msg.output.taskId)) return
       throttle.write(msg.output.taskId, msg.output.data)
     }
 
     const onTaskProgress = (msg: TaskProgressMessage) => {
       if (!alive) return
+      if (activeDispatchStreams.has(msg.taskId)) return
       if (!isTaskOwnedByUser(msg.taskId)) return
       const data = JSON.stringify({
         taskId: msg.taskId,
@@ -228,6 +231,7 @@ eventsRoute.get('/stream', async (c) => {
 
     const onTaskToolTrace = (msg: TaskToolTraceMessage) => {
       if (!alive) return
+      if (activeDispatchStreams.has(msg.taskId)) return
       if (!isTaskOwnedByUser(msg.taskId)) return
       const data = JSON.stringify({
         taskId: msg.taskId,
@@ -243,6 +247,7 @@ eventsRoute.get('/stream', async (c) => {
 
     const onTaskFileChange = (msg: TaskFileChangeMessage) => {
       if (!alive) return
+      if (activeDispatchStreams.has(msg.taskId)) return
       if (!isTaskOwnedByUser(msg.taskId)) return
       const data = JSON.stringify({
         taskId: msg.taskId,
@@ -258,6 +263,7 @@ eventsRoute.get('/stream', async (c) => {
 
     const onTaskSessionInit = (msg: TaskSessionInitMessage) => {
       if (!alive) return
+      if (activeDispatchStreams.has(msg.taskId)) return
       if (!isTaskOwnedByUser(msg.taskId)) return
       const data = JSON.stringify({
         taskId: msg.taskId,

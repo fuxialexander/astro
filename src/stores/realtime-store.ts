@@ -534,9 +534,9 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
             // append only genuinely new live events after the hydrated base. This prevents
             // discarding historical events (e.g. approval_responses) when a race between
             // SSE reconnect and catch-up hydration causes `existing` to be partially populated.
-            const mergedActivity = mergeByTimestamp(hydrated.activityEvents, existing.activityEvents)
-            const mergedToolTraces = mergeByTimestamp(hydrated.toolTraces, existing.toolTraces)
-            const mergedFileChanges = mergeByTimestamp(hydrated.fileChanges, existing.fileChanges)
+            const mergedActivity = mergeBySeq(hydrated.activityEvents, existing.activityEvents)
+            const mergedToolTraces = mergeBySeq(hydrated.toolTraces, existing.toolTraces)
+            const mergedFileChanges = mergeBySeq(hydrated.fileChanges, existing.fileChanges)
             streams.set(execId, {
               ...existing,
               ...metadata,
@@ -758,22 +758,36 @@ function createEmptyTaskStream(taskId: string): TaskStream {
 }
 
 /**
- * Timestamp-based merge: hydrated (DB history) forms the base; live events
- * that arrived after the last hydrated event are appended. 1s tolerance
- * avoids edge-case duplicates from clock skew.
+ * Seq-based merge: hydrated (DB history) forms the base; live events
+ * with seq > maxHydratedSeq (or no seq) are appended. Falls back to
+ * timestamp comparison for events without seq (e.g. text events whose
+ * seq is not available due to server-side batching).
  */
-function mergeByTimestamp<T extends { timestamp: Date }>(
+function mergeBySeq<T extends { seq?: number; timestamp: Date }>(
   hydrated: T[],
   live: T[],
 ): T[] {
   if (live.length === 0) return hydrated
   if (hydrated.length === 0) return live
 
+  // Build a set of all hydrated seq numbers for O(1) lookup
+  const hydratedSeqs = new Set<number>()
+  for (const e of hydrated) {
+    if (e.seq != null) hydratedSeqs.add(e.seq)
+  }
+  // For events with seq: skip if already in the hydrated set
+  // For events without seq (e.g. text events whose seq is unavailable due
+  // to server-side batching): fall back to timestamp comparison. This is
+  // a known-lossy heuristic — text events within 1s of the last hydrated
+  // event may be dropped. Acceptable because the P0 guard in events.ts
+  // eliminates the primary source of text duplication (double-delivery).
   const lastHydratedTime = new Date(hydrated[hydrated.length - 1].timestamp).getTime()
-
-  const newLiveItems = live.filter(
-    item => new Date(item.timestamp).getTime() > lastHydratedTime + 1000
-  )
+  const newLiveItems = live.filter(e => {
+    if (e.seq != null) {
+      return !hydratedSeqs.has(e.seq)
+    }
+    return new Date(e.timestamp).getTime() > lastHydratedTime + 1000
+  })
 
   return newLiveItems.length > 0
     ? [...hydrated, ...newLiveItems]
