@@ -2220,6 +2220,26 @@ function handleSSEEvent(
           })
         }
 
+        // Emit system_prompt activity event so the activity feed can render it
+        if (parsed.systemPrompt) {
+          set((state) => {
+            const newExecutions = new Map(state.executions)
+            const exec = newExecutions.get(nodeId)
+            if (exec) {
+              newExecutions.set(nodeId, {
+                ...exec,
+                activityEvents: [...exec.activityEvents, {
+                  type: 'system_prompt' as const,
+                  content: parsed.systemPrompt,
+                  pathwayType: parsed.pathwayType,
+                  timestamp: now,
+                }],
+              })
+            }
+            return { executions: newExecutions }
+          })
+        }
+
         // Persist running execution to DB so it survives page refresh
         const freshExec = get().executions.get(nodeId)
         if (freshExec?.executionId) {

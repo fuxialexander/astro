@@ -336,6 +336,7 @@ export type TaskActivityEvent =
   | { type: 'github_comment'; commentId: number; author: { login: string; avatar: string }; body: string; commentType: 'issue_comment' | 'review_comment'; path?: string; line?: number; url?: string; timestamp: Date }
   | { type: 'branch_linked'; prNumber: number; prUrl: string; branchName: string; linkSource: 'auto-branch' | 'auto-body-reference' | 'manual'; timestamp: Date }
   | { type: 'system_message'; message: string; timestamp: Date }
+  | { type: 'system_prompt'; content: string; pathwayType?: string; timestamp: Date }
 
 // Usage metrics from provider execution
 export interface UsageMetrics {

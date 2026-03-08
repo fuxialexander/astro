@@ -1611,6 +1611,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 
     // Send init event (persist first so page-refresh hydration can recover machineId)
     const targetMachine = machineRegistry.get(machineId!)
+    const pathwayType = isInteractivePlan ? 'interactive-plan' : (computeBackend === 'slurm' ? 'hpc' : 'execution')
     const initDataForSSE = {
       executionId,
       nodeId,
@@ -1618,13 +1619,12 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       providerId: preferredProvider || targetMachine?.providers[0]?.type,
       providerName: preferredProvider || targetMachine?.providers[0]?.type,
       computeBackend,
-      pathwayType: isInteractivePlan ? 'interactive-plan' : (computeBackend === 'slurm' ? 'hpc' : 'execution'),
+      pathwayType,
+      systemPrompt: relaySystemPrompt || undefined,
     }
-    // Persist full init data (including system prompt) for observability — but don't send prompt to frontend
     const initSeq = await streamingEventLog.append(executionId, 'init', {
       ...initDataForSSE,
       hasSystemPrompt: !!relaySystemPrompt,
-      systemPrompt: relaySystemPrompt,
     })
     await stream.writeSSE({
       id: String(initSeq),

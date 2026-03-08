@@ -108,6 +108,15 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
     switch (event.eventType) {
       case 'init': {
         machineId = (data.machineId as string) || undefined
+        // Emit system_prompt activity event if the init event contains a prompt
+        if (data.systemPrompt) {
+          activityEvents.push({
+            type: 'system_prompt',
+            content: data.systemPrompt as string,
+            pathwayType: (data.pathwayType as string) || undefined,
+            timestamp,
+          })
+        }
         break
       }
       case 'text': {
