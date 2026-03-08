@@ -66,22 +66,62 @@ git commit -m "<type>: <description>"
 git push -u origin <branch-name>
 ```
 
-### 5. Create the PR
+### 5. Create the PR using the pr-submission skill
 
-Use `gh pr create` targeting the correct base branch:
+Use the `/pr-submission` skill to generate a high-quality PR description with
+architecture diagrams and structured documentation. The pr-submission skill
+produces styled mermaid diagrams, before/after comparisons, and clear test plans
+that make submodule PRs easier to review.
+
+**How to invoke it**: After pushing the branch, run the pr-submission skill from
+within the submodule directory. The skill will:
+- Analyze the diff against the target branch
+- Generate mermaid diagrams showing the architecture or data flow of the changes
+- Create a structured PR body with Summary, Architecture/Root Cause, and Test Plan
+- Create the PR via `gh pr create`
+
+The key differences when creating a submodule PR vs a main-repo PR:
+- Use `--repo <github-org/repo>` to target the submodule's GitHub repository
+- Use `--base <target-branch>` (e.g., `dev` for agent-runner, `main` for others)
+- The diff base is `<target-branch>` not `main` — so run
+  `git diff <target-branch>...HEAD` when analyzing changes
 
 ```bash
+# From inside the submodule directory:
+# 1. Analyze the changes
+git log --oneline <target-branch>...HEAD
+git diff <target-branch>...HEAD --stat
+
+# 2. Create PR with pr-submission-quality description
 gh pr create \
   --repo <github-org/repo> \
   --base <target-branch> \
-  --title "<type>: <description>" \
+  --title "<type>: <concise title under 70 chars>" \
   --body "$(cat <<'EOF'
 ## Summary
-<what changed and why>
 
-## Test plan
+[1-3 sentences: what changed and why. Lead with impact.]
+
+### What changed
+
+- **item 1** — description
+- **item 2** — description
+
+---
+
+## Architecture
+
+[Mermaid diagram with theme init + classDef palette showing the design.
+Use flowchart for data/control flow, sequence diagram for component
+interactions, or state diagram for lifecycle changes.]
+
+---
+
+## Test Plan
+
 - [ ] `npm run build` passes
 - [ ] `npm test` passes
+- [ ] [Scenario-specific test items]
 EOF
 )"
 ```

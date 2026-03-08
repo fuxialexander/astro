@@ -46,22 +46,65 @@ git fetch origin dev main
 git log --oneline origin/main..origin/dev
 ```
 
-Show the user the list of commits that will be included. Then create a release PR:
+Show the user the list of commits that will be included. Then create a release PR
+using the `/pr-submission` skill for a high-quality description with architecture
+diagrams. The release merge PR should summarize all accumulated changes since the
+last release, group them by category (features, fixes, chores), and include a
+mermaid diagram showing the release flow or key architectural changes.
 
 ```bash
-# Create the release PR
+# Analyze the full diff for the PR description
+git diff origin/main..origin/dev --stat
+git log --oneline origin/main..origin/dev
+
+# Create the release PR with pr-submission-quality description
 gh pr create \
   --repo astro-anywhere/astro-agent \
   --base main \
   --head dev \
   --title "Release: merge dev → main" \
   --body "$(cat <<'EOF'
-## Release Merge
+## Summary
 
-Merging accumulated changes from `dev` into `main` for release.
+Release merge: accumulated N changes from `dev` into `main` for publishing.
 
-### Commits included
-<list of commits from git log>
+### What changed
+
+- **feat: ...** — description
+- **fix: ...** — description
+- **chore: ...** — description
+
+---
+
+## Release Flow
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#dbeafe', 'primaryBorderColor': '#93c5fd', 'primaryTextColor': '#1e293b', 'lineColor': '#64748b', 'textColor': '#334155', 'fontSize': '14px', 'fontFamily': 'Inter, -apple-system, BlinkMacSystemFont, sans-serif'}}}%%
+flowchart LR
+    classDef blue fill:#dbeafe,stroke:#93c5fd,color:#1e293b
+    classDef green fill:#dcfce7,stroke:#86efac,color:#1e293b
+    classDef amber fill:#fef3c7,stroke:#fcd34b,color:#1e293b
+
+    A["dev branch"]:::blue --> B["merge PR"]:::amber
+    B --> C["main branch"]:::green
+    C --> D["npm version"]:::blue
+    D --> E["GitHub Release"]:::blue
+    E --> F["NPM publish"]:::green
+```
+
+---
+
+## Commits included
+
+<full list from git log>
+
+---
+
+## Test Plan
+
+- [ ] `npm run build` passes on main after merge
+- [ ] `npm test` passes
+- [ ] Release Action publishes successfully
 EOF
 )"
 ```
