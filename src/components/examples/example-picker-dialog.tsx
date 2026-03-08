@@ -258,17 +258,19 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
     }
   }, [selectedTemplate, projectName])
 
-  // Auto-fill workingDirectory parameter from project workingDirectory when it changes
+  // Keep the template's workingDirectory parameter in sync with the project-level field.
+  // The template parameter is hidden from the form (filtered out) to avoid duplication,
+  // but it still needs to be set so prompt interpolation works.
   useEffect(() => {
     if (workingDirectory && selectedTemplate) {
       const hasWorkDir = selectedTemplate.requiredParameters?.some(
         (p) => p.id === "workingDirectory"
       )
-      if (hasWorkDir && !parameterValues["workingDirectory"]) {
+      if (hasWorkDir) {
         setParameterValue("workingDirectory", workingDirectory)
       }
     }
-  }, [workingDirectory, selectedTemplate, parameterValues, setParameterValue])
+  }, [workingDirectory, selectedTemplate, setParameterValue])
 
   // Handle template selection
   const handleTemplateSelect = useCallback(
@@ -306,7 +308,8 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
       })
       return false
     }
-    if (selectedMachine && !workingDirectory.trim()) {
+    const templateNeedsWorkDir = selectedTemplate?.requiredParameters?.some((p) => p.id === 'workingDirectory')
+    if ((selectedMachine || templateNeedsWorkDir) && !workingDirectory.trim()) {
       useToastStore.getState().add({
         type: "error",
         title: "Working directory required",
@@ -315,7 +318,7 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
       return false
     }
     return true
-  }, [validateParameters, projectName, workingDirectory, selectedMachine])
+  }, [validateParameters, projectName, workingDirectory, selectedMachine, selectedTemplate])
 
   // Validate and move to next step
   const handleNext = useCallback(async () => {
@@ -458,8 +461,10 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
     switch (currentStep) {
       case "browse":
         return !!selectedTemplate
-      case "configure":
-        return !!projectName.trim() && (!selectedMachine || !!workingDirectory.trim()) && validationErrors.length === 0
+      case "configure": {
+        const needsWorkDir = !!selectedMachine || selectedTemplate?.requiredParameters?.some((p) => p.id === 'workingDirectory')
+        return !!projectName.trim() && (!needsWorkDir || !!workingDirectory.trim()) && validationErrors.length === 0
+      }
       case "launch":
         return true
       default:
@@ -494,11 +499,13 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
           )
         }
 
-        // Combine required and optional parameters
+        // Combine required and optional parameters.
+        // Filter out workingDirectory — it's already handled by the project-level
+        // Working Directory field above (with the folder browse button).
         const allParameters = [
           ...(selectedTemplate.requiredParameters || []),
           ...(selectedTemplate.optionalParameters || []),
-        ]
+        ].filter((p) => p.id !== 'workingDirectory')
 
         return (
           <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
@@ -647,8 +654,8 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
                   </div>
                 )}
 
-                {/* Working directory — only shown when a machine is selected */}
-                {selectedMachine && (
+                {/* Working directory — shown when a machine is selected OR when the template requires it */}
+                {(selectedMachine || selectedTemplate?.requiredParameters?.some((p) => p.id === 'workingDirectory')) && (
                 <div className="space-y-2">
                   <Label htmlFor="working-directory" className="text-sm font-medium">
                     Working Directory <span className="text-red-500">*</span>
