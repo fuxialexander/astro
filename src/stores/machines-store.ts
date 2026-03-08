@@ -25,6 +25,7 @@ export interface RegisteredMachine {
   platform: string
   providers: string[]
   providerConfigs?: ProviderConfig[]
+  defaultInstructionId?: string | null
   registeredAt: string
   lastSeenAt: string
   isConnected: boolean

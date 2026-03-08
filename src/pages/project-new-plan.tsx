@@ -34,6 +34,8 @@ import { OnboardingHint } from "@/components/onboarding-hint"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
 import { deriveAvailableProviders, isProviderAvailable, PROVIDER_NAMES } from "@/components/execution/provider-utils"
+import { InstructionPicker } from "@/components/execution/instruction-picker"
+import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
 import type { TaskAttachment } from "@/types"
 import type { LaunchExampleResult } from "@/lib/api-client"
 import type { ExamplePrefillData } from "@/components/examples/example-picker-dialog"
@@ -175,6 +177,11 @@ export function ProjectNewPlan() {
     [selectedMachine?.providers, globalProviders]
   )
 
+  // Machine instructions
+  const miLoaded = useMachineInstructionStore((s) => s.loaded)
+  const miLoad = useMachineInstructionStore((s) => s.load)
+  const miAssign = useMachineInstructionStore((s) => s.assignToMachine)
+
   // Load machines and providers on mount
   useEffect(() => {
     if (!machinesLoaded) loadMachines()
@@ -183,6 +190,10 @@ export function ProjectNewPlan() {
   useEffect(() => {
     if (!providersLoaded) loadProviders()
   }, [providersLoaded, loadProviders])
+
+  useEffect(() => {
+    if (!miLoaded) miLoad()
+  }, [miLoaded, miLoad])
 
   // Request notification permission and load sessions on mount
   useEffect(() => {
@@ -790,23 +801,34 @@ export function ProjectNewPlan() {
             <div className="flex flex-col gap-1.5">
               <span className="text-xs text-muted-foreground">Optionally choose a machine:</span>
               <div className="flex flex-wrap gap-2">
-              {allMachines.map((m) => (
-                <button
-                  key={m.machineId}
-                  onClick={() => setSelectedMachine(
-                    selectedMachine?.machineId === m.machineId ? null : m
-                  )}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
-                    selectedMachine?.machineId === m.machineId
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border hover:bg-muted"
-                  )}
-                >
-                  <Laptop className="h-3 w-3" />
-                  {m.name}
-                </button>
-              ))}
+              {allMachines.map((m) => {
+                const reg = registeredMachines.find((r) => r.id === m.machineId)
+                return (
+                  <div key={m.machineId} className="flex items-center gap-0.5">
+                    <button
+                      onClick={() => setSelectedMachine(
+                        selectedMachine?.machineId === m.machineId ? null : m
+                      )}
+                      className={cn(
+                        "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
+                        selectedMachine?.machineId === m.machineId
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border hover:bg-muted"
+                      )}
+                    >
+                      <Laptop className="h-3 w-3" />
+                      {m.name}
+                    </button>
+                    <div className="relative">
+                      <InstructionPicker
+                        machineId={m.machineId}
+                        currentInstructionId={reg?.defaultInstructionId}
+                        onSelect={(id) => miAssign(m.machineId, id)}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
               </div>
             </div>
           )}
@@ -814,7 +836,7 @@ export function ProjectNewPlan() {
           {/* Provider selector — always shown when providers available, filtered by machine */}
           {availableProviders.length > 1 && (
             <div className="flex flex-col gap-1.5">
-              <span className="text-xs text-muted-foreground">Provider:</span>
+              <span className="text-xs text-muted-foreground">AI Agent:</span>
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => { setSelectedProvider(""); setSelectedModel("") }}
