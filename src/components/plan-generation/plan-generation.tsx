@@ -476,6 +476,8 @@ export function PlanGeneration({
     const text = input.trim()
     if (!text) return
     setInput("")
+    // Reset auto-resize height — onChange doesn't fire when React sets the value
+    if (inputRef.current) inputRef.current.style.height = 'auto'
 
     if (isRunning) {
       handleSteer(text)

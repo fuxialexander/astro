@@ -17,10 +17,13 @@ export interface MermaidEdge {
   target: string
 }
 
-/** Escape special Mermaid characters in labels */
+/** Escape special Mermaid characters in labels.
+ *  `;` and `|` are safe inside quoted labels ("...") — only dangerous at top level.
+ *  Newlines break the line-based graph definition and must be replaced. */
 function escapeLabel(text: string): string {
   return text
-    .replace(/#/g, '#num;')    // Must be first — prevents accidental entity refs
+    .replace(/\n/g, ' ')      // Newlines break graph line structure
+    .replace(/#/g, '#num;')   // Must be before entity refs — prevents accidental refs
     .replace(/"/g, '#quot;')
     .replace(/\[/g, '#lsqb;')
     .replace(/\]/g, '#rsqb;')

@@ -132,6 +132,26 @@ describe('planToMermaid', () => {
       expect(result).toContain('#num;42')
       expect(result).not.toContain('#42')
     })
+
+    it('should replace newlines with spaces', () => {
+      const nodes: MermaidNode[] = [{ id: 'n1', title: 'Line 1\nLine 2', type: 'task' }]
+      const result = planToMermaid(nodes, [])
+
+      // Newlines must be removed from labels — they break the line-based graph syntax
+      expect(result).toContain('Line 1 Line 2')
+    })
+
+    it('should preserve semicolons and pipes inside quoted labels', () => {
+      // `;` and `|` are safe inside ("...") labels — only dangerous at top level
+      const nodes: MermaidNode[] = [
+        { id: 'a', title: 'Step 1; Step 2', type: 'task' },
+        { id: 'b', title: 'Compare A | B', type: 'task' },
+      ]
+      const result = planToMermaid(nodes, [])
+
+      expect(result).toContain('Step 1; Step 2')
+      expect(result).toContain('Compare A | B')
+    })
   })
 
   describe('title truncation', () => {
