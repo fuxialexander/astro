@@ -152,7 +152,7 @@ export function Dashboard() {
     const executionTasks = nodes
       .filter((n) => n.status === "in_progress" || n.status === "dispatched")
       .map((node) => {
-        const stream = taskStreams.get(node.id)
+        const stream = node.executionId ? taskStreams.get(node.executionId) : undefined
         const project = projects.find((p) => p.id === node.projectId)
         const machine = machines.get(node.machineId || "")
         return {

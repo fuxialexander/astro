@@ -178,6 +178,9 @@ interface RealtimeState {
   respondToSafetyPrompt: (taskId: string, decision: string) => Promise<void>
   hydrateFromCatchUp: (executionIds: string[], afterSeq?: number) => Promise<void>
   pushActivityEvent: (executionId: string, event: TaskActivityEvent) => void
+  /** Reconcile running tasks after page refresh: bootstrap execution store + task streams
+   *  for plan nodes that are in_progress but have no execution store entries. */
+  reconcileRunningTasks: () => void
 }
 
 let activityCounter = 0
@@ -635,6 +638,75 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       })
     }
   })(),
+
+  reconcileRunningTasks: () => {
+    const planStore = usePlanStore.getState()
+    const execStore = useExecutionStore.getState()
+    const state = get()
+
+    const newExecs = new Map(execStore.executions)
+    const newStreams = new Map(state.taskStreams)
+    let execChanged = false
+    let streamChanged = false
+    const catchUpIds: string[] = []
+
+    // 1. Reconcile plan nodes with in_progress/dispatched status
+    const runningNodes = planStore.nodes.filter(
+      (n) => (n.status === 'in_progress' || n.status === 'dispatched') && n.executionId
+    )
+
+    for (const node of runningNodes) {
+      const execId = node.executionId!
+
+      // Bootstrap execution store entry if missing
+      if (!newExecs.has(node.id)) {
+        newExecs.set(node.id, {
+          nodeId: node.id,
+          projectId: node.projectId,
+          executionId: execId,
+          status: 'running',
+          streamText: '',
+          toolTraces: [],
+          fileChanges: [],
+          activityEvents: [],
+          startedAt: node.executionStartedAt ? new Date(node.executionStartedAt) : new Date(),
+          machineId: node.machineId,
+        })
+        execChanged = true
+      }
+
+      // Bootstrap task stream entry if missing
+      if (!newStreams.has(execId)) {
+        newStreams.set(execId, createEmptyTaskStream(execId))
+        streamChanged = true
+        catchUpIds.push(execId)
+      }
+    }
+
+    // 2. Reconcile execution store entries (playground/plan sessions) that have
+    //    executionId but no corresponding task stream
+    for (const [, exec] of execStore.executions) {
+      if ((exec.status !== 'running' && exec.status !== 'pending') || !exec.executionId) continue
+      if (!newStreams.has(exec.executionId)) {
+        newStreams.set(exec.executionId, createEmptyTaskStream(exec.executionId))
+        streamChanged = true
+        catchUpIds.push(exec.executionId)
+      }
+    }
+
+    if (execChanged) {
+      useExecutionStore.setState({ executions: newExecs })
+    }
+    if (streamChanged) {
+      set({ taskStreams: newStreams })
+    }
+
+    // Trigger catch-up hydration for newly discovered running tasks
+    if (catchUpIds.length > 0) {
+      console.log('[realtime] Reconciling', catchUpIds.length, 'running tasks after page load')
+      get().hydrateFromCatchUp(catchUpIds, 0)
+    }
+  },
 }))
 
 /**
