@@ -227,14 +227,17 @@ For each Critical/Important issue:
 GitHub Actions CI may be unavailable (exhausted minutes, disabled workflows). Run the AI
 code review locally using a subagent, then post it as a PR comment.
 
+**This is NOT optional. Always run this step before Phase 6.**
+
 1. **Launch a subagent** to perform the AI review. The subagent should:
    - Read the full diff (`gh pr diff <number>`)
    - Read all changed files in full context
    - Apply the review criteria from `.github/workflows/ai-review.yml` (security, data
      integrity, logic errors, Astro-specific principles, provider parity, user isolation)
    - Produce a structured review with Critical/Important/Suggestions and a verdict
+   - The subagent ONLY reviews — it does NOT fix code
 
-2. **Post the review as a PR comment**:
+2. **Always post the review as a PR comment** (regardless of verdict):
    ```bash
    gh pr comment <number> --body "$(cat <<'EOF'
    ## 🤖 AI Code Review
@@ -247,8 +250,14 @@ code review locally using a subagent, then post it as a PR comment.
    )"
    ```
 
-3. **If the review finds Critical or Important issues** that weren't caught in Phase 2-4,
-   go back and fix them before proceeding to Phase 6.
+3. **If the verdict is NOT "Approve"**, the **main agent** (you — not the subagent) MUST:
+   a. Fix all Critical and Important issues identified in the review
+   b. Run `npm run build` and `npm run lint` to verify fixes compile
+   c. Commit and push the fixes
+   d. Re-run Phase 5.5 from step 1 (launch a fresh subagent review)
+   e. Repeat this loop until the review verdict is "Approve" or "Approve with suggestions"
+
+   Do NOT proceed to Phase 6 until the AI review passes.
 
 ## Phase 6: Report
 
