@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react"
-import { ChevronsUpDown, Check, Plus, Users } from "lucide-react"
+import { ChevronsUpDown, Plus, Crown, ShieldCheck, User, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useTeamStore } from "@/stores/team-store"
 import { useAuthStore } from "@/stores/auth-store"
@@ -15,10 +15,31 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 
-const roleBadgeColors: Record<string, string> = {
-  owner: "bg-warning/15 text-warning",
-  admin: "bg-info/15 text-info",
-  member: "bg-muted text-muted-foreground",
+/** Deterministic hue from team name for avatar background */
+function teamHue(name: string): number {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff
+  return h % 360
+}
+
+function TeamAvatar({ name, size = "sm" }: { name: string; size?: "sm" | "xs" }) {
+  const hue = teamHue(name)
+  const initials = name.slice(0, 2).toUpperCase()
+  const dim = size === "sm" ? "h-6 w-6 text-[11px]" : "h-5 w-5 text-[10px]"
+  return (
+    <span
+      className={cn("rounded-md font-semibold shrink-0 flex items-center justify-center select-none", dim)}
+      style={{ background: `hsl(${hue} 55% 48% / 0.18)`, color: `hsl(${hue} 55% 55%)` }}
+    >
+      {initials}
+    </span>
+  )
+}
+
+const roleConfig: Record<string, { icon: React.ElementType; label: string; classes: string }> = {
+  owner:  { icon: Crown,        label: "owner",  classes: "bg-warning/12 text-warning border-warning/20" },
+  admin:  { icon: ShieldCheck,  label: "admin",  classes: "bg-info/12 text-info border-info/20" },
+  member: { icon: User,         label: "member", classes: "bg-muted text-muted-foreground border-border/50" },
 }
 
 export function TeamSwitcher({ collapsed = false }: { collapsed?: boolean }) {
@@ -34,6 +55,7 @@ export function TeamSwitcher({ collapsed = false }: { collapsed?: boolean }) {
   const [newTeamName, setNewTeamName] = useState("")
   const [newTeamDescription, setNewTeamDescription] = useState("")
   const [creating, setCreating] = useState(false)
+  const [switching, setSwitching] = useState(false)
 
   const activeTeam = teams.find((t) => t.id === activeTeamId)
 
@@ -49,6 +71,7 @@ export function TeamSwitcher({ collapsed = false }: { collapsed?: boolean }) {
       return
     }
 
+    setSwitching(true)
     setActiveTeam(teamId)
     setOpen(false)
 
@@ -63,14 +86,16 @@ export function TeamSwitcher({ collapsed = false }: { collapsed?: boolean }) {
     useTaskChatStore.setState({ loaded: false })
 
     // Trigger reloads
-    useProjectStore.getState().load()
-    usePlanStore.getState().load()
-    useInitiativeStore.getState().load()
-    useActivityStore.getState().loadActivities()
-    useSessionStore.getState().load()
-    useUsageStore.getState().load()
-    useExecutionStore.getState().load()
-    useTaskChatStore.getState().load()
+    Promise.all([
+      useProjectStore.getState().load(),
+      usePlanStore.getState().load(),
+      useInitiativeStore.getState().load(),
+      useActivityStore.getState().loadActivities(),
+      useSessionStore.getState().load(),
+      useUsageStore.getState().load(),
+      useExecutionStore.getState().load(),
+      useTaskChatStore.getState().load(),
+    ]).finally(() => setSwitching(false))
   }, [activeTeamId, setActiveTeam])
 
   const handleCreateTeam = useCallback(async () => {
@@ -85,7 +110,6 @@ export function TeamSwitcher({ collapsed = false }: { collapsed?: boolean }) {
         updatedAt: new Date(),
       }
       addTeam(team)
-      // Switch to the new team
       handleSelectTeam(team.id)
       setCreateDialogOpen(false)
       setNewTeamName("")
@@ -105,8 +129,14 @@ export function TeamSwitcher({ collapsed = false }: { collapsed?: boolean }) {
           <Tooltip>
             <TooltipTrigger asChild>
               <PopoverTrigger asChild>
-                <button className="flex items-center justify-center h-9 w-9 rounded-lg hover:bg-muted/50 transition-colors">
-                  <Users className="h-[18px] w-[18px] text-muted-foreground" />
+                <button className="flex items-center justify-center h-9 w-9 rounded-lg hover:bg-muted/50 transition-colors relative">
+                  {switching ? (
+                    <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
+                  ) : activeTeam ? (
+                    <TeamAvatar name={activeTeam.name} size="sm" />
+                  ) : (
+                    <span className="h-6 w-6 rounded-md bg-muted flex items-center justify-center text-[11px] font-semibold text-muted-foreground">?</span>
+                  )}
                 </button>
               </PopoverTrigger>
             </TooltipTrigger>
@@ -143,13 +173,19 @@ export function TeamSwitcher({ collapsed = false }: { collapsed?: boolean }) {
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <button
-              className="flex w-full items-center gap-2.5 rounded-[10px] px-3 py-2 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors border border-border/50"
+              className="flex w-full items-center gap-2 rounded-[10px] px-2.5 py-1.5 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors border border-border/50"
             >
-              <Users className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span className="flex-1 text-left truncate">
+              {switching ? (
+                <Loader2 className="h-5 w-5 text-muted-foreground animate-spin shrink-0" />
+              ) : activeTeam ? (
+                <TeamAvatar name={activeTeam.name} />
+              ) : (
+                <span className="h-6 w-6 rounded-md bg-muted flex items-center justify-center text-[11px] text-muted-foreground shrink-0">?</span>
+              )}
+              <span className="flex-1 text-left truncate text-[13px]">
                 {activeTeam?.name || "Select team"}
               </span>
-              <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
             </button>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-[232px] p-1">
@@ -193,41 +229,54 @@ function TeamList({
 }) {
   return (
     <div className="flex flex-col">
-      <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-        Teams
+      <div className="px-2 pt-1 pb-1 text-[11px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+        Workspaces
       </div>
       {teams.map((team) => {
         const role = getUserRole(team.id)
         const isActive = team.id === activeTeamId
+        const cfg = roleConfig[role ?? "member"] ?? roleConfig.member
+        const RoleIcon = cfg.icon
         return (
           <button
             key={team.id}
             onClick={() => onSelect(team.id)}
             className={cn(
-              "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors w-full text-left",
-              isActive ? "bg-accent text-accent-foreground" : "hover:bg-muted/50 text-foreground"
+              "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors w-full text-left",
+              isActive
+                ? "bg-accent/70 text-accent-foreground"
+                : "hover:bg-muted/50 text-foreground"
             )}
           >
-            <Check className={cn("h-3.5 w-3.5 shrink-0", isActive ? "opacity-100" : "opacity-0")} />
-            <span className="flex-1 truncate">{team.name}</span>
+            {/* Active ring indicator */}
+            <span className={cn(
+              "h-1.5 w-1.5 rounded-full shrink-0 transition-all",
+              isActive ? "bg-primary" : "bg-transparent"
+            )} />
+            <TeamAvatar name={team.name} size="xs" />
+            <span className="flex-1 truncate text-[13px]">{team.name}</span>
             {role && (
               <span className={cn(
-                "text-[10px] font-medium rounded-full px-1.5 py-0.5 capitalize shrink-0",
-                roleBadgeColors[role] || roleBadgeColors.member
+                "flex items-center gap-0.5 text-[10px] font-medium rounded px-1 py-0.5 border shrink-0",
+                cfg.classes
               )}>
-                {role}
+                <RoleIcon className="h-2.5 w-2.5" />
+                {cfg.label}
               </span>
             )}
           </button>
         )
       })}
-      <div className="h-px bg-border my-1" />
+      <div className="h-px bg-border/60 my-1 mx-1" />
       <button
         onClick={onCreateClick}
-        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 transition-colors w-full text-left"
+        className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors w-full text-left"
       >
-        <Plus className="h-3.5 w-3.5 shrink-0" />
-        <span>Create Team</span>
+        <span className="h-1.5 w-1.5 shrink-0" />
+        <span className="h-5 w-5 rounded-md border border-dashed border-border/70 flex items-center justify-center shrink-0">
+          <Plus className="h-3 w-3" />
+        </span>
+        <span>New workspace</span>
       </button>
     </div>
   )
@@ -256,15 +305,15 @@ function CreateTeamDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Create Team</DialogTitle>
+          <DialogTitle>New workspace</DialogTitle>
           <DialogDescription>
-            Create a new team to organize projects and collaborate with others.
+            Create a shared workspace to organize projects and collaborate with others.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4 py-2">
           <div className="flex flex-col gap-1.5">
             <label htmlFor="team-name" className="text-sm font-medium text-foreground">
-              Team name
+              Name
             </label>
             <input
               id="team-name"
@@ -287,7 +336,7 @@ function CreateTeamDialog({
               value={description}
               onChange={(e) => onDescriptionChange(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && name.trim()) onSubmit() }}
-              placeholder="What does this team work on?"
+              placeholder="What does this workspace work on?"
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             />
           </div>
@@ -302,9 +351,10 @@ function CreateTeamDialog({
           <button
             onClick={onSubmit}
             disabled={!name.trim() || creating}
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium h-9 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+            className="inline-flex items-center justify-center gap-1.5 rounded-md text-sm font-medium h-9 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:pointer-events-none"
           >
-            {creating ? "Creating..." : "Create Team"}
+            {creating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {creating ? "Creating..." : "Create workspace"}
           </button>
         </DialogFooter>
       </DialogContent>

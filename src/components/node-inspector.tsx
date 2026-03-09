@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Link } from "react-router"
-import { FileText, XCircle, RotateCcw, X, Plus, Pencil, ArrowUpRight, Diamond, Clock, Play, Trash2, ToggleLeft, ToggleRight, ShieldCheck, SkipForward, RefreshCw, Eye, MessageSquare } from "lucide-react"
+import { FileText, XCircle, RotateCcw, X, Plus, Pencil, ArrowUpRight, Diamond, Clock, Play, Trash2, ToggleLeft, ToggleRight, ShieldCheck, SkipForward, RefreshCw, Eye, MessageSquare, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -633,17 +633,15 @@ export function NodeInspectorContent({
           </div>
         )}
 
-        {/* Verification status */}
+        {/* Verification status pill */}
         {isVerified && execution && (
           <div className="flex flex-col gap-1.5 mt-1">
-            <div className="flex items-center gap-1.5 text-[12px] text-success">
-              <ShieldCheck className="h-3.5 w-3.5" />
-              <span className="font-medium">
-                Verified{execution.verifiedBy === currentUserId ? " by you" : " by team member"}
-              </span>
+            <div className="inline-flex items-center gap-1.5 self-start rounded-full bg-success/10 border border-success/25 px-2.5 py-1 text-[11px] font-medium text-success">
+              <ShieldCheck className="h-3 w-3" />
+              Verified{execution.verifiedBy === currentUserId ? " by you" : " by team member"}
             </div>
             {execution.verificationNote && (
-              <div className="flex items-start gap-1.5 text-[11px] text-muted-foreground bg-muted/50 rounded-md px-2 py-1.5">
+              <div className="flex items-start gap-1.5 text-[11px] text-muted-foreground bg-muted/40 rounded-md px-2.5 py-1.5 border border-border/50">
                 <MessageSquare className="h-3 w-3 mt-0.5 shrink-0" />
                 <span className="leading-relaxed">{execution.verificationNote}</span>
               </div>
@@ -651,11 +649,11 @@ export function NodeInspectorContent({
           </div>
         )}
 
-        {/* Needs verification badge */}
+        {/* Needs verification pill */}
         {needsVerification && (
-          <div className="flex items-center gap-1.5 text-[12px] text-warning mt-1">
-            <Eye className="h-3.5 w-3.5" />
-            <span className="font-medium">Needs verification</span>
+          <div className="inline-flex items-center gap-1.5 self-start rounded-full bg-warning/10 border border-warning/25 px-2.5 py-1 text-[11px] font-medium text-warning mt-1">
+            <Eye className="h-3 w-3" />
+            Needs verification
           </div>
         )}
       </div>
@@ -664,78 +662,96 @@ export function NodeInspectorContent({
       {canVerify && (
         <>
           <Separator />
-          <div className="flex flex-col gap-2">
-            <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Verification</span>
+          <div className="flex flex-col gap-2.5">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                <Eye className="h-3 w-3" />
+                Review execution
+              </div>
+              {/* Inline note toggle */}
+              {!showNoteInput && (
+                <button
+                  type="button"
+                  onClick={() => setShowNoteInput(true)}
+                  className="flex items-center gap-1 text-[11px] text-muted-foreground/70 hover:text-muted-foreground transition-colors cursor-pointer"
+                >
+                  <MessageSquare className="h-3 w-3" />
+                  Add note
+                </button>
+              )}
+            </div>
 
             {/* Optional note input */}
-            {showNoteInput ? (
-              <div className="flex flex-col gap-1.5">
+            {showNoteInput && (
+              <div className="flex flex-col gap-1">
                 <textarea
                   value={verifyNote}
                   onChange={(e) => setVerifyNote(e.target.value)}
-                  placeholder="Add a note (optional)..."
-                  className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-xs placeholder:text-muted-foreground/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="Reviewer note (optional)..."
+                  className="w-full rounded-md border border-border bg-muted/30 px-2.5 py-2 text-xs placeholder:text-muted-foreground/40 resize-none focus:outline-none focus:ring-1 focus:ring-ring"
                   rows={2}
+                  autoFocus
                 />
                 <button
                   type="button"
                   onClick={() => { setShowNoteInput(false); setVerifyNote("") }}
-                  className="text-[11px] text-muted-foreground hover:text-foreground self-end cursor-pointer"
+                  className="text-[11px] text-muted-foreground/60 hover:text-muted-foreground self-end transition-colors cursor-pointer"
                 >
-                  Cancel note
+                  Remove note
                 </button>
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setShowNoteInput(true)}
-                className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 cursor-pointer w-fit"
-              >
-                <MessageSquare className="h-3 w-3" />
-                Add note
-              </button>
             )}
 
-            <div className="flex gap-2">
+            {/* Action buttons — Approve prominent, Re-run and Skip secondary */}
+            <div className="flex flex-col gap-1.5">
               <button
                 type="button"
                 disabled={!!verifyLoading}
                 onClick={() => handleVerificationAction('verify')}
                 className={cn(
-                  "flex-1 flex items-center justify-center gap-1.5 h-8 rounded-lg text-xs font-medium transition-colors cursor-pointer",
-                  "bg-success/10 text-success hover:bg-success/20 border border-success/30",
+                  "flex w-full items-center justify-center gap-1.5 h-9 rounded-lg text-sm font-medium transition-colors cursor-pointer",
+                  "bg-success text-white hover:bg-success/90",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
               >
-                <ShieldCheck className="h-3.5 w-3.5" />
-                {verifyLoading === 'verify' ? "..." : "Approve"}
+                {verifyLoading === 'verify'
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <ShieldCheck className="h-3.5 w-3.5" />}
+                Approve
               </button>
-              <button
-                type="button"
-                disabled={!!verifyLoading}
-                onClick={() => handleVerificationAction('rerun')}
-                className={cn(
-                  "flex-1 flex items-center justify-center gap-1.5 h-8 rounded-lg text-xs font-medium transition-colors cursor-pointer",
-                  "bg-info/10 text-info hover:bg-info/20 border border-info/30",
-                  "disabled:opacity-50 disabled:cursor-not-allowed"
-                )}
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                {verifyLoading === 'rerun' ? "..." : "Re-run"}
-              </button>
-              <button
-                type="button"
-                disabled={!!verifyLoading}
-                onClick={() => handleVerificationAction('skip')}
-                className={cn(
-                  "flex-1 flex items-center justify-center gap-1.5 h-8 rounded-lg text-xs font-medium transition-colors cursor-pointer",
-                  "bg-muted text-muted-foreground hover:bg-muted/80 border border-border",
-                  "disabled:opacity-50 disabled:cursor-not-allowed"
-                )}
-              >
-                <SkipForward className="h-3.5 w-3.5" />
-                {verifyLoading === 'skip' ? "..." : "Skip"}
-              </button>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  disabled={!!verifyLoading}
+                  onClick={() => handleVerificationAction('rerun')}
+                  className={cn(
+                    "flex-1 flex items-center justify-center gap-1.5 h-8 rounded-lg text-xs font-medium transition-colors cursor-pointer",
+                    "bg-muted/60 text-foreground hover:bg-muted border border-border/60",
+                    "disabled:opacity-50 disabled:cursor-not-allowed"
+                  )}
+                >
+                  {verifyLoading === 'rerun'
+                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                    : <RefreshCw className="h-3 w-3" />}
+                  Re-run
+                </button>
+                <button
+                  type="button"
+                  disabled={!!verifyLoading}
+                  onClick={() => handleVerificationAction('skip')}
+                  className={cn(
+                    "flex-1 flex items-center justify-center gap-1.5 h-8 rounded-lg text-xs font-medium transition-colors cursor-pointer",
+                    "bg-transparent text-muted-foreground hover:bg-muted border border-border/50",
+                    "disabled:opacity-50 disabled:cursor-not-allowed"
+                  )}
+                >
+                  {verifyLoading === 'skip'
+                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                    : <SkipForward className="h-3 w-3" />}
+                  Skip
+                </button>
+              </div>
             </div>
           </div>
         </>

@@ -497,17 +497,17 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
       {(attribution || needsVerification || isVerified) && (
         <div className="flex items-center gap-1 relative z-10 pl-[18px] leading-tight min-w-0">
           {isVerified ? (
-            <span className="flex items-center gap-0.5 text-[9px] text-success font-medium truncate">
-              <ShieldCheck className="h-2.5 w-2.5 shrink-0" />
+            <span className="inline-flex items-center gap-0.5 text-[9px] font-medium rounded-full bg-success/12 text-success px-1.5 py-px border border-success/20 truncate">
+              <ShieldCheck className="h-2 w-2 shrink-0" />
               Verified
             </span>
           ) : needsVerification ? (
-            <span className="flex items-center gap-0.5 text-[9px] text-warning font-medium truncate">
-              <Eye className="h-2.5 w-2.5 shrink-0" />
-              Needs review
+            <span className="inline-flex items-center gap-0.5 text-[9px] font-medium rounded-full bg-warning/12 text-warning px-1.5 py-px border border-warning/20 truncate">
+              <Eye className="h-2 w-2 shrink-0" />
+              Review
             </span>
           ) : attribution ? (
-            <span className="truncate text-[9px] text-muted-foreground/70">
+            <span className="truncate text-[9px] text-muted-foreground/60">
               {attribution.name} · {attribution.timeAgo}
             </span>
           ) : null}
