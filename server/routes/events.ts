@@ -26,6 +26,7 @@ import type {
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { getMachine } from '../lib/registered-machines-store.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
+import { redisPubSub, type StreamingEventMessage } from '../lib/redis-pubsub.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import type { ApprovalRequestedEvent, ApprovalRespondedEvent, ProjectCompletedEvent } from '../lib/events/types.js'
 import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
@@ -116,8 +117,9 @@ eventsRoute.get('/stream', async (c) => {
           )
         ).limit(1)
         return !!project
-      } catch {
-        return true // fail open for backward compat
+      } catch (err) {
+        console.error('[events] isProjectOwnedByUser DB query failed:', err)
+        return false // fail closed for security
       }
     }
 
@@ -589,6 +591,99 @@ eventsRoute.get('/stream', async (c) => {
     relayServer.on('task:tool_trace', onRelayToolTrace)
     relayServer.on('task:file_change', onRelayFileChange)
 
+    // Cross-instance streaming handler via Redis pub/sub.
+    // When Redis is connected and multiple server instances exist, streaming events
+    // from other instances arrive here. Self-instance events are skipped (the local
+    // EventEmitter path already delivered them).
+    // NOTE: No activeDispatchStreams guard needed here. The dispatch SSE stream only
+    // exists on the instance that initiated the dispatch, and cross-instance events
+    // (different instanceId) by definition come from tasks running on other instances
+    // which won't have a local dispatch bridge.
+    const onRedisStreaming = async (msg: StreamingEventMessage) => {
+      if (!alive) return
+      if (msg.instanceId === redisPubSub.getInstanceId()) return
+      // Cross-instance user isolation: deny-by-default when userId is missing.
+      // The receiving instance's executionContextStore won't have the task (it runs
+      // on another instance), so we check the userId embedded in the Redis message.
+      // Events with project-level isolation (node_status_changed, task_init,
+      // task_ready) bypass the userId check — their case branches use
+      // isProjectOwnedByUser as authoritative check instead.
+      const hasProjectCheck = msg.eventType === 'node_status_changed'
+        || msg.eventType === 'task_init' || msg.eventType === 'task_ready'
+      if (user?.id && !hasProjectCheck
+        && msg.userId !== user.id && msg.userId !== LOCAL_USER_ID) return
+
+      switch (msg.eventType) {
+        case 'text':
+          throttle.write(msg.taskId, msg.data.text as string)
+          break
+        case 'tool_use':
+        case 'tool_result': {
+          const data = JSON.stringify({ taskId: msg.taskId, ...msg.data })
+          const id = msg.dbSeq ? String(msg.dbSeq) : eventBuffer.push('task:tool_trace', data)
+          stream.writeSSE({ id, event: 'task:tool_trace', data }).catch(() => { alive = false })
+          break
+        }
+        case 'file_change': {
+          const data = JSON.stringify({ taskId: msg.taskId, ...msg.data })
+          const id = msg.dbSeq ? String(msg.dbSeq) : eventBuffer.push('task:file_change', data)
+          stream.writeSSE({ id, event: 'task:file_change', data }).catch(() => { alive = false })
+          break
+        }
+        case 'session_init': {
+          const data = JSON.stringify({ taskId: msg.taskId, ...msg.data })
+          const id = msg.dbSeq ? String(msg.dbSeq) : eventBuffer.push('task:session_init', data)
+          stream.writeSSE({ id, event: 'task:session_init', data }).catch(() => { alive = false })
+          break
+        }
+        case 'progress': {
+          const data = JSON.stringify({ taskId: msg.taskId, ...msg.data })
+          const id = msg.dbSeq ? String(msg.dbSeq) : eventBuffer.push('task:progress', data)
+          stream.writeSSE({ id, event: 'task:progress', data }).catch(() => { alive = false })
+          break
+        }
+        case 'result': {
+          const data = JSON.stringify({ taskId: msg.taskId, ...msg.data })
+          const id = eventBuffer.push('task:result', data)
+          stream.writeSSE({ id, event: 'task:result', data }).catch(() => { alive = false })
+          break
+        }
+        case 'node_status_changed': {
+          // Use project ownership check (not just userId) for node status events.
+          // The userId in the message is a hint from executionContextStore; the
+          // authoritative check is team-scoped project ownership from the DB.
+          // Fail closed: if projectId is missing, don't deliver the event.
+          const projectId = msg.data.projectId as string | undefined
+          if (!projectId || !await isProjectOwnedByUser(projectId)) break
+          const data = JSON.stringify(msg.data)
+          const id = eventBuffer.push('node:status_changed', data)
+          stream.writeSSE({ id, event: 'node:status_changed', data }).catch(() => { alive = false })
+          break
+        }
+        case 'task_init': {
+          const projectId = msg.data.projectId as string | undefined
+          if (!projectId || !await isProjectOwnedByUser(projectId)) break
+          const data = JSON.stringify(msg.data)
+          const id = eventBuffer.push('task:init', data)
+          stream.writeSSE({ id, event: 'task:init', data }).catch(() => { alive = false })
+          break
+        }
+        case 'task_ready': {
+          const projectId = msg.data.projectId as string | undefined
+          if (!projectId || !await isProjectOwnedByUser(projectId)) break
+          const data = JSON.stringify(msg.data)
+          const id = eventBuffer.push('task:ready', data)
+          stream.writeSSE({ id, event: 'task:ready', data }).catch(() => { alive = false })
+          break
+        }
+        default:
+          // Unknown event type from Redis — ignore silently.
+          // New event types should be added as explicit cases above.
+          break
+      }
+    }
+    redisPubSub.on('task:streaming', onRedisStreaming)
+
     // Merge queue event handlers — filter by project ownership
     const onMergeQueueFailed = async (msg: { nodeId: string; projectId: string; prNumber: number; reason: string; branchName: string }) => {
       if (!alive) return
@@ -700,6 +795,8 @@ eventsRoute.get('/stream', async (c) => {
       relayServer.off('session:attached', onSessionAttached)
       relayServer.off('session:detached', onSessionDetached)
       relayServer.off('session:event', onSessionEvent)
+      // Redis cross-instance streaming cleanup
+      redisPubSub.off('task:streaming', onRedisStreaming)
 
       // Execution event bus cleanup
       executionEventBus.off('node:status_changed', onNodeStatusChanged)

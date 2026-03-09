@@ -51,6 +51,8 @@ import {
 } from '../types/relay.js';
 import { machineRegistry } from './machine-registry.js';
 import { streamingEventLog } from './streaming-event-log.js';
+import { redisPubSub, type StreamingEventMessage } from './redis-pubsub.js';
+import { executionContextStore } from './execution-context-store.js';
 
 /** Compute line counts from a unified diff string */
 function computeLineCounts(diff: string): { added: number; removed: number } {
@@ -1233,6 +1235,18 @@ export class RelayServer extends EventEmitter {
   }
 
   /**
+   * Publish a streaming event to Redis with userId for cross-instance user isolation.
+   * Looks up the task owner from executionContextStore so receiving instances can
+   * filter by user without relying on their own (empty) in-memory store.
+   */
+  private publishToRedis(event: Omit<StreamingEventMessage, 'instanceId'>): void {
+    const userId = executionContextStore.getUserIdForTask(event.taskId);
+    redisPubSub.publishStreamingEvent({ ...event, userId }).catch((err) => {
+      console.error(`[relay] Failed to publish ${event.eventType} to Redis:`, err);
+    });
+  }
+
+  /**
    * Handle task result
    */
   private handleTaskResult(message: TaskResultMessage): void {
@@ -1240,7 +1254,22 @@ export class RelayServer extends EventEmitter {
     this.taskToMachine.delete(message.result.taskId);
     this.taskDispatchedAt.delete(message.result.taskId);
     this.consecutiveMisses.delete(message.result.taskId);
+    // Snapshot userId BEFORE emit — dispatch.ts's onResult handler synchronously
+    // calls executionContextStore.remove(), so getUserIdForTask returns undefined
+    // after emit returns. publishToRedis needs the userId for cross-instance isolation.
+    const userId = executionContextStore.getUserIdForTask(message.result.taskId);
     this.emit('task:result', message);
+    redisPubSub.publishStreamingEvent({
+      eventType: 'result', taskId: message.result.taskId, userId,
+      data: {
+        status: message.result.status, output: message.result.output,
+        error: message.result.error, duration: message.result.duration,
+        branchName: message.result.branchName, prUrl: message.result.prUrl,
+        prNumber: message.result.prNumber, deliveryStatus: message.result.deliveryStatus,
+      },
+    }).catch((err) => {
+      console.error(`[relay] Failed to publish result to Redis:`, err);
+    });
   }
 
   /**
@@ -1261,6 +1290,10 @@ export class RelayServer extends EventEmitter {
     }
 
     this.emit('task:stdout', message);
+    this.publishToRedis({
+      eventType: 'text', taskId: message.output.taskId,
+      data: { text: message.output.data },
+    });
   }
 
   /**
@@ -1268,6 +1301,10 @@ export class RelayServer extends EventEmitter {
    */
   private handleTaskProgress(message: TaskProgressMessage): void {
     this.emit('task:progress', message);
+    this.publishToRedis({
+      eventType: 'progress', taskId: message.taskId,
+      data: { progress: message.progress, message: message.message },
+    });
   }
 
   /**
@@ -1283,6 +1320,11 @@ export class RelayServer extends EventEmitter {
    */
   private handleTaskToolTrace(message: TaskToolTraceMessage): void {
     this.emit('task:tool_trace', message);
+    const eventType = message.toolResult !== undefined ? 'tool_result' as const : 'tool_use' as const;
+    this.publishToRedis({
+      eventType, taskId: message.taskId,
+      data: { toolName: message.toolName, toolInput: message.toolInput, toolResult: message.toolResult, success: message.success, duration: message.duration },
+    });
   }
 
   /**
@@ -1290,6 +1332,10 @@ export class RelayServer extends EventEmitter {
    */
   private handleTaskFileChange(message: TaskFileChangeMessage): void {
     this.emit('task:file_change', message);
+    this.publishToRedis({
+      eventType: 'file_change', taskId: message.taskId,
+      data: { path: message.path, action: message.action, linesAdded: message.linesAdded, linesRemoved: message.linesRemoved, diff: message.diff },
+    });
   }
 
   /**
@@ -2043,10 +2089,14 @@ export class RelayServer extends EventEmitter {
       message: statusMessage || status,
     };
     this.emit('task:progress', progressMsg);
+    this.publishToRedis({
+      eventType: 'progress', taskId,
+      data: { progress: progressMsg.progress, message: progressMsg.message },
+    });
   }
 
   /**
-   * Handle agent runner's task output message format
+   * Handle agent runner's task output message format (legacy)
    */
   private handleAgentRunnerTaskOutput(message: AgentRunnerTaskOutputMessage): void {
     const { payload } = message;
@@ -2064,13 +2114,14 @@ export class RelayServer extends EventEmitter {
       },
     };
     this.emit('task:stdout', stdoutMsg);
+    this.publishToRedis({
+      eventType: 'text', taskId,
+      data: { text: data },
+    });
   }
 
   /**
-   * Handle agent runner's task result message format
-   */
-  /**
-   * Handle agent runner's task tool trace message format
+   * Handle agent runner's task tool trace message format (legacy)
    */
   private handleAgentRunnerTaskToolTrace(message: AgentRunnerTaskToolTraceMessage): void {
     const { payload } = message;
@@ -2087,6 +2138,11 @@ export class RelayServer extends EventEmitter {
       success,
     };
     this.emit('task:tool_trace', traceMsg);
+    const eventType = toolResult !== undefined ? 'tool_result' as const : 'tool_use' as const;
+    this.publishToRedis({
+      eventType, taskId,
+      data: { toolName, toolInput, toolResult, success },
+    });
   }
 
   /**
@@ -2105,6 +2161,10 @@ export class RelayServer extends EventEmitter {
     // appendText is synchronous (in-memory buffer, flushed on next structural event)
     streamingEventLog.appendText(payload.taskId, payload.text);
     this.emit('task:text', textMsg);
+    this.publishToRedis({
+      eventType: 'text', taskId: payload.taskId,
+      data: { text: payload.text },
+    });
   }
 
   /**
@@ -2126,6 +2186,11 @@ export class RelayServer extends EventEmitter {
       console.error(`[relay-server] Failed to persist tool_use event for task ${payload.taskId}:`, err);
     }
     this.emit('task:tool_trace', Object.assign(traceMsg, { _dbSeq: seq }));
+    this.publishToRedis({
+      eventType: 'tool_use', taskId: payload.taskId,
+      data: { toolName: payload.toolName, toolInput: payload.toolInput },
+      dbSeq: seq,
+    });
   }
 
   /**
@@ -2148,6 +2213,11 @@ export class RelayServer extends EventEmitter {
       console.error(`[relay-server] Failed to persist tool_result event for task ${payload.taskId}:`, err);
     }
     this.emit('task:tool_trace', Object.assign(traceMsg, { _dbSeq: seq }));
+    this.publishToRedis({
+      eventType: 'tool_result', taskId: payload.taskId,
+      data: { toolName: payload.toolName, toolResult: payload.result, success: payload.success },
+      dbSeq: seq,
+    });
   }
 
   /**
@@ -2179,6 +2249,11 @@ export class RelayServer extends EventEmitter {
       console.error(`[relay-server] Failed to persist file_change event for task ${payload.taskId}:`, err);
     }
     this.emit('task:file_change', Object.assign(changeMsg, { _dbSeq: seq }));
+    this.publishToRedis({
+      eventType: 'file_change', taskId: payload.taskId,
+      data: { path: payload.path, action: payload.action, linesAdded, linesRemoved, diff: payload.diff },
+      dbSeq: seq,
+    });
   }
 
   /**
@@ -2200,6 +2275,11 @@ export class RelayServer extends EventEmitter {
       console.error(`[relay-server] Failed to persist session_init event for task ${payload.taskId}:`, err);
     }
     this.emit('task:session_init', Object.assign(initMsg, { _dbSeq: seq }));
+    this.publishToRedis({
+      eventType: 'session_init', taskId: payload.taskId,
+      data: { sessionId: payload.sessionId, model: payload.model },
+      dbSeq: seq,
+    });
   }
 
   /**
@@ -2272,6 +2352,14 @@ export class RelayServer extends EventEmitter {
       },
     };
     this.emit('task:result', resultMsg);
+    this.publishToRedis({
+      eventType: 'result', taskId,
+      data: {
+        status: resultMsg.result.status, output, error,
+        duration: resultMsg.result.duration,
+        branchName, prUrl, prNumber, deliveryStatus,
+      },
+    });
   }
 
   // ============================================================================

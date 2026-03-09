@@ -36,6 +36,7 @@ import { runMigrations } from './lib/db/migrate.js'
 import { closeDb } from '../packages/core/src/db/index.js'
 import { relayServer } from './lib/relay-server.js'
 import { redisPubSub } from './lib/redis-pubsub.js'
+import { initRedisEventBridge } from './lib/redis-event-bridge.js'
 import { machineRegistry } from './lib/machine-registry.js'
 import { dispatchEngine } from './lib/dispatch/index.js'
 import { updateMachineConnectionStatus, ensureMachineRegistered, resetAllConnectionStatuses, getMachine } from './lib/registered-machines-store.js'
@@ -386,6 +387,11 @@ async function start() {
         }
       })
     }
+
+    // Bridge executionEventBus → Redis for cross-instance delivery.
+    // Works in both single-instance (no-ops) and multi-instance (publishes).
+    // Must be called after Redis connects but before any events can fire.
+    initRedisEventBridge()
 
     // Start WebSocket relay server
     relayServer.start(relayPort)

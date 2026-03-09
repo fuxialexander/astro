@@ -22,6 +22,7 @@ const CHANNELS = {
   TASK_STATE: 'relay:task:state',
   TASK_DISPATCH: 'relay:task:dispatch',
   TASK_CANCEL: 'relay:task:cancel',
+  TASK_STREAMING: 'relay:task:streaming',
 } as const;
 
 /** Redis keys for shared state */
@@ -48,11 +49,28 @@ interface TaskCancelEvent {
   reason?: string;
 }
 
+/** Streaming event types bridged via Redis */
+export type StreamingEventType =
+  | 'text' | 'tool_use' | 'tool_result' | 'file_change'
+  | 'session_init' | 'progress' | 'result'
+  | 'node_status_changed' | 'task_init' | 'task_ready';
+
+/** Message published for cross-instance streaming event delivery */
+export interface StreamingEventMessage {
+  instanceId: string;
+  eventType: StreamingEventType;
+  taskId: string;
+  userId?: string;
+  data: Record<string, unknown>;
+  dbSeq?: number;
+}
+
 export interface RedisPubSubEvents {
   'machine:state': (event: MachineStateChangeEvent) => void;
   'task:state': (event: TaskStateChangeEvent) => void;
   'task:dispatch': (event: TaskDispatchEvent) => void;
   'task:cancel': (event: TaskCancelEvent) => void;
+  'task:streaming': (event: StreamingEventMessage) => void;
   'error': (error: Error) => void;
   'connected': () => void;
   'disconnected': () => void;
@@ -63,6 +81,7 @@ export class RedisPubSub extends EventEmitter {
   private subscriber: Redis | null = null;
   private instanceId: string;
   private connected: boolean = false;
+  private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     super();
@@ -115,7 +134,8 @@ export class RedisPubSub extends EventEmitter {
         CHANNELS.MACHINE_STATE,
         CHANNELS.TASK_STATE,
         CHANNELS.TASK_DISPATCH,
-        CHANNELS.TASK_CANCEL
+        CHANNELS.TASK_CANCEL,
+        CHANNELS.TASK_STREAMING
       );
 
       // Handle incoming messages
@@ -140,6 +160,11 @@ export class RedisPubSub extends EventEmitter {
    * Disconnect from Redis
    */
   async disconnect(): Promise<void> {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+
     if (this.publisher) {
       await this.unregisterInstance();
       await this.publisher.quit();
@@ -204,6 +229,25 @@ export class RedisPubSub extends EventEmitter {
       userId,
     };
     await this.publish(CHANNELS.TASK_DISPATCH, event);
+  }
+
+  /**
+   * Publish a streaming event for cross-instance SSE delivery.
+   *
+   * Unlike `publish()`, this method is a no-op when Redis is disconnected
+   * (single-instance mode). Streaming events already reach local SSE clients
+   * via the in-process EventEmitter path (relay-server → events.ts handlers),
+   * so publishing locally would cause duplicate delivery. The private
+   * `publish()` method includes a local fallback because infrastructure events
+   * (machine state, task dispatch/cancel) have no other delivery path in
+   * single-instance mode.
+   */
+  async publishStreamingEvent(
+    event: Omit<StreamingEventMessage, 'instanceId'>
+  ): Promise<void> {
+    if (!this.publisher) return;
+    const msg: StreamingEventMessage = { ...event, instanceId: this.instanceId };
+    await this.publisher.publish(CHANNELS.TASK_STREAMING, JSON.stringify(msg));
   }
 
   /**
@@ -388,6 +432,10 @@ export class RedisPubSub extends EventEmitter {
       case CHANNELS.TASK_CANCEL:
         this.emit('task:cancel', data as TaskCancelEvent);
         break;
+
+      case CHANNELS.TASK_STREAMING:
+        this.emit('task:streaming', data as StreamingEventMessage);
+        break;
     }
   }
 
@@ -409,13 +457,17 @@ export class RedisPubSub extends EventEmitter {
       60 // 1 minute TTL, refreshed by heartbeat
     );
 
-    // Set up instance heartbeat
-    setInterval(async () => {
-      if (this.publisher) {
-        await this.publisher.expire(
-          `${KEYS.INSTANCE_ID}${this.instanceId}`,
-          60
-        );
+    // Set up instance heartbeat (cleared on disconnect)
+    this.heartbeatInterval = setInterval(async () => {
+      try {
+        if (this.publisher) {
+          await this.publisher.expire(
+            `${KEYS.INSTANCE_ID}${this.instanceId}`,
+            60
+          );
+        }
+      } catch (err) {
+        console.error('[redis] Heartbeat refresh failed:', err);
       }
     }, 30000); // Every 30 seconds
   }
