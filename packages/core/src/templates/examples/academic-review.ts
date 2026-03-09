@@ -91,9 +91,21 @@ export const academicReviewTemplate: UseCaseTemplate = {
         'External link to fetch the paper from. Leave blank if the file is already in the working directory.',
       type: 'string',
       required: false,
+      prominent: true,
       placeholder: 'https://arxiv.org/abs/XXXX.XXXXX',
       group: 'source',
       order: 3,
+    },
+    {
+      id: 'customRequirements',
+      name: 'Custom Requirements',
+      description: 'Additional instructions about your compute environment, emphasis areas, or task-specific notes. Use this to guide the agent\'s behavior or review focus.',
+      type: 'textarea',
+      required: false,
+      prominent: true,
+      placeholder: 'e.g., Machine has no LaTeX — use Markdown→PDF instead\nFocus on statistical methodology, compare with recent NeurIPS papers',
+      group: 'source',
+      order: 4,
     },
 
     // ── Review focus ──
@@ -209,6 +221,7 @@ export const academicReviewTemplate: UseCaseTemplate = {
 - Document Type: {{documentType}}
 - Source Format: {{sourceFormat}}
 - Paper Link: {{paperLink}}
+- Custom Requirements: {{customRequirements}}
 - Review Depth: {{reviewDepth}}
 - Reviewer Expertise: {{reviewerExpertise}}
 - Focus Areas: {{focusAreas}}
@@ -306,6 +319,7 @@ Save ALL output files (reports, diagrams, notes, PDFs) under the \`outputs/\` di
 - Document Type: {{documentType}}
 - Source Format: {{sourceFormat}}
 - Paper Link: {{paperLink}}
+- Custom Requirements: {{customRequirements}}
 - Review Depth: {{reviewDepth}}
 - Focus Areas: {{focusAreas}}
 - Target Venue: {{targetVenue}}

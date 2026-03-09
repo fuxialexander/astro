@@ -920,6 +920,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         },
         onDone: (newSessionId) => {
           if (newSessionId) get().setProviderSessionId(sid, newSessionId)
+          // Store raw text only — tool context is already in taskOutput;
+          // appending tool summaries here would pollute conversation history
+          // sent to the LLM on subsequent turns
           get().addMessage(sid, { role: "assistant", content: rawText })
 
           chatAbortControllers.delete(sid)

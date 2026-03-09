@@ -70,6 +70,17 @@ export const moatFragilityTemplate: UseCaseTemplate = {
       group: 'source',
       order: 2,
     },
+    {
+      id: 'customRequirements',
+      name: 'Custom Requirements',
+      description: 'Additional instructions about your compute environment, emphasis areas, or task-specific notes. Use this to guide the agent\'s behavior or analysis focus.',
+      type: 'textarea',
+      required: false,
+      prominent: true,
+      placeholder: 'e.g., No internet access — use only provided filings\nFocus on AI/cloud segment, compare capital allocation strategies',
+      group: 'source',
+      order: 3,
+    },
 
     // ── Analysis group ──
     {
@@ -142,6 +153,7 @@ export const moatFragilityTemplate: UseCaseTemplate = {
 - Ticker Symbol: {{tickerSymbol}}
 - Comparison Tickers: {{comparisonTickers}}
 - Supplementary Documents: {{supplementaryDocs}}
+- Custom Requirements: {{customRequirements}}
 - Analysis Depth: {{analysisDepth}}
 - Time Horizon: {{timeHorizon}}
 - Sector Context: {{sectorFocus}}
@@ -237,6 +249,7 @@ Save ALL output files (reports, data files, charts, PDFs) under the \`outputs/\`
 ## Context
 - Ticker Symbol: {{tickerSymbol}}
 - Comparison Tickers: {{comparisonTickers}}
+- Custom Requirements: {{customRequirements}}
 - Analysis Depth: {{analysisDepth}}
 - Time Horizon: {{timeHorizon}}
 - Sector Context: {{sectorFocus}}

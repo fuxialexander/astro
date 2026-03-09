@@ -571,7 +571,7 @@ export function UnifiedActivityView({
           onDone: (newSessionId) => {
             if (newSessionId) setProviderSessionId(sid, newSessionId)
             chatStreamRef.current = { streamId: '', lastSeq: 0 }
-            // Store full text in session for conversation history
+            // Store raw text only — tool context is already in taskOutput
             addMessage(sid, { role: "assistant", content: rawText })
             flushChatEvents()
             setIsChatStreaming(false)

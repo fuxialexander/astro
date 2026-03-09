@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link } from "react-router"
-import { ChevronDown, ChevronRight, Sparkles, Play, Clock, FileText, Cpu, ExternalLink, AlertCircle, ArrowRight } from "lucide-react"
+import { ChevronDown, ChevronRight, Sparkles, Play, Clock, FileText, Cpu, AlertCircle, ArrowRight } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -184,17 +184,24 @@ function ProjectGroup({
 
   return (
     <div className="rounded-xl border border-border/60 bg-card overflow-hidden shadow-[0_1px_8px_-2px_rgba(0,0,0,0.08)] hover:shadow-[0_4px_16px_-4px_rgba(0,0,0,0.1)] transition-shadow duration-200">
-      {/* Project header */}
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
+      {/* Project header — clicking navigates to project; chevron toggles expand */}
+      <Link
+        to={`/project/${projectId}`}
         className="flex items-center gap-3 w-full px-4 py-3 hover:bg-muted/30 transition-colors text-left"
       >
-        {expanded ? (
-          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
-        ) : (
-          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-        )}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setExpanded(!expanded) }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setExpanded(!expanded) } }}
+          className="shrink-0 p-0.5 -m-0.5 rounded hover:bg-muted/50 transition-colors cursor-pointer"
+        >
+          {expanded ? (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          )}
+        </div>
         <div
           className="h-2.5 w-2.5 rounded-full shrink-0"
           style={{ backgroundColor: projectColor || "#3B82F6" }}
@@ -202,18 +209,10 @@ function ProjectGroup({
         <span className="text-sm font-semibold text-foreground flex-1 truncate">
           {projectName}
         </span>
-        <Link
-          to={`/project/${projectId}`}
-          onClick={(e) => e.stopPropagation()}
-          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors shrink-0"
-          title="Go to project"
-        >
-          <ExternalLink className="h-3 w-3" />
-        </Link>
         <span className="text-xs text-muted-foreground tabular-nums">
           {tasks.length} active
         </span>
-      </button>
+      </Link>
 
       {/* Task list */}
       {expanded && (
@@ -248,6 +247,10 @@ export function ActiveTasks() {
       // (completed, auto_verified, etc.), the execution is no longer active
       // even if the execution record still says "running" (e.g., after page refresh)
       if (node && TERMINAL_NODE_STATUSES.has(node.status)) continue
+
+      // Filter out orphaned executions: regular tasks (not plan/playground) with no
+      // matching node are stale remnants from crashed jobs or page refresh artifacts
+      if (!isPlanSession && !isPlayground && !node) continue
 
       const projectId = exec.projectId || node?.projectId
       if (!projectId) continue
