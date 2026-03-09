@@ -437,13 +437,14 @@ export function Playground() {
     setSending(true)
     setPendingSteerText(text)
 
-    if (execution?.executionId) {
-      addSteerMessage(execution.executionId, text)
-    }
-
     try {
       const ok = await steerPlaygroundSession(activeProjectId, text)
-      if (!ok) {
+      if (ok) {
+        // Steer succeeded — add to activity feed
+        if (execution?.executionId) {
+          addSteerMessage(execution.executionId, text)
+        }
+      } else {
         // Steer failed (provider may not support it) — queue for follow-up chat
         setQueuedMessage(text)
       }
@@ -509,12 +510,14 @@ export function Playground() {
   const prevIsRunning = useRef(isRunning)
   useEffect(() => {
     if (prevIsRunning.current && !isRunning && queuedMessage) {
-      // Execution just finished — send the queued message as a follow-up chat
-      handleChat(queuedMessage)
-      setQueuedMessage(null)
+      // Only send if chat preconditions are met; otherwise keep in queue for next render
+      if (chatSession && activeProjectId && !isChatStreaming) {
+        handleChat(queuedMessage)
+        setQueuedMessage(null)
+      }
     }
     prevIsRunning.current = isRunning
-  }, [isRunning, queuedMessage, handleChat])
+  }, [isRunning, queuedMessage, handleChat, chatSession, activeProjectId, isChatStreaming])
 
   // Handle approval response
   const handleApprovalResponse = useCallback(async (requestId: string, answer: string) => {
