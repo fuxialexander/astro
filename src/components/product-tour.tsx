@@ -21,7 +21,7 @@ export function ProductTour() {
         popover: {
           title: "Environments",
           description:
-            "Your connected machines appear here. Astro auto-detects compute backends like K8s, Docker, and SSH.",
+            "Your connected machines appear here. Each machine can run AI agent sessions in any working directory.",
         },
       },
       {

@@ -60,6 +60,7 @@ temp/
 docs/
 *.md
 !README.md
+!skills/machine_instruction_presets/*.md
 
 # Project-specific dev files
 .plan.md

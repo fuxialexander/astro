@@ -29,6 +29,7 @@ import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction } from '../lib/prompt-templates.js'
+import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
 import { extractPlanJsonFromText } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { autoDispatchDownstream } from './data.js'
@@ -781,6 +782,10 @@ async function dispatchViaRelay(
     } catch (err) {
       console.warn('[dispatch] Failed to fetch machine instruction:', err instanceof Error ? err.message : String(err))
     }
+  }
+  // Fallback: use built-in default compute guide (loaded from skills/machine_instruction_presets/)
+  if (!skillsInjection) {
+    skillsInjection = DEFAULT_MACHINE_INSTRUCTION_FORMATTED
   }
 
   if (isInteractivePlan) {

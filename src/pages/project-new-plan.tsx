@@ -796,7 +796,7 @@ export function ProjectNewPlan() {
                 }
               }}
               onPaste={handleGoalPaste}
-              placeholder="What do you want to build or accomplish?"
+              placeholder={"What do you want to build or accomplish?\n\ne.g. \"Address issue #42 in my repo\" or \"SSH to the HPC cluster, fine-tune Llama-3 on my dataset, then evaluate on GSM8K locally\""}
               rows={5}
               autoFocus
               className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
@@ -841,7 +841,7 @@ export function ProjectNewPlan() {
           {/* Machine selector */}
           {(isServerMode() || allMachines.length > 0) && (
             <div className="flex flex-col gap-1.5">
-              <span className="text-xs text-muted-foreground">Optionally choose a machine:</span>
+              <span className="text-xs text-muted-foreground">Select a machine and an AI agent on it:</span>
               <div className="flex flex-wrap gap-2">
               {allMachines.map((m) => {
                 const reg = registeredMachines.find((r) => r.id === m.machineId)
@@ -871,6 +871,11 @@ export function ProjectNewPlan() {
                 )
               })}
               </div>
+              {allMachines.length > 1 && (
+                <p className="text-[11px] text-muted-foreground">
+                  For multi-machine jobs, describe the compute setup in your prompt (e.g. &quot;SSH to the HPC node and submit a Slurm job&quot;).
+                </p>
+              )}
             </div>
           )}
 
@@ -916,6 +921,7 @@ export function ProjectNewPlan() {
           {/* Working directory — only shown when a machine is selected */}
           {selectedMachine && (
             <div className="animate-reveal flex flex-col gap-2">
+              <span className="text-xs text-muted-foreground">Working directory (optional — required for execution):</span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"

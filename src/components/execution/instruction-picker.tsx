@@ -139,7 +139,7 @@ function InstructionPickerContent({
         )}
         onClick={() => onSelect(null)}
       >
-        <span className="flex-1 text-left text-muted-foreground">None</span>
+        <span className="flex-1 text-left text-muted-foreground">Default (Compute Guide)</span>
         {!currentInstructionId && <Check className="h-3.5 w-3.5 text-primary" />}
       </button>
 

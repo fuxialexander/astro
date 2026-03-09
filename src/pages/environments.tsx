@@ -39,6 +39,7 @@ import { compactGpuName } from "@/lib/utils"
 import { useToastStore } from "@/stores/toast-store"
 import { PROVIDER_NAMES as providerDisplayName } from "@/components/execution/provider-utils"
 import type { MachineInstruction } from "@/types"
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 
 function StatCard({ label, value, icon: Icon, iconBg, iconColor }: {
   label: string
@@ -856,8 +857,11 @@ export function Environments() {
                     </button>
                     {isExpanded && (
                       <div className="px-4 pb-4">
-                        <div className="rounded-lg bg-muted/50 p-3 text-sm whitespace-pre-wrap font-mono text-xs leading-relaxed max-h-[300px] overflow-y-auto">
-                          {instruction.content || <span className="text-muted-foreground italic">No content</span>}
+                        <div className="rounded-lg bg-muted/50 p-3 text-sm leading-relaxed max-h-[300px] overflow-y-auto">
+                          {instruction.content
+                            ? <MarkdownRenderer content={instruction.content} className="text-xs" />
+                            : <span className="text-muted-foreground italic">No content</span>
+                          }
                         </div>
                       </div>
                     )}
