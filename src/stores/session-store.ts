@@ -860,7 +860,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     let rawText = ""
     let chatToolCounter = 0
-    const toolSummaries: string[] = []
 
     // Push user event
     useRealtimeStore.getState().pushActivityEvent(sid, {
@@ -901,14 +900,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         },
         onToolUse: (data) => {
           chatToolCounter++
-          // Track tool use for enriched history (fallback when session resume unavailable)
-          const inputSummary = typeof data.toolInput === 'object' && data.toolInput
-            ? (data.toolInput as Record<string, unknown>).file_path
-              || (data.toolInput as Record<string, unknown>).command
-              || (data.toolInput as Record<string, unknown>).pattern
-              || ''
-            : ''
-          toolSummaries.push(`[Used ${data.toolName}${inputSummary ? `: ${String(inputSummary).slice(0, 200)}` : ''}]`)
           useRealtimeStore.getState().pushActivityEvent(sid, {
             type: 'tool_use',
             id: `chat-tool-${chatToolCounter}`,
@@ -929,11 +920,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         },
         onDone: (newSessionId) => {
           if (newSessionId) get().setProviderSessionId(sid, newSessionId)
-          // Store enriched message: text + tool summaries for fallback history
-          const content = toolSummaries.length > 0
-            ? `${rawText}\n\n${toolSummaries.join('\n')}`
-            : rawText
-          get().addMessage(sid, { role: "assistant", content })
+          // Store raw text only — tool context is already in taskOutput;
+          // appending tool summaries here would pollute conversation history
+          // sent to the LLM on subsequent turns
+          get().addMessage(sid, { role: "assistant", content: rawText })
 
           chatAbortControllers.delete(sid)
           set((state) => {

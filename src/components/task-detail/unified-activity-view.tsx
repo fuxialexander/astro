@@ -504,19 +504,9 @@ export function UnifiedActivityView({
       .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
 
-    // Track tool uses for enriched history (fallback when session resume unavailable)
-    const chatToolSummaries: string[] = []
-
     // Shared callback helpers for both live stream and catch-up replay
     const handleToolUse = (data: { toolName: string; toolInput: unknown }) => {
       const id = `chat-tool-${++chatToolCounterRef.current}`
-      const inputSummary = typeof data.toolInput === 'object' && data.toolInput
-        ? (data.toolInput as Record<string, unknown>).file_path
-          || (data.toolInput as Record<string, unknown>).command
-          || (data.toolInput as Record<string, unknown>).pattern
-          || ''
-        : ''
-      chatToolSummaries.push(`[Used ${data.toolName}${inputSummary ? `: ${String(inputSummary).slice(0, 200)}` : ''}]`)
       pushChatEvent({
         type: 'tool_use',
         id,
@@ -581,11 +571,8 @@ export function UnifiedActivityView({
           onDone: (newSessionId) => {
             if (newSessionId) setProviderSessionId(sid, newSessionId)
             chatStreamRef.current = { streamId: '', lastSeq: 0 }
-            // Store enriched message: text + tool summaries for fallback history
-            const content = chatToolSummaries.length > 0
-              ? `${rawText}\n\n${chatToolSummaries.join('\n')}`
-              : rawText
-            addMessage(sid, { role: "assistant", content })
+            // Store raw text only — tool context is already in taskOutput
+            addMessage(sid, { role: "assistant", content: rawText })
             flushChatEvents()
             setIsChatStreaming(false)
           },
