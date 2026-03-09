@@ -485,7 +485,7 @@ export interface DispatchEngineConfig {
  */
 export const DEFAULT_DISPATCH_CONFIG: DispatchEngineConfig = {
   autoDispatch: true,
-  maxConcurrentPerProject: 1,
+  maxConcurrentPerProject: 4,
   maxConcurrentTotal: 20,
   defaultPriority: 'normal',
   defaultMaxRetries: 2,

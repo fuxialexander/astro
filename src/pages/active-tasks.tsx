@@ -229,7 +229,9 @@ function ProjectGroup({
 export function ActiveTasks() {
   const executions = useExecutionStore((s) => s.executions)
   const projects = useProjectStore((s) => s.projects)
+  const projectsLoaded = useProjectStore((s) => s.loaded)
   const rawNodes = usePlanStore((s) => s.nodes)
+  const nodesLoaded = usePlanStore((s) => s.loaded)
   const nodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
 
   // Build active task list from executions
@@ -241,16 +243,18 @@ export function ActiveTasks() {
       if (exec.status !== "pending" && exec.status !== "running") continue
       const isPlanSession = nodeId.startsWith("plan-")
       const isPlayground = nodeId.startsWith("playground-")
-      const node = (isPlanSession || isPlayground) ? undefined : nodes.find((n) => n.id === nodeId)
+      // Use rawNodes for title resolution (not isLive-filtered) to find nodes that
+      // might be soft-deleted but still have active executions
+      const node = (isPlanSession || isPlayground) ? undefined : rawNodes.find((n) => n.id === nodeId)
 
       // Filter out stale executions: if the node has a terminal status
       // (completed, auto_verified, etc.), the execution is no longer active
       // even if the execution record still says "running" (e.g., after page refresh)
       if (node && TERMINAL_NODE_STATUSES.has(node.status)) continue
 
-      // Filter out orphaned executions: regular tasks (not plan/playground) with no
-      // matching node are stale remnants from crashed jobs or page refresh artifacts
-      if (!isPlanSession && !isPlayground && !node) continue
+      // Don't filter out orphaned executions when stores haven't loaded yet —
+      // the node may exist in the DB but not yet in the Zustand store
+      if (!isPlanSession && !isPlayground && !node && nodesLoaded) continue
 
       const projectId = exec.projectId || node?.projectId
       if (!projectId) continue
@@ -262,7 +266,7 @@ export function ActiveTasks() {
           const proj = projects.find((p) => p.id === projectId)
           return proj?.name || "Playground Session"
         }
-        return node?.title || `Task ${nodeId.slice(0, 8)}`
+        return node?.title || (nodesLoaded ? `Task ${nodeId.slice(0, 8)}` : "Loading…")
       }
 
       const task: ActiveTask = {
@@ -303,7 +307,7 @@ export function ActiveTasks() {
     for (const tasks of taskMap.values()) count += tasks.length
 
     return { groupedTasks: taskMap, totalCount: count }
-  }, [executions, nodes, projects])
+  }, [executions, rawNodes, nodes, projects, nodesLoaded])
 
   // Sort projects: those with more active tasks first
   const sortedProjects = useMemo(() => {
@@ -312,13 +316,13 @@ export function ActiveTasks() {
         const project = projects.find((p) => p.id === projectId)
         return {
           projectId,
-          projectName: project?.name || `Project ${projectId.slice(0, 8)}`,
+          projectName: project?.name || (projectsLoaded ? `Project ${projectId.slice(0, 8)}` : "Loading…"),
           projectColor: project?.color,
           tasks,
         }
       })
       .sort((a, b) => b.tasks.length - a.tasks.length)
-  }, [groupedTasks, projects])
+  }, [groupedTasks, projects, projectsLoaded])
 
   return (
     <div className="flex flex-col h-full">

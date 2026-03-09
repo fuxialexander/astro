@@ -891,9 +891,9 @@ export async function autoDispatchDownstream(projectId: string, completedNodeId:
     }
   }
 
-  // Stagger dispatch with 15s delay between each to avoid
+  // Stagger dispatch with a short delay between each to avoid
   // overwhelming the system when many downstream tasks become ready at once
-  const STAGGER_DELAY_MS = 15_000
+  const STAGGER_DELAY_MS = 5_000
   readyIds.forEach((downId, index) => {
     const dispatch = () => {
       // Server-side dispatch (works even if browser disconnected)

@@ -185,7 +185,11 @@ eventsRoute.get('/stream', async (c) => {
 
     const onTaskResult = (msg: TaskResultMessage) => {
       if (!alive) return
-      if (activeDispatchStreams.has(msg.result.taskId)) return
+      // NOTE: Do NOT suppress task:result via activeDispatchStreams.
+      // task:result is a terminal event — if the dispatch SSE dies (browser navigation,
+      // tab backgrounding, network blip), the result must still reach the browser via
+      // the global SSE. The frontend deduplicates via plan fingerprinting and execution
+      // status checks. Suppressing this was the root cause of "plan page stays stuck".
       if (!isTaskOwnedByUser(msg.result.taskId)) return
       const data = JSON.stringify({
         taskId: msg.result.taskId,

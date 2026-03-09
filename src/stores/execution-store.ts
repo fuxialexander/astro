@@ -731,9 +731,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       return { batchExecutions: newBatch }
     })
 
-    // Dispatch ready nodes with staggered delay (15s between each) to avoid
+    // Dispatch ready nodes with a short staggered delay between each to avoid
     // overwhelming the system when many tasks become ready simultaneously
-    const STAGGER_DELAY_MS = 15_000
+    const STAGGER_DELAY_MS = 5_000
     readyNodes.forEach((node, index) => {
       if (index === 0) {
         get().startExecution(node.id, projectId, options)
