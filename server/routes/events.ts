@@ -675,6 +675,10 @@ eventsRoute.get('/stream', async (c) => {
           stream.writeSSE({ id, event: 'task:ready', data }).catch(() => { alive = false })
           break
         }
+        default:
+          // Unknown event type from Redis — ignore silently.
+          // New event types should be added as explicit cases above.
+          break
       }
     }
     redisPubSub.on('task:streaming', onRedisStreaming)

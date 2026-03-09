@@ -233,8 +233,14 @@ export class RedisPubSub extends EventEmitter {
 
   /**
    * Publish a streaming event for cross-instance SSE delivery.
-   * Only publishes when Redis is connected; in single-instance mode
-   * the local EventEmitter path handles delivery directly.
+   *
+   * Unlike `publish()`, this method is a no-op when Redis is disconnected
+   * (single-instance mode). Streaming events already reach local SSE clients
+   * via the in-process EventEmitter path (relay-server → events.ts handlers),
+   * so publishing locally would cause duplicate delivery. The private
+   * `publish()` method includes a local fallback because infrastructure events
+   * (machine state, task dispatch/cancel) have no other delivery path in
+   * single-instance mode.
    */
   async publishStreamingEvent(
     event: Omit<StreamingEventMessage, 'instanceId'>
