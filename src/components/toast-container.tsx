@@ -13,10 +13,10 @@ function ToastCard({ toast }: { toast: Toast }) {
   }
 
   const styles = {
-    info: "border-info/40 bg-info/5",
-    success: "border-success/40 bg-success/5",
-    warning: "border-warning/40 bg-warning/5",
-    error: "border-error/40 bg-error/5",
+    info: "border-info/60",
+    success: "border-success/60",
+    warning: "border-warning/60",
+    error: "border-error/60",
   }
 
   const iconStyles = {
@@ -31,7 +31,7 @@ function ToastCard({ toast }: { toast: Toast }) {
   return (
     <div
       className={cn(
-        "rounded-lg border bg-card shadow-lg overflow-hidden transition-all",
+        "rounded-lg border bg-background shadow-lg overflow-hidden transition-all",
         styles[toast.type]
       )}
     >
