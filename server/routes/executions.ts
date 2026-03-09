@@ -75,6 +75,11 @@ executionsRoute.post('/:executionId/verify', async (c) => {
     return c.json({ error: 'Execution not found or access denied' }, 404)
   }
 
+  // Verifier must differ from the original executor to ensure independent review
+  if (execution.userId && execution.userId === user.id) {
+    return c.json({ error: 'Cannot verify your own execution' }, 403)
+  }
+
   const body = await c.req.json<{ note?: string }>().catch(() => ({}))
 
   const [updated] = await db
@@ -139,6 +144,11 @@ executionsRoute.post('/:executionId/skip', async (c) => {
   const execution = await getAuthorizedExecution(executionId, user)
   if (!execution) {
     return c.json({ error: 'Execution not found or access denied' }, 404)
+  }
+
+  // Verifier must differ from the original executor to ensure independent review
+  if (execution.userId && execution.userId === user.id) {
+    return c.json({ error: 'Cannot skip verification of your own execution' }, 403)
   }
 
   const body = await c.req.json<{ note?: string }>().catch(() => ({}))

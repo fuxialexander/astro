@@ -16,6 +16,7 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js'
 
 const VALID_ROLES = ['owner', 'editor', 'viewer'] as const
 type ProjectMemberRole = (typeof VALID_ROLES)[number]
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const projectMembersRoute = new Hono()
 
@@ -46,6 +47,7 @@ async function verifyProjectOwner(projectId: string, userId: string) {
 projectMembersRoute.get('/:projectId/members', async (c) => {
   const user = c.get('user')! as AuthUser
   const projectId = c.req.param('projectId')
+  if (!UUID_RE.test(projectId)) return c.json({ error: 'Invalid project ID' }, 400)
 
   // Verify the project exists
   const [project] = await db
@@ -125,6 +127,7 @@ projectMembersRoute.get('/:projectId/members', async (c) => {
 projectMembersRoute.post('/:projectId/members', async (c) => {
   const user = c.get('user')! as AuthUser
   const projectId = c.req.param('projectId')
+  if (!UUID_RE.test(projectId)) return c.json({ error: 'Invalid project ID' }, 400)
 
   const project = await verifyProjectOwner(projectId, user.id)
   if (!project) {
@@ -136,6 +139,7 @@ projectMembersRoute.post('/:projectId/members', async (c) => {
   if (!body.userId || typeof body.userId !== 'string') {
     return c.json({ error: 'userId is required' }, 400)
   }
+  if (!UUID_RE.test(body.userId)) return c.json({ error: 'Invalid user ID' }, 400)
 
   const role = (body.role ?? 'viewer') as ProjectMemberRole
   if (!VALID_ROLES.includes(role)) {
@@ -175,6 +179,8 @@ projectMembersRoute.delete('/:projectId/members/:userId', async (c) => {
   const user = c.get('user')! as AuthUser
   const projectId = c.req.param('projectId')
   const targetUserId = c.req.param('userId')
+  if (!UUID_RE.test(projectId)) return c.json({ error: 'Invalid project ID' }, 400)
+  if (!UUID_RE.test(targetUserId)) return c.json({ error: 'Invalid user ID' }, 400)
 
   const project = await verifyProjectOwner(projectId, user.id)
   if (!project) {
@@ -208,6 +214,8 @@ projectMembersRoute.patch('/:projectId/members/:userId', async (c) => {
   const user = c.get('user')! as AuthUser
   const projectId = c.req.param('projectId')
   const targetUserId = c.req.param('userId')
+  if (!UUID_RE.test(projectId)) return c.json({ error: 'Invalid project ID' }, 400)
+  if (!UUID_RE.test(targetUserId)) return c.json({ error: 'Invalid user ID' }, 400)
 
   const project = await verifyProjectOwner(projectId, user.id)
   if (!project) {
