@@ -71,7 +71,7 @@ Frontend: execution-store.ts
   ├─ Parses SSE via parseExecutionSSE()
   ├─ Updates UI (task-output-view, tool-trace-view)
   ├─ On disconnect: catch-up from streaming_events DB
-  ├─ On page refresh: useRestoredExecution() 3-layer merge
+  ├─ On page refresh: useRestoredExecution() streaming catch-up
   └─ On completion: updates plan-store node status
   ↓
 Backend: Result writeback

@@ -47,8 +47,7 @@ Here is what happens, in order:
    - `merge-queue` -- Automatically manage merge queues for completed PRs
    - `git-pull` -- Automatically commit and push code changes
    - `channel-notification` -- Send notifications to Slack, Linear, or Telegram via webhooks
-   - `observability` -- Send tracing data to Langfuse (a tool for monitoring AI application behavior)
-   - `langfuse-export` -- (conditional) Export trace data to Langfuse for external observability
+   - `observability` -- Collect structured trace data for the trace viewer and cost tracking
 
 5. **Reset machine connections** -- `resetAllConnectionStatuses()` clears stale state from the previous session. If the server crashed while machines were marked as "connected," this ensures they start fresh and must re-register.
 
@@ -530,7 +529,7 @@ The following diagram shows the complete path an event takes from an Agent Runne
 │                 ├──► PR creation (auto-create GitHub PRs)         │
 │                 ├──► Git pull (auto-commit changes)               │
 │                 ├──► Channel notification (Slack/Linear)          │
-│                 └──► Observability (Langfuse tracing)             │
+│                 └──► Observability (structured tracing)            │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -654,7 +653,7 @@ The observation collector subscribes to the execution event bus (see section 6.2
 - `task:file_change` -- The AI modified a file
 - `task:progress` -- Progress update
 
-The collector groups these raw events into **turns** -- a turn is one round of the AI conversation. This matches Langfuse's "generation" model (Langfuse is a third-party tool for monitoring AI applications). The turn structure looks like this:
+The collector groups these raw events into **turns** -- a turn is one round of the AI conversation. Each turn becomes a "generation" observation. The turn structure looks like this:
 
 ```
 Turn 0: [initial context] -> assistant produces text + tool_calls
@@ -668,12 +667,6 @@ Each turn becomes a "generation observation" with:
 - `input`: `{ turnIndex, toolResults }` (what the AI received)
 - `output`: `{ text, toolCalls }` (what the AI produced)
 - Tool observations are linked as children via `parentObservationId`, creating a tree structure that shows which tools were called during which turn
-
-### 9.2 Langfuse Exporter (`server/lib/observability/langfuse-exporter.ts`)
-
-The Langfuse exporter takes the structured observations from the collector and batch-exports them to Langfuse (an external observability platform). It is registered as a hook on `astroEventTransport`, meaning it runs automatically whenever relevant events occur.
-
-Langfuse provides a web UI where you can browse traces, see token usage, compare prompt versions, and debug AI behavior -- capabilities that would be impractical to build from scratch.
 
 ---
 

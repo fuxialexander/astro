@@ -1375,7 +1375,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         data: JSON.stringify(resultData),
       }).catch(() => { alive = false })
 
-      // Emit task.completed AstroEvent for observability hooks (observation collector, usage metrics, langfuse)
+      // Emit task.completed AstroEvent for observability hooks (observation collector, usage metrics)
       const dispatchResult: DispatchTaskResult = {
         taskId: executionId,
         status: msg.result.status === 'completed' ? 'success' : 'failure',

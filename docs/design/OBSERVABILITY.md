@@ -18,7 +18,7 @@ The system operates across three storage layers, each serving different query pa
 |-------|-------|---------|-----------|
 | **Event Log** | `streaming_events` | Append-only SSE events | Page refresh recovery, catch-up hydration, activity replay |
 | **Execution Summary** | `taskExecutions` | Per-execution cost/status record | Cost dashboards, usage metrics, project totals |
-| **Structured Traces** | `observationEvents` | Turn-level generation tracking | Trace viewer, Langfuse export, turn-level analysis |
+| **Structured Traces** | `observationEvents` | Turn-level generation tracking | Trace viewer, turn-level analysis |
 
 ## 2. The 11 AI Pathways
 
@@ -39,7 +39,7 @@ Each pathway is classified by its execution model and observability depth:
 | P11 | Abort | `POST /api/agent/abort` | Steering | 0 | JSON | None |
 
 **Observability levels:**
-- **Full** — init event, session_init, per-turn text/tool/file events, result with metrics, taskExecutions record, observation traces (turn-level generations), Langfuse export
+- **Full** — init event, session_init, per-turn text/tool/file events, result with metrics, taskExecutions record, observation traces (turn-level generations)
 - **Standard** — init event, steer_message, text/tool events, result with metrics, taskExecutions record, metrics in SSE done event
 - **Minimal** — init event, result event (stored in streaming_events for trajectory), no SSE stream
 - **None** — No AI invocation, no events stored
@@ -189,13 +189,9 @@ sequenceDiagram
 ```mermaid
 flowchart TD
     A[Page loads / refresh] --> B[useRestoredExecution hook]
-    B --> C{streaming_events<br/>available?}
-    C -->|Yes| D[fetchStreamingEventsCatchUp<br/>GET /api/events/catch-up]
-    D --> E[Replay events via<br/>parseExecutionSSE / parseChatSSE]
-    E --> F[Activity view restored]
-    C -->|No / empty| G[observationStore.fetchTrace<br/>GET /api/observations/:traceId]
-    G --> H[reconstructActivityFromTrace<br/>observation-activity-bridge.ts]
-    H --> F
+    B --> C[fetchStreamingEventsCatchUp<br/>GET /api/events/catch-up]
+    C --> D[hydrateStreamingEvents<br/>streaming-event-hydrator.ts]
+    D --> E[Activity view restored]
 ```
 
 ### 3.6 Observation Collector Pipeline
@@ -223,7 +219,7 @@ flowchart TD
     subgraph "Outputs"
         OE[(observationEvents table)]
         MS[markdownSummary → taskExecutions]
-        LF[Langfuse export<br/>traces + spans + generations]
+        TV[Trace viewer<br/>spans + generations]
     end
 
     EE --> SI & TX & TU & TR & FC
@@ -328,7 +324,7 @@ Per-execution summary with cost metrics. Used for dashboards, project-level cost
 
 ### 4.3 observationEvents (Structured Traces)
 
-Turn-level generation tracking for deep analysis and Langfuse export. Created by the observation collector, not by the route handlers directly.
+Turn-level generation tracking for deep analysis. Created by the observation collector, not by the route handlers directly.
 
 **Schema:** `packages/core/src/db/schema.ts`
 
@@ -412,8 +408,7 @@ Per-user daily cost totals. Updated incrementally from the frontend.
 
 The `useRestoredExecution` hook tries two paths:
 
-1. **Primary:** `fetchStreamingEventsCatchUp([executionIds], lastSeq)` → `GET /api/events/catch-up` → replay via `parseExecutionSSE`/`parseChatSSE`
-2. **Fallback:** `observationStore.fetchTrace(traceId)` → `GET /api/observations/:traceId` → reconstruct via `reconstructActivityFromTrace()` bridge
+1. `fetchStreamingEventsCatchUp([executionIds], lastSeq)` → `GET /api/events/catch-up` → hydrate via `hydrateStreamingEvents()`
 
 ### 6.2 SSE Disconnect Catch-Up
 
@@ -450,7 +445,6 @@ The backend registers observability hooks on startup via `astroEventTransport`:
 |------|--------------|--------|
 | `observability` | Lifecycle + streaming events | Builds turn-level traces in `observationEvents`, generates markdown summaries |
 | `usage-metrics` | `task.completed` | Aggregates cost + tokens |
-| `langfuse` | Lifecycle + observation events | Exports to Langfuse (if `LANGFUSE_ENABLED=true`) |
 | `sse-notification` | All lifecycle events | Pushes to frontend via SSE |
 | `audit-log` | All lifecycle events | Writes audit trail |
 | Plus | PR creation, merge queue, git pull, channel notification, GitHub issue close, field sync, PR body update, project completion, PR auto-link | Various automation hooks |
@@ -486,7 +480,6 @@ The backend registers observability hooks on startup via `astroEventTransport`:
 | `server/routes/events.ts` | Global SSE relay (fallback after dispatch stream closes) |
 | `server/lib/streaming-event-log.ts` | Append-only event persistence with text buffering |
 | `server/lib/observability/observation-collector.ts` | Turn-based trace construction |
-| `server/lib/observability/langfuse-exporter.ts` | Langfuse export hook |
 | `server/lib/events/astro-event-transport.ts` | Lifecycle event bus |
 | `server/lib/events/hooks/usage-metrics-hook.ts` | Cost aggregation hook |
 | `server/routes/observations.ts` | Observation query API |
@@ -495,5 +488,4 @@ The backend registers observability hooks on startup via `astroEventTransport`:
 | `src/lib/sse-parser.ts` | SSE parsing with `onMetrics` callback |
 | `src/hooks/use-restored-execution.ts` | Page refresh recovery |
 | `src/components/activity-blocks.tsx` | Activity rendering |
-| `src/lib/observation-activity-bridge.ts` | Reconstruct activity from observations |
 | `packages/core/src/db/schema.ts` | All table schemas |

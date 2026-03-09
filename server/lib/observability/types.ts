@@ -1,8 +1,8 @@
 /**
  * Observability System - Type Definitions
  *
- * Langfuse-compatible observation types for structured tracing
- * of task executions across both lifecycle and streaming events.
+ * Observation types for structured tracing of task executions
+ * across both lifecycle and streaming events.
  */
 
 export type ObservationType = 'span' | 'generation' | 'tool' | 'event'
@@ -11,7 +11,7 @@ export type ObservationLevel = 'debug' | 'default' | 'warning' | 'error'
 export interface ObservationEvent {
   /** Time-prefixed UUID for chronological ordering */
   id: string
-  /** Root container ID (= executionId, like Langfuse's trace) */
+  /** Root container ID (= executionId) */
   traceId: string
   /** Parent observation ID for nesting (e.g., tool within a span) */
   parentObservationId?: string
@@ -54,9 +54,3 @@ export interface SafetyRailsConfig {
   deniedTools?: string[]
 }
 
-export interface LangfuseExportConfig {
-  enabled: boolean
-  baseUrl: string
-  publicKey: string
-  secretKey: string
-}

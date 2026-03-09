@@ -24,7 +24,7 @@ The design docs in `docs/design/` are the authoritative reference for the system
 | [USER_WORKFLOWS](./design/USER_WORKFLOWS.md) | End-to-end data flows for all user journeys |
 | [IMPLEMENTATION_PIPELINE](./design/IMPLEMENTATION_PIPELINE.md) | Implementation priorities and pipeline |
 | [COLLABORATION](./design/COLLABORATION.md) | Teams, public projects, content model, community review |
-| [REFRESH_ROBUSTNESS](./design/REFRESH_ROBUSTNESS.md) | Page-refresh recovery: three-layer architecture, data lifecycle on reset |
+| [REFRESH_ROBUSTNESS](./design/REFRESH_ROBUSTNESS.md) | Page-refresh recovery: two-layer architecture, data lifecycle on reset |
 | [FRONTEND_EPHEMERAL_CACHE](./design/FRONTEND_EPHEMERAL_CACHE.md) | Ephemeral auto-fetch for machine-derived metadata (file trees, skills) |
 | [PACKAGE_ARCHITECTURE](./design/PACKAGE_ARCHITECTURE.md) | Monorepo package structure: core, cli, server, agent-runner, desktop |
 | [TAURI_APP](./design/TAURI_APP.md) | Tauri desktop app vision, plugin system architecture, migration path |
