@@ -556,6 +556,7 @@ export function UnifiedActivityView({
           taskOutput: outputText,
           visionDoc: project?.visionDoc,
           model,
+          providerId: execution?.providerId || undefined,
           messages: historyMessages,
           branchName: execution?.branchName,
           prUrl: execution?.prUrl,
