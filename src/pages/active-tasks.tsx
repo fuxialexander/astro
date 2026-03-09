@@ -189,17 +189,19 @@ function ProjectGroup({
         to={`/project/${projectId}`}
         className="flex items-center gap-3 w-full px-4 py-3 hover:bg-muted/30 transition-colors text-left"
       >
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); setExpanded(!expanded) }}
-          className="shrink-0 p-0.5 -m-0.5 rounded hover:bg-muted/50 transition-colors"
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setExpanded(!expanded) } }}
+          className="shrink-0 p-0.5 -m-0.5 rounded hover:bg-muted/50 transition-colors cursor-pointer"
         >
           {expanded ? (
             <ChevronDown className="h-4 w-4 text-muted-foreground" />
           ) : (
             <ChevronRight className="h-4 w-4 text-muted-foreground" />
           )}
-        </button>
+        </div>
         <div
           className="h-2.5 w-2.5 rounded-full shrink-0"
           style={{ backgroundColor: projectColor || "#3B82F6" }}

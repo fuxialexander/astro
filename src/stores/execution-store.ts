@@ -2598,21 +2598,25 @@ function handleSSEEvent(
           }
         }
 
-        const completionTime = new Date()
-        if (isRealPlanNode(nodeId)) {
-          planStore.updateNode(nodeId, {
-            status: finalStatus,
-            executionOutput: execution?.streamText || parsed.output,
-            executionCompletedAt: completionTime,
-            // Update endDate with real execution completion time (ISO datetime)
-            endDate: completionTime.toISOString(),
-            // Set actualEndDate to capture final execution completion timestamp
-            actualEndDate: completionTime,
-            // Persist PR/branch metadata on the plan node
-            ...(parsed.branchName && { branchName: parsed.branchName }),
-            ...(parsed.prUrl && { prUrl: parsed.prUrl }),
-            ...(parsed.prNumber && { prNumber: parsed.prNumber }),
-          })
+        // Skip node updates and file tree refresh on duplicate result events
+        // (SSE reconnection catch-up would overwrite timestamps with new Date())
+        if (!alreadyCompleted) {
+          const completionTime = new Date()
+          if (isRealPlanNode(nodeId)) {
+            planStore.updateNode(nodeId, {
+              status: finalStatus,
+              executionOutput: execution?.streamText || parsed.output,
+              executionCompletedAt: completionTime,
+              // Update endDate with real execution completion time (ISO datetime)
+              endDate: completionTime.toISOString(),
+              // Set actualEndDate to capture final execution completion timestamp
+              actualEndDate: completionTime,
+              // Persist PR/branch metadata on the plan node
+              ...(parsed.branchName && { branchName: parsed.branchName }),
+              ...(parsed.prUrl && { prUrl: parsed.prUrl }),
+              ...(parsed.prNumber && { prNumber: parsed.prNumber }),
+            })
+          }
         }
 
         // Check if all tasks in the project are now complete
@@ -2650,19 +2654,21 @@ function handleSSEEvent(
           }
         }
 
-        // Refresh file tree cache after task completion
-        const projectForRefresh = useProjectStore.getState().projects.find(
-          (p) => p.id === execution?.projectId
-        )
-        if (projectForRefresh?.workingDirectory) {
-          fetch(apiUrl(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(projectForRefresh.workingDirectory)}`))
-            .then((r) => r.json())
-            .then((data) => {
-              if (data.files?.length) {
-                useProjectStore.getState().updateFileTree(projectForRefresh.id, data.files)
-              }
-            })
-            .catch(() => {})
+        // Refresh file tree cache after task completion (skip on duplicate replay)
+        if (!alreadyCompleted) {
+          const projectForRefresh = useProjectStore.getState().projects.find(
+            (p) => p.id === execution?.projectId
+          )
+          if (projectForRefresh?.workingDirectory) {
+            fetch(apiUrl(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(projectForRefresh.workingDirectory)}`))
+              .then((r) => r.json())
+              .then((data) => {
+                if (data.files?.length) {
+                  useProjectStore.getState().updateFileTree(projectForRefresh.id, data.files)
+                }
+              })
+              .catch(() => {})
+          }
         }
 
         // Batch execution: auto-dispatch next wave of ready nodes
