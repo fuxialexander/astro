@@ -1316,8 +1316,11 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       updates.visionDoc = options.visionDoc
     }
     if (options?.baseBranch) {
+      // Only update baseBranch on the existing source — don't overwrite a fully-detected
+      // source (with accurate isGit/remoteType/remoteUrl) with a minimal fallback.
+      const existingSource = useProjectStore.getState().projects.find((p) => p.id === projectId)?.source
       updates.source = {
-        ...(project.source || { localPath: project.workingDirectory || '', isGit: true, remoteType: 'none' as const }),
+        ...(existingSource || project.source || { localPath: project.workingDirectory || '', isGit: true, remoteType: 'none' as const }),
         baseBranch: options.baseBranch,
       }
     }

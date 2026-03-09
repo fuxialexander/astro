@@ -1660,7 +1660,12 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       // For interactive plans, the system prompt is the dedicated planning prompt.
       // For regular executions, expose the assembled relay prompt (workspace + task +
       // verification instructions) so the activity feed can show what the agent received.
-      systemPrompt: relaySystemPrompt || relayPrompt || undefined,
+      // Cap at 64KB to prevent streaming_events storage bloat from large dependency outputs.
+      systemPrompt: (() => {
+        const prompt = relaySystemPrompt || relayPrompt
+        if (!prompt) return undefined
+        return prompt.length > 65536 ? prompt.slice(0, 65536) + '\n\n[… truncated for display]' : prompt
+      })(),
     }
     const initSeq = await streamingEventLog.append(executionId, 'init', {
       ...initDataForSSE,
