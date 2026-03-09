@@ -22,8 +22,14 @@ import { eq, and, sql, gt, isNull, count } from 'drizzle-orm'
 
 const teamsRoute = new Hono()
 
-// Apply auth middleware to all team routes
-teamsRoute.use('*', requireAuth)
+// Apply auth middleware to all team routes except the public invite-info lookup
+// (GET /invite/:token is hit by new users before they register — no JWT yet)
+teamsRoute.use('*', async (c, next) => {
+  if (c.req.method === 'GET' && c.req.path.match(/\/invite\/[^/]+$/)) {
+    return next()
+  }
+  return requireAuth(c, next)
+})
 
 /**
  * POST /api/teams/invite
@@ -370,17 +376,17 @@ teamsRoute.post('/accept/:token', async (c) => {
       return c.json({ error: 'You are already a member of this team' }, 400)
     }
 
-    // Add user to team
-    await db.insert(teamMembers).values({
-      teamId: invite.teamId,
-      userId: user.id,
-      role: invite.role,
+    // Add user to team and mark invite as used atomically to prevent double-accept
+    await db.transaction(async (tx) => {
+      await tx.insert(teamMembers).values({
+        teamId: invite.teamId,
+        userId: user.id,
+        role: invite.role,
+      })
+      await tx.update(inviteTokens)
+        .set({ usedAt: new Date() })
+        .where(eq(inviteTokens.id, invite.id))
     })
-
-    // Mark invite as used
-    await db.update(inviteTokens)
-      .set({ usedAt: new Date() })
-      .where(eq(inviteTokens.id, invite.id))
 
     // Get team details
     const [team] = await db.select()

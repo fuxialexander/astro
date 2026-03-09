@@ -235,7 +235,12 @@ export async function requireAuth(c: Context, next: Next) {
     const internalUserId = c.req.header('X-User-Id')
     const internalTeamId = c.req.header('X-Team-Id')
     if (internalDispatch && internalUserId && internalTeamId) {
-      const secret = process.env.RELAY_JWT_SECRET || 'dev-internal-dispatch-secret'
+      const secret = process.env.RELAY_JWT_SECRET
+      if (!secret) {
+        // RELAY_JWT_SECRET must be set in server mode — refuse rather than fall back
+        console.error('[auth] RELAY_JWT_SECRET not set — rejecting X-Internal-Dispatch')
+        return c.json({ error: 'Server misconfiguration' }, 500)
+      }
       const expected = createHmac('sha256', secret)
         .update(`${internalUserId}:${internalTeamId}`)
         .digest('hex')

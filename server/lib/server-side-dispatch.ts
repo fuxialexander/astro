@@ -105,7 +105,11 @@ export async function serverSideDispatch(nodeId: string, projectId: string, opti
     // In server mode, we need a valid auth token. Use HMAC-signed internal bypass header.
     // The requireAuth middleware verifies this signature before granting access.
     if (!isLocalMode()) {
-      const secret = process.env.RELAY_JWT_SECRET || 'dev-internal-dispatch-secret'
+      const secret = process.env.RELAY_JWT_SECRET
+      if (!secret) {
+        console.error(`[server-dispatch] RELAY_JWT_SECRET not set — cannot sign internal dispatch for ${nodeId}`)
+        return
+      }
       const hmac = createHmac('sha256', secret)
         .update(`${userId}:${teamId}`)
         .digest('hex')

@@ -32,7 +32,6 @@ import { executionEventBus } from '../lib/execution-event-bus.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import { startLoop } from '../lib/loop-controller.js'
 import { extractRepoInfo } from '../lib/git-url-utils.js'
-import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 
 // Fallback icon/color pools for projects created without explicit icon/color
 const FALLBACK_COLORS = ['#4A6D8A', '#5F8D6B', '#A07D4F', '#7B6B9A', '#9A6878', '#A8785E', '#5B7F9A', '#8A7A6E', '#71717A']
@@ -1459,16 +1458,25 @@ app.post('/usage/increment', async (c) => {
 // ── Per-Project Costs ─────────────────────────────────────────────────
 
 app.post('/usage/project-costs', async (c) => {
+  const user = c.get('user')! as AuthUser
   const body = await c.req.json<{ projectIds: string[] }>()
   const ids = body.projectIds || []
   if (ids.length === 0) return c.json({})
+
+  // Restrict to projects the caller can actually access via their team scope
+  const accessibleProjects = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(inArray(projects.id, ids), teamScopeFilter(projects, user)))
+  const accessibleIds = accessibleProjects.map((p) => p.id)
+  if (accessibleIds.length === 0) return c.json({})
 
   const rows = await db.select({
     projectId: taskExecutions.projectId,
     totalCost: sql<number>`coalesce(sum(${taskExecutions.estimatedCostUsd}), 0)`,
   })
     .from(taskExecutions)
-    .where(inArray(taskExecutions.projectId, ids))
+    .where(inArray(taskExecutions.projectId, accessibleIds))
     .groupBy(taskExecutions.projectId)
 
   const result: Record<string, number> = {}

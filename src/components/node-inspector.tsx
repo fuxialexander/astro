@@ -19,6 +19,7 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
+import { useTeamStore } from "@/stores/team-store"
 import { useToastStore } from "@/stores/toast-store"
 import { PRIORITY_CONFIG, PRIORITY_OPTIONS, ESTIMATE_OPTIONS, STATUS_OPTIONS } from "@/lib/constants"
 import { statusLabels } from "@/lib/status-config"
@@ -313,9 +314,13 @@ export function NodeInspectorContent({
   // ── Verification state ───────────────────────────────────────
   const execution = useExecutionStore((s) => s.getExecution(node.id))
   const currentUserId = useUserProfileStore((s) => s.profile.id)
+  const activeTeamId = useTeamStore((s) => s.activeTeamId)
+  const teamMemberCount = useTeamStore((s) => (activeTeamId ? (s.teamMembers[activeTeamId]?.length ?? 0) : 0))
+  const isSoloWorkspace = teamMemberCount <= 1
   const needsVerification = (node.status === "auto_verified" || node.status === "awaiting_judgment") && !execution?.verifiedBy
   const isVerified = !!execution?.verifiedBy
-  const canVerify = needsVerification && execution?.userId !== currentUserId // verifier should differ from executor
+  // Solo users can verify their own work (server enforces the same rule via isSoloWorkspace check)
+  const canVerify = needsVerification && (isSoloWorkspace || execution?.userId !== currentUserId)
   const [verifyNote, setVerifyNote] = useState("")
   const [showNoteInput, setShowNoteInput] = useState(false)
   const [verifyLoading, setVerifyLoading] = useState<string | null>(null) // 'approve' | 'rerun' | 'skip' | null
