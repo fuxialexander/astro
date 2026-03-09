@@ -6,7 +6,7 @@
  * After page refresh, reconstructs them from persisted streaming_events via catch-up.
  */
 
-import { useMemo, useEffect, useRef } from "react"
+import { useMemo, useEffect, useRef, useState } from "react"
 import type { TaskExecution, TaskActivityEvent, ToolTrace, FileChange } from "@/types"
 import type { TaskStream } from "@/stores/realtime-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
@@ -92,19 +92,23 @@ export function useRestoredExecution(
   // Streaming events catch-up: hydrate from streaming_events table
   const hydrateFromCatchUp = useRealtimeStore((s) => s.hydrateFromCatchUp)
   const catchUpAttempted = useRef<string | null>(null)
+  // Track which executionId completed catch-up (setState only in async .then())
+  const [catchUpCompletedId, setCatchUpCompletedId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!executionId || hasLiveEvents) return
     if (catchUpAttempted.current === executionId) return
     catchUpAttempted.current = executionId
     console.log('[use-restored] trying streaming events catch-up for', executionId)
-    hydrateFromCatchUp([executionId], 0)
+    hydrateFromCatchUp([executionId], 0).then(() => setCatchUpCompletedId(executionId))
   }, [executionId, hasLiveEvents, hydrateFromCatchUp])
+
+  const catchUpDone = catchUpCompletedId === executionId
 
   return {
     activityEvents: liveActivityEvents,
     toolTraces: liveToolTraces,
     fileChanges: liveFileChanges,
-    isRestoring: !hasLiveEvents && !!executionId,
+    isRestoring: !catchUpDone && !hasLiveEvents && !!executionId,
   }
 }

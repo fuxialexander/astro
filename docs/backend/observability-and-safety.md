@@ -28,7 +28,7 @@ The system serves three purposes:
 2. **Cost visibility** -- Token counts and estimated USD costs are tracked per execution and surfaced in both the UI and the API.
 3. **Safety** -- Configurable guardrails enforce per-execution cost limits and per-project tool denylists, preventing runaway spend or unauthorized tool usage.
 
-The observation data model is Langfuse-compatible. Observations can optionally be exported to a self-hosted Langfuse instance for advanced analytics, prompt engineering, and evaluation workflows.
+The observation data model uses structured traces with spans, generations, and tool events.
 
 ---
 
@@ -78,7 +78,7 @@ Agent Execution
 
 Both streams are unified into a single flat table of `ObservationEvent` records, each tagged with a `traceId` (which equals the `executionId`).
 
-**Optional Langfuse export.** When configured, a second `EventHook` on `astroEventTransport` forwards lifecycle events to Langfuse. The collector can also push raw observations to Langfuse via the `LangfuseExporter.exportObservations()` method.
+Both streams are unified into a single flat table of `ObservationEvent` records for the trace viewer UI.
 
 ---
 
@@ -531,17 +531,6 @@ curl http://localhost:3001/api/observations/exec-123/summary
 curl "http://localhost:3001/api/observations?executionId=exec-123&type=tool&level=error"
 ```
 
-### Via Langfuse
-
-When Langfuse export is enabled, all traces are available in the Langfuse UI where you can:
-
-- Browse traces with filtering and search
-- Inspect generation turns with token usage breakdowns
-- View tool call timelines
-- Analyze cost trends across executions
-- Build evaluation datasets from trace data
-- Set up prompt monitoring and alerting
-
 ---
 
 ## Future Enhancements
@@ -573,7 +562,7 @@ Currently, safety rails configuration (`maxCostPerExecution`, `deniedTools`) is 
 
 ### Evaluation and Scoring
 
-Integration with Langfuse's scoring and evaluation features could enable:
+Future evaluation features could enable:
 
 - Automated quality scoring of agent outputs
 - Human-in-the-loop evaluation workflows

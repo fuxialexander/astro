@@ -7,7 +7,7 @@
  *
  * Adapted from useRestoredExecution, but simplified:
  * - No execution-store dependency (project chats don't use it)
- * - No observation-store fallback (project chats don't generate Langfuse traces)
+ * - No observation-store dependency (project chats don't generate traces)
  * - Uses streamId as the streaming_events executionId
  */
 

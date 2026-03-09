@@ -47,8 +47,7 @@ Here is what happens, in order:
    - `merge-queue` -- Automatically manage merge queues for completed PRs
    - `git-pull` -- Automatically commit and push code changes
    - `channel-notification` -- Send notifications to Slack, Linear, or Telegram via webhooks
-   - `observability` -- Send tracing data to Langfuse (a tool for monitoring AI application behavior)
-   - `langfuse-export` -- (conditional) Export trace data to Langfuse for external observability
+   - `observability` -- Collect structured trace data for the trace viewer and cost tracking
 
 5. **Reset machine connections** -- `resetAllConnectionStatuses()` clears stale state from the previous session. If the server crashed while machines were marked as "connected," this ensures they start fresh and must re-register.
 
