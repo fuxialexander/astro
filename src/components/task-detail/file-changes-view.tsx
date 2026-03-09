@@ -173,7 +173,7 @@ function FileChangeItem({ change, machineId, useLocalUrls, useVSCode }: { change
           {fileUrl && (
             <a
               href={fileUrl}
-              onClick={(e) => { e.stopPropagation(); window.open(fileUrl, '_self') }}
+              onClick={(e) => e.stopPropagation()}
               className="flex items-center gap-1 px-2 py-1 rounded-md bg-primary/10 hover:bg-primary/20 transition-colors h-6"
               title="Open in editor"
             >
