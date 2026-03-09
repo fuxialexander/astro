@@ -206,8 +206,6 @@ export function FileBrowser({
       document.body.style.userSelect = ""
       document.removeEventListener("mousemove", onMouseMove)
       document.removeEventListener("mouseup", onMouseUp)
-      // Persist final width
-      try { localStorage.setItem("astro-file-browser-width", String(fileBrowserWidth)) } catch { /* */ }
     }
 
     document.addEventListener("mousemove", onMouseMove)
