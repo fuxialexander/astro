@@ -153,6 +153,8 @@ export interface ChannelRouter {
   registerResponseSender(channel: ChannelType, fn: ResponseSenderFn): void
   /** Register a function that can send notifications for a given project on a channel */
   registerNotificationSender(projectId: string, channel: ChannelType, fn: NotificationSenderFn): void
+  /** Register a global notification sender that fires for ALL projects (e.g., OpenClaw) */
+  registerGlobalNotificationSender(channel: ChannelType, fn: NotificationSenderFn): void
 }
 
 // ---------------------------------------------------------------------------

@@ -35,6 +35,7 @@ vi.mock('../../channel-router.js', () => ({
   channelRouter: {
     registerNotificationSender: vi.fn(),
     registerResponseSender: vi.fn(),
+    registerGlobalNotificationSender: vi.fn(),
     routeMessage: vi.fn().mockResolvedValue({
       text: 'response',
       conversationRef: { channelId: 'ch-1' },
