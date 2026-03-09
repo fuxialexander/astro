@@ -22,6 +22,7 @@ const CHANNELS = {
   TASK_STATE: 'relay:task:state',
   TASK_DISPATCH: 'relay:task:dispatch',
   TASK_CANCEL: 'relay:task:cancel',
+  TASK_STREAMING: 'relay:task:streaming',
 } as const;
 
 /** Redis keys for shared state */
@@ -48,11 +49,21 @@ interface TaskCancelEvent {
   reason?: string;
 }
 
+/** Message published for cross-instance streaming event delivery */
+export interface StreamingEventMessage {
+  instanceId: string;
+  eventType: string;
+  taskId: string;
+  data: Record<string, unknown>;
+  dbSeq?: number;
+}
+
 export interface RedisPubSubEvents {
   'machine:state': (event: MachineStateChangeEvent) => void;
   'task:state': (event: TaskStateChangeEvent) => void;
   'task:dispatch': (event: TaskDispatchEvent) => void;
   'task:cancel': (event: TaskCancelEvent) => void;
+  'task:streaming': (event: StreamingEventMessage) => void;
   'error': (error: Error) => void;
   'connected': () => void;
   'disconnected': () => void;
@@ -115,7 +126,8 @@ export class RedisPubSub extends EventEmitter {
         CHANNELS.MACHINE_STATE,
         CHANNELS.TASK_STATE,
         CHANNELS.TASK_DISPATCH,
-        CHANNELS.TASK_CANCEL
+        CHANNELS.TASK_CANCEL,
+        CHANNELS.TASK_STREAMING
       );
 
       // Handle incoming messages
@@ -204,6 +216,19 @@ export class RedisPubSub extends EventEmitter {
       userId,
     };
     await this.publish(CHANNELS.TASK_DISPATCH, event);
+  }
+
+  /**
+   * Publish a streaming event for cross-instance SSE delivery.
+   * Only publishes when Redis is connected; in single-instance mode
+   * the local EventEmitter path handles delivery directly.
+   */
+  async publishStreamingEvent(
+    event: Omit<StreamingEventMessage, 'instanceId'>
+  ): Promise<void> {
+    if (!this.publisher) return;
+    const msg: StreamingEventMessage = { ...event, instanceId: this.instanceId };
+    await this.publisher.publish(CHANNELS.TASK_STREAMING, JSON.stringify(msg));
   }
 
   /**
@@ -387,6 +412,10 @@ export class RedisPubSub extends EventEmitter {
 
       case CHANNELS.TASK_CANCEL:
         this.emit('task:cancel', data as TaskCancelEvent);
+        break;
+
+      case CHANNELS.TASK_STREAMING:
+        this.emit('task:streaming', data as StreamingEventMessage);
         break;
     }
   }

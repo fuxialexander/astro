@@ -26,6 +26,7 @@ import type {
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { getMachine } from '../lib/registered-machines-store.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
+import { redisPubSub, type StreamingEventMessage } from '../lib/redis-pubsub.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import type { ApprovalRequestedEvent, ApprovalRespondedEvent, ProjectCompletedEvent } from '../lib/events/types.js'
 import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
@@ -589,6 +590,54 @@ eventsRoute.get('/stream', async (c) => {
     relayServer.on('task:tool_trace', onRelayToolTrace)
     relayServer.on('task:file_change', onRelayFileChange)
 
+    // Cross-instance streaming handler via Redis pub/sub.
+    // When Redis is connected and multiple server instances exist, streaming events
+    // from other instances arrive here. Self-instance events are skipped (the local
+    // EventEmitter path already delivered them).
+    const onRedisStreaming = (msg: StreamingEventMessage) => {
+      if (!alive) return
+      if (msg.instanceId === redisPubSub.getInstanceId()) return
+      if (!isTaskOwnedByUser(msg.taskId)) return
+
+      switch (msg.eventType) {
+        case 'text':
+          throttle.write(msg.taskId, msg.data.text as string)
+          break
+        case 'tool_use':
+        case 'tool_result': {
+          const data = JSON.stringify({ taskId: msg.taskId, ...msg.data })
+          const id = msg.dbSeq ? String(msg.dbSeq) : eventBuffer.push('task:tool_trace', data)
+          stream.writeSSE({ id, event: 'task:tool_trace', data }).catch(() => { alive = false })
+          break
+        }
+        case 'file_change': {
+          const data = JSON.stringify({ taskId: msg.taskId, ...msg.data })
+          const id = msg.dbSeq ? String(msg.dbSeq) : eventBuffer.push('task:file_change', data)
+          stream.writeSSE({ id, event: 'task:file_change', data }).catch(() => { alive = false })
+          break
+        }
+        case 'session_init': {
+          const data = JSON.stringify({ taskId: msg.taskId, ...msg.data })
+          const id = msg.dbSeq ? String(msg.dbSeq) : eventBuffer.push('task:session_init', data)
+          stream.writeSSE({ id, event: 'task:session_init', data }).catch(() => { alive = false })
+          break
+        }
+        case 'progress': {
+          const data = JSON.stringify({ taskId: msg.taskId, ...msg.data })
+          const id = msg.dbSeq ? String(msg.dbSeq) : eventBuffer.push('task:progress', data)
+          stream.writeSSE({ id, event: 'task:progress', data }).catch(() => { alive = false })
+          break
+        }
+        case 'result': {
+          const data = JSON.stringify({ taskId: msg.taskId, ...msg.data })
+          const id = eventBuffer.push('task:result', data)
+          stream.writeSSE({ id, event: 'task:result', data }).catch(() => { alive = false })
+          break
+        }
+      }
+    }
+    redisPubSub.on('task:streaming', onRedisStreaming)
+
     // Merge queue event handlers — filter by project ownership
     const onMergeQueueFailed = async (msg: { nodeId: string; projectId: string; prNumber: number; reason: string; branchName: string }) => {
       if (!alive) return
@@ -700,6 +749,8 @@ eventsRoute.get('/stream', async (c) => {
       relayServer.off('session:attached', onSessionAttached)
       relayServer.off('session:detached', onSessionDetached)
       relayServer.off('session:event', onSessionEvent)
+      // Redis cross-instance streaming cleanup
+      redisPubSub.off('task:streaming', onRedisStreaming)
 
       // Execution event bus cleanup
       executionEventBus.off('node:status_changed', onNodeStatusChanged)

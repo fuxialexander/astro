@@ -51,6 +51,7 @@ import {
 } from '../types/relay.js';
 import { machineRegistry } from './machine-registry.js';
 import { streamingEventLog } from './streaming-event-log.js';
+import { redisPubSub } from './redis-pubsub.js';
 
 /** Compute line counts from a unified diff string */
 function computeLineCounts(diff: string): { added: number; removed: number } {
@@ -1241,6 +1242,15 @@ export class RelayServer extends EventEmitter {
     this.taskDispatchedAt.delete(message.result.taskId);
     this.consecutiveMisses.delete(message.result.taskId);
     this.emit('task:result', message);
+    redisPubSub.publishStreamingEvent({
+      eventType: 'result', taskId: message.result.taskId,
+      data: {
+        status: message.result.status, output: message.result.output,
+        error: message.result.error, duration: message.result.duration,
+        branchName: message.result.branchName, prUrl: message.result.prUrl,
+        prNumber: message.result.prNumber, deliveryStatus: message.result.deliveryStatus,
+      },
+    }).catch(() => {});
   }
 
   /**
@@ -1268,6 +1278,10 @@ export class RelayServer extends EventEmitter {
    */
   private handleTaskProgress(message: TaskProgressMessage): void {
     this.emit('task:progress', message);
+    redisPubSub.publishStreamingEvent({
+      eventType: 'progress', taskId: message.taskId,
+      data: { progress: message.progress, message: message.message },
+    }).catch(() => {});
   }
 
   /**
@@ -2105,6 +2119,10 @@ export class RelayServer extends EventEmitter {
     // appendText is synchronous (in-memory buffer, flushed on next structural event)
     streamingEventLog.appendText(payload.taskId, payload.text);
     this.emit('task:text', textMsg);
+    redisPubSub.publishStreamingEvent({
+      eventType: 'text', taskId: payload.taskId,
+      data: { text: payload.text },
+    }).catch(() => {});
   }
 
   /**
@@ -2126,6 +2144,11 @@ export class RelayServer extends EventEmitter {
       console.error(`[relay-server] Failed to persist tool_use event for task ${payload.taskId}:`, err);
     }
     this.emit('task:tool_trace', Object.assign(traceMsg, { _dbSeq: seq }));
+    redisPubSub.publishStreamingEvent({
+      eventType: 'tool_use', taskId: payload.taskId,
+      data: { toolName: payload.toolName, toolInput: payload.toolInput },
+      dbSeq: seq,
+    }).catch(() => {});
   }
 
   /**
@@ -2148,6 +2171,11 @@ export class RelayServer extends EventEmitter {
       console.error(`[relay-server] Failed to persist tool_result event for task ${payload.taskId}:`, err);
     }
     this.emit('task:tool_trace', Object.assign(traceMsg, { _dbSeq: seq }));
+    redisPubSub.publishStreamingEvent({
+      eventType: 'tool_result', taskId: payload.taskId,
+      data: { toolName: payload.toolName, toolResult: payload.result, success: payload.success },
+      dbSeq: seq,
+    }).catch(() => {});
   }
 
   /**
@@ -2179,6 +2207,11 @@ export class RelayServer extends EventEmitter {
       console.error(`[relay-server] Failed to persist file_change event for task ${payload.taskId}:`, err);
     }
     this.emit('task:file_change', Object.assign(changeMsg, { _dbSeq: seq }));
+    redisPubSub.publishStreamingEvent({
+      eventType: 'file_change', taskId: payload.taskId,
+      data: { path: payload.path, action: payload.action, linesAdded, linesRemoved, diff: payload.diff },
+      dbSeq: seq,
+    }).catch(() => {});
   }
 
   /**
@@ -2200,6 +2233,11 @@ export class RelayServer extends EventEmitter {
       console.error(`[relay-server] Failed to persist session_init event for task ${payload.taskId}:`, err);
     }
     this.emit('task:session_init', Object.assign(initMsg, { _dbSeq: seq }));
+    redisPubSub.publishStreamingEvent({
+      eventType: 'session_init', taskId: payload.taskId,
+      data: { sessionId: payload.sessionId, model: payload.model },
+      dbSeq: seq,
+    }).catch(() => {});
   }
 
   /**
@@ -2272,6 +2310,14 @@ export class RelayServer extends EventEmitter {
       },
     };
     this.emit('task:result', resultMsg);
+    redisPubSub.publishStreamingEvent({
+      eventType: 'result', taskId,
+      data: {
+        status: resultMsg.result.status, output, error,
+        duration: resultMsg.result.duration,
+        branchName, prUrl, prNumber, deliveryStatus,
+      },
+    }).catch(() => {});
   }
 
   // ============================================================================
