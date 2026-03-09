@@ -35,7 +35,7 @@ export interface ResultRouterConfig {
 export const DEFAULT_ROUTER_CONFIG: ResultRouterConfig = {
   defaultAutoClose: false,
   maxJudgmentOutputLength: 5000,
-  failureKeywords: ['error', 'failed', 'exception', 'crash', 'fatal'],
+  failureKeywords: ['error', 'failed', 'exception', 'crash', 'fatal', 'not logged in'],
   successKeywords: ['passed', 'success', 'completed', 'verified', 'all tests pass'],
 }
 
