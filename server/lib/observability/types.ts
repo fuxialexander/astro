@@ -11,7 +11,7 @@ export type ObservationLevel = 'debug' | 'default' | 'warning' | 'error'
 export interface ObservationEvent {
   /** Time-prefixed UUID for chronological ordering */
   id: string
-  /** Root container ID (= executionId, like Langfuse's trace) */
+  /** Root container ID (= executionId) */
   traceId: string
   /** Parent observation ID for nesting (e.g., tool within a span) */
   parentObservationId?: string

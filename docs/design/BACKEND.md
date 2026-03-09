@@ -529,7 +529,7 @@ The following diagram shows the complete path an event takes from an Agent Runne
 │                 ├──► PR creation (auto-create GitHub PRs)         │
 │                 ├──► Git pull (auto-commit changes)               │
 │                 ├──► Channel notification (Slack/Linear)          │
-│                 └──► Observability (Langfuse tracing)             │
+│                 └──► Observability (structured tracing)            │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -653,7 +653,7 @@ The observation collector subscribes to the execution event bus (see section 6.2
 - `task:file_change` -- The AI modified a file
 - `task:progress` -- Progress update
 
-The collector groups these raw events into **turns** -- a turn is one round of the AI conversation. This matches Langfuse's "generation" model (Langfuse is a third-party tool for monitoring AI applications). The turn structure looks like this:
+The collector groups these raw events into **turns** -- a turn is one round of the AI conversation. Each turn becomes a "generation" observation. The turn structure looks like this:
 
 ```
 Turn 0: [initial context] -> assistant produces text + tool_calls

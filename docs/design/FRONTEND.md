@@ -435,7 +435,7 @@ For simpler operations that return a result immediately:
 |----------|---------|---------|
 | `getProviders()` | GET `/api/agent/providers` | Retrieves the list of available AI providers and their status (installed? authenticated? what capabilities?). |
 | `redetectProviders()` | POST `/api/agent/providers/detect` | Tells the backend to re-scan for available AI providers. Useful if you just installed a new provider. |
-| `fetchTraceObservations()` | GET `/api/observations/{traceId}` | Fetches detailed trace data for a specific execution, in a format compatible with Langfuse (an observability tool). Used for debugging what an AI agent did and why. |
+| `fetchTraceObservations()` | GET `/api/observations/{traceId}` | Fetches detailed trace data for a specific execution. Used for debugging what an AI agent did and why. |
 | `fetchTraceStats()` | GET `/api/observations/stats` | Fetches aggregate execution statistics (total tokens, cost, duration). |
 
 ### 3.3 Authentication

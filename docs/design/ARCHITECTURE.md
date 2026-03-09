@@ -39,7 +39,7 @@ Astro consists of four logical components. Depending on the operating mode, they
  │  │    postgres-js server)                                          │  │
  │  │  • SSE event broadcasting (events → browser)                     │  │
  │  │  • Dispatch coordination (queue, routing, context assembly)       │  │
- │  │  • Observability (Langfuse tracing, audit logs, usage metrics)    │  │
+ │  │  • Observability (structured tracing, audit logs, usage metrics)   │  │
  │  │  • Compute backend detection (Docker, SSH, K8s, SLURM)           │  │
  │  └──────────────────────┬───────────────────────────────────────────┘  │
  │                         │ In-process function calls + EventEmitter     │
@@ -426,7 +426,7 @@ The core workflow is identical in both modes — only transport security and per
 |------|-----------|--------|
 | 19 | **Agent Runner** | AI session ends. If success: `pushAndCreatePR()` |
 | 20 | **Agent Runner** | Cleanup worktree. Send `task.result` with status, output, PR info |
-| 21 | **Backend** | Run hooks: observability (Langfuse), usage metrics, audit log |
+| 21 | **Backend** | Run hooks: observability, usage metrics, audit log |
 | 22 | **Frontend** | Update plan node status. Persist execution. If batch: dispatch next wave |
 | 23 | **Frontend** | Background-refresh file tree (files may have changed) |
 
@@ -481,7 +481,7 @@ Agent Runner (via Relay)
     ┌──────┬──────┬──────┬──────┬──────┬──────┐
     ▼      ▼      ▼      ▼      ▼      ▼      ▼
   SSE   Audit  Usage    PR   Git-Pull Channel Observability
- Notif   Log  Metrics Create  Hook    Notif   (Langfuse)
+ Notif   Log  Metrics Create  Hook    Notif   (Tracing)
 ```
 
 All events flow from agent runners through the relay to the `executionEventBus`, a Node.js `EventEmitter` singleton (survives tsx watch reloads via `globalThis`). There is no local provider path — all AI execution produces events via the relay.
@@ -541,7 +541,7 @@ Dynamic tool-based approvals (`ask_user_question` MCP tool) + safety prompts for
 ### 8.5 Observability
 
 **Observation Collector** (`server/lib/observability/`): Tracks turns, tool calls, file changes, token usage per execution. Builds trace trees for the UI.
-**Langfuse Export:** Optional Langfuse integration for LLM trace export.
+**Trace Viewer:** UI for inspecting execution traces (turns, tool calls, token usage).
 **Usage Metrics:** Cost, tokens, model, turns accumulated per session in `usage-store`.
 
 ### 8.6 MCP Integration
@@ -671,7 +671,7 @@ astro/
 │   │   ├── local-backends.ts      # Compute backend detection
 │   │   ├── dispatch/              # Dispatch engine, queue + re-export shims → @astro/core
 │   │   ├── events/                # Event transport + hooks
-│   │   ├── observability/         # Langfuse tracing, observation collector
+│   │   ├── observability/         # Structured tracing, observation collector
 │   │   ├── db/                    # Re-export shims → @astro/core (schema, migrations, bootstrap)
 │   │   ├── skill-manager.ts       # Skill discovery + prompt injection
 │   │   ├── slurm/                 # HPC cluster support
@@ -734,7 +734,7 @@ astro/
 | Auth | WebAuthn/passkeys + Supabase Auth | Passwordless authentication |
 | AI SDK | @anthropic-ai/claude-agent-sdk | Plan generation, chat, execution |
 | AI CLI | Claude Code CLI (`claude`) | Agent execution via subprocess |
-| Observability | Langfuse | LLM trace export |
+| Observability | Custom tracing | Execution trace viewer |
 | Frontend deploy | Cloudflare Pages | Static site hosting |
 | Backend deploy | Fly.io | Container hosting |
 

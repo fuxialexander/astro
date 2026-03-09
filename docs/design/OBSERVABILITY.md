@@ -18,7 +18,7 @@ The system operates across three storage layers, each serving different query pa
 |-------|-------|---------|-----------|
 | **Event Log** | `streaming_events` | Append-only SSE events | Page refresh recovery, catch-up hydration, activity replay |
 | **Execution Summary** | `taskExecutions` | Per-execution cost/status record | Cost dashboards, usage metrics, project totals |
-| **Structured Traces** | `observationEvents` | Turn-level generation tracking | Trace viewer, Langfuse export, turn-level analysis |
+| **Structured Traces** | `observationEvents` | Turn-level generation tracking | Trace viewer, turn-level analysis |
 
 ## 2. The 11 AI Pathways
 
@@ -39,7 +39,7 @@ Each pathway is classified by its execution model and observability depth:
 | P11 | Abort | `POST /api/agent/abort` | Steering | 0 | JSON | None |
 
 **Observability levels:**
-- **Full** — init event, session_init, per-turn text/tool/file events, result with metrics, taskExecutions record, observation traces (turn-level generations), Langfuse export
+- **Full** — init event, session_init, per-turn text/tool/file events, result with metrics, taskExecutions record, observation traces (turn-level generations)
 - **Standard** — init event, steer_message, text/tool events, result with metrics, taskExecutions record, metrics in SSE done event
 - **Minimal** — init event, result event (stored in streaming_events for trajectory), no SSE stream
 - **None** — No AI invocation, no events stored
@@ -219,7 +219,7 @@ flowchart TD
     subgraph "Outputs"
         OE[(observationEvents table)]
         MS[markdownSummary → taskExecutions]
-        LF[Langfuse export<br/>traces + spans + generations]
+        TV[Trace viewer<br/>spans + generations]
     end
 
     EE --> SI & TX & TU & TR & FC
@@ -324,7 +324,7 @@ Per-execution summary with cost metrics. Used for dashboards, project-level cost
 
 ### 4.3 observationEvents (Structured Traces)
 
-Turn-level generation tracking for deep analysis and Langfuse export. Created by the observation collector, not by the route handlers directly.
+Turn-level generation tracking for deep analysis. Created by the observation collector, not by the route handlers directly.
 
 **Schema:** `packages/core/src/db/schema.ts`
 
