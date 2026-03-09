@@ -571,6 +571,8 @@ export interface TaskSteerMessage extends BaseMessage {
   message: string;
   action?: 'guidance' | 'redirect' | 'pause' | 'resume';
   interrupt?: boolean;
+  sessionId?: string;
+  branchName?: string;
 }
 
 /** Task approval response (relay → agent with user's decision) */
