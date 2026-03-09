@@ -8,28 +8,12 @@
 
 import type { Project, ProjectSource, DeliveryMode, RemoteType } from '@/types'
 
+// Re-export extractRepoInfo as extractGitHubOwnerRepo for use in plan creation.
+// The canonical implementation lives in @astro/core/git-url-utils.
+export { extractRepoInfo as extractGitHubOwnerRepo } from '@astro/core/git-url-utils'
+
 /** @deprecated Use ProjectSource without 'type' field. Kept for backward compat. */
 export type SourceType = 'local-git' | 'cloned-git' | 'local-dir'
-
-/**
- * Extract GitHub owner and repo from a git remote URL.
- * Supports HTTPS, SSH, and shorthand formats:
- *   - https://github.com/owner/repo.git
- *   - git@github.com:owner/repo.git
- *   - ssh://git@github.com/owner/repo
- * Returns null if the URL is not a GitHub URL or can't be parsed.
- */
-export function extractGitHubOwnerRepo(url: string | undefined): { owner: string; repo: string } | null {
-  if (!url) return null
-  const normalized = url.trim().replace(/\.git\/?$/, '').replace(/\/+$/, '')
-  // SSH: git@github.com:owner/repo
-  const sshMatch = normalized.match(/git@github\.com:([^/]+)\/([^/]+)$/i)
-  if (sshMatch) return { owner: sshMatch[1], repo: sshMatch[2] }
-  // HTTPS / SSH protocol: https://github.com/owner/repo or ssh://git@github.com/owner/repo
-  const httpsMatch = normalized.match(/github\.com\/([^/]+)\/([^/]+)$/i)
-  if (httpsMatch) return { owner: httpsMatch[1], repo: httpsMatch[2] }
-  return null
-}
 
 /**
  * Detect the remote type from a git URL.

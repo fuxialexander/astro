@@ -141,24 +141,29 @@ export function urlsMatchSameRepo(url1: string, url2: string): boolean {
 }
 
 /**
- * Extract owner/repo from GitHub URL (any format)
+ * Extract owner/repo from GitHub URL (any format).
+ * Supports HTTPS, SSH shorthand, and ssh:// protocol:
+ *   - https://github.com/owner/repo.git
+ *   - git@github.com:owner/repo.git
+ *   - ssh://git@github.com/owner/repo.git
+ * Returns null if the URL is not a GitHub URL or can't be parsed.
  */
-export function extractRepoInfo(url: string): { owner: string; repo: string } | null {
+export function extractRepoInfo(url: string | undefined): { owner: string; repo: string } | null {
   if (!url || typeof url !== 'string') return null;
 
-  const trimmed = url.trim();
+  const trimmed = url.trim().replace(/\.git\/?$/, '').replace(/\/+$/, '');
 
-  // SSH format
-  const sshMatch = trimmed.match(/^git@github\.com:([^/]+)\/(.+?)(\.git)?$/);
-  if (sshMatch) {
-    return { owner: sshMatch[1], repo: sshMatch[2].replace(/\.git$/, '') };
-  }
+  // SSH shorthand: git@github.com:owner/repo
+  const sshMatch = trimmed.match(/^git@github\.com:([^/]+)\/([^/]+)$/i);
+  if (sshMatch) return { owner: sshMatch[1], repo: sshMatch[2] };
 
-  // HTTPS format
-  const httpsMatch = trimmed.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(\.git)?$/);
-  if (httpsMatch) {
-    return { owner: httpsMatch[1], repo: httpsMatch[2].replace(/\.git$/, '') };
-  }
+  // HTTPS: https://github.com/owner/repo
+  const httpsMatch = trimmed.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)$/i);
+  if (httpsMatch) return { owner: httpsMatch[1], repo: httpsMatch[2] };
+
+  // SSH protocol: ssh://git@github.com/owner/repo
+  const sshProtoMatch = trimmed.match(/^ssh:\/\/[^/]*github\.com\/([^/]+)\/([^/]+)$/i);
+  if (sshProtoMatch) return { owner: sshProtoMatch[1], repo: sshProtoMatch[2] };
 
   return null;
 }

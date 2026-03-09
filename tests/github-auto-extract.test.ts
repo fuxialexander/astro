@@ -65,6 +65,20 @@ describe('extractRepoInfo', () => {
     const result = extractRepoInfo('git@github.com:my-org/my_repo.name.git')
     expect(result).toEqual({ owner: 'my-org', repo: 'my_repo.name' })
   })
+
+  it('extracts owner/repo from ssh:// protocol URL', () => {
+    expect(extractRepoInfo('ssh://git@github.com/acme/widgets'))
+      .toEqual({ owner: 'acme', repo: 'widgets' })
+  })
+
+  it('extracts owner/repo from ssh:// protocol URL with .git suffix', () => {
+    expect(extractRepoInfo('ssh://git@github.com/acme/widgets.git'))
+      .toEqual({ owner: 'acme', repo: 'widgets' })
+  })
+
+  it('returns null for undefined', () => {
+    expect(extractRepoInfo(undefined as unknown as string)).toBeNull()
+  })
 })
 
 // ─── 2. POST /projects auto-extraction logic ────────────────────────────────
