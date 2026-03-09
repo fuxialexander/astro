@@ -12,6 +12,7 @@
  * persisted to streaming_events table so the frontend can hydrate on reconnect.
  */
 
+import { createHmac } from 'crypto'
 import { db } from './db/index.js'
 import { projects, planNodes, teamMembers } from './db/schema.js'
 import { eq } from 'drizzle-orm'
@@ -101,11 +102,14 @@ export async function serverSideDispatch(nodeId: string, projectId: string, opti
       'X-Server-Dispatch': 'true', // Mark as server-initiated for logging
     }
 
-    // In server mode, we need a valid auth token. Use internal bypass header.
-    // The requireAuth middleware in local mode uses X-User-Id header.
-    // In server mode, we set a special internal header that auth can recognize.
+    // In server mode, we need a valid auth token. Use HMAC-signed internal bypass header.
+    // The requireAuth middleware verifies this signature before granting access.
     if (!isLocalMode()) {
-      headers['X-Internal-Dispatch'] = 'true'
+      const secret = process.env.RELAY_JWT_SECRET || 'dev-internal-dispatch-secret'
+      const hmac = createHmac('sha256', secret)
+        .update(`${userId}:${teamId}`)
+        .digest('hex')
+      headers['X-Internal-Dispatch'] = hmac
     }
 
     const resp = await fetch(url, {

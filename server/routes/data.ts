@@ -33,6 +33,7 @@ import { executionEventBus } from '../lib/execution-event-bus.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import { startLoop } from '../lib/loop-controller.js'
 import { extractRepoInfo } from '../lib/git-url-utils.js'
+import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 
 // Fallback icon/color pools for projects created without explicit icon/color
 const FALLBACK_COLORS = ['#4A6D8A', '#5F8D6B', '#A07D4F', '#7B6B9A', '#9A6878', '#A8785E', '#5B7F9A', '#8A7A6E', '#71717A']
