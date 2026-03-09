@@ -796,7 +796,7 @@ export function ProjectNewPlan() {
                 }
               }}
               onPaste={handleGoalPaste}
-              placeholder="What do you want to build or accomplish?"
+              placeholder={"What do you want to build or accomplish?\n\ne.g. \"Address issue #42 in my repo\" or \"SSH to the HPC cluster, fine-tune Llama-3 on my dataset, then evaluate on GSM8K locally\""}
               rows={5}
               autoFocus
               className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
@@ -841,7 +841,7 @@ export function ProjectNewPlan() {
           {/* Machine selector */}
           {(isServerMode() || allMachines.length > 0) && (
             <div className="flex flex-col gap-1.5">
-              <span className="text-xs text-muted-foreground">Choose a working directory:</span>
+              <span className="text-xs text-muted-foreground">Select a machine:</span>
               <div className="flex flex-wrap gap-2">
               {allMachines.map((m) => {
                 const reg = registeredMachines.find((r) => r.id === m.machineId)
@@ -873,7 +873,7 @@ export function ProjectNewPlan() {
               </div>
               {allMachines.length > 1 && (
                 <p className="text-[11px] text-muted-foreground">
-                  Multiple machines detected — describe a multi-machine job in your prompt to dispatch across them.
+                  For multi-machine jobs, describe the compute setup in your prompt (e.g. &quot;SSH to the HPC node and submit a Slurm job&quot;).
                 </p>
               )}
             </div>

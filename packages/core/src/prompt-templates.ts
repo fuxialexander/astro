@@ -1,3 +1,45 @@
+/**
+ * Default machine instruction name.
+ * The content is loaded from skills/machine_instruction_presets/default-compute-guide.md
+ * at server startup via loadMachineInstructionPresets().
+ */
+export const DEFAULT_MACHINE_INSTRUCTION_NAME = 'Default Compute Guide'
+
+/**
+ * Preset metadata (without content). Content is loaded from markdown files server-side.
+ */
+export const MACHINE_INSTRUCTION_PRESET_META: Array<{
+  id: string
+  name: string
+  description: string
+  filename: string
+}> = [
+  {
+    id: 'builtin:default',
+    name: 'Default Compute Guide',
+    description: 'Universal guide covering Docker, K8s, and Slurm basics',
+    filename: 'default-compute-guide.md',
+  },
+  {
+    id: 'builtin:local-with-k8s',
+    name: 'Local Machine + Kubernetes',
+    description: 'For a laptop/desktop that manages a Kubernetes cluster',
+    filename: 'local-with-kubernetes.md',
+  },
+  {
+    id: 'builtin:local-with-slurm',
+    name: 'Local Machine + Slurm HPC',
+    description: "For a laptop/desktop that SSH's into an HPC cluster",
+    filename: 'local-with-slurm-hpc.md',
+  },
+  {
+    id: 'builtin:hpc-native',
+    name: 'Slurm HPC (Agent on Login Node)',
+    description: 'For an Astro agent running directly on an HPC login node',
+    filename: 'slurm-hpc-native.md',
+  },
+]
+
 export const PLAN_GRAPH_SCHEMA = {
   type: "object" as const,
   properties: {

@@ -5,6 +5,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { mkdirSync } from 'fs'
 import { buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, buildTitleGenerationPrompt, buildRefinementPrompt, buildLabelSuggestionPrompt, buildCompactionPrompt, formatMachineInstruction } from '../lib/prompt-templates.js'
+import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
 import { relayServer } from '../lib/relay-server.js'
 import { dispatchEngine } from '../lib/dispatch/index.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
@@ -520,6 +521,10 @@ agentRoute.post('/project-chat', async (c) => {
       console.warn('[agent/project-chat] Failed to fetch machine instruction:', err instanceof Error ? err.message : String(err))
     }
   }
+  // Fallback: use built-in default compute guide (loaded from skills/machine_instruction_presets/)
+  if (!chatSkills) {
+    chatSkills = DEFAULT_MACHINE_INSTRUCTION_FORMATTED
+  }
 
   const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges, chatSkills)
 
@@ -672,6 +677,10 @@ agentRoute.post('/task-chat', async (c) => {
     } catch (err) {
       console.warn('[agent/task-chat] Failed to fetch machine instruction:', err instanceof Error ? err.message : String(err))
     }
+  }
+  // Fallback: use built-in default compute guide (loaded from skills/machine_instruction_presets/)
+  if (!tcSkills) {
+    tcSkills = DEFAULT_MACHINE_INSTRUCTION_FORMATTED
   }
 
   const systemPrompt = buildTaskChatSystemPrompt({
