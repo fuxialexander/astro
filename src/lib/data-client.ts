@@ -291,6 +291,14 @@ export const dataClient = {
     return { nodes: data.nodes.map(mapNode), edges: data.edges.map(mapEdge) }
   },
 
+  /** Fetch a single node from DB (DB-authoritative). Used by node:status_changed handler. */
+  async getNode(nodeId: string): Promise<PlanNode | null> {
+    try {
+      const data = await json<Record<string, unknown>>(`${BASE}/plan/nodes/${nodeId}`)
+      return mapNode(data)
+    } catch { return null }
+  },
+
   async setProjectPlan(projectId: string, nodes: PlanNode[], edges: PlanEdge[]): Promise<Record<string, number>> {
     const res = await put(`${BASE}/plan/${projectId}`, { nodes, edges }) as { ok: boolean; numbers?: Record<string, number> }
     return res.numbers ?? {}

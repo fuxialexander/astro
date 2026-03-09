@@ -477,6 +477,8 @@ app.get('/plan', async (c) => {
       executionError: n.executionError,
       executionStartedAt: n.executionStartedAt,
       executionCompletedAt: n.executionCompletedAt,
+      actualStartDate: n.actualStartDate,
+      actualEndDate: n.actualEndDate,
       branchName: n.branchName,
       prUrl: n.prUrl,
       prNumber: n.prNumber,
@@ -557,6 +559,62 @@ app.get('/plan/:projectId', async (c) => {
   }))
 
   return c.json({ nodes, edges })
+})
+
+// GET /plan/nodes/:nodeId — Single node fetch (DB-authoritative).
+// Frontend re-reads from this endpoint on node:status_changed notifications.
+app.get('/plan/nodes/:nodeId', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const nodeId = c.req.param('nodeId')
+
+  const [row] = await db.select().from(planNodes)
+    .where(and(eq(planNodes.clientId, nodeId), isNull(planNodes.deletedAt)))
+    .limit(1)
+  if (!row) return c.json({ error: 'Not found' }, 404)
+
+  // Verify project access via team scope
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, row.projectId), teamScopeFilter(projects, user))
+  )
+  if (!project) return c.json({ error: 'Not found' }, 404)
+
+  return c.json({
+    id: row.clientId,
+    projectId: row.projectId,
+    number: row.number,
+    type: row.type,
+    title: row.title,
+    description: row.description,
+    status: row.status,
+    parentId: row.parentId,
+    dependencies: [],
+    environment: row.environment,
+    verification: row.verification,
+    position: { x: row.positionX, y: row.positionY },
+    startDate: row.startDate,
+    endDate: row.endDate,
+    priority: row.priority,
+    estimate: row.estimate,
+    dueDate: row.dueDate,
+    milestoneId: row.milestoneId,
+    labelIds: row.labelIds,
+    executionId: row.executionId,
+    executionOutput: row.executionOutput,
+    executionError: row.executionError,
+    executionStartedAt: row.executionStartedAt,
+    executionCompletedAt: row.executionCompletedAt,
+    actualStartDate: row.actualStartDate,
+    actualEndDate: row.actualEndDate,
+    branchName: row.branchName,
+    prUrl: row.prUrl,
+    prNumber: row.prNumber,
+    content: row.content,
+    attachments: row.attachments,
+    links: row.links,
+    acceptanceCriteria: row.acceptanceCriteria,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  })
 })
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

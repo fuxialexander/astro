@@ -606,7 +606,19 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'merge_queue:succeeded', data }).catch(() => { alive = false })
     }
 
+    // node:status_changed — DB-authoritative notification. Emitted AFTER the
+    // DB write commits in dispatch.ts. No activeDispatchStreams guard: this is
+    // the primary mechanism for frontend state sync (frontend re-reads from DB).
+    const onNodeStatusChanged = async (msg: { nodeId: string; projectId: string; status: string; executionId?: string }) => {
+      if (!alive) return
+      if (!await isProjectOwnedByUser(msg.projectId)) return
+      const data = JSON.stringify(msg)
+      const id = eventBuffer.push('node:status_changed', data)
+      stream.writeSSE({ id, event: 'node:status_changed', data }).catch(() => { alive = false })
+    }
+
     // Subscribe to execution events (bridged from relay by dispatch.ts)
+    executionEventBus.on('node:status_changed', onNodeStatusChanged)
     executionEventBus.on('task:init', onTaskInit)
     executionEventBus.on('task:ready', onTaskReady)
     executionEventBus.on('task:result', onTaskResult)
@@ -690,6 +702,7 @@ eventsRoute.get('/stream', async (c) => {
       relayServer.off('session:event', onSessionEvent)
 
       // Execution event bus cleanup
+      executionEventBus.off('node:status_changed', onNodeStatusChanged)
       executionEventBus.off('task:init', onTaskInit)
       executionEventBus.off('task:ready', onTaskReady)
       executionEventBus.off('task:result', onTaskResult)

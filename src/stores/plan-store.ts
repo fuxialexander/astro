@@ -170,6 +170,8 @@ interface PlanState {
   load: () => Promise<void>
   addNode: (node: PlanNode) => void
   updateNode: (id: string, updates: Partial<PlanNode>) => void
+  /** Merge a DB-fetched node into the store. DB wins — no write-back to API. */
+  mergeNodeFromDB: (dbNode: PlanNode) => void
   removeNodes: (ids: string[]) => void
   addEdge: (edge: PlanEdge) => void
   removeEdge: (source: string, target: string) => void
@@ -356,6 +358,49 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     // Auto-complete or revert milestone nodes when a dependency's status changes
     if (updates.status !== undefined) {
       const milestoneUpdates = computeMilestoneUpdates(id, get().nodes, get().edges)
+      if (milestoneUpdates.length > 0) {
+        const updateMap = new Map(milestoneUpdates.map((mu) => [mu.id, mu.status]))
+        const now = new Date()
+        const muNodes = get().nodes.map((n) => {
+          const newStatus = updateMap.get(n.id)
+          return newStatus ? { ...n, status: newStatus, updatedAt: now } : n
+        })
+        set({ nodes: muNodes })
+        for (const mu of milestoneUpdates) {
+          console.log(`[plan-store] Auto-updating milestone ${mu.id} → ${mu.status}`)
+          dataClient.updateNode(mu.id, { status: mu.status }).catch((err) => {
+            console.error('[plan-store] Failed to update milestone in API:', err)
+          })
+        }
+      }
+    }
+  },
+
+  /**
+   * Merge a node fetched from DB into the store. DB wins — no write-back
+   * to the API (avoids circular persistence). Triggers milestone reconciliation
+   * and worktree cleanup same as updateNode.
+   */
+  mergeNodeFromDB: (dbNode: PlanNode) => {
+    const prevNode = get().nodes.find((n) => n.id === dbNode.id)
+    // Preserve locally-computed fields that the single-node API doesn't return
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { dependencies: _deps, ...dbFields } = dbNode
+    const nextNodes = get().nodes.map((n) =>
+      n.id === dbNode.id ? { ...n, ...dbFields } : n
+    )
+    set({ nodes: nextNodes })
+
+    // Trigger worktree cleanup when task is completed or pruned
+    if (dbNode.status === 'completed' || dbNode.status === 'pruned') {
+      if (dbNode.executionId) {
+        cleanupWorktree(dbNode.executionId, dbNode.id)
+      }
+    }
+
+    // Auto-complete or revert milestone nodes
+    if (prevNode && prevNode.status !== dbNode.status) {
+      const milestoneUpdates = computeMilestoneUpdates(dbNode.id, get().nodes, get().edges)
       if (milestoneUpdates.length > 0) {
         const updateMap = new Map(milestoneUpdates.map((mu) => [mu.id, mu.status]))
         const now = new Date()

@@ -1400,12 +1400,15 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         console.log(`[dispatch] YOLO auto-verified: task=${nodeId} (verification=${verification})`)
       }
 
+      const completionTime = new Date()
       const nodePatch: Partial<typeof planNodes.$inferInsert> = {
         status: finalNodeStatus,
         executionOutput: msg.result.output ?? null,
-        executionCompletedAt: new Date(),
+        executionCompletedAt: completionTime,
         executionError: msg.result.error ?? null,
-        updatedAt: new Date(),
+        endDate: completionTime.toISOString(),
+        actualEndDate: completionTime,
+        updatedAt: completionTime,
       }
       if (msg.result.branchName) nodePatch.branchName = msg.result.branchName
       if (msg.result.prUrl) nodePatch.prUrl = msg.result.prUrl
@@ -1413,21 +1416,28 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       if (msg.result.commitBeforeSha) nodePatch.commitBeforeSha = msg.result.commitBeforeSha
       if (msg.result.commitAfterSha) nodePatch.commitAfterSha = msg.result.commitAfterSha
 
-      db.update(planNodes)
-        .set(nodePatch)
-        .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
-        .execute()
-        .then(() => {
-          // Auto-dispatch downstream tasks server-side (works even if browser disconnected)
-          if (finalNodeStatus === 'auto_verified') {
-            autoDispatchDownstream(projectId, nodeId).catch((err) => {
-              console.error('[dispatch] Auto-dispatch downstream failed:', err)
-            })
-          }
+      // Await DB write so node:status_changed is only emitted after commit.
+      // Frontend re-reads from DB on notification (DB-authoritative pattern).
+      try {
+        await db.update(planNodes)
+          .set(nodePatch)
+          .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+          .execute()
+
+        // Notify frontend: DB is committed, safe to re-read
+        executionEventBus.emit('node:status_changed', {
+          nodeId, projectId, status: finalNodeStatus, executionId,
         })
-        .catch((err: unknown) => {
-          console.error('[dispatch] Error persisting execution result to plan node:', err)
-        })
+
+        // Auto-dispatch downstream tasks server-side (works even if browser disconnected)
+        if (finalNodeStatus === 'auto_verified') {
+          autoDispatchDownstream(projectId, nodeId).catch((err) => {
+            console.error('[dispatch] Auto-dispatch downstream failed:', err)
+          })
+        }
+      } catch (err: unknown) {
+        console.error('[dispatch] Error persisting execution result to plan node:', err)
+      }
 
       // Auto-assign defaultMachineId on the project if not yet set
       if (msg.result.status === 'completed' && machineId) {
@@ -1557,6 +1567,29 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         data: JSON.stringify(errorData),
       }).catch(() => {})
       stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+
+      // DB-authoritative: update plan node status + notify frontend
+      if (!nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
+        const errorTime = new Date()
+        try {
+          await db.update(planNodes)
+            .set({
+              status: 'awaiting_judgment',
+              executionError: 'Remote machine disconnected during task execution',
+              endDate: errorTime.toISOString(),
+              actualEndDate: errorTime,
+              updatedAt: errorTime,
+            })
+            .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+            .execute()
+          executionEventBus.emit('node:status_changed', {
+            nodeId, projectId, status: 'awaiting_judgment', executionId,
+          })
+        } catch (err: unknown) {
+          console.error('[dispatch] Failed to update plan_node on machine disconnect:', err)
+        }
+      }
+
       alive = false
     }
 
@@ -1614,17 +1647,40 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     }
 
     // P2: Handle dead job detection — terminate this SSE stream when relay detects task is dead
-    const onTaskDead = (data: { taskId: string; machineId: string; reason: string }) => {
+    const onTaskDead = async (data: { taskId: string; machineId: string; reason: string }) => {
       if (!alive || data.taskId !== executionId) return
       console.log(`[dispatch] Task ${executionId} declared dead by heartbeat cross-ref: ${data.reason}`)
       const errorData = { error: `Dead job detected: ${data.reason}`, recoverable: true }
-      streamingEventLog.append(executionId, 'error', errorData).then((seq) => {
+      try {
+        const seq = await streamingEventLog.append(executionId, 'error', errorData)
         stream.writeSSE({ id: String(seq), event: 'error', data: JSON.stringify(errorData) }).catch(() => {})
-        stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
-      }).catch(() => {
+      } catch {
         stream.writeSSE({ event: 'error', data: JSON.stringify(errorData) }).catch(() => {})
-        stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
-      })
+      }
+      stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+
+      // DB-authoritative: update plan node status + notify frontend
+      if (!nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
+        const errorTime = new Date()
+        try {
+          await db.update(planNodes)
+            .set({
+              status: 'planned',
+              executionError: `Dead job detected: ${data.reason}`,
+              endDate: errorTime.toISOString(),
+              actualEndDate: errorTime,
+              updatedAt: errorTime,
+            })
+            .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+            .execute()
+          executionEventBus.emit('node:status_changed', {
+            nodeId, projectId, status: 'planned', executionId,
+          })
+        } catch (err: unknown) {
+          console.error('[dispatch] Failed to update plan_node on dead job:', err)
+        }
+      }
+
       alive = false
     }
 
@@ -1677,6 +1733,27 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         data: JSON.stringify(errorData),
       })
       await stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) })
+
+      // DB-authoritative: reset plan node to planned + notify frontend
+      if (!nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
+        const errorTime = new Date()
+        try {
+          await db.update(planNodes)
+            .set({
+              status: 'planned',
+              executionError: `Failed to dispatch to machine: ${machineId}`,
+              updatedAt: errorTime,
+            })
+            .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+            .execute()
+          executionEventBus.emit('node:status_changed', {
+            nodeId, projectId, status: 'planned', executionId,
+          })
+        } catch (err: unknown) {
+          console.error('[dispatch] Failed to update plan_node on dispatch failure:', err)
+        }
+      }
+
       return
     }
 
@@ -1711,23 +1788,30 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       data: JSON.stringify(initDataForSSE),
     })
 
-    // Update plan_nodes.status to in_progress server-side.
-    // The frontend also sets this via Zustand on the init SSE event, but for
-    // server-side dispatch (auto-cascading) there is no frontend listener,
-    // so the DB must be updated here to keep status accurate.
+    // Update plan_nodes.status to in_progress server-side (DB-authoritative).
+    // The DB write is awaited so node:status_changed is only emitted after
+    // the write commits — frontend re-reads from DB on notification.
     if (!nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
-      db.update(planNodes)
-        .set({
-          status: 'in_progress',
-          executionId,
-          executionStartedAt: new Date(),
-          updatedAt: new Date(),
+      const now = new Date()
+      try {
+        await db.update(planNodes)
+          .set({
+            status: 'in_progress',
+            executionId,
+            executionStartedAt: now,
+            startDate: now.toISOString(),
+            updatedAt: now,
+          })
+          .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+          .execute()
+
+        // Notify frontend: DB is committed, safe to re-read
+        executionEventBus.emit('node:status_changed', {
+          nodeId, projectId, status: 'in_progress', executionId,
         })
-        .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
-        .execute()
-        .catch((err: unknown) => {
-          console.error('[dispatch] Failed to set plan_node in_progress:', err)
-        })
+      } catch (err: unknown) {
+        console.error('[dispatch] Failed to set plan_node in_progress:', err)
+      }
     }
 
     // Emit task:init via event bus so the global SSE stream (/api/events/stream)
@@ -1786,11 +1870,17 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           const errorData = { error: errorMsg, recoverable: true }
 
           // Update plan_nodes so the node doesn't stay in_progress if browser is disconnected
-          db.update(planNodes)
-            .set({ status: 'planned', executionError: errorMsg, updatedAt: new Date() })
-            .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
-            .execute()
-            .catch((err) => console.error(`[dispatch] Failed to update plan_node on timeout:`, err))
+          try {
+            await db.update(planNodes)
+              .set({ status: 'planned', executionError: errorMsg, updatedAt: new Date() })
+              .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+              .execute()
+            executionEventBus.emit('node:status_changed', {
+              nodeId, projectId, status: 'planned', executionId,
+            })
+          } catch (err) {
+            console.error(`[dispatch] Failed to update plan_node on timeout:`, err)
+          }
 
           const sendDone = () => {
             stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})

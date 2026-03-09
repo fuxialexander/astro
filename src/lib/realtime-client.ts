@@ -10,6 +10,7 @@ import { apiUrl } from './api-url'
 
 export type RealtimeEventType =
   | 'machines:snapshot'
+  | 'node:status_changed'
   | 'task:init'
   | 'task:result'
   | 'task:stdout'

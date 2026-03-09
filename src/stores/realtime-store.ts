@@ -12,16 +12,16 @@ import { getAccessToken } from '@/lib/supabase-client'
 import { showApprovalNotification, showTaskNotification } from '@/lib/notifications'
 import { fetchStreamingEventsCatchUp } from '@/lib/api-client'
 import { hydrateStreamingEvents } from '@/lib/streaming-event-hydrator'
-import { usePlanStore } from './plan-store'
+import { usePlanStore, isLive } from './plan-store'
+import { dataClient } from '@/lib/data-client'
 import { useProjectStore } from './project-store'
 import { useExecutionStore } from './execution-store'
 import { useMachinesStore } from './machines-store'
 import { applyPlanFromText, planNodeIdToProjectId } from '@/lib/plan-extraction'
 import type { TaskActivityEvent } from '@/types'
-import { useSettingsStore } from './settings-store'
 import { useToastStore } from './toast-store'
 import { useNotificationStore } from './notification-store'
-import { buildServerCompletionMessage } from '@/lib/completion-messages'
+import { buildServerCompletionMessage, buildClientCompletionMessage } from '@/lib/completion-messages'
 
 export interface HpcCapability {
   clusterName?: string
@@ -832,30 +832,18 @@ function reconcileResultFromCatchUp(
     }
   }
 
-  // Update plan node status
+  // Update plan node status — re-read from DB (DB-authoritative pattern)
   const planStore = usePlanStore.getState()
   const node = planStore.nodes.find((n) => n.executionId === executionId)
   if (node && node.status !== 'completed' && node.status !== 'auto_verified' && node.status !== 'pruned') {
-    // Use server-computed finalStatus (includes YOLO check) if available,
-    // otherwise fall back to local computation for backward compat
-    const deliveryOk = !hydrated.deliveryStatus || hydrated.deliveryStatus === 'success' || hydrated.deliveryStatus === 'skipped'
-    const isPlaygroundTask = node.id.startsWith('playground-')
-    const yoloOn = isPlaygroundTask
-      ? useSettingsStore.getState().playgroundYoloMode
-      : useSettingsStore.getState().yoloMode
-    const finalStatus = hydrated.finalStatus || (isSuccess
-      ? ((node.verification === 'auto' || yoloOn) && (deliveryOk || yoloOn) ? 'auto_verified' : 'awaiting_judgment')
-      : 'awaiting_judgment')
-    planStore.updateNode(node.id, {
-      status: finalStatus as import('@/types').PlanNode['status'],
-      executionOutput: hydrated.output,
-      executionError: hydrated.error,
-      executionCompletedAt: new Date(),
-      ...(hydrated.branchName ? { branchName: hydrated.branchName } : {}),
-      ...(hydrated.prUrl ? { prUrl: hydrated.prUrl } : {}),
-      ...(hydrated.prNumber ? { prNumber: hydrated.prNumber } : {}),
+    dataClient.getNode(node.id).then((freshNode) => {
+      if (freshNode) {
+        usePlanStore.getState().mergeNodeFromDB(freshNode)
+        console.log('[realtime] Reconciled plan node', node.id, '→', freshNode.status, 'from catch-up (DB-authoritative)')
+      }
+    }).catch((err) => {
+      console.error('[realtime] Failed to fetch node from DB during catch-up:', err)
     })
-    console.log('[realtime] Reconciled plan node', node.id, '→', finalStatus, 'from catch-up')
   }
 
   // If this is a plan session, extract plan nodes from caught-up stdout
@@ -1053,9 +1041,22 @@ function handleRealtimeEvent(
         { taskId: execId }
       )
 
+      // Guard: skip side-effects if execution already completed (duplicate delivery
+      // now possible since activeDispatchStreams no longer suppresses task:result)
+      const execStore = useExecutionStore.getState()
+      {
+        let alreadyCompleted = false
+        for (const [, exec] of execStore.executions) {
+          if (exec.executionId === execId) {
+            alreadyCompleted = exec.status === 'success' || exec.status === 'failure' || exec.status === 'cancelled'
+            break
+          }
+        }
+        if (alreadyCompleted) break
+      }
+
       // Update execution store entry (so UI reflects terminal status after refresh)
       // Build new Map to maintain Zustand immutability (don't mutate live state)
-      const execStore = useExecutionStore.getState()
       const newExecs = new Map(execStore.executions)
       for (const [nid, exec] of execStore.executions) {
         if (exec.executionId === execId) {
@@ -1075,45 +1076,8 @@ function handleRealtimeEvent(
         }
       }
 
-      // Update plan node status via plan store
-      const planStore = usePlanStore.getState()
-      const node = planStore.nodes.find(
-        (n) => n.executionId === execId
-      )
-      if (node) {
-        // Use finalStatus from server if provided
-        const deliveryOk = !data.deliveryStatus || data.deliveryStatus === 'success' || data.deliveryStatus === 'skipped'
-        const isPlaygroundTask = execId.startsWith('playground-')
-        const yoloOn = isPlaygroundTask
-          ? useSettingsStore.getState().playgroundYoloMode
-          : useSettingsStore.getState().yoloMode
-        const finalStatus = (data.finalStatus as string) || (
-          isSuccess
-            ? ((node.verification === 'auto' || yoloOn) && (deliveryOk || yoloOn) ? 'auto_verified' : 'awaiting_judgment')
-            : 'awaiting_judgment'
-        )
-        const completionTime = new Date()
-        planStore.updateNode(node.id, {
-          status: finalStatus as import('@/types').PlanNode['status'],
-          executionOutput: data.output as string | undefined,
-          executionError: data.error as string | undefined,
-          executionCompletedAt: completionTime,
-          endDate: completionTime.toISOString(),
-          actualEndDate: completionTime,
-          // Persist PR/branch metadata on the plan node
-          ...(data.branchName ? { branchName: data.branchName as string } : {}),
-          ...(data.prUrl ? { prUrl: data.prUrl as string } : {}),
-          ...(data.prNumber ? { prNumber: data.prNumber as number } : {}),
-        })
-
-        // Browser notification for task completion/failure/judgment
-        const project = useProjectStore.getState().projects.find(p => p.id === node.projectId)
-        const pName = project?.name || 'Astro'
-        showTaskNotification(pName, node.title, isSuccess ? 'completed' : 'failed')
-        if (!isSuccess) {
-          showTaskNotification(pName, node.title, 'awaiting_judgment')
-        }
-      }
+      // Plan-node status update + notifications + YOLO trigger are now handled
+      // by the node:status_changed SSE event (DB-authoritative pattern).
 
       // If this is a plan session result, extract plan nodes from accumulated stdout
       for (const [nid, exec] of execStore.executions) {
@@ -1127,18 +1091,6 @@ function handleRealtimeEvent(
             if (result.applied) {
               console.log('[realtime] Plan extracted from live SSE result:', result.nodeCount, 'nodes')
             }
-          }
-
-          // Trigger YOLO auto-execute if enabled for this project.
-          // This mirrors the logic in execution-store.ts:2542-2550 — needed because
-          // when the result arrives via global SSE (not dispatch SSE), only the
-          // realtime-store handler fires, and it was previously missing this trigger.
-          if (isSuccess && execStore.autoExecuteProjectIds.has(planProjectId)) {
-            execStore.setAutoExecute(planProjectId, false)
-            setTimeout(() => {
-              console.log(`[realtime] YOLO mode: auto-executing all tasks for project ${planProjectId}`)
-              execStore.executeAllProject(planProjectId)
-            }, 1000)
           }
           break
         }
@@ -1688,21 +1640,10 @@ function handleRealtimeEvent(
       const initProjectId = data.projectId as string
       const initMachineId = data.machineId as string | undefined
 
-      // 1. Update plan node with executionId + in_progress status
-      const planStore = usePlanStore.getState()
-      const node = planStore.nodes.find((n) => n.id === initNodeId)
-      if (node && node.status !== 'completed' && node.status !== 'auto_verified') {
-        const now = new Date()
-        planStore.updateNode(initNodeId, {
-          status: 'in_progress',
-          executionId: execId,
-          executionStartedAt: now,
-          startDate: now.toISOString(),
-          ...(!node.actualStartDate ? { actualStartDate: now } : {}),
-        })
-      }
+      // Plan-node status update is now handled by node:status_changed SSE event
+      // (DB-authoritative: server writes status, emits notification, frontend re-reads from DB)
 
-      // 2. Create execution entry so ExecutionPanel can render
+      // 1. Create execution entry so ExecutionPanel can render
       const execStore = useExecutionStore.getState()
       if (!execStore.executions.has(initNodeId)) {
         useExecutionStore.setState((state) => {
@@ -1723,7 +1664,7 @@ function handleRealtimeEvent(
         })
       }
 
-      // 3. Create taskStream entry so progress/text events can be routed
+      // 2. Create taskStream entry so progress/text events can be routed
       set((state) => {
         const streams = new Map(state.taskStreams)
         if (!streams.has(execId)) {
@@ -1734,7 +1675,105 @@ function handleRealtimeEvent(
         return { taskStreams: streams }
       })
 
-      addActivity(set, 'info', `Task "${node?.title || initNodeId}" dispatched automatically`, {
+      const initNodeTitle = usePlanStore.getState().nodes.find((n) => n.id === initNodeId)?.title
+      addActivity(set, 'info', `Task "${initNodeTitle || initNodeId}" dispatched automatically`, {
+        taskId: execId,
+      })
+      break
+    }
+
+    case 'node:status_changed': {
+      // DB-authoritative handler: re-read the node from DB and merge into plan store.
+      // This is the ONLY path that updates plan-node status from server events.
+      const nodeId = data.nodeId as string
+      const projectId = data.projectId as string
+      const execId = data.executionId as string | undefined
+
+      // Re-read authoritative state from DB
+      dataClient.getNode(nodeId).then((freshNode) => {
+        if (!freshNode) return
+
+        const planStore = usePlanStore.getState()
+        const prevNode = planStore.nodes.find((n) => n.id === nodeId)
+        const prevStatus = prevNode?.status
+
+        // Merge DB state into plan store (DB wins, no write-back)
+        planStore.mergeNodeFromDB(freshNode)
+
+        // Side effects based on status transition
+        if (prevStatus !== freshNode.status) {
+          const TERMINAL = new Set(['completed', 'auto_verified', 'pruned', 'awaiting_judgment', 'awaiting_approval'])
+          const wasTerminal = prevStatus ? TERMINAL.has(prevStatus) : false
+          const isNowTerminal = TERMINAL.has(freshNode.status)
+
+          // Browser notification for task completion/failure
+          if (isNowTerminal && !wasTerminal) {
+            const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
+            const pName = project?.name || 'Astro'
+            const isSuccess = freshNode.status === 'completed' || freshNode.status === 'auto_verified'
+            showTaskNotification(pName, freshNode.title, isSuccess ? 'completed' : 'failed')
+            if (!isSuccess && freshNode.status !== 'pruned') {
+              showTaskNotification(pName, freshNode.title, 'awaiting_judgment')
+            }
+          }
+
+          // YOLO auto-execute: when a plan-* node completes, trigger executeAllProject
+          if (execId && nodeId.startsWith('plan-')) {
+            const isSuccess = freshNode.status === 'completed' || freshNode.status === 'auto_verified'
+            if (isSuccess) {
+              const planProjectId = planNodeIdToProjectId(nodeId)
+              if (planProjectId) {
+                const execStore = useExecutionStore.getState()
+                if (execStore.autoExecuteProjectIds.has(planProjectId)) {
+                  execStore.setAutoExecute(planProjectId, false)
+                  setTimeout(() => {
+                    console.log(`[realtime] YOLO mode: auto-executing all tasks for project ${planProjectId}`)
+                    execStore.executeAllProject(planProjectId)
+                  }, 1000)
+                }
+              }
+            }
+          }
+
+          // Trigger batch execution next wave (now safe — node status is fresh from DB)
+          if (isNowTerminal && !nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
+            useExecutionStore.getState().triggerBatchWave(projectId)
+          }
+
+          // Check if all tasks in the project are now complete
+          if (isNowTerminal && !nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
+            const execStore = useExecutionStore.getState()
+            if (!execStore.completedProjectIds.has(projectId)) {
+              const COMPLETE_TERMINAL = new Set(['completed', 'auto_verified', 'pruned'])
+              const projectNodes = usePlanStore.getState().nodes.filter(
+                (n) => n.projectId === projectId && n.type === 'task' && isLive(n)
+              )
+              if (projectNodes.length > 0 && projectNodes.every((n) => COMPLETE_TERMINAL.has(n.status))) {
+                useExecutionStore.setState((state) => {
+                  const next = new Set(state.completedProjectIds)
+                  next.add(projectId)
+                  return { completedProjectIds: next }
+                })
+                const proj = useProjectStore.getState().projects.find((p) => p.id === projectId)
+                const allSuccess = projectNodes.every(
+                  (n) => n.status === 'completed' || n.status === 'auto_verified'
+                )
+                const msg = buildClientCompletionMessage({
+                  projectName: proj?.name,
+                  projectBranch: proj?.projectBranch,
+                  allSuccess,
+                })
+                useToastStore.getState().add({ ...msg, duration: 8000 })
+                useNotificationStore.getState().add({ ...msg, projectId })
+              }
+            }
+          }
+        }
+      }).catch((err) => {
+        console.error('[realtime] Failed to fetch node from DB for node:status_changed:', err)
+      })
+
+      addActivity(set, 'info', `Node status updated: ${nodeId} → ${data.status as string}`, {
         taskId: execId,
       })
       break
