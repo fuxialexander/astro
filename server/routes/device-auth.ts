@@ -503,8 +503,9 @@ deviceAuthRoute.post('/register', async (c) => {
     }
 
     // Surface actionable error details to the agent-runner
-    const isFkViolation = message.includes('foreign key') || message.includes('23503');
-    const isSchemaError = message.includes('column') || message.includes('relation') || message.includes('42703') || message.includes('42P01');
+    const msgLower = message.toLowerCase();
+    const isFkViolation = msgLower.includes('foreign key') || message.includes('23503');
+    const isSchemaError = msgLower.includes('column') || msgLower.includes('relation') || message.includes('42703') || message.includes('42P01');
 
     if (isFkViolation) {
       return c.json({
