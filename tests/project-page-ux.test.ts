@@ -45,7 +45,9 @@ describe("sidebar width localStorage parsing", () => {
   // Replicate the initialization logic from ui-store.ts
   function parseSidebarWidth(stored: string | null): number {
     try {
-      return stored ? Math.max(200, Math.min(480, Number(stored))) : 260
+      if (!stored) return 260
+      const n = Number(stored)
+      return Number.isFinite(n) ? Math.max(200, Math.min(480, n)) : 260
     } catch {
       return 260
     }
@@ -69,11 +71,8 @@ describe("sidebar width localStorage parsing", () => {
   })
 
   it("returns 260 for non-numeric values", () => {
-    // NaN clamped: Math.max(200, Math.min(480, NaN)) = NaN → but our clamp handles it
-    // Actually NaN comparisons return false, so Math.max(200, NaN) = NaN
-    // This tests the edge case
-    const result = parseSidebarWidth("not-a-number")
-    expect(result).toBeNaN() // Reveals edge case — in practice, localStorage always stores valid numbers
+    // Number("not-a-number") = NaN — guarded by Number.isFinite() check
+    expect(parseSidebarWidth("not-a-number")).toBe(260)
   })
 
   it("handles empty string as falsy — returns default", () => {
