@@ -616,7 +616,7 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
                 {/* Provider selector — shown when providers are available */}
                 {availableProviders.length > 0 && (
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium">AI Provider</Label>
+                    <Label className="text-sm font-medium">AI Agent</Label>
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"

@@ -18,6 +18,8 @@ import {
   GitPullRequest,
   GitBranch,
   ListPlus,
+  Laptop,
+  Bot,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -41,6 +43,11 @@ import { fileToBase64, resolveEditorContent } from "@/lib/html-utils"
 import { exportProject, downloadBundle } from "@/lib/sharing/export-project"
 import { apiUrl } from "@/lib/api-url"
 import { BackendMultiSelect } from "@/components/execution/backend-multi-select"
+import { PROVIDER_NAMES } from "@/components/execution/provider-utils"
+import { InstructionPicker } from "@/components/execution/instruction-picker"
+import { useExecutionStore } from "@/stores/execution-store"
+import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
+import { useSettingsStore } from "@/stores/settings-store"
 import type { Project, PlanNode } from "@/types"
 
 const healthLabels: Record<string, string> = {
@@ -74,6 +81,9 @@ export function OverviewTab({
   const activities = useActivityStore((s) => s.activities)
   const machines = useMachinesStore((s) => s.machines)
   const fetchMachines = useMachinesStore((s) => s.fetchMachines)
+  const liveMachines = useExecutionStore((s) => s.machines)
+  const defaultProvider = useSettingsStore((s) => s.defaultProvider)
+  const miAssign = useMachineInstructionStore((s) => s.assignToMachine)
   const recentActivities = useMemo(
     () => activities.filter((a) => a.projectId === project.id).slice(0, 3),
     [activities, project.id]
@@ -468,6 +478,74 @@ export function OverviewTab({
                 onSelectionChange={(backends) => updateProject(project.id, { computeBackends: backends })}
               />
             </div>
+            {/* Machine + AI Agent */}
+            {(machines.length > 0 || liveMachines.length > 0) && (
+              <div className="flex flex-col gap-2 rounded-xl bg-muted/50 border border-border/40 p-3 px-4">
+                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  <Laptop className="h-3.5 w-3.5" />
+                  Machine
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {machines.map((m) => {
+                    const isDefault = m.id === project.defaultMachineId
+                    const live = liveMachines.find((lm) => lm.machineId === m.id)
+                    const isOnline = !!live || m.isConnected
+                    return (
+                      <div key={m.id} className="flex items-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => updateProject(project.id, { defaultMachineId: isDefault ? undefined : m.id })}
+                          className={cn(
+                            "flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs transition-colors cursor-pointer",
+                            isDefault
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border hover:bg-muted"
+                          )}
+                        >
+                          <span className={cn("h-1.5 w-1.5 rounded-full", isOnline ? "bg-success" : "bg-muted-foreground/40")} />
+                          {m.name}
+                        </button>
+                        <InstructionPicker
+                          currentInstructionId={m.defaultInstructionId}
+                          onSelect={(id) => miAssign(m.id, id)}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+                {/* AI Agent (provider) for the selected machine */}
+                {(() => {
+                  const selectedMachineId = project.defaultMachineId
+                  const live = liveMachines.find((lm) => lm.machineId === selectedMachineId)
+                  const reg = machines.find((m) => m.id === selectedMachineId)
+                  const providerIds = live?.providers?.map((p) => p.type) ?? reg?.providers ?? []
+                  if (providerIds.length === 0) return null
+                  return (
+                    <div className="flex flex-col gap-1.5 mt-1">
+                      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                        <Bot className="h-3.5 w-3.5" />
+                        AI Agent
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {providerIds.map((pid) => (
+                          <span
+                            key={pid}
+                            className={cn(
+                              "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium",
+                              pid === defaultProvider
+                                ? "bg-primary/10 text-primary border border-primary/30"
+                                : "bg-muted text-muted-foreground"
+                            )}
+                          >
+                            {PROVIDER_NAMES[pid] || pid}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
             {/* Show repository warning when NOT configured */}
             {!(project.workingDirectory || project.repository) && (
               <div

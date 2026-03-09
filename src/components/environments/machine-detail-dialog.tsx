@@ -134,8 +134,8 @@ export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine }
 
         {/* Providers */}
         <div className="flex flex-col gap-2 mt-4">
-          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Agent Providers</h4>
-          <p className="text-[11px] text-muted-foreground">Click a provider to set it as the default for task execution.</p>
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">AI Agents</h4>
+          <p className="text-[11px] text-muted-foreground">Click an agent to set it as the default for task execution.</p>
           {liveProviders && liveProviders.length > 0 ? (
             <div className="flex flex-col gap-1.5">
               {liveProviders.map((p) => {
@@ -206,7 +206,7 @@ export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine }
               })}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No providers detected</p>
+            <p className="text-sm text-muted-foreground">No agents detected</p>
           )}
         </div>
 
