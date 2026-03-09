@@ -1128,6 +1128,18 @@ function handleRealtimeEvent(
               console.log('[realtime] Plan extracted from live SSE result:', result.nodeCount, 'nodes')
             }
           }
+
+          // Trigger YOLO auto-execute if enabled for this project.
+          // This mirrors the logic in execution-store.ts:2542-2550 — needed because
+          // when the result arrives via global SSE (not dispatch SSE), only the
+          // realtime-store handler fires, and it was previously missing this trigger.
+          if (isSuccess && execStore.autoExecuteProjectIds.has(planProjectId)) {
+            execStore.setAutoExecute(planProjectId, false)
+            setTimeout(() => {
+              console.log(`[realtime] YOLO mode: auto-executing all tasks for project ${planProjectId}`)
+              execStore.executeAllProject(planProjectId)
+            }, 1000)
+          }
           break
         }
       }

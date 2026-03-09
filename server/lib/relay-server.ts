@@ -592,6 +592,8 @@ export class RelayServer extends EventEmitter {
   private attachedSessions: Map<string, AttachedSession> = new Map();
   // Track which machine each task was dispatched to (for cancel without explicit machineId)
   private taskToMachine: Map<string, string> = new Map();
+  // Track when each task was dispatched (for dead job grace period)
+  private taskDispatchedAt: Map<string, number> = new Map();
   // Grace period timers for machines that disconnected — delays task failure to allow reconnection
   private disconnectGracePeriods: Map<string, ReturnType<typeof setTimeout>> = new Map();
   // Dead job detection: periodic cross-reference of heartbeat task IDs vs server-side tracking
@@ -1236,6 +1238,8 @@ export class RelayServer extends EventEmitter {
   private handleTaskResult(message: TaskResultMessage): void {
     console.log(`[relay] Task result received: ${message.result.taskId} - ${message.result.status}`);
     this.taskToMachine.delete(message.result.taskId);
+    this.taskDispatchedAt.delete(message.result.taskId);
+    this.consecutiveMisses.delete(message.result.taskId);
     this.emit('task:result', message);
   }
 
@@ -1407,6 +1411,7 @@ export class RelayServer extends EventEmitter {
     }
     socket.send(JSON.stringify(agentRunnerMsg));
     this.taskToMachine.set(task.taskId, machineId);
+    this.taskDispatchedAt.set(task.taskId, Date.now());
     console.log(`[relay] Task ${task.taskId} dispatched to machine ${machineId}`);
     return true;
   }
@@ -1442,6 +1447,8 @@ export class RelayServer extends EventEmitter {
     }
     socket.send(JSON.stringify(agentRunnerMsg));
     this.taskToMachine.delete(taskId);
+    this.taskDispatchedAt.delete(taskId);
+    this.consecutiveMisses.delete(taskId);
     console.log(`[relay] Task ${taskId} cancel request sent to machine ${resolvedMachineId}`);
     return true;
   }
@@ -1463,16 +1470,20 @@ export class RelayServer extends EventEmitter {
   /**
    * Start the periodic dead job checker (P2 heartbeat cross-reference).
    * Every 60 seconds, compares server-side task tracking against agent runner
-   * heartbeat reports. After 2 consecutive misses (~2 minutes), emits 'task:dead'.
+   * heartbeat reports. After 5 consecutive misses (~5 minutes), emits 'task:dead'.
+   * Tasks dispatched within the last 3 minutes are given a grace period to allow
+   * for worktree creation, git clone, and agent startup.
    */
   private startDeadJobChecker(): void {
     if (this.deadJobCheckInterval) return;
 
     const DEAD_JOB_CHECK_INTERVAL_MS = 60_000;  // 60 seconds
-    const CONSECUTIVE_MISS_THRESHOLD = 2;        // 2 misses = ~2 minutes
+    const CONSECUTIVE_MISS_THRESHOLD = 5;        // 5 misses = ~5 minutes
+    const DISPATCH_GRACE_PERIOD_MS = 3 * 60_000; // 3 minutes grace after dispatch
 
     this.deadJobCheckInterval = setInterval(() => {
       const allMachines = machineRegistry.getAll();
+      const now = Date.now();
 
       for (const machine of allMachines) {
         if (machine.connectionStatus !== 'connected') continue;
@@ -1488,6 +1499,12 @@ export class RelayServer extends EventEmitter {
             // Task is alive — reset miss count
             this.consecutiveMisses.delete(taskId);
           } else {
+            // Skip tasks still in dispatch grace period (startup: worktree, git clone, etc.)
+            const dispatchedAt = this.taskDispatchedAt.get(taskId);
+            if (dispatchedAt && (now - dispatchedAt) < DISPATCH_GRACE_PERIOD_MS) {
+              continue;
+            }
+
             // Task missing from heartbeat — increment miss count
             const misses = (this.consecutiveMisses.get(taskId) ?? 0) + 1;
             this.consecutiveMisses.set(taskId, misses);
@@ -1499,6 +1516,7 @@ export class RelayServer extends EventEmitter {
               );
               this.consecutiveMisses.delete(taskId);
               this.taskToMachine.delete(taskId);
+              this.taskDispatchedAt.delete(taskId);
 
               // Emit event for dispatch layer to handle DB reset
               this.emit('task:dead', {
@@ -1512,7 +1530,7 @@ export class RelayServer extends EventEmitter {
       }
     }, DEAD_JOB_CHECK_INTERVAL_MS);
 
-    console.log('[relay] Dead job checker started (60s interval, 2-miss threshold)');
+    console.log('[relay] Dead job checker started (60s interval, 5-miss threshold, 3-min grace)');
   }
 
   /**
@@ -1736,6 +1754,7 @@ export class RelayServer extends EventEmitter {
       for (const [taskId, mId] of this.taskToMachine) {
         if (mId === machineId) {
           this.taskToMachine.delete(taskId);
+          this.taskDispatchedAt.delete(taskId);
           this.consecutiveMisses.delete(taskId);
         }
       }
@@ -2219,6 +2238,8 @@ export class RelayServer extends EventEmitter {
     const { payload } = message;
     const { taskId, status, exitCode, output, error, artifacts, metrics, branchName, prUrl, prNumber, commitBeforeSha, commitAfterSha, deliveryStatus, deliveryError, summary } = payload;
     this.taskToMachine.delete(taskId);
+    this.taskDispatchedAt.delete(taskId);
+    this.consecutiveMisses.delete(taskId);
 
     // Convert to standard result message
     const resultMsg: TaskResultMessage = {

@@ -24,7 +24,7 @@ import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
-import { projects, planNodes, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines } from '../lib/db/schema.js'
+import { projects, planNodes, planEdges, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines } from '../lib/db/schema.js'
 import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
@@ -33,6 +33,7 @@ import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instructio
 import { extractPlanJsonFromText } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { autoDispatchDownstream } from './data.js'
+import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup)
 const dispatchedTaskDirs = new Map<string, string>()  // taskId → workingDirectory
@@ -1301,6 +1302,39 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           // Regex extraction succeeded — emit plan_result synchronously before result
           const planSeq = await streamingEventLog.append(executionId, 'plan_result', planJson)
           stream.writeSSE({ id: String(planSeq), event: 'plan_result', data: JSON.stringify(planJson) }).catch(() => { alive = false })
+
+          // Server-side YOLO auto-dispatch: when plan generation completes in YOLO mode,
+          // dispatch all root tasks (planned, with all deps met) server-side. This ensures
+          // tasks start even if the browser refreshes or the dispatch SSE drops (G2 fix).
+          if (isSuccess && yoloEnabled && planJson.nodes?.length > 0) {
+            const YOLO_DISPATCH_DELAY_MS = 2_000 // let plan persist before dispatching
+            setTimeout(async () => {
+              try {
+                const allNodes = await db.select().from(planNodes)
+                  .where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
+                const allEdges = await db.select().from(planEdges)
+                  .where(and(eq(planEdges.projectId, projectId), isNull(planEdges.deletedAt)))
+
+                const COMPLETED_STATUSES = ['completed', 'auto_verified']
+                for (const pn of allNodes) {
+                  if (pn.type !== 'task' || pn.status !== 'planned') continue
+                  const depEdges = allEdges.filter(e => e.targetClientId === pn.clientId)
+                  const allDepsMet = depEdges.every(depEdge => {
+                    const depNode = allNodes.find(n => n.clientId === depEdge.sourceClientId)
+                    return depNode && COMPLETED_STATUSES.includes(depNode.status)
+                  })
+                  if (allDepsMet) {
+                    console.log(`[dispatch] YOLO server-side: dispatching root task ${pn.clientId}`)
+                    serverSideDispatch(pn.clientId, projectId).catch((err) => {
+                      console.error(`[dispatch] YOLO server-side dispatch failed for ${pn.clientId}:`, err)
+                    })
+                  }
+                }
+              } catch (err) {
+                console.error('[dispatch] YOLO server-side auto-dispatch error:', err)
+              }
+            }, YOLO_DISPATCH_DELAY_MS)
+          }
         }
       }
 
