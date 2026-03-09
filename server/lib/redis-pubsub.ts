@@ -49,10 +49,15 @@ interface TaskCancelEvent {
   reason?: string;
 }
 
+/** Streaming event types bridged via Redis */
+export type StreamingEventType =
+  | 'text' | 'tool_use' | 'tool_result' | 'file_change'
+  | 'session_init' | 'progress' | 'result';
+
 /** Message published for cross-instance streaming event delivery */
 export interface StreamingEventMessage {
   instanceId: string;
-  eventType: string;
+  eventType: StreamingEventType;
   taskId: string;
   data: Record<string, unknown>;
   dbSeq?: number;

@@ -1271,6 +1271,10 @@ export class RelayServer extends EventEmitter {
     }
 
     this.emit('task:stdout', message);
+    redisPubSub.publishStreamingEvent({
+      eventType: 'text', taskId: message.output.taskId,
+      data: { text: message.output.data },
+    }).catch(() => {});
   }
 
   /**
@@ -2057,10 +2061,14 @@ export class RelayServer extends EventEmitter {
       message: statusMessage || status,
     };
     this.emit('task:progress', progressMsg);
+    redisPubSub.publishStreamingEvent({
+      eventType: 'progress', taskId,
+      data: { progress: progressMsg.progress, message: progressMsg.message },
+    }).catch(() => {});
   }
 
   /**
-   * Handle agent runner's task output message format
+   * Handle agent runner's task output message format (legacy)
    */
   private handleAgentRunnerTaskOutput(message: AgentRunnerTaskOutputMessage): void {
     const { payload } = message;
@@ -2078,13 +2086,14 @@ export class RelayServer extends EventEmitter {
       },
     };
     this.emit('task:stdout', stdoutMsg);
+    redisPubSub.publishStreamingEvent({
+      eventType: 'text', taskId,
+      data: { text: data },
+    }).catch(() => {});
   }
 
   /**
-   * Handle agent runner's task result message format
-   */
-  /**
-   * Handle agent runner's task tool trace message format
+   * Handle agent runner's task tool trace message format (legacy)
    */
   private handleAgentRunnerTaskToolTrace(message: AgentRunnerTaskToolTraceMessage): void {
     const { payload } = message;
@@ -2101,6 +2110,11 @@ export class RelayServer extends EventEmitter {
       success,
     };
     this.emit('task:tool_trace', traceMsg);
+    const eventType = toolResult !== undefined ? 'tool_result' as const : 'tool_use' as const;
+    redisPubSub.publishStreamingEvent({
+      eventType, taskId,
+      data: { toolName, toolInput, toolResult, success },
+    }).catch(() => {});
   }
 
   /**

@@ -644,6 +644,17 @@ describe('RedisPubSub channel constants and types', () => {
     expect(source).toContain("TASK_STREAMING: 'relay:task:streaming'")
   })
 
+  it('exports StreamingEventType union with all event types', () => {
+    expect(source).toContain('export type StreamingEventType')
+    expect(source).toContain("'text'")
+    expect(source).toContain("'tool_use'")
+    expect(source).toContain("'tool_result'")
+    expect(source).toContain("'file_change'")
+    expect(source).toContain("'session_init'")
+    expect(source).toContain("'progress'")
+    expect(source).toContain("'result'")
+  })
+
   it('exports StreamingEventMessage interface', () => {
     expect(source).toContain('export interface StreamingEventMessage')
   })
@@ -654,7 +665,7 @@ describe('RedisPubSub channel constants and types', () => {
     const interfaceBody = source.slice(interfaceStart, interfaceEnd + 1)
 
     expect(interfaceBody).toContain('instanceId: string')
-    expect(interfaceBody).toContain('eventType: string')
+    expect(interfaceBody).toContain('eventType: StreamingEventType')
     expect(interfaceBody).toContain('taskId: string')
     expect(interfaceBody).toContain('data: Record<string, unknown>')
     expect(interfaceBody).toContain('dbSeq?: number')

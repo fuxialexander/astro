@@ -594,6 +594,10 @@ eventsRoute.get('/stream', async (c) => {
     // When Redis is connected and multiple server instances exist, streaming events
     // from other instances arrive here. Self-instance events are skipped (the local
     // EventEmitter path already delivered them).
+    // NOTE: No activeDispatchStreams guard needed here. The dispatch SSE stream only
+    // exists on the instance that initiated the dispatch, and cross-instance events
+    // (different instanceId) by definition come from tasks running on other instances
+    // which won't have a local dispatch bridge.
     const onRedisStreaming = (msg: StreamingEventMessage) => {
       if (!alive) return
       if (msg.instanceId === redisPubSub.getInstanceId()) return
