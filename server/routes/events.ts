@@ -42,6 +42,11 @@ import type {
 
 const eventsRoute = new Hono()
 
+// Dedup set for channel notifications — prevents sending N Telegram polls
+// when a user has N browser tabs open (each tab registers its own SSE handler).
+// Entries auto-expire after 5 minutes (matching approval timeout).
+const notifiedApprovalRequests = new Set<string>()
+
 // All events routes require authentication
 eventsRoute.use('/*', requireAuth)
 
@@ -292,21 +297,28 @@ eventsRoute.get('/stream', async (c) => {
         stream.writeSSE({ id, event: 'task:approval_request', data }).catch(() => { alive = false })
 
         // Also route to configured channels (OpenClaw/Telegram/Slack/etc.)
-        // Channels can respond interactively — first response wins (agent runner deduplicates)
-        const ctx = executionContextStore.get(msg.taskId)
-        if (ctx?.projectId) {
-          channelRouter.sendNotification({
-            type: 'approval.requested',
-            projectId: ctx.projectId,
-            summary: msg.question,
-            astroUrl: `${process.env.ASTRO_BASE_URL || 'http://localhost:5173'}/project/${ctx.projectId}`,
-            metadata: {
-              requestId: msg.requestId,
-              taskId: msg.taskId,
-              options: msg.options,
-              machineId: msg.machineId,
-            },
-          }).catch(err => console.error('[events] Failed to send approval notification to channels:', err))
+        // Channels can respond interactively — first response wins (agent runner deduplicates).
+        // Deduplicate: multiple SSE connections (browser tabs) share this relay event,
+        // but channel notification should fire only once per requestId.
+        if (!notifiedApprovalRequests.has(msg.requestId)) {
+          notifiedApprovalRequests.add(msg.requestId)
+          setTimeout(() => notifiedApprovalRequests.delete(msg.requestId), 300_000)
+
+          const ctx = executionContextStore.get(msg.taskId)
+          if (ctx?.projectId) {
+            channelRouter.sendNotification({
+              type: 'approval.requested',
+              projectId: ctx.projectId,
+              summary: msg.question,
+              astroUrl: `${process.env.ASTRO_BASE_URL || 'http://localhost:5173'}/project/${ctx.projectId}`,
+              metadata: {
+                requestId: msg.requestId,
+                taskId: msg.taskId,
+                options: msg.options,
+                machineId: msg.machineId,
+              },
+            }).catch(err => console.error('[events] Failed to send approval notification to channels:', err))
+          }
         }
       }
 

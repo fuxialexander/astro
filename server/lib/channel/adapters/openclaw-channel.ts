@@ -139,8 +139,9 @@ export class OpenClawChannelAdapter extends EventEmitter {
             const relay = await this.getRelay()
             relay.sendApprovalResponse(taskId, machineId, requestId, true, response)
             console.log(`[openclaw] Approval answered via channel: task=${taskId} requestId=${requestId} answer="${response}"`)
-          }).catch(() => {
+          }).catch((err) => {
             // Timeout or no OpenClaw machine — user can still respond via web UI
+            console.debug(`[openclaw] Channel approval not delivered: ${err.message}`)
           })
           return
         }
