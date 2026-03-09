@@ -1809,8 +1809,8 @@ const steerSchema = z.object({
   message: z.string().min(1).max(50000),
   action: z.enum(['guidance', 'redirect', 'pause', 'resume']).optional(),
   interrupt: z.boolean().optional(),
-  sessionId: z.string().optional(),
-  branchName: z.string().optional(),
+  sessionId: z.string().max(100).optional(),
+  branchName: z.string().max(500).optional(),
 })
 
 dispatchRoute.post('/steer', async (c) => {
