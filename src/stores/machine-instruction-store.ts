@@ -39,8 +39,16 @@ function mapInstruction(row: Record<string, unknown>): MachineInstruction {
   }
 }
 
+export interface MachineInstructionPreset {
+  id: string
+  name: string
+  description: string
+  content: string
+}
+
 interface MachineInstructionState {
   instructions: MachineInstruction[]
+  presets: MachineInstructionPreset[]
   loaded: boolean
   loading: boolean
 
@@ -53,6 +61,7 @@ interface MachineInstructionState {
 
 export const useMachineInstructionStore = create<MachineInstructionState>((set, get) => ({
   instructions: [],
+  presets: [],
   loaded: false,
   loading: false,
 
@@ -61,11 +70,19 @@ export const useMachineInstructionStore = create<MachineInstructionState>((set, 
     set({ loading: true })
     try {
       const headers = await authHeaders()
-      const res = await fetch(apiUrl('/api/machine-instructions'), { headers })
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-      const data = await res.json()
+      const [instrRes, presetsRes] = await Promise.all([
+        fetch(apiUrl('/api/machine-instructions'), { headers }),
+        fetch(apiUrl('/api/machine-instructions/presets'), { headers }),
+      ])
+      if (!instrRes.ok) throw new Error(`${instrRes.status} ${instrRes.statusText}`)
+      const data = await instrRes.json()
       const instructions = (data.instructions as Record<string, unknown>[]).map(mapInstruction)
-      set({ instructions, loaded: true, loading: false })
+      let presets: MachineInstructionPreset[] = []
+      if (presetsRes.ok) {
+        const presetsData = await presetsRes.json()
+        presets = (presetsData.presets ?? []) as MachineInstructionPreset[]
+      }
+      set({ instructions, presets, loaded: true, loading: false })
     } catch (err) {
       console.warn('[machine-instruction-store] Failed to load:', err)
       set({ loaded: false, loading: false })
