@@ -18,6 +18,7 @@ import { githubPrBus } from '../../lib/github-pr-bus.js'
 import { db } from '../../lib/db/index.js'
 import { planNodes, projects } from '../../lib/db/schema.js'
 import { eq, and } from 'drizzle-orm'
+import { executionEventBus } from '../../lib/execution-event-bus.js'
 import {
   isSyncEcho,
   githubStateToAstro,
@@ -196,6 +197,9 @@ export async function handleIssueEvent(
 
       const [closedNode] = await db.select({
         id: planNodes.id,
+        clientId: planNodes.clientId,
+        status: planNodes.status,
+        executionId: planNodes.executionId,
         links: planNodes.links,
         githubSyncVersion: planNodes.githubSyncVersion,
       })
@@ -215,6 +219,15 @@ export async function handleIssueEvent(
           githubSyncedAt: new Date(),
           updatedAt: new Date(),
         }).where(eq(planNodes.id, closedNode.id))
+        // DB-authoritative: notify all clients about GitHub-synced status change
+        if (astroStatus !== closedNode.status) {
+          executionEventBus.emit('node:status_changed', {
+            nodeId: closedNode.clientId,
+            projectId,
+            status: astroStatus,
+            executionId: closedNode.executionId ?? undefined,
+          })
+        }
         await logSyncOperation({
           projectId,
           nodeId: closedNode.id,
@@ -230,6 +243,9 @@ export async function handleIssueEvent(
       if (!isFieldEnabled(syncSettings, 'status', 'github_to_astro')) break
       const [reopenedNode] = await db.select({
         id: planNodes.id,
+        clientId: planNodes.clientId,
+        status: planNodes.status,
+        executionId: planNodes.executionId,
         links: planNodes.links,
         githubSyncVersion: planNodes.githubSyncVersion,
       })
@@ -249,6 +265,15 @@ export async function handleIssueEvent(
           githubSyncedAt: new Date(),
           updatedAt: new Date(),
         }).where(eq(planNodes.id, reopenedNode.id))
+        // DB-authoritative: notify all clients about GitHub-synced status change
+        if (reopenedNode.status !== 'planned') {
+          executionEventBus.emit('node:status_changed', {
+            nodeId: reopenedNode.clientId,
+            projectId,
+            status: 'planned',
+            executionId: reopenedNode.executionId ?? undefined,
+          })
+        }
         await logSyncOperation({
           projectId,
           nodeId: reopenedNode.id,

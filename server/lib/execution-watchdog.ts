@@ -15,6 +15,7 @@ import { db } from './db/index.js'
 import { planNodes, streamingEvents } from './db/schema.js'
 import { and, eq, gt, inArray, isNull, lt } from 'drizzle-orm'
 import { dispatchEngine } from './dispatch/index.js'
+import { executionEventBus } from './execution-event-bus.js'
 
 interface WatchdogConfig {
   enabled: boolean
@@ -133,6 +134,14 @@ async function runWatchdogCheck(): Promise<void> {
               updatedAt: new Date(),
             })
             .where(eq(planNodes.id, node.id))
+
+          // DB-authoritative: notify all clients about the watchdog reset
+          executionEventBus.emit('node:status_changed', {
+            nodeId: node.clientId,
+            projectId: node.projectId,
+            status: 'planned',
+            executionId: node.executionId ?? undefined,
+          })
 
           console.warn(
             `[watchdog] Reset stale task: node=${node.clientId} project=${node.projectId} ` +
