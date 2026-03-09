@@ -189,17 +189,19 @@ export function Playground() {
   // Sync URL → state: if URL gains a projectId we don't have, adopt it.
   // But ignore when URL still has the stale param during handleBack (activeProjectId was just cleared).
   const backingRef = useRef(false)
+  const urlExecProviderId = useExecutionStore((s) =>
+    projectIdParam ? s.executions.get(`playground-${projectIdParam}`)?.providerId : undefined
+  )
   useEffect(() => {
     if (backingRef.current) {
       backingRef.current = false
       return
     }
     if (projectIdParam && !activeProjectId) {
-      const exec = allExecutions.get(`playground-${projectIdParam}`)
-      setActiveProvider(exec?.providerId || "")
+      setActiveProvider(urlExecProviderId || "")
       setActiveProjectId(projectIdParam)
     }
-  }, [projectIdParam, activeProjectId, allExecutions])
+  }, [projectIdParam, activeProjectId, urlExecProviderId])
 
   // Machine name for display
   const machineName = (() => {
@@ -417,6 +419,7 @@ export function Playground() {
         }
       )
 
+      setActiveProvider("") // Forks don't specify a provider — start fresh
       setActiveProjectId(projectId)
       setSearchParams({ projectId })
     } catch (error) {
@@ -555,6 +558,7 @@ export function Playground() {
   const handleBack = useCallback(() => {
     backingRef.current = true
     setActiveProjectId(null)
+    setActiveProvider("")
     setSearchParams({})
     setInput("")
     setFileSidebarOpen(false)
