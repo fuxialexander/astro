@@ -415,7 +415,7 @@ export function Projects() {
       ;(acc[group] ??= []).push(p)
       return acc
     }, {})
-    return Object.entries(grouped).map(([label, items]) => {
+    const groups = Object.entries(grouped).map(([label, items]) => {
       const Icon = displaySettings.groupBy === "initiative" ? (initiativeIcons[label] ?? Users) : Folder
       const iconColor = displaySettings.groupBy === "initiative" ? (initiativeIconColors[label] ?? "text-success") : "text-muted-foreground"
       return {
@@ -426,6 +426,12 @@ export function Projects() {
         defaultCollapsed: label === "Archived",
       }
     })
+    // When grouped by status, sort Active before Archived
+    if (displaySettings.groupBy === "status") {
+      const statusOrder: Record<string, number> = { Active: 0, Archived: 1 }
+      groups.sort((a, b) => (statusOrder[a.label] ?? 99) - (statusOrder[b.label] ?? 99))
+    }
+    return groups
   }, [sortedProjects, displaySettings.groupBy, getInitiativeName])
 
   // Timeline-specific settings

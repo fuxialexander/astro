@@ -484,8 +484,14 @@ export function Playground() {
       taskTitle: sessionTitle,
       taskDescription: `Playground coding session: ${sessionTitle}`,
       taskOutput: activityEvents
-        .filter((e): e is Extract<TaskActivityEvent, { type: 'text' }> => e.type === 'text')
-        .map((e) => e.content)
+        .filter((e): e is Extract<TaskActivityEvent, { type: 'text' | 'tool_use' | 'tool_result' }> =>
+          e.type === 'text' || e.type === 'tool_use' || e.type === 'tool_result')
+        .map((e) => {
+          if (e.type === 'text') return e.content
+          if (e.type === 'tool_use') return `[Tool: ${e.toolName}]`
+          if (e.type === 'tool_result') return `[Result: ${e.toolName} — ${e.success ? 'success' : 'failed'}]`
+          return ''
+        })
         .join(''),
       visionDoc: project?.visionDoc,
       providerId: activeProvider || undefined,

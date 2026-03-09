@@ -179,7 +179,7 @@ function ConnectedMachineCard({ machine, onRemove, onMachineClick, onAssignInstr
     if (!isEditing) {
       // Mark that editing just finished — suppress the next card click
       justFinishedEditingRef.current = true
-      requestAnimationFrame(() => { justFinishedEditingRef.current = false })
+      setTimeout(() => { justFinishedEditingRef.current = false }, 200)
     }
   }
 

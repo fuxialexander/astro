@@ -168,6 +168,8 @@ export interface UseCaseParameter {
   group?: string
   /** Display order within the group (lower = first) */
   order?: number
+  /** When true, show in the main section even if not required (user can still leave blank) */
+  prominent?: boolean
 }
 
 // ============================================================================

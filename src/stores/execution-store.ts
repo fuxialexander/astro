@@ -2501,6 +2501,10 @@ function handleSSEEvent(
         const isSuccess = parsed.status === "success" || parsed.status === "completed"
         const execution = get().executions.get(nodeId)
 
+        // Guard: skip duplicate side-effects if this result was already processed
+        // (can happen when SSE reconnection replays caught-up events through handleSSEEvent)
+        const alreadyCompleted = execution?.status === 'success' || execution?.status === 'failure'
+
         // Extract metrics from result event
         const metrics: UsageMetrics | undefined = parsed.metrics ? {
           durationMs: parsed.metrics.durationMs,
@@ -2533,48 +2537,47 @@ function handleSSEEvent(
           return { executions: newExecutions }
         })
 
-        // Notify when a planning session finishes
-        if (nodeId.startsWith('plan-')) {
-          const planProjectId = planNodeIdToProjectId(nodeId)
-          const planProject = planProjectId ? useProjectStore.getState().projects.find((p) => p.id === planProjectId) : null
-          useToastStore.getState().add({
-            type: isSuccess ? 'success' : 'error',
-            title: isSuccess ? 'Planning complete' : 'Planning failed',
-            description: planProject
-              ? (isSuccess ? `Plan for "${planProject.name}" is ready.` : `Plan for "${planProject.name}" failed.`)
-              : (isSuccess ? 'Plan generation has finished.' : 'Plan generation failed.'),
-            duration: 6000,
-          })
+        // Skip toasts and metrics accumulation on duplicate result events
+        // (SSE reconnection catch-up replays events through handleSSEEvent)
+        if (!alreadyCompleted) {
+          // Notify when a planning session finishes
+          if (nodeId.startsWith('plan-')) {
+            const planProjectId = planNodeIdToProjectId(nodeId)
+            const planProject = planProjectId ? useProjectStore.getState().projects.find((p) => p.id === planProjectId) : null
+            useToastStore.getState().add({
+              type: isSuccess ? 'success' : 'error',
+              title: isSuccess ? 'Planning complete' : 'Planning failed',
+              description: planProject
+                ? (isSuccess ? `Plan for "${planProject.name}" is ready.` : `Plan for "${planProject.name}" failed.`)
+                : (isSuccess ? 'Plan generation has finished.' : 'Plan generation failed.'),
+              duration: 6000,
+            })
 
-          // Auto-execute all tasks if YOLO mode was enabled for this project
-          if (isSuccess && planProjectId && get().autoExecuteProjectIds.has(planProjectId)) {
-            get().setAutoExecute(planProjectId, false) // consume the flag
-            // Small delay to let plan nodes settle in the store
-            setTimeout(() => {
-              console.log(`[execution] YOLO mode: auto-executing all tasks for project ${planProjectId}`)
-              get().executeAllProject(planProjectId)
-            }, 1000)
+            // Auto-execute all tasks if YOLO mode was enabled for this project
+            if (isSuccess && planProjectId && get().autoExecuteProjectIds.has(planProjectId)) {
+              get().setAutoExecute(planProjectId, false) // consume the flag
+              // Small delay to let plan nodes settle in the store
+              setTimeout(() => {
+                console.log(`[execution] YOLO mode: auto-executing all tasks for project ${planProjectId}`)
+                get().executeAllProject(planProjectId)
+              }, 1000)
+            }
           }
-        }
 
-        // Accumulate metrics in usage store
-        if (metrics) {
-          useUsageStore.getState().addTaskMetrics(metrics, isSuccess)
-        }
+          // Accumulate metrics in usage store
+          if (metrics) {
+            useUsageStore.getState().addTaskMetrics(metrics, isSuccess)
+          }
 
-        // Show notification if task used more than 500 turns
-        // Threshold rationale: With unlimited maxTurns for execution tasks, 500+ turns
-        // is a significant outlier that warrants user attention. This helps detect:
-        // - Unusually complex tasks that may benefit from decomposition
-        // - Potential agent loops or inefficient exploration patterns
-        // - Tasks approaching cost/time budgets that may need intervention
-        if (metrics?.turnsUsed && metrics.turnsUsed > 500) {
-          useToastStore.getState().add({
-            type: 'warning',
-            title: 'High Turn Count',
-            description: `Task used ${metrics.turnsUsed} turns. This may indicate a complex task or potential issue.`,
-            duration: 8000,
-          })
+          // Show notification if task used more than 500 turns
+          if (metrics?.turnsUsed && metrics.turnsUsed > 500) {
+            useToastStore.getState().add({
+              type: 'warning',
+              title: 'High Turn Count',
+              description: `Task used ${metrics.turnsUsed} turns. This may indicate a complex task or potential issue.`,
+              duration: 8000,
+            })
+          }
         }
 
         // Determine final node status based on verification type (use fresh state, not stale snapshot)

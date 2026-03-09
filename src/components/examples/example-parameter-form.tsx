@@ -53,10 +53,10 @@ export function ExampleParameterForm({
   const [expandedAdvanced, setExpandedAdvanced] = useState(defaultExpandAdvanced)
   const validateParameters = useExampleStore((s) => s.validateParameters)
 
-  // Group parameters by required/optional
+  // Group parameters by required/prominent vs optional
   const { requiredParams, optionalParams } = useMemo(() => {
-    const required = parameters.filter((p) => p.required)
-    const optional = parameters.filter((p) => !p.required)
+    const required = parameters.filter((p) => p.required || p.prominent)
+    const optional = parameters.filter((p) => !p.required && !p.prominent)
 
     // Sort by order within each group
     const sortByOrder = (a: UseCaseParameter, b: UseCaseParameter) =>

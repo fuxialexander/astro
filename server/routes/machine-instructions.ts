@@ -118,6 +118,45 @@ machineInstructionsRoute.post('/', async (c) => {
 })
 
 /**
+ * PUT /api/machine-instructions/assign/:machineId
+ * Assign a default instruction to a machine (or clear it with null).
+ * NOTE: Must be registered BEFORE the generic PUT /:id route so Hono
+ * matches the specific `/assign/...` path first.
+ */
+machineInstructionsRoute.put('/assign/:machineId', async (c) => {
+  try {
+    const user = c.get('user')! as AuthUser
+    const machineId = c.req.param('machineId')
+    const body = await c.req.json()
+    const instructionId: string | null = body.instructionId ?? null
+
+    // Verify machine ownership
+    const [machine] = await db.select({ id: registeredMachines.id, userId: registeredMachines.userId })
+      .from(registeredMachines).where(eq(registeredMachines.id, machineId)).limit(1)
+    if (!machine) return c.json({ error: 'Machine not found' }, 404)
+    if (machine.userId !== user.id) return c.json({ error: 'Not authorized' }, 403)
+
+    // If setting an instruction, verify it exists and user has access
+    if (instructionId) {
+      const [instruction] = await db.select({ id: machineInstructions.id })
+        .from(machineInstructions).where(
+          and(eq(machineInstructions.id, instructionId), scopeFilter(user))
+        ).limit(1)
+      if (!instruction) return c.json({ error: 'Instruction not found' }, 404)
+    }
+
+    await db.update(registeredMachines)
+      .set({ defaultInstructionId: instructionId })
+      .where(eq(registeredMachines.id, machineId))
+
+    return c.json({ ok: true, machineId, instructionId })
+  } catch (e) {
+    console.error('[machine-instructions] PUT /assign/:machineId error:', e)
+    return c.json({ error: errorMessage(e) }, 500)
+  }
+})
+
+/**
  * PUT /api/machine-instructions/:id
  * Update an existing instruction.
  */
@@ -254,43 +293,6 @@ machineInstructionsRoute.post('/auto-generate', async (c) => {
     return c.json(row, 201)
   } catch (e) {
     console.error('[machine-instructions] POST /auto-generate error:', e)
-    return c.json({ error: errorMessage(e) }, 500)
-  }
-})
-
-/**
- * PUT /api/machine-instructions/assign/:machineId
- * Assign a default instruction to a machine (or clear it with null).
- */
-machineInstructionsRoute.put('/assign/:machineId', async (c) => {
-  try {
-    const user = c.get('user')! as AuthUser
-    const machineId = c.req.param('machineId')
-    const body = await c.req.json()
-    const instructionId: string | null = body.instructionId ?? null
-
-    // Verify machine ownership
-    const [machine] = await db.select({ id: registeredMachines.id, userId: registeredMachines.userId })
-      .from(registeredMachines).where(eq(registeredMachines.id, machineId)).limit(1)
-    if (!machine) return c.json({ error: 'Machine not found' }, 404)
-    if (machine.userId !== user.id) return c.json({ error: 'Not authorized' }, 403)
-
-    // If setting an instruction, verify it exists and user has access
-    if (instructionId) {
-      const [instruction] = await db.select({ id: machineInstructions.id })
-        .from(machineInstructions).where(
-          and(eq(machineInstructions.id, instructionId), scopeFilter(user))
-        ).limit(1)
-      if (!instruction) return c.json({ error: 'Instruction not found' }, 404)
-    }
-
-    await db.update(registeredMachines)
-      .set({ defaultInstructionId: instructionId })
-      .where(eq(registeredMachines.id, machineId))
-
-    return c.json({ ok: true, machineId, instructionId })
-  } catch (e) {
-    console.error('[machine-instructions] PUT /assign/:machineId error:', e)
     return c.json({ error: errorMessage(e) }, 500)
   }
 })
