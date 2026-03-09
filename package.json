@@ -52,7 +52,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@electric-sql/pglite": "^0.3.15",
-    "@hono/node-server": "^1.19.9",
+    "@hono/node-server": "^1.19.11",
     "@inkjs/ui": "^2.0.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@radix-ui/react-avatar": "^1.1.10",
