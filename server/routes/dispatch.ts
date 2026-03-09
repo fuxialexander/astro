@@ -2125,12 +2125,32 @@ dispatchRoute.post('/cancel', async (c) => {
     return c.json({ success: false, error: 'nodeId or executionId required' }, 400)
   }
 
-  // Validate user owns this task
+  // Validate user has access to this task (in-memory context or DB fallback)
   const cancelUser = c.get('user') as AuthUser | undefined
   if (cancelUser?.id && cancelUser.id !== LOCAL_USER_ID) {
     const ctx = executionContextStore.get(id)
-    if (ctx && ctx.userId !== cancelUser.id && ctx.userId !== LOCAL_USER_ID) {
-      return c.json({ success: false, error: 'Not authorized for this task' }, 403)
+    if (ctx) {
+      // In-memory context available: check user owns this execution
+      if (ctx.userId !== cancelUser.id && ctx.userId !== LOCAL_USER_ID) {
+        return c.json({ success: false, error: 'Not authorized for this task' }, 403)
+      }
+    } else if (nodeId) {
+      // Context lost (e.g., server restart): fall back to DB project ownership check
+      const [nodeRow] = await db.select({ projectId: planNodes.projectId })
+        .from(planNodes).where(eq(planNodes.clientId, nodeId)).limit(1)
+      if (nodeRow) {
+        const [project] = await db.select({ id: projects.id }).from(projects)
+          .where(and(
+            eq(projects.id, nodeRow.projectId),
+            or(
+              eq(projects.teamId, cancelUser.teamId),
+              and(isNull(projects.teamId), eq(projects.ownerId, cancelUser.id))
+            )
+          )).limit(1)
+        if (!project) {
+          return c.json({ success: false, error: 'Not authorized for this task' }, 403)
+        }
+      }
     }
   }
 
@@ -2201,6 +2221,22 @@ dispatchRoute.post('/prune', async (c) => {
   }
   const { projectId, nodeId } = parsed.data
 
+  // Verify user has access to the project via team scope
+  const user = c.get('user') as AuthUser | undefined
+  if (user?.id && user.id !== LOCAL_USER_ID) {
+    const [project] = await db.select({ id: projects.id }).from(projects)
+      .where(and(
+        eq(projects.id, projectId),
+        or(
+          eq(projects.teamId, user.teamId),
+          and(isNull(projects.teamId), eq(projects.ownerId, user.id))
+        )
+      )).limit(1)
+    if (!project) {
+      return c.json({ success: false, error: 'Project not found or not authorized' }, 404)
+    }
+  }
+
   // 1. Look up the node
   const [node] = await db.select()
     .from(planNodes)
@@ -2223,15 +2259,20 @@ dispatchRoute.post('/prune', async (c) => {
   }
 
   // 3. Set node to 'pruned' in DB + emit node:status_changed
-  await db.update(planNodes)
-    .set({ status: 'pruned', updatedAt: new Date() })
-    .where(eq(planNodes.clientId, nodeId))
-  executionEventBus.emit('node:status_changed', {
-    nodeId,
-    projectId,
-    status: 'pruned',
-    executionId: node.executionId ?? undefined,
-  })
+  try {
+    await db.update(planNodes)
+      .set({ status: 'pruned', updatedAt: new Date() })
+      .where(eq(planNodes.clientId, nodeId))
+    executionEventBus.emit('node:status_changed', {
+      nodeId,
+      projectId,
+      status: 'pruned',
+      executionId: node.executionId ?? undefined,
+    })
+  } catch (err) {
+    console.error('[dispatch] Failed to prune node in DB:', err)
+    return c.json({ success: false, error: 'Failed to update node status' }, 500)
+  }
 
   // 4. Cascade prune downstream nodes (each emits its own node:status_changed)
   await cascadePruneDownstream(projectId, nodeId)

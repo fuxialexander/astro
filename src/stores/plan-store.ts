@@ -391,10 +391,17 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     // blockingTasks), they must be destructured out here to avoid DB overwrites.
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { dependencies: _deps, ...dbFields } = dbNode
-    const nextNodes = get().nodes.map((n) =>
-      n.id === dbNode.id ? { ...n, ...dbFields } : n
-    )
-    set({ nodes: nextNodes })
+
+    if (!prevNode) {
+      // Node not in local store (e.g., created by another client in multi-user).
+      // Add it so the plan view reflects the full project state.
+      set({ nodes: [...get().nodes, { ...dbNode, dependencies: [] }] })
+    } else {
+      const nextNodes = get().nodes.map((n) =>
+        n.id === dbNode.id ? { ...n, ...dbFields } : n
+      )
+      set({ nodes: nextNodes })
+    }
 
     // Trigger worktree cleanup when task is completed or pruned
     if (dbNode.status === 'completed' || dbNode.status === 'pruned') {
