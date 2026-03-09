@@ -496,8 +496,37 @@ deviceAuthRoute.post('/register', async (c) => {
       expiresIn: TOKEN_EXPIRY.ACCESS_TOKEN,
     });
   } catch (err) {
-    console.error('[device-auth] Error registering machine:', err);
-    return c.json({ error: 'Failed to register machine' }, 500);
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[device-auth] Error registering machine:', message);
+    if (err instanceof Error && err.stack) {
+      console.error('[device-auth] Stack:', err.stack);
+    }
+
+    // Surface actionable error details to the agent-runner
+    const msgLower = message.toLowerCase();
+    const isFkViolation = msgLower.includes('foreign key') || message.includes('23503');
+    const isSchemaError = msgLower.includes('column') || msgLower.includes('relation') || message.includes('42703') || message.includes('42P01');
+
+    if (isFkViolation) {
+      return c.json({
+        error: 'Failed to register machine',
+        error_description: 'Database constraint violation — your user account may not exist in the database. Try logging out and re-authenticating.',
+        detail: message,
+      }, 500);
+    }
+
+    if (isSchemaError) {
+      return c.json({
+        error: 'Failed to register machine',
+        error_description: 'Database schema mismatch — the server may need a migration update.',
+        detail: message,
+      }, 500);
+    }
+
+    return c.json({
+      error: 'Failed to register machine',
+      error_description: message,
+    }, 500);
   }
 });
 
