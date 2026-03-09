@@ -25,6 +25,7 @@
  * - Attackers cannot make browsers send custom headers due to CORS restrictions
  */
 
+import { createHmac, timingSafeEqual } from 'crypto'
 import type { Context, Next } from 'hono'
 import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
@@ -233,10 +234,20 @@ export async function requireAuth(c: Context, next: Next) {
     const internalDispatch = c.req.header('X-Internal-Dispatch')
     const internalUserId = c.req.header('X-User-Id')
     const internalTeamId = c.req.header('X-Team-Id')
-    if (internalDispatch === 'true' && internalUserId && internalTeamId) {
-      const { teamId, teamIds } = await resolveTeams(internalUserId, internalTeamId)
-      c.set('user', { id: internalUserId, teamId, teamIds } satisfies AuthUser)
-      return next()
+    if (internalDispatch && internalUserId && internalTeamId) {
+      const secret = process.env.RELAY_JWT_SECRET || 'dev-internal-dispatch-secret'
+      const expected = createHmac('sha256', secret)
+        .update(`${internalUserId}:${internalTeamId}`)
+        .digest('hex')
+      const actual = Buffer.from(internalDispatch, 'hex')
+      const expectedBuf = Buffer.from(expected, 'hex')
+      const valid = actual.length === expectedBuf.length &&
+        timingSafeEqual(actual, expectedBuf)
+      if (valid) {
+        const { teamId, teamIds } = await resolveTeams(internalUserId, internalTeamId)
+        c.set('user', { id: internalUserId, teamId, teamIds } satisfies AuthUser)
+        return next()
+      }
     }
     return c.json({ error: 'Missing or invalid Authorization header or token query param' }, 401)
   }
