@@ -841,7 +841,7 @@ export function ProjectNewPlan() {
           {/* Machine selector */}
           {(isServerMode() || allMachines.length > 0) && (
             <div className="flex flex-col gap-1.5">
-              <span className="text-xs text-muted-foreground">Optionally choose a machine:</span>
+              <span className="text-xs text-muted-foreground">Choose a working directory:</span>
               <div className="flex flex-wrap gap-2">
               {allMachines.map((m) => {
                 const reg = registeredMachines.find((r) => r.id === m.machineId)
@@ -871,6 +871,11 @@ export function ProjectNewPlan() {
                 )
               })}
               </div>
+              {allMachines.length > 1 && (
+                <p className="text-[11px] text-muted-foreground">
+                  Multiple machines detected — describe a multi-machine job in your prompt to dispatch across them.
+                </p>
+              )}
             </div>
           )}
 
