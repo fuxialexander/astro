@@ -77,7 +77,7 @@ describe('extractRepoInfo', () => {
   })
 
   it('returns null for undefined', () => {
-    expect(extractRepoInfo(undefined as unknown as string)).toBeNull()
+    expect(extractRepoInfo(undefined)).toBeNull()
   })
 })
 

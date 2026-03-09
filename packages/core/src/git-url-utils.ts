@@ -161,8 +161,8 @@ export function extractRepoInfo(url: string | undefined): { owner: string; repo:
   const httpsMatch = trimmed.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)$/i);
   if (httpsMatch) return { owner: httpsMatch[1], repo: httpsMatch[2] };
 
-  // SSH protocol: ssh://git@github.com/owner/repo
-  const sshProtoMatch = trimmed.match(/^ssh:\/\/[^/]*github\.com\/([^/]+)\/([^/]+)$/i);
+  // SSH protocol: ssh://git@github.com/owner/repo (or ssh://github.com/owner/repo)
+  const sshProtoMatch = trimmed.match(/^ssh:\/\/(?:[^@]+@)?github\.com\/([^/]+)\/([^/]+)$/i);
   if (sshProtoMatch) return { owner: sshProtoMatch[1], repo: sshProtoMatch[2] };
 
   return null;
