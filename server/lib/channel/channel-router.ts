@@ -35,6 +35,9 @@ class ChannelRouterImpl implements IChannelRouter {
   /** projectId → Map<channel, notification sender> */
   private notificationSenders = new Map<string, Map<ChannelType, NotificationSenderFn>>()
 
+  /** channel → global notification sender (fires for ALL projects) */
+  private globalNotificationSenders = new Map<ChannelType, NotificationSenderFn>()
+
   /**
    * Route an inbound chat message through the AI agent via relay.
    */
@@ -110,20 +113,36 @@ class ChannelRouterImpl implements IChannelRouter {
 
   /**
    * Send a notification to all registered channels for a project.
+   * Also fires global notification senders (e.g., OpenClaw) for any project.
    */
   async sendNotification(notification: ChannelNotification): Promise<void> {
+    const promises: Promise<void>[] = []
+
+    // Per-project senders
     const senders = this.notificationSenders.get(notification.projectId)
-    if (!senders || senders.size === 0) return
-
-    const promises = Array.from(senders.entries()).map(async ([channel, sender]) => {
-      try {
-        await sender(notification)
-      } catch (err) {
-        console.error(`[channel-router] Failed to send notification to ${channel} for project ${notification.projectId}:`, err)
+    if (senders) {
+      for (const [channel, sender] of senders.entries()) {
+        promises.push(
+          sender(notification).catch(err => {
+            console.error(`[channel-router] Failed to send notification to ${channel} for project ${notification.projectId}:`, err)
+          })
+        )
       }
-    })
+    }
 
-    await Promise.allSettled(promises)
+    // Global senders (fire for all projects, skip if already covered by per-project)
+    for (const [channel, sender] of this.globalNotificationSenders.entries()) {
+      if (senders?.has(channel)) continue // per-project takes precedence
+      promises.push(
+        sender(notification).catch(err => {
+          console.error(`[channel-router] Failed to send global notification to ${channel}:`, err)
+        })
+      )
+    }
+
+    if (promises.length > 0) {
+      await Promise.allSettled(promises)
+    }
   }
 
   registerResponseSender(channel: ChannelType, fn: ResponseSenderFn): void {
@@ -139,6 +158,11 @@ class ChannelRouterImpl implements IChannelRouter {
     }
     senders.set(channel, fn)
     console.log(`[channel-router] Registered notification sender for ${channel} on project ${projectId}`)
+  }
+
+  registerGlobalNotificationSender(channel: ChannelType, fn: NotificationSenderFn): void {
+    this.globalNotificationSenders.set(channel, fn)
+    console.log(`[channel-router] Registered global notification sender for ${channel}`)
   }
 
   getResponseSender(channel: ChannelType): ResponseSenderFn | undefined {
