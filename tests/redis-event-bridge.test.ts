@@ -39,8 +39,10 @@ function createIoredisMock() {
       hgetall = vi.fn().mockResolvedValue({})
       expire = vi.fn().mockResolvedValue(1)
 
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       constructor(..._args: unknown[]) {
         super()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         mockRedisInstances.push(this as any)
       }
     },
@@ -384,10 +386,6 @@ describe('Event type routing in onRedisStreaming', () => {
 
   it('routes "result" eventType to task:result SSE event', () => {
     expect(handler).toContain("case 'result':")
-    const resultBlock = handler.slice(
-      handler.indexOf("case 'result':"),
-      handler.indexOf('}') + handler.slice(handler.indexOf("case 'result':")).indexOf('}') + 1
-    )
     expect(handler).toContain("event: 'task:result'")
   })
 
@@ -449,6 +447,7 @@ describe('Graceful degradation', () => {
     const received: unknown[] = []
     pubsub.on('task:state', (msg) => received.push(msg))
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await pubsub.publishTaskState({ taskId: 't1', status: 'running' } as any)
     expect(received).toHaveLength(1)
     expect(received[0]).toEqual({ taskId: 't1', status: 'running' })
