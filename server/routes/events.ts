@@ -211,7 +211,10 @@ eventsRoute.get('/stream', async (c) => {
 
     const onTaskProgress = (msg: TaskProgressMessage) => {
       if (!alive) return
-      if (activeDispatchStreams.has(msg.taskId)) return
+      // No activeDispatchStreams guard here: the dispatch stream sends event:'progress' (handled
+      // only by execution-store for logging), while this sends event:'task:progress' to the
+      // realtime SSE so the realtime store can update the progress bar. Different event types,
+      // no duplication.
       if (!isTaskOwnedByUser(msg.taskId)) return
       const data = JSON.stringify({
         taskId: msg.taskId,
