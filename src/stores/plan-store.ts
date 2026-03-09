@@ -394,8 +394,25 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
     if (!prevNode) {
       // Node not in local store (e.g., created by another client in multi-user).
-      // Add it so the plan view reflects the full project state.
-      set({ nodes: [...get().nodes, { ...dbNode, dependencies: [] }] })
+      // Reload the full project plan to get edges too (adding a node without edges
+      // would create a disconnected floating node in the graph view).
+      if (dbNode.projectId) {
+        dataClient.getProjectPlan(dbNode.projectId).then(({ nodes: freshNodes, edges: freshEdges }) => {
+          const existingIds = new Set(get().nodes.map((n) => n.id))
+          const newNodes = freshNodes.filter((n) => !existingIds.has(n.id))
+          const existingEdgeKeys = new Set(get().edges.map((e) => `${e.source}->${e.target}`))
+          const newEdges = freshEdges.filter((e) => !existingEdgeKeys.has(`${e.source}->${e.target}`))
+          if (newNodes.length > 0 || newEdges.length > 0) {
+            set({
+              nodes: [...get().nodes, ...newNodes],
+              edges: [...get().edges, ...newEdges],
+            })
+          }
+        }).catch((err) => {
+          console.error('[plan-store] Failed to reload project plan for new node:', err)
+        })
+      }
+      return // skip milestone reconciliation — will run on next merge after reload
     } else {
       const nextNodes = get().nodes.map((n) =>
         n.id === dbNode.id ? { ...n, ...dbFields } : n

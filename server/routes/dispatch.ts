@@ -1428,8 +1428,10 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           nodeId, projectId, status: finalNodeStatus, executionId,
         })
 
-        // Auto-dispatch downstream tasks server-side (works even if browser disconnected)
-        if (finalNodeStatus === 'auto_verified') {
+        // Auto-dispatch downstream tasks server-side (works even if browser disconnected).
+        // Triggers for both auto_verified (YOLO mode) and completed (human-verified),
+        // so downstream tasks cascade regardless of verification mode.
+        if (finalNodeStatus === 'auto_verified' || finalNodeStatus === 'completed') {
           autoDispatchDownstream(projectId, nodeId).catch((err) => {
             console.error('[dispatch] Auto-dispatch downstream failed:', err)
           })
@@ -2370,15 +2372,23 @@ async function tryRecoverApproval(
 
     const { executionId } = requestRows[0]
 
-    // Short-circuit: if the execution's node is already in a terminal state, skip recovery
-    const [nodeRow] = await db.select({ status: planNodes.status })
-      .from(planNodes)
-      .where(sql`${planNodes.executionId} = ${executionId}`)
+    // Short-circuit: if the execution's node is already in a terminal state, skip recovery.
+    // Look up via task_executions (not planNodes.executionId) because our reset-to-planned
+    // fix clears planNodes.executionId to null — the task_executions record is preserved.
+    const [execRow] = await db.select({ nodeClientId: taskExecutions.nodeClientId })
+      .from(taskExecutions)
+      .where(eq(taskExecutions.executionId, executionId))
       .limit(1)
-    if (nodeRow) {
-      const terminal = new Set(['completed', 'auto_verified', 'pruned', 'planned'])
-      if (terminal.has(nodeRow.status)) {
-        return { status: 'already_responded' }
+    if (execRow) {
+      const [nodeRow] = await db.select({ status: planNodes.status })
+        .from(planNodes)
+        .where(eq(planNodes.clientId, execRow.nodeClientId))
+        .limit(1)
+      if (nodeRow) {
+        const terminal = new Set(['completed', 'auto_verified', 'pruned', 'planned'])
+        if (terminal.has(nodeRow.status)) {
+          return { status: 'already_responded' }
+        }
       }
     }
 

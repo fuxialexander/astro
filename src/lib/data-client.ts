@@ -40,6 +40,15 @@ async function getAuthHeaders(): Promise<HeadersInit> {
   return headers
 }
 
+class ApiError extends Error {
+  status: number
+  constructor(status: number, statusText: string) {
+    super(`${status} ${statusText}`)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = await getAuthHeaders()
   const controller = new AbortController()
@@ -53,7 +62,7 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
       },
       signal: init?.signal ?? controller.signal,
     })
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+    if (!res.ok) throw new ApiError(res.status, res.statusText)
     return res.json() as Promise<T>
   } finally {
     clearTimeout(timeout)
@@ -299,7 +308,7 @@ export const dataClient = {
     } catch (err) {
       // Distinguish 404 (node truly gone) from transient errors.
       // Re-throw transient errors so the caller can retry or handle them.
-      if (err instanceof Error && err.message.startsWith('404')) {
+      if (err instanceof ApiError && err.status === 404) {
         return null
       }
       throw err
