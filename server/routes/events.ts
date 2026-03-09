@@ -641,6 +641,12 @@ eventsRoute.get('/stream', async (c) => {
           stream.writeSSE({ id, event: 'task:result', data }).catch(() => { alive = false })
           break
         }
+        case 'node_status_changed': {
+          const data = JSON.stringify(msg.data)
+          const id = eventBuffer.push('node:status_changed', data)
+          stream.writeSSE({ id, event: 'node:status_changed', data }).catch(() => { alive = false })
+          break
+        }
       }
     }
     redisPubSub.on('task:streaming', onRedisStreaming)

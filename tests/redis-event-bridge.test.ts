@@ -394,6 +394,11 @@ describe('Event type routing in onRedisStreaming', () => {
     expect(handler).toContain("event: 'task:result'")
   })
 
+  it('routes "node_status_changed" eventType to node:status_changed SSE event', () => {
+    expect(handler).toContain("case 'node_status_changed':")
+    expect(handler).toContain("event: 'node:status_changed'")
+  })
+
   it('uses dbSeq as SSE ID when present for structural events', () => {
     // For tool_use/tool_result, file_change, session_init, progress
     // The pattern: msg.dbSeq ? String(msg.dbSeq) : eventBuffer.push(...)
@@ -662,6 +667,7 @@ describe('RedisPubSub channel constants and types', () => {
     expect(source).toContain("'session_init'")
     expect(source).toContain("'progress'")
     expect(source).toContain("'result'")
+    expect(source).toContain("'node_status_changed'")
   })
 
   it('exports StreamingEventMessage interface', () => {

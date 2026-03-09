@@ -52,7 +52,8 @@ interface TaskCancelEvent {
 /** Streaming event types bridged via Redis */
 export type StreamingEventType =
   | 'text' | 'tool_use' | 'tool_result' | 'file_change'
-  | 'session_init' | 'progress' | 'result';
+  | 'session_init' | 'progress' | 'result'
+  | 'node_status_changed';
 
 /** Message published for cross-instance streaming event delivery */
 export interface StreamingEventMessage {
