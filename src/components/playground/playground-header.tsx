@@ -1,12 +1,21 @@
 /**
  * Playground Session Header
  *
- * Compact header bar showing session title, machine info, status, and controls.
+ * Compact header bar showing session title, machine info, status, provider selector, and controls.
  */
 
-import { ArrowLeft, Loader2, X, Laptop, CheckCircle2, AlertCircle, FolderOpen, StopCircle, RotateCcw } from "lucide-react"
+import { ArrowLeft, Loader2, X, Laptop, CheckCircle2, AlertCircle, FolderOpen, StopCircle, RotateCcw, Bot, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+import { PROVIDER_NAMES } from "@/components/execution/provider-utils"
+import type { ProviderStatus } from "@/types"
 
 type PlaygroundStatus = 'running' | 'waiting' | 'completed' | 'error' | 'stopped'
 
@@ -16,6 +25,9 @@ interface PlaygroundHeaderProps {
   machineName?: string
   workingDirectory?: string
   fileSidebarOpen: boolean
+  activeProvider?: string
+  availableProviders?: ProviderStatus[]
+  onProviderChange?: (providerId: string) => void
   onBack: () => void
   onAbort: () => void
   onRetry?: () => void
@@ -28,6 +40,9 @@ export function PlaygroundHeader({
   machineName,
   workingDirectory,
   fileSidebarOpen,
+  activeProvider,
+  availableProviders,
+  onProviderChange,
   onBack,
   onAbort,
   onRetry,
@@ -62,6 +77,10 @@ export function PlaygroundHeader({
   }
 
   const config = statusConfig[status]
+  const showProviderSelector = availableProviders && availableProviders.length > 1 && onProviderChange
+  const providerLabel = activeProvider
+    ? (PROVIDER_NAMES[activeProvider] || activeProvider)
+    : "Auto"
 
   return (
     <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-background shrink-0">
@@ -94,6 +113,46 @@ export function PlaygroundHeader({
           )}
         </div>
       </div>
+
+      {/* Provider Selector — switch AI agent between rounds */}
+      {showProviderSelector && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer max-w-[140px] shrink-0">
+              <Bot className="h-3 w-3 shrink-0" />
+              <span className="truncate">{providerLabel}</span>
+              <ChevronDown className="h-2.5 w-2.5 opacity-50 shrink-0" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-[220px]">
+            <DropdownMenuLabel>AI Agent</DropdownMenuLabel>
+            <DropdownMenuItem
+              onClick={() => onProviderChange("")}
+              className="gap-2"
+            >
+              <Bot className="h-3.5 w-3.5" />
+              <span>Auto</span>
+              {!activeProvider && (
+                <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />
+              )}
+            </DropdownMenuItem>
+            {availableProviders.map((p) => (
+              <DropdownMenuItem
+                key={p.id}
+                onClick={() => onProviderChange(p.id)}
+                className="gap-2"
+                disabled={!p.available}
+              >
+                <Bot className="h-3.5 w-3.5" />
+                <span>{PROVIDER_NAMES[p.id] || p.name || p.id}</span>
+                {activeProvider === p.id && (
+                  <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />
+                )}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
 
       <Button
         variant="ghost"

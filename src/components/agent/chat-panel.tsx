@@ -15,7 +15,7 @@ import { FileCompletionTextarea, type MentionItem, type SlashCommand } from "@/c
 import { TypingIndicator } from "@/components/ui/typing-indicator"
 import { fetchSlashCommands, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { useSettingsStore, resolveModel } from "@/stores/settings-store"
-import { useExecutionStore } from "@/stores/execution-store"
+import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore, getSessionTitle } from "@/stores/session-store"
@@ -34,6 +34,7 @@ import {
   MutationBlock,
   SystemMessageBlock,
 } from "@/components/activity-blocks"
+import { deriveAvailableProviders } from "@/components/execution/provider-utils"
 import type { AppliedMutations } from "@/lib/plan-mutations"
 import type { ProviderStatus, Session, TaskActivityEvent } from "@/types"
 
@@ -278,10 +279,16 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   // Settings defaults
   const defaultProvider = useSettingsStore((s) => s.defaultProvider)
 
-  // Provider list from execution store
-  const providers = useExecutionStore((s) => s.providers)
+  // Provider list — filtered to providers on the project's machine
+  const globalProviders = useExecutionStore((s) => s.providers)
+  const executionMachines = useExecutionStore((s) => s.machines)
   const providersLoaded = useExecutionStore((s) => s.providersLoaded)
   const loadProviders = useExecutionStore((s) => s.loadProviders)
+  const providers = useMemo(() => {
+    if (!resolvedMachineId) return globalProviders
+    const machine = executionMachines.find((m: MachineInfo) => m.machineId === resolvedMachineId)
+    return deriveAvailableProviders(machine?.providers, globalProviders)
+  }, [resolvedMachineId, executionMachines, globalProviders])
 
   // Local overrides (empty string = use default)
   const [selectedProvider, setSelectedProvider] = useState("")

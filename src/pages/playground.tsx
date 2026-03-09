@@ -92,6 +92,8 @@ export function Playground() {
   const [sending, setSending] = useState(false)
   const [pendingSteerText, setPendingSteerText] = useState<string | null>(null)
   const [autoScroll, setAutoScroll] = useState(true)
+  // Track provider during activity phase (for mid-session switching and follow-up chat)
+  const [activeProvider, setActiveProvider] = useState("")
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -146,7 +148,6 @@ export function Playground() {
   const streamingSessions = useSessionStore((s) => s.streamingSessions)
   const registerMounted = useSessionStore((s) => s.registerMounted)
   const unregisterMounted = useSessionStore((s) => s.unregisterMounted)
-  const settingsModel = useSettingsStore((s) => s.model)
   const playgroundYolo = useSettingsStore((s) => s.playgroundYoloMode)
 
   // Machine instructions
@@ -194,9 +195,11 @@ export function Playground() {
       return
     }
     if (projectIdParam && !activeProjectId) {
+      const exec = allExecutions.get(`playground-${projectIdParam}`)
+      setActiveProvider(exec?.providerId || "")
       setActiveProjectId(projectIdParam)
     }
-  }, [projectIdParam, activeProjectId])
+  }, [projectIdParam, activeProjectId, allExecutions])
 
   // Machine name for display
   const machineName = (() => {
@@ -218,6 +221,13 @@ export function Playground() {
       providers: m.providers.map((p) => ({ type: p.type, status: p.status })),
     })),
   ].filter((m, i, arr) => arr.findIndex((a) => a.machineId === m.machineId) === i), [machines, realtimeMachines])
+
+  // Providers for the active session (derived from the execution's machine)
+  const activeSessionProviders = useMemo(() => {
+    if (!execution?.machineId) return globalProviders
+    const machine = allMachines.find((m) => m.machineId === execution.machineId)
+    return deriveAvailableProviders(machine?.providers, globalProviders)
+  }, [execution?.machineId, allMachines, globalProviders])
 
   // Playground session history
   const playgroundHistory = useMemo(() => {
@@ -373,6 +383,7 @@ export function Playground() {
       )
 
       setActiveProjectId(projectId)
+      setActiveProvider(selectedProvider)
       setSearchParams({ projectId })
     } catch (error) {
       console.error("[playground] Failed to start:", error)
@@ -469,10 +480,10 @@ export function Playground() {
         .map((e) => e.content)
         .join(''),
       visionDoc: project?.visionDoc,
-      model: settingsModel,
+      providerId: activeProvider || undefined,
       messages: historyMessages,
     })
-  }, [isChatStreaming, chatSession, activeProjectId, playgroundNodeId, project, settingsModel, activityEvents, addMessage, pushChatEvent, sendPlaygroundChat])
+  }, [isChatStreaming, chatSession, activeProjectId, playgroundNodeId, project, activeProvider, activityEvents, addMessage, pushChatEvent, sendPlaygroundChat])
 
   // Route: steer during execution, chat after completion
   const handleSend = useCallback(() => {
@@ -558,18 +569,22 @@ export function Playground() {
       const machine = allMachines.find((m) => m.machineId === execution.machineId)
       if (machine) setSelectedMachine(machine)
     }
+    // Preserve the provider selection for the retry
+    setSelectedProvider(activeProvider || execution?.providerId || "")
     backingRef.current = true
     setActiveProjectId(null)
     setSearchParams({})
     setInput("")
     setFileSidebarOpen(false)
-  }, [project, execution?.machineId, allMachines, setSearchParams])
+  }, [project, execution?.machineId, execution?.providerId, activeProvider, allMachines, setSearchParams])
 
-  // View a past session
+  // View a past session — restore the provider from the execution
   const viewSession = useCallback((projectId: string) => {
+    const exec = allExecutions.get(`playground-${projectId}`)
+    setActiveProvider(exec?.providerId || "")
     setActiveProjectId(projectId)
     setSearchParams({ projectId })
-  }, [setSearchParams])
+  }, [allExecutions, setSearchParams])
 
   // Delete a playground session (project + execution)
   const deleteSession = useCallback((projectId: string) => {
@@ -610,6 +625,9 @@ export function Playground() {
             machineName={machineName}
             workingDirectory={project?.workingDirectory || workingDir || undefined}
             fileSidebarOpen={fileSidebarOpen}
+            activeProvider={activeProvider}
+            availableProviders={activeSessionProviders}
+            onProviderChange={setActiveProvider}
             onBack={handleBack}
             onAbort={() => cancelPlaygroundSession(activeProjectId)}
             onRetry={handleRetry}
@@ -1012,9 +1030,16 @@ export function Playground() {
                     <span className={cn("h-2 w-2 rounded-full shrink-0", statusColor)} />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm truncate">{p.name}</p>
-                      <p className="text-[10px] text-muted-foreground truncate font-mono">
-                        {p.workingDirectory || "—"}
-                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-[10px] text-muted-foreground truncate font-mono">
+                          {p.workingDirectory || "—"}
+                        </p>
+                        {exec?.providerId && (
+                          <Badge variant="secondary" className="text-[9px] px-1 py-0 shrink-0">
+                            {PROVIDER_NAMES[exec.providerId] || exec.providerName || exec.providerId}
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {statusLabel && (
