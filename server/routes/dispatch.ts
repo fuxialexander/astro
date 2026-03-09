@@ -1458,6 +1458,10 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         })
       }
 
+      // Note: dispatch SSE `done` fires AFTER `node:status_changed`. The frontend may
+      // process the global SSE notification and re-read from DB before execution-store
+      // cleans up via this `done` event. This is safe because realtime-store's
+      // `alreadyCompleted` guard deduplicates, and mergeNodeFromDB is idempotent.
       stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
       alive = false
     }
@@ -1663,6 +1667,10 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           .set({
             status: 'planned',
             executionError: `Dead job detected: ${data.reason}`,
+            executionId: null,
+            executionStartedAt: null,
+            executionOutput: null,
+            executionCompletedAt: null,
             endDate: errorTime.toISOString(),
             actualEndDate: errorTime,
             updatedAt: errorTime,
@@ -1736,6 +1744,10 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           .set({
             status: 'planned',
             executionError: `Failed to dispatch to machine: ${machineId}`,
+            executionId: null,
+            executionStartedAt: null,
+            executionOutput: null,
+            executionCompletedAt: null,
             updatedAt: errorTime,
           })
           .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
@@ -1866,7 +1878,15 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           // Update plan_nodes so the node doesn't stay in_progress if browser is disconnected
           try {
             await db.update(planNodes)
-              .set({ status: 'planned', executionError: errorMsg, updatedAt: new Date() })
+              .set({
+                status: 'planned',
+                executionError: errorMsg,
+                executionId: null,
+                executionStartedAt: null,
+                executionOutput: null,
+                executionCompletedAt: null,
+                updatedAt: new Date(),
+              })
               .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
               .execute()
             executionEventBus.emit('node:status_changed', {
@@ -2133,7 +2153,14 @@ dispatchRoute.post('/cancel', async (c) => {
         .limit(1)
       if (node && (node.status === 'in_progress' || node.status === 'dispatched')) {
         await db.update(planNodes)
-          .set({ status: 'planned', updatedAt: new Date() })
+          .set({
+            status: 'planned',
+            executionId: null,
+            executionStartedAt: null,
+            executionOutput: null,
+            executionCompletedAt: null,
+            updatedAt: new Date(),
+          })
           .where(eq(planNodes.clientId, nodeId))
         executionEventBus.emit('node:status_changed', {
           nodeId,
@@ -2298,6 +2325,18 @@ async function tryRecoverApproval(
     }
 
     const { executionId } = requestRows[0]
+
+    // Short-circuit: if the execution's node is already in a terminal state, skip recovery
+    const [nodeRow] = await db.select({ status: planNodes.status })
+      .from(planNodes)
+      .where(sql`${planNodes.executionId} = ${executionId}`)
+      .limit(1)
+    if (nodeRow) {
+      const terminal = new Set(['completed', 'auto_verified', 'pruned', 'planned'])
+      if (terminal.has(nodeRow.status)) {
+        return { status: 'already_responded' }
+      }
+    }
 
     // 2. Find the matching relay approval_request for this execution
     //    (streamingEventLog uses underscore notation with requestId + machineId)

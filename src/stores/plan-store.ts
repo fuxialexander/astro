@@ -383,7 +383,12 @@ export const usePlanStore = create<PlanState>((set, get) => ({
    */
   mergeNodeFromDB: (dbNode: PlanNode) => {
     const prevNode = get().nodes.find((n) => n.id === dbNode.id)
-    // Preserve locally-computed fields that the single-node API doesn't return
+    // DB-authoritative fields: status, executionId, executionOutput, executionError,
+    //   executionStartedAt, executionCompletedAt, title, description, endDate, etc.
+    // Locally-computed fields (preserved, not overwritten by DB):
+    //   - dependencies: derived from edges in the graph, not stored per-node in DB
+    // If future graph-computed fields are added to PlanNode (e.g., children,
+    // blockingTasks), they must be destructured out here to avoid DB overwrites.
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { dependencies: _deps, ...dbFields } = dbNode
     const nextNodes = get().nodes.map((n) =>

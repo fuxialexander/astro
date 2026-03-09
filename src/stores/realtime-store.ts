@@ -23,6 +23,10 @@ import { useToastStore } from './toast-store'
 import { useNotificationStore } from './notification-store'
 import { buildServerCompletionMessage, buildClientCompletionMessage } from '@/lib/completion-messages'
 
+// Per-node fetch generation counter to prevent out-of-order getNode() responses
+// from overwriting newer state (e.g., rapid dispatched → in_progress → completed).
+const nodeStatusGen = new Map<string, number>()
+
 export interface HpcCapability {
   clusterName?: string
   partitions: string[]
@@ -1689,9 +1693,14 @@ function handleRealtimeEvent(
       const projectId = data.projectId as string
       const execId = data.executionId as string | undefined
 
-      // Re-read authoritative state from DB
+      // Re-read authoritative state from DB (with generation counter to prevent
+      // out-of-order responses from overwriting newer state)
+      const gen = (nodeStatusGen.get(nodeId) || 0) + 1
+      nodeStatusGen.set(nodeId, gen)
+
       dataClient.getNode(nodeId).then((freshNode) => {
         if (!freshNode) return
+        if ((nodeStatusGen.get(nodeId) || 0) > gen) return // stale response, discard
 
         const planStore = usePlanStore.getState()
         const prevNode = planStore.nodes.find((n) => n.id === nodeId)
