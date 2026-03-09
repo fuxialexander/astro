@@ -28,7 +28,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   sidebarWidth: (() => {
     try {
       const stored = localStorage.getItem("astro-sidebar-width")
-      return stored ? Math.max(200, Math.min(480, Number(stored))) : 260
+      if (!stored) return 260
+      const n = Number(stored)
+      return Number.isFinite(n) ? Math.max(200, Math.min(480, n)) : 260
     } catch { return 260 /* localStorage unavailable */ }
   })(),
   chatPanelPosition: "bottom",
