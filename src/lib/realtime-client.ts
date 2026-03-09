@@ -157,6 +157,7 @@ export class RealtimeClient {
     // Register known event types
     const eventTypes: RealtimeEventType[] = [
       'machines:snapshot',
+      'node:status_changed',
       'task:init',
       'task:result',
       'task:stdout',

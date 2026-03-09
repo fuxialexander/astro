@@ -611,6 +611,8 @@ app.get('/plan/nodes/:nodeId', async (c) => {
     content: row.content,
     attachments: row.attachments,
     links: row.links,
+    mergeQueueStatus: row.mergeQueueStatus,
+    autoPr: row.autoPr,
     acceptanceCriteria: row.acceptanceCriteria,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

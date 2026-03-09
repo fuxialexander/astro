@@ -2161,7 +2161,10 @@ dispatchRoute.post('/cancel', async (c) => {
             executionCompletedAt: null,
             updatedAt: new Date(),
           })
-          .where(eq(planNodes.clientId, nodeId))
+          .where(and(
+            eq(planNodes.clientId, nodeId),
+            inArray(planNodes.status, ['in_progress', 'dispatched']),
+          ))
         executionEventBus.emit('node:status_changed', {
           nodeId,
           projectId: node.projectId,
@@ -2506,33 +2509,6 @@ dispatchRoute.post('/engine/stop', async (c) => {
 })
 
 /**
- * Reset a task for re-execution
- *
- * Cancels via relay and resets dispatch engine state.
- */
-dispatchRoute.post('/reset', async (c) => {
-  const { nodeId, executionId, machineId } = await c.req.json<{
-    nodeId?: string
-    executionId?: string
-    machineId?: string
-  }>()
-
-  if (!nodeId) {
-    return c.json({ success: false, error: 'nodeId required' }, 400)
-  }
-
-  // Cancel via relay if we have an execution ID
-  if (executionId) {
-    relayServer.cancelTask(executionId, machineId || '')
-  }
-
-  // Cancel via dispatch engine to clean up queue entries, pending approvals, and active state
-  await dispatchEngine.cancel(nodeId)
-
-  return c.json({ success: true })
-})
-
-/**
  * Clean up after a completed/pruned task
  *
  * In relay mode, cleanup is handled by the agent runner.
@@ -2691,6 +2667,9 @@ dispatchRoute.post('/reset', async (c) => {
       })
       .where(eq(planNodes.clientId, nodeId))
     console.log(`[dispatch/reset] Node ${nodeId} reset to planned state`)
+    executionEventBus.emit('node:status_changed', {
+      nodeId, projectId, status: 'planned',
+    })
   } catch (dbErr) {
     const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
     console.error(`[dispatch/reset] Failed to reset node in DB: ${msg}`)
@@ -2907,6 +2886,11 @@ dispatchRoute.post('/bulk-reset', async (c) => {
       })
       .where(inArray(planNodes.clientId, nodeIds))
     console.log(`[dispatch/bulk-reset] Reset ${nodeIds.length} node(s) to planned state`)
+    for (const nid of nodeIds) {
+      executionEventBus.emit('node:status_changed', {
+        nodeId: nid, projectId, status: 'planned',
+      })
+    }
   } catch (dbErr) {
     const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
     console.error(`[dispatch/bulk-reset] Failed to reset nodes in DB: ${msg}`)

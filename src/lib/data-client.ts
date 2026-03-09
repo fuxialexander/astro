@@ -296,7 +296,14 @@ export const dataClient = {
     try {
       const data = await json<Record<string, unknown>>(`${BASE}/plan/nodes/${nodeId}`)
       return mapNode(data)
-    } catch { return null }
+    } catch (err) {
+      // Distinguish 404 (node truly gone) from transient errors.
+      // Re-throw transient errors so the caller can retry or handle them.
+      if (err instanceof Error && err.message.startsWith('404')) {
+        return null
+      }
+      throw err
+    }
   },
 
   async setProjectPlan(projectId: string, nodes: PlanNode[], edges: PlanEdge[]): Promise<Record<string, number>> {
