@@ -525,6 +525,7 @@ export function Environments() {
 
   // Machine instructions
   const miInstructions = useMachineInstructionStore((s) => s.instructions)
+  const miPresets = useMachineInstructionStore((s) => s.presets)
   const miLoaded = useMachineInstructionStore((s) => s.loaded)
   const miLoad = useMachineInstructionStore((s) => s.load)
   const miCreate = useMachineInstructionStore((s) => s.create)
@@ -795,82 +796,130 @@ export function Environments() {
         </div>
         <p className="md:hidden text-sm font-semibold text-muted-foreground uppercase tracking-wider">Machine Instructions</p>
 
-        {miInstructions.length > 0 ? (
-          <Card>
-            <div className="flex flex-col divide-y">
-              {miInstructions.map((instruction) => {
-                const isExpanded = expandedInstructionId === instruction.id
-                const isDeleting = deletingInstructionId === instruction.id
-                return (
-                  <div key={instruction.id} className="flex flex-col">
-                    <button
-                      type="button"
-                      className="flex items-center gap-3 p-4 w-full text-left hover:bg-muted/50 transition-colors"
-                      onClick={() => setExpandedInstructionId(isExpanded ? null : instruction.id)}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium truncate">{instruction.name}</span>
-                          {instruction.source === 'auto' && (
-                            <Badge variant="secondary" className="text-[10px] px-1 py-0">auto</Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          {instruction.tags.map((tag) => (
-                            <span
-                              key={tag}
-                              className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                          {instruction.content && (
-                            <span className="text-[11px] text-muted-foreground truncate max-w-[200px]">
-                              {instruction.content.slice(0, 60)}{instruction.content.length > 60 ? "…" : ""}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        {isDeleting ? (
-                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                            <span className="text-xs text-muted-foreground mr-1">Delete?</span>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleDeleteInstruction(instruction.id)}>
-                              <Check className="h-3 w-3" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setDeletingInstructionId(null)}>
-                              <X className="h-3 w-3" />
-                            </Button>
+        {/* Built-in presets */}
+        {miPresets.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <span className="text-xs text-muted-foreground font-medium">Built-in presets</span>
+            <Card>
+              <div className="flex flex-col divide-y">
+                {miPresets.map((preset) => {
+                  const isExpanded = expandedInstructionId === preset.id
+                  return (
+                    <div key={preset.id} className="flex flex-col">
+                      <button
+                        type="button"
+                        className="flex items-center gap-3 p-4 w-full text-left hover:bg-muted/50 transition-colors"
+                        onClick={() => setExpandedInstructionId(isExpanded ? null : preset.id)}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium truncate">{preset.name}</span>
+                            <Badge variant="secondary" className="text-[10px] px-1 py-0">built-in</Badge>
                           </div>
-                        ) : (
-                          <>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground" onClick={(e) => { e.stopPropagation(); openEditInstruction(instruction) }}>
-                              <Pencil className="h-3 w-3" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={(e) => { e.stopPropagation(); setDeletingInstructionId(instruction.id) }}>
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </>
-                        )}
-                        {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-                      </div>
-                    </button>
-                    {isExpanded && (
-                      <div className="px-4 pb-4">
-                        <div className="rounded-lg bg-muted/50 p-3 text-sm leading-relaxed max-h-[300px] overflow-y-auto">
-                          {instruction.content
-                            ? <MarkdownRenderer content={instruction.content} className="text-xs" />
-                            : <span className="text-muted-foreground italic">No content</span>
-                          }
+                          <p className="text-[11px] text-muted-foreground mt-0.5">{preset.description}</p>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </Card>
-        ) : (
+                        <div className="flex items-center gap-1 shrink-0">
+                          {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                        </div>
+                      </button>
+                      {isExpanded && (
+                        <div className="px-4 pb-4">
+                          <div className="rounded-lg bg-muted/50 p-3 text-sm leading-relaxed max-h-[300px] overflow-y-auto">
+                            {preset.content
+                              ? <MarkdownRenderer content={preset.content} className="text-xs" />
+                              : <span className="text-muted-foreground italic">No content</span>
+                            }
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* User-created instructions */}
+        {miInstructions.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            <span className="text-xs text-muted-foreground font-medium">Custom instructions</span>
+            <Card>
+              <div className="flex flex-col divide-y">
+                {miInstructions.map((instruction) => {
+                  const isExpanded = expandedInstructionId === instruction.id
+                  const isDeleting = deletingInstructionId === instruction.id
+                  return (
+                    <div key={instruction.id} className="flex flex-col">
+                      <button
+                        type="button"
+                        className="flex items-center gap-3 p-4 w-full text-left hover:bg-muted/50 transition-colors"
+                        onClick={() => setExpandedInstructionId(isExpanded ? null : instruction.id)}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium truncate">{instruction.name}</span>
+                            {instruction.source === 'auto' && (
+                              <Badge variant="secondary" className="text-[10px] px-1 py-0">auto</Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            {instruction.tags.map((tag) => (
+                              <span
+                                key={tag}
+                                className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                            {instruction.content && (
+                              <span className="text-[11px] text-muted-foreground truncate max-w-[200px]">
+                                {instruction.content.slice(0, 60)}{instruction.content.length > 60 ? "…" : ""}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {isDeleting ? (
+                            <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                              <span className="text-xs text-muted-foreground mr-1">Delete?</span>
+                              <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleDeleteInstruction(instruction.id)}>
+                                <Check className="h-3 w-3" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setDeletingInstructionId(null)}>
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <>
+                              <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground" onClick={(e) => { e.stopPropagation(); openEditInstruction(instruction) }}>
+                                <Pencil className="h-3 w-3" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={(e) => { e.stopPropagation(); setDeletingInstructionId(instruction.id) }}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </>
+                          )}
+                          {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                        </div>
+                      </button>
+                      {isExpanded && (
+                        <div className="px-4 pb-4">
+                          <div className="rounded-lg bg-muted/50 p-3 text-sm leading-relaxed max-h-[300px] overflow-y-auto">
+                            {instruction.content
+                              ? <MarkdownRenderer content={instruction.content} className="text-xs" />
+                              : <span className="text-muted-foreground italic">No content</span>
+                            }
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </Card>
+          </div>
+        ) : miPresets.length === 0 ? (
           <Card>
             <CardContent className="p-0">
               <EmptyState
@@ -885,14 +934,12 @@ export function Environments() {
               />
             </CardContent>
           </Card>
-        )}
+        ) : null}
 
-        {miInstructions.length > 0 && (
-          <Button variant="outline" size="sm" className="w-fit" onClick={openCreateInstruction}>
-            <Plus className="h-3.5 w-3.5" />
-            Create Instruction
-          </Button>
-        )}
+        <Button variant="outline" size="sm" className="w-fit" onClick={openCreateInstruction}>
+          <Plus className="h-3.5 w-3.5" />
+          Create Instruction
+        </Button>
       </div>
 
       {/* Compute Backends */}

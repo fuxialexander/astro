@@ -12,6 +12,7 @@ import { db } from '../lib/db/index.js'
 import { machineInstructions, registeredMachines } from '../lib/db/schema.js'
 import { errorMessage } from '../lib/error-utils.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
+import { MACHINE_INSTRUCTION_PRESETS } from '../lib/machine-instruction-presets.js'
 
 const machineInstructionsRoute = new Hono()
 
@@ -26,6 +27,14 @@ function scopeFilter(user: AuthUser) {
     user.teamId ? eq(machineInstructions.teamId, user.teamId) : undefined,
   )!
 }
+
+/**
+ * GET /api/machine-instructions/presets
+ * List built-in machine instruction presets (read-only, loaded from markdown files).
+ */
+machineInstructionsRoute.get('/presets', async (c) => {
+  return c.json({ presets: MACHINE_INSTRUCTION_PRESETS })
+})
 
 /**
  * GET /api/machine-instructions
