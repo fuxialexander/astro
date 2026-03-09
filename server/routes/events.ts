@@ -117,8 +117,9 @@ eventsRoute.get('/stream', async (c) => {
           )
         ).limit(1)
         return !!project
-      } catch {
-        return true // fail open for backward compat
+      } catch (err) {
+        console.error('[events] isProjectOwnedByUser DB query failed:', err)
+        return false // fail closed for security
       }
     }
 
@@ -601,10 +602,16 @@ eventsRoute.get('/stream', async (c) => {
     const onRedisStreaming = async (msg: StreamingEventMessage) => {
       if (!alive) return
       if (msg.instanceId === redisPubSub.getInstanceId()) return
-      // Cross-instance user isolation: the receiving instance's executionContextStore
-      // won't have the task (it runs on another instance), so we check the userId
-      // embedded in the Redis message instead of the local in-memory store.
-      if (user?.id && msg.userId && msg.userId !== user.id && msg.userId !== LOCAL_USER_ID) return
+      // Cross-instance user isolation: deny-by-default when userId is missing.
+      // The receiving instance's executionContextStore won't have the task (it runs
+      // on another instance), so we check the userId embedded in the Redis message.
+      // Events with project-level isolation (node_status_changed, task_init,
+      // task_ready) bypass the userId check — their case branches use
+      // isProjectOwnedByUser as authoritative check instead.
+      const hasProjectCheck = msg.eventType === 'node_status_changed'
+        || msg.eventType === 'task_init' || msg.eventType === 'task_ready'
+      if (user?.id && !hasProjectCheck
+        && msg.userId !== user.id && msg.userId !== LOCAL_USER_ID) return
 
       switch (msg.eventType) {
         case 'text':

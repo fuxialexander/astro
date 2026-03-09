@@ -22,12 +22,17 @@ import { executionEventBus } from './execution-event-bus.js'
 import { redisPubSub } from './redis-pubsub.js'
 import { executionContextStore } from './execution-context-store.js'
 
+let initialized = false
+
 /**
  * Initialize the event bridge. Call once during server startup.
+ * Idempotent — safe to call multiple times (e.g., hot-reload during dev).
  * Safe to call even if Redis is not connected — publishStreamingEvent no-ops
  * when publisher is null (single-instance mode).
  */
 export function initRedisEventBridge(): void {
+  if (initialized) return
+  initialized = true
   // Bridge node:status_changed → Redis
   // This is the SOLE mechanism for frontend plan node status updates (PR #830).
   // All 16 emission sites across dispatch.ts, data.ts, index.ts,

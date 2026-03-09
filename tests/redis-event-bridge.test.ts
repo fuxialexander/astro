@@ -325,6 +325,54 @@ describe('Self-instance dedup in events.ts', () => {
     expect(handler).toContain('user.id')
     expect(handler).toContain('LOCAL_USER_ID')
   })
+
+  it('denies streaming events by default when userId is missing (C1 security fix)', () => {
+    const handler = eventsSource.slice(
+      eventsSource.indexOf('const onRedisStreaming ='),
+      eventsSource.indexOf("redisPubSub.on('task:streaming'")
+    )
+    // The userId check must NOT have `msg.userId &&` guard (which fails open)
+    // Events without project-level checks deny-by-default when userId is absent
+    expect(handler).toContain('hasProjectCheck')
+    expect(handler).toContain("msg.userId !== user.id && msg.userId !== LOCAL_USER_ID")
+    // Must NOT contain the old fail-open pattern
+    expect(handler).not.toContain('msg.userId && msg.userId !==')
+  })
+
+  it('events with project-level checks bypass userId filter', () => {
+    const handler = eventsSource.slice(
+      eventsSource.indexOf('const onRedisStreaming ='),
+      eventsSource.indexOf("redisPubSub.on('task:streaming'")
+    )
+    // node_status_changed, task_init, task_ready bypass the userId check
+    // because they have isProjectOwnedByUser in their case branches
+    expect(handler).toContain("msg.eventType === 'node_status_changed'")
+    expect(handler).toContain("msg.eventType === 'task_init'")
+    expect(handler).toContain("msg.eventType === 'task_ready'")
+  })
+})
+
+describe('isProjectOwnedByUser security', () => {
+  const EVENTS_PATH = join(process.cwd(), 'server/routes/events.ts')
+  const eventsSource = readFileSync(EVENTS_PATH, 'utf-8')
+
+  it('fails closed on DB errors (C2 security fix)', () => {
+    const helper = eventsSource.slice(
+      eventsSource.indexOf('const isProjectOwnedByUser'),
+      eventsSource.indexOf('// Replay missed events')
+    )
+    // Must fail closed (return false), not fail open (return true)
+    expect(helper).toContain('return false // fail closed for security')
+    expect(helper).not.toContain('return true // fail open')
+  })
+
+  it('logs DB errors before failing closed', () => {
+    const helper = eventsSource.slice(
+      eventsSource.indexOf('const isProjectOwnedByUser'),
+      eventsSource.indexOf('// Replay missed events')
+    )
+    expect(helper).toContain("console.error('[events] isProjectOwnedByUser")
+  })
 })
 
 // =============================================================================
@@ -777,6 +825,12 @@ describe('redis-event-bridge module', () => {
       const callChunk = handlers[i].slice(0, 500)
       expect(callChunk).toContain('projectId')
     }
+  })
+
+  it('has idempotency guard to prevent duplicate listener registration', () => {
+    expect(bridgeSource).toContain('let initialized = false')
+    expect(bridgeSource).toContain('if (initialized) return')
+    expect(bridgeSource).toContain('initialized = true')
   })
 
   it('logs errors on publish failure (not silent catch)', () => {
