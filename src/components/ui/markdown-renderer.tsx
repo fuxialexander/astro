@@ -1,8 +1,12 @@
-import { memo, useMemo, type ReactNode, type HTMLAttributes } from "react"
+import { memo, useState, useCallback, useMemo, type ReactNode, type HTMLAttributes } from "react"
 import ReactMarkdown, { type ExtraProps } from "react-markdown"
 import remarkGfm from "remark-gfm"
+import remarkMath from "remark-math"
 import rehypeHighlight from "rehype-highlight"
+import rehypeKatex from "rehype-katex"
+import "katex/dist/katex.min.css"
 import { cn } from "@/lib/utils"
+import { Copy, Check } from "lucide-react"
 
 interface MarkdownRendererProps {
   content: string
@@ -12,6 +16,38 @@ interface MarkdownRendererProps {
 }
 
 type ElProps = HTMLAttributes<HTMLElement> & ExtraProps & { children?: ReactNode }
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }).catch(() => { /* clipboard API unavailable */ })
+  }, [text])
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="absolute top-2 right-2 p-1 rounded-md bg-muted-foreground/10 hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground transition-opacity opacity-0 group-hover/code:opacity-100 cursor-pointer"
+      title="Copy code"
+    >
+      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+    </button>
+  )
+}
+
+/** Extract plain text from React children (strips JSX wrappers from rehype-highlight spans) */
+function extractText(node: ReactNode): string {
+  if (typeof node === "string") return node
+  if (typeof node === "number") return String(node)
+  if (Array.isArray(node)) return node.map(extractText).join("")
+  if (node && typeof node === "object" && "props" in node) {
+    return extractText((node as { props: { children?: ReactNode } }).props.children)
+  }
+  return ""
+}
 
 export const MarkdownRenderer = memo(({ content, className, onLinkClick }: MarkdownRendererProps) => {
   const memoizedContent = useMemo(() => content, [content])
@@ -35,11 +71,15 @@ export const MarkdownRenderer = memo(({ content, className, onLinkClick }: Markd
         </code>
       )
     },
-    pre: ({ children }: ElProps) => (
-      <pre className="overflow-x-auto rounded-md bg-muted p-3 my-2 text-xs font-mono">
-        {children}
-      </pre>
-    ),
+    pre: ({ children }: ElProps) => {
+      const codeText = extractText(children)
+      return (
+        <pre className="group/code relative overflow-x-auto rounded-md bg-muted p-3 my-2 text-xs font-mono">
+          {children}
+          <CopyButton text={codeText} />
+        </pre>
+      )
+    },
     p: ({ children }: ElProps) => <p className="mb-2 last:mb-0">{children}</p>,
     ul: ({ children }: ElProps) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
     ol: ({ children }: ElProps) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
@@ -92,8 +132,8 @@ export const MarkdownRenderer = memo(({ content, className, onLinkClick }: Markd
   return (
     <div className={cn("markdown-content", className)}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeHighlight, rehypeKatex]}
         components={components}
       >
         {memoizedContent}

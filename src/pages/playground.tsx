@@ -91,6 +91,8 @@ export function Playground() {
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
   const [pendingSteerText, setPendingSteerText] = useState<string | null>(null)
+  const [queuedMessage, setQueuedMessage] = useState<string | null>(null)
+  const [editingPrompt, setEditingPrompt] = useState<string | null>(null)
   const [autoScroll, setAutoScroll] = useState(true)
   // Track provider during activity phase (for mid-session switching and follow-up chat)
   const [activeProvider, setActiveProvider] = useState("")
@@ -435,17 +437,20 @@ export function Playground() {
     setSending(true)
     setPendingSteerText(text)
 
-    if (execution?.executionId) {
-      addSteerMessage(execution.executionId, text)
-    }
-
     try {
       const ok = await steerPlaygroundSession(activeProjectId, text)
-      if (!ok) {
-        // steer failed, but we already cleared input — leave pending indicator
+      if (ok) {
+        // Steer succeeded — add to activity feed
+        if (execution?.executionId) {
+          addSteerMessage(execution.executionId, text)
+        }
+      } else {
+        // Steer failed (provider may not support it) — queue for follow-up chat
+        setQueuedMessage(text)
       }
     } catch {
-      // steer failed
+      // Steer failed — queue for follow-up chat
+      setQueuedMessage(text)
     } finally {
       setSending(false)
       setPendingSteerText(null)
@@ -501,6 +506,19 @@ export function Playground() {
     }
   }, [input, activeProjectId, isRunning, handleSteer, handleChat])
 
+  // Auto-send queued message when execution finishes (steer fallback)
+  const prevIsRunning = useRef(isRunning)
+  useEffect(() => {
+    if (prevIsRunning.current && !isRunning && queuedMessage) {
+      // Only send if chat preconditions are met; otherwise keep in queue for next render
+      if (chatSession && activeProjectId && !isChatStreaming) {
+        handleChat(queuedMessage)
+        setQueuedMessage(null)
+      }
+    }
+    prevIsRunning.current = isRunning
+  }, [isRunning, queuedMessage, handleChat, chatSession, activeProjectId, isChatStreaming])
+
   // Handle approval response
   const handleApprovalResponse = useCallback(async (requestId: string, answer: string) => {
     if (!execution?.executionId) return
@@ -554,33 +572,57 @@ export function Playground() {
     }
   }, [displayBlocks.length, isRunning, isChatStreaming, answeredRequestIds, allActivityEvents, handleApprovalResponse])
 
-  // Go back to landing phase
+  // Go back to landing phase — clean slate (no pre-filled prompt)
   const handleBack = useCallback(() => {
     backingRef.current = true
     setActiveProjectId(null)
     setActiveProvider("")
+    setDescription("")
+    setWorkingDir("")
+    setSelectedMachine(null)
+    setSelectedProvider("")
+    setSelectedModel("")
     setSearchParams({})
     setInput("")
     setFileSidebarOpen(false)
+    setQueuedMessage(null)
+    setEditingPrompt(null)
   }, [setSearchParams])
 
-  // Edit & Retry: go back to landing with the session's details pre-filled
+  // Edit & Retry: enter inline edit mode on the prompt bubble
   const handleRetry = useCallback(() => {
     if (!project) return
-    setDescription(project.description || project.name || "")
-    setWorkingDir(project.workingDirectory || "")
-    if (execution?.machineId) {
-      const machine = allMachines.find((m) => m.machineId === execution.machineId)
-      if (machine) setSelectedMachine(machine)
+    setEditingPrompt(project.description || project.name || "")
+  }, [project])
+
+  // Submit edited prompt — starts a new session with the same machine/dir/provider
+  const handleEditedSubmit = useCallback(async () => {
+    if (!editingPrompt?.trim() || isSubmitting || !execution?.machineId) return
+    setIsSubmitting(true)
+
+    try {
+      const provider = activeProvider || execution?.providerId || ""
+      const effectiveModel = getModelForProvider(provider || undefined)
+      const { projectId } = await startPlaygroundSession(
+        editingPrompt.trim(),
+        {
+          targetMachineId: execution.machineId,
+          workingDirectory: project?.workingDirectory || workingDir || "~",
+          preferredProvider: provider || undefined,
+          model: effectiveModel,
+        }
+      )
+
+      setEditingPrompt(null)
+      setActiveProjectId(projectId)
+      setActiveProvider(provider)
+      setSearchParams({ projectId })
+    } catch (error) {
+      console.error("[playground] Failed to start edited session:", error)
+    } finally {
+      setIsSubmitting(false)
     }
-    // Preserve the provider selection for the retry
-    setSelectedProvider(activeProvider || execution?.providerId || "")
-    backingRef.current = true
-    setActiveProjectId(null)
-    setSearchParams({})
-    setInput("")
-    setFileSidebarOpen(false)
-  }, [project, execution?.machineId, execution?.providerId, activeProvider, allMachines, setSearchParams])
+  }, [editingPrompt, isSubmitting, execution?.machineId, execution?.providerId, activeProvider, project?.workingDirectory, workingDir, getModelForProvider, startPlaygroundSession, setSearchParams])
 
   // View a past session — restore the provider from the execution
   const viewSession = useCallback((projectId: string) => {
@@ -679,22 +721,60 @@ export function Playground() {
               </div>
             )}
 
-            {/* Original prompt bubble */}
+            {/* Original prompt bubble — inline editable */}
             {(project?.description || project?.name) && (
               <div className="flex flex-col items-end gap-1 px-4 py-1.5">
                 <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">You</span>
-                <div className="group/prompt relative rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground max-w-[80%]">
-                  <p className="whitespace-pre-wrap">{project.description || project.name}</p>
-                  {!isRunning && (
-                    <button
-                      onClick={handleRetry}
-                      className="absolute -left-8 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/prompt:opacity-60 hover:!opacity-100 transition-opacity text-muted-foreground hover:text-foreground cursor-pointer"
-                      title="Edit & retry"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
+                {editingPrompt !== null ? (
+                  <div className="w-full max-w-[80%] flex flex-col gap-2">
+                    <textarea
+                      autoFocus
+                      value={editingPrompt}
+                      onChange={(e) => setEditingPrompt(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault()
+                          handleEditedSubmit()
+                        }
+                        if (e.key === "Escape") setEditingPrompt(null)
+                      }}
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground resize-none focus:outline-none focus:ring-1 focus:ring-ring min-h-[60px]"
+                      rows={Math.min(8, (editingPrompt.match(/\n/g) || []).length + 2)}
+                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditingPrompt(null)}
+                        className="h-7 text-xs"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleEditedSubmit}
+                        disabled={!editingPrompt.trim() || isSubmitting}
+                        className="h-7 text-xs gap-1"
+                      >
+                        {isSubmitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+                        Run
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="group/prompt relative rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground max-w-[80%]">
+                    <p className="whitespace-pre-wrap">{project.description || project.name}</p>
+                    {!isRunning && (
+                      <button
+                        onClick={handleRetry}
+                        className="absolute -left-8 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/prompt:opacity-60 hover:!opacity-100 transition-opacity text-muted-foreground hover:text-foreground cursor-pointer"
+                        title="Edit & retry"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -710,6 +790,14 @@ export function Playground() {
                   <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
                   <span className="text-[10px] text-muted-foreground">Sending...</span>
                 </div>
+              </div>
+            )}
+
+            {/* Queued message indicator (steer failed, will send after execution) */}
+            {queuedMessage && isRunning && (
+              <div className="flex items-center gap-1.5 px-4 py-1">
+                <Clock className="h-3 w-3 text-muted-foreground" />
+                <span className="text-[10px] text-muted-foreground">Message queued — will send after this turn completes</span>
               </div>
             )}
 
@@ -765,6 +853,7 @@ export function Playground() {
                 className="h-9 w-9 shrink-0"
                 onClick={handleSend}
                 disabled={!input.trim() || sending || isChatStreaming}
+                title="Send (⌘+Enter)"
               >
                 {sending || isChatStreaming ? (
                   <Loader2 className="h-4 w-4 animate-spin" />

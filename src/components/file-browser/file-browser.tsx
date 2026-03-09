@@ -10,7 +10,7 @@
  * - Hidden file filtering
  */
 
-import { useState, useCallback, useRef, useEffect } from "react"
+import { useState, useCallback, useRef, useEffect, type MouseEvent as ReactMouseEvent } from "react"
 import {
   Folder,
   FolderOpen,
@@ -170,6 +170,54 @@ export function FileBrowser({
   const [menuOpenIndex, setMenuOpenIndex] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const machine = { name: machineName, hostname: machineHostname }
+
+  // Resizable width (desktop non-embedded only)
+  const [fileBrowserWidth, setFileBrowserWidth] = useState(() => {
+    try {
+      const stored = localStorage.getItem("astro-file-browser-width")
+      if (!stored) return 280
+      const n = Number(stored)
+      return Number.isFinite(n) ? Math.max(200, Math.min(600, n)) : 280
+    } catch { return 280 }
+  })
+  const isResizing = useRef(false)
+
+  const onResizeMouseDown = useCallback((e: ReactMouseEvent) => {
+    if (embedded) return
+    e.preventDefault()
+    isResizing.current = true
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+
+    // The file browser is on the right edge — dragging left increases width
+    const startX = e.clientX
+    const startWidth = fileBrowserWidth
+
+    const onMouseMove = (ev: globalThis.MouseEvent) => {
+      if (!isResizing.current) return
+      const delta = startX - ev.clientX
+      const newWidth = Math.max(200, Math.min(600, startWidth + delta))
+      setFileBrowserWidth(newWidth)
+    }
+
+    const onMouseUp = () => {
+      isResizing.current = false
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+    }
+
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+  }, [embedded, fileBrowserWidth])
+
+  // Persist width on change (debounced via the mouseup handler above, but also on unmount)
+  useEffect(() => {
+    if (!embedded) {
+      try { localStorage.setItem("astro-file-browser-width", String(fileBrowserWidth)) } catch { /* */ }
+    }
+  }, [fileBrowserWidth, embedded])
 
   const {
     path,
@@ -362,13 +410,21 @@ export function FileBrowser({
     <div
       className={cn(
         "flex flex-col h-full bg-background shrink-0 relative",
-        embedded ? "w-full" : "w-[280px] border-l border-border"
+        embedded ? "w-full" : "border-l border-border"
       )}
+      style={embedded ? undefined : { width: fileBrowserWidth }}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
+      {/* Resize handle on the left edge (desktop only) */}
+      {!embedded && (
+        <div
+          onMouseDown={onResizeMouseDown}
+          className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-10"
+        />
+      )}
       {/* Drag overlay */}
       {isDragOver && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-primary/5 border-2 border-dashed border-primary rounded-md pointer-events-none">

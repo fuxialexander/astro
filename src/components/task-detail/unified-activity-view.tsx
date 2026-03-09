@@ -972,6 +972,7 @@ export function UnifiedActivityView({
           className="h-9 w-9 shrink-0"
           onClick={(e) => handleSend(e.shiftKey)}
           disabled={!input.trim() || isInputDisabled}
+          title="Send (⌘+Enter)"
         >
           {sending || isChatStreaming ? (
             <Loader2 className="h-4 w-4 animate-spin" />
