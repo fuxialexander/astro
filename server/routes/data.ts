@@ -900,6 +900,19 @@ app.patch('/plan/nodes/:id', async (c) => {
     )
   }
 
+  // DB-authoritative: emit node:status_changed when status is updated via data API.
+  // This notifies ALL connected clients (other tabs, team members, global SSE)
+  // so they re-read the authoritative node from DB — covers MCP tool updates,
+  // frontend chat mutations, and manual UI status changes.
+  if (body.status !== undefined && body.status !== node.status) {
+    executionEventBus.emit('node:status_changed', {
+      nodeId: id,
+      projectId: node.projectId,
+      status: body.status,
+      executionId: node.executionId ?? undefined,
+    })
+  }
+
   // Auto-dispatch downstream nodes when a node is manually approved
   if (body.status === 'completed' || body.status === 'auto_verified') {
     autoDispatchDownstream(node.projectId, id).catch((err) => {
@@ -995,6 +1008,13 @@ async function cascadePruneDownstream(projectId: string, prunedNodeId: string): 
       // Only prune nodes that aren't already completed
       if (childNode.status !== 'completed' && childNode.status !== 'auto_verified') {
         await db.update(planNodes).set({ status: 'pruned', updatedAt: new Date() }).where(eq(planNodes.clientId, childId))
+        // DB-authoritative: notify all clients about the cascade-pruned node
+        executionEventBus.emit('node:status_changed', {
+          nodeId: childId,
+          projectId,
+          status: 'pruned',
+          executionId: childNode.executionId ?? undefined,
+        })
       }
       queue.push(childId)
     }
