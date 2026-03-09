@@ -59,6 +59,8 @@ const projectColors = [
 
 export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const { theme, setTheme } = useTheme()
+  // Resolve whether dark mode is active (accounts for "system" theme)
+  const isDark = theme === "dark" || (theme === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches)
   const connectionStatus = useSettingsStore((s) => s.connectionStatus)
   const modelTier = useSettingsStore((s) => s.modelTier)
   const setModelTier = useSettingsStore((s) => s.setModelTier)
@@ -88,6 +90,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
 
   const activeProjectId = params.id
   const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0
+  const [settingsExpanded, setSettingsExpanded] = useState(() => {
+    try { return localStorage.getItem("astro-sidebar-settings") !== "collapsed" } catch { return true /* localStorage unavailable */ }
+  })
 
   // Auto-reveal sidebar items based on usage thresholds
   useAutoReveal()
@@ -406,8 +411,8 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
 
   return (
     <aside className={cn(
-      "hidden md:flex h-full shrink-0 flex-col border-r border-border bg-card overflow-hidden",
-      collapsed ? "w-[52px]" : "w-[260px]",
+      "hidden md:flex h-full shrink-0 flex-col border-r border-border bg-card overflow-hidden w-full",
+      collapsed && "!w-[52px]",
     )}>
       {/* Logo Section */}
       <div className={cn(
@@ -890,83 +895,100 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
-                  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                  onClick={() => setTheme(isDark ? "light" : "dark")}
                   className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors"
                 >
-                  {theme === "dark" ? <Sun className="h-4 w-4 text-muted-foreground" /> : <Moon className="h-4 w-4 text-muted-foreground" />}
+                  {isDark ? <Sun className="h-4 w-4 text-muted-foreground" /> : <Moon className="h-4 w-4 text-muted-foreground" />}
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="right">Toggle {theme === "dark" ? "Light" : "Dark"} Mode</TooltipContent>
+              <TooltipContent side="right">Toggle {isDark ? "Light" : "Dark"} Mode</TooltipContent>
             </Tooltip>
           </div>
         </div>
       ) : (
-        <div className="px-4 py-2 flex flex-col gap-0.5">
-          {/* Model Size Selector */}
-          <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
-            <div className="flex items-center gap-3">
-              <Cpu className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium text-muted-foreground">Model</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {(["small", "medium", "large"] as const).map((tier) => (
-                <Tooltip key={tier}>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => setModelTier(tier)}
-                      className={cn(
-                        "flex items-center justify-center rounded-full transition-colors",
-                        tier === "small" ? "h-5 w-5" : tier === "medium" ? "h-6 w-6" : "h-7 w-7",
-                        modelTier === tier
-                          ? "bg-primary"
-                          : "bg-muted-foreground/20 hover:bg-muted-foreground/40"
-                      )}
-                    >
-                      <div className={cn(
-                        "rounded-full",
-                        tier === "small" ? "h-2 w-2" : tier === "medium" ? "h-2.5 w-2.5" : "h-3 w-3",
-                        modelTier === tier ? "bg-primary-foreground" : "bg-muted-foreground/60"
-                      )} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    {tier === "small" ? "Small (Haiku)" : tier === "medium" ? "Medium (Sonnet)" : "Large (Opus)"}
-                  </TooltipContent>
-                </Tooltip>
-              ))}
-            </div>
-          </div>
-
-          {/* YOLO Mode Toggle */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div data-tour-id="yolo" className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
+        <div className="flex flex-col">
+          {/* Toggle bar for settings section */}
+          <button
+            type="button"
+            onClick={() => {
+              const next = !settingsExpanded
+              setSettingsExpanded(next)
+              try { localStorage.setItem("astro-sidebar-settings", next ? "expanded" : "collapsed") } catch { /* localStorage unavailable */ }
+            }}
+            className="flex items-center gap-2 px-4 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider hover:bg-muted/50 transition-colors"
+          >
+            <ChevronRight className={cn("h-3 w-3 transition-transform", settingsExpanded && "rotate-90")} />
+            Settings
+          </button>
+          {settingsExpanded && (
+            <div className="px-4 pb-2 flex flex-col gap-0.5">
+              {/* Model Size Selector */}
+              <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
                 <div className="flex items-center gap-3">
-                  <Zap className={cn("h-4 w-4", yoloMode ? "text-warning fill-warning" : "text-muted-foreground")} />
-                  <span className="text-sm font-medium text-muted-foreground">YOLO</span>
+                  <Cpu className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium text-muted-foreground">Model</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {(["small", "medium", "large"] as const).map((tier) => (
+                    <Tooltip key={tier}>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => setModelTier(tier)}
+                          className={cn(
+                            "flex items-center justify-center rounded-full transition-colors",
+                            tier === "small" ? "h-5 w-5" : tier === "medium" ? "h-6 w-6" : "h-7 w-7",
+                            modelTier === tier
+                              ? "bg-primary"
+                              : "bg-muted-foreground/20 hover:bg-muted-foreground/40"
+                          )}
+                        >
+                          <div className={cn(
+                            "rounded-full",
+                            tier === "small" ? "h-2 w-2" : tier === "medium" ? "h-2.5 w-2.5" : "h-3 w-3",
+                            modelTier === tier ? "bg-primary-foreground" : "bg-muted-foreground/60"
+                          )} />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        {tier === "small" ? "Small (Haiku)" : tier === "medium" ? "Medium (Sonnet)" : "Large (Opus)"}
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+                </div>
+              </div>
+
+              {/* YOLO Mode Toggle */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div data-tour-id="yolo" className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
+                    <div className="flex items-center gap-3">
+                      <Zap className={cn("h-4 w-4", yoloMode ? "text-warning fill-warning" : "text-muted-foreground")} />
+                      <span className="text-sm font-medium text-muted-foreground">YOLO</span>
+                    </div>
+                    <Switch
+                      checked={yoloMode}
+                      onCheckedChange={setYoloMode}
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-[220px]">
+                  Auto-approve safety checks, tool requests, and task completions across all projects. Failed tasks still require review.
+                </TooltipContent>
+              </Tooltip>
+
+              {/* Dark Mode Toggle */}
+              <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
+                <div className="flex items-center gap-3">
+                  {isDark ? <Sun className="h-4 w-4 text-muted-foreground" /> : <Moon className="h-4 w-4 text-muted-foreground" />}
+                  <span className="text-sm font-medium text-muted-foreground">Dark Mode</span>
                 </div>
                 <Switch
-                  checked={yoloMode}
-                  onCheckedChange={setYoloMode}
+                  checked={isDark}
+                  onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
                 />
               </div>
-            </TooltipTrigger>
-            <TooltipContent side="right" className="max-w-[220px]">
-              Auto-approve safety checks, tool requests, and task completions across all projects. Failed tasks still require review.
-            </TooltipContent>
-          </Tooltip>
-
-          {/* Dark Mode Toggle */}
-          <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
-            <div className="flex items-center gap-3">
-              {theme === "dark" ? <Sun className="h-4 w-4 text-muted-foreground" /> : <Moon className="h-4 w-4 text-muted-foreground" />}
-              <span className="text-sm font-medium text-muted-foreground">Dark Mode</span>
             </div>
-            <Switch
-              checked={theme === "dark"}
-              onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
-            />
-          </div>
+          )}
         </div>
       )}
 

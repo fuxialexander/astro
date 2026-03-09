@@ -313,7 +313,7 @@ export default function App() {
   useIOSKeyboardFix()
 
   return (
-    <ThemeProvider defaultTheme="light">
+    <ThemeProvider defaultTheme="system">
       <TooltipProvider>
         <BrowserRouter>
           {/* Public routes that must render immediately (no DataLoader dependency) */}

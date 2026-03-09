@@ -3,6 +3,7 @@ import type { CommandItem, CommandHistory } from "@/types"
 
 interface UIState {
   sidebarCollapsed: boolean
+  sidebarWidth: number
   chatPanelPosition: "bottom" | "right"
   chatPanelVisible: boolean
   commandPaletteOpen: boolean
@@ -10,6 +11,7 @@ interface UIState {
   commandBreadcrumbs: CommandItem[]
   selectedCommands: string[]
   toggleSidebar: () => void
+  setSidebarWidth: (width: number) => void
   toggleChatPanelPosition: () => void
   setChatPanelVisible: (visible: boolean) => void
   setCommandPaletteOpen: (open: boolean) => void
@@ -23,6 +25,12 @@ interface UIState {
 
 export const useUIStore = create<UIState>((set, get) => ({
   sidebarCollapsed: false,
+  sidebarWidth: (() => {
+    try {
+      const stored = localStorage.getItem("astro-sidebar-width")
+      return stored ? Math.max(200, Math.min(480, Number(stored))) : 260
+    } catch { return 260 /* localStorage unavailable */ }
+  })(),
   chatPanelPosition: "bottom",
   chatPanelVisible: true,
   commandPaletteOpen: false,
@@ -31,6 +39,12 @@ export const useUIStore = create<UIState>((set, get) => ({
   selectedCommands: [],
 
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+
+  setSidebarWidth: (width: number) => {
+    const clamped = Math.max(200, Math.min(480, width))
+    set({ sidebarWidth: clamped })
+    try { localStorage.setItem("astro-sidebar-width", String(clamped)) } catch { /* localStorage unavailable */ }
+  },
 
   toggleChatPanelPosition: () =>
     set((s) => ({ chatPanelPosition: s.chatPanelPosition === "bottom" ? "right" : "bottom" })),
