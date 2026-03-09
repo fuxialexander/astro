@@ -622,6 +622,12 @@ export function Environments() {
     setCreatingInstruction(true)
   }
 
+  const customizePreset = (preset: { name: string; content: string }) => {
+    setEditingInstruction(null)
+    setInstructionForm({ name: preset.name, content: preset.content, tags: "" })
+    setCreatingInstruction(true)
+  }
+
   const openEditInstruction = (instruction: MachineInstruction) => {
     setEditingInstruction(instruction)
     setInstructionForm({
@@ -819,6 +825,10 @@ export function Environments() {
                           <p className="text-[11px] text-muted-foreground mt-0.5">{preset.description}</p>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
+                          <Button variant="ghost" size="sm" className="h-6 text-xs text-muted-foreground gap-1" onClick={(e) => { e.stopPropagation(); customizePreset(preset) }}>
+                            <Pencil className="h-3 w-3" />
+                            Customize
+                          </Button>
                           {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                         </div>
                       </button>
