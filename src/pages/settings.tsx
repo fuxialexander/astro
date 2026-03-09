@@ -1758,13 +1758,13 @@ function EnvironmentsSettingsContent() {
         </div>
       </section>
 
-      {/* Default Provider */}
+      {/* Default AI Agent */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Default LLM Provider</h2>
+        <h2 className="text-sm font-semibold">Default AI Agent</h2>
         <div className="rounded-xl border border-border bg-card">
           <SettingsRow
-            label="Provider"
-            description="Agent provider for task execution"
+            label="AI Agent"
+            description="AI agent for task execution"
             last
           >
             <SelectDropdown
@@ -1784,7 +1784,7 @@ function EnvironmentsSettingsContent() {
         </div>
         <div className="rounded-lg bg-muted/30 border border-border/50 p-3">
           <p className="text-[11px] text-muted-foreground leading-relaxed">
-            <span className="font-semibold text-foreground">Provider types:</span>
+            <span className="font-semibold text-foreground">Agent types:</span>
             <br />
             • <span className="font-medium">claude-sdk</span> - Claude Code/API models (Opus, Sonnet, Haiku)
             <br />
