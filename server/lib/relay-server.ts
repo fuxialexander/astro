@@ -1254,15 +1254,21 @@ export class RelayServer extends EventEmitter {
     this.taskToMachine.delete(message.result.taskId);
     this.taskDispatchedAt.delete(message.result.taskId);
     this.consecutiveMisses.delete(message.result.taskId);
+    // Snapshot userId BEFORE emit — dispatch.ts's onResult handler synchronously
+    // calls executionContextStore.remove(), so getUserIdForTask returns undefined
+    // after emit returns. publishToRedis needs the userId for cross-instance isolation.
+    const userId = executionContextStore.getUserIdForTask(message.result.taskId);
     this.emit('task:result', message);
-    this.publishToRedis({
-      eventType: 'result', taskId: message.result.taskId,
+    redisPubSub.publishStreamingEvent({
+      eventType: 'result', taskId: message.result.taskId, userId,
       data: {
         status: message.result.status, output: message.result.output,
         error: message.result.error, duration: message.result.duration,
         branchName: message.result.branchName, prUrl: message.result.prUrl,
         prNumber: message.result.prNumber, deliveryStatus: message.result.deliveryStatus,
       },
+    }).catch((err) => {
+      console.error(`[relay] Failed to publish result to Redis:`, err);
     });
   }
 

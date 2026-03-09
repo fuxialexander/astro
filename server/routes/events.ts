@@ -652,8 +652,9 @@ eventsRoute.get('/stream', async (c) => {
           // Use project ownership check (not just userId) for node status events.
           // The userId in the message is a hint from executionContextStore; the
           // authoritative check is team-scoped project ownership from the DB.
+          // Fail closed: if projectId is missing, don't deliver the event.
           const projectId = msg.data.projectId as string | undefined
-          if (projectId && !await isProjectOwnedByUser(projectId)) break
+          if (!projectId || !await isProjectOwnedByUser(projectId)) break
           const data = JSON.stringify(msg.data)
           const id = eventBuffer.push('node:status_changed', data)
           stream.writeSSE({ id, event: 'node:status_changed', data }).catch(() => { alive = false })
@@ -661,7 +662,7 @@ eventsRoute.get('/stream', async (c) => {
         }
         case 'task_init': {
           const projectId = msg.data.projectId as string | undefined
-          if (projectId && !await isProjectOwnedByUser(projectId)) break
+          if (!projectId || !await isProjectOwnedByUser(projectId)) break
           const data = JSON.stringify(msg.data)
           const id = eventBuffer.push('task:init', data)
           stream.writeSSE({ id, event: 'task:init', data }).catch(() => { alive = false })
@@ -669,7 +670,7 @@ eventsRoute.get('/stream', async (c) => {
         }
         case 'task_ready': {
           const projectId = msg.data.projectId as string | undefined
-          if (projectId && !await isProjectOwnedByUser(projectId)) break
+          if (!projectId || !await isProjectOwnedByUser(projectId)) break
           const data = JSON.stringify(msg.data)
           const id = eventBuffer.push('task:ready', data)
           stream.writeSSE({ id, event: 'task:ready', data }).catch(() => { alive = false })

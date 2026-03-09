@@ -634,8 +634,20 @@ describe('relay-server Redis publish integration', () => {
     expect(handler).toContain("eventType: 'progress'")
   })
 
-  it('publishes result events via publishToRedis', () => {
-    expect(relaySource).toContain("eventType: 'result', taskId: message.result.taskId,")
+  it('publishes result events via redisPubSub.publishStreamingEvent (userId snapshot before emit)', () => {
+    // handleTaskResult snapshots userId BEFORE emit to avoid the race where
+    // dispatch.ts's onResult removes the context synchronously during emit.
+    const handler = relaySource.slice(
+      relaySource.indexOf('private handleTaskResult('),
+      relaySource.indexOf('private handleTaskStdout(')
+    )
+    expect(handler).toContain("eventType: 'result', taskId: message.result.taskId,")
+    // Verify userId is captured before this.emit
+    const userIdIdx = handler.indexOf('const userId = executionContextStore.getUserIdForTask(')
+    const emitIdx = handler.indexOf("this.emit('task:result'")
+    expect(userIdIdx).toBeGreaterThan(-1)
+    expect(emitIdx).toBeGreaterThan(-1)
+    expect(userIdIdx).toBeLessThan(emitIdx)
   })
 
   it('local emit happens BEFORE publishToRedis call', () => {
@@ -650,14 +662,16 @@ describe('relay-server Redis publish integration', () => {
     expect(emitIdx).toBeLessThan(redisIdx)
   })
 
-  it('all handlers use publishToRedis (not direct redisPubSub calls)', () => {
-    // Only the wrapper itself should call redisPubSub.publishStreamingEvent
+  it('all handlers use publishToRedis except handleTaskResult (which snapshots userId)', () => {
+    // handleTaskResult uses redisPubSub.publishStreamingEvent directly because it
+    // must snapshot userId before this.emit (dispatch.ts removes context synchronously).
+    // All other handlers use the publishToRedis wrapper.
     const directCalls = relaySource.split('redisPubSub.publishStreamingEvent(').length - 1
-    expect(directCalls).toBe(1) // Only inside publishToRedis wrapper
+    expect(directCalls).toBe(2) // publishToRedis wrapper + handleTaskResult
 
-    // Count publishToRedis calls — should cover all event types
+    // Count publishToRedis calls — should cover all event types except result
     const wrapperCalls = relaySource.split('this.publishToRedis({').length - 1
-    expect(wrapperCalls).toBeGreaterThanOrEqual(10) // text, tool_use, tool_result, file_change, session_init, progress, result + legacy handlers
+    expect(wrapperCalls).toBeGreaterThanOrEqual(9) // text, tool_use, tool_result, file_change, session_init, progress + legacy handlers (result excluded)
   })
 })
 
@@ -907,6 +921,29 @@ describe('events.ts handles new Redis bridged event types', () => {
     )
     expect(taskReadyCase).toContain('isProjectOwnedByUser')
     expect(taskReadyCase).toContain("'task:ready'")
+  })
+
+  it('project-level checks fail closed when projectId is missing', () => {
+    const redisHandler = eventsSource.slice(
+      eventsSource.indexOf('const onRedisStreaming ='),
+      eventsSource.indexOf("redisPubSub.on('task:streaming'")
+    )
+    // All three project-level checks must use !projectId (fail closed) not just projectId &&
+    const nodeStatusCase = redisHandler.slice(
+      redisHandler.indexOf("case 'node_status_changed':"),
+      redisHandler.indexOf("case 'task_init':")
+    )
+    expect(nodeStatusCase).toContain('!projectId || !await isProjectOwnedByUser')
+
+    const taskInitCase = redisHandler.slice(
+      redisHandler.indexOf("case 'task_init':"),
+      redisHandler.indexOf("case 'task_ready':")
+    )
+    expect(taskInitCase).toContain('!projectId || !await isProjectOwnedByUser')
+
+    const taskReadyIdx = redisHandler.indexOf("case 'task_ready':")
+    const taskReadyCase = redisHandler.slice(taskReadyIdx, taskReadyIdx + 300)
+    expect(taskReadyCase).toContain('!projectId || !await isProjectOwnedByUser')
   })
 })
 
