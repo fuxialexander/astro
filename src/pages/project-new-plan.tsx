@@ -841,7 +841,7 @@ export function ProjectNewPlan() {
           {/* Machine selector */}
           {(isServerMode() || allMachines.length > 0) && (
             <div className="flex flex-col gap-1.5">
-              <span className="text-xs text-muted-foreground">Select a machine:</span>
+              <span className="text-xs text-muted-foreground">Select a machine and an AI agent on it:</span>
               <div className="flex flex-wrap gap-2">
               {allMachines.map((m) => {
                 const reg = registeredMachines.find((r) => r.id === m.machineId)
@@ -921,6 +921,7 @@ export function ProjectNewPlan() {
           {/* Working directory — only shown when a machine is selected */}
           {selectedMachine && (
             <div className="animate-reveal flex flex-col gap-2">
+              <span className="text-xs text-muted-foreground">Working directory (optional — required for execution):</span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
