@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import type { TaskExecution, ProviderStatus, PlanNode, PlanEdge, ToolTrace, FileChange, UsageMetrics, Project, ExecutionSummary, ReplanContext } from "@/types"
+import type { TaskExecution, ProviderStatus, PlanNode, PlanEdge, ToolTrace, FileChange, UsageMetrics, Project, ProjectSource, ExecutionSummary, ReplanContext } from "@/types"
 import { parseSSEStream } from "@/lib/sse-parser"
 import { fetchStreamingEventsCatchUp, type StreamingEventRow } from "@/lib/api-client"
 import { usePlanStore, isLive } from "./plan-store"
@@ -19,6 +19,7 @@ import { getSigningPrivateKey, signDispatchIntent, generateNonce, type DispatchS
 import { useAuthStore } from "./auth-store"
 import { useSettingsStore } from "./settings-store"
 import { showBatchCompleteNotification } from "@/lib/notifications"
+import { deriveDeliveryMode } from "@/lib/project-source"
 import { useNotificationStore } from "./notification-store"
 import { buildClientCompletionMessage } from "@/lib/completion-messages"
 
@@ -273,6 +274,7 @@ interface ExecutionState {
       githubOwner?: string
       githubRepo?: string
       githubRepoId?: number
+      source?: ProjectSource
     }
   ) => Promise<{ projectId: string; nodeId: string }>
   cancelPlanGeneration: (projectId: string) => Promise<void>
@@ -378,8 +380,14 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // Get project for vision doc and working directory
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
 
-    // Serial execution constraint for non-git projects (direct delivery mode)
-    if (project?.source && !project.source.isGit) {
+    // Serial execution constraint for non-isolated projects (direct delivery mode).
+    // Only 'direct' delivery mode requires serial execution — it works in-place
+    // without worktree isolation. Other modes ('branch', 'pr', 'push', 'copy')
+    // use git worktrees or copies for isolation and support parallel execution.
+    // Note: the agent-runner enforces this via a directory lock as a safety net;
+    // this frontend check provides early feedback to the user.
+    const effectiveDeliveryMode = project?.deliveryMode || (project?.source ? deriveDeliveryMode(project.source) : undefined)
+    if (effectiveDeliveryMode === 'direct') {
       const activeForProject = [...get().executions.values()].some(
         (e) => e.projectId === projectId && (e.status === 'pending' || e.status === 'running')
       )
@@ -390,7 +398,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           executionId: `exec-${nodeId}-${Date.now()}`,
           status: 'failure',
           streamText: '',
-          error: 'Serial execution required: this project has no git history. Only one task can run at a time to prevent file conflicts. Wait for the current task to complete.',
+          error: 'Serial execution required: this project uses direct delivery mode (no git isolation). Only one task can run at a time to prevent file conflicts. Wait for the current task to complete.',
           toolTraces: [],
           fileChanges: [],
           activityEvents: [],
@@ -1061,14 +1069,17 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       ...(options?.githubOwner ? { githubOwner: options.githubOwner } : {}),
       ...(options?.githubRepo ? { githubRepo: options.githubRepo } : {}),
       ...(options?.githubRepoId ? { githubRepoId: options.githubRepoId } : {}),
-      ...(options?.baseBranch ? {
-        source: {
-          localPath: options?.workingDirectory || '',
-          baseBranch: options.baseBranch,
-          isGit: true,
-          remoteType: 'none' as const,
-        },
-      } : {}),
+      // Use the full detected source when available; fall back to constructing
+      // a minimal source from baseBranch for backward compatibility.
+      ...(options?.source ? { source: options.source }
+        : options?.baseBranch ? {
+          source: {
+            localPath: options?.workingDirectory || '',
+            baseBranch: options.baseBranch,
+            isGit: true,
+            remoteType: 'none' as const,
+          },
+        } : {}),
     } as Project)
 
     const nodeId = `plan-${projectId}`
@@ -1305,8 +1316,11 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       updates.visionDoc = options.visionDoc
     }
     if (options?.baseBranch) {
+      // Only update baseBranch on the existing source — don't overwrite a fully-detected
+      // source (with accurate isGit/remoteType/remoteUrl) with a minimal fallback.
+      const existingSource = useProjectStore.getState().projects.find((p) => p.id === projectId)?.source
       updates.source = {
-        ...(project.source || { localPath: project.workingDirectory || '', isGit: true, remoteType: 'none' as const }),
+        ...(existingSource || project.source || { localPath: project.workingDirectory || '', isGit: true, remoteType: 'none' as const }),
         baseBranch: options.baseBranch,
       }
     }
