@@ -34,14 +34,10 @@ import { createMockStream } from './helpers/mock-stream.js'
 // Dynamic imports — agent-runner submodule may not be checked out in CI
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let OpenClawAdapter: any
-let _adapterAvailable = false
-let _gatewaySupported = false
 
 try {
   const mod = await import('../packages/agent-runner/src/providers/openclaw-adapter.js')
   OpenClawAdapter = mod.OpenClawAdapter
-  _adapterAvailable = true
-  _gatewaySupported = typeof OpenClawAdapter.prototype.resetDeltaTracker === 'function'
 } catch {
   // agent-runner submodule not available — tests will be skipped
 }
