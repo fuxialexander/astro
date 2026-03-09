@@ -59,6 +59,7 @@ export interface StreamingEventMessage {
   instanceId: string;
   eventType: StreamingEventType;
   taskId: string;
+  userId?: string;
   data: Record<string, unknown>;
   dbSeq?: number;
 }

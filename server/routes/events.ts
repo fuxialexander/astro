@@ -601,7 +601,10 @@ eventsRoute.get('/stream', async (c) => {
     const onRedisStreaming = (msg: StreamingEventMessage) => {
       if (!alive) return
       if (msg.instanceId === redisPubSub.getInstanceId()) return
-      if (!isTaskOwnedByUser(msg.taskId)) return
+      // Cross-instance user isolation: the receiving instance's executionContextStore
+      // won't have the task (it runs on another instance), so we check the userId
+      // embedded in the Redis message instead of the local in-memory store.
+      if (user?.id && msg.userId && msg.userId !== user.id && msg.userId !== LOCAL_USER_ID) return
 
       switch (msg.eventType) {
         case 'text':

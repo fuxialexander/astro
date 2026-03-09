@@ -313,12 +313,17 @@ describe('Self-instance dedup in events.ts', () => {
     expect(handler).toContain('switch (msg.eventType)')
   })
 
-  it('also checks user ownership after dedup', () => {
+  it('checks userId from Redis message for cross-instance user isolation', () => {
     const handler = eventsSource.slice(
       eventsSource.indexOf('const onRedisStreaming ='),
       eventsSource.indexOf("redisPubSub.on('task:streaming'")
     )
-    expect(handler).toContain('isTaskOwnedByUser(msg.taskId)')
+    // Must NOT use isTaskOwnedByUser (which fails open for cross-instance tasks)
+    // Instead checks msg.userId directly against the SSE connection's user
+    expect(handler).not.toContain('isTaskOwnedByUser(msg.taskId)')
+    expect(handler).toContain('msg.userId')
+    expect(handler).toContain('user.id')
+    expect(handler).toContain('LOCAL_USER_ID')
   })
 })
 
@@ -498,104 +503,108 @@ describe('relay-server Redis publish integration', () => {
   const RELAY_SERVER_PATH = join(process.cwd(), 'server/lib/relay-server.ts')
   const relaySource = readFileSync(RELAY_SERVER_PATH, 'utf-8')
 
-  it('imports redisPubSub', () => {
-    expect(relaySource).toContain("import { redisPubSub } from './redis-pubsub.js'")
+  it('imports redisPubSub and StreamingEventMessage', () => {
+    expect(relaySource).toContain("import { redisPubSub, type StreamingEventMessage } from './redis-pubsub.js'")
   })
 
-  it('publishes text events to Redis', () => {
+  it('imports executionContextStore for userId lookup', () => {
+    expect(relaySource).toContain("import { executionContextStore } from './execution-context-store.js'")
+  })
+
+  it('has publishToRedis wrapper that attaches userId', () => {
+    // Find the wrapper method
+    const wrapperStart = relaySource.indexOf('private publishToRedis(')
+    expect(wrapperStart).toBeGreaterThan(-1)
+    // Extract a generous chunk after the method signature
+    const wrapperChunk = relaySource.slice(wrapperStart, wrapperStart + 300)
+    expect(wrapperChunk).toContain('executionContextStore.getUserIdForTask(event.taskId)')
+    expect(wrapperChunk).toContain('publishStreamingEvent')
+    expect(wrapperChunk).toContain('userId')
+    expect(wrapperChunk).toContain('.catch(() => {})')
+  })
+
+  it('publishes text events via publishToRedis', () => {
     const handler = relaySource.slice(
       relaySource.indexOf('private async handleAgentRunnerTaskText('),
       relaySource.indexOf('private async handleAgentRunnerTaskToolUse(')
     )
-    expect(handler).toContain('redisPubSub.publishStreamingEvent({')
+    expect(handler).toContain('this.publishToRedis({')
     expect(handler).toContain("eventType: 'text'")
-    expect(handler).toContain('.catch(() => {})')
   })
 
-  it('publishes tool_use events to Redis with dbSeq', () => {
+  it('publishes tool_use events with dbSeq via publishToRedis', () => {
     const handler = relaySource.slice(
       relaySource.indexOf('private async handleAgentRunnerTaskToolUse('),
       relaySource.indexOf('private async handleAgentRunnerTaskToolResult(')
     )
-    expect(handler).toContain('redisPubSub.publishStreamingEvent({')
+    expect(handler).toContain('this.publishToRedis({')
     expect(handler).toContain("eventType: 'tool_use'")
     expect(handler).toContain('dbSeq: seq,')
-    expect(handler).toContain('.catch(() => {})')
   })
 
-  it('publishes tool_result events to Redis with dbSeq', () => {
+  it('publishes tool_result events with dbSeq via publishToRedis', () => {
     const handler = relaySource.slice(
       relaySource.indexOf('private async handleAgentRunnerTaskToolResult('),
       relaySource.indexOf('private async handleAgentRunnerTaskFileChange(')
     )
-    expect(handler).toContain('redisPubSub.publishStreamingEvent({')
+    expect(handler).toContain('this.publishToRedis({')
     expect(handler).toContain("eventType: 'tool_result'")
     expect(handler).toContain('dbSeq: seq,')
-    expect(handler).toContain('.catch(() => {})')
   })
 
-  it('publishes file_change events to Redis with dbSeq', () => {
+  it('publishes file_change events with dbSeq via publishToRedis', () => {
     const handler = relaySource.slice(
       relaySource.indexOf('private async handleAgentRunnerTaskFileChange('),
       relaySource.indexOf('private async handleAgentRunnerTaskSessionInit(')
     )
-    expect(handler).toContain('redisPubSub.publishStreamingEvent({')
+    expect(handler).toContain('this.publishToRedis({')
     expect(handler).toContain("eventType: 'file_change'")
     expect(handler).toContain('dbSeq: seq,')
-    expect(handler).toContain('.catch(() => {})')
   })
 
-  it('publishes session_init events to Redis with dbSeq', () => {
+  it('publishes session_init events with dbSeq via publishToRedis', () => {
     const handler = relaySource.slice(
       relaySource.indexOf('private async handleAgentRunnerTaskSessionInit('),
       relaySource.indexOf('private handleAgentRunnerTaskSteerAck(')
     )
-    expect(handler).toContain('redisPubSub.publishStreamingEvent({')
+    expect(handler).toContain('this.publishToRedis({')
     expect(handler).toContain("eventType: 'session_init'")
     expect(handler).toContain('dbSeq: seq,')
-    expect(handler).toContain('.catch(() => {})')
   })
 
-  it('publishes progress events to Redis', () => {
+  it('publishes progress events via publishToRedis', () => {
     const handler = relaySource.slice(
       relaySource.indexOf('private handleTaskProgress('),
       relaySource.indexOf('/**', relaySource.indexOf('private handleTaskProgress(') + 50)
     )
-    expect(handler).toContain('redisPubSub.publishStreamingEvent({')
+    expect(handler).toContain('this.publishToRedis({')
     expect(handler).toContain("eventType: 'progress'")
-    expect(handler).toContain('.catch(() => {})')
   })
 
-  it('publishes result events to Redis', () => {
-    // Result is published from handleTaskResult
+  it('publishes result events via publishToRedis', () => {
     expect(relaySource).toContain("eventType: 'result', taskId: message.result.taskId,")
   })
 
-  it('local emit happens BEFORE Redis publish (fire-and-forget pattern)', () => {
-    // For text handler: this.emit() should come before redisPubSub.publishStreamingEvent
+  it('local emit happens BEFORE publishToRedis call', () => {
     const handler = relaySource.slice(
       relaySource.indexOf('private async handleAgentRunnerTaskText('),
       relaySource.indexOf('private async handleAgentRunnerTaskToolUse(')
     )
     const emitIdx = handler.indexOf("this.emit('task:text'")
-    const redisIdx = handler.indexOf('redisPubSub.publishStreamingEvent')
+    const redisIdx = handler.indexOf('this.publishToRedis(')
     expect(emitIdx).toBeGreaterThan(-1)
     expect(redisIdx).toBeGreaterThan(-1)
     expect(emitIdx).toBeLessThan(redisIdx)
   })
 
-  it('all Redis publish calls use .catch(() => {}) for graceful failure', () => {
-    // Count publish calls and their .catch patterns
-    const publishCalls = relaySource.split('redisPubSub.publishStreamingEvent(').length - 1
-    // Each should be followed by .catch(() => {})
-    expect(publishCalls).toBeGreaterThanOrEqual(7) // text, tool_use, tool_result, file_change, session_init, progress, result(s)
+  it('all handlers use publishToRedis (not direct redisPubSub calls)', () => {
+    // Only the wrapper itself should call redisPubSub.publishStreamingEvent
+    const directCalls = relaySource.split('redisPubSub.publishStreamingEvent(').length - 1
+    expect(directCalls).toBe(1) // Only inside publishToRedis wrapper
 
-    // Verify the pattern is consistent — each publishStreamingEvent call has .catch
-    const segments = relaySource.split('redisPubSub.publishStreamingEvent({')
-    for (let i = 1; i < segments.length; i++) {
-      const afterCall = segments[i].slice(0, 500) // Check next 500 chars (result events have large data blocks)
-      expect(afterCall).toContain('.catch(() => {})')
-    }
+    // Count publishToRedis calls — should cover all event types
+    const wrapperCalls = relaySource.split('this.publishToRedis({').length - 1
+    expect(wrapperCalls).toBeGreaterThanOrEqual(10) // text, tool_use, tool_result, file_change, session_init, progress, result + legacy handlers
   })
 })
 
@@ -667,6 +676,7 @@ describe('RedisPubSub channel constants and types', () => {
     expect(interfaceBody).toContain('instanceId: string')
     expect(interfaceBody).toContain('eventType: StreamingEventType')
     expect(interfaceBody).toContain('taskId: string')
+    expect(interfaceBody).toContain('userId?: string')
     expect(interfaceBody).toContain('data: Record<string, unknown>')
     expect(interfaceBody).toContain('dbSeq?: number')
   })
