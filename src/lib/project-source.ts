@@ -8,6 +8,10 @@
 
 import type { Project, ProjectSource, DeliveryMode, RemoteType } from '@/types'
 
+// Re-export extractRepoInfo as extractGitHubOwnerRepo for use in plan creation.
+// The canonical implementation lives in @astro/core/git-url-utils.
+export { extractRepoInfo as extractGitHubOwnerRepo } from '@astro/core/git-url-utils'
+
 /** @deprecated Use ProjectSource without 'type' field. Kept for backward compat. */
 export type SourceType = 'local-git' | 'cloned-git' | 'local-dir'
 

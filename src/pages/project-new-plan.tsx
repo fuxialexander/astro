@@ -27,6 +27,7 @@ import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { BranchSelector } from "@/components/branch-selector"
 import { AttachmentList } from "@/components/task-detail/attachment-list"
 import { useDirectoryDetection } from "@/hooks/use-directory-detection"
+import { extractGitHubOwnerRepo } from "@/lib/project-source"
 import { dataClient } from "@/lib/data-client"
 import { apiUrl } from "@/lib/api-url"
 import { getAccessToken } from "@/lib/supabase-client"
@@ -643,9 +644,12 @@ export function ProjectNewPlan() {
       if (isRegeneration && existingProject) {
         // Re-generation flow: use existing project, don't create a duplicate
         // Await backend update before starting session to avoid stale context
+        const github = detection?.remoteType === 'github' ? extractGitHubOwnerRepo(detection.remoteUrl) : null
         const regenUpdates = {
           description: description.trim(),
           name: firstLine,
+          repository: detection?.remoteUrl || existingProject.repository || undefined,
+          ...(github && !existingProject.githubOwner ? { githubOwner: github.owner, githubRepo: github.repo } : {}),
         }
         updateProject(existingProject.id, regenUpdates) // optimistic local
         await dataClient.updateProject(existingProject.id, regenUpdates) // await backend
@@ -665,6 +669,7 @@ export function ProjectNewPlan() {
         projectId = result.projectId
       } else {
         // Normal flow: create a new project + plan session
+        const github = detection?.remoteType === 'github' ? extractGitHubOwnerRepo(detection.remoteUrl) : null
         const result = await startPlanGeneration(
           description.trim(),
           firstLine,
@@ -675,6 +680,8 @@ export function ProjectNewPlan() {
             model: effectiveModel,
             visionDoc: combinedVisionDoc,
             baseBranch: effectiveBranch || undefined,
+            repository: detection?.remoteUrl || undefined,
+            ...(github ? { githubOwner: github.owner, githubRepo: github.repo } : {}),
           }
         )
         projectId = result.projectId
