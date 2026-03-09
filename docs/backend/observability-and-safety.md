@@ -13,9 +13,8 @@ This document describes Astro's observability system and safety guardrails. It c
 5. [API Endpoints](#api-endpoints)
 6. [Frontend Trace Viewer](#frontend-trace-viewer)
 7. [Safety Guardrails](#safety-guardrails)
-8. [Langfuse Integration](#langfuse-integration)
-9. [Viewing Traces](#viewing-traces)
-10. [Future Enhancements](#future-enhancements)
+8. [Viewing Traces](#viewing-traces)
+9. [Future Enhancements](#future-enhancements)
 
 ---
 
@@ -499,72 +498,6 @@ interface SafetyRailsConfig {
 ```
 
 ---
-
-## Langfuse Integration
-
-**Source file:** `server/lib/observability/langfuse-exporter.ts`
-
-Astro can optionally export observation data to a self-hosted [Langfuse](https://langfuse.com/) instance for advanced analytics, prompt evaluation, and cost monitoring.
-
-### Enabling Langfuse Export
-
-Set the following environment variables:
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `LANGFUSE_ENABLED` | yes | Must be `"true"` to enable export |
-| `LANGFUSE_BASE_URL` | yes | Base URL of your Langfuse instance (e.g., `https://langfuse.example.com`) |
-| `LANGFUSE_PUBLIC_KEY` | yes | Langfuse public API key |
-| `LANGFUSE_SECRET_KEY` | yes | Langfuse secret API key |
-
-If any variable is missing or `LANGFUSE_ENABLED` is not `"true"`, the exporter is not initialized and no data is sent.
-
-### What Data Is Exported
-
-The exporter handles two categories of data:
-
-**1. Lifecycle events** (via the `langfuseExportHook` on `astroEventTransport`):
-
-| Astro Event | Langfuse Type | Data |
-|-------------|---------------|------|
-| `task.started` | `trace-create` | Execution ID, task name, project/node metadata |
-| `task.completed` | `trace-create` (update) | Stdout output (truncated to 10,000 chars), status, metrics |
-| `task.failed` | `trace-create` (update) | Error details |
-
-**2. Raw observations** (via `langfuseExporter.exportObservations()`):
-
-| Astro Type | Langfuse Type |
-|------------|---------------|
-| `generation` | `generation-create` |
-| `tool` | `span-create` |
-| `span` | `span-create` |
-| `event` | `event-create` |
-
-Each observation is mapped to a Langfuse ingestion item preserving: `id`, `traceId`, `parentObservationId`, `name`, `startTime`, `endTime`, `input`, `output`, `model`, usage (input/output tokens), `metadata`, `level`, and `statusMessage`.
-
-### Batch Export
-
-The Langfuse exporter uses the same buffering strategy as the observation collector:
-
-- **Batch size:** 50 items (`LANGFUSE_BATCH_SIZE`)
-- **Flush interval:** 10 seconds (`LANGFUSE_FLUSH_INTERVAL_MS`)
-- **Transport:** HTTP POST to `{baseUrl}/api/public/ingestion` with Basic authentication
-
-The exporter uses a 10-second request timeout and fails silently if Langfuse is unreachable. This ensures that Langfuse unavailability does not affect Astro's core functionality.
-
-### Architecture
-
-```
-astroEventTransport
-      |
-      +----> observabilityHook (ObservationCollector)
-      |
-      +----> langfuseExportHook (LangfuseExporter)  [if configured]
-
-ObservationCollector
-      |
-      +----> langfuseExporter.exportObservations()   [if configured]
-```
 
 ---
 

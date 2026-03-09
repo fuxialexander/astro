@@ -490,13 +490,12 @@ All events flow from agent runners through the relay to the `executionEventBus`,
 
 **Event persistence:** All structural events are appended to the `streaming_events` table (append-only, seq-indexed) before being sent to clients. Text chunks are batched in-memory by `StreamingEventLog` and flushed before each structural event to preserve ordering. This persistence layer is **transport-agnostic** — it works identically whether events are delivered via SSE or WebSocket.
 
-### 7.1 Three-Layer Recovery
+### 7.1 Two-Layer Recovery
 
-Streaming events are persisted to the `streaming_events` table (append-only, seq-indexed) to survive page refreshes, SSE disconnects, and tab switches. The recovery architecture has three layers:
+Streaming events are persisted to the `streaming_events` table (append-only, seq-indexed) to survive page refreshes, SSE disconnects, and tab switches. The recovery architecture has two layers:
 
 1. **Layer 1 — Live SSE**: `EventSource` → `realtime-store` / `execution-store` (in-memory, lost on refresh)
 2. **Layer 2 — `streaming_events` table**: Append-only DB log. Primary recovery path. Events written *before* SSE send, with the DB `seq` as the SSE event `id`.
-3. **Layer 3 — Observation fallback**: Langfuse trace → `observation-activity-bridge` (legacy data only, when `streaming_events` is empty)
 
 On page refresh, `useRestoredExecution` hydrates from Layer 2 via `/api/events/catch-up` (paginated, `hasMore` loop). On SSE reconnect, `RealtimeClient` uses exponential backoff (3s→60s cap, visibility-aware) and triggers catch-up hydration via `lastSeq` watermark. `mergeHydratedAndLive()` does timestamp-based merge of DB history with any live events that arrived before hydration completed.
 
@@ -892,7 +891,7 @@ See `WORKSPACE_V2.md` for the complete design, including data model changes, API
 | `PACKAGE_ARCHITECTURE.md` | Monorepo package extraction: `@astro/core`, `@astroanywhere/cli`, dependency graph |
 | `CLI_PACKAGE.md` | CLI package design: TUI (Ink), commands, Zustand stores |
 | `WORKSPACE_V2.md` | Workspace model: `.astro/` agent dir, worktrees, delivery modes, directory detection |
-| `REFRESH_ROBUSTNESS.md` | Three-layer recovery architecture: SSE → streaming_events DB → observation fallback. Persistence contract, invariants, known gaps |
+| `REFRESH_ROBUSTNESS.md` | Two-layer recovery architecture: SSE → streaming_events DB. Persistence contract, invariants, known gaps |
 
 ---
 

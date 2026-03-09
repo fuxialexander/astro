@@ -3,22 +3,19 @@
  *
  * Returns activity events, tool traces, and file changes for a task execution.
  * During live execution, returns in-memory SSE events.
- * After page refresh (events lost), reconstructs them from persisted observation data.
+ * After page refresh, reconstructs them from persisted streaming_events via catch-up.
  */
 
-import { useMemo, useEffect, useState, useRef } from "react"
+import { useMemo, useEffect, useRef } from "react"
 import type { TaskExecution, TaskActivityEvent, ToolTrace, FileChange } from "@/types"
 import type { TaskStream } from "@/stores/realtime-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
-import { useObservationStore } from "@/stores/observation-store"
-import { reconstructActivityFromTrace } from "@/lib/observation-activity-bridge"
 
 interface RestoredExecution {
   activityEvents: TaskActivityEvent[]
   toolTraces: ToolTrace[]
   fileChanges: FileChange[]
   isRestoring: boolean
-  restorationError?: string
 }
 
 const EMPTY_TOOL_TRACES: ToolTrace[] = []
@@ -30,12 +27,6 @@ export function useRestoredExecution(
   taskStream?: TaskStream,
   _isRunning?: boolean, // eslint-disable-line @typescript-eslint/no-unused-vars -- kept for API compat; may be used for future optimizations
 ): RestoredExecution {
-  const [restoredData, setRestoredData] = useState<{
-    activityEvents: TaskActivityEvent[]
-    toolTraces: ToolTrace[]
-    fileChanges: FileChange[]
-  } | null>(null)
-
   // Merge live events from execution + realtime stores
   const liveActivityEvents = useMemo(() => {
     const execEvents = execution?.activityEvents || []
@@ -98,7 +89,7 @@ export function useRestoredExecution(
 
   const hasLiveEvents = liveActivityEvents.length > 0
 
-  // Streaming events fast path: try catch-up from streaming_events table first
+  // Streaming events catch-up: hydrate from streaming_events table
   const hydrateFromCatchUp = useRealtimeStore((s) => s.hydrateFromCatchUp)
   const catchUpAttempted = useRef<string | null>(null)
 
@@ -110,116 +101,10 @@ export function useRestoredExecution(
     hydrateFromCatchUp([executionId], 0)
   }, [executionId, hasLiveEvents, hydrateFromCatchUp])
 
-  // Observation store (fallback when streaming events are empty)
-  const fetchTrace = useObservationStore((s) => s.fetchTrace)
-  const getTrace = useObservationStore((s) => s.getTrace)
-  const traceLoading = useObservationStore((s) => s.isLoading(executionId))
-  const traceError = useObservationStore((s) => s.errors.get(executionId))
-
-  // Fetch observations when needed:
-  // - No live events in memory (post-refresh or completed execution)
-  // - Has executionId to query
-  // - Streaming events catch-up didn't produce results
-  // Note: we fetch even when isRunning — after page refresh, past activity
-  // is only available from observations until new SSE events arrive.
-  useEffect(() => {
-    console.log('[use-restored] fetch check:', {
-      executionId: executionId || '(empty)',
-      hasLiveEvents,
-      execEventsLen: execution?.activityEvents?.length ?? 'undef',
-      streamEventsLen: taskStream?.activityEvents?.length ?? 'undef',
-    })
-    if (!executionId || hasLiveEvents) return
-    // If streaming events catch-up produced data, skip observation fetch
-    if (taskStream && taskStream.activityEvents.length > 0) {
-      console.log('[use-restored] streaming catch-up has data, skipping observation fetch')
-      return
-    }
-    // Check if already fetched
-    const existing = getTrace(executionId)
-    if (existing) {
-      console.log('[use-restored] trace already cached for', executionId)
-      return
-    }
-    console.log('[use-restored] fetching trace for', executionId)
-    fetchTrace(executionId)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- execution?.activityEvents?.length is only used in debug log; hasLiveEvents already captures it transitively
-  }, [executionId, hasLiveEvents, fetchTrace, getTrace, taskStream])
-
-  // Reconstruct from trace when available
-  const trace = useObservationStore((s) => s.traces.get(executionId))
-  useEffect(() => {
-    if (!trace) return
-    console.log('[use-restored] trace available:', {
-      executionId,
-      turns: trace.turns.length,
-      events: trace.events.length,
-    })
-    // Only clear restored data when live events from the primary execution store
-    // arrive (the per-dispatch SSE events that were never lost).
-    // Don't clear for realtime-store-only events — those need to be merged.
-    const execEvents = execution?.activityEvents || []
-    if (execEvents.length > 0) {
-      console.log('[use-restored] clearing restored data — exec store has', execEvents.length, 'events')
-      setRestoredData(null)
-      return
-    }
-    const result = reconstructActivityFromTrace(trace)
-    console.log('[use-restored] reconstructed:', {
-      activityEvents: result.activityEvents.length,
-      toolTraces: result.toolTraces.length,
-      fileChanges: result.fileChanges.length,
-    })
-    setRestoredData(result)
-  }, [trace, executionId, execution?.activityEvents])
-
-  // Determine what to return based on data availability
-  const hasExecStoreEvents = (execution?.activityEvents?.length || 0) > 0
-
-  // Case 1: Primary execution store has events (original tab, no refresh)
-  // → use live data exclusively (restored data not needed)
-  if (hasExecStoreEvents) {
-    return {
-      activityEvents: liveActivityEvents,
-      toolTraces: liveToolTraces,
-      fileChanges: liveFileChanges,
-      isRestoring: false,
-    }
-  }
-
-  // Case 2: Post-refresh — streaming catch-up has data in the realtime store.
-  // Prefer streaming events over observation data since both cover the same
-  // execution but streaming events are the primary source (directly from
-  // streaming_events table). Merging the two causes duplication because
-  // observation timestamps (generation startTime) differ from streaming
-  // timestamps (DB createdAt), defeating the timestamp-based dedup.
-  if (liveActivityEvents.length > 0) {
-    return {
-      activityEvents: liveActivityEvents,
-      toolTraces: liveToolTraces,
-      fileChanges: liveFileChanges,
-      isRestoring: false,
-    }
-  }
-
-  // Case 3: Post-refresh with restored observation data only (streaming
-  // catch-up returned empty — e.g., events already expired from streaming_events table)
-  if (restoredData) {
-    return {
-      activityEvents: restoredData.activityEvents,
-      toolTraces: restoredData.toolTraces,
-      fileChanges: restoredData.fileChanges,
-      isRestoring: false,
-    }
-  }
-
-  // Case 4: No restored data yet — return whatever live data exists
-  // (may be empty during initial load / observation fetch)
   return {
     activityEvents: liveActivityEvents,
     toolTraces: liveToolTraces,
     fileChanges: liveFileChanges,
-    isRestoring: traceLoading && !hasLiveEvents && !!executionId,
-    restorationError: traceError,
+    isRestoring: !hasLiveEvents && !!executionId,
   }
 }

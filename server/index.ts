@@ -59,7 +59,6 @@ import { prBodyUpdateHook } from './lib/events/hooks/pr-body-update-hook.js'
 import { projectCompletionHook } from './lib/events/hooks/project-completion-hook.js'
 import { prAutoLinkHook } from './lib/events/hooks/pr-auto-link-hook.js'
 import { observabilityHook, observationCollector } from './lib/observability/observation-collector.js'
-import { langfuseExportHook } from './lib/observability/langfuse-exporter.js'
 import { observationsRoute } from './routes/observations.js'
 import { cleanupExpiredChallenges } from './lib/challenge-store.js'
 import { cleanupExpiredDeviceCodes } from './lib/device-code-store.js'
@@ -350,9 +349,6 @@ async function start() {
     astroEventTransport.registerHook('pr-auto-link', prAutoLinkHook)
     astroEventTransport.registerHook('observability', observabilityHook)
     observationCollector.start()
-    if (langfuseExportHook) {
-      astroEventTransport.registerHook('langfuse-export', langfuseExportHook)
-    }
     console.log('[event-transport] Registered hooks:', astroEventTransport.listHooks().join(', '))
   } else {
     console.log('[event-transport] Test mode detected - hooks disabled')

@@ -2,8 +2,8 @@
  * Streaming Event Hydrator
  *
  * Converts raw streaming_events rows into TaskStream-compatible data.
- * Simpler than observation-activity-bridge since streaming events are
- * already in the same format as SSE events.
+ * Streaming events are already in the same format as SSE events,
+ * making hydration straightforward.
  */
 
 import type { TaskActivityEvent } from '@/types'

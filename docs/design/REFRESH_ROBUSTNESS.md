@@ -6,7 +6,7 @@ How Astro preserves running agent state across page refreshes, SSE disconnects, 
 
 Agent workflows (task execution, plan generation, chat) run server-side and stream results via SSE. A page refresh destroys all in-memory frontend state: Zustand stores, SSE connections, pending approval dialogs. Without recovery, the user sees a blank screen while the agent continues working — and loses the ability to steer, approve, or observe the execution.
 
-## Three-Layer Recovery Architecture
+## Two-Layer Recovery Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -17,14 +17,10 @@ Agent workflows (task execution, plan generation, chat) run server-side and stre
 │  Layer 2: streaming_events table                    │
 │  Append-only log, seq-indexed                       │
 │  (survives refresh, primary recovery path)          │
-├─────────────────────────────────────────────────────┤
-│  Layer 3: Observation fallback                      │
-│  Langfuse trace → observation-activity-bridge       │
-│  (legacy data only, when streaming_events is empty) │
 └─────────────────────────────────────────────────────┘
 ```
 
-**Layer 1** is the hot path during normal operation. **Layer 2** is the primary recovery mechanism. **Layer 3** exists only for backward compatibility with executions that predate the streaming_events table.
+**Layer 1** is the hot path during normal operation. **Layer 2** is the recovery mechanism — all structural events are persisted before being sent via SSE, enabling cursor-based catch-up on reconnect or page refresh.
 
 ## The Persistence Contract
 
@@ -95,7 +91,6 @@ User refreshes page
           → Populates taskStream: stdout, activityEvents, toolTraces,
             fileChanges, machineId, sessionId, model, status, ...
           → Rebuilds dynamicApprovals map from pending approval_request events
-        → If streaming_events empty → fallback to observation store (Layer 3)
       → RealtimeClient.connect() opens new SSE connection
         → New live events append to the hydrated base
 ```
@@ -480,8 +475,6 @@ When adding a new SSE event type that should survive refresh:
 |-----------|------|--------------|
 | Streaming event hydration | `src/lib/streaming-event-hydrator.ts` | `hydrateStreamingEvents()` |
 | Execution restoration hook | `src/hooks/use-restored-execution.ts` | `useRestoredExecution()` |
-| Observation fallback bridge | `src/lib/observation-activity-bridge.ts` | `reconstructActivityFromTrace()` |
-| Observation store | `src/stores/observation-store.ts` | `fetchTrace()`, `buildTraceTree()` |
 | Realtime store (catch-up) | `src/stores/realtime-store.ts` | `hydrateFromCatchUp()`, `reconcileResultFromCatchUp()` |
 | Execution store (cleanup) | `src/stores/execution-store.ts` | `resetExecution()`, `cleanupNodeZustandState()` |
 | Streaming event log (server) | `server/lib/events/streaming-event-log.ts` | `StreamingEventLog.append()` |
@@ -501,7 +494,6 @@ When adding a new SSE event type that should survive refresh:
 | Page refresh after completion | Layer 2 catch-up → terminal status shown | Seamless |
 | SSE network blip | Layer 2 incremental catch-up (afterSeq=lastSeq) | Brief gap, then events appear |
 | Open on different device | Layer 2 full hydration | Full activity visible |
-| Legacy execution (pre-streaming) | Layer 3 observation fallback | Activity reconstructed, ~300ms |
 | Execution reset + refresh | All layers cleaned up | Clean "planned" state |
 | User sign-out/in | `resetAllStores()` → fresh DataLoader | Clean slate, no data leakage |
 
@@ -528,7 +520,7 @@ See `FRONTEND_EPHEMERAL_CACHE.md` for the ephemeral cache design rationale.
 
 ## 11. WebSocket Migration Compatibility
 
-The three-layer recovery architecture is **transport-agnostic**. When the frontend transport migrates from SSE to WebSocket (see [WebSocket Roadmap](../websocket.md), [#513](https://github.com/fuxialexander/astro/issues/513)):
+The two-layer recovery architecture is **transport-agnostic**. When the frontend transport migrates from SSE to WebSocket (see [WebSocket Roadmap](../websocket.md), [#513](https://github.com/fuxialexander/astro/issues/513)):
 
 | Component | Impact |
 |-----------|--------|
@@ -537,7 +529,7 @@ The three-layer recovery architecture is **transport-agnostic**. When the fronte
 | `GET /api/events/catch-up` | **None** — HTTP endpoint, used by both SSE and WS reconnect |
 | `hydrateStreamingEvents()` | **None** — converts DB rows to typed state |
 | `mergeHydratedAndLive()` | **None** — timestamp-based merge, transport-agnostic |
-| `useRestoredExecution` | **None** — 3-source fallback works with any live event source |
+| `useRestoredExecution` | **None** — 2-source fallback works with any live event source |
 | `RealtimeClient` | **Refactored** — transport abstraction (`WsTransport` primary, `SseTransport` fallback) |
 | Reconnect flow | **Enhanced** — WS `resume` message as fast first-pass, then same DB catch-up as fallback |
 

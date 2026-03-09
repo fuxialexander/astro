@@ -1,8 +1,8 @@
 /**
  * Observability System - Type Definitions
  *
- * Langfuse-compatible observation types for structured tracing
- * of task executions across both lifecycle and streaming events.
+ * Observation types for structured tracing of task executions
+ * across both lifecycle and streaming events.
  */
 
 export type ObservationType = 'span' | 'generation' | 'tool' | 'event'
@@ -54,9 +54,3 @@ export interface SafetyRailsConfig {
   deniedTools?: string[]
 }
 
-export interface LangfuseExportConfig {
-  enabled: boolean
-  baseUrl: string
-  publicKey: string
-  secretKey: string
-}

@@ -669,12 +669,6 @@ Each turn becomes a "generation observation" with:
 - `output`: `{ text, toolCalls }` (what the AI produced)
 - Tool observations are linked as children via `parentObservationId`, creating a tree structure that shows which tools were called during which turn
 
-### 9.2 Langfuse Exporter (`server/lib/observability/langfuse-exporter.ts`)
-
-The Langfuse exporter takes the structured observations from the collector and batch-exports them to Langfuse (an external observability platform). It is registered as a hook on `astroEventTransport`, meaning it runs automatically whenever relevant events occur.
-
-Langfuse provides a web UI where you can browse traces, see token usage, compare prompt versions, and debug AI behavior -- capabilities that would be impractical to build from scratch.
-
 ---
 
 ## 10. Environment Configuration

@@ -1678,7 +1678,6 @@ Backend:
 - `server/lib/observability/observation-collector.ts` (870 lines) -- turn-based event grouping, tool_use/tool_result correlation, batch buffering (50 events / 5s flush), markdown summary generation
 - `server/lib/observability/types.ts` -- ObservationEvent schema with hierarchical parent/child relationships
 - `server/lib/observability/safety-rails.ts` -- cost tracking + tool allowlist gating (stubs for enforcement)
-- `server/lib/observability/langfuse-exporter.ts` -- optional Langfuse export (env-gated)
 - `server/routes/observations.ts` -- query API: list (filterable), get by trace, summary, aggregate stats
 - `server/lib/db/schema.ts` -- `observationEvents` table (Drizzle)
 - Database migrations: `drizzle/0006_observation_events.sql` + `supabase/migrations/20260219000003_observation_events.sql`

@@ -1044,7 +1044,7 @@ Custom hooks encapsulate reusable stateful logic across the application. All hoo
 | `use-bar-drag-resize.ts` | Drag-to-resize for panels and sidebars. Provides mouse event handlers and computed sizes. |
 | `use-media-query.ts` | CSS media query hook for responsive behavior (e.g., detecting mobile vs desktop). |
 | `use-auto-reveal.ts` | Computes usage counts across stores (projects, active tasks, executions) and triggers sidebar auto-reveal when thresholds are met (e.g., shows "Active Tasks" sidebar item when tasks start running). |
-| `use-restored-execution.ts` | Returns activity events, tool traces, and file changes for a task execution. During live execution, returns in-memory SSE events. After page refresh, uses a two-path recovery: (1) fast catch-up from `streaming_events` DB via `hydrateFromCatchUp()`, (2) slower fallback to observation data via `reconstructActivityFromTrace()`. See `REFRESH_ROBUSTNESS.md` for the full three-layer architecture. |
+| `use-restored-execution.ts` | Returns activity events, tool traces, and file changes for a task execution. During live execution, returns in-memory SSE events. After page refresh, recovers from `streaming_events` DB via `hydrateFromCatchUp()`. See `REFRESH_ROBUSTNESS.md` for the two-layer architecture. |
 
 ---
 
@@ -1122,7 +1122,6 @@ All library utilities live in `src/lib/`. These are non-React utility modules us
 | File | Purpose |
 |------|---------|
 | `streaming-event-hydrator.ts` | Converts raw `streaming_events` DB rows into hydrated activity data (`activityEvents[]`, `toolTraces[]`, `fileChanges[]`, `pendingApprovals[]`, `status`, `output`, `error`). Primary path for page-refresh and SSE-reconnect recovery. See `REFRESH_ROBUSTNESS.md`. |
-| `observation-activity-bridge.ts` | Converts observation `TraceTree` data into `TaskActivityEvent[]`, `ToolTrace[]`, and `FileChange[]` arrays. Fallback path for reconstructing activity from persisted observation data when streaming events are unavailable. |
 
 ### Plugin and Skill System
 
