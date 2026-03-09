@@ -1241,7 +1241,9 @@ export class RelayServer extends EventEmitter {
    */
   private publishToRedis(event: Omit<StreamingEventMessage, 'instanceId'>): void {
     const userId = executionContextStore.getUserIdForTask(event.taskId);
-    redisPubSub.publishStreamingEvent({ ...event, userId }).catch(() => {});
+    redisPubSub.publishStreamingEvent({ ...event, userId }).catch((err) => {
+      console.error(`[relay] Failed to publish ${event.eventType} to Redis:`, err);
+    });
   }
 
   /**
@@ -1315,7 +1317,7 @@ export class RelayServer extends EventEmitter {
     const eventType = message.toolResult !== undefined ? 'tool_result' as const : 'tool_use' as const;
     this.publishToRedis({
       eventType, taskId: message.taskId,
-      data: { toolName: message.toolName, toolInput: message.toolInput, toolResult: message.toolResult, success: message.success },
+      data: { toolName: message.toolName, toolInput: message.toolInput, toolResult: message.toolResult, success: message.success, duration: message.duration },
     });
   }
 

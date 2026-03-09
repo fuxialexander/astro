@@ -525,7 +525,7 @@ describe('relay-server Redis publish integration', () => {
     expect(wrapperChunk).toContain('executionContextStore.getUserIdForTask(event.taskId)')
     expect(wrapperChunk).toContain('publishStreamingEvent')
     expect(wrapperChunk).toContain('userId')
-    expect(wrapperChunk).toContain('.catch(() => {})')
+    expect(wrapperChunk).toContain('.catch(')
   })
 
   it('publishes text events via publishToRedis', () => {
@@ -668,6 +668,8 @@ describe('RedisPubSub channel constants and types', () => {
     expect(source).toContain("'progress'")
     expect(source).toContain("'result'")
     expect(source).toContain("'node_status_changed'")
+    expect(source).toContain("'task_init'")
+    expect(source).toContain("'task_ready'")
   })
 
   it('exports StreamingEventMessage interface', () => {
@@ -706,5 +708,173 @@ describe('RedisPubSub channel constants and types', () => {
     )
     expect(switchSection).toContain('case CHANNELS.TASK_STREAMING:')
     expect(switchSection).toContain("this.emit('task:streaming'")
+  })
+
+  it('heartbeat has try/catch to prevent unhandled rejections', () => {
+    const heartbeatSection = source.slice(
+      source.indexOf('Set up instance heartbeat'),
+      source.indexOf('}, 30000)')
+    )
+    expect(heartbeatSection).toContain('try {')
+    expect(heartbeatSection).toContain('} catch')
+  })
+})
+
+// =============================================================================
+// 9. redis-event-bridge.ts — centralized executionEventBus → Redis bridge
+// =============================================================================
+
+describe('redis-event-bridge module', () => {
+  const BRIDGE_PATH = join(process.cwd(), 'server/lib/redis-event-bridge.ts')
+  const bridgeSource = readFileSync(BRIDGE_PATH, 'utf-8')
+
+  it('imports executionEventBus, redisPubSub, and executionContextStore', () => {
+    expect(bridgeSource).toContain("from './execution-event-bus.js'")
+    expect(bridgeSource).toContain("from './redis-pubsub.js'")
+    expect(bridgeSource).toContain("from './execution-context-store.js'")
+  })
+
+  it('exports initRedisEventBridge function', () => {
+    expect(bridgeSource).toContain('export function initRedisEventBridge()')
+  })
+
+  it('bridges node:status_changed events to Redis', () => {
+    expect(bridgeSource).toContain("executionEventBus.on('node:status_changed'")
+    expect(bridgeSource).toContain("eventType: 'node_status_changed'")
+  })
+
+  it('bridges task:init events to Redis', () => {
+    expect(bridgeSource).toContain("executionEventBus.on('task:init'")
+    expect(bridgeSource).toContain("eventType: 'task_init'")
+  })
+
+  it('bridges task:ready events to Redis', () => {
+    expect(bridgeSource).toContain("executionEventBus.on('task:ready'")
+    expect(bridgeSource).toContain("eventType: 'task_ready'")
+  })
+
+  it('looks up userId from executionContextStore for node:status_changed', () => {
+    const nodeStatusSection = bridgeSource.slice(
+      bridgeSource.indexOf("executionEventBus.on('node:status_changed'"),
+      bridgeSource.indexOf("executionEventBus.on('task:init'")
+    )
+    expect(nodeStatusSection).toContain('executionContextStore.getUserIdForTask(msg.executionId)')
+  })
+
+  it('looks up userId from executionContextStore for task:init', () => {
+    const taskInitSection = bridgeSource.slice(
+      bridgeSource.indexOf("executionEventBus.on('task:init'"),
+      bridgeSource.indexOf("executionEventBus.on('task:ready'")
+    )
+    expect(taskInitSection).toContain('executionContextStore.getUserIdForTask(msg.executionId)')
+  })
+
+  it('includes projectId in data payload for all bridged events', () => {
+    // All three event handlers should include projectId in data
+    const handlers = bridgeSource.split('redisPubSub.publishStreamingEvent(')
+    // Skip index 0 (before first call)
+    for (let i = 1; i < handlers.length; i++) {
+      const callChunk = handlers[i].slice(0, 500)
+      expect(callChunk).toContain('projectId')
+    }
+  })
+
+  it('logs errors on publish failure (not silent catch)', () => {
+    const catchBlocks = bridgeSource.split('.catch((err)')
+    // Should have 3 catch blocks (one per event type)
+    expect(catchBlocks.length - 1).toBe(3)
+    // Each should log the error
+    expect(bridgeSource).toContain("console.error('[redis-bridge]")
+  })
+})
+
+// =============================================================================
+// 10. server/index.ts initializes the redis event bridge
+// =============================================================================
+
+describe('server/index.ts initializes redis event bridge', () => {
+  const INDEX_PATH = join(process.cwd(), 'server/index.ts')
+  const indexSource = readFileSync(INDEX_PATH, 'utf-8')
+
+  it('imports initRedisEventBridge', () => {
+    expect(indexSource).toContain("import { initRedisEventBridge } from './lib/redis-event-bridge.js'")
+  })
+
+  it('calls initRedisEventBridge() during startup', () => {
+    expect(indexSource).toContain('initRedisEventBridge()')
+  })
+
+  it('initializes bridge after Redis setup but before relay server start', () => {
+    const initIdx = indexSource.indexOf('initRedisEventBridge()')
+    const relayStartIdx = indexSource.indexOf('relayServer.start(relayPort)')
+    expect(initIdx).toBeGreaterThan(-1)
+    expect(relayStartIdx).toBeGreaterThan(-1)
+    expect(initIdx).toBeLessThan(relayStartIdx)
+  })
+})
+
+// =============================================================================
+// 11. events.ts handles new Redis event types with project ownership checks
+// =============================================================================
+
+describe('events.ts handles new Redis bridged event types', () => {
+  const EVENTS_PATH = join(process.cwd(), 'server/routes/events.ts')
+  const eventsSource = readFileSync(EVENTS_PATH, 'utf-8')
+
+  it('onRedisStreaming handler is async (supports isProjectOwnedByUser)', () => {
+    expect(eventsSource).toContain('const onRedisStreaming = async (msg: StreamingEventMessage)')
+  })
+
+  it('handles node_status_changed with isProjectOwnedByUser check', () => {
+    const nodeStatusCase = eventsSource.slice(
+      eventsSource.indexOf("case 'node_status_changed':"),
+      eventsSource.indexOf("case 'task_init':")
+    )
+    expect(nodeStatusCase).toContain('isProjectOwnedByUser')
+    expect(nodeStatusCase).toContain("'node:status_changed'")
+  })
+
+  it('handles task_init from Redis with project ownership check', () => {
+    const taskInitCase = eventsSource.slice(
+      eventsSource.indexOf("case 'task_init':"),
+      eventsSource.indexOf("case 'task_ready':")
+    )
+    expect(taskInitCase).toContain('isProjectOwnedByUser')
+    expect(taskInitCase).toContain("'task:init'")
+  })
+
+  it('handles task_ready from Redis with project ownership check', () => {
+    const redisHandler = eventsSource.slice(
+      eventsSource.indexOf('const onRedisStreaming ='),
+      eventsSource.indexOf("redisPubSub.on('task:streaming'")
+    )
+    const taskReadyCase = redisHandler.slice(
+      redisHandler.indexOf("case 'task_ready':"),
+    )
+    expect(taskReadyCase).toContain('isProjectOwnedByUser')
+    expect(taskReadyCase).toContain("'task:ready'")
+  })
+})
+
+// =============================================================================
+// 12. relay-server publishToRedis logs errors (not silent)
+// =============================================================================
+
+describe('relay-server publishToRedis error handling', () => {
+  const RELAY_PATH = join(process.cwd(), 'server/lib/relay-server.ts')
+  const relaySource = readFileSync(RELAY_PATH, 'utf-8')
+
+  it('publishToRedis logs errors with console.error', () => {
+    const wrapperStart = relaySource.indexOf('private publishToRedis(')
+    const wrapperChunk = relaySource.slice(wrapperStart, wrapperStart + 300)
+    expect(wrapperChunk).toContain('console.error')
+  })
+
+  it('tool_trace handler includes duration in Redis message', () => {
+    const handler = relaySource.slice(
+      relaySource.indexOf('private handleTaskToolTrace('),
+      relaySource.indexOf('/**', relaySource.indexOf('private handleTaskToolTrace(') + 50)
+    )
+    expect(handler).toContain('duration: message.duration')
   })
 })

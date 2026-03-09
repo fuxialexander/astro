@@ -53,7 +53,7 @@ interface TaskCancelEvent {
 export type StreamingEventType =
   | 'text' | 'tool_use' | 'tool_result' | 'file_change'
   | 'session_init' | 'progress' | 'result'
-  | 'node_status_changed';
+  | 'node_status_changed' | 'task_init' | 'task_ready';
 
 /** Message published for cross-instance streaming event delivery */
 export interface StreamingEventMessage {
@@ -453,11 +453,15 @@ export class RedisPubSub extends EventEmitter {
 
     // Set up instance heartbeat (cleared on disconnect)
     this.heartbeatInterval = setInterval(async () => {
-      if (this.publisher) {
-        await this.publisher.expire(
-          `${KEYS.INSTANCE_ID}${this.instanceId}`,
-          60
-        );
+      try {
+        if (this.publisher) {
+          await this.publisher.expire(
+            `${KEYS.INSTANCE_ID}${this.instanceId}`,
+            60
+          );
+        }
+      } catch (err) {
+        console.error('[redis] Heartbeat refresh failed:', err);
       }
     }, 30000); // Every 30 seconds
   }

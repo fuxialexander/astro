@@ -598,7 +598,7 @@ eventsRoute.get('/stream', async (c) => {
     // exists on the instance that initiated the dispatch, and cross-instance events
     // (different instanceId) by definition come from tasks running on other instances
     // which won't have a local dispatch bridge.
-    const onRedisStreaming = (msg: StreamingEventMessage) => {
+    const onRedisStreaming = async (msg: StreamingEventMessage) => {
       if (!alive) return
       if (msg.instanceId === redisPubSub.getInstanceId()) return
       // Cross-instance user isolation: the receiving instance's executionContextStore
@@ -642,9 +642,30 @@ eventsRoute.get('/stream', async (c) => {
           break
         }
         case 'node_status_changed': {
+          // Use project ownership check (not just userId) for node status events.
+          // The userId in the message is a hint from executionContextStore; the
+          // authoritative check is team-scoped project ownership from the DB.
+          const projectId = msg.data.projectId as string | undefined
+          if (projectId && !await isProjectOwnedByUser(projectId)) break
           const data = JSON.stringify(msg.data)
           const id = eventBuffer.push('node:status_changed', data)
           stream.writeSSE({ id, event: 'node:status_changed', data }).catch(() => { alive = false })
+          break
+        }
+        case 'task_init': {
+          const projectId = msg.data.projectId as string | undefined
+          if (projectId && !await isProjectOwnedByUser(projectId)) break
+          const data = JSON.stringify(msg.data)
+          const id = eventBuffer.push('task:init', data)
+          stream.writeSSE({ id, event: 'task:init', data }).catch(() => { alive = false })
+          break
+        }
+        case 'task_ready': {
+          const projectId = msg.data.projectId as string | undefined
+          if (projectId && !await isProjectOwnedByUser(projectId)) break
+          const data = JSON.stringify(msg.data)
+          const id = eventBuffer.push('task:ready', data)
+          stream.writeSSE({ id, event: 'task:ready', data }).catch(() => { alive = false })
           break
         }
       }
