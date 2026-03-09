@@ -203,7 +203,9 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
         break
       }
       case 'progress': {
-        progress = (data.progress as number) ?? undefined
+        // dispatch.ts persists progress events as { percentage, message }; hydrator reads both
+        // field names for backward compatibility with any events stored as { progress, message }.
+        progress = (data.percentage as number) ?? (data.progress as number) ?? undefined
         progressMessage = (data.message as string) || undefined
         break
       }
