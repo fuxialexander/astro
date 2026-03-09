@@ -6,7 +6,7 @@
  * 2. Instruction picker preset/instruction resolution
  * 3. Theme default detection (system preference)
  */
-import { describe, it, expect, beforeEach, vi } from "vitest"
+import { describe, it, expect } from "vitest"
 
 // ---------------------------------------------------------------------------
 // 1. Sidebar width clamping logic (extracted from ui-store)
