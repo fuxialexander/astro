@@ -2503,7 +2503,7 @@ function handleSSEEvent(
 
         // Guard: skip duplicate side-effects if this result was already processed
         // (can happen when SSE reconnection replays caught-up events through handleSSEEvent)
-        const alreadyCompleted = execution?.status === 'success' || execution?.status === 'failure'
+        const alreadyCompleted = execution?.status === 'success' || execution?.status === 'failure' || execution?.status === 'cancelled'
 
         // Extract metrics from result event
         const metrics: UsageMetrics | undefined = parsed.metrics ? {
