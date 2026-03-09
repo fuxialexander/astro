@@ -25,7 +25,7 @@ import { executionContextStore, activeDispatchStreams } from '../lib/execution-c
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
 import { projects, planNodes, planEdges, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines } from '../lib/db/schema.js'
-import { eq, isNull, and, or, inArray } from 'drizzle-orm'
+import { eq, isNull, and, or, inArray, sql } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction } from '../lib/prompt-templates.js'
@@ -1568,26 +1568,24 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       }).catch(() => {})
       stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
 
-      // DB-authoritative: update plan node status + notify frontend
-      if (!nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
-        const errorTime = new Date()
-        try {
-          await db.update(planNodes)
-            .set({
-              status: 'awaiting_judgment',
-              executionError: 'Remote machine disconnected during task execution',
-              endDate: errorTime.toISOString(),
-              actualEndDate: errorTime,
-              updatedAt: errorTime,
-            })
-            .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
-            .execute()
-          executionEventBus.emit('node:status_changed', {
-            nodeId, projectId, status: 'awaiting_judgment', executionId,
+      // DB-authoritative: update plan node status + notify frontend (all node types)
+      const errorTime = new Date()
+      try {
+        await db.update(planNodes)
+          .set({
+            status: 'awaiting_judgment',
+            executionError: 'Remote machine disconnected during task execution',
+            endDate: errorTime.toISOString(),
+            actualEndDate: errorTime,
+            updatedAt: errorTime,
           })
-        } catch (err: unknown) {
-          console.error('[dispatch] Failed to update plan_node on machine disconnect:', err)
-        }
+          .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+          .execute()
+        executionEventBus.emit('node:status_changed', {
+          nodeId, projectId, status: 'awaiting_judgment', executionId,
+        })
+      } catch (err: unknown) {
+        console.error('[dispatch] Failed to update plan_node on machine disconnect:', err)
       }
 
       alive = false
@@ -1659,26 +1657,24 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       }
       stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
 
-      // DB-authoritative: update plan node status + notify frontend
-      if (!nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
-        const errorTime = new Date()
-        try {
-          await db.update(planNodes)
-            .set({
-              status: 'planned',
-              executionError: `Dead job detected: ${data.reason}`,
-              endDate: errorTime.toISOString(),
-              actualEndDate: errorTime,
-              updatedAt: errorTime,
-            })
-            .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
-            .execute()
-          executionEventBus.emit('node:status_changed', {
-            nodeId, projectId, status: 'planned', executionId,
+      // DB-authoritative: update plan node status + notify frontend (all node types)
+      const errorTime = new Date()
+      try {
+        await db.update(planNodes)
+          .set({
+            status: 'planned',
+            executionError: `Dead job detected: ${data.reason}`,
+            endDate: errorTime.toISOString(),
+            actualEndDate: errorTime,
+            updatedAt: errorTime,
           })
-        } catch (err: unknown) {
-          console.error('[dispatch] Failed to update plan_node on dead job:', err)
-        }
+          .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+          .execute()
+        executionEventBus.emit('node:status_changed', {
+          nodeId, projectId, status: 'planned', executionId,
+        })
+      } catch (err: unknown) {
+        console.error('[dispatch] Failed to update plan_node on dead job:', err)
       }
 
       alive = false
@@ -1734,24 +1730,22 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       })
       await stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) })
 
-      // DB-authoritative: reset plan node to planned + notify frontend
-      if (!nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
-        const errorTime = new Date()
-        try {
-          await db.update(planNodes)
-            .set({
-              status: 'planned',
-              executionError: `Failed to dispatch to machine: ${machineId}`,
-              updatedAt: errorTime,
-            })
-            .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
-            .execute()
-          executionEventBus.emit('node:status_changed', {
-            nodeId, projectId, status: 'planned', executionId,
+      // DB-authoritative: reset plan node to planned + notify frontend (all node types)
+      const errorTime = new Date()
+      try {
+        await db.update(planNodes)
+          .set({
+            status: 'planned',
+            executionError: `Failed to dispatch to machine: ${machineId}`,
+            updatedAt: errorTime,
           })
-        } catch (err: unknown) {
-          console.error('[dispatch] Failed to update plan_node on dispatch failure:', err)
-        }
+          .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+          .execute()
+        executionEventBus.emit('node:status_changed', {
+          nodeId, projectId, status: 'planned', executionId,
+        })
+      } catch (err: unknown) {
+        console.error('[dispatch] Failed to update plan_node on dispatch failure:', err)
       }
 
       return
@@ -1789,9 +1783,10 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     })
 
     // Update plan_nodes.status to in_progress server-side (DB-authoritative).
+    // DB-authoritative: update plan node status + notify frontend (all node types).
     // The DB write is awaited so node:status_changed is only emitted after
     // the write commits — frontend re-reads from DB on notification.
-    if (!nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
+    {
       const now = new Date()
       try {
         await db.update(planNodes)
@@ -2157,6 +2152,12 @@ dispatchRoute.post('/prune', async (c) => {
 
 /**
  * Respond to approval request
+ *
+ * Durable approval flow:
+ *   1. Try in-memory Promise resolution (normal path, dispatch engine alive)
+ *   2. If Promise not found: check DB for existing response → idempotent success
+ *   3. If no DB response: try relay recovery (send directly via WebSocket)
+ *   4. If relay unavailable: return descriptive error so frontend can clean up
  */
 dispatchRoute.post('/approve', async (c) => {
   const { approvalId, approved, selectedOption } = await c.req.json<{
@@ -2178,9 +2179,129 @@ dispatchRoute.post('/approve', async (c) => {
     return c.json({ success: true })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
+
+    // Durable approval recovery: Promise lost (server restart or execution completed)
+    if (message.includes('No pending approval found')) {
+      const recovered = await tryRecoverApproval(approvalId, approved, selectedOption)
+      if (recovered.status === 'already_responded') {
+        return c.json({ success: true, duplicate: true })
+      }
+      if (recovered.status === 'relay_recovered') {
+        return c.json({ success: true, recovered: true })
+      }
+      // Recovery failed — return clear error so frontend can clean up the stale card
+      return c.json({
+        success: false,
+        error: 'Approval context lost (server may have restarted). The agent will re-prompt if needed.',
+        stale: true,
+      }, 410) // 410 Gone
+    }
+
     return c.json({ success: false, error: message }, 400)
   }
 })
+
+/**
+ * Try to recover an approval after the in-memory Promise is lost.
+ *
+ * Two event-type namespaces exist for approvals:
+ *   - streamingEventLog: 'approval_request' / 'approval_response' (underscore, persisted with requestId)
+ *   - astroEventTransport: 'approval.requested' / 'approval.responded' (dot, persisted with approvalId)
+ *
+ * The relay pathway uses requestId (from agent-runner). The dispatch engine uses approvalId.
+ * Recovery works by:
+ *   1. Find the relay approval_request for this execution (has requestId + machineId)
+ *   2. Check if a relay approval_response already exists (idempotent success)
+ *   3. Send the response directly via relay WebSocket
+ */
+async function tryRecoverApproval(
+  approvalId: string,
+  approved: boolean,
+  selectedOption?: string
+): Promise<{ status: 'already_responded' | 'relay_recovered' | 'unrecoverable' }> {
+  try {
+    // 1. Find the execution via the dispatch engine's approval.requested event
+    //    (astroEventTransport uses dot notation with approvalId in data)
+    const requestRows = await db.select({
+      executionId: streamingEvents.executionId,
+    })
+      .from(streamingEvents)
+      .where(
+        and(
+          eq(streamingEvents.eventType, 'approval.requested'),
+          sql`${streamingEvents.data}->>'approvalId' = ${approvalId}`,
+        )
+      )
+      .limit(1)
+
+    if (requestRows.length === 0) {
+      return { status: 'unrecoverable' }
+    }
+
+    const { executionId } = requestRows[0]
+
+    // 2. Find the matching relay approval_request for this execution
+    //    (streamingEventLog uses underscore notation with requestId + machineId)
+    const relayRows = await db.select({ data: streamingEvents.data })
+      .from(streamingEvents)
+      .where(
+        and(
+          eq(streamingEvents.executionId, executionId),
+          eq(streamingEvents.eventType, 'approval_request'),
+        )
+      )
+      .orderBy(sql`${streamingEvents.seq} DESC`)
+      .limit(1)
+
+    if (relayRows.length === 0) {
+      return { status: 'unrecoverable' }
+    }
+
+    const relayData = relayRows[0].data as { requestId?: string; machineId?: string }
+    if (!relayData.requestId || !relayData.machineId) {
+      return { status: 'unrecoverable' }
+    }
+
+    // 3. Check if this relay approval was already responded to (idempotency via DB)
+    //    Uses underscore notation (approval_response) with requestId — matches streamingEventLog
+    const responseRows = await db.select({ seq: streamingEvents.seq })
+      .from(streamingEvents)
+      .where(
+        and(
+          eq(streamingEvents.executionId, executionId),
+          eq(streamingEvents.eventType, 'approval_response'),
+          sql`${streamingEvents.data}->>'requestId' = ${relayData.requestId}`,
+        )
+      )
+      .limit(1)
+
+    if (responseRows.length > 0) {
+      return { status: 'already_responded' }
+    }
+
+    // 4. Try sending response via relay WebSocket
+    const answer = selectedOption || (approved ? 'Approved' : 'Rejected')
+    const sent = relayServer.sendApprovalResponse(
+      executionId, relayData.machineId, relayData.requestId, approved, answer
+    )
+    if (!sent) {
+      return { status: 'unrecoverable' }
+    }
+
+    // 5. Persist recovery for idempotency + hydration
+    streamingEventLog.append(executionId, 'approval_response', {
+      requestId: relayData.requestId,
+      answer,
+      answered: true,
+    }).catch(() => {})
+
+    console.log(`[dispatch] Recovered approval ${approvalId} via relay (durable fallback)`)
+    return { status: 'relay_recovered' }
+  } catch (err) {
+    console.warn('[dispatch] Approval recovery failed:', err)
+    return { status: 'unrecoverable' }
+  }
+}
 
 /**
  * Request dynamic approval (called by MCP tool server)

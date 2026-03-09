@@ -122,6 +122,14 @@ export class DispatchEngine extends EventEmitter {
     executionId: string
   }>()
 
+  /**
+   * Recently-responded approvals for idempotency.
+   * Prevents 400 errors on duplicate approval submissions (network retry, double-click).
+   * Entries are pruned after RESPONDED_APPROVAL_TTL_MS.
+   */
+  private respondedApprovals = new Map<string, number>() // approvalId → respondedAt timestamp
+  private static readonly RESPONDED_APPROVAL_TTL_MS = 60 * 60 * 1000 // 1 hour
+
   /** Plan graph poll interval */
   private pollInterval: ReturnType<typeof setInterval> | null = null
 
@@ -272,6 +280,7 @@ export class DispatchEngine extends EventEmitter {
       for (const [approvalId, pending] of this.pendingApprovals) {
         if (pending.executionId === execution.executionId) {
           this.pendingApprovals.delete(approvalId)
+          this.respondedApprovals.set(approvalId, Date.now()) // Prevent stale retries
           pending.reject(new Error('Execution cancelled'))
         }
       }
@@ -775,10 +784,22 @@ export class DispatchEngine extends EventEmitter {
     approved: boolean,
     selectedOption?: string
   ): Promise<void> {
+    // Idempotency: already responded during this server session (duplicate request)
+    if (this.respondedApprovals.has(approvalId)) return
+
     const pending = this.pendingApprovals.get(approvalId)
     if (!pending) {
       throw new Error(`No pending approval found for ID: ${approvalId}`)
     }
+
+    // Record idempotency BEFORE awaiting side-effects.
+    // If emitEvent or nodeUpdateCallback throws, a retry won't re-emit duplicates.
+    this.pendingApprovals.delete(approvalId)
+    this.respondedApprovals.set(approvalId, Date.now())
+
+    // Opportunistic cleanup — prune stale entries on every successful approval
+    // so pruning isn't gated on autoDispatch polling being active
+    this.pruneRespondedApprovals()
 
     // Emit approval responded event
     await astroEventTransport.emitEvent({
@@ -800,12 +821,22 @@ export class DispatchEngine extends EventEmitter {
     }
 
     // Resolve the promise
-    this.pendingApprovals.delete(approvalId)
-
     if (selectedOption) {
       pending.resolve(selectedOption)
     } else {
       pending.resolve(approved)
+    }
+  }
+
+  /**
+   * Prune stale entries from respondedApprovals (called periodically)
+   */
+  private pruneRespondedApprovals(): void {
+    const cutoff = Date.now() - DispatchEngine.RESPONDED_APPROVAL_TTL_MS
+    for (const [id, respondedAt] of this.respondedApprovals) {
+      if (respondedAt < cutoff) {
+        this.respondedApprovals.delete(id)
+      }
     }
   }
 
@@ -882,6 +913,7 @@ export class DispatchEngine extends EventEmitter {
 
     this.pollInterval = setInterval(async () => {
       await this.pollReadyTasks()
+      this.pruneRespondedApprovals() // Periodic cleanup of idempotency tracking
     }, this.config.pollIntervalMs)
 
     console.log(`[dispatch] Polling started (${this.config.pollIntervalMs}ms interval)`)
