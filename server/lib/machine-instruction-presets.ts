@@ -15,7 +15,8 @@ const PRESETS_DIR = resolve(__dirname, '../../skills/machine_instruction_presets
 function loadPresetFile(filename: string): string {
   try {
     return readFileSync(resolve(PRESETS_DIR, filename), 'utf-8').trim()
-  } catch {
+  } catch (err) {
+    console.warn(`[machine-instruction-presets] Failed to load ${filename}:`, err instanceof Error ? err.message : String(err))
     return ''
   }
 }
@@ -40,6 +41,6 @@ export const MACHINE_INSTRUCTION_PRESETS: MachineInstructionPreset[] =
 export const DEFAULT_MACHINE_INSTRUCTION =
   MACHINE_INSTRUCTION_PRESETS.find((p) => p.id === 'builtin:default')?.content ?? ''
 
-/** Pre-formatted default instruction for prompt injection */
+/** Pre-formatted default instruction for system prompt assembly */
 export const DEFAULT_MACHINE_INSTRUCTION_FORMATTED =
   formatMachineInstruction(DEFAULT_MACHINE_INSTRUCTION_NAME, DEFAULT_MACHINE_INSTRUCTION)
