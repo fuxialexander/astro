@@ -1306,18 +1306,43 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           // Server-side YOLO auto-dispatch: when plan generation completes in YOLO mode,
           // dispatch all root tasks (planned, with all deps met) server-side. This ensures
           // tasks start even if the browser refreshes or the dispatch SSE drops (G2 fix).
+          //
+          // Plan nodes are persisted to DB by the frontend (via dataClient), not the server.
+          // We poll the DB with retries to wait for nodes to appear, handling both the common
+          // case (browser connected, nodes persist quickly) and slower persistence scenarios.
           if (isSuccess && yoloEnabled && planJson.nodes?.length > 0) {
-            const YOLO_DISPATCH_DELAY_MS = 2_000 // let plan persist before dispatching
-            setTimeout(async () => {
+            const YOLO_POLL_INTERVAL_MS = 2_000
+            const YOLO_MAX_ATTEMPTS = 5 // up to ~10 seconds total
+            const expectedTaskCount = planJson.nodes.filter((n: { type?: string }) => n.type === 'task').length
+
+            const pollAndDispatch = async (attempt: number) => {
               try {
                 const allNodes = await db.select().from(planNodes)
                   .where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
                 const allEdges = await db.select().from(planEdges)
                   .where(and(eq(planEdges.projectId, projectId), isNull(planEdges.deletedAt)))
 
+                const plannedTasks = allNodes.filter(n => n.type === 'task' && n.status === 'planned')
+
+                // If no planned tasks found and we haven't exhausted retries, poll again.
+                // The frontend may still be persisting plan nodes to the DB.
+                if (plannedTasks.length === 0 && attempt < YOLO_MAX_ATTEMPTS) {
+                  console.log(`[dispatch] YOLO poll ${attempt}/${YOLO_MAX_ATTEMPTS}: no planned tasks yet, retrying in ${YOLO_POLL_INTERVAL_MS}ms`)
+                  setTimeout(() => pollAndDispatch(attempt + 1), YOLO_POLL_INTERVAL_MS)
+                  return
+                }
+
+                if (plannedTasks.length === 0) {
+                  console.log(`[dispatch] YOLO: no planned tasks found after ${YOLO_MAX_ATTEMPTS} attempts (expected ${expectedTaskCount}), giving up — client-side YOLO will handle on reconnect`)
+                  return
+                }
+
+                // Dispatch all root tasks whose dependencies are met.
+                // serverSideDispatch checks node.status !== 'planned' internally,
+                // so duplicate attempts from the client-side YOLO path are safely rejected.
                 const COMPLETED_STATUSES = ['completed', 'auto_verified']
-                for (const pn of allNodes) {
-                  if (pn.type !== 'task' || pn.status !== 'planned') continue
+                let dispatched = 0
+                for (const pn of plannedTasks) {
                   const depEdges = allEdges.filter(e => e.targetClientId === pn.clientId)
                   const allDepsMet = depEdges.every(depEdge => {
                     const depNode = allNodes.find(n => n.clientId === depEdge.sourceClientId)
@@ -1328,12 +1353,15 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
                     serverSideDispatch(pn.clientId, projectId).catch((err) => {
                       console.error(`[dispatch] YOLO server-side dispatch failed for ${pn.clientId}:`, err)
                     })
+                    dispatched++
                   }
                 }
+                console.log(`[dispatch] YOLO server-side: dispatched ${dispatched}/${plannedTasks.length} tasks on attempt ${attempt}`)
               } catch (err) {
                 console.error('[dispatch] YOLO server-side auto-dispatch error:', err)
               }
-            }, YOLO_DISPATCH_DELAY_MS)
+            }
+            setTimeout(() => pollAndDispatch(1), YOLO_POLL_INTERVAL_MS)
           }
         }
       }
