@@ -737,6 +737,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
           className="h-9 w-9 shrink-0"
           onClick={handleSend}
           disabled={!input.trim() || isStreaming}
+          title="Send (⌘+Enter)"
         >
           {isStreaming ? (
             <Loader2 className="h-4 w-4 animate-spin" />

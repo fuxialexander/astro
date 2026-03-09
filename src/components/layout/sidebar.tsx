@@ -395,7 +395,17 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
       .sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()),
     [projects]
   )
-  const [playgroundExpanded, setPlaygroundExpanded] = useState(false)
+  const hasRunningPlayground = useMemo(() =>
+    playgroundSessions.some((s) => {
+      const exec = executions.get(`playground-${s.id}`)
+      return exec?.status === "running" || exec?.status === "pending"
+    }),
+    [playgroundSessions, executions]
+  )
+  const [playgroundManualExpanded, setPlaygroundManualExpanded] = useState(false)
+  // Auto-expand when a session is running; manual toggle otherwise
+  const playgroundExpanded = playgroundManualExpanded || hasRunningPlayground
+  const setPlaygroundExpanded = setPlaygroundManualExpanded
 
   // Shared handler for Plan click — resets to fresh input when already on /plan.
   // Uses location.state to signal form reset even when URL doesn't change.

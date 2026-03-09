@@ -91,6 +91,7 @@ export function Playground() {
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
   const [pendingSteerText, setPendingSteerText] = useState<string | null>(null)
+  const [queuedMessage, setQueuedMessage] = useState<string | null>(null)
   const [autoScroll, setAutoScroll] = useState(true)
   // Track provider during activity phase (for mid-session switching and follow-up chat)
   const [activeProvider, setActiveProvider] = useState("")
@@ -442,10 +443,12 @@ export function Playground() {
     try {
       const ok = await steerPlaygroundSession(activeProjectId, text)
       if (!ok) {
-        // steer failed, but we already cleared input — leave pending indicator
+        // Steer failed (provider may not support it) — queue for follow-up chat
+        setQueuedMessage(text)
       }
     } catch {
-      // steer failed
+      // Steer failed — queue for follow-up chat
+      setQueuedMessage(text)
     } finally {
       setSending(false)
       setPendingSteerText(null)
@@ -501,6 +504,17 @@ export function Playground() {
     }
   }, [input, activeProjectId, isRunning, handleSteer, handleChat])
 
+  // Auto-send queued message when execution finishes (steer fallback)
+  const prevIsRunning = useRef(isRunning)
+  useEffect(() => {
+    if (prevIsRunning.current && !isRunning && queuedMessage) {
+      // Execution just finished — send the queued message as a follow-up chat
+      handleChat(queuedMessage)
+      setQueuedMessage(null)
+    }
+    prevIsRunning.current = isRunning
+  }, [isRunning, queuedMessage, handleChat])
+
   // Handle approval response
   const handleApprovalResponse = useCallback(async (requestId: string, answer: string) => {
     if (!execution?.executionId) return
@@ -554,14 +568,20 @@ export function Playground() {
     }
   }, [displayBlocks.length, isRunning, isChatStreaming, answeredRequestIds, allActivityEvents, handleApprovalResponse])
 
-  // Go back to landing phase
+  // Go back to landing phase — clean slate (no pre-filled prompt)
   const handleBack = useCallback(() => {
     backingRef.current = true
     setActiveProjectId(null)
     setActiveProvider("")
+    setDescription("")
+    setWorkingDir("")
+    setSelectedMachine(null)
+    setSelectedProvider("")
+    setSelectedModel("")
     setSearchParams({})
     setInput("")
     setFileSidebarOpen(false)
+    setQueuedMessage(null)
   }, [setSearchParams])
 
   // Edit & Retry: go back to landing with the session's details pre-filled
@@ -713,6 +733,14 @@ export function Playground() {
               </div>
             )}
 
+            {/* Queued message indicator (steer failed, will send after execution) */}
+            {queuedMessage && isRunning && (
+              <div className="flex items-center gap-1.5 px-4 py-1">
+                <Clock className="h-3 w-3 text-muted-foreground" />
+                <span className="text-[10px] text-muted-foreground">Message queued — will send after this turn completes</span>
+              </div>
+            )}
+
             {/* Chat streaming indicator */}
             {isChatStreaming && (
               <div className="flex items-center gap-2 px-4 py-2">
@@ -765,6 +793,7 @@ export function Playground() {
                 className="h-9 w-9 shrink-0"
                 onClick={handleSend}
                 disabled={!input.trim() || sending || isChatStreaming}
+                title="Send (⌘+Enter)"
               >
                 {sending || isChatStreaming ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
