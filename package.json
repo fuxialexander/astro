@@ -98,7 +98,7 @@
     "ink": "^6.8.0",
     "ioredis": "^5.9.2",
     "jsonwebtoken": "^9.0.3",
-    "lucide-react": "^0.569.0",
+    "lucide-react": "^0.577.0",
     "marked": "^17.0.3",
     "mermaid": "^11.12.3",
     "postgres": "^3.4.8",
