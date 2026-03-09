@@ -985,7 +985,7 @@ export async function autoDispatchDownstream(projectId: string, completedNodeId:
 /**
  * Cascade prune: set all downstream dependents to 'pruned' recursively.
  */
-async function cascadePruneDownstream(projectId: string, prunedNodeId: string): Promise<void> {
+export async function cascadePruneDownstream(projectId: string, prunedNodeId: string): Promise<void> {
   const allNodes = await db.select().from(planNodes)
     .where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
   const allEdges = await db.select().from(planEdges)

@@ -12,7 +12,6 @@ import {
   dispatchEngine,
   capKnowledgeEntries,
   slugifyTitle,
-  type BranchPruneRequest,
   type DispatchPriority,
 } from '../lib/dispatch/index.js'
 import { relayServer } from '../lib/relay-server.js'
@@ -32,7 +31,7 @@ import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch, form
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
 import { extractPlanJsonFromText } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
-import { autoDispatchDownstream } from './data.js'
+import { autoDispatchDownstream, cascadePruneDownstream } from './data.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup)
@@ -2121,6 +2120,31 @@ dispatchRoute.post('/cancel', async (c) => {
   // Also cancel via dispatch engine
   if (nodeId) {
     await dispatchEngine.cancel(nodeId)
+
+    // DB-authoritative: reset node to 'planned' so it can be re-executed.
+    // The dispatch engine's nodeUpdateCallback is not wired to the data API,
+    // so we do the DB write + node:status_changed emission here directly.
+    // This ensures all connected clients see the cancel immediately
+    // (not just the client that initiated the cancel).
+    try {
+      const [node] = await db.select({ status: planNodes.status, projectId: planNodes.projectId, executionId: planNodes.executionId })
+        .from(planNodes)
+        .where(eq(planNodes.clientId, nodeId))
+        .limit(1)
+      if (node && (node.status === 'in_progress' || node.status === 'dispatched')) {
+        await db.update(planNodes)
+          .set({ status: 'planned', updatedAt: new Date() })
+          .where(eq(planNodes.clientId, nodeId))
+        executionEventBus.emit('node:status_changed', {
+          nodeId,
+          projectId: node.projectId,
+          status: 'planned',
+          executionId: node.executionId ?? undefined,
+        })
+      }
+    } catch (err) {
+      console.error('[dispatch] Failed to update node status on cancel:', err)
+    }
   }
 
   return c.json({ success: true, aborted: true })
@@ -2128,6 +2152,10 @@ dispatchRoute.post('/cancel', async (c) => {
 
 /**
  * Prune a branch
+ *
+ * DB-authoritative: Sets target node to 'pruned' in DB, emits node:status_changed,
+ * cancels any active executions, and cascade-prunes downstream nodes.
+ * Uses the same pattern as PATCH /plan/nodes/:id with cascadePruneDownstream.
  */
 const pruneSchema = z.object({
   projectId: z.string().uuid(),
@@ -2141,13 +2169,44 @@ dispatchRoute.post('/prune', async (c) => {
   if (!parsed.success) {
     return c.json({ success: false, error: 'Invalid request', details: parsed.error.issues }, 400)
   }
-  const result = await dispatchEngine.pruneBranch(parsed.data as BranchPruneRequest)
+  const { projectId, nodeId } = parsed.data
 
-  if (!result.success) {
-    return c.json(result, 400)
+  // 1. Look up the node
+  const [node] = await db.select()
+    .from(planNodes)
+    .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+    .limit(1)
+
+  if (!node) {
+    return c.json({ success: false, error: 'Node not found' }, 404)
   }
 
-  return c.json(result)
+  if (node.status === 'pruned') {
+    return c.json({ success: true, prunedNodes: [nodeId], cancelledTasks: [] })
+  }
+
+  // 2. Cancel active execution if running
+  const cancelledTasks: string[] = []
+  if (node.status === 'in_progress' || node.status === 'dispatched') {
+    const cancelled = await dispatchEngine.cancel(nodeId)
+    if (cancelled) cancelledTasks.push(nodeId)
+  }
+
+  // 3. Set node to 'pruned' in DB + emit node:status_changed
+  await db.update(planNodes)
+    .set({ status: 'pruned', updatedAt: new Date() })
+    .where(eq(planNodes.clientId, nodeId))
+  executionEventBus.emit('node:status_changed', {
+    nodeId,
+    projectId,
+    status: 'pruned',
+    executionId: node.executionId ?? undefined,
+  })
+
+  // 4. Cascade prune downstream nodes (each emits its own node:status_changed)
+  await cascadePruneDownstream(projectId, nodeId)
+
+  return c.json({ success: true, prunedNodes: [nodeId], cancelledTasks })
 })
 
 /**
