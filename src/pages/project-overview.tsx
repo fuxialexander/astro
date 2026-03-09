@@ -42,7 +42,6 @@ import { dataClient } from "@/lib/data-client"
 import { fileToBase64, resolveEditorContent } from "@/lib/html-utils"
 import { exportProject, downloadBundle } from "@/lib/sharing/export-project"
 import { apiUrl } from "@/lib/api-url"
-import { BackendMultiSelect } from "@/components/execution/backend-multi-select"
 import { PROVIDER_NAMES } from "@/components/execution/provider-utils"
 import { InstructionPicker } from "@/components/execution/instruction-picker"
 import { useExecutionStore } from "@/stores/execution-store"
@@ -83,6 +82,7 @@ export function OverviewTab({
   const fetchMachines = useMachinesStore((s) => s.fetchMachines)
   const liveMachines = useExecutionStore((s) => s.machines)
   const defaultProvider = useSettingsStore((s) => s.defaultProvider)
+  const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider)
   const miAssign = useMachineInstructionStore((s) => s.assignToMachine)
   const recentActivities = useMemo(
     () => activities.filter((a) => a.projectId === project.id).slice(0, 3),
@@ -395,124 +395,124 @@ export function OverviewTab({
                 {project.visionDoc ? "Edit" : "Add"}
               </span>
             </div>
-            {/* Show repository/directory item when configured */}
-            {(project.workingDirectory || project.repository) && (
-              <div className="flex flex-col gap-2 rounded-xl bg-muted/50 border border-border/40 p-3 px-4">
-                <div className="flex items-center gap-3 min-w-0">
-                  <FolderGit2 className="h-[18px] w-[18px] text-primary shrink-0" />
-                  <div className="flex-1 flex flex-col gap-0.5 min-w-0">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-sm font-medium shrink-0">Working Directory</span>
-                      {defaultMachine && (
-                        <span className="text-[10px] text-muted-foreground truncate">
-                          ({defaultMachine.name || 'unknown'})
+            {/* Unified Execution Environment card */}
+            {(project.workingDirectory || project.repository || machines.length > 0 || liveMachines.length > 0) && (
+              <div className="flex flex-col gap-3 rounded-xl bg-muted/50 border border-border/40 p-3 px-4">
+                {/* Working Directory */}
+                {(project.workingDirectory || project.repository) && (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <FolderGit2 className="h-[18px] w-[18px] text-primary shrink-0" />
+                      <div className="flex-1 flex flex-col gap-0.5 min-w-0">
+                        <span className="text-sm font-medium shrink-0">Working Directory</span>
+                        <span className="text-xs text-muted-foreground font-mono truncate" title={project.workingDirectory || project.repository}>
+                          {project.workingDirectory || project.repository}
                         </span>
-                      )}
+                      </div>
+                      <button
+                        onClick={() => setRepoOpen(true)}
+                        className="text-xs font-medium text-primary hover:underline shrink-0"
+                      >
+                        Edit
+                      </button>
                     </div>
-                    <span className="text-xs text-muted-foreground font-mono truncate" title={project.workingDirectory || project.repository}>
-                      {project.workingDirectory || project.repository}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => setRepoOpen(true)}
-                    className="text-xs font-medium text-primary hover:underline shrink-0"
-                  >
-                    Edit
-                  </button>
-                </div>
-                {project.workingDirectory && (
-                  <EditorOpenControls
-                    path={project.workingDirectory}
-                    machine={defaultMachine}
-                  />
-                )}
-              </div>
-            )}
-            {/* Source detection & delivery mode info */}
-            {project.source && (
-              <div className="flex flex-wrap items-center gap-1.5 px-1">
-                <Badge variant="outline" className="text-[10px] h-5 px-1.5 gap-1">
-                  {project.source.isGit ? (
-                    <>
-                      <FolderGit2 className="h-3 w-3" />
-                      {project.source.remoteType !== 'none' ? remoteTypeLabel(project.source.remoteType) : 'Local Git'}
-                    </>
-                  ) : (
-                    'No Git'
-                  )}
-                </Badge>
-                {project.deliveryMode && (
-                  <Badge variant="outline" className="text-[10px] h-5 px-1.5">
-                    {deliveryModeLabel(project.deliveryMode)}
-                  </Badge>
-                )}
-                {project.source.baseBranch && project.source.baseBranch !== 'main' && (
-                  <Badge variant="outline" className="text-[10px] h-5 px-1.5 font-mono">
-                    {project.source.baseBranch}
-                  </Badge>
-                )}
-                {project.projectPrUrl ? (
-                  <a
-                    href={project.projectPrUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex"
-                  >
-                    <Badge variant="outline" className="text-[10px] h-5 px-1.5 gap-1 text-primary hover:bg-primary/10 transition-colors">
-                      <GitPullRequest className="h-3 w-3" />
-                      PR #{project.projectPrNumber}
-                    </Badge>
-                  </a>
-                ) : project.projectBranch && project.source?.remoteType === 'none' ? (
-                  <Badge variant="outline" className="text-[10px] h-5 px-1.5 gap-1 text-emerald-600 dark:text-emerald-400 font-mono" title={`Results on branch: ${project.projectBranch}\ngit checkout ${project.projectBranch}`}>
-                    <GitBranch className="h-3 w-3" />
-                    {project.projectBranch}
-                  </Badge>
-                ) : null}
-              </div>
-            )}
-            {/* Compute backends selector */}
-            <div className="px-1">
-              <BackendMultiSelect
-                selectedBackends={project.computeBackends ?? []}
-                onSelectionChange={(backends) => updateProject(project.id, { computeBackends: backends })}
-              />
-            </div>
-            {/* Machine + AI Agent */}
-            {(machines.length > 0 || liveMachines.length > 0) && (
-              <div className="flex flex-col gap-2 rounded-xl bg-muted/50 border border-border/40 p-3 px-4">
-                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                  <Laptop className="h-3.5 w-3.5" />
-                  Machine
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {machines.map((m) => {
-                    const isDefault = m.id === project.defaultMachineId
-                    const live = liveMachines.find((lm) => lm.machineId === m.id)
-                    const isOnline = !!live || m.isConnected
-                    return (
-                      <div key={m.id} className="flex items-center gap-0.5">
-                        <button
-                          type="button"
-                          onClick={() => updateProject(project.id, { defaultMachineId: isDefault ? undefined : m.id })}
-                          className={cn(
-                            "flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs transition-colors cursor-pointer",
-                            isDefault
-                              ? "border-primary bg-primary/10 text-primary"
-                              : "border-border hover:bg-muted"
+                    {/* Source detection & delivery mode badges */}
+                    {project.source && (
+                      <div className="flex flex-wrap items-center gap-1.5 pl-[30px]">
+                        <Badge variant="outline" className="text-[10px] h-5 px-1.5 gap-1">
+                          {project.source.isGit ? (
+                            <>
+                              <FolderGit2 className="h-3 w-3" />
+                              {project.source.remoteType !== 'none' ? remoteTypeLabel(project.source.remoteType) : 'Local Git'}
+                            </>
+                          ) : (
+                            'No Git'
                           )}
-                        >
-                          <span className={cn("h-1.5 w-1.5 rounded-full", isOnline ? "bg-success" : "bg-muted-foreground/40")} />
-                          {m.name}
-                        </button>
-                        <InstructionPicker
-                          currentInstructionId={m.defaultInstructionId}
-                          onSelect={(id) => miAssign(m.id, id)}
+                        </Badge>
+                        {project.deliveryMode && (
+                          <Badge variant="outline" className="text-[10px] h-5 px-1.5">
+                            {deliveryModeLabel(project.deliveryMode)}
+                          </Badge>
+                        )}
+                        {project.source.baseBranch && project.source.baseBranch !== 'main' && (
+                          <Badge variant="outline" className="text-[10px] h-5 px-1.5 font-mono">
+                            {project.source.baseBranch}
+                          </Badge>
+                        )}
+                        {project.projectPrUrl ? (
+                          <a
+                            href={project.projectPrUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex"
+                          >
+                            <Badge variant="outline" className="text-[10px] h-5 px-1.5 gap-1 text-primary hover:bg-primary/10 transition-colors">
+                              <GitPullRequest className="h-3 w-3" />
+                              PR #{project.projectPrNumber}
+                            </Badge>
+                          </a>
+                        ) : project.projectBranch && project.source?.remoteType === 'none' ? (
+                          <Badge variant="outline" className="text-[10px] h-5 px-1.5 gap-1 text-emerald-600 dark:text-emerald-400 font-mono" title={`Results on branch: ${project.projectBranch}\ngit checkout ${project.projectBranch}`}>
+                            <GitBranch className="h-3 w-3" />
+                            {project.projectBranch}
+                          </Badge>
+                        ) : null}
+                      </div>
+                    )}
+                    {project.workingDirectory && (
+                      <div className="pl-[30px]">
+                        <EditorOpenControls
+                          path={project.workingDirectory}
+                          machine={defaultMachine}
                         />
                       </div>
-                    )
-                  })}
-                </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Separator between working dir and machine sections */}
+                {(project.workingDirectory || project.repository) && (machines.length > 0 || liveMachines.length > 0) && (
+                  <div className="h-px bg-border/60" />
+                )}
+
+                {/* Machine selection */}
+                {(machines.length > 0 || liveMachines.length > 0) && (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <Laptop className="h-3.5 w-3.5" />
+                      Machine
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {machines.map((m) => {
+                        const isDefault = m.id === project.defaultMachineId
+                        const live = liveMachines.find((lm) => lm.machineId === m.id)
+                        const isOnline = !!live || m.isConnected
+                        return (
+                          <div key={m.id} className="flex items-center gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => updateProject(project.id, { defaultMachineId: isDefault ? undefined : m.id })}
+                              className={cn(
+                                "flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs transition-colors cursor-pointer",
+                                isDefault
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-border hover:bg-muted"
+                              )}
+                            >
+                              <span className={cn("h-1.5 w-1.5 rounded-full", isOnline ? "bg-success" : "bg-muted-foreground/40")} />
+                              {m.name}
+                            </button>
+                            <InstructionPicker
+                              currentInstructionId={m.defaultInstructionId}
+                              onSelect={(id) => miAssign(m.id, id)}
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* AI Agent (provider) for the selected machine */}
                 {(() => {
                   const selectedMachineId = project.defaultMachineId
@@ -521,27 +521,32 @@ export function OverviewTab({
                   const providerIds = live?.providers?.map((p) => p.type) ?? reg?.providers ?? []
                   if (providerIds.length === 0) return null
                   return (
-                    <div className="flex flex-col gap-1.5 mt-1">
-                      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                        <Bot className="h-3.5 w-3.5" />
-                        AI Agent
+                    <>
+                      <div className="h-px bg-border/60" />
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                          <Bot className="h-3.5 w-3.5" />
+                          AI Agent
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {providerIds.map((pid) => (
+                            <button
+                              key={pid}
+                              type="button"
+                              onClick={() => setDefaultProvider(pid === defaultProvider ? "" : pid)}
+                              className={cn(
+                                "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors",
+                                pid === defaultProvider
+                                  ? "bg-primary/10 text-primary border border-primary/30"
+                                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+                              )}
+                            >
+                              {PROVIDER_NAMES[pid] || pid}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {providerIds.map((pid) => (
-                          <span
-                            key={pid}
-                            className={cn(
-                              "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium",
-                              pid === defaultProvider
-                                ? "bg-primary/10 text-primary border border-primary/30"
-                                : "bg-muted text-muted-foreground"
-                            )}
-                          >
-                            {PROVIDER_NAMES[pid] || pid}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
+                    </>
                   )
                 })()}
               </div>

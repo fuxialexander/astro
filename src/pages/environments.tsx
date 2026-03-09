@@ -90,10 +90,11 @@ function formatResourceSummary(resources?: MachineEntry["resources"]): string | 
   return parts.join(" · ")
 }
 
-function InlineMachineName({ machineId, name, fallback }: {
+function InlineMachineName({ machineId, name, fallback, onEditingChange }: {
   machineId: string
   name: string
   fallback: string
+  onEditingChange?: (editing: boolean) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(name || fallback)
@@ -106,11 +107,13 @@ function InlineMachineName({ machineId, name, fallback }: {
     e.stopPropagation()
     setValue(displayName)
     setEditing(true)
+    onEditingChange?.(true)
   }
 
   const save = async () => {
     const trimmed = value.trim()
     setEditing(false)
+    onEditingChange?.(false)
     if (trimmed && trimmed !== displayName) {
       await renameMachine(machineId, trimmed)
     }
@@ -118,6 +121,7 @@ function InlineMachineName({ machineId, name, fallback }: {
 
   const cancel = () => {
     setEditing(false)
+    onEditingChange?.(false)
     setValue(displayName)
   }
 
@@ -167,21 +171,37 @@ function ConnectedMachineCard({ machine, onRemove, onMachineClick, onAssignInstr
   const loadColor = loadPercent > 75 ? "bg-warning" : "bg-info"
   const resourceSummary = formatResourceSummary(machine.resources)
   const registeredMachine = useMachinesStore((s) => s.machines.find((m) => m.id === machine.machineId))
+  const editingRef = useRef(false)
+  const justFinishedEditingRef = useRef(false)
+
+  const handleEditingChange = (isEditing: boolean) => {
+    editingRef.current = isEditing
+    if (!isEditing) {
+      // Mark that editing just finished — suppress the next card click
+      justFinishedEditingRef.current = true
+      requestAnimationFrame(() => { justFinishedEditingRef.current = false })
+    }
+  }
+
+  const handleCardClick = () => {
+    if (editingRef.current || justFinishedEditingRef.current) return
+    onMachineClick?.(machine)
+  }
 
   return (
     <Card
       className="cursor-pointer hover:shadow-[0_4px_16px_-4px_rgba(0,0,0,0.1)] transition-shadow duration-200"
-      onClick={() => onMachineClick?.(machine)}
+      onClick={handleCardClick}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter') onMachineClick?.(machine) }}
+      onKeyDown={(e) => { if (e.key === 'Enter' && !editingRef.current) onMachineClick?.(machine) }}
     >
       <div className="flex flex-col gap-3 p-4">
         {/* Name + status */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
             <div className="h-2 w-2 rounded-full bg-teal-500 shrink-0" />
-            <InlineMachineName machineId={machine.machineId} name={machine.name} fallback={machine.machineId} />
+            <InlineMachineName machineId={machine.machineId} name={machine.name} fallback={machine.machineId} onEditingChange={handleEditingChange} />
             {onAssignInstruction && (
               <div className="relative shrink-0">
                 <InstructionPicker
@@ -1021,6 +1041,7 @@ export function Environments() {
         onOpenChange={setMachineDetailDialogOpen}
         machine={selectedMachine}
         liveMachine={detailLiveMachine}
+        onAssignInstruction={handleAssignInstruction}
       />
 
       {/* Create/Edit Instruction Dialog */}

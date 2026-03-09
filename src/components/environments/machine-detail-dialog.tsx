@@ -6,6 +6,7 @@ import {
   Cpu,
   MemoryStick,
   MonitorDot,
+  ScrollText,
 } from "lucide-react"
 import {
   Dialog,
@@ -17,6 +18,8 @@ import { Badge } from "@/components/ui/badge"
 import { formatRelativeTime } from "@/lib/date-utils"
 import { compactGpuName } from "@/lib/utils"
 import { useSettingsStore } from "@/stores/settings-store"
+import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
+import { InstructionPicker } from "@/components/execution/instruction-picker"
 import type { RegisteredMachine } from "@/stores/machines-store"
 import type { MachineEntry } from "@/stores/realtime-store"
 
@@ -36,6 +39,8 @@ interface MachineDetailDialogProps {
   machine: RegisteredMachine | null
   /** Live machine data from the relay (if connected) */
   liveMachine?: MachineEntry
+  /** Callback to assign a compute instruction to this machine */
+  onAssignInstruction?: (machineId: string, instructionId: string | null) => void
 }
 
 function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -47,9 +52,11 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
   )
 }
 
-export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine }: MachineDetailDialogProps) {
+export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine, onAssignInstruction }: MachineDetailDialogProps) {
   const defaultProvider = useSettingsStore((s) => s.defaultProvider)
   const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider)
+  const presets = useMachineInstructionStore((s) => s.presets)
+  const instructions = useMachineInstructionStore((s) => s.instructions)
 
   if (!machine) return null
 
@@ -128,6 +135,34 @@ export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine }
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Compute Instruction */}
+        {onAssignInstruction && (
+          <div className="flex flex-col gap-2 mt-4">
+            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Compute Instruction</h4>
+            <div className="flex items-center gap-2">
+              <ScrollText className="h-4 w-4 text-muted-foreground shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="text-sm">
+                  {(() => {
+                    const id = machine.defaultInstructionId
+                    if (!id) return "Default Compute Guide"
+                    const instr = instructions.find((i) => i.id === id)
+                    if (instr) return instr.name
+                    const preset = presets.find((p) => p.id === id)
+                    if (preset) return preset.name
+                    return "Default Compute Guide"
+                  })()}
+                </span>
+              </div>
+              <InstructionPicker
+                compact={false}
+                currentInstructionId={machine.defaultInstructionId}
+                onSelect={(id) => onAssignInstruction(machine.id, id)}
+              />
             </div>
           </div>
         )}

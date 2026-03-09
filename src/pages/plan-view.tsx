@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useParams, useLocation, useNavigate } from "react-router"
-import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors } from "lucide-react"
+import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors, Bot, Check } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { ReplanDialog } from "@/components/replan-dialog"
@@ -52,7 +52,9 @@ import { topologicalSortNodes } from "@/lib/graph-sort-utils"
 import { useFileTreeRefresh } from "@/hooks/use-file-tree-refresh"
 import { apiUrl } from "@/lib/api-url"
 import { getAccessToken } from "@/lib/supabase-client"
-import { BackendMultiSelect } from "@/components/execution/backend-multi-select"
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
+import { useSettingsStore } from "@/stores/settings-store"
+import { PROVIDER_NAMES } from "@/components/execution/provider-utils"
 import type { PlanNode, Priority, Project } from "@/types"
 
 type ViewMode = "graph" | "list" | "timeline" | "board"
@@ -154,7 +156,9 @@ function WorkdirBar({ project }: { project: Project }) {
   const [useLocalUrls, setUseLocalUrls] = useState(true)
   const machines = useMachinesStore((s) => s.machines)
   const fetchMachines = useMachinesStore((s) => s.fetchMachines)
-  const updateProject = useProjectStore((s) => s.updateProject)
+  const liveMachines = useExecutionStore((s) => s.machines)
+  const defaultProvider = useSettingsStore((s) => s.defaultProvider)
+  const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider)
 
   useEffect(() => {
     if (machines.length === 0) fetchMachines()
@@ -163,6 +167,15 @@ function WorkdirBar({ project }: { project: Project }) {
   const defaultMachine = project.defaultMachineId
     ? machines.find((m) => m.id === project.defaultMachineId)
     : (machines.length === 1 ? machines[0] : undefined)
+
+  // Resolve available providers for the selected machine
+  const providerIds = useMemo(() => {
+    const machineId = defaultMachine?.id
+    if (!machineId) return []
+    const live = liveMachines.find((lm) => lm.machineId === machineId)
+    const reg = machines.find((m) => m.id === machineId)
+    return live?.providers?.map((p) => p.type) ?? reg?.providers ?? []
+  }, [defaultMachine?.id, liveMachines, machines])
 
   const editorUrl = (() => {
     if (!project.workingDirectory) return null
@@ -238,10 +251,47 @@ function WorkdirBar({ project }: { project: Project }) {
                 </span>
               )}
             </button>
-            <BackendMultiSelect
-              selectedBackends={project.computeBackends ?? []}
-              onSelectionChange={(backends) => updateProject(project.id, { computeBackends: backends })}
-            />
+            {/* AI Agent selector */}
+            {providerIds.length > 0 && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button className="flex items-center gap-1 px-2 py-0.5 rounded-md border border-border hover:bg-muted transition-colors text-xs shrink-0 cursor-pointer">
+                    <Bot className="h-3 w-3 text-muted-foreground" />
+                    <span className="text-muted-foreground">
+                      {defaultProvider ? (PROVIDER_NAMES[defaultProvider] || defaultProvider) : "Auto"}
+                    </span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-48 p-1" align="start">
+                  <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">AI Agent</p>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted transition-colors",
+                      !defaultProvider && "bg-accent/50"
+                    )}
+                    onClick={() => setDefaultProvider("")}
+                  >
+                    <span className="flex-1 text-left text-muted-foreground">Auto</span>
+                    {!defaultProvider && <Check className="h-3.5 w-3.5 text-primary" />}
+                  </button>
+                  {providerIds.map((pid) => (
+                    <button
+                      key={pid}
+                      type="button"
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted transition-colors",
+                        pid === defaultProvider && "bg-accent/50"
+                      )}
+                      onClick={() => setDefaultProvider(pid)}
+                    >
+                      <span className="flex-1 text-left font-medium">{PROVIDER_NAMES[pid] || pid}</span>
+                      {pid === defaultProvider && <Check className="h-3.5 w-3.5 text-primary" />}
+                    </button>
+                  ))}
+                </PopoverContent>
+              </Popover>
+            )}
             <div className="hidden md:flex items-center gap-1 ml-auto shrink-0">
               <Badge
                 variant="outline"
@@ -277,10 +327,6 @@ function WorkdirBar({ project }: { project: Project }) {
               <FolderGit2 className="h-3.5 w-3.5 shrink-0" />
               <span>Set working directory</span>
             </button>
-            <BackendMultiSelect
-              selectedBackends={project.computeBackends ?? []}
-              onSelectionChange={(backends) => updateProject(project.id, { computeBackends: backends })}
-            />
           </>
         )}
       </div>
