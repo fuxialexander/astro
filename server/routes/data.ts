@@ -477,6 +477,8 @@ app.get('/plan', async (c) => {
       executionError: n.executionError,
       executionStartedAt: n.executionStartedAt,
       executionCompletedAt: n.executionCompletedAt,
+      actualStartDate: n.actualStartDate,
+      actualEndDate: n.actualEndDate,
       branchName: n.branchName,
       prUrl: n.prUrl,
       prNumber: n.prNumber,
@@ -557,6 +559,64 @@ app.get('/plan/:projectId', async (c) => {
   }))
 
   return c.json({ nodes, edges })
+})
+
+// GET /plan/nodes/:nodeId — Single node fetch (DB-authoritative).
+// Frontend re-reads from this endpoint on node:status_changed notifications.
+app.get('/plan/nodes/:nodeId', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const nodeId = c.req.param('nodeId')
+
+  const [row] = await db.select().from(planNodes)
+    .where(and(eq(planNodes.clientId, nodeId), isNull(planNodes.deletedAt)))
+    .limit(1)
+  if (!row) return c.json({ error: 'Not found' }, 404)
+
+  // Verify project access via team scope
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, row.projectId), teamScopeFilter(projects, user))
+  )
+  if (!project) return c.json({ error: 'Not found' }, 404)
+
+  return c.json({
+    id: row.clientId,
+    projectId: row.projectId,
+    number: row.number,
+    type: row.type,
+    title: row.title,
+    description: row.description,
+    status: row.status,
+    parentId: row.parentId,
+    dependencies: [],
+    environment: row.environment,
+    verification: row.verification,
+    position: { x: row.positionX, y: row.positionY },
+    startDate: row.startDate,
+    endDate: row.endDate,
+    priority: row.priority,
+    estimate: row.estimate,
+    dueDate: row.dueDate,
+    milestoneId: row.milestoneId,
+    labelIds: row.labelIds,
+    executionId: row.executionId,
+    executionOutput: row.executionOutput,
+    executionError: row.executionError,
+    executionStartedAt: row.executionStartedAt,
+    executionCompletedAt: row.executionCompletedAt,
+    actualStartDate: row.actualStartDate,
+    actualEndDate: row.actualEndDate,
+    branchName: row.branchName,
+    prUrl: row.prUrl,
+    prNumber: row.prNumber,
+    content: row.content,
+    attachments: row.attachments,
+    links: row.links,
+    mergeQueueStatus: row.mergeQueueStatus,
+    autoPr: row.autoPr,
+    acceptanceCriteria: row.acceptanceCriteria,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  })
 })
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -842,6 +902,19 @@ app.patch('/plan/nodes/:id', async (c) => {
     )
   }
 
+  // DB-authoritative: emit node:status_changed when status is updated via data API.
+  // This notifies ALL connected clients (other tabs, team members, global SSE)
+  // so they re-read the authoritative node from DB — covers MCP tool updates,
+  // frontend chat mutations, and manual UI status changes.
+  if (body.status !== undefined && body.status !== node.status) {
+    executionEventBus.emit('node:status_changed', {
+      nodeId: id,
+      projectId: node.projectId,
+      status: body.status,
+      executionId: node.executionId ?? undefined,
+    })
+  }
+
   // Auto-dispatch downstream nodes when a node is manually approved
   if (body.status === 'completed' || body.status === 'auto_verified') {
     autoDispatchDownstream(node.projectId, id).catch((err) => {
@@ -914,7 +987,7 @@ export async function autoDispatchDownstream(projectId: string, completedNodeId:
 /**
  * Cascade prune: set all downstream dependents to 'pruned' recursively.
  */
-async function cascadePruneDownstream(projectId: string, prunedNodeId: string): Promise<void> {
+export async function cascadePruneDownstream(projectId: string, prunedNodeId: string): Promise<void> {
   const allNodes = await db.select().from(planNodes)
     .where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
   const allEdges = await db.select().from(planEdges)
@@ -937,6 +1010,13 @@ async function cascadePruneDownstream(projectId: string, prunedNodeId: string): 
       // Only prune nodes that aren't already completed
       if (childNode.status !== 'completed' && childNode.status !== 'auto_verified') {
         await db.update(planNodes).set({ status: 'pruned', updatedAt: new Date() }).where(eq(planNodes.clientId, childId))
+        // DB-authoritative: notify all clients about the cascade-pruned node
+        executionEventBus.emit('node:status_changed', {
+          nodeId: childId,
+          projectId,
+          status: 'pruned',
+          executionId: childNode.executionId ?? undefined,
+        })
       }
       queue.push(childId)
     }

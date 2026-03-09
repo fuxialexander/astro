@@ -10,6 +10,7 @@ import { apiUrl } from './api-url'
 
 export type RealtimeEventType =
   | 'machines:snapshot'
+  | 'node:status_changed'
   | 'task:init'
   | 'task:result'
   | 'task:stdout'
@@ -58,6 +59,13 @@ export class RealtimeClient {
   private _reconnectDelay = 3000 // Start at 3s, exponential backoff
   private _visibilityHandler: (() => void) | null = null
   private _pendingReconnect = false // True if reconnect was deferred due to hidden tab
+
+  // Heartbeat monitoring: detect zombie SSE connections (TCP alive but no data)
+  private _lastEventAt = 0
+  private _heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  /** Server sends heartbeat every 15s; timeout at 3× to tolerate transient delays */
+  private static readonly HEARTBEAT_TIMEOUT_MS = 45_000
+  private static readonly HEARTBEAT_CHECK_INTERVAL_MS = 10_000
 
   constructor(baseUrl = '/api/events/stream') {
     this.url = apiUrl(baseUrl)
@@ -128,6 +136,8 @@ export class RealtimeClient {
       if (wasReconnect && this._onReconnect) {
         this._onReconnect()
       }
+      // Start heartbeat monitoring for zombie SSE detection
+      this.startHeartbeatMonitor()
     }
 
     this.eventSource.onerror = () => {
@@ -147,6 +157,7 @@ export class RealtimeClient {
     // Register known event types
     const eventTypes: RealtimeEventType[] = [
       'machines:snapshot',
+      'node:status_changed',
       'task:init',
       'task:result',
       'task:stdout',
@@ -176,6 +187,9 @@ export class RealtimeClient {
 
     for (const type of eventTypes) {
       this.eventSource.addEventListener(type, (e: MessageEvent) => {
+        // Track last event time for heartbeat monitoring
+        this._lastEventAt = Date.now()
+
         let data: unknown
         try {
           data = e.data ? JSON.parse(e.data) : {}
@@ -208,12 +222,37 @@ export class RealtimeClient {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
+    if (this._heartbeatTimer) {
+      clearInterval(this._heartbeatTimer)
+      this._heartbeatTimer = null
+    }
     if (this.eventSource) {
       this.eventSource.close()
       this.eventSource = null
     }
     this._connected = false
     this._pendingReconnect = false
+  }
+
+  /**
+   * Start heartbeat monitoring. If no event is received within HEARTBEAT_TIMEOUT_MS,
+   * force-disconnect and schedule a fast reconnect. This detects zombie SSE connections
+   * that browser EventSource's built-in reconnection misses (TCP alive but no data).
+   */
+  private startHeartbeatMonitor(): void {
+    this._lastEventAt = Date.now()
+    if (this._heartbeatTimer) clearInterval(this._heartbeatTimer)
+    this._heartbeatTimer = setInterval(() => {
+      if (!this._connected) return
+      // Don't monitor when tab is hidden — no events expected
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      const elapsed = Date.now() - this._lastEventAt
+      if (elapsed > RealtimeClient.HEARTBEAT_TIMEOUT_MS) {
+        console.warn(`[realtime] Heartbeat timeout (${Math.round(elapsed / 1000)}s without events), forcing reconnect`)
+        this.disconnect()
+        this.scheduleReconnect(1000) // Fast reconnect on heartbeat timeout
+      }
+    }, RealtimeClient.HEARTBEAT_CHECK_INTERVAL_MS)
   }
 
   private scheduleReconnect(delayMs: number): void {

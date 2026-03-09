@@ -45,6 +45,7 @@ import { startExecutionWatchdog, stopExecutionWatchdog } from './lib/execution-w
 import { db } from './lib/db/index.js'
 import { planNodes } from './lib/db/schema.js'
 import { eq } from 'drizzle-orm'
+import { executionEventBus } from './lib/execution-event-bus.js'
 import { astroEventTransport } from './lib/events/astro-event-transport.js'
 import { sseNotificationHook } from './lib/events/hooks/sse-notification-hook.js'
 import { auditLogHook } from './lib/events/hooks/audit-log-hook.js'
@@ -406,11 +407,27 @@ async function start() {
       console.warn(`[relay] Dead task ${data.taskId} on machine ${data.machineId}: ${data.reason}`)
       try {
         const errorMsg = `Dead job detected: ${data.reason}. Task reset for re-execution.`
+        // Look up the node first so we can emit node:status_changed with nodeId/projectId
+        const [node] = await db.select({ clientId: planNodes.clientId, projectId: planNodes.projectId })
+          .from(planNodes)
+          .where(eq(planNodes.executionId, data.taskId))
+          .limit(1)
+        if (!node) {
+          console.log(`[relay] Dead task ${data.taskId} — no matching node found, skipping`)
+          return
+        }
         // Clear executionId to prevent stale task_result from overwriting the reset
         await db.update(planNodes)
           .set({ status: 'planned', executionId: null, executionError: errorMsg, updatedAt: new Date() })
           .where(eq(planNodes.executionId, data.taskId))
-        console.log(`[relay] Dead task ${data.taskId} reset to planned`)
+        // DB-authoritative: notify all clients about the dead task reset
+        executionEventBus.emit('node:status_changed', {
+          nodeId: node.clientId,
+          projectId: node.projectId,
+          status: 'planned',
+          executionId: data.taskId,
+        })
+        console.log(`[relay] Dead task ${data.taskId} reset to planned (node=${node.clientId})`)
       } catch (err) {
         console.error(`[relay] Failed to reset dead task ${data.taskId}:`, (err as Error).message)
       }

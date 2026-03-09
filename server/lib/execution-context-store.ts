@@ -42,10 +42,23 @@ const cleanupTimer = setInterval(prune, CLEANUP_INTERVAL_MS)
 cleanupTimer.unref() // Don't prevent process exit
 
 /**
- * Tracks executionIds that have an active dispatch.ts SSE bridge.
- * Used by events.ts to avoid double-sending: when the dispatch bridge
- * is alive it handles streaming events via executionEventBus; when
- * it's dead (after page refresh), events.ts subscribes to relay directly.
+ * Tracks executionIds with an active dispatch SSE bridge (POST /api/dispatch/task).
+ *
+ * Purpose: Prevents double-delivery of EPHEMERAL events (text, tool_trace, progress,
+ * file_change, session_init) when both the dispatch bridge and the global SSE
+ * (GET /api/events/stream) are running. Only guards ephemeral events — status
+ * transitions use node:status_changed which has NO guard (always delivered).
+ *
+ * Lifecycle:
+ *   - Added when dispatch SSE starts (dispatch.ts, inside streamSSE callback)
+ *   - Removed on stream close/cleanup (dispatch.ts cleanup function)
+ *   - Skipped for server-side dispatch (X-Server-Dispatch: 'true')
+ *
+ * When dispatch SSE dies (page refresh, network drop):
+ *   1. activeDispatchStreams entry is removed on close
+ *   2. Global SSE relay-direct handlers resume delivery (events.ts)
+ *   3. Frontend processSSEStreamWithReconnect catches up from streaming_events
+ *   4. node:status_changed delivers authoritative status regardless
  */
 export const activeDispatchStreams = new Set<string>()
 

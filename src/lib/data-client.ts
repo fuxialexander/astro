@@ -40,6 +40,15 @@ async function getAuthHeaders(): Promise<HeadersInit> {
   return headers
 }
 
+class ApiError extends Error {
+  status: number
+  constructor(status: number, statusText: string) {
+    super(`${status} ${statusText}`)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = await getAuthHeaders()
   const controller = new AbortController()
@@ -53,7 +62,7 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
       },
       signal: init?.signal ?? controller.signal,
     })
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+    if (!res.ok) throw new ApiError(res.status, res.statusText)
     return res.json() as Promise<T>
   } finally {
     clearTimeout(timeout)
@@ -289,6 +298,21 @@ export const dataClient = {
   async getProjectPlan(projectId: string): Promise<{ nodes: PlanNode[]; edges: PlanEdge[] }> {
     const data = await json<{ nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] }>(`${BASE}/plan/${projectId}`)
     return { nodes: data.nodes.map(mapNode), edges: data.edges.map(mapEdge) }
+  },
+
+  /** Fetch a single node from DB (DB-authoritative). Used by node:status_changed handler. */
+  async getNode(nodeId: string): Promise<PlanNode | null> {
+    try {
+      const data = await json<Record<string, unknown>>(`${BASE}/plan/nodes/${nodeId}`)
+      return mapNode(data)
+    } catch (err) {
+      // Distinguish 404 (node truly gone) from transient errors.
+      // Re-throw transient errors so the caller can retry or handle them.
+      if (err instanceof ApiError && err.status === 404) {
+        return null
+      }
+      throw err
+    }
   },
 
   async setProjectPlan(projectId: string, nodes: PlanNode[], edges: PlanEdge[]): Promise<Record<string, number>> {

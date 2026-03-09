@@ -17,11 +17,8 @@ import { resolveWorkingDirectory, buildDependencyOutputs } from "@astro/core/dis
 import { applyPlanFromText, planNodeIdToProjectId, clearPlanFingerprint } from "@/lib/plan-extraction"
 import { getSigningPrivateKey, signDispatchIntent, generateNonce, type DispatchSigningPayload } from "@/lib/dispatch-signing"
 import { useAuthStore } from "./auth-store"
-import { useSettingsStore } from "./settings-store"
 import { showBatchCompleteNotification } from "@/lib/notifications"
 import { deriveDeliveryMode } from "@/lib/project-source"
-import { useNotificationStore } from "./notification-store"
-import { buildClientCompletionMessage } from "@/lib/completion-messages"
 
 // ─── Page Unload Detection ────────────────────────────────────────────
 // `document.visibilityState` is unreliable during page refresh — it may
@@ -227,6 +224,8 @@ interface ExecutionState {
   stopBatchExecution: (projectId: string) => void
   isBatchActive: (projectId: string) => boolean
   getBatchExecution: (projectId: string) => BatchExecution | undefined
+  /** Trigger next batch wave dispatch (called from node:status_changed handler) */
+  triggerBatchWave: (projectId: string) => void
 
   // Provider actions
   loadProviders: () => Promise<void>
@@ -765,6 +764,13 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
   getBatchExecution: (projectId: string) => {
     return get().batchExecutions.get(projectId)
+  },
+
+  triggerBatchWave: (projectId: string) => {
+    const batch = get().batchExecutions.get(projectId)
+    if (batch?.active) {
+      dispatchNextBatchWave(projectId)
+    }
   },
 
   loadProviders: async () => {
@@ -2181,11 +2187,6 @@ function flushTextBatch(
   })
 }
 
-/** Check if a nodeId corresponds to a real plan node (not a synthetic plan/playground session node). */
-function isRealPlanNode(nodeId: string): boolean {
-  return !nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')
-}
-
 // Helper: Handle individual SSE events
 function handleSSEEvent(
   event: string,
@@ -2220,19 +2221,8 @@ function handleSSEEvent(
           }
           return { executions: newExecutions }
         })
-        const now = new Date()
-        if (isRealPlanNode(nodeId)) {
-          const node = planStore.nodes.find((n) => n.id === nodeId)
-          planStore.updateNode(nodeId, {
-            status: "in_progress",
-            executionId: parsed.executionId,
-            executionStartedAt: now,
-            // Update startDate with real execution start time (ISO datetime)
-            startDate: now.toISOString(),
-            // Set actualStartDate only on first execution attempt (if not already set)
-            ...(node && !node.actualStartDate ? { actualStartDate: now } : {}),
-          })
-        }
+        // Plan-node status update is now handled by node:status_changed SSE event
+        // (DB-authoritative: server writes status, emits notification, frontend re-reads from DB)
 
         // Emit system_prompt activity event so the activity feed can render it
         if (parsed.systemPrompt) {
@@ -2246,7 +2236,7 @@ function handleSSEEvent(
                   type: 'system_prompt' as const,
                   content: parsed.systemPrompt,
                   pathwayType: parsed.pathwayType,
-                  timestamp: now,
+                  timestamp: new Date(),
                 }],
               })
             }
@@ -2580,71 +2570,11 @@ function handleSSEEvent(
           }
         }
 
-        // Determine final node status based on verification type (use fresh state, not stale snapshot)
-        const node = usePlanStore.getState().nodes.find((n) => n.id === nodeId)
-        // Use finalStatus from server if provided, otherwise determine locally
-        let finalStatus: PlanNode["status"] = parsed.finalStatus
+        // Plan-node status update is now handled by node:status_changed SSE event
+        // (DB-authoritative: server writes status, emits notification, frontend re-reads from DB)
 
-        if (!finalStatus) {
-          const deliveryOk = !parsed.deliveryStatus || parsed.deliveryStatus === 'success' || parsed.deliveryStatus === 'skipped'
-          const isPlaygroundTask = nodeId.startsWith('playground-')
-          const yoloOn = isPlaygroundTask
-            ? useSettingsStore.getState().playgroundYoloMode
-            : useSettingsStore.getState().yoloMode
-          if (isSuccess) {
-            finalStatus = ((node?.verification === "auto" || yoloOn) && (deliveryOk || yoloOn)) ? "auto_verified" : "awaiting_judgment"
-          } else {
-            finalStatus = "awaiting_judgment"
-          }
-        }
-
-        // Skip node updates and file tree refresh on duplicate result events
-        // (SSE reconnection catch-up would overwrite timestamps with new Date())
-        if (!alreadyCompleted) {
-          const completionTime = new Date()
-          if (isRealPlanNode(nodeId)) {
-            planStore.updateNode(nodeId, {
-              status: finalStatus,
-              executionOutput: execution?.streamText || parsed.output,
-              executionCompletedAt: completionTime,
-              // Update endDate with real execution completion time (ISO datetime)
-              endDate: completionTime.toISOString(),
-              // Set actualEndDate to capture final execution completion timestamp
-              actualEndDate: completionTime,
-              // Persist PR/branch metadata on the plan node
-              ...(parsed.branchName && { branchName: parsed.branchName }),
-              ...(parsed.prUrl && { prUrl: parsed.prUrl }),
-              ...(parsed.prNumber && { prNumber: parsed.prNumber }),
-            })
-          }
-        }
-
-        // Check if all tasks in the project are now complete
-        if (isRealPlanNode(nodeId) && execution?.projectId) {
-          const pid = execution.projectId
-          if (!get().completedProjectIds.has(pid)) {
-            const TERMINAL = new Set(['completed', 'auto_verified', 'pruned'])
-            const projectNodes = usePlanStore.getState().nodes.filter(
-              (n) => n.projectId === pid && n.type === 'task'
-            )
-            if (projectNodes.length > 0 && projectNodes.every((n) => TERMINAL.has(n.status))) {
-              set((state) => {
-                const next = new Set(state.completedProjectIds)
-                next.add(pid)
-                return { completedProjectIds: next }
-              })
-              const proj = useProjectStore.getState().projects.find((p) => p.id === pid)
-              const allSuccess = projectNodes.every((n) => n.status === 'completed' || n.status === 'auto_verified')
-              const msg = buildClientCompletionMessage({
-                projectName: proj?.name,
-                projectBranch: proj?.projectBranch,
-                allSuccess,
-              })
-              useToastStore.getState().add({ ...msg, duration: 8000 })
-              useNotificationStore.getState().add({ ...msg, projectId: pid })
-            }
-          }
-        }
+        // Project completion check is now handled by node:status_changed handler in realtime-store
+        // (reads fresh status from DB after mergeNodeFromDB, so never stale)
 
         // Auto-assign defaultMachineId on the project if not set
         if (isSuccess && execution?.machineId && execution?.projectId) {
@@ -2671,21 +2601,14 @@ function handleSSEEvent(
           }
         }
 
-        // Batch execution: auto-dispatch next wave of ready nodes
-        const execStore = useExecutionStore.getState()
-        const projectId = execution?.projectId
-        if (projectId && execStore.batchExecutions.get(projectId)?.active) {
-          // Use a short delay to let the plan store status update propagate
-          setTimeout(() => dispatchNextBatchWave(projectId), 100)
-        }
+        // Batch execution dispatch moved to node:status_changed handler in realtime-store
+        // (runs after mergeNodeFromDB so node status in store is fresh)
 
         // Summary generation: use structured summary from agent result if available,
         // otherwise fall back to parsing from stream text, then relay-based /api/agent/summarize.
-        // In YOLO mode, always store summaries (needed for batch summary notifications).
-        const yoloOn = nodeId.startsWith('playground-')
-          ? useSettingsStore.getState().playgroundYoloMode
-          : useSettingsStore.getState().yoloMode
-        if (execution && (yoloOn || finalStatus === "awaiting_judgment" || (isSuccess && node?.verification !== "auto"))) {
+        // Always generate summaries — the node:status_changed handler now handles
+        // plan-node status, but summaries are execution-level data stored here.
+        if (execution) {
           const freshExec = get().executions.get(nodeId)
 
           if (parsed.summary?.status && parsed.summary?.workCompleted) {
@@ -2724,7 +2647,8 @@ function handleSSEEvent(
               })
             } else {
               // Last resort: try relay-based summarization
-              requestExecutionSummary(nodeId, freshExec || execution, node)
+              const summaryNode = usePlanStore.getState().nodes.find((n) => n.id === nodeId)
+              requestExecutionSummary(nodeId, freshExec || execution, summaryNode)
             }
           }
         }
@@ -2766,16 +2690,7 @@ function handleSSEEvent(
           }
           return { executions: newExecutions }
         })
-        if (isRealPlanNode(nodeId)) {
-          planStore.updateNode(nodeId, {
-            status: "awaiting_judgment",
-            executionError: errorMessage,
-            // Update endDate with real execution error time (ISO datetime)
-            endDate: errorTime.toISOString(),
-            // Set actualEndDate even on error to track when task stopped
-            actualEndDate: errorTime,
-          })
-        }
+        // Plan-node status update is now handled by node:status_changed SSE event
 
         // Fire async summary generation for failed tasks (non-blocking)
         if (execution) {
@@ -2803,9 +2718,7 @@ function handleSSEEvent(
         }
         return { executions: newExecutions }
       })
-      if (isRealPlanNode(nodeId)) {
-        planStore.updateNode(nodeId, { status: "planned" })
-      }
+      // Plan-node status update is now handled by node:status_changed SSE event
 
       // Persist cancelled execution to database
       useExecutionStore.getState().persist()

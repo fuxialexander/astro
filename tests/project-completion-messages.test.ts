@@ -705,7 +705,7 @@ describe('Source code: realtime-store handles project:completed', () => {
   })
 
   it('uses shared builder for message logic', () => {
-    expect(source).toContain("import { buildServerCompletionMessage } from '@/lib/completion-messages'")
+    expect(source).toContain("import { buildServerCompletionMessage, buildClientCompletionMessage } from '@/lib/completion-messages'")
     expect(source).toContain('buildServerCompletionMessage(')
   })
 
@@ -724,14 +724,10 @@ describe('Source code: execution-store completion toast uses shared builder', ()
     'utf-8'
   )
 
-  it('imports buildClientCompletionMessage', () => {
-    expect(source).toContain("import { buildClientCompletionMessage } from \"@/lib/completion-messages\"")
-  })
-
-  it('calls buildClientCompletionMessage with project data', () => {
-    expect(source).toContain('buildClientCompletionMessage(')
-    expect(source).toContain('projectName: proj?.name')
-    expect(source).toContain('projectBranch: proj?.projectBranch')
+  // Project completion logic moved to realtime-store's node:status_changed handler
+  // (DB-authoritative refactor). execution-store no longer imports these.
+  it('delegates project completion to node:status_changed handler', () => {
+    expect(source).toContain('Project completion check is now handled by node:status_changed')
   })
 
   it('uses completedProjectIds for dedup', () => {
@@ -1527,21 +1523,18 @@ describe('Source code: execution-store uses shared builder + adds notifications'
     'utf-8'
   )
 
-  it('imports useNotificationStore', () => {
-    expect(source).toContain("import { useNotificationStore } from \"./notification-store\"")
+  // Project completion + notification logic moved to realtime-store's
+  // node:status_changed handler (DB-authoritative refactor).
+  it('delegates project completion to node:status_changed handler', () => {
+    expect(source).toContain('Project completion check is now handled by node:status_changed')
   })
 
-  it('imports buildClientCompletionMessage from shared lib', () => {
-    expect(source).toContain("import { buildClientCompletionMessage } from \"@/lib/completion-messages\"")
+  it('still tracks completedProjectIds', () => {
+    expect(source).toContain('completedProjectIds')
   })
 
-  it('calls buildClientCompletionMessage', () => {
-    expect(source).toContain('buildClientCompletionMessage(')
-  })
-
-  it('spreads msg into both toast and notification', () => {
-    expect(source).toContain('useToastStore.getState().add({ ...msg, duration: 8000 })')
-    expect(source).toContain('useNotificationStore.getState().add({ ...msg, projectId: pid })')
+  it('batch dispatch moved to node:status_changed', () => {
+    expect(source).toContain('Batch execution dispatch moved to node:status_changed')
   })
 })
 
@@ -1560,7 +1553,7 @@ describe('Source code: realtime-store uses shared builder + adds notifications',
   })
 
   it('imports buildServerCompletionMessage from shared lib', () => {
-    expect(source).toContain("import { buildServerCompletionMessage } from '@/lib/completion-messages'")
+    expect(source).toContain("import { buildServerCompletionMessage, buildClientCompletionMessage } from '@/lib/completion-messages'")
   })
 
   it('calls buildServerCompletionMessage in project:completed handler', () => {

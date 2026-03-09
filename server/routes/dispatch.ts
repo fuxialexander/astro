@@ -12,7 +12,6 @@ import {
   dispatchEngine,
   capKnowledgeEntries,
   slugifyTitle,
-  type BranchPruneRequest,
   type DispatchPriority,
 } from '../lib/dispatch/index.js'
 import { relayServer } from '../lib/relay-server.js'
@@ -25,14 +24,14 @@ import { executionContextStore, activeDispatchStreams } from '../lib/execution-c
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
 import { projects, planNodes, planEdges, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines } from '../lib/db/schema.js'
-import { eq, isNull, and, or, inArray } from 'drizzle-orm'
+import { eq, isNull, and, or, inArray, sql } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction } from '../lib/prompt-templates.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
 import { extractPlanJsonFromText } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
-import { autoDispatchDownstream } from './data.js'
+import { autoDispatchDownstream, cascadePruneDownstream } from './data.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup)
@@ -1428,12 +1427,15 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         console.log(`[dispatch] YOLO auto-verified: task=${nodeId} (verification=${verification})`)
       }
 
+      const completionTime = new Date()
       const nodePatch: Partial<typeof planNodes.$inferInsert> = {
         status: finalNodeStatus,
         executionOutput: msg.result.output ?? null,
-        executionCompletedAt: new Date(),
+        executionCompletedAt: completionTime,
         executionError: msg.result.error ?? null,
-        updatedAt: new Date(),
+        endDate: completionTime.toISOString(),
+        actualEndDate: completionTime,
+        updatedAt: completionTime,
       }
       if (msg.result.branchName) nodePatch.branchName = msg.result.branchName
       if (msg.result.prUrl) nodePatch.prUrl = msg.result.prUrl
@@ -1441,21 +1443,30 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       if (msg.result.commitBeforeSha) nodePatch.commitBeforeSha = msg.result.commitBeforeSha
       if (msg.result.commitAfterSha) nodePatch.commitAfterSha = msg.result.commitAfterSha
 
-      db.update(planNodes)
-        .set(nodePatch)
-        .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
-        .execute()
-        .then(() => {
-          // Auto-dispatch downstream tasks server-side (works even if browser disconnected)
-          if (finalNodeStatus === 'auto_verified') {
-            autoDispatchDownstream(projectId, nodeId).catch((err) => {
-              console.error('[dispatch] Auto-dispatch downstream failed:', err)
-            })
-          }
+      // Await DB write so node:status_changed is only emitted after commit.
+      // Frontend re-reads from DB on notification (DB-authoritative pattern).
+      try {
+        await db.update(planNodes)
+          .set(nodePatch)
+          .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+          .execute()
+
+        // Notify frontend: DB is committed, safe to re-read
+        executionEventBus.emit('node:status_changed', {
+          nodeId, projectId, status: finalNodeStatus, executionId,
         })
-        .catch((err: unknown) => {
-          console.error('[dispatch] Error persisting execution result to plan node:', err)
-        })
+
+        // Auto-dispatch downstream tasks server-side (works even if browser disconnected).
+        // Triggers for both auto_verified (YOLO mode) and completed (human-verified),
+        // so downstream tasks cascade regardless of verification mode.
+        if (finalNodeStatus === 'auto_verified' || finalNodeStatus === 'completed') {
+          autoDispatchDownstream(projectId, nodeId).catch((err) => {
+            console.error('[dispatch] Auto-dispatch downstream failed:', err)
+          })
+        }
+      } catch (err: unknown) {
+        console.error('[dispatch] Error persisting execution result to plan node:', err)
+      }
 
       // Auto-assign defaultMachineId on the project if not yet set
       if (msg.result.status === 'completed' && machineId) {
@@ -1477,6 +1488,10 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         })
       }
 
+      // Note: dispatch SSE `done` fires AFTER `node:status_changed`. The frontend may
+      // process the global SSE notification and re-read from DB before execution-store
+      // cleans up via this `done` event. This is safe because realtime-store's
+      // `alreadyCompleted` guard deduplicates, and mergeNodeFromDB is idempotent.
       stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
       alive = false
     }
@@ -1585,6 +1600,27 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         data: JSON.stringify(errorData),
       }).catch(() => {})
       stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+
+      // DB-authoritative: update plan node status + notify frontend (all node types)
+      const errorTime = new Date()
+      try {
+        await db.update(planNodes)
+          .set({
+            status: 'awaiting_judgment',
+            executionError: 'Remote machine disconnected during task execution',
+            endDate: errorTime.toISOString(),
+            actualEndDate: errorTime,
+            updatedAt: errorTime,
+          })
+          .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+          .execute()
+        executionEventBus.emit('node:status_changed', {
+          nodeId, projectId, status: 'awaiting_judgment', executionId,
+        })
+      } catch (err: unknown) {
+        console.error('[dispatch] Failed to update plan_node on machine disconnect:', err)
+      }
+
       alive = false
     }
 
@@ -1642,17 +1678,42 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     }
 
     // P2: Handle dead job detection — terminate this SSE stream when relay detects task is dead
-    const onTaskDead = (data: { taskId: string; machineId: string; reason: string }) => {
+    const onTaskDead = async (data: { taskId: string; machineId: string; reason: string }) => {
       if (!alive || data.taskId !== executionId) return
       console.log(`[dispatch] Task ${executionId} declared dead by heartbeat cross-ref: ${data.reason}`)
       const errorData = { error: `Dead job detected: ${data.reason}`, recoverable: true }
-      streamingEventLog.append(executionId, 'error', errorData).then((seq) => {
+      try {
+        const seq = await streamingEventLog.append(executionId, 'error', errorData)
         stream.writeSSE({ id: String(seq), event: 'error', data: JSON.stringify(errorData) }).catch(() => {})
-        stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
-      }).catch(() => {
+      } catch {
         stream.writeSSE({ event: 'error', data: JSON.stringify(errorData) }).catch(() => {})
-        stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
-      })
+      }
+      stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+
+      // DB-authoritative: update plan node status + notify frontend (all node types)
+      const errorTime = new Date()
+      try {
+        await db.update(planNodes)
+          .set({
+            status: 'planned',
+            executionError: `Dead job detected: ${data.reason}`,
+            executionId: null,
+            executionStartedAt: null,
+            executionOutput: null,
+            executionCompletedAt: null,
+            endDate: errorTime.toISOString(),
+            actualEndDate: errorTime,
+            updatedAt: errorTime,
+          })
+          .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+          .execute()
+        executionEventBus.emit('node:status_changed', {
+          nodeId, projectId, status: 'planned', executionId,
+        })
+      } catch (err: unknown) {
+        console.error('[dispatch] Failed to update plan_node on dead job:', err)
+      }
+
       alive = false
     }
 
@@ -1705,6 +1766,29 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         data: JSON.stringify(errorData),
       })
       await stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) })
+
+      // DB-authoritative: reset plan node to planned + notify frontend (all node types)
+      const errorTime = new Date()
+      try {
+        await db.update(planNodes)
+          .set({
+            status: 'planned',
+            executionError: `Failed to dispatch to machine: ${machineId}`,
+            executionId: null,
+            executionStartedAt: null,
+            executionOutput: null,
+            executionCompletedAt: null,
+            updatedAt: errorTime,
+          })
+          .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+          .execute()
+        executionEventBus.emit('node:status_changed', {
+          nodeId, projectId, status: 'planned', executionId,
+        })
+      } catch (err: unknown) {
+        console.error('[dispatch] Failed to update plan_node on dispatch failure:', err)
+      }
+
       return
     }
 
@@ -1739,23 +1823,31 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       data: JSON.stringify(initDataForSSE),
     })
 
-    // Update plan_nodes.status to in_progress server-side.
-    // The frontend also sets this via Zustand on the init SSE event, but for
-    // server-side dispatch (auto-cascading) there is no frontend listener,
-    // so the DB must be updated here to keep status accurate.
-    if (!nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
-      db.update(planNodes)
-        .set({
-          status: 'in_progress',
-          executionId,
-          executionStartedAt: new Date(),
-          updatedAt: new Date(),
+    // Update plan_nodes.status to in_progress server-side (DB-authoritative).
+    // DB-authoritative: update plan node status + notify frontend (all node types).
+    // The DB write is awaited so node:status_changed is only emitted after
+    // the write commits — frontend re-reads from DB on notification.
+    {
+      const now = new Date()
+      try {
+        await db.update(planNodes)
+          .set({
+            status: 'in_progress',
+            executionId,
+            executionStartedAt: now,
+            startDate: now.toISOString(),
+            updatedAt: now,
+          })
+          .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+          .execute()
+
+        // Notify frontend: DB is committed, safe to re-read
+        executionEventBus.emit('node:status_changed', {
+          nodeId, projectId, status: 'in_progress', executionId,
         })
-        .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
-        .execute()
-        .catch((err: unknown) => {
-          console.error('[dispatch] Failed to set plan_node in_progress:', err)
-        })
+      } catch (err: unknown) {
+        console.error('[dispatch] Failed to set plan_node in_progress:', err)
+      }
     }
 
     // Emit task:init via event bus so the global SSE stream (/api/events/stream)
@@ -1814,11 +1906,25 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           const errorData = { error: errorMsg, recoverable: true }
 
           // Update plan_nodes so the node doesn't stay in_progress if browser is disconnected
-          db.update(planNodes)
-            .set({ status: 'planned', executionError: errorMsg, updatedAt: new Date() })
-            .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
-            .execute()
-            .catch((err) => console.error(`[dispatch] Failed to update plan_node on timeout:`, err))
+          try {
+            await db.update(planNodes)
+              .set({
+                status: 'planned',
+                executionError: errorMsg,
+                executionId: null,
+                executionStartedAt: null,
+                executionOutput: null,
+                executionCompletedAt: null,
+                updatedAt: new Date(),
+              })
+              .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+              .execute()
+            executionEventBus.emit('node:status_changed', {
+              nodeId, projectId, status: 'planned', executionId,
+            })
+          } catch (err) {
+            console.error(`[dispatch] Failed to update plan_node on timeout:`, err)
+          }
 
           const sendDone = () => {
             stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
@@ -2049,12 +2155,32 @@ dispatchRoute.post('/cancel', async (c) => {
     return c.json({ success: false, error: 'nodeId or executionId required' }, 400)
   }
 
-  // Validate user owns this task
+  // Validate user has access to this task (in-memory context or DB fallback)
   const cancelUser = c.get('user') as AuthUser | undefined
   if (cancelUser?.id && cancelUser.id !== LOCAL_USER_ID) {
     const ctx = executionContextStore.get(id)
-    if (ctx && ctx.userId !== cancelUser.id && ctx.userId !== LOCAL_USER_ID) {
-      return c.json({ success: false, error: 'Not authorized for this task' }, 403)
+    if (ctx) {
+      // In-memory context available: check user owns this execution
+      if (ctx.userId !== cancelUser.id && ctx.userId !== LOCAL_USER_ID) {
+        return c.json({ success: false, error: 'Not authorized for this task' }, 403)
+      }
+    } else if (nodeId) {
+      // Context lost (e.g., server restart): fall back to DB project ownership check
+      const [nodeRow] = await db.select({ projectId: planNodes.projectId })
+        .from(planNodes).where(eq(planNodes.clientId, nodeId)).limit(1)
+      if (nodeRow) {
+        const [project] = await db.select({ id: projects.id }).from(projects)
+          .where(and(
+            eq(projects.id, nodeRow.projectId),
+            or(
+              eq(projects.teamId, cancelUser.teamId),
+              and(isNull(projects.teamId), eq(projects.ownerId, cancelUser.id))
+            )
+          )).limit(1)
+        if (!project) {
+          return c.json({ success: false, error: 'Not authorized for this task' }, 403)
+        }
+      }
     }
   }
 
@@ -2064,6 +2190,41 @@ dispatchRoute.post('/cancel', async (c) => {
   // Also cancel via dispatch engine
   if (nodeId) {
     await dispatchEngine.cancel(nodeId)
+
+    // DB-authoritative: reset node to 'planned' so it can be re-executed.
+    // The dispatch engine's nodeUpdateCallback is not wired to the data API,
+    // so we do the DB write + node:status_changed emission here directly.
+    // This ensures all connected clients see the cancel immediately
+    // (not just the client that initiated the cancel).
+    try {
+      const [node] = await db.select({ status: planNodes.status, projectId: planNodes.projectId, executionId: planNodes.executionId })
+        .from(planNodes)
+        .where(eq(planNodes.clientId, nodeId))
+        .limit(1)
+      if (node && (node.status === 'in_progress' || node.status === 'dispatched')) {
+        await db.update(planNodes)
+          .set({
+            status: 'planned',
+            executionId: null,
+            executionStartedAt: null,
+            executionOutput: null,
+            executionCompletedAt: null,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(planNodes.clientId, nodeId),
+            inArray(planNodes.status, ['in_progress', 'dispatched']),
+          ))
+        executionEventBus.emit('node:status_changed', {
+          nodeId,
+          projectId: node.projectId,
+          status: 'planned',
+          executionId: node.executionId ?? undefined,
+        })
+      }
+    } catch (err) {
+      console.error('[dispatch] Failed to update node status on cancel:', err)
+    }
   }
 
   return c.json({ success: true, aborted: true })
@@ -2071,6 +2232,10 @@ dispatchRoute.post('/cancel', async (c) => {
 
 /**
  * Prune a branch
+ *
+ * DB-authoritative: Sets target node to 'pruned' in DB, emits node:status_changed,
+ * cancels any active executions, and cascade-prunes downstream nodes.
+ * Uses the same pattern as PATCH /plan/nodes/:id with cascadePruneDownstream.
  */
 const pruneSchema = z.object({
   projectId: z.string().uuid(),
@@ -2084,17 +2249,75 @@ dispatchRoute.post('/prune', async (c) => {
   if (!parsed.success) {
     return c.json({ success: false, error: 'Invalid request', details: parsed.error.issues }, 400)
   }
-  const result = await dispatchEngine.pruneBranch(parsed.data as BranchPruneRequest)
+  const { projectId, nodeId } = parsed.data
 
-  if (!result.success) {
-    return c.json(result, 400)
+  // Verify user has access to the project via team scope
+  const user = c.get('user') as AuthUser | undefined
+  if (user?.id && user.id !== LOCAL_USER_ID) {
+    const [project] = await db.select({ id: projects.id }).from(projects)
+      .where(and(
+        eq(projects.id, projectId),
+        or(
+          eq(projects.teamId, user.teamId),
+          and(isNull(projects.teamId), eq(projects.ownerId, user.id))
+        )
+      )).limit(1)
+    if (!project) {
+      return c.json({ success: false, error: 'Project not found or not authorized' }, 404)
+    }
   }
 
-  return c.json(result)
+  // 1. Look up the node
+  const [node] = await db.select()
+    .from(planNodes)
+    .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+    .limit(1)
+
+  if (!node) {
+    return c.json({ success: false, error: 'Node not found' }, 404)
+  }
+
+  if (node.status === 'pruned') {
+    return c.json({ success: true, prunedNodes: [nodeId], cancelledTasks: [] })
+  }
+
+  // 2. Cancel active execution if running
+  const cancelledTasks: string[] = []
+  if (node.status === 'in_progress' || node.status === 'dispatched') {
+    const cancelled = await dispatchEngine.cancel(nodeId)
+    if (cancelled) cancelledTasks.push(nodeId)
+  }
+
+  // 3. Set node to 'pruned' in DB + emit node:status_changed
+  try {
+    await db.update(planNodes)
+      .set({ status: 'pruned', updatedAt: new Date() })
+      .where(eq(planNodes.clientId, nodeId))
+    executionEventBus.emit('node:status_changed', {
+      nodeId,
+      projectId,
+      status: 'pruned',
+      executionId: node.executionId ?? undefined,
+    })
+  } catch (err) {
+    console.error('[dispatch] Failed to prune node in DB:', err)
+    return c.json({ success: false, error: 'Failed to update node status' }, 500)
+  }
+
+  // 4. Cascade prune downstream nodes (each emits its own node:status_changed)
+  await cascadePruneDownstream(projectId, nodeId)
+
+  return c.json({ success: true, prunedNodes: [nodeId], cancelledTasks })
 })
 
 /**
  * Respond to approval request
+ *
+ * Durable approval flow:
+ *   1. Try in-memory Promise resolution (normal path, dispatch engine alive)
+ *   2. If Promise not found: check DB for existing response → idempotent success
+ *   3. If no DB response: try relay recovery (send directly via WebSocket)
+ *   4. If relay unavailable: return descriptive error so frontend can clean up
  */
 dispatchRoute.post('/approve', async (c) => {
   const { approvalId, approved, selectedOption } = await c.req.json<{
@@ -2116,9 +2339,149 @@ dispatchRoute.post('/approve', async (c) => {
     return c.json({ success: true })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
+
+    // Durable approval recovery: Promise lost (server restart or execution completed)
+    if (message.includes('No pending approval found')) {
+      const recovered = await tryRecoverApproval(approvalId, approved, selectedOption)
+      if (recovered.status === 'already_responded') {
+        return c.json({ success: true, duplicate: true })
+      }
+      if (recovered.status === 'relay_recovered') {
+        return c.json({ success: true, recovered: true })
+      }
+      // Recovery failed — return clear error so frontend can clean up the stale card
+      return c.json({
+        success: false,
+        error: 'Approval context lost (server may have restarted). The agent will re-prompt if needed.',
+        stale: true,
+      }, 410) // 410 Gone
+    }
+
     return c.json({ success: false, error: message }, 400)
   }
 })
+
+/**
+ * Try to recover an approval after the in-memory Promise is lost.
+ *
+ * Two event-type namespaces exist for approvals:
+ *   - streamingEventLog: 'approval_request' / 'approval_response' (underscore, persisted with requestId)
+ *   - astroEventTransport: 'approval.requested' / 'approval.responded' (dot, persisted with approvalId)
+ *
+ * The relay pathway uses requestId (from agent-runner). The dispatch engine uses approvalId.
+ * Recovery works by:
+ *   1. Find the relay approval_request for this execution (has requestId + machineId)
+ *   2. Check if a relay approval_response already exists (idempotent success)
+ *   3. Send the response directly via relay WebSocket
+ */
+async function tryRecoverApproval(
+  approvalId: string,
+  approved: boolean,
+  selectedOption?: string
+): Promise<{ status: 'already_responded' | 'relay_recovered' | 'unrecoverable' }> {
+  try {
+    // 1. Find the execution via the dispatch engine's approval.requested event
+    //    (astroEventTransport uses dot notation with approvalId in data)
+    const requestRows = await db.select({
+      executionId: streamingEvents.executionId,
+    })
+      .from(streamingEvents)
+      .where(
+        and(
+          eq(streamingEvents.eventType, 'approval.requested'),
+          sql`${streamingEvents.data}->>'approvalId' = ${approvalId}`,
+        )
+      )
+      .limit(1)
+
+    if (requestRows.length === 0) {
+      return { status: 'unrecoverable' }
+    }
+
+    const { executionId } = requestRows[0]
+
+    // Short-circuit: if the execution's node is already in a terminal state, skip recovery.
+    // Look up via task_executions (not planNodes.executionId) because our reset-to-planned
+    // fix clears planNodes.executionId to null — the task_executions record is preserved.
+    const [execRow] = await db.select({ nodeClientId: taskExecutions.nodeClientId })
+      .from(taskExecutions)
+      .where(eq(taskExecutions.executionId, executionId))
+      .limit(1)
+    if (execRow) {
+      const [nodeRow] = await db.select({ status: planNodes.status })
+        .from(planNodes)
+        .where(eq(planNodes.clientId, execRow.nodeClientId))
+        .limit(1)
+      if (nodeRow) {
+        const terminal = new Set(['completed', 'auto_verified', 'pruned', 'planned'])
+        if (terminal.has(nodeRow.status)) {
+          return { status: 'already_responded' }
+        }
+      }
+    }
+
+    // 2. Find the matching relay approval_request for this execution
+    //    (streamingEventLog uses underscore notation with requestId + machineId)
+    const relayRows = await db.select({ data: streamingEvents.data })
+      .from(streamingEvents)
+      .where(
+        and(
+          eq(streamingEvents.executionId, executionId),
+          eq(streamingEvents.eventType, 'approval_request'),
+        )
+      )
+      .orderBy(sql`${streamingEvents.seq} DESC`)
+      .limit(1)
+
+    if (relayRows.length === 0) {
+      return { status: 'unrecoverable' }
+    }
+
+    const relayData = relayRows[0].data as { requestId?: string; machineId?: string }
+    if (!relayData.requestId || !relayData.machineId) {
+      return { status: 'unrecoverable' }
+    }
+
+    // 3. Check if this relay approval was already responded to (idempotency via DB)
+    //    Uses underscore notation (approval_response) with requestId — matches streamingEventLog
+    const responseRows = await db.select({ seq: streamingEvents.seq })
+      .from(streamingEvents)
+      .where(
+        and(
+          eq(streamingEvents.executionId, executionId),
+          eq(streamingEvents.eventType, 'approval_response'),
+          sql`${streamingEvents.data}->>'requestId' = ${relayData.requestId}`,
+        )
+      )
+      .limit(1)
+
+    if (responseRows.length > 0) {
+      return { status: 'already_responded' }
+    }
+
+    // 4. Try sending response via relay WebSocket
+    const answer = selectedOption || (approved ? 'Approved' : 'Rejected')
+    const sent = relayServer.sendApprovalResponse(
+      executionId, relayData.machineId, relayData.requestId, approved, answer
+    )
+    if (!sent) {
+      return { status: 'unrecoverable' }
+    }
+
+    // 5. Persist recovery for idempotency + hydration
+    streamingEventLog.append(executionId, 'approval_response', {
+      requestId: relayData.requestId,
+      answer,
+      answered: true,
+    }).catch(() => {})
+
+    console.log(`[dispatch] Recovered approval ${approvalId} via relay (durable fallback)`)
+    return { status: 'relay_recovered' }
+  } catch (err) {
+    console.warn('[dispatch] Approval recovery failed:', err)
+    return { status: 'unrecoverable' }
+  }
+}
 
 /**
  * Request dynamic approval (called by MCP tool server)
@@ -2222,33 +2585,6 @@ dispatchRoute.post('/engine/start', async (c) => {
 dispatchRoute.post('/engine/stop', async (c) => {
   dispatchEngine.stop()
   return c.json({ success: true, message: 'Dispatch engine stopped' })
-})
-
-/**
- * Reset a task for re-execution
- *
- * Cancels via relay and resets dispatch engine state.
- */
-dispatchRoute.post('/reset', async (c) => {
-  const { nodeId, executionId, machineId } = await c.req.json<{
-    nodeId?: string
-    executionId?: string
-    machineId?: string
-  }>()
-
-  if (!nodeId) {
-    return c.json({ success: false, error: 'nodeId required' }, 400)
-  }
-
-  // Cancel via relay if we have an execution ID
-  if (executionId) {
-    relayServer.cancelTask(executionId, machineId || '')
-  }
-
-  // Cancel via dispatch engine to clean up queue entries, pending approvals, and active state
-  await dispatchEngine.cancel(nodeId)
-
-  return c.json({ success: true })
 })
 
 /**
@@ -2410,6 +2746,9 @@ dispatchRoute.post('/reset', async (c) => {
       })
       .where(eq(planNodes.clientId, nodeId))
     console.log(`[dispatch/reset] Node ${nodeId} reset to planned state`)
+    executionEventBus.emit('node:status_changed', {
+      nodeId, projectId, status: 'planned',
+    })
   } catch (dbErr) {
     const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
     console.error(`[dispatch/reset] Failed to reset node in DB: ${msg}`)
@@ -2626,6 +2965,11 @@ dispatchRoute.post('/bulk-reset', async (c) => {
       })
       .where(inArray(planNodes.clientId, nodeIds))
     console.log(`[dispatch/bulk-reset] Reset ${nodeIds.length} node(s) to planned state`)
+    for (const nid of nodeIds) {
+      executionEventBus.emit('node:status_changed', {
+        nodeId: nid, projectId, status: 'planned',
+      })
+    }
   } catch (dbErr) {
     const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
     console.error(`[dispatch/bulk-reset] Failed to reset nodes in DB: ${msg}`)
