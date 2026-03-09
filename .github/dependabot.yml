@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # Enable version updates for npm
+  # Enable version updates for npm (pnpm workspace)
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
@@ -17,6 +17,14 @@ updates:
       prefix: "chore"
       include: "scope"
     versioning-strategy: increase
+    # Group all non-major updates together to reduce PR noise
+    groups:
+      patch-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   # Enable version updates for GitHub Actions
   - package-ecosystem: "github-actions"
