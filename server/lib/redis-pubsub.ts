@@ -79,6 +79,7 @@ export class RedisPubSub extends EventEmitter {
   private subscriber: Redis | null = null;
   private instanceId: string;
   private connected: boolean = false;
+  private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     super();
@@ -157,6 +158,11 @@ export class RedisPubSub extends EventEmitter {
    * Disconnect from Redis
    */
   async disconnect(): Promise<void> {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+
     if (this.publisher) {
       await this.unregisterInstance();
       await this.publisher.quit();
@@ -443,8 +449,8 @@ export class RedisPubSub extends EventEmitter {
       60 // 1 minute TTL, refreshed by heartbeat
     );
 
-    // Set up instance heartbeat
-    setInterval(async () => {
+    // Set up instance heartbeat (cleared on disconnect)
+    this.heartbeatInterval = setInterval(async () => {
       if (this.publisher) {
         await this.publisher.expire(
           `${KEYS.INSTANCE_ID}${this.instanceId}`,
