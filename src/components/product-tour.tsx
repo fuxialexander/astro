@@ -25,35 +25,27 @@ export function ProductTour() {
         },
       },
       {
-        element: '[data-tour-id="examples"]',
-        popover: {
-          title: "Examples",
-          description:
-            "Try a pre-built example to see how Astro works end-to-end.",
-        },
-      },
-      {
-        element: '[data-tour-id="plan"]',
-        popover: {
-          title: "Plan",
-          description:
-            "Start here to create a new project with AI-assisted planning.",
-        },
-      },
-      {
-        element: '[data-tour-id="yolo"]',
-        popover: {
-          title: "YOLO Mode",
-          description:
-            "Turn this on to go fully autonomous — Astro will generate a plan, execute all tasks, auto-approve everything, and notify you when it's done. Turn it off for step-by-step control.",
-        },
-      },
-      {
         element: '[data-tour-id="projects"]',
         popover: {
           title: "Projects",
           description:
             "All your projects and their plan graphs live here.",
+        },
+      },
+      {
+        element: '[data-tour-id="plan"]',
+        popover: {
+          title: "Plan & Project",
+          description:
+            "Start here to create a new project with AI-assisted planning. Describe your goal and Astro will break it into a dependency graph of tasks that can be dispatched to your machines.",
+        },
+      },
+      {
+        element: '[data-tour-id="playground"]',
+        popover: {
+          title: "Playground",
+          description:
+            "Run single-session jobs without creating a full project. Great for quick experiments, one-off tasks, and trying things out.",
         },
       },
     ]
