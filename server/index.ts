@@ -36,7 +36,6 @@ import { openClawChannel } from './lib/channel/adapters/openclaw-channel.js'
 import { telegramChannel } from './lib/channel/adapters/telegram-channel.js'
 import { telegramRoute } from './routes/telegram.js'
 import { teamsRoute } from './routes/teams.js'
-import { projectMembersRoute } from './routes/project-members.js'
 import { communityRoute } from './routes/community.js'
 import { executionsRoute } from './routes/executions.js'
 import { runMigrations } from './lib/db/migrate.js'
@@ -227,7 +226,6 @@ export function createApp() {
   })
   app.route('/api/observations', observationsRoute)
   app.route('/api/teams', teamsRoute)
-  app.route('/api/projects', projectMembersRoute)
   app.route('/api/community', communityRoute)
   app.route('/api/executions', executionsRoute)
 

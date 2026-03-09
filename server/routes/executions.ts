@@ -9,8 +9,8 @@
 
 import { Hono } from 'hono'
 import { db } from '../lib/db/index.js'
-import { taskExecutions, projects, projectMembers } from '../lib/db/schema.js'
-import { eq, and } from 'drizzle-orm'
+import { taskExecutions, projects, teamMembers } from '../lib/db/schema.js'
+import { eq, count } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { randomUUID } from 'crypto'
 
@@ -21,7 +21,7 @@ executionsRoute.use('*', requireAuth)
 
 /**
  * Verify the user has access to the execution's project.
- * Returns the execution row if authorized, null otherwise.
+ * Returns { execution, project } if authorized, null otherwise.
  */
 async function getAuthorizedExecution(executionId: string, user: AuthUser) {
   // Find the execution
@@ -32,7 +32,7 @@ async function getAuthorizedExecution(executionId: string, user: AuthUser) {
 
   if (!execution) return null
 
-  // Verify user has access to the project (owner, team member, or project member)
+  // Verify user has access to the project (owner or team member)
   const [project] = await db
     .select({ id: projects.id, ownerId: projects.ownerId, teamId: projects.teamId })
     .from(projects)
@@ -41,23 +41,25 @@ async function getAuthorizedExecution(executionId: string, user: AuthUser) {
   if (!project) return null
 
   // Check: project owner
-  if (project.ownerId === user.id) return execution
+  if (project.ownerId === user.id) return { execution, project }
 
   // Check: team member (user's active team matches project's team)
-  if (project.teamId && user.teamIds.includes(project.teamId)) return execution
-
-  // Check: project member
-  const [membership] = await db
-    .select({ userId: projectMembers.userId })
-    .from(projectMembers)
-    .where(and(
-      eq(projectMembers.projectId, project.id),
-      eq(projectMembers.userId, user.id),
-    ))
-
-  if (membership) return execution
+  if (project.teamId && user.teamIds.includes(project.teamId)) return { execution, project }
 
   return null
+}
+
+/**
+ * Return true when the workspace has only one member — the user themselves.
+ * Solo users are allowed to self-verify since there is no one else to review.
+ */
+async function isSoloWorkspace(teamId: string | null): Promise<boolean> {
+  if (!teamId) return true
+  const [row] = await db
+    .select({ memberCount: count() })
+    .from(teamMembers)
+    .where(eq(teamMembers.teamId, teamId))
+  return (row?.memberCount ?? 0) <= 1
 }
 
 /**
@@ -70,13 +72,16 @@ executionsRoute.post('/:executionId/verify', async (c) => {
   const user = c.get('user')! as AuthUser
   const executionId = c.req.param('executionId')
 
-  const execution = await getAuthorizedExecution(executionId, user)
-  if (!execution) {
+  const result = await getAuthorizedExecution(executionId, user)
+  if (!result) {
     return c.json({ error: 'Execution not found or access denied' }, 404)
   }
+  const { execution, project } = result
 
-  // Verifier must differ from the original executor to ensure independent review
-  if (execution.userId && execution.userId === user.id) {
+  // Verifier must differ from executor — unless the workspace has only one member,
+  // in which case self-verification is the only option.
+  const solo = await isSoloWorkspace(project.teamId)
+  if (!solo && execution.userId && execution.userId === user.id) {
     return c.json({ error: 'Cannot verify your own execution' }, 403)
   }
 
@@ -107,10 +112,11 @@ executionsRoute.post('/:executionId/rerun', async (c) => {
   const user = c.get('user')! as AuthUser
   const executionId = c.req.param('executionId')
 
-  const execution = await getAuthorizedExecution(executionId, user)
-  if (!execution) {
+  const result = await getAuthorizedExecution(executionId, user)
+  if (!result) {
     return c.json({ error: 'Execution not found or access denied' }, 404)
   }
+  const { execution } = result
 
   const body = await c.req.json<{ note?: string }>().catch(() => ({}))
 
@@ -141,13 +147,15 @@ executionsRoute.post('/:executionId/skip', async (c) => {
   const user = c.get('user')! as AuthUser
   const executionId = c.req.param('executionId')
 
-  const execution = await getAuthorizedExecution(executionId, user)
-  if (!execution) {
+  const result = await getAuthorizedExecution(executionId, user)
+  if (!result) {
     return c.json({ error: 'Execution not found or access denied' }, 404)
   }
+  const { execution, project } = result
 
-  // Verifier must differ from the original executor to ensure independent review
-  if (execution.userId && execution.userId === user.id) {
+  // Same solo exemption as verify
+  const solo = await isSoloWorkspace(project.teamId)
+  if (!solo && execution.userId && execution.userId === user.id) {
     return c.json({ error: 'Cannot skip verification of your own execution' }, 403)
   }
 

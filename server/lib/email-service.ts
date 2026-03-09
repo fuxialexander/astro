@@ -1,12 +1,15 @@
 /**
  * Email Service — Team Invitation Emails
  *
- * Abstraction layer for sending emails. Currently logs to console.
- * In production, integrate with SendGrid, AWS SES, Resend, or similar.
+ * Uses Resend when RESEND_API_KEY is set; falls back to console logging
+ * so development and local mode work without configuration.
  */
 
+import { Resend } from 'resend'
+
 const BASE_URL = process.env.ASTRO_BASE_URL || 'http://localhost:5173'
-const _NOREPLY_EMAIL = process.env.ASTRO_NOREPLY_EMAIL || 'noreply@astro.app'
+const NOREPLY_EMAIL = process.env.ASTRO_NOREPLY_EMAIL || 'noreply@astroanywhere.com'
+const RESEND_API_KEY = process.env.RESEND_API_KEY
 
 export interface InvitationEmailData {
   to: string
@@ -19,41 +22,33 @@ export interface InvitationEmailData {
 }
 
 /**
- * Send a team invitation email.
- *
- * @param data - Invitation email data
- * @returns Promise<boolean> - Success status
+ * Send a team invitation email via Resend.
+ * Falls back to console logging when RESEND_API_KEY is not set.
  */
 export async function sendInvitationEmail(data: InvitationEmailData): Promise<boolean> {
+  if (!RESEND_API_KEY) {
+    // No email provider configured — log invite link so it's discoverable in dev
+    console.log('[email] RESEND_API_KEY not set — logging invite instead of sending')
+    console.log(`[email] Invite for ${data.to} → ${data.inviteUrl}`)
+    return true
+  }
+
   try {
-    // TODO: Integrate with actual email service (SendGrid, AWS SES, Resend, etc.)
-    // For now, log to console for development/testing
-
-    const emailContent = generateInvitationEmailHTML(data)
-
-    console.log('[email] Sending team invitation email:')
-    console.log({
+    const resend = new Resend(RESEND_API_KEY)
+    const { error } = await resend.emails.send({
+      from: `Astro <${NOREPLY_EMAIL}>`,
       to: data.to,
-      from: _NOREPLY_EMAIL,
       subject: `You've been invited to join ${data.teamName} on Astro`,
-      teamName: data.teamName,
-      inviterName: data.inviterName,
-      inviteUrl: data.inviteUrl,
-      expiresAt: data.expiresAt.toISOString(),
+      html: generateInvitationEmailHTML(data),
+      text: generateInvitationEmailText(data),
     })
 
-    console.log('[email] Email HTML preview:')
-    console.log(emailContent)
+    if (error) {
+      console.error('[email] Resend error:', error)
+      return false
+    }
 
-    // In production, replace with actual email sending:
-    // const result = await emailProvider.send({
-    //   to: data.to,
-    //   from: '${_NOREPLY_EMAIL}',
-    //   subject: `You've been invited to join ${data.teamName} on Astro`,
-    //   html: emailContent,
-    // })
-    // return result.success
-
+    console.log(`[email] Invitation sent to ${data.to} via Resend`)
     return true
   } catch (error) {
     console.error('[email] Failed to send invitation email:', error)
@@ -101,15 +96,8 @@ function generateInvitationEmailHTML(data: InvitationEmailData): string {
       color: #3b82f6;
       margin-bottom: 24px;
     }
-    h1 {
-      font-size: 24px;
-      margin: 0 0 16px 0;
-      color: #111;
-    }
-    p {
-      margin: 0 0 16px 0;
-      color: #555;
-    }
+    h1 { font-size: 24px; margin: 0 0 16px 0; color: #111; }
+    p { margin: 0 0 16px 0; color: #555; }
     .button {
       display: inline-block;
       padding: 12px 24px;
@@ -119,9 +107,6 @@ function generateInvitationEmailHTML(data: InvitationEmailData): string {
       border-radius: 6px;
       font-weight: 500;
       margin: 16px 0;
-    }
-    .button:hover {
-      background-color: #2563eb;
     }
     .details {
       background-color: #f9fafb;
@@ -134,13 +119,8 @@ function generateInvitationEmailHTML(data: InvitationEmailData): string {
       justify-content: space-between;
       padding: 4px 0;
     }
-    .details-label {
-      font-weight: 500;
-      color: #666;
-    }
-    .details-value {
-      color: #333;
-    }
+    .details-label { font-weight: 500; color: #666; }
+    .details-value { color: #333; }
     .footer {
       margin-top: 32px;
       padding-top: 24px;
@@ -148,26 +128,19 @@ function generateInvitationEmailHTML(data: InvitationEmailData): string {
       font-size: 14px;
       color: #6b7280;
     }
-    .warning {
-      font-size: 14px;
-      color: #ef4444;
-      margin-top: 16px;
-    }
+    .warning { font-size: 14px; color: #ef4444; margin-top: 16px; }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="logo">✨ Astro</div>
-
+    <div class="logo">Astro</div>
     <h1>You've been invited to join ${escapeHtml(data.teamName)}</h1>
-
     <p>
-      ${escapeHtml(data.inviterName)} (${escapeHtml(data.inviterEmail)}) has invited you to join their team on Astro.
+      ${escapeHtml(data.inviterName)} (${escapeHtml(data.inviterEmail)}) has invited you to join their workspace on Astro.
     </p>
-
     <div class="details">
       <div class="details-row">
-        <span class="details-label">Team:</span>
+        <span class="details-label">Workspace:</span>
         <span class="details-value">${escapeHtml(data.teamName)}</span>
       </div>
       <div class="details-row">
@@ -179,25 +152,18 @@ function generateInvitationEmailHTML(data: InvitationEmailData): string {
         <span class="details-value">${escapeHtml(data.inviterName)}</span>
       </div>
     </div>
-
-    <p>
-      Click the button below to accept this invitation. This link will expire on ${expiryDate}.
-    </p>
-
+    <p>Click the button below to accept. This link will expire on ${expiryDate}.</p>
     <a href="${escapeHtml(data.inviteUrl)}" class="button">Accept Invitation</a>
-
     <p class="warning">
-      ⚠️ This invitation is only valid for <strong>${escapeHtml(data.to)}</strong>.
-      If you didn't expect this invitation, you can safely ignore this email.
+      This invitation is only valid for <strong>${escapeHtml(data.to)}</strong>.
+      If you didn't expect this, you can safely ignore this email.
     </p>
-
     <div class="footer">
       <p>
-        This invitation was sent from <a href="${escapeHtml(BASE_URL)}">Astro</a>,
-        a planning-first platform for builders and scientists.
+        Sent from <a href="${escapeHtml(BASE_URL)}">Astro</a>, a planning-first platform for builders and scientists.
       </p>
       <p>
-        If you're having trouble with the button above, copy and paste this URL into your browser:<br>
+        If the button doesn't work, copy this URL into your browser:<br>
         <a href="${escapeHtml(data.inviteUrl)}">${escapeHtml(data.inviteUrl)}</a>
       </p>
     </div>
@@ -235,20 +201,18 @@ export function generateInvitationEmailText(data: InvitationEmailData): string {
   return `
 You've been invited to join ${data.teamName}
 
-${data.inviterName} (${data.inviterEmail}) has invited you to join their team on Astro.
+${data.inviterName} (${data.inviterEmail}) has invited you to join their workspace on Astro.
 
-Team: ${data.teamName}
+Workspace: ${data.teamName}
 Role: ${data.role}
 Invited by: ${data.inviterName}
 
-Accept this invitation by visiting:
-${data.inviteUrl}
+Accept this invitation: ${data.inviteUrl}
 
-This invitation will expire on ${expiryDate}.
-
-⚠️ This invitation is only valid for ${data.to}. If you didn't expect this invitation, you can safely ignore this email.
+This invitation expires on ${expiryDate}.
+It is only valid for ${data.to}. If you didn't expect this, ignore this email.
 
 ---
-This invitation was sent from Astro (${BASE_URL}), a planning-first platform for builders and scientists.
+Sent from Astro (${BASE_URL})
   `.trim()
 }
