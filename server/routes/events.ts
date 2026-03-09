@@ -31,6 +31,7 @@ import type { ApprovalRequestedEvent, ApprovalRespondedEvent, ProjectCompletedEv
 import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { isYoloMode } from '../lib/yolo-mode.js'
+import { channelRouter } from '../lib/channel/channel-router.js'
 import type {
   TaskTextMessage,
   TaskSessionInitMessage as RelayTaskSessionInitMessage,
@@ -278,6 +279,37 @@ eventsRoute.get('/stream', async (c) => {
       if (!alive) return
       if (!isTaskOwnedByUser(msg.taskId)) return
 
+      /** Send SSE to browser + notify configured channels */
+      const sendApprovalToUIAndChannels = () => {
+        const data = JSON.stringify({
+          taskId: msg.taskId,
+          requestId: msg.requestId,
+          question: msg.question,
+          options: msg.options,
+          machineId: msg.machineId,
+        })
+        const id = eventBuffer.push('task:approval_request', data)
+        stream.writeSSE({ id, event: 'task:approval_request', data }).catch(() => { alive = false })
+
+        // Also route to configured channels (OpenClaw/Telegram/Slack/etc.)
+        // Channels can respond interactively — first response wins (agent runner deduplicates)
+        const ctx = executionContextStore.get(msg.taskId)
+        if (ctx?.projectId) {
+          channelRouter.sendNotification({
+            type: 'approval.requested',
+            projectId: ctx.projectId,
+            summary: msg.question,
+            astroUrl: `${process.env.ASTRO_BASE_URL || 'http://localhost:5173'}/project/${ctx.projectId}`,
+            metadata: {
+              requestId: msg.requestId,
+              taskId: msg.taskId,
+              options: msg.options,
+              machineId: msg.machineId,
+            },
+          }).catch(err => console.error('[events] Failed to send approval notification to channels:', err))
+        }
+      }
+
       // Check YOLO mode fresh from DB (not cached) so mid-session toggles take effect
       // Pass taskId so playground tasks check playgroundYoloMode separately
       isYoloMode(user?.id, msg.taskId).then((yoloEnabled) => {
@@ -303,26 +335,10 @@ eventsRoute.get('/stream', async (c) => {
           return
         }
 
-        const data = JSON.stringify({
-          taskId: msg.taskId,
-          requestId: msg.requestId,
-          question: msg.question,
-          options: msg.options,
-          machineId: msg.machineId,
-        })
-        const id = eventBuffer.push('task:approval_request', data)
-        stream.writeSSE({ id, event: 'task:approval_request', data }).catch(() => { alive = false })
+        sendApprovalToUIAndChannels()
       }).catch(() => {
         // On error reading settings, fall through to normal approval flow
-        const data = JSON.stringify({
-          taskId: msg.taskId,
-          requestId: msg.requestId,
-          question: msg.question,
-          options: msg.options,
-          machineId: msg.machineId,
-        })
-        const id = eventBuffer.push('task:approval_request', data)
-        stream.writeSSE({ id, event: 'task:approval_request', data }).catch(() => { alive = false })
+        sendApprovalToUIAndChannels()
       })
     }
 

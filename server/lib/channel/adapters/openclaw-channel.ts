@@ -114,8 +114,41 @@ export class OpenClawChannelAdapter extends EventEmitter {
       }
     })
 
-    // Register notification sender for all projects (dynamic based on machine availability)
+    // Register response sender
     channelRouter.registerResponseSender('openclaw', (r) => this.sendResponse(r))
+
+    // Register global notification sender — fires for ALL projects.
+    // For approval.requested notifications, this is interactive: sends to Telegram
+    // and relays the user's response back to the agent runner.
+    channelRouter.registerGlobalNotificationSender('openclaw', async (notification) => {
+      if (notification.type === 'approval.requested') {
+        const { requestId, taskId, machineId, options } = (notification.metadata || {}) as {
+          requestId?: string; taskId?: string; machineId?: string; options?: string[]
+        }
+
+        if (requestId && taskId && machineId && options?.length) {
+          // Interactive: request approval via OpenClaw bridge (Telegram poll)
+          // and relay the response back. Race-safe: agent runner ignores duplicate responses.
+          this.requestApproval({
+            approvalId: requestId,
+            projectId: notification.projectId,
+            taskId,
+            question: notification.summary,
+            options,
+          }).then(async (response) => {
+            const relay = await this.getRelay()
+            relay.sendApprovalResponse(taskId, machineId, requestId, true, response)
+            console.log(`[openclaw] Approval answered via channel: task=${taskId} requestId=${requestId} answer="${response}"`)
+          }).catch(() => {
+            // Timeout or no OpenClaw machine — user can still respond via web UI
+          })
+          return
+        }
+      }
+
+      // All other notifications: send as one-way notification
+      await this.sendNotification(notification)
+    })
 
     console.log('[openclaw] Relay-routed adapter started')
   }
