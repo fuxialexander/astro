@@ -1657,11 +1657,14 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       providerName: preferredProvider || targetMachine?.providers[0]?.type,
       computeBackend,
       pathwayType,
-      systemPrompt: relaySystemPrompt || undefined,
+      // For interactive plans, the system prompt is the dedicated planning prompt.
+      // For regular executions, expose the assembled relay prompt (workspace + task +
+      // verification instructions) so the activity feed can show what the agent received.
+      systemPrompt: relaySystemPrompt || relayPrompt || undefined,
     }
     const initSeq = await streamingEventLog.append(executionId, 'init', {
       ...initDataForSSE,
-      hasSystemPrompt: !!relaySystemPrompt,
+      hasSystemPrompt: !!(relaySystemPrompt || relayPrompt),
     })
     await stream.writeSSE({
       id: String(initSeq),

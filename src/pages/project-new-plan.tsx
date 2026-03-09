@@ -39,7 +39,7 @@ import { cn } from "@/lib/utils"
 import { deriveAvailableProviders, isProviderAvailable, PROVIDER_NAMES } from "@/components/execution/provider-utils"
 import { InstructionPicker } from "@/components/execution/instruction-picker"
 import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
-import type { TaskAttachment } from "@/types"
+import type { TaskAttachment, ProjectSource } from "@/types"
 import type { LaunchExampleResult } from "@/lib/api-client"
 import type { ExamplePrefillData } from "@/components/examples/example-picker-dialog"
 
@@ -645,11 +645,22 @@ export function ProjectNewPlan() {
         // Re-generation flow: use existing project, don't create a duplicate
         // Await backend update before starting session to avoid stale context
         const github = detection?.remoteType === 'github' ? extractGitHubOwnerRepo(detection.remoteUrl) : null
+        // If the existing project lacks a source, populate from detection
+        const regenSource: ProjectSource | undefined = !existingProject.source && detection?.exists
+          ? {
+              localPath: workingDir.trim(),
+              isGit: detection.isGit,
+              remoteType: detection.remoteType,
+              baseBranch: effectiveBranch || detection.baseBranch || 'main',
+              ...(detection.remoteUrl ? { remoteUrl: detection.remoteUrl } : {}),
+            }
+          : undefined
         const regenUpdates = {
           description: description.trim(),
           name: firstLine,
           repository: detection?.remoteUrl || existingProject.repository || undefined,
           ...(github && !existingProject.githubOwner ? { githubOwner: github.owner, githubRepo: github.repo } : {}),
+          ...(regenSource ? { source: regenSource } : {}),
         }
         updateProject(existingProject.id, regenUpdates) // optimistic local
         await dataClient.updateProject(existingProject.id, regenUpdates) // await backend
@@ -670,6 +681,17 @@ export function ProjectNewPlan() {
       } else {
         // Normal flow: create a new project + plan session
         const github = detection?.remoteType === 'github' ? extractGitHubOwnerRepo(detection.remoteUrl) : null
+        // Build ProjectSource from detection so the project is created with correct
+        // isGit / remoteType / baseBranch — this drives delivery mode and worktree isolation.
+        const detectedSource: ProjectSource | undefined = detection?.exists
+          ? {
+              localPath: workingDir.trim(),
+              isGit: detection.isGit,
+              remoteType: detection.remoteType,
+              baseBranch: effectiveBranch || detection.baseBranch || 'main',
+              ...(detection.remoteUrl ? { remoteUrl: detection.remoteUrl } : {}),
+            }
+          : undefined
         const result = await startPlanGeneration(
           description.trim(),
           firstLine,
@@ -682,6 +704,7 @@ export function ProjectNewPlan() {
             baseBranch: effectiveBranch || undefined,
             repository: detection?.remoteUrl || undefined,
             ...(github ? { githubOwner: github.owner, githubRepo: github.repo } : {}),
+            ...(detectedSource ? { source: detectedSource } : {}),
           }
         )
         projectId = result.projectId
