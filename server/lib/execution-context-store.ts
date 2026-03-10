@@ -46,15 +46,33 @@ cleanupTimer.unref() // Don't prevent process exit
 /**
  * Tracks executionIds with an active dispatch SSE bridge (POST /api/dispatch/task).
  *
- * Purpose: Prevents double-delivery of EPHEMERAL events (text, tool_trace, progress,
- * file_change, session_init) when both the dispatch bridge and the global SSE
- * (GET /api/events/stream) are running. Only guards ephemeral events — status
- * transitions use node:status_changed which has NO guard (always delivered).
+ * Purpose: Prevents double-persistence of relay-originated events (text, tool_use,
+ * tool_result, file_change, session_init) when both relay-server.ts and dispatch.ts
+ * would otherwise write the same event to streaming_events. Also prevents double-
+ * delivery via the global SSE (GET /api/events/stream) while a dispatch bridge is live.
+ *
+ * Persistence authority:
+ *   - Browser dispatch (isServerSideDispatch=false): dispatch.ts owns persistence.
+ *     relay-server.ts checks this Set and skips persistence when the taskId is present.
+ *   - Server-side dispatch (isServerSideDispatch=true): relay-server.ts owns
+ *     persistence. dispatch.ts skips relay-originated events. This Set is intentionally
+ *     NOT populated for server-side dispatch so events.ts can forward to browser SSE.
+ *   - Chat/agent path: agent.ts adds itself to this Set; relay-server skips persistence.
+ *   - Note: progress events are NOT persisted by relay-server.ts — dispatch.ts is the
+ *     sole persister for progress regardless of pathway. No guard is needed for progress.
  *
  * Lifecycle:
  *   - Added when dispatch SSE starts (dispatch.ts, inside streamSSE callback)
  *   - Removed on stream close/cleanup (dispatch.ts cleanup function)
  *   - Skipped for server-side dispatch (X-Server-Dispatch: 'true')
+ *
+ * Multi-instance note: This is an IN-MEMORY Set. In multi-instance deployments,
+ * only the instance running the dispatch SSE has the entry. relay-server.ts on other
+ * instances would not see it and would persist independently. In practice, the relay
+ * WebSocket from the agent runner and the dispatch SSE share the same instance (sticky
+ * session or explicit relay URL), so single-instance semantics hold. Cross-instance
+ * registration in Redis (redisPubSub.registerActiveDispatchStream) is used only for
+ * the events.ts delivery-dedup path (not for relay-server.ts persistence guards).
  *
  * When dispatch SSE dies (page refresh, network drop):
  *   1. activeDispatchStreams entry is removed on close
