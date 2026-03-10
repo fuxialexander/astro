@@ -37,6 +37,7 @@ import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useGitHubStore } from "@/stores/github-store"
+import { useGitHubAppStore } from "@/stores/github-app-store"
 import { useApiKeysStore } from "@/stores/api-keys-store"
 import { useSettingsStore, defaultModelTierMap, type ModelTier } from "@/stores/settings-store"
 import { useSidebarStore } from "@/stores/sidebar-store"
@@ -942,7 +943,8 @@ function ProfileContent() {
 }
 
 function ConnectedAccountsContent() {
-  const { connected, user, repos, selectedRepoIds, fetchStatus, disconnect } = useGitHubStore()
+  const { connected, user, repos, selectedRepoIds, fetchStatus, disconnect, connect } = useGitHubStore()
+  const { installations, install: installApp } = useGitHubAppStore()
   const { load: loadAccounts, loaded: accountsLoaded } = useConnectedAccountsStore()
   const { add: addToast } = useToastStore()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -1014,26 +1016,26 @@ function ConnectedAccountsContent() {
     }
   }, [accountsLoaded, loadAccounts])
 
-  const handleConnect = async () => {
-    await fetchStatus()
-  }
-
   return (
     <div className="flex flex-col gap-8">
       <h1 className="text-xl font-primary font-semibold">Connected accounts</h1>
 
-      {/* GitHub Integration Guide */}
-      <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">GitHub</h2>
-        <p className="text-[13px] text-muted-foreground">
-          Astro integrates with GitHub in two ways. Choose the option that best fits your workflow—you can use both simultaneously.
-        </p>
+      {/* GitHub Integration Guide — shown only until both integrations are set up */}
+      {(!connected || installations.length === 0) && (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-sm font-semibold">GitHub</h2>
+          <p className="text-[13px] text-muted-foreground">
+            Astro integrates with GitHub in two ways. Choose the option that best fits your workflow—you can use both simultaneously.
+          </p>
 
-        <GitHubIntegrationGuide
-          onOAuthClick={handleConnect}
-          onAppClick={handleConnect}
-        />
-      </section>
+          <GitHubIntegrationGuide
+            onOAuthClick={connect}
+            onAppClick={installApp}
+            oauthConnected={connected}
+            appInstalled={installations.length > 0}
+          />
+        </section>
+      )}
 
       {/* Personal Account Connection Status */}
       {connected && (

@@ -117,9 +117,9 @@ function InstallationRow({
               <CheckCircle2 className="h-3 w-3" />
               {linkedTeam?.name ?? 'Team linked'}
             </Badge>
-          ) : (
+          ) : installation.accountType === 'User' ? (
             <Badge variant="secondary" className="text-xs">Personal</Badge>
-          )}
+          ) : null}
 
           <Button
             variant="ghost"

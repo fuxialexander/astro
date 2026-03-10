@@ -48,7 +48,7 @@ function InlineSelect({
       <div className="relative">
         <button
           onClick={() => setOpen(!open)}
-          className="flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-xs hover:bg-secondary/80 transition-colors cursor-pointer"
+          className="flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted transition-colors cursor-pointer"
         >
           {selected?.label ?? value}
           <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", open && "rotate-180")} />
@@ -197,7 +197,7 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
                       orderDirection: settings.orderDirection === "asc" ? "desc" : "asc",
                     })
                   }
-                  className="rounded-md bg-secondary p-1 hover:bg-secondary/80 transition-colors cursor-pointer"
+                  className="rounded-md border border-border bg-background p-1 hover:bg-muted transition-colors cursor-pointer"
                   title={settings.orderDirection === "asc" ? "Ascending" : "Descending"}
                 >
                   {settings.orderDirection === "asc" ? (
@@ -276,8 +276,8 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
                         className={cn(
                           "rounded-md px-2 py-1 text-[11px] font-medium transition-colors cursor-pointer",
                           active
-                            ? "bg-secondary text-foreground"
-                            : "border border-border text-muted-foreground hover:text-foreground"
+                            ? "bg-accent text-accent-foreground"
+                            : "border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
                         )}
                       >
                         {prop.label}
@@ -321,7 +321,7 @@ function InlineSelectInner({
     <div className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-xs hover:bg-secondary/80 transition-colors cursor-pointer"
+        className="flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted transition-colors cursor-pointer"
       >
         {selected?.label ?? value}
         <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", open && "rotate-180")} />
