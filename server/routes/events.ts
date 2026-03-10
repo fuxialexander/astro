@@ -309,7 +309,11 @@ eventsRoute.get('/stream', async (c) => {
         // Channels can respond interactively — first response wins (agent runner deduplicates).
         // Deduplicate: multiple SSE connections (browser tabs) share this relay event,
         // but channel notification should fire only once per requestId.
-        if (!notifiedApprovalRequests.has(msg.requestId)) {
+        // Dedup across instances: Redis SETNX returns true only for the first instance.
+        // Local Set still used as fast-path guard to avoid redundant Redis calls.
+        const shouldNotify = !notifiedApprovalRequests.has(msg.requestId)
+          && await redisPubSub.markApprovalNotified(msg.requestId)
+        if (shouldNotify) {
           notifiedApprovalRequests.add(msg.requestId)
           setTimeout(() => notifiedApprovalRequests.delete(msg.requestId), 300_000)
 

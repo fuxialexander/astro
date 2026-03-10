@@ -1610,6 +1610,11 @@ export class RelayServer extends EventEmitter {
    * heartbeat reports. After 5 consecutive misses (~5 minutes), emits 'task:dead'.
    * Tasks dispatched within the last 3 minutes are given a grace period to allow
    * for worktree creation, git clone, and agent startup.
+   *
+   * Uses Redis leader election when multiple instances are running — only
+   * the instance with the machine connections should run dead job detection.
+   * (Each instance only sees its own machines, so leader election prevents
+   * redundant checks.)
    */
   private startDeadJobChecker(): void {
     if (this.deadJobCheckInterval) return;
@@ -1617,8 +1622,15 @@ export class RelayServer extends EventEmitter {
     const DEAD_JOB_CHECK_INTERVAL_MS = 60_000;  // 60 seconds
     const CONSECUTIVE_MISS_THRESHOLD = 5;        // 5 misses = ~5 minutes
     const DISPATCH_GRACE_PERIOD_MS = 3 * 60_000; // 3 minutes grace after dispatch
+    const LEADER_NAME = 'dead-job-checker';
+    const LEADER_TTL_SECONDS = 90; // 90s TTL, renewed every 60s
 
-    this.deadJobCheckInterval = setInterval(() => {
+    this.deadJobCheckInterval = setInterval(async () => {
+      // Leader election: only one instance runs the dead job checker
+      const acquired = await redisPubSub.tryAcquireLeader(LEADER_NAME, LEADER_TTL_SECONDS);
+      const renewed = !acquired && await redisPubSub.renewLeadership(LEADER_NAME, LEADER_TTL_SECONDS);
+      if (!acquired && !renewed) return; // another instance is the leader
+
       const allMachines = machineRegistry.getAll();
       const now = Date.now();
 
@@ -1668,7 +1680,7 @@ export class RelayServer extends EventEmitter {
       }
     }, DEAD_JOB_CHECK_INTERVAL_MS);
 
-    console.log('[relay] Dead job checker started (60s interval, 5-miss threshold, 3-min grace)');
+    console.log('[relay] Dead job checker started (60s interval, 5-miss threshold, 3-min grace, leader-elected)');
   }
 
   /**

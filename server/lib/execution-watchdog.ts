@@ -9,6 +9,9 @@
  *
  * Runs every 5 minutes. Resets stuck tasks to 'planned' after 2 hours
  * of inactivity (no streaming events and no pending approvals).
+ *
+ * Uses Redis leader election when multiple instances are running — only
+ * one instance runs the watchdog at a time to avoid duplicate resets.
  */
 
 import { db } from './db/index.js'
@@ -16,6 +19,7 @@ import { planNodes, streamingEvents } from './db/schema.js'
 import { and, eq, gt, inArray, isNull, lt } from 'drizzle-orm'
 import { dispatchEngine } from './dispatch/index.js'
 import { executionEventBus } from './execution-event-bus.js'
+import { redisPubSub } from './redis-pubsub.js'
 
 interface WatchdogConfig {
   enabled: boolean
@@ -30,6 +34,10 @@ const DEFAULT_WATCHDOG_CONFIG: WatchdogConfig = {
   intervalMs: 5 * 60 * 1000,           // 5 minutes
   staleThresholdMs: 2 * 60 * 60 * 1000, // 2 hours
 }
+
+const LEADER_NAME = 'execution-watchdog'
+/** Leader lock TTL — slightly longer than check interval for overlap safety */
+const LEADER_TTL_SECONDS = 600 // 10 minutes (2× the 5-minute interval)
 
 let watchdogTimer: ReturnType<typeof setInterval> | null = null
 let config: WatchdogConfig = DEFAULT_WATCHDOG_CONFIG
@@ -162,6 +170,21 @@ async function runWatchdogCheck(): Promise<void> {
 }
 
 /**
+ * Run watchdog check only if this instance is the leader.
+ */
+async function runWatchdogCheckIfLeader(): Promise<void> {
+  const acquired = await redisPubSub.tryAcquireLeader(LEADER_NAME, LEADER_TTL_SECONDS)
+  const renewed = !acquired && await redisPubSub.renewLeadership(LEADER_NAME, LEADER_TTL_SECONDS)
+
+  if (!acquired && !renewed) {
+    console.log('[watchdog] Another instance is the watchdog leader — skipping this cycle')
+    return
+  }
+
+  await runWatchdogCheck()
+}
+
+/**
  * Start the execution watchdog.
  */
 export function startExecutionWatchdog(customConfig?: Partial<WatchdogConfig>): void {
@@ -180,13 +203,13 @@ export function startExecutionWatchdog(customConfig?: Partial<WatchdogConfig>): 
   console.log(`[watchdog] Starting execution watchdog (interval: ${intervalMin}min, threshold: ${thresholdHours}h)`)
 
   // Run immediately on start to catch any tasks stuck from a previous crash
-  runWatchdogCheck().catch((err) => {
+  runWatchdogCheckIfLeader().catch((err) => {
     console.error('[watchdog] Initial watchdog check failed:', err)
   })
 
-  // Schedule periodic checks
+  // Schedule periodic checks (with leader election each cycle)
   watchdogTimer = setInterval(() => {
-    runWatchdogCheck().catch((err) => {
+    runWatchdogCheckIfLeader().catch((err) => {
       console.error('[watchdog] Scheduled watchdog check failed:', err)
     })
   }, config.intervalMs)
@@ -199,6 +222,7 @@ export function stopExecutionWatchdog(): void {
   if (watchdogTimer) {
     clearInterval(watchdogTimer)
     watchdogTimer = null
+    redisPubSub.releaseLeadership(LEADER_NAME).catch(() => {})
     console.log('[watchdog] Execution watchdog stopped')
   }
 }

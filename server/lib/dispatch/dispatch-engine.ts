@@ -55,6 +55,7 @@ import { ResultRouter, createResultRouter } from './result-router.js'
 import { errorMessage } from '../error-utils.js'
 import { BranchManager, createBranchManager } from './branch-manager.js'
 import { astroEventTransport } from '../events/astro-event-transport.js'
+import { redisPubSub } from '../redis-pubsub.js'
 import type { TaskStartedEvent, TaskCompletedEvent as AstroTaskCompletedEvent } from '../events/types.js'
 
 /**
@@ -906,17 +907,30 @@ export class DispatchEngine extends EventEmitter {
   }
 
   /**
-   * Start polling for ready tasks
+   * Start polling for ready tasks.
+   * Uses Redis leader election when multiple instances are running —
+   * only one instance polls to prevent duplicate task dispatch.
    */
   private startPolling(): void {
     if (this.pollInterval) return
 
+    const LEADER_NAME = 'dispatch-poll'
+    const LEADER_TTL_SECONDS = Math.max(
+      Math.ceil(this.config.pollIntervalMs / 1000) * 2,
+      60
+    ) // 2× poll interval or 60s minimum
+
     this.pollInterval = setInterval(async () => {
+      // Leader election: only one instance polls for ready tasks
+      const acquired = await redisPubSub.tryAcquireLeader(LEADER_NAME, LEADER_TTL_SECONDS)
+      const renewed = !acquired && await redisPubSub.renewLeadership(LEADER_NAME, LEADER_TTL_SECONDS)
+      if (!acquired && !renewed) return // another instance is the leader
+
       await this.pollReadyTasks()
       this.pruneRespondedApprovals() // Periodic cleanup of idempotency tracking
     }, this.config.pollIntervalMs)
 
-    console.log(`[dispatch] Polling started (${this.config.pollIntervalMs}ms interval)`)
+    console.log(`[dispatch] Polling started (${this.config.pollIntervalMs}ms interval, leader-elected)`)
   }
 
   /**
