@@ -555,6 +555,22 @@ async function start() {
   }
 
   httpServer = serve({ fetch: app.fetch, port })
+  // Set keepAlive timeouts above Fly.io's 75s proxy idle timeout.
+  // Without this, Fly.io may reuse a connection Node.js has already closed,
+  // causing 502 errors and client reconnect storms that inflate connection count.
+  httpServer.keepAliveTimeout = 90_000
+  httpServer.headersTimeout = 91_000
+  // Enable OS-level TCP keepalive probes on every socket.
+  // This is critical for SSE connections: when a client crashes or the network
+  // drops, the OS sends TCP keepalive probes (every 10s, 3 retries = 30s to
+  // detect dead). Without this, a zombie SSE connection behind Fly.io's proxy
+  // can stay open indefinitely — the Fly→backend TCP socket stays alive even
+  // after the client is gone, so application-level heartbeat writes succeed and
+  // the server never learns the client left. TCP keepalive at the socket level
+  // bypasses the proxy and detects the dead connection at the OS layer.
+  httpServer.on('connection', (socket: import('net').Socket) => {
+    socket.setKeepAlive(true, 10_000) // probe after 10s idle, OS retries 3× before giving up
+  })
   httpServer.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
       console.error(`[backend] Port ${port} already in use. Killing stale process...`)

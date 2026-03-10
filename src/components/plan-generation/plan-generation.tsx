@@ -167,6 +167,7 @@ export function PlanGeneration({
     chatEventsVersion,
     pushChatEvent,
     flushChatEvents,
+    trimChatEvents,
     chatToolCounterRef,
   } = useChatStreamEvents()
 
@@ -178,10 +179,20 @@ export function PlanGeneration({
     isChatStreaming,
   )
 
-  // Merge: during live streaming use chatEventsRef; after refresh use hydrated events
+  // Merge: combine historical hydrated events with current-mount live events.
+  // hydratedChatEvents = DB events at mount time (all previous turns).
+  // chatEventsRef.current = live events from the current mount's chat turns.
+  // These two sets are non-overlapping: hydrated covers pre-mount history,
+  // ref covers post-mount activity. Concatenating both ensures a new browser
+  // (chatEventsRef empty, hydrated = all) and same browser mid-session
+  // (chatEventsRef has current turns, hydrated has prior turns) show the same
+  // complete history instead of diverging.
   const allActivityEvents: TaskActivityEvent[] = useMemo(() => {
     void chatEventsVersion // re-compute when chat events change
-    const chatEvents = chatEventsRef.current.length > 0 ? chatEventsRef.current : hydratedChatEvents
+    const liveChatEvents = chatEventsRef.current
+    const chatEvents = liveChatEvents.length > 0
+      ? [...hydratedChatEvents, ...liveChatEvents]
+      : hydratedChatEvents
     return [...activityEvents, ...chatEvents]
   // eslint-disable-next-line react-hooks/exhaustive-deps -- chatEventsRef is a stable ref
   }, [activityEvents, chatEventsVersion, hydratedChatEvents])
@@ -342,6 +353,12 @@ export function PlanGeneration({
     }
 
     let rawText = ""
+    // Checkpoint: snapshot of rawText and chatEventsRef length at the last
+    // heartbeat seq. Used to roll back before catch-up replay so text received
+    // live after the last heartbeat isn't appended twice (once from live SSE,
+    // once from the catch-up DB fetch).
+    let rawTextAtLastSeq = ""
+    let chatEventsCountAtLastSeq = 0
     try {
       await projectChatWithAgent(
         {
@@ -399,6 +416,10 @@ export function PlanGeneration({
           },
           onSeq: (seq) => {
             chatStreamRef.current.lastSeq = seq
+            // Snapshot at each heartbeat seq — text and events up to here
+            // are persisted in DB and won't be re-fetched by catch-up.
+            rawTextAtLastSeq = rawText
+            chatEventsCountAtLastSeq = chatEventsRef.current.length
           },
           onMetrics: (m) => {
             useUsageStore.getState().addTaskMetrics({
@@ -427,6 +448,12 @@ export function PlanGeneration({
         try {
           const { events } = await fetchStreamingEventsCatchUp([catchUpStreamId], lastSeq)
           if (events.length > 0) {
+            // Roll back to the last heartbeat checkpoint before replaying.
+            // Text received live after the last heartbeat has seq > lastSeq
+            // in DB, so it appears in this catch-up batch — without rollback
+            // it would be appended to rawText and chatEventsRef a second time.
+            rawText = rawTextAtLastSeq
+            trimChatEvents(chatEventsCountAtLastSeq)
             const { completed } = replayChatCatchUpEvents(events, {
               onText: (chunk) => {
                 rawText += chunk

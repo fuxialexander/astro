@@ -773,10 +773,22 @@ eventsRoute.get('/stream', async (c) => {
       })
     }, 15000)
 
+    // Max SSE connection lifetime: 2 hours. After this, close gracefully so the
+    // client reconnects with a fresh connection. Prevents zombie connections from
+    // crashed browsers (which the OS TCP keepalive won't clear for ~2h by default)
+    // from accumulating and exhausting Fly.io's per-instance connection limit.
+    const MAX_LIFETIME_MS = 2 * 60 * 60 * 1000 // 2 hours
+    const maxLifetimeTimer = setTimeout(() => {
+      if (!alive) return
+      stream.writeSSE({ event: 'server-close', data: JSON.stringify({ reason: 'max_lifetime' }) }).catch(() => {})
+      alive = false
+    }, MAX_LIFETIME_MS)
+
     // Wait for client disconnect
     stream.onAbort(() => {
       alive = false
       clearInterval(heartbeat)
+      clearTimeout(maxLifetimeTimer)
       throttle.shutdown()
 
       // Flush any buffered text from relay-direct fallback path (GAP-9 fix)

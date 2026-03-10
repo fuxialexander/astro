@@ -1923,6 +1923,13 @@ async function processSSEStreamWithReconnect(
 ): Promise<void> {
   let lastSeq = 0
   let streamCompleted = false
+  // Checkpoint: snapshot of exec state at the last heartbeat (or structural
+  // event with a seq). Text events received between the checkpoint and a
+  // stream drop may already be in activityEvents (100ms batch timer) AND
+  // in the catch-up DB fetch — we roll back to this checkpoint before
+  // catch-up replay so those events are added exactly once.
+  let streamTextAtCheckpoint = ''
+  let activityCountAtCheckpoint = 0
 
   // Set initial connection state
   setConnectionState(nodeId, 'connected', set)
@@ -1942,6 +1949,19 @@ async function processSSEStreamWithReconnect(
         const seq = parseInt(id, 10)
         if (!isNaN(seq) && seq > lastSeq) {
           lastSeq = seq
+          // Flush any pending text batch immediately — the heartbeat seq
+          // covers all text persisted up to this point. After the flush,
+          // activityEvents contains exactly the events ≤ lastSeq.
+          flushTextBatch(nodeId, set)
+          // Snapshot state: everything here is in DB and won't be in the
+          // next catch-up fetch (afterSeq=lastSeq). Text received after
+          // this point and before the next heartbeat is at risk of
+          // duplication on reconnect — the rollback removes it before replay.
+          const snap = get().executions.get(nodeId)
+          if (snap) {
+            streamTextAtCheckpoint = snap.streamText
+            activityCountAtCheckpoint = snap.activityEvents.length
+          }
         }
       },
     })
@@ -1978,6 +1998,9 @@ async function processSSEStreamWithReconnect(
   setConnectionState(nodeId, 'reconnecting', set)
 
   let retryCount = 0
+  // Guard: rollback to checkpoint only once — before the first catch-up batch.
+  // Subsequent iterations use the updated lastSeq and don't re-duplicate.
+  let hasRolledBackForCatchUp = false
 
   while (retryCount < MAX_RECONNECT_RETRIES) {
     // Check if aborted
@@ -2002,6 +2025,27 @@ async function processSSEStreamWithReconnect(
 
       if (events.length > 0) {
         console.log(`[sse-reconnect] Caught up ${events.length} events for ${nodeId} (seq ${lastSeq} → ${newLastSeq})`)
+        // Before the first catch-up replay, roll back any text that arrived
+        // live after the last heartbeat checkpoint. Those events are in DB
+        // (and therefore in this catch-up batch) and were also flushed to
+        // activityEvents by the 100ms batch timer — replaying without rollback
+        // would append them twice.
+        if (!hasRolledBackForCatchUp) {
+          clearTextBatch(nodeId)
+          set((state) => {
+            const newExecutions = new Map(state.executions)
+            const exec = newExecutions.get(nodeId)
+            if (exec) {
+              newExecutions.set(nodeId, {
+                ...exec,
+                streamText: streamTextAtCheckpoint,
+                activityEvents: exec.activityEvents.slice(0, activityCountAtCheckpoint),
+              })
+            }
+            return { executions: newExecutions }
+          })
+          hasRolledBackForCatchUp = true
+        }
         processCatchUpEvents(events, nodeId, set, get, planStore, onEventCallback)
         lastSeq = newLastSeq
 
