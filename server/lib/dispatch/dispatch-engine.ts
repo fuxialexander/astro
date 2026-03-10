@@ -936,13 +936,17 @@ export class DispatchEngine extends EventEmitter {
     ) // 2× poll interval or 60s minimum
 
     this.pollInterval = setInterval(async () => {
-      // Leader election: only one instance polls for ready tasks
-      const acquired = await redisPubSub.tryAcquireLeader(POLL_LEADER_NAME, POLL_LEADER_TTL_SECONDS)
-      const renewed = !acquired && await redisPubSub.renewLeadership(POLL_LEADER_NAME, POLL_LEADER_TTL_SECONDS)
-      if (!acquired && !renewed) return // another instance is the leader
+      try {
+        // Leader election: only one instance polls for ready tasks
+        const acquired = await redisPubSub.tryAcquireLeader(POLL_LEADER_NAME, POLL_LEADER_TTL_SECONDS)
+        const renewed = !acquired && await redisPubSub.renewLeadership(POLL_LEADER_NAME, POLL_LEADER_TTL_SECONDS)
+        if (!acquired && !renewed) return // another instance is the leader
 
-      await this.pollReadyTasks()
-      this.pruneRespondedApprovals() // Periodic cleanup of idempotency tracking
+        await this.pollReadyTasks()
+        this.pruneRespondedApprovals() // Periodic cleanup of idempotency tracking
+      } catch (err) {
+        console.error('[dispatch] Poll cycle failed:', (err as Error).message)
+      }
     }, this.config.pollIntervalMs)
 
     console.log(`[dispatch] Polling started (${this.config.pollIntervalMs}ms interval, leader-elected)`)

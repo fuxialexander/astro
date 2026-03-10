@@ -118,11 +118,15 @@ class SafetyRails {
    * Falls back to local cache when Redis is unavailable.
    */
   async getExecutionCostCrossInstance(executionId: string): Promise<number> {
-    const redisCost = await redisPubSub.getExecutionCost(executionId)
-    if (redisCost > 0) {
-      // Update local cache with cross-instance total
-      this.executionCosts.set(executionId, redisCost)
-      return redisCost
+    try {
+      const redisCost = await redisPubSub.getExecutionCost(executionId)
+      if (redisCost > 0) {
+        // Update local cache with cross-instance total
+        this.executionCosts.set(executionId, redisCost)
+        return redisCost
+      }
+    } catch {
+      // Redis unavailable — fall back to local cache
     }
     return this.executionCosts.get(executionId) ?? 0
   }

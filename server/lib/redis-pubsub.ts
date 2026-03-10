@@ -565,11 +565,9 @@ export class RedisPubSub extends EventEmitter {
     const key = `${KEYS.EXECUTION_COST}${executionId}`;
     const result = await this.publisher.incrbyfloat(key, costUsd);
     const numResult = parseFloat(String(result));
-    // Set TTL on first write (4h matching execution context).
-    // INCRBYFLOAT returns a string; compare parsed float to detect first write.
-    if (numResult === costUsd) {
-      await this.publisher.expire(key, 14400);
-    }
+    // Always refresh TTL (4h matching execution context). EXPIRE is idempotent
+    // and avoids edge cases with floating-point equality detection on first write.
+    await this.publisher.expire(key, 14400);
     return numResult;
   }
 

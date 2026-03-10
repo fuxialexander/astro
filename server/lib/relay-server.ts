@@ -1627,6 +1627,7 @@ export class RelayServer extends EventEmitter {
     const LEADER_TTL_SECONDS = 90; // 90s TTL, renewed every 60s
 
     this.deadJobCheckInterval = setInterval(async () => {
+      try {
       // Leader election: only one instance runs the dead job checker
       const acquired = await redisPubSub.tryAcquireLeader(LEADER_NAME, LEADER_TTL_SECONDS);
       const renewed = !acquired && await redisPubSub.renewLeadership(LEADER_NAME, LEADER_TTL_SECONDS);
@@ -1678,6 +1679,9 @@ export class RelayServer extends EventEmitter {
             }
           }
         }
+      }
+      } catch (err) {
+        console.error('[relay] Dead job check cycle failed:', (err as Error).message);
       }
     }, DEAD_JOB_CHECK_INTERVAL_MS);
 

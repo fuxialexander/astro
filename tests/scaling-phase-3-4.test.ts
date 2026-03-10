@@ -58,7 +58,7 @@ describe('redis-pubsub: Phase 3-4 key prefixes and methods', () => {
       expect(method).toContain('KEYS.EXECUTION_COST')
     })
 
-    it('sets 4h TTL on first write', () => {
+    it('always refreshes 4h TTL after increment', () => {
       const method = pubsubSource.slice(
         pubsubSource.indexOf('async incrementExecutionCost('),
         pubsubSource.indexOf('async getExecutionCost(')
@@ -1280,15 +1280,14 @@ describe('redis-pubsub: INCRBYFLOAT first-write TTL edge case', () => {
   const PUBSUB_PATH = join(process.cwd(), 'server/lib/redis-pubsub.ts')
   const pubsubSource = readFileSync(PUBSUB_PATH, 'utf-8')
 
-  it('uses result === costUsd to detect first write (key auto-created by INCRBYFLOAT)', () => {
-    // INCRBYFLOAT creates the key with value 0 if it doesn't exist, then adds.
-    // So on first write, result === costUsd. This comparison detects first write.
+  it('always refreshes TTL after increment (idempotent, avoids floating-point edge cases)', () => {
     const method = pubsubSource.slice(
       pubsubSource.indexOf('async incrementExecutionCost('),
       pubsubSource.indexOf('async getExecutionCost(')
     )
-    expect(method).toContain('numResult === costUsd')
+    // Should always call expire, not conditionally on numResult === costUsd
     expect(method).toContain('expire(key, 14400)')
+    expect(method).not.toContain('numResult === costUsd')
   })
 
   it('parses INCRBYFLOAT result from string to float', () => {
@@ -1442,5 +1441,62 @@ describe('AI pathway analysis: Phase 3-4 changes are scoped to infrastructure', 
   it('result-router.ts is unchanged', () => {
     const source = readFileSync(join(process.cwd(), 'server/lib/dispatch/result-router.ts'), 'utf-8')
     expect(source).not.toContain('redisPubSub')
+  })
+})
+
+// =============================================================================
+// 24. CORNER CASE: setInterval async callbacks must catch errors
+// =============================================================================
+
+describe('setInterval error handling: no unhandled promise rejections', () => {
+  it('dispatch-engine startPolling wraps setInterval body in try/catch', () => {
+    const ENGINE_PATH = join(process.cwd(), 'server/lib/dispatch/dispatch-engine.ts')
+    const engineSource = readFileSync(ENGINE_PATH, 'utf-8')
+    const polling = engineSource.slice(
+      engineSource.indexOf('private startPolling():'),
+      engineSource.indexOf('private stopPolling():')
+    )
+    // Must have try/catch inside the setInterval callback
+    expect(polling).toContain('try {')
+    expect(polling).toContain("console.error('[dispatch] Poll cycle failed:'")
+  })
+
+  it('relay-server startDeadJobChecker wraps setInterval body in try/catch', () => {
+    const RELAY_PATH = join(process.cwd(), 'server/lib/relay-server.ts')
+    const relaySource = readFileSync(RELAY_PATH, 'utf-8')
+    const checker = relaySource.slice(
+      relaySource.indexOf('private startDeadJobChecker():'),
+      relaySource.indexOf('Dead job checker started')
+    )
+    expect(checker).toContain('try {')
+    expect(checker).toContain("console.error('[relay] Dead job check cycle failed:'")
+  })
+})
+
+// =============================================================================
+// 25. safety-rails: getExecutionCostCrossInstance resilience
+// =============================================================================
+
+describe('safety-rails: getExecutionCostCrossInstance error resilience', () => {
+  const RAILS_PATH = join(process.cwd(), 'server/lib/observability/safety-rails.ts')
+  const railsSource = readFileSync(RAILS_PATH, 'utf-8')
+
+  it('getExecutionCostCrossInstance catches Redis errors', () => {
+    const method = railsSource.slice(
+      railsSource.indexOf('async getExecutionCostCrossInstance('),
+      railsSource.indexOf('/** Singleton instance')
+    )
+    expect(method).toContain('try {')
+    expect(method).toContain('} catch {')
+    expect(method).toContain('Redis unavailable')
+  })
+
+  it('falls back to local cache on Redis failure', () => {
+    const method = railsSource.slice(
+      railsSource.indexOf('async getExecutionCostCrossInstance('),
+      railsSource.indexOf('/** Singleton instance')
+    )
+    // After the catch block, should return from local Map
+    expect(method).toContain('this.executionCosts.get(executionId) ?? 0')
   })
 })
