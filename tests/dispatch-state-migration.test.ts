@@ -636,7 +636,158 @@ describe('TTL configuration for Redis keys', () => {
 })
 
 // =============================================================================
-// 10. Completeness: all taskToMachine.delete sites have Redis cleanup
+// 10. Security: fail-closed ownership checks on approval/steer/safety
+// =============================================================================
+
+describe('security: fail-closed ownership checks use async fallback', () => {
+  const DISPATCH_PATH = join(process.cwd(), 'server/routes/dispatch.ts')
+  const dispatchSource = readFileSync(DISPATCH_PATH, 'utf-8')
+
+  it('steer endpoint uses getWithFallback (async, cross-instance safe)', () => {
+    const steerSection = dispatchSource.slice(
+      dispatchSource.indexOf('const steerUser'),
+      dispatchSource.indexOf('const sent = relayServer.steerTask')
+    )
+    expect(steerSection).toContain('getWithFallback(taskId)')
+    expect(steerSection).not.toContain('executionContextStore.get(taskId)')
+  })
+
+  it('approval endpoint uses getWithFallback (async, cross-instance safe)', () => {
+    const approvalSection = dispatchSource.slice(
+      dispatchSource.indexOf('const approvalUser'),
+      dispatchSource.indexOf('const sent = relayServer.sendApprovalResponse')
+    )
+    expect(approvalSection).toContain('getWithFallback(taskId)')
+    expect(approvalSection).not.toContain('executionContextStore.get(taskId)')
+  })
+
+  it('safety-decision endpoint uses getWithFallback (async, cross-instance safe)', () => {
+    const safetySection = dispatchSource.slice(
+      dispatchSource.indexOf('const safetyUser'),
+      dispatchSource.indexOf('const sent = relayServer.sendSafetyDecision')
+    )
+    expect(safetySection).toContain('getWithFallback(taskId)')
+    expect(safetySection).not.toContain('executionContextStore.get(taskId)')
+  })
+
+  it('steer denies by default when context is not found', () => {
+    const steerSection = dispatchSource.slice(
+      dispatchSource.indexOf('const steerUser'),
+      dispatchSource.indexOf('const sent = relayServer.steerTask')
+    )
+    // When ctx is null (not in local or Redis), should return 403
+    expect(steerSection).toContain('} else {')
+    expect(steerSection).toContain('Not authorized for this task')
+  })
+
+  it('approval denies by default when context is not found', () => {
+    const approvalSection = dispatchSource.slice(
+      dispatchSource.indexOf('const approvalUser'),
+      dispatchSource.indexOf('const sent = relayServer.sendApprovalResponse')
+    )
+    expect(approvalSection).toContain('} else {')
+    expect(approvalSection).toContain('Not authorized for this task')
+  })
+})
+
+// =============================================================================
+// 11. Safety decision cross-instance routing
+// =============================================================================
+
+describe('safety decision: cross-instance routing', () => {
+  const PUBSUB_PATH = join(process.cwd(), 'server/lib/redis-pubsub.ts')
+  const RELAY_PATH = join(process.cwd(), 'server/lib/relay-server.ts')
+  const pubsubSource = readFileSync(PUBSUB_PATH, 'utf-8')
+  const relaySource = readFileSync(RELAY_PATH, 'utf-8')
+
+  it('defines SAFETY_DECISION channel', () => {
+    expect(pubsubSource).toContain("SAFETY_DECISION: 'relay:safety:decision'")
+  })
+
+  it('defines SafetyDecisionEvent interface', () => {
+    expect(pubsubSource).toContain('export interface SafetyDecisionEvent')
+    expect(pubsubSource).toContain("decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel'")
+  })
+
+  it('subscribes to SAFETY_DECISION channel', () => {
+    expect(pubsubSource).toContain('CHANNELS.SAFETY_DECISION')
+  })
+
+  it('has routeSafetyDecision method', () => {
+    expect(pubsubSource).toContain('async routeSafetyDecision(')
+  })
+
+  it('sendSafetyDecision routes via Redis when machine not local', () => {
+    const method = relaySource.slice(
+      relaySource.indexOf('sendSafetyDecision('),
+      relaySource.indexOf('private sendSafetyDecisionLocal(')
+    )
+    expect(method).toContain('redisPubSub.routeSafetyDecision')
+    expect(method).toContain('Safety decision routed via Redis')
+  })
+
+  it('has sendSafetyDecisionLocal for direct WebSocket sends', () => {
+    expect(relaySource).toContain('private sendSafetyDecisionLocal(')
+  })
+
+  it('registerRedisRouting listens for cross-instance safety decision', () => {
+    const routing = relaySource.slice(
+      relaySource.indexOf('private registerRedisRouting():'),
+      relaySource.indexOf('/**\n   * Get all task IDs')
+    )
+    expect(routing).toContain("redisPubSub.on('safety:decision'")
+    expect(routing).toContain('cross-instance safety decision')
+  })
+})
+
+// =============================================================================
+// 12. Steer parameters preserved cross-instance
+// =============================================================================
+
+describe('steer: all parameters preserved in cross-instance routing', () => {
+  const PUBSUB_PATH = join(process.cwd(), 'server/lib/redis-pubsub.ts')
+  const RELAY_PATH = join(process.cwd(), 'server/lib/relay-server.ts')
+  const pubsubSource = readFileSync(PUBSUB_PATH, 'utf-8')
+  const relaySource = readFileSync(RELAY_PATH, 'utf-8')
+
+  it('TaskSteerEvent includes action field', () => {
+    const iface = pubsubSource.slice(
+      pubsubSource.indexOf('export interface TaskSteerEvent'),
+      pubsubSource.indexOf('/** Message published for cross-instance safety')
+    )
+    expect(iface).toContain("action?: 'guidance' | 'redirect' | 'pause' | 'resume'")
+  })
+
+  it('TaskSteerEvent includes sessionId and branchName', () => {
+    const iface = pubsubSource.slice(
+      pubsubSource.indexOf('export interface TaskSteerEvent'),
+      pubsubSource.indexOf('/** Message published for cross-instance safety')
+    )
+    expect(iface).toContain('sessionId?: string')
+    expect(iface).toContain('branchName?: string')
+  })
+
+  it('steerTask passes all parameters to routeTaskSteer', () => {
+    const method = relaySource.slice(
+      relaySource.indexOf('steerTask(taskId: string, machineId: string, message: string'),
+      relaySource.indexOf('private steerTaskLocal(')
+    )
+    expect(method).toContain('action, interrupt, sessionId, branchName')
+  })
+
+  it('cross-instance steer listener passes all parameters to steerTaskLocal', () => {
+    const routing = relaySource.slice(
+      relaySource.indexOf("redisPubSub.on('task:steer'"),
+      relaySource.indexOf("redisPubSub.on('safety:decision'")
+    )
+    expect(routing).toContain('event.action')
+    expect(routing).toContain('event.sessionId')
+    expect(routing).toContain('event.branchName')
+  })
+})
+
+// =============================================================================
+// 13. Completeness: all taskToMachine.delete sites have Redis cleanup
 // =============================================================================
 
 describe('completeness: Redis cleanup on all taskToMachine.delete sites', () => {

@@ -1577,7 +1577,16 @@ export class RelayServer extends EventEmitter {
       const connection = machineRegistry.getConnection(event.machineId);
       if (!connection) return; // machine not on this instance
       console.log(`[relay] Executing cross-instance steer for task ${event.taskId}`);
-      this.steerTaskLocal(event.taskId, event.machineId, event.message, undefined, event.interrupt);
+      this.steerTaskLocal(event.taskId, event.machineId, event.message, event.action, event.interrupt, event.sessionId, event.branchName);
+    });
+
+    // Cross-instance safety decision: route to local machine's WebSocket
+    redisPubSub.on('safety:decision', (event) => {
+      if (event.instanceId === redisPubSub.getInstanceId()) return; // skip own
+      const connection = machineRegistry.getConnection(event.machineId);
+      if (!connection) return; // machine not on this instance
+      console.log(`[relay] Executing cross-instance safety decision for task ${event.taskId}: ${event.decision}`);
+      this.sendSafetyDecisionLocal(event.taskId, event.machineId, event.decision);
     });
   }
 
@@ -1728,7 +1737,7 @@ export class RelayServer extends EventEmitter {
     if (!connection) {
       // Machine not on this instance — route via Redis
       redisPubSub.routeTaskSteer({
-        taskId, machineId, message, interrupt,
+        taskId, machineId, message, action, interrupt, sessionId, branchName,
       }).catch((err) => {
         console.error(`[relay] Failed to route steer via Redis:`, err);
       });
@@ -1836,9 +1845,33 @@ export class RelayServer extends EventEmitter {
   }
 
   /**
-   * Send safety decision back to agent runner
+   * Send safety decision back to agent runner.
+   * If the machine is connected to this instance, sends directly via WebSocket.
+   * Otherwise, routes via Redis pub/sub to the instance that has the connection.
    */
   sendSafetyDecision(
+    taskId: string,
+    machineId: string,
+    decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel'
+  ): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      // Machine not on this instance — route via Redis
+      redisPubSub.routeSafetyDecision({ taskId, machineId, decision }).catch((err) => {
+        console.error(`[relay] Failed to route safety decision via Redis:`, err);
+      });
+      console.log(`[relay] Safety decision routed via Redis for task ${taskId} (machine ${machineId} not local)`);
+      return true; // Optimistic: assume Redis routing will succeed
+    }
+
+    return this.sendSafetyDecisionLocal(taskId, machineId, decision);
+  }
+
+  /**
+   * Send safety decision directly via local WebSocket connection.
+   * Called both for direct sends and for Redis-routed messages.
+   */
+  private sendSafetyDecisionLocal(
     taskId: string,
     machineId: string,
     decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel'

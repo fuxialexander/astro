@@ -2007,11 +2007,17 @@ dispatchRoute.post('/steer', async (c) => {
   }
   const { taskId, machineId, message, action, interrupt, sessionId, branchName } = parsed.data
 
-  // Validate user owns this task
+  // Validate user owns this task (async fallback for cross-instance scenarios)
   const steerUser = c.get('user') as AuthUser | undefined
   if (steerUser?.id && steerUser.id !== LOCAL_USER_ID) {
-    const ctx = executionContextStore.get(taskId)
-    if (ctx && ctx.userId !== steerUser.id && ctx.userId !== LOCAL_USER_ID) {
+    const ctx = await executionContextStore.getWithFallback(taskId)
+    if (ctx) {
+      if (ctx.userId !== steerUser.id && ctx.userId !== LOCAL_USER_ID) {
+        return c.json({ success: false, error: 'Not authorized for this task' }, 403)
+      }
+    } else {
+      // Context not in local store or Redis — deny by default for security.
+      // The cancel endpoint has a DB fallback; steer requires an active execution.
       return c.json({ success: false, error: 'Not authorized for this task' }, 403)
     }
   }
@@ -2053,11 +2059,16 @@ dispatchRoute.post('/approval', async (c) => {
   }
   const { taskId, machineId, requestId, answered, answer, message } = parsed.data
 
-  // Validate user owns this task
+  // Validate user owns this task (async fallback for cross-instance scenarios)
   const approvalUser = c.get('user') as AuthUser | undefined
   if (approvalUser?.id && approvalUser.id !== LOCAL_USER_ID) {
-    const ctx = executionContextStore.get(taskId)
-    if (ctx && ctx.userId !== approvalUser.id && ctx.userId !== LOCAL_USER_ID) {
+    const ctx = await executionContextStore.getWithFallback(taskId)
+    if (ctx) {
+      if (ctx.userId !== approvalUser.id && ctx.userId !== LOCAL_USER_ID) {
+        return c.json({ success: false, error: 'Not authorized for this task' }, 403)
+      }
+    } else {
+      // Context not in local store or Redis — deny by default for security.
       return c.json({ success: false, error: 'Not authorized for this task' }, 403)
     }
   }
@@ -2104,11 +2115,15 @@ dispatchRoute.post('/safety-decision', async (c) => {
     return c.json({ success: false, error: `Invalid decision. Must be one of: ${validDecisions.join(', ')}` }, 400)
   }
 
-  // Validate user owns this task
+  // Validate user owns this task (async fallback for cross-instance scenarios)
   const safetyUser = c.get('user') as AuthUser | undefined
   if (safetyUser?.id && safetyUser.id !== LOCAL_USER_ID) {
-    const ctx = executionContextStore.get(taskId)
-    if (ctx && ctx.userId !== safetyUser.id && ctx.userId !== LOCAL_USER_ID) {
+    const ctx = await executionContextStore.getWithFallback(taskId)
+    if (ctx) {
+      if (ctx.userId !== safetyUser.id && ctx.userId !== LOCAL_USER_ID) {
+        return c.json({ success: false, error: 'Not authorized for this task' }, 403)
+      }
+    } else {
       return c.json({ success: false, error: 'Not authorized for this task' }, 403)
     }
   }

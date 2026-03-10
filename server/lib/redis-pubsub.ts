@@ -25,6 +25,7 @@ const CHANNELS = {
   TASK_STREAMING: 'relay:task:streaming',
   APPROVAL_RESPONSE: 'relay:approval:response',
   TASK_STEER: 'relay:task:steer',
+  SAFETY_DECISION: 'relay:safety:decision',
 } as const;
 
 /** Redis keys for shared state */
@@ -70,7 +71,18 @@ export interface TaskSteerEvent {
   taskId: string;
   machineId: string;
   message: string;
+  action?: 'guidance' | 'redirect' | 'pause' | 'resume';
   interrupt?: boolean;
+  sessionId?: string;
+  branchName?: string;
+}
+
+/** Message published for cross-instance safety decision routing */
+export interface SafetyDecisionEvent {
+  instanceId: string;
+  taskId: string;
+  machineId: string;
+  decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel';
 }
 
 /** Execution context stored in Redis for cross-instance user isolation */
@@ -107,6 +119,7 @@ export interface RedisPubSubEvents {
   'task:streaming': (event: StreamingEventMessage) => void;
   'approval:response': (event: ApprovalResponseEvent) => void;
   'task:steer': (event: TaskSteerEvent) => void;
+  'safety:decision': (event: SafetyDecisionEvent) => void;
   'error': (error: Error) => void;
   'connected': () => void;
   'disconnected': () => void;
@@ -173,7 +186,8 @@ export class RedisPubSub extends EventEmitter {
         CHANNELS.TASK_CANCEL,
         CHANNELS.TASK_STREAMING,
         CHANNELS.APPROVAL_RESPONSE,
-        CHANNELS.TASK_STEER
+        CHANNELS.TASK_STEER,
+        CHANNELS.SAFETY_DECISION
       );
 
       // Handle incoming messages
@@ -322,6 +336,17 @@ export class RedisPubSub extends EventEmitter {
    */
   async routeTaskSteer(event: Omit<TaskSteerEvent, 'instanceId'>): Promise<void> {
     await this.publish(CHANNELS.TASK_STEER, {
+      ...event,
+      instanceId: this.instanceId,
+    });
+  }
+
+  /**
+   * Route a safety decision cross-instance. Published when the safety-decision
+   * POST lands on an instance that doesn't have the machine's WebSocket.
+   */
+  async routeSafetyDecision(event: Omit<SafetyDecisionEvent, 'instanceId'>): Promise<void> {
+    await this.publish(CHANNELS.SAFETY_DECISION, {
       ...event,
       instanceId: this.instanceId,
     });
@@ -580,6 +605,10 @@ export class RedisPubSub extends EventEmitter {
 
       case CHANNELS.TASK_STEER:
         this.emit('task:steer', data as TaskSteerEvent);
+        break;
+
+      case CHANNELS.SAFETY_DECISION:
+        this.emit('safety:decision', data as SafetyDecisionEvent);
         break;
     }
   }
