@@ -431,3 +431,238 @@ describe('cross-instance flow: execution context store', () => {
     expect(storeSource).toContain("return store.get(executionId)?.userId")
   })
 })
+
+// =============================================================================
+// 6. Security: cross-instance routing guards
+// =============================================================================
+
+describe('security: cross-instance routing guards', () => {
+  const RELAY_PATH = join(process.cwd(), 'server/lib/relay-server.ts')
+  const relaySource = readFileSync(RELAY_PATH, 'utf-8')
+
+  it('cancel routing does not leak machineId to wrong instance', () => {
+    // Cross-instance cancel must check that the machine is actually on this instance
+    const cancelListener = relaySource.slice(
+      relaySource.indexOf("redisPubSub.on('task:cancel'"),
+      relaySource.indexOf("redisPubSub.on('approval:response'")
+    )
+    // Must check local connection before executing
+    expect(cancelListener).toContain('machineRegistry.getConnection(event.machineId)')
+    expect(cancelListener).toContain('if (!connection) return')
+  })
+
+  it('approval routing does not leak to wrong instance', () => {
+    const approvalListener = relaySource.slice(
+      relaySource.indexOf("redisPubSub.on('approval:response'"),
+      relaySource.indexOf("redisPubSub.on('task:steer'")
+    )
+    expect(approvalListener).toContain('machineRegistry.getConnection(event.machineId)')
+    expect(approvalListener).toContain('if (!connection) return')
+  })
+
+  it('steer routing does not leak to wrong instance', () => {
+    const routingSection = relaySource.slice(
+      relaySource.indexOf('private registerRedisRouting():'),
+      relaySource.indexOf('/**\n   * Get all task IDs')
+    )
+    const steerListener = routingSection.slice(
+      routingSection.indexOf("redisPubSub.on('task:steer'")
+    )
+    expect(steerListener).toContain('machineRegistry.getConnection(event.machineId)')
+    expect(steerListener).toContain('if (!connection) return')
+  })
+})
+
+// =============================================================================
+// 7. Error handling: all Redis operations catch errors
+// =============================================================================
+
+describe('error handling: Redis write-through operations', () => {
+  const RELAY_PATH = join(process.cwd(), 'server/lib/relay-server.ts')
+  const relaySource = readFileSync(RELAY_PATH, 'utf-8')
+  const STORE_PATH = join(process.cwd(), 'server/lib/execution-context-store.ts')
+  const storeSource = readFileSync(STORE_PATH, 'utf-8')
+
+  it('taskToMachine write-through catches errors', () => {
+    const dispatchSection = relaySource.slice(
+      relaySource.indexOf('redisPubSub.mapTaskToMachine(task.taskId'),
+      relaySource.indexOf("console.log(`[relay] Task ${task.taskId} dispatched")
+    )
+    expect(dispatchSection).toContain('.catch(')
+  })
+
+  it('taskToMachine removal catches errors (fire-and-forget)', () => {
+    // All removeTaskMapping calls should have .catch
+    const removeCalls = relaySource.split('redisPubSub.removeTaskMapping(').length - 1
+    const catchCalls = relaySource.split('removeTaskMapping(').filter(s => {
+      const nextChars = s.slice(0, 100)
+      return nextChars.includes('.catch(')
+    }).length
+    expect(catchCalls).toBe(removeCalls)
+  })
+
+  it('cancelTaskWithRedisFallback catches all errors', () => {
+    const fallback = relaySource.slice(
+      relaySource.indexOf('private async cancelTaskWithRedisFallback'),
+      relaySource.indexOf('getTasksForMachine(')
+    )
+    expect(fallback).toContain('try {')
+    expect(fallback).toContain('} catch (err) {')
+    expect(fallback).toContain('cancelTaskWithRedisFallback failed')
+  })
+
+  it('routeApprovalResponse catches errors', () => {
+    const approval = relaySource.slice(
+      relaySource.indexOf('redisPubSub.routeApprovalResponse('),
+      relaySource.indexOf('Approval response routed via Redis')
+    )
+    expect(approval).toContain('.catch(')
+  })
+
+  it('routeTaskSteer catches errors', () => {
+    const steer = relaySource.slice(
+      relaySource.indexOf('redisPubSub.routeTaskSteer('),
+      relaySource.indexOf('Steer routed via Redis')
+    )
+    expect(steer).toContain('.catch(')
+  })
+
+  it('execution context register catches errors', () => {
+    expect(storeSource).toContain("console.error('[exec-context] Failed to write context to Redis:'")
+  })
+
+  it('execution context remove catches errors', () => {
+    expect(storeSource).toContain("console.error('[exec-context] Failed to remove context from Redis:'")
+  })
+})
+
+// =============================================================================
+// 8. Single-instance mode: graceful degradation
+// =============================================================================
+
+describe('single-instance mode: graceful degradation', () => {
+  const PUBSUB_PATH = join(process.cwd(), 'server/lib/redis-pubsub.ts')
+  const pubsubSource = readFileSync(PUBSUB_PATH, 'utf-8')
+
+  it('registerExecutionContext is a no-op without Redis', () => {
+    const method = pubsubSource.slice(
+      pubsubSource.indexOf('async registerExecutionContext('),
+      pubsubSource.indexOf('async getExecutionContext(')
+    )
+    expect(method).toContain('if (!this.publisher) return')
+  })
+
+  it('getExecutionContext returns null without Redis', () => {
+    const method = pubsubSource.slice(
+      pubsubSource.indexOf('async getExecutionContext('),
+      pubsubSource.indexOf('async removeExecutionContext(')
+    )
+    expect(method).toContain('if (!this.publisher) return null')
+  })
+
+  it('removeExecutionContext is a no-op without Redis', () => {
+    const method = pubsubSource.slice(
+      pubsubSource.indexOf('async removeExecutionContext('),
+      pubsubSource.indexOf('Active Dispatch Streams')
+    )
+    expect(method).toContain('if (!this.publisher) return')
+  })
+
+  it('registerActiveDispatchStream is a no-op without Redis', () => {
+    const method = pubsubSource.slice(
+      pubsubSource.indexOf('async registerActiveDispatchStream('),
+      pubsubSource.indexOf('async removeActiveDispatchStream(')
+    )
+    expect(method).toContain('if (!this.publisher) return')
+  })
+
+  it('isDispatchStreamActive returns false without Redis', () => {
+    const method = pubsubSource.slice(
+      pubsubSource.indexOf('async isDispatchStreamActive('),
+      pubsubSource.indexOf('Private Methods')
+    )
+    expect(method).toContain('if (!this.publisher) return false')
+  })
+
+  it('routeApprovalResponse uses local fallback without Redis', () => {
+    // publish() has local fallback via handleLocalMessage
+    const method = pubsubSource.slice(
+      pubsubSource.indexOf('async routeApprovalResponse('),
+      pubsubSource.indexOf('async routeTaskSteer(')
+    )
+    expect(method).toContain('this.publish(CHANNELS.APPROVAL_RESPONSE')
+  })
+
+  it('routeTaskSteer uses local fallback without Redis', () => {
+    const method = pubsubSource.slice(
+      pubsubSource.indexOf('async routeTaskSteer('),
+      pubsubSource.indexOf('Machine Registry Synchronization')
+    )
+    expect(method).toContain('this.publish(CHANNELS.TASK_STEER')
+  })
+})
+
+// =============================================================================
+// 9. TTL configuration
+// =============================================================================
+
+describe('TTL configuration for Redis keys', () => {
+  const PUBSUB_PATH = join(process.cwd(), 'server/lib/redis-pubsub.ts')
+  const pubsubSource = readFileSync(PUBSUB_PATH, 'utf-8')
+
+  it('execution context has 4h TTL (matching local store)', () => {
+    const method = pubsubSource.slice(
+      pubsubSource.indexOf('async registerExecutionContext('),
+      pubsubSource.indexOf('async getExecutionContext(')
+    )
+    expect(method).toContain('14400') // 4 * 60 * 60
+  })
+
+  it('active dispatch stream has 1h TTL', () => {
+    const method = pubsubSource.slice(
+      pubsubSource.indexOf('async registerActiveDispatchStream('),
+      pubsubSource.indexOf('async removeActiveDispatchStream(')
+    )
+    expect(method).toContain('3600') // 1 * 60 * 60
+  })
+
+  it('task-to-machine mapping has 24h TTL', () => {
+    const method = pubsubSource.slice(
+      pubsubSource.indexOf('async mapTaskToMachine('),
+      pubsubSource.indexOf('async getTaskMachine(')
+    )
+    expect(method).toContain('86400') // 24 * 60 * 60
+  })
+})
+
+// =============================================================================
+// 10. Completeness: all taskToMachine.delete sites have Redis cleanup
+// =============================================================================
+
+describe('completeness: Redis cleanup on all taskToMachine.delete sites', () => {
+  const RELAY_PATH = join(process.cwd(), 'server/lib/relay-server.ts')
+  const relaySource = readFileSync(RELAY_PATH, 'utf-8')
+
+  it('every taskToMachine.delete has a matching removeTaskMapping', () => {
+    // Count all taskToMachine.delete calls
+    const deleteLines = relaySource.split('\n').reduce<number[]>((acc, line, idx) => {
+      if (line.includes('this.taskToMachine.delete(')) acc.push(idx)
+      return acc
+    }, [])
+
+    // For each delete, check that there's a removeTaskMapping nearby (within 5 lines)
+    for (const lineIdx of deleteLines) {
+      const nearbyLines = relaySource.split('\n').slice(lineIdx, lineIdx + 5).join('\n')
+      // Either the delete itself is part of a block with removeTaskMapping,
+      // or it's in the cross-instance cancel listener (where Redis cleanup
+      // isn't needed because the originator already cleaned up)
+      const hasRedisCleanup = nearbyLines.includes('redisPubSub.removeTaskMapping')
+      const isInCrossInstanceListener = relaySource.split('\n').slice(Math.max(0, lineIdx - 10), lineIdx).join('\n').includes('cross-instance cancel')
+
+      // Skip cross-instance cancel listener (cleanup done by originator)
+      if (!isInCrossInstanceListener) {
+        expect(hasRedisCleanup).toBe(true)
+      }
+    }
+  })
+})
