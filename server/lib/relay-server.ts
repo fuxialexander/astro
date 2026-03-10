@@ -1628,58 +1628,58 @@ export class RelayServer extends EventEmitter {
 
     this.deadJobCheckInterval = setInterval(async () => {
       try {
-      // Leader election: only one instance runs the dead job checker
-      const acquired = await redisPubSub.tryAcquireLeader(LEADER_NAME, LEADER_TTL_SECONDS);
-      const renewed = !acquired && await redisPubSub.renewLeadership(LEADER_NAME, LEADER_TTL_SECONDS);
-      if (!acquired && !renewed) return; // another instance is the leader
+        // Leader election: only one instance runs the dead job checker
+        const acquired = await redisPubSub.tryAcquireLeader(LEADER_NAME, LEADER_TTL_SECONDS);
+        const renewed = !acquired && await redisPubSub.renewLeadership(LEADER_NAME, LEADER_TTL_SECONDS);
+        if (!acquired && !renewed) return; // another instance is the leader
 
-      const allMachines = machineRegistry.getAll();
-      const now = Date.now();
+        const allMachines = machineRegistry.getAll();
+        const now = Date.now();
 
-      for (const machine of allMachines) {
-        if (machine.connectionStatus !== 'connected') continue;
+        for (const machine of allMachines) {
+          if (machine.connectionStatus !== 'connected') continue;
 
-        // Skip machines that haven't sent a heartbeat with task IDs yet
-        if (!machine.activeTaskIds) continue;
+          // Skip machines that haven't sent a heartbeat with task IDs yet
+          if (!machine.activeTaskIds) continue;
 
-        const runnerTaskIds = new Set(machine.activeTaskIds);
-        const serverTaskIds = this.getTasksForMachine(machine.machineId);
+          const runnerTaskIds = new Set(machine.activeTaskIds);
+          const serverTaskIds = this.getTasksForMachine(machine.machineId);
 
-        for (const taskId of serverTaskIds) {
-          if (runnerTaskIds.has(taskId)) {
-            // Task is alive — reset miss count
-            this.consecutiveMisses.delete(taskId);
-          } else {
-            // Skip tasks still in dispatch grace period (startup: worktree, git clone, etc.)
-            const dispatchedAt = this.taskDispatchedAt.get(taskId);
-            if (dispatchedAt && (now - dispatchedAt) < DISPATCH_GRACE_PERIOD_MS) {
-              continue;
-            }
-
-            // Task missing from heartbeat — increment miss count
-            const misses = (this.consecutiveMisses.get(taskId) ?? 0) + 1;
-            this.consecutiveMisses.set(taskId, misses);
-
-            if (misses >= CONSECUTIVE_MISS_THRESHOLD) {
-              console.warn(
-                `[relay] Dead job detected: task ${taskId} missing from machine ${machine.machineId} ` +
-                `heartbeat for ${misses} consecutive checks (~${misses} minutes)`
-              );
+          for (const taskId of serverTaskIds) {
+            if (runnerTaskIds.has(taskId)) {
+              // Task is alive — reset miss count
               this.consecutiveMisses.delete(taskId);
-              this.taskToMachine.delete(taskId);
-              this.taskDispatchedAt.delete(taskId);
-              redisPubSub.removeTaskMapping(taskId).catch(() => {});
+            } else {
+              // Skip tasks still in dispatch grace period (startup: worktree, git clone, etc.)
+              const dispatchedAt = this.taskDispatchedAt.get(taskId);
+              if (dispatchedAt && (now - dispatchedAt) < DISPATCH_GRACE_PERIOD_MS) {
+                continue;
+              }
 
-              // Emit event for dispatch layer to handle DB reset
-              this.emit('task:dead', {
-                taskId,
-                machineId: machine.machineId,
-                reason: `Task not reported in agent runner heartbeat for ${misses} consecutive checks`,
-              });
+              // Task missing from heartbeat — increment miss count
+              const misses = (this.consecutiveMisses.get(taskId) ?? 0) + 1;
+              this.consecutiveMisses.set(taskId, misses);
+
+              if (misses >= CONSECUTIVE_MISS_THRESHOLD) {
+                console.warn(
+                  `[relay] Dead job detected: task ${taskId} missing from machine ${machine.machineId} ` +
+                  `heartbeat for ${misses} consecutive checks (~${misses} minutes)`
+                );
+                this.consecutiveMisses.delete(taskId);
+                this.taskToMachine.delete(taskId);
+                this.taskDispatchedAt.delete(taskId);
+                redisPubSub.removeTaskMapping(taskId).catch(() => {});
+
+                // Emit event for dispatch layer to handle DB reset
+                this.emit('task:dead', {
+                  taskId,
+                  machineId: machine.machineId,
+                  reason: `Task not reported in agent runner heartbeat for ${misses} consecutive checks`,
+                });
+              }
             }
           }
         }
-      }
       } catch (err) {
         console.error('[relay] Dead job check cycle failed:', (err as Error).message);
       }
