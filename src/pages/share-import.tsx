@@ -109,7 +109,9 @@ export function ShareImport() {
             <span className="text-base font-medium">{bundle.name}</span>
           </div>
           {bundle.description && (
-            <p className="text-sm text-muted-foreground">{bundle.description}</p>
+            <p className="text-sm text-muted-foreground line-clamp-6">
+              {bundle.description.replace(/<[^>]*>/g, "")}
+            </p>
           )}
           {isProject && (
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
