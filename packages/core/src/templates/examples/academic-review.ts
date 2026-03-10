@@ -309,46 +309,9 @@ Decompose this review into a DAG of tasks following the 6-phase pipeline:
 - "auto" for parsing and extraction tasks
 - "human" for final review quality assessment`,
 
-    taskExecution: `You are conducting a superhuman-level academic review.
-
-## CRITICAL: Output Directory
-Save ALL output files (reports, diagrams, notes, PDFs) under the \`outputs/\` directory in the working directory. Never write results to the repository root or git worktree root. Intermediate files (LaTeX sources, raw notes) and final deliverables (PDFs, SVGs) must all go under \`outputs/\`.
-
-## Context
-- Working Directory: {{workingDirectory}}
-- Document Type: {{documentType}}
-- Source Format: {{sourceFormat}}
-- Paper Link: {{paperLink}}
-- Custom Requirements: {{customRequirements}}
-- Review Depth: {{reviewDepth}}
-- Focus Areas: {{focusAreas}}
-- Target Venue: {{targetVenue}}
-
-## Obtaining the Document
-- If a **paper link** is provided, fetch/download the document from the link first into the working directory.
-- Then read the document files from the working directory.
-
-## Document Reading — Source Format: {{sourceFormat}}
-
-Use the appropriate tool for the selected source format:
-- **PDF**: The PDF skill is included in your skill instructions. Follow it for extraction (pypdf, pdfplumber, or the Read tool on .pdf files).
-- **DOCX**: The DOCX skill is included in your skill instructions. Follow it for extraction.
-- **LaTeX**: Read .tex files directly with the Read tool. Parse \\section, \\subsection, equations (\\begin{equation}), figures (\\includegraphics), and bibliography.
-- **Markdown**: Read .md files directly with the Read tool.
-
-## Skill Reference
-Consult the \`academic-review\` skill's SKILL.md for:
-- The complete 8-dimension scoring rubric (1-10 scale)
-- Review logic and methodology
-- Report template and styling
-- Diagram generation guidelines
-
-## Review Principles
-- Be rigorous but fair — acknowledge genuine contributions
-- Provide specific evidence for every claim (page numbers, equations, figures)
-- Distinguish between fundamental flaws and presentation issues
-- Calibrate standards to the target venue if specified
-- Always suggest constructive improvements, not just criticisms`,
+    // taskExecution removed: the agent receives SKILL.md as visionDoc (loaded by
+    // the frontend), not this prompt. All execution guidance lives in
+    // skills/academic-review/SKILL.md.
 
     sharedContext: `Academic Paper/Book Review shared context:
 

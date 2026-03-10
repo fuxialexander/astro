@@ -658,7 +658,45 @@ const path = require('path');
 
 ---
 
-## 7. SVG Chart Guidelines
+## 7. Figures & Charts
+
+### Figure Strategy: Reuse + Generate
+
+For every visual need, follow this decision process:
+
+```
+Does a source document (10-K, earnings presentation, annual report) have a relevant chart?
+├─ YES → Is it high quality and directly relevant?
+│   ├─ YES → EXTRACT AND EMBED. Earnings presentations especially contain investor-quality charts.
+│   └─ NO (low resolution, wrong metric, outdated)
+│       → RECREATE as SVG with the palette colors for visual consistency.
+└─ NO → Is this a standard analysis chart (CA radar, ROIC vs WACC, revenue trend)?
+    ├─ YES → GENERATE NEW SVG using the palette and templates below.
+    └─ NO → Skip — not every section needs a chart, but data-heavy sections always do.
+```
+
+### Per-Section Chart Requirements
+
+| Report Section | Required Charts | Type |
+|---|---|---|
+| Executive Summary | 3 metric cards (CA Score, Moat Width, Anti-Fragility) | HTML metric cards (in template) |
+| Section 1: Quantitative Analysis | **CA radar chart** + **Revenue & market share trend** + **ROIC vs WACC** | SVG (3 charts minimum) |
+| Section 2: Moat Analysis | **7 Powers heatmap** (horizontal bar chart) | SVG or HTML power bars |
+| Section 3: Anti-Fragility | **Financial health table** + optionally a **scenario analysis chart** | HTML table + optional SVG |
+| Section 4: Comparative | **Side-by-side comparison table** (if comparison tickers) | HTML table |
+| Section 5: Conclusion | **Moat durability timeline** (optional) | SVG timeline |
+
+**Minimum total charts**: 5 for single-company analysis, 7+ for comparative analysis.
+
+### SVG Quality Rules
+
+When generating SVG charts:
+- Minimum **40px spacing** between adjacent elements (bars, data points, labels)
+- All text labels must have **12px padding** from edges — no text overlapping chart elements
+- Axis labels outside the plot area, never overlapping data points
+- Font: Palatino, 14px for labels, 11px for axis marks, 16px for chart title
+- Max chart width: 800px for report embeds, 420px for side-by-side charts
+- **Verify before output**: mentally check that no labels overlap bars, no axis text clips, and all data points are visible
 
 ### Color Palette for Charts
 
@@ -726,7 +764,11 @@ Before finalizing the report:
 - [ ] Top 3 risks identified with early warning signals
 - [ ] Executive summary accurately reflects detailed analysis
 - [ ] All data sources cited with dates
-- [ ] Charts/tables are accurate and properly labeled
+- [ ] Minimum 5 charts/visuals for single-company, 7+ for comparative
+- [ ] CA radar chart, revenue trend, and ROIC vs WACC charts are all present
+- [ ] 7 Powers heatmap is included with trajectory indicators
+- [ ] All SVG charts use palette colors with no label overlap
+- [ ] Source document figures extracted and embedded where relevant
 - [ ] PDF renders cleanly without clipping or formatting issues
 - [ ] Competitor comparison included (if tickers provided)
 - [ ] Tone is professional and evidence-based

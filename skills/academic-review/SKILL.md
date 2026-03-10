@@ -103,7 +103,7 @@ Steps:
 1. Read the entire document using the appropriate tool (see Section 1)
 2. Extract metadata: title, authors, abstract, affiliation, publication venue
 3. Identify the document structure: sections, subsections, appendices
-4. Catalog all equations (number them), figures (describe each), and tables
+4. Catalog all equations (number them), figures (describe each, and extract/save originals for use in the review report), and tables
 5. List all references cited
 6. Write a **structured summary** (500-1000 words):
    - What is the problem being addressed?
@@ -660,7 +660,49 @@ Where $w_i$ is the weight and $s_i$ is the score for dimension $i$.
 
 ---
 
-## 5. Report Styling
+## 5. Figures & Visuals in the Review
+
+A review report is primarily text, but well-placed visuals make it significantly more readable and persuasive.
+
+### Required Visual Elements
+
+1. **Argument flow diagram** (SVG) — Generated in Phase 2. Color-coded nodes showing the paper's claim-evidence structure. This is the single most important visual in every review.
+
+2. **Scoring dashboard** (table) — The 8-dimension scoring table with color-coded scores and score bars. Already defined in the LaTeX/HTML report template.
+
+3. **Before/after revision boxes** — For every concrete revision suggestion, show the original text and suggested text side-by-side in styled color boxes (red for original, green for revision). These are the review's equivalent of a code diff — the reader should immediately see what changed and why.
+
+### Optional Visual Elements (draw when they aid the critique)
+
+- **Paper architecture SVG**: If the paper describes a system, model, or pipeline, draw a simplified architecture diagram to reference in your critique. This is especially valuable when your critique targets a specific component — you can annotate the diagram to highlight the weakness.
+
+- **Logic flow before/after SVG**: When suggesting a restructured argument, draw two small SVGs side-by-side: the paper's current logic flow (with gaps highlighted in red) and the suggested improved flow (gaps filled in green). This makes structural critiques concrete rather than abstract.
+
+- **Comparison tables**: When comparing the reviewed paper against related work, use structured tables with columns for each paper and rows for methodology, results, scope, and limitations. This is more rigorous than prose comparison.
+
+- **Result reproduction SVGs**: If you identify issues with experimental results, draw annotated SVGs showing what the data implies vs. what the paper claims (e.g., highlighting cherry-picked baselines, missing error bars, or inconsistent scales).
+
+### SVG Quality Rules
+
+When drawing any SVG diagram in the review:
+- Use the review color palette (Section 6): green (#5D8057) for strong, sand (#B2986E) for moderate, red (#A86464) for weak
+- Minimum 40px spacing between nodes, 12px padding inside nodes
+- Labels must not overlap — verify before output
+- Font: Palatino, 13-16px for labels, 11px for annotations
+- Max width 800px for report figures
+
+### Minimum Figure Count
+
+| Review Type | Min Visuals |
+|---|---|
+| Standard (3+ merits/shortcomings) | 3: argument flow + scoring dashboard + 1 revision box set |
+| Comprehensive (5+ merits/shortcomings) | 5: argument flow + scoring dashboard + 2 revision box sets + 1 comparison table or architecture SVG |
+
+---
+
+## 6. Report Styling
+
+**Primary format: LaTeX → PDF.** The review report should be generated as LaTeX and compiled to PDF. LaTeX produces publication-quality output with proper math typesetting, styled color boxes, score bar visualizations, and professional table formatting. Use the HTML path only as a fallback when LaTeX compilation is not available on the machine.
 
 ### Color Palette
 
@@ -708,7 +750,7 @@ When generating HTML reports, use these styled boxes for revision suggestions:
 
 ---
 
-## 6. Quality Checklist
+## 7. Quality Checklist
 
 Before finalizing the review report, verify:
 
@@ -723,6 +765,9 @@ Before finalizing the review report, verify:
 - [ ] Concrete revision suggestions show before/after text
 - [ ] Synthesis paragraph weighs merits vs. shortcomings
 - [ ] Recommendations are actionable and specific
-- [ ] Report compiles to clean PDF without errors
+- [ ] Argument flow diagram (SVG) is included and accurately reflects the paper's logic
+- [ ] Scoring dashboard table with color-coded scores is included
+- [ ] All revision suggestions use styled before/after boxes (red original, green revision)
+- [ ] Report compiles to clean LaTeX PDF without errors
 - [ ] No factual errors in the summary or analysis
 - [ ] Tone is professional, fair, and constructive
