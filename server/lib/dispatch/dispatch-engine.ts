@@ -55,6 +55,7 @@ import { ResultRouter, createResultRouter } from './result-router.js'
 import { errorMessage } from '../error-utils.js'
 import { BranchManager, createBranchManager } from './branch-manager.js'
 import { astroEventTransport } from '../events/astro-event-transport.js'
+import { redisPubSub } from '../redis-pubsub.js'
 import type { TaskStartedEvent, TaskCompletedEvent as AstroTaskCompletedEvent } from '../events/types.js'
 
 /**
@@ -284,6 +285,8 @@ export class DispatchEngine extends EventEmitter {
           pending.reject(new Error('Execution cancelled'))
         }
       }
+      // Clear Redis pending-approval marker
+      redisPubSub.removePendingApproval(execution.executionId).catch(() => {})
 
       // Update node status
       if (this.nodeUpdateCallback) {
@@ -761,6 +764,10 @@ export class DispatchEngine extends EventEmitter {
       })
     }
 
+    // Write-through: mark in Redis so the cross-instance watchdog
+    // knows this execution has a pending approval (even if it runs on another instance).
+    redisPubSub.setPendingApproval(executionId).catch(() => {})
+
     // Create promise that will be resolved when user responds.
     // No timeout — approvals wait indefinitely. The in-memory cost is
     // negligible (one Map entry) and the agent runner persists reliably.
@@ -796,6 +803,11 @@ export class DispatchEngine extends EventEmitter {
     // If emitEvent or nodeUpdateCallback throws, a retry won't re-emit duplicates.
     this.pendingApprovals.delete(approvalId)
     this.respondedApprovals.set(approvalId, Date.now())
+
+    // Clear Redis pending-approval marker if no more approvals remain for this execution
+    if (!this.hasPendingApprovalForExecution(pending.executionId)) {
+      redisPubSub.removePendingApproval(pending.executionId).catch(() => {})
+    }
 
     // Opportunistic cleanup — prune stale entries on every successful approval
     // so pruning isn't gated on autoDispatch polling being active
@@ -879,6 +891,10 @@ export class DispatchEngine extends EventEmitter {
     // Note: We don't update node status for dynamic approvals since they can happen mid-execution
     // The agent is still running, just paused waiting for user input
 
+    // Write-through: mark in Redis so the cross-instance watchdog
+    // knows this execution has a pending approval.
+    redisPubSub.setPendingApproval(executionId).catch(() => {})
+
     // Create promise that will be resolved when user responds.
     // No timeout — approvals wait indefinitely. The in-memory cost is
     // negligible (one Map entry) and the agent runner persists reliably.
@@ -906,17 +922,34 @@ export class DispatchEngine extends EventEmitter {
   }
 
   /**
-   * Start polling for ready tasks
+   * Start polling for ready tasks.
+   * Uses Redis leader election when multiple instances are running —
+   * only one instance polls to prevent duplicate task dispatch.
    */
   private startPolling(): void {
     if (this.pollInterval) return
 
+    const POLL_LEADER_NAME = 'dispatch-poll'
+    const POLL_LEADER_TTL_SECONDS = Math.max(
+      Math.ceil(this.config.pollIntervalMs / 1000) * 2,
+      60
+    ) // 2× poll interval or 60s minimum
+
     this.pollInterval = setInterval(async () => {
-      await this.pollReadyTasks()
-      this.pruneRespondedApprovals() // Periodic cleanup of idempotency tracking
+      try {
+        // Leader election: only one instance polls for ready tasks
+        const acquired = await redisPubSub.tryAcquireLeader(POLL_LEADER_NAME, POLL_LEADER_TTL_SECONDS)
+        const renewed = !acquired && await redisPubSub.renewLeadership(POLL_LEADER_NAME, POLL_LEADER_TTL_SECONDS)
+        if (!acquired && !renewed) return // another instance is the leader
+
+        await this.pollReadyTasks()
+        this.pruneRespondedApprovals() // Periodic cleanup of idempotency tracking
+      } catch (err) {
+        console.error('[dispatch] Poll cycle failed:', (err as Error).message)
+      }
     }, this.config.pollIntervalMs)
 
-    console.log(`[dispatch] Polling started (${this.config.pollIntervalMs}ms interval)`)
+    console.log(`[dispatch] Polling started (${this.config.pollIntervalMs}ms interval, leader-elected)`)
   }
 
   /**
@@ -926,6 +959,7 @@ export class DispatchEngine extends EventEmitter {
     if (this.pollInterval) {
       clearInterval(this.pollInterval)
       this.pollInterval = null
+      redisPubSub.releaseLeadership('dispatch-poll').catch(() => {})
       console.log('[dispatch] Polling stopped')
     }
   }

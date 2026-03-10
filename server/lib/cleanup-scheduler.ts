@@ -3,12 +3,17 @@
  *
  * Periodically cleans up expired tokens, old executions, old chat history, and expired push tokens.
  * Runs daily (24h interval) by default, but can be disabled for testing.
+ *
+ * Uses Redis leader election when multiple instances are running — only one
+ * instance executes cleanup at a time. If the leader dies, its lock expires
+ * and another instance takes over automatically.
  */
 
 import { db } from './db/index.js';
 import { taskExecutions, taskChatSessions, pushTokens, streamingEvents } from './db/schema.js';
 import { lt } from 'drizzle-orm';
 import { cleanupExpiredTokens } from './token-manager.js';
+import { redisPubSub } from './redis-pubsub.js';
 
 interface CleanupConfig {
   enabled: boolean;
@@ -27,6 +32,10 @@ const DEFAULT_CONFIG: CleanupConfig = {
     chatHistory: 180,
   },
 };
+
+const LEADER_NAME = 'cleanup-scheduler';
+/** Leader lock TTL — must be longer than one cleanup cycle but short enough for failover */
+const LEADER_TTL_SECONDS = 3600; // 1 hour
 
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 let config: CleanupConfig = DEFAULT_CONFIG;
@@ -176,6 +185,22 @@ async function runCleanup(): Promise<void> {
 }
 
 /**
+ * Run cleanup only if this instance is the leader.
+ * Acquires or renews leadership before running.
+ */
+async function runCleanupIfLeader(): Promise<void> {
+  const acquired = await redisPubSub.tryAcquireLeader(LEADER_NAME, LEADER_TTL_SECONDS);
+  const renewed = !acquired && await redisPubSub.renewLeadership(LEADER_NAME, LEADER_TTL_SECONDS);
+
+  if (!acquired && !renewed) {
+    console.log('[cleanup] Another instance is the cleanup leader — skipping this cycle');
+    return;
+  }
+
+  await runCleanup();
+}
+
+/**
  * Start the cleanup scheduler
  */
 export function startCleanupScheduler(customConfig?: Partial<CleanupConfig>): void {
@@ -192,14 +217,14 @@ export function startCleanupScheduler(customConfig?: Partial<CleanupConfig>): vo
 
   console.log(`[cleanup] Starting cleanup scheduler (interval: ${config.intervalMs / 1000 / 60 / 60}h)`);
 
-  // Run cleanup immediately on start
-  runCleanup().catch((err) => {
+  // Run cleanup immediately on start (with leader check)
+  runCleanupIfLeader().catch((err) => {
     console.error('[cleanup] Initial cleanup failed:', err);
   });
 
-  // Schedule periodic cleanup
+  // Schedule periodic cleanup (with leader check each cycle)
   cleanupTimer = setInterval(() => {
-    runCleanup().catch((err) => {
+    runCleanupIfLeader().catch((err) => {
       console.error('[cleanup] Scheduled cleanup failed:', err);
     });
   }, config.intervalMs);
@@ -212,6 +237,8 @@ export function stopCleanupScheduler(): void {
   if (cleanupTimer) {
     clearInterval(cleanupTimer);
     cleanupTimer = null;
+    // Release leadership so another instance can take over immediately
+    redisPubSub.releaseLeadership(LEADER_NAME).catch(() => {});
     console.log('[cleanup] Cleanup scheduler stopped');
   }
 }

@@ -35,9 +35,11 @@ import { autoDispatchDownstream, cascadePruneDownstream } from './data.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import { redisPubSub } from '../lib/redis-pubsub.js'
 
-// Track workingDirectory per dispatched task (for safety decision lookup)
+// Track workingDirectory per dispatched task (for safety decision lookup).
+// Dual-layer: local Map for zero-latency + Redis write-through for cross-instance.
 const dispatchedTaskDirs = new Map<string, string>()  // taskId → workingDirectory
-// Track approved safety decisions per workingDirectory
+// Track approved safety decisions per workingDirectory.
+// Dual-layer: local Map + Redis write-through.
 const approvedSafetyDirs = new Map<string, string>()  // workingDirectory → decision
 
 // ─── User Decision Prompt Variants ──────────────────────────────
@@ -1194,7 +1196,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     worktreeStrategy,
     useWorktree,
     images,
-    skipSafetyCheck: (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && approvedSafetyDirs.has(workingDirectory)),
+    skipSafetyCheck: (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && (approvedSafetyDirs.has(workingDirectory) || await redisPubSub.getApprovedSafetyDir(workingDirectory) !== null)),
     ...(isInteractivePlan ? { type: 'plan' as const, useWorktree: false, deliveryMode: 'direct' as const } : {}),
     ...(relaySystemPrompt ? { systemPrompt: relaySystemPrompt } : {}),
     ...(astroBaseUrl && { astroBaseUrl }),
@@ -1206,8 +1208,11 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     ...(forkSession && { forkSession }),
   }
 
-  // Track directory for safety decision caching
-  if (workingDirectory) dispatchedTaskDirs.set(executionId, workingDirectory)
+  // Track directory for safety decision caching (local + Redis write-through)
+  if (workingDirectory) {
+    dispatchedTaskDirs.set(executionId, workingDirectory)
+    redisPubSub.setTaskDir(executionId, workingDirectory).catch(() => {})
+  }
 
   // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)
   c.header('X-Accel-Buffering', 'no')
@@ -1238,6 +1243,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       resultSent = true
       executionContextStore.remove(executionId)
       dispatchedTaskDirs.delete(executionId)
+      redisPubSub.removeTaskDir(executionId).catch(() => {})
 
       // Map relay metrics to dispatch metrics (adding aliases used by hooks)
       const relayMetrics = msg.result.metrics
@@ -2144,11 +2150,15 @@ dispatchRoute.post('/safety-decision', async (c) => {
   // Persist safety_response so hydration knows this prompt was answered
   streamingEventLog.append(taskId, 'safety_response', { decision }).catch(() => {})
 
-  // Cache safety approval for this working directory so subsequent tasks skip the prompt
+  // Cache safety approval for this working directory so subsequent tasks skip the prompt.
+  // Write-through to Redis for cross-instance visibility.
   if (decision !== 'cancel') {
     const workdir = dispatchedTaskDirs.get(taskId)
-    if (workdir) {
-      approvedSafetyDirs.set(workdir, decision)
+    // Fallback to Redis if local Map doesn't have it (cross-instance scenario)
+    const resolvedWorkdir = workdir ?? await redisPubSub.getTaskDir(taskId)
+    if (resolvedWorkdir) {
+      approvedSafetyDirs.set(resolvedWorkdir, decision)
+      redisPubSub.setApprovedSafetyDir(resolvedWorkdir, decision).catch(() => {})
     }
     // Emit event so SSE handlers can track per-project approval
     const ctx = executionContextStore.get(taskId)

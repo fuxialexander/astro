@@ -680,6 +680,7 @@ export class RelayServer extends EventEmitter {
       if (this.deadJobCheckInterval) {
         clearInterval(this.deadJobCheckInterval);
         this.deadJobCheckInterval = null;
+        redisPubSub.releaseLeadership('dead-job-checker').catch(() => {});
       }
       this.consecutiveMisses.clear();
 
@@ -1610,6 +1611,11 @@ export class RelayServer extends EventEmitter {
    * heartbeat reports. After 5 consecutive misses (~5 minutes), emits 'task:dead'.
    * Tasks dispatched within the last 3 minutes are given a grace period to allow
    * for worktree creation, git clone, and agent startup.
+   *
+   * Uses Redis leader election when multiple instances are running — only
+   * the instance with the machine connections should run dead job detection.
+   * (Each instance only sees its own machines, so leader election prevents
+   * redundant checks.)
    */
   private startDeadJobChecker(): void {
     if (this.deadJobCheckInterval) return;
@@ -1617,58 +1623,69 @@ export class RelayServer extends EventEmitter {
     const DEAD_JOB_CHECK_INTERVAL_MS = 60_000;  // 60 seconds
     const CONSECUTIVE_MISS_THRESHOLD = 5;        // 5 misses = ~5 minutes
     const DISPATCH_GRACE_PERIOD_MS = 3 * 60_000; // 3 minutes grace after dispatch
+    const LEADER_NAME = 'dead-job-checker';
+    const LEADER_TTL_SECONDS = 90; // 90s TTL, renewed every 60s
 
-    this.deadJobCheckInterval = setInterval(() => {
-      const allMachines = machineRegistry.getAll();
-      const now = Date.now();
+    this.deadJobCheckInterval = setInterval(async () => {
+      try {
+        // Leader election: only one instance runs the dead job checker
+        const acquired = await redisPubSub.tryAcquireLeader(LEADER_NAME, LEADER_TTL_SECONDS);
+        const renewed = !acquired && await redisPubSub.renewLeadership(LEADER_NAME, LEADER_TTL_SECONDS);
+        if (!acquired && !renewed) return; // another instance is the leader
 
-      for (const machine of allMachines) {
-        if (machine.connectionStatus !== 'connected') continue;
+        const allMachines = machineRegistry.getAll();
+        const now = Date.now();
 
-        // Skip machines that haven't sent a heartbeat with task IDs yet
-        if (!machine.activeTaskIds) continue;
+        for (const machine of allMachines) {
+          if (machine.connectionStatus !== 'connected') continue;
 
-        const runnerTaskIds = new Set(machine.activeTaskIds);
-        const serverTaskIds = this.getTasksForMachine(machine.machineId);
+          // Skip machines that haven't sent a heartbeat with task IDs yet
+          if (!machine.activeTaskIds) continue;
 
-        for (const taskId of serverTaskIds) {
-          if (runnerTaskIds.has(taskId)) {
-            // Task is alive — reset miss count
-            this.consecutiveMisses.delete(taskId);
-          } else {
-            // Skip tasks still in dispatch grace period (startup: worktree, git clone, etc.)
-            const dispatchedAt = this.taskDispatchedAt.get(taskId);
-            if (dispatchedAt && (now - dispatchedAt) < DISPATCH_GRACE_PERIOD_MS) {
-              continue;
-            }
+          const runnerTaskIds = new Set(machine.activeTaskIds);
+          const serverTaskIds = this.getTasksForMachine(machine.machineId);
 
-            // Task missing from heartbeat — increment miss count
-            const misses = (this.consecutiveMisses.get(taskId) ?? 0) + 1;
-            this.consecutiveMisses.set(taskId, misses);
-
-            if (misses >= CONSECUTIVE_MISS_THRESHOLD) {
-              console.warn(
-                `[relay] Dead job detected: task ${taskId} missing from machine ${machine.machineId} ` +
-                `heartbeat for ${misses} consecutive checks (~${misses} minutes)`
-              );
+          for (const taskId of serverTaskIds) {
+            if (runnerTaskIds.has(taskId)) {
+              // Task is alive — reset miss count
               this.consecutiveMisses.delete(taskId);
-              this.taskToMachine.delete(taskId);
-              this.taskDispatchedAt.delete(taskId);
-              redisPubSub.removeTaskMapping(taskId).catch(() => {});
+            } else {
+              // Skip tasks still in dispatch grace period (startup: worktree, git clone, etc.)
+              const dispatchedAt = this.taskDispatchedAt.get(taskId);
+              if (dispatchedAt && (now - dispatchedAt) < DISPATCH_GRACE_PERIOD_MS) {
+                continue;
+              }
 
-              // Emit event for dispatch layer to handle DB reset
-              this.emit('task:dead', {
-                taskId,
-                machineId: machine.machineId,
-                reason: `Task not reported in agent runner heartbeat for ${misses} consecutive checks`,
-              });
+              // Task missing from heartbeat — increment miss count
+              const misses = (this.consecutiveMisses.get(taskId) ?? 0) + 1;
+              this.consecutiveMisses.set(taskId, misses);
+
+              if (misses >= CONSECUTIVE_MISS_THRESHOLD) {
+                console.warn(
+                  `[relay] Dead job detected: task ${taskId} missing from machine ${machine.machineId} ` +
+                  `heartbeat for ${misses} consecutive checks (~${misses} minutes)`
+                );
+                this.consecutiveMisses.delete(taskId);
+                this.taskToMachine.delete(taskId);
+                this.taskDispatchedAt.delete(taskId);
+                redisPubSub.removeTaskMapping(taskId).catch(() => {});
+
+                // Emit event for dispatch layer to handle DB reset
+                this.emit('task:dead', {
+                  taskId,
+                  machineId: machine.machineId,
+                  reason: `Task not reported in agent runner heartbeat for ${misses} consecutive checks`,
+                });
+              }
             }
           }
         }
+      } catch (err) {
+        console.error('[relay] Dead job check cycle failed:', (err as Error).message);
       }
     }, DEAD_JOB_CHECK_INTERVAL_MS);
 
-    console.log('[relay] Dead job checker started (60s interval, 5-miss threshold, 3-min grace)');
+    console.log('[relay] Dead job checker started (60s interval, 5-miss threshold, 3-min grace, leader-elected)');
   }
 
   /**

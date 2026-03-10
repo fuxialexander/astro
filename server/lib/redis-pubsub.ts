@@ -36,6 +36,12 @@ const KEYS = {
   INSTANCE_ID: 'relay:instance:', // + instanceId
   EXEC_CONTEXT: 'relay:exec:context:', // + executionId
   ACTIVE_DISPATCH_STREAMS: 'relay:dispatch:active:', // + executionId → instanceId
+  EXECUTION_COST: 'relay:exec:cost:', // + executionId → cumulative cost (USD float)
+  LEADER: 'relay:leader:', // + operationName → instanceId (leader election)
+  TASK_DIR: 'relay:task:dir:', // + taskId → workingDirectory
+  SAFETY_DIR: 'relay:safety:dir:', // + workingDirectory → decision
+  NOTIFIED_APPROVAL: 'relay:notified:approval:', // + requestId → '1' (dedup)
+  PENDING_APPROVAL: 'relay:pending:approval:', // + executionId → '1' (cross-instance watchdog check)
 } as const;
 
 /** Message published for task dispatch routing */
@@ -543,6 +549,200 @@ export class RedisPubSub extends EventEmitter {
     if (!this.publisher) return false;
     const val = await this.publisher.get(`${KEYS.ACTIVE_DISPATCH_STREAMS}${executionId}`);
     return val !== null;
+  }
+
+  // =========================================================================
+  // Execution Cost Tracking (cross-instance atomic accumulation)
+  // =========================================================================
+
+  /**
+   * Atomically increment execution cost across all instances.
+   * Uses INCRBYFLOAT so concurrent increments from different instances
+   * never lose updates. Returns the new cumulative cost.
+   */
+  async incrementExecutionCost(executionId: string, costUsd: number): Promise<number | null> {
+    if (!this.publisher) return null;
+    const key = `${KEYS.EXECUTION_COST}${executionId}`;
+    const result = await this.publisher.incrbyfloat(key, costUsd);
+    const numResult = parseFloat(String(result));
+    // Always refresh TTL (4h matching execution context). EXPIRE is idempotent
+    // and avoids edge cases with floating-point equality detection on first write.
+    await this.publisher.expire(key, 14400);
+    return numResult;
+  }
+
+  /**
+   * Get the cross-instance cumulative cost for an execution.
+   */
+  async getExecutionCost(executionId: string): Promise<number> {
+    if (!this.publisher) return 0;
+    const val = await this.publisher.get(`${KEYS.EXECUTION_COST}${executionId}`);
+    return val ? parseFloat(val) : 0;
+  }
+
+  /**
+   * Remove execution cost tracking (cleanup on completion).
+   */
+  async removeExecutionCost(executionId: string): Promise<void> {
+    if (!this.publisher) return;
+    await this.publisher.del(`${KEYS.EXECUTION_COST}${executionId}`);
+  }
+
+  // =========================================================================
+  // Leader Election (singleton timer coordination)
+  // =========================================================================
+
+  /**
+   * Try to acquire leadership for a named operation. Uses Redis SETNX
+   * (SET ... NX) so exactly one instance wins. The key auto-expires
+   * after `ttlSeconds` — if the leader dies, another instance takes over.
+   *
+   * Returns true if this instance is now the leader.
+   */
+  async tryAcquireLeader(operationName: string, ttlSeconds: number): Promise<boolean> {
+    if (!this.publisher) return true; // single-instance: always leader
+    const key = `${KEYS.LEADER}${operationName}`;
+    const result = await this.publisher.set(key, this.instanceId, 'NX', 'EX', ttlSeconds);
+    return result === 'OK';
+  }
+
+  /**
+   * Renew leadership for a named operation. Only succeeds if this
+   * instance currently holds the lock (compare-and-refresh).
+   *
+   * Note: GET + EXPIRE is not atomic — there's a tiny TOCTOU window
+   * where the key could expire and be re-acquired between the two calls.
+   * Acceptable here because (a) TTLs are generous (2× interval), (b) all
+   * guarded operations are idempotent, and (c) worst case is a harmless
+   * extra TTL refresh on the new leader's lock.
+   *
+   * Returns true if leadership was renewed.
+   */
+  async renewLeadership(operationName: string, ttlSeconds: number): Promise<boolean> {
+    if (!this.publisher) return true; // single-instance: always leader
+    const key = `${KEYS.LEADER}${operationName}`;
+    const current = await this.publisher.get(key);
+    if (current !== this.instanceId) return false;
+    await this.publisher.expire(key, ttlSeconds);
+    return true;
+  }
+
+  /**
+   * Release leadership for a named operation. Only deletes if this
+   * instance holds the lock (prevents releasing another instance's lock).
+   *
+   * Note: GET + DEL is not atomic — in theory another instance could
+   * acquire the lock between the two calls. Acceptable because this is
+   * only called during graceful shutdown, and the window is microseconds.
+   */
+  async releaseLeadership(operationName: string): Promise<void> {
+    if (!this.publisher) return;
+    const key = `${KEYS.LEADER}${operationName}`;
+    const current = await this.publisher.get(key);
+    if (current === this.instanceId) {
+      await this.publisher.del(key);
+    }
+  }
+
+  // =========================================================================
+  // Dispatch State: Safety Decisions & Task Directories (cross-instance)
+  // =========================================================================
+
+  /**
+   * Store a task's working directory for cross-instance safety decision lookup.
+   */
+  async setTaskDir(taskId: string, workingDirectory: string): Promise<void> {
+    if (!this.publisher) return;
+    await this.publisher.set(
+      `${KEYS.TASK_DIR}${taskId}`,
+      workingDirectory,
+      'EX',
+      14400 // 4h
+    );
+  }
+
+  /**
+   * Get a task's working directory from Redis.
+   */
+  async getTaskDir(taskId: string): Promise<string | null> {
+    if (!this.publisher) return null;
+    return this.publisher.get(`${KEYS.TASK_DIR}${taskId}`);
+  }
+
+  /**
+   * Remove a task's working directory from Redis.
+   */
+  async removeTaskDir(taskId: string): Promise<void> {
+    if (!this.publisher) return;
+    await this.publisher.del(`${KEYS.TASK_DIR}${taskId}`);
+  }
+
+  /**
+   * Store an approved safety decision for a working directory.
+   */
+  async setApprovedSafetyDir(workingDirectory: string, decision: string): Promise<void> {
+    if (!this.publisher) return;
+    await this.publisher.set(
+      `${KEYS.SAFETY_DIR}${workingDirectory}`,
+      decision,
+      'EX',
+      86400 // 24h
+    );
+  }
+
+  /**
+   * Check if a working directory has an approved safety decision.
+   */
+  async getApprovedSafetyDir(workingDirectory: string): Promise<string | null> {
+    if (!this.publisher) return null;
+    return this.publisher.get(`${KEYS.SAFETY_DIR}${workingDirectory}`);
+  }
+
+  /**
+   * Track that an approval request notification has been sent (dedup across instances).
+   * Returns true if this is the first instance to mark it (= should send notification).
+   */
+  async markApprovalNotified(requestId: string): Promise<boolean> {
+    if (!this.publisher) return true; // single-instance: always first
+    const key = `${KEYS.NOTIFIED_APPROVAL}${requestId}`;
+    const result = await this.publisher.set(key, '1', 'NX', 'EX', 300); // 5min TTL
+    return result === 'OK';
+  }
+
+  // =========================================================================
+  // Pending Approval Tracking (cross-instance watchdog awareness)
+  // =========================================================================
+
+  /**
+   * Mark an execution as having a pending approval. Used by the watchdog
+   * to avoid resetting tasks that are waiting for user input on another instance.
+   */
+  async setPendingApproval(executionId: string): Promise<void> {
+    if (!this.publisher) return;
+    await this.publisher.set(
+      `${KEYS.PENDING_APPROVAL}${executionId}`,
+      '1',
+      'EX',
+      14400 // 4h — matches execution context TTL
+    );
+  }
+
+  /**
+   * Check if an execution has a pending approval on any instance.
+   * Returns true if a pending approval exists.
+   */
+  async hasPendingApproval(executionId: string): Promise<boolean> {
+    if (!this.publisher) return false; // single-instance: use local check
+    const val = await this.publisher.get(`${KEYS.PENDING_APPROVAL}${executionId}`);
+    return val !== null;
+  }
+
+  /**
+   * Remove the pending approval marker for an execution.
+   */
+  async removePendingApproval(executionId: string): Promise<void> {
+    if (!this.publisher) return;
+    await this.publisher.del(`${KEYS.PENDING_APPROVAL}${executionId}`);
   }
 
   // =========================================================================
