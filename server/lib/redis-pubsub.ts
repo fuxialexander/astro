@@ -38,6 +38,9 @@ const KEYS = {
   ACTIVE_DISPATCH_STREAMS: 'relay:dispatch:active:', // + executionId → instanceId
   EXECUTION_COST: 'relay:exec:cost:', // + executionId → cumulative cost (USD float)
   LEADER: 'relay:leader:', // + operationName → instanceId (leader election)
+  TASK_DIR: 'relay:task:dir:', // + taskId → workingDirectory
+  SAFETY_DIR: 'relay:safety:dir:', // + workingDirectory → decision
+  NOTIFIED_APPROVAL: 'relay:notified:approval:', // + requestId → '1' (dedup)
 } as const;
 
 /** Message published for task dispatch routing */
@@ -560,11 +563,13 @@ export class RedisPubSub extends EventEmitter {
     if (!this.publisher) return null;
     const key = `${KEYS.EXECUTION_COST}${executionId}`;
     const result = await this.publisher.incrbyfloat(key, costUsd);
-    // Set TTL on first write (4h matching execution context)
-    if (result === costUsd) {
+    const numResult = parseFloat(String(result));
+    // Set TTL on first write (4h matching execution context).
+    // INCRBYFLOAT returns a string; compare parsed float to detect first write.
+    if (numResult === costUsd) {
       await this.publisher.expire(key, 14400);
     }
-    return parseFloat(String(result));
+    return numResult;
   }
 
   /**
@@ -606,6 +611,12 @@ export class RedisPubSub extends EventEmitter {
    * Renew leadership for a named operation. Only succeeds if this
    * instance currently holds the lock (compare-and-refresh).
    *
+   * Note: GET + EXPIRE is not atomic — there's a tiny TOCTOU window
+   * where the key could expire and be re-acquired between the two calls.
+   * Acceptable here because (a) TTLs are generous (2× interval), (b) all
+   * guarded operations are idempotent, and (c) worst case is a harmless
+   * extra TTL refresh on the new leader's lock.
+   *
    * Returns true if leadership was renewed.
    */
   async renewLeadership(operationName: string, ttlSeconds: number): Promise<boolean> {
@@ -620,6 +631,10 @@ export class RedisPubSub extends EventEmitter {
   /**
    * Release leadership for a named operation. Only deletes if this
    * instance holds the lock (prevents releasing another instance's lock).
+   *
+   * Note: GET + DEL is not atomic — in theory another instance could
+   * acquire the lock between the two calls. Acceptable because this is
+   * only called during graceful shutdown, and the window is microseconds.
    */
   async releaseLeadership(operationName: string): Promise<void> {
     if (!this.publisher) return;
@@ -640,7 +655,7 @@ export class RedisPubSub extends EventEmitter {
   async setTaskDir(taskId: string, workingDirectory: string): Promise<void> {
     if (!this.publisher) return;
     await this.publisher.set(
-      `relay:task:dir:${taskId}`,
+      `${KEYS.TASK_DIR}${taskId}`,
       workingDirectory,
       'EX',
       14400 // 4h
@@ -652,7 +667,7 @@ export class RedisPubSub extends EventEmitter {
    */
   async getTaskDir(taskId: string): Promise<string | null> {
     if (!this.publisher) return null;
-    return this.publisher.get(`relay:task:dir:${taskId}`);
+    return this.publisher.get(`${KEYS.TASK_DIR}${taskId}`);
   }
 
   /**
@@ -660,7 +675,7 @@ export class RedisPubSub extends EventEmitter {
    */
   async removeTaskDir(taskId: string): Promise<void> {
     if (!this.publisher) return;
-    await this.publisher.del(`relay:task:dir:${taskId}`);
+    await this.publisher.del(`${KEYS.TASK_DIR}${taskId}`);
   }
 
   /**
@@ -669,7 +684,7 @@ export class RedisPubSub extends EventEmitter {
   async setApprovedSafetyDir(workingDirectory: string, decision: string): Promise<void> {
     if (!this.publisher) return;
     await this.publisher.set(
-      `relay:safety:dir:${workingDirectory}`,
+      `${KEYS.SAFETY_DIR}${workingDirectory}`,
       decision,
       'EX',
       86400 // 24h
@@ -681,7 +696,7 @@ export class RedisPubSub extends EventEmitter {
    */
   async getApprovedSafetyDir(workingDirectory: string): Promise<string | null> {
     if (!this.publisher) return null;
-    return this.publisher.get(`relay:safety:dir:${workingDirectory}`);
+    return this.publisher.get(`${KEYS.SAFETY_DIR}${workingDirectory}`);
   }
 
   /**
@@ -690,7 +705,7 @@ export class RedisPubSub extends EventEmitter {
    */
   async markApprovalNotified(requestId: string): Promise<boolean> {
     if (!this.publisher) return true; // single-instance: always first
-    const key = `relay:notified:approval:${requestId}`;
+    const key = `${KEYS.NOTIFIED_APPROVAL}${requestId}`;
     const result = await this.publisher.set(key, '1', 'NX', 'EX', 300); // 5min TTL
     return result === 'OK';
   }

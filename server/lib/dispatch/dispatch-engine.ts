@@ -914,16 +914,16 @@ export class DispatchEngine extends EventEmitter {
   private startPolling(): void {
     if (this.pollInterval) return
 
-    const LEADER_NAME = 'dispatch-poll'
-    const LEADER_TTL_SECONDS = Math.max(
+    const POLL_LEADER_NAME = 'dispatch-poll'
+    const POLL_LEADER_TTL_SECONDS = Math.max(
       Math.ceil(this.config.pollIntervalMs / 1000) * 2,
       60
     ) // 2× poll interval or 60s minimum
 
     this.pollInterval = setInterval(async () => {
       // Leader election: only one instance polls for ready tasks
-      const acquired = await redisPubSub.tryAcquireLeader(LEADER_NAME, LEADER_TTL_SECONDS)
-      const renewed = !acquired && await redisPubSub.renewLeadership(LEADER_NAME, LEADER_TTL_SECONDS)
+      const acquired = await redisPubSub.tryAcquireLeader(POLL_LEADER_NAME, POLL_LEADER_TTL_SECONDS)
+      const renewed = !acquired && await redisPubSub.renewLeadership(POLL_LEADER_NAME, POLL_LEADER_TTL_SECONDS)
       if (!acquired && !renewed) return // another instance is the leader
 
       await this.pollReadyTasks()
@@ -940,6 +940,7 @@ export class DispatchEngine extends EventEmitter {
     if (this.pollInterval) {
       clearInterval(this.pollInterval)
       this.pollInterval = null
+      redisPubSub.releaseLeadership('dispatch-poll').catch(() => {})
       console.log('[dispatch] Polling stopped')
     }
   }

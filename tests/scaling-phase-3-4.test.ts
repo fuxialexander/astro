@@ -411,6 +411,10 @@ describe('events.ts: cross-instance approval notification dedup', () => {
     expect(section).toContain('notifiedApprovalRequests.has(msg.requestId)')
     expect(section).toContain('markApprovalNotified')
   })
+
+  it('sendApprovalToUIAndChannels is async (await works correctly)', () => {
+    expect(eventsSource).toContain('const sendApprovalToUIAndChannels = async () => {')
+  })
 })
 
 // =============================================================================
@@ -586,6 +590,10 @@ describe('relay-server: dead job checker leader election', () => {
     )
     expect(checker).toContain("LEADER_NAME = 'dead-job-checker'")
   })
+
+  it('stop releases dead-job-checker leadership', () => {
+    expect(relaySource).toContain("redisPubSub.releaseLeadership('dead-job-checker')")
+  })
 })
 
 // =============================================================================
@@ -605,7 +613,7 @@ describe('dispatch-engine: dispatch poll leader election', () => {
       engineSource.indexOf('private startPolling():'),
       engineSource.indexOf('private stopPolling():')
     )
-    expect(polling).toContain('redisPubSub.tryAcquireLeader(LEADER_NAME')
+    expect(polling).toContain('redisPubSub.tryAcquireLeader(POLL_LEADER_NAME')
   })
 
   it('startPolling uses renewLeadership', () => {
@@ -613,7 +621,7 @@ describe('dispatch-engine: dispatch poll leader election', () => {
       engineSource.indexOf('private startPolling():'),
       engineSource.indexOf('private stopPolling():')
     )
-    expect(polling).toContain('redisPubSub.renewLeadership(LEADER_NAME')
+    expect(polling).toContain('redisPubSub.renewLeadership(POLL_LEADER_NAME')
   })
 
   it('startPolling skips when not leader', () => {
@@ -629,7 +637,7 @@ describe('dispatch-engine: dispatch poll leader election', () => {
       engineSource.indexOf('private startPolling():'),
       engineSource.indexOf('private stopPolling():')
     )
-    expect(polling).toContain("LEADER_NAME = 'dispatch-poll'")
+    expect(polling).toContain("POLL_LEADER_NAME = 'dispatch-poll'")
   })
 
   it('leader TTL is at least 2x poll interval', () => {
@@ -638,6 +646,14 @@ describe('dispatch-engine: dispatch poll leader election', () => {
       engineSource.indexOf('private stopPolling():')
     )
     expect(polling).toContain('pollIntervalMs / 1000) * 2')
+  })
+
+  it('stopPolling releases dispatch-poll leadership', () => {
+    const stopFn = engineSource.slice(
+      engineSource.indexOf('private stopPolling():'),
+      engineSource.indexOf('private async pollReadyTasks')
+    )
+    expect(stopFn).toContain("redisPubSub.releaseLeadership('dispatch-poll')")
   })
 })
 

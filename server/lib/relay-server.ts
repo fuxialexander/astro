@@ -680,6 +680,7 @@ export class RelayServer extends EventEmitter {
       if (this.deadJobCheckInterval) {
         clearInterval(this.deadJobCheckInterval);
         this.deadJobCheckInterval = null;
+        redisPubSub.releaseLeadership('dead-job-checker').catch(() => {});
       }
       this.consecutiveMisses.clear();
 

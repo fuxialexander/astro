@@ -294,7 +294,7 @@ eventsRoute.get('/stream', async (c) => {
       if (!isTaskOwnedByUser(msg.taskId)) return
 
       /** Send SSE to browser + notify configured channels */
-      const sendApprovalToUIAndChannels = () => {
+      const sendApprovalToUIAndChannels = async () => {
         const data = JSON.stringify({
           taskId: msg.taskId,
           requestId: msg.requestId,
