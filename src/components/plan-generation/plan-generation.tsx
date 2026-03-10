@@ -248,20 +248,27 @@ export function PlanGeneration({
   // session and must not redirect. This is derived from store state (backed by
   // DB), not from which UI button was clicked.
   const yoloNavigated = useRef(false)
-  const executionWasLive = useRef(false)
+  // Using state (not ref) so changes trigger re-render and YOLO nav re-evaluates.
+  // yoloNavigated stays as ref because it's a one-shot guard that should NOT cause re-renders.
+  const [executionWasLive, setExecutionWasLive] = useState(false)
+  // Track which projectId the executionWasLive flag belongs to, so a stale `true`
+  // from a previous project can't trigger navigation after a projectId switch.
+  const liveProjectIdRef = useRef<string | null>(null)
   // Reset both guards when projectId changes
   useEffect(() => {
     yoloNavigated.current = false
-    executionWasLive.current = false
+    setExecutionWasLive(false)
+    liveProjectIdRef.current = null
   }, [projectId])
   // Track live execution transitions (source of truth: execution-store → DB)
   useEffect(() => {
     if (execution?.status === 'pending' || execution?.status === 'running') {
-      executionWasLive.current = true
+      setExecutionWasLive(true)
+      liveProjectIdRef.current = projectId
     }
-  }, [execution?.status])
+  }, [execution?.status, projectId])
   useEffect(() => {
-    if (executionWasLive.current && yoloMode && headerStatus === 'completed' && hasPlan && !yoloNavigated.current) {
+    if (executionWasLive && liveProjectIdRef.current === projectId && yoloMode && headerStatus === 'completed' && hasPlan && !yoloNavigated.current) {
       yoloNavigated.current = true
       useToastStore.getState().add({
         type: 'success',
@@ -275,7 +282,7 @@ export function PlanGeneration({
       }, 500)
       return () => clearTimeout(timer)
     }
-  }, [yoloMode, headerStatus, hasPlan, projectId, navigate])
+  }, [executionWasLive, yoloMode, headerStatus, hasPlan, projectId, navigate])
 
   // Auto-scroll
   const eventsLength = allActivityEvents.length
