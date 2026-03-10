@@ -72,7 +72,7 @@ export function resolveProjectSource(project: Project): ProjectSource | undefine
     localPath,
     remoteUrl,
     remoteType,
-    baseBranch: 'main',
+    baseBranch: isGit ? 'main' : undefined,
     isGit,
   }
 }
