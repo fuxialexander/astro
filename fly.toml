@@ -1,9 +1,13 @@
 # Fly.io configuration for Astro backend + relay server
 # Deploy with: fly deploy
 #
-# Single app exposes two services:
-#   - HTTPS on 443 → Hono API (port 3001)
-#   - TLS on 3002  → WebSocket relay (port 3002)
+# Multi-instance app with load-balanced HTTP and WebSocket services.
+# Each instance runs both the Hono API (port 3001) and WebSocket relay (port 3002).
+# Redis (Upstash) is REQUIRED for multi-instance — set REDIS_URL in secrets.
+#
+# Services:
+#   - HTTPS on 443 → Hono API (port 3001) — load-balanced across all instances
+#   - TLS on 3002  → WebSocket relay (port 3002) — sticky per agent runner
 
 app = "astro-backend-deploy"
 org = "zhuoran-yang"
@@ -15,19 +19,27 @@ primary_region = "sjc"
 [env]
   NODE_ENV = "production"
   RELAY_PORT = "3002"
-  # IMPORTANT: Set these via `fly secrets set` for your deployment.
-  # ASTRO_BASE_URL — frontend URL for device auth, emails, notifications
-  # FRONTEND_URL   — CORS origin, invite links (can be same as ASTRO_BASE_URL)
-  # CORS_ORIGIN    — additional CORS origin (if frontend has multiple URLs)
-  # Example: fly secrets set ASTRO_BASE_URL=https://your-domain.com FRONTEND_URL=https://your-domain.com
+  # IMPORTANT: Set these via `fly secrets set` for your deployment:
+  #   REDIS_URL              — Upstash Redis URL (REQUIRED for multi-instance)
+  #   ASTRO_BASE_URL         — frontend URL for device auth, emails, notifications
+  #   FRONTEND_URL           — CORS origin, invite links (can be same as ASTRO_BASE_URL)
+  #   CORS_ORIGIN            — additional CORS origin (if frontend has multiple URLs)
+  #   SUPABASE_URL           — Supabase project URL
+  #   SUPABASE_ANON_KEY      — Supabase anon/public key
+  #   SUPABASE_SERVICE_ROLE_KEY — Supabase service role key (SECRET)
+  #   RELAY_JWT_SECRET       — JWT secret for machine auth
+  #   DEVICE_AUTH_JWT_SECRET  — JWT secret for device auth
+  #   ANTHROPIC_API_KEY      — Claude API key
 
 # HTTP API server (port 3001)
+# Fly.io load balancer distributes HTTP/SSE requests round-robin across instances.
+# Cross-instance state is synchronized via Redis pub/sub + write-through caching.
 [[services]]
   internal_port = 3001
   protocol = "tcp"
   auto_stop_machines = false
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 2
 
   [[services.ports]]
     port = 443
@@ -51,12 +63,14 @@ primary_region = "sjc"
     timeout = 10000
 
 # WebSocket relay server (port 3002)
+# Agent runners connect via WSS. Connections are sticky to the instance that
+# accepted them. Commands from other instances route via Redis pub/sub.
 [[services]]
   internal_port = 3002
   protocol = "tcp"
   auto_stop_machines = false
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 2
 
   [[services.ports]]
     port = 3002
