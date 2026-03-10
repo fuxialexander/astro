@@ -156,7 +156,8 @@ async function streamChatViaRelay(
     const onText = (msg: TaskTextMessage) => {
       if (!alive || msg.taskId !== opts.taskId) return
       lastActivity = Date.now()
-      streamingEventLog.appendText(persistId, msg.text)
+      // relay-server is the single persistence authority for relay-originated events.
+      // Do not call streamingEventLog here — relay-server already persisted this.
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
       executionEventBus.emit('task:stdout', { output: { taskId: opts.taskId, data: msg.text, stream: 'stdout', timestamp: new Date() } })
     }
@@ -224,28 +225,28 @@ async function streamChatViaRelay(
       }
     }
 
-    const onToolTrace = async (msg: TaskToolTraceMessage) => {
+    const onToolTrace = (msg: TaskToolTraceMessage) => {
       if (!alive || msg.taskId !== opts.taskId) return
       lastActivity = Date.now()
-      const useSeq = await streamingEventLog.append(persistId, 'tool_use', { toolName: msg.toolName, toolInput: msg.toolInput })
+      // seq comes from relay-server's persist; use it as the SSE event id for catch-up ordering
+      const seq = msg._dbSeq ?? 0
       stream.writeSSE({
         event: 'tool_use',
         data: JSON.stringify({ toolName: msg.toolName, toolInput: msg.toolInput }),
-        id: String(useSeq),
+        id: String(seq),
       }).catch(() => { alive = false })
       executionEventBus.emit('task:tool_trace', { taskId: opts.taskId, toolName: msg.toolName, toolInput: msg.toolInput })
       if (msg.toolResult !== undefined) {
-        const resultSeq = await streamingEventLog.append(persistId, 'tool_result', { toolName: msg.toolName, success: msg.success, result: msg.toolResult })
         stream.writeSSE({
           event: 'tool_result',
           data: JSON.stringify({ toolName: msg.toolName, success: msg.success, result: msg.toolResult }),
-          id: String(resultSeq),
+          id: String(seq),
         }).catch(() => { alive = false })
         executionEventBus.emit('task:tool_trace', { taskId: opts.taskId, toolName: msg.toolName, toolResult: typeof msg.toolResult === 'string' ? msg.toolResult.slice(0, 100000) : msg.toolResult, success: msg.success ?? true })
       }
     }
 
-    const onFileChange = async (msg: TaskFileChangeMessage) => {
+    const onFileChange = (msg: TaskFileChangeMessage) => {
       if (!alive || msg.taskId !== opts.taskId) return
       lastActivity = Date.now()
       // Compute line counts from diff when not provided
@@ -258,7 +259,8 @@ async function streamChatViaRelay(
         }
       }
       const data = { path: msg.path, action: msg.action, linesAdded, linesRemoved }
-      const seq = await streamingEventLog.append(persistId, 'file_change', data)
+      // seq comes from relay-server's persist
+      const seq = msg._dbSeq ?? 0
       stream.writeSSE({
         event: 'file_change',
         data: JSON.stringify(data),
@@ -267,11 +269,12 @@ async function streamChatViaRelay(
       executionEventBus.emit('task:file_change', { taskId: opts.taskId, path: msg.path, action: msg.action })
     }
 
-    const onSessionInit = async (msg: TaskSessionInitMessage) => {
+    const onSessionInit = (msg: TaskSessionInitMessage) => {
       if (!alive || msg.taskId !== opts.taskId) return
       lastActivity = Date.now()
       providerSessionId = msg.sessionId  // Capture real Claude SDK session ID
-      const seq = await streamingEventLog.append(persistId, 'session_init', { sessionId: msg.sessionId, model: msg.model })
+      // seq comes from relay-server's persist
+      const seq = msg._dbSeq ?? 0
       stream.writeSSE({
         event: 'session_init',
         data: JSON.stringify({ sessionId: msg.sessionId, model: msg.model }),

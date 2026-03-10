@@ -425,6 +425,8 @@ export interface TaskSessionInitMessage extends BaseMessage {
   taskId: string;
   sessionId: string;
   model?: string;
+  /** DB sequence number assigned by relay-server on persist (used as SSE event id) */
+  _dbSeq?: number;
 }
 
 // ============================================================================
@@ -507,6 +509,8 @@ export interface TaskToolTraceMessage extends BaseMessage {
   toolResult?: unknown;
   success?: boolean;
   duration?: number;  // milliseconds
+  /** DB sequence number assigned by relay-server on persist (used as SSE event id) */
+  _dbSeq?: number;
 }
 
 /** Task file change (file modification by agent) */
@@ -518,6 +522,8 @@ export interface TaskFileChangeMessage extends BaseMessage {
   linesAdded?: number;
   linesRemoved?: number;
   diff?: string;
+  /** DB sequence number assigned by relay-server on persist (used as SSE event id) */
+  _dbSeq?: number;
 }
 
 /** Task approval request (agent requesting user decision) */

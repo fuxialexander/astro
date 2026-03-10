@@ -44,41 +44,40 @@ const cleanupTimer = setInterval(prune, CLEANUP_INTERVAL_MS)
 cleanupTimer.unref() // Don't prevent process exit
 
 /**
- * Tracks executionIds with an active dispatch SSE bridge (POST /api/dispatch/task).
+ * Tracks executionIds with an active dispatch SSE bridge (POST /api/dispatch/task)
+ * or an active chat SSE stream (agent.ts).
  *
- * Purpose: Prevents double-persistence of relay-originated events (text, tool_use,
- * tool_result, file_change, session_init) when both relay-server.ts and dispatch.ts
- * would otherwise write the same event to streaming_events. Also prevents double-
- * delivery via the global SSE (GET /api/events/stream) while a dispatch bridge is live.
+ * Purpose: DELIVERY DEDUP ONLY. Prevents double-delivery of ephemeral events
+ * (text, tool_trace, file_change, session_init, progress) through the global SSE
+ * (GET /api/events/stream) while a dedicated dispatch or chat SSE bridge is already
+ * forwarding those events directly to the browser.
  *
- * Persistence authority:
- *   - Browser dispatch (isServerSideDispatch=false): dispatch.ts owns persistence.
- *     relay-server.ts checks this Set and skips persistence when the taskId is present.
- *   - Server-side dispatch (isServerSideDispatch=true): relay-server.ts owns
- *     persistence. dispatch.ts skips relay-originated events. This Set is intentionally
- *     NOT populated for server-side dispatch so events.ts can forward to browser SSE.
- *   - Chat/agent path: agent.ts adds itself to this Set; relay-server skips persistence.
- *   - Note: progress events are NOT persisted by relay-server.ts — dispatch.ts is the
- *     sole persister for progress regardless of pathway. No guard is needed for progress.
+ * Persistence: relay-server.ts is the SINGLE persistence authority for all
+ * relay-originated events (text, tool_use, tool_result, file_change, session_init).
+ * Route handlers (dispatch.ts, agent.ts) forward events to the browser SSE but do
+ * NOT write to streaming_events for relay-originated events. This means:
+ *   - Persistence continues through browser disconnect/reconnect (relay-server is
+ *     always running, independent of browser connection lifecycle)
+ *   - No conditional guards needed in route handlers for relay-originated events
+ *   - Route handlers remain the sole writers for their own generated events
+ *     (init, result, error, aborted, progress, approval_request, steer_message)
  *
  * Lifecycle:
  *   - Added when dispatch SSE starts (dispatch.ts, inside streamSSE callback)
- *   - Removed on stream close/cleanup (dispatch.ts cleanup function)
- *   - Skipped for server-side dispatch (X-Server-Dispatch: 'true')
- *
- * Multi-instance note: This is an IN-MEMORY Set. In multi-instance deployments,
- * only the instance running the dispatch SSE has the entry. relay-server.ts on other
- * instances would not see it and would persist independently. In practice, the relay
- * WebSocket from the agent runner and the dispatch SSE share the same instance (sticky
- * session or explicit relay URL), so single-instance semantics hold. Cross-instance
- * registration in Redis (redisPubSub.registerActiveDispatchStream) is used only for
- * the events.ts delivery-dedup path (not for relay-server.ts persistence guards).
+ *   - Added by agent.ts when chat SSE starts
+ *   - Removed on stream close/cleanup
+ *   - Skipped for server-side dispatch (X-Server-Dispatch: 'true'): no browser
+ *     SSE consumer, so events.ts must forward relay events to the frontend
  *
  * When dispatch SSE dies (page refresh, network drop):
  *   1. activeDispatchStreams entry is removed on close
- *   2. Global SSE relay-direct handlers resume delivery (events.ts)
+ *   2. Global SSE relay-direct handlers (events.ts) resume delivery
  *   3. Frontend processSSEStreamWithReconnect catches up from streaming_events
  *   4. node:status_changed delivers authoritative status regardless
+ *
+ * Multi-instance note: IN-MEMORY Set. Cross-instance registration in Redis
+ * (redisPubSub.registerActiveDispatchStream) is used only for this delivery-dedup
+ * path, not for persistence decisions (relay-server always persists regardless).
  */
 export const activeDispatchStreams = new Set<string>()
 

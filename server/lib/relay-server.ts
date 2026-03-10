@@ -52,7 +52,7 @@ import {
 import { machineRegistry } from './machine-registry.js';
 import { streamingEventLog } from './streaming-event-log.js';
 import { redisPubSub, type StreamingEventMessage } from './redis-pubsub.js';
-import { executionContextStore, activeDispatchStreams } from './execution-context-store.js';
+import { executionContextStore } from './execution-context-store.js';
 
 /** Compute line counts from a unified diff string */
 function computeLineCounts(diff: string): { added: number; removed: number } {
@@ -2343,13 +2343,10 @@ export class RelayServer extends EventEmitter {
       text: payload.text,
       sequence: payload.sequence,
     };
-    // Only persist here if dispatch.ts is NOT handling this execution.
-    // When activeDispatchStreams has this taskId, dispatch.ts owns persistence.
-    // Both share the same StreamingEventLog singleton — persisting from both
-    // causes doubled text in the in-memory buffer and duplicate structural rows.
-    if (!activeDispatchStreams.has(payload.taskId)) {
-      streamingEventLog.appendText(payload.taskId, payload.text);
-    }
+    // relay-server is the single persistence authority for relay-originated events.
+    // Route handlers (dispatch.ts, agent.ts) forward events to the browser SSE but
+    // do not write to streaming_events for relay-originated events.
+    streamingEventLog.appendText(payload.taskId, payload.text);
     this.emit('task:text', textMsg);
     this.publishToRedis({
       eventType: 'text', taskId: payload.taskId,
@@ -2370,12 +2367,10 @@ export class RelayServer extends EventEmitter {
       toolInput: payload.toolInput,
     };
     let seq: number | undefined;
-    if (!activeDispatchStreams.has(payload.taskId)) {
-      try {
-        seq = await streamingEventLog.append(payload.taskId, 'tool_use', { toolName: payload.toolName, toolInput: payload.toolInput });
-      } catch (err) {
-        console.error(`[relay-server] Failed to persist tool_use event for task ${payload.taskId}:`, err);
-      }
+    try {
+      seq = await streamingEventLog.append(payload.taskId, 'tool_use', { toolName: payload.toolName, toolInput: payload.toolInput });
+    } catch (err) {
+      console.error(`[relay-server] Failed to persist tool_use event for task ${payload.taskId}:`, err);
     }
     this.emit('task:tool_trace', Object.assign(traceMsg, { _dbSeq: seq }));
     this.publishToRedis({
@@ -2399,12 +2394,10 @@ export class RelayServer extends EventEmitter {
       success: payload.success,
     };
     let seq: number | undefined;
-    if (!activeDispatchStreams.has(payload.taskId)) {
-      try {
-        seq = await streamingEventLog.append(payload.taskId, 'tool_result', { toolName: payload.toolName, result: payload.result, success: payload.success });
-      } catch (err) {
-        console.error(`[relay-server] Failed to persist tool_result event for task ${payload.taskId}:`, err);
-      }
+    try {
+      seq = await streamingEventLog.append(payload.taskId, 'tool_result', { toolName: payload.toolName, result: payload.result, success: payload.success });
+    } catch (err) {
+      console.error(`[relay-server] Failed to persist tool_result event for task ${payload.taskId}:`, err);
     }
     this.emit('task:tool_trace', Object.assign(traceMsg, { _dbSeq: seq }));
     this.publishToRedis({
@@ -2437,12 +2430,10 @@ export class RelayServer extends EventEmitter {
       diff: payload.diff,
     };
     let seq: number | undefined;
-    if (!activeDispatchStreams.has(payload.taskId)) {
-      try {
-        seq = await streamingEventLog.append(payload.taskId, 'file_change', { path: payload.path, action: payload.action, linesAdded, linesRemoved });
-      } catch (err) {
-        console.error(`[relay-server] Failed to persist file_change event for task ${payload.taskId}:`, err);
-      }
+    try {
+      seq = await streamingEventLog.append(payload.taskId, 'file_change', { path: payload.path, action: payload.action, linesAdded, linesRemoved });
+    } catch (err) {
+      console.error(`[relay-server] Failed to persist file_change event for task ${payload.taskId}:`, err);
     }
     this.emit('task:file_change', Object.assign(changeMsg, { _dbSeq: seq }));
     this.publishToRedis({
@@ -2465,12 +2456,10 @@ export class RelayServer extends EventEmitter {
       model: payload.model,
     };
     let seq: number | undefined;
-    if (!activeDispatchStreams.has(payload.taskId)) {
-      try {
-        seq = await streamingEventLog.append(payload.taskId, 'session_init', { sessionId: payload.sessionId, model: payload.model });
-      } catch (err) {
-        console.error(`[relay-server] Failed to persist session_init event for task ${payload.taskId}:`, err);
-      }
+    try {
+      seq = await streamingEventLog.append(payload.taskId, 'session_init', { sessionId: payload.sessionId, model: payload.model });
+    } catch (err) {
+      console.error(`[relay-server] Failed to persist session_init event for task ${payload.taskId}:`, err);
     }
     this.emit('task:session_init', Object.assign(initMsg, { _dbSeq: seq }));
     this.publishToRedis({
