@@ -92,7 +92,7 @@ export function Playground() {
   const [fileSidebarOpen, setFileSidebarOpen] = useState(false)
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
-  const [pendingSteerText, setPendingSteerText] = useState<string | null>(null)
+  // pendingSteerText removed: pending steers now render inline in activityEvents
   // queuedMessage removed: steer messages are now persisted to streaming_events
   // with status 'pending' and batch-drained by the relay when the agent is ready.
   const [editingPrompt, setEditingPrompt] = useState<string | null>(null)
@@ -440,7 +440,6 @@ export function Playground() {
   const handleSteer = useCallback(async (text: string) => {
     if (!text || sending || !activeProjectId) return
     setSending(true)
-    setPendingSteerText(text)
 
     // Add to activity feed immediately as pending (shows clock indicator)
     if (execution?.executionId) {
@@ -456,7 +455,6 @@ export function Playground() {
       // been persisted as 'pending'. The relay batch-drain will pick it up.
     } finally {
       setSending(false)
-      setPendingSteerText(null)
     }
   }, [sending, activeProjectId, execution?.executionId, addSteerMessage, steerPlaygroundSession])
 
@@ -780,18 +778,8 @@ export function Playground() {
 
             {displayBlocks.map((block, i) => renderBlock(block, i))}
 
-            {/* Pending steer bubble */}
-            {pendingSteerText && (
-              <div className="flex flex-col items-end gap-1 px-4 py-1.5">
-                <div className="rounded-lg px-3 py-2 text-sm max-w-[80%] bg-primary/50 text-primary-foreground">
-                  <p className="whitespace-pre-wrap">{pendingSteerText}</p>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                  <span className="text-[10px] text-muted-foreground">Sending...</span>
-                </div>
-              </div>
-            )}
+            {/* Pending steer bubble removed: addSteerMessage now adds pending
+                events directly to activityEvents, rendered inline above */}
 
             {/* Queued message indicator removed: pending steers now appear
                 inline in the activity feed with clock indicators */}

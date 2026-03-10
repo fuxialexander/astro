@@ -69,7 +69,7 @@ export function PlanGeneration({
   const nodeId = `plan-${projectId}`
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
-  const [pendingSteerText, setPendingSteerText] = useState<string | null>(null)
+  // pendingSteerText removed: pending steers now render inline in activityEvents
   const [isChatStreaming, setIsChatStreaming] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -302,7 +302,6 @@ export function PlanGeneration({
   async function handleSteer(text: string) {
     if (!text || sending) return
     setSending(true)
-    setPendingSteerText(text)
 
     if (execution?.executionId) {
       addSteerMessage(execution.executionId, text)
@@ -312,7 +311,6 @@ export function PlanGeneration({
       await steerPlanGeneration(projectId, text)
     } finally {
       setSending(false)
-      setPendingSteerText(null)
     }
   }
 
@@ -704,18 +702,8 @@ export function PlanGeneration({
         {/* Activity blocks */}
         {displayBlocks.map((block, i) => renderBlock(block, i))}
 
-        {/* Pending steer bubble */}
-        {pendingSteerText && (
-          <div className="flex flex-col items-end gap-1 px-4 py-1.5">
-            <div className="rounded-lg px-3 py-2 text-sm max-w-[80%] bg-primary/50 text-primary-foreground">
-              <p className="whitespace-pre-wrap">{pendingSteerText}</p>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-              <span className="text-[10px] text-muted-foreground">Sending...</span>
-            </div>
-          </div>
-        )}
+        {/* Pending steer bubble removed: addSteerMessage now adds pending
+            events directly to activityEvents, rendered inline above */}
 
         {/* Chat streaming indicator */}
         {isChatStreaming && (

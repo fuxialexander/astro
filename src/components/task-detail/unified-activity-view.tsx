@@ -75,7 +75,6 @@ export function UnifiedActivityView({
 }: UnifiedActivityViewProps) {
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
-  const [pendingSteerText, setPendingSteerText] = useState<string | null>(null)
   const [isChatStreaming, setIsChatStreaming] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false)
@@ -287,8 +286,6 @@ export function UnifiedActivityView({
   async function handleSteer(text: string, interrupt = false) {
     if (!text || sending) return
     setSending(true)
-    setPendingSteerText(text)
-
     // Track in store (not yet in activity timeline — waits for ack)
     addSteerMessage(executionId, text, interrupt)
     const steerIndex = (taskStream?.steerMessages.length || 0)
@@ -296,7 +293,6 @@ export function UnifiedActivityView({
     // Set 15s timeout
     const timeoutId = setTimeout(() => {
       updateSteerMessage(executionId, steerIndex, { accepted: false, ackMessage: "Timed out" })
-      setPendingSteerText(null)
     }, 15000)
 
     try {
@@ -316,7 +312,6 @@ export function UnifiedActivityView({
 
       if (!response.ok) {
         clearTimeout(timeoutId)
-        setPendingSteerText(null)
         const errText = await response.text().catch(() => "Unknown error")
         updateSteerMessage(executionId, steerIndex, {
           accepted: false,
@@ -324,7 +319,6 @@ export function UnifiedActivityView({
         })
       } else {
         clearTimeout(timeoutId)
-        setPendingSteerText(null)
         // Check if the response is an SSE stream (resumed session)
         const contentType = response.headers.get("content-type") || ""
         if (contentType.includes("text/event-stream")) {
@@ -463,7 +457,6 @@ export function UnifiedActivityView({
       }
     } catch (error) {
       clearTimeout(timeoutId)
-      setPendingSteerText(null)
 
       // Don't mark as failure if the page is unloading (refresh/navigate away)
       // — the task is still running server-side, catch-up will reconcile on reload
@@ -828,18 +821,8 @@ export function UnifiedActivityView({
           <span className="px-4 animate-pulse text-info text-xs font-mono">|</span>
         )}
 
-        {/* Pending steer: message queued, waiting for agent ack */}
-        {pendingSteerText && (
-          <div className="flex flex-col items-end gap-1 px-4 py-1.5">
-            <div className="rounded-lg px-3 py-2 text-sm max-w-[80%] bg-primary/50 text-primary-foreground">
-              <p className="whitespace-pre-wrap">{pendingSteerText}</p>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-              <span className="text-[10px] text-muted-foreground">Sending...</span>
-            </div>
-          </div>
-        )}
+        {/* Pending steer bubble removed: addSteerMessage now adds pending
+            events directly to activityEvents, rendered inline above */}
 
         {/* Chat streaming indicator (post-completion thinking) */}
         {isChatStreaming && (
