@@ -2075,8 +2075,31 @@ async function processSSEStreamWithReconnect(
   // 3. Check if we have an executionId to reconnect with
   const execution = get().executions.get(nodeId)
   if (!execution?.executionId) {
-    // No executionId means init event never arrived — can't catch up
-    console.warn(`[sse-reconnect] No executionId for ${nodeId}, cannot reconnect`)
+    // No executionId means init event never arrived — can't catch up.
+    // If the page is unloading, the task may still be running server-side;
+    // catch-up on reload will reconcile. Only mark as failed when the user
+    // is still actively viewing the page.
+    if (isPageUnloadingOrHidden()) {
+      console.log(`[sse-reconnect] No executionId for ${nodeId}, page hidden — skipping failure`)
+    } else if (execution && execution.status !== 'success' && execution.status !== 'failure') {
+      const errorMsg = execution.error || 'Connection to server lost before task started. The task may not have been dispatched.'
+      console.warn(`[sse-reconnect] No executionId for ${nodeId}, marking as failed`)
+      set((state) => {
+        const newExecutions = new Map(state.executions)
+        const exec = newExecutions.get(nodeId)
+        if (exec && exec.status !== 'success' && exec.status !== 'failure') {
+          newExecutions.set(nodeId, {
+            ...exec,
+            status: 'failure',
+            error: errorMsg,
+            completedAt: new Date(),
+            activityEvents: [...exec.activityEvents, { type: 'error' as const, error: errorMsg, timestamp: new Date() }],
+          })
+        }
+        return { executions: newExecutions }
+      })
+    }
+    setConnectionState(nodeId, undefined, set)
     return
   }
 
@@ -2708,11 +2731,14 @@ function handleSSEEvent(
           }
         }
 
-        // Plan-node status update is now handled by node:status_changed SSE event
-        // (DB-authoritative: server writes status, emits notification, frontend re-reads from DB)
-
-        // Project completion check is now handled by node:status_changed handler in realtime-store
-        // (reads fresh status from DB after mergeNodeFromDB, so never stale)
+        // Plan-node status update is primarily handled by node:status_changed SSE event
+        // (DB-authoritative: server writes status, emits notification, frontend re-reads from DB).
+        // Fallback: if the result event carries finalStatus, update plan node directly.
+        // This prevents nodes from staying "in_progress" if the global events SSE misses
+        // the node:status_changed event (connection drop, auth failure, etc.).
+        if (parsed.finalStatus && !alreadyCompleted) {
+          planStore.updateNode(nodeId, { status: parsed.finalStatus })
+        }
 
         // Auto-assign defaultMachineId on the project if not set
         if (isSuccess && execution?.machineId && execution?.projectId) {
