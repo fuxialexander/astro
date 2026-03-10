@@ -1129,6 +1129,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       try {
         const signing = await buildDispatchSignature(nodeId, projectId, options?.targetMachineId)
         const safeDescription = truncateDispatchField(description, MAX_DESCRIPTION_LENGTH, "Plan description")
+        const planSettings = useSettingsStore.getState()
+        const planProvider = options?.preferredProvider || planSettings.defaultProvider || undefined
+        const planModel = options?.model || planSettings.getModelForProvider(planProvider) || undefined
         const response = await fetch(apiUrl("/api/dispatch/task"), {
           method: "POST",
           headers,
@@ -1141,8 +1144,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             verification: "human",
             visionDoc: options?.visionDoc ? truncateDispatchField(options.visionDoc, MAX_VISIONDOC_LENGTH, "Vision doc") : undefined,
             targetMachineId: options?.targetMachineId,
-            model: options?.model,
-            preferredProvider: options?.preferredProvider,
+            model: planModel,
+            preferredProvider: planProvider,
             workingDirectory: options?.workingDirectory,
             isInteractivePlan: true,
             ...signing,
@@ -1369,6 +1372,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       try {
         const signing = await buildDispatchSignature(nodeId, projectId, options?.targetMachineId)
         const safeDescription = truncateDispatchField(description, MAX_DESCRIPTION_LENGTH, "Plan description")
+        const addSettings = useSettingsStore.getState()
+        const addProvider = options?.preferredProvider || addSettings.defaultProvider || undefined
+        const addModel = options?.model || addSettings.getModelForProvider(addProvider) || undefined
         const response = await fetch(apiUrl("/api/dispatch/task"), {
           method: "POST",
           headers,
@@ -1381,8 +1387,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             verification: "human",
             visionDoc: options?.visionDoc ? truncateDispatchField(options.visionDoc, MAX_VISIONDOC_LENGTH, "Vision doc") : undefined,
             targetMachineId: options?.targetMachineId,
-            model: options?.model,
-            preferredProvider: options?.preferredProvider,
+            model: addModel,
+            preferredProvider: addProvider,
             workingDirectory: options?.workingDirectory || project.workingDirectory || undefined,
             isInteractivePlan: true,
             ...signing,
@@ -1506,6 +1512,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     getAuthHeaders().then(async (headers) => {
       try {
         const signing = await buildDispatchSignature(nodeId, projectId, options?.targetMachineId)
+        const replanSettings = useSettingsStore.getState()
+        const replanProvider = options?.preferredProvider || replanSettings.defaultProvider || undefined
+        const replanModel = options?.model || replanSettings.getModelForProvider(replanProvider) || undefined
         const response = await fetch(apiUrl("/api/dispatch/task"), {
           method: "POST",
           headers,
@@ -1518,8 +1527,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             verification: "human",
             visionDoc: options?.visionDoc,
             targetMachineId: options?.targetMachineId,
-            model: options?.model,
-            preferredProvider: options?.preferredProvider,
+            model: replanModel,
+            preferredProvider: replanProvider,
             workingDirectory: project.workingDirectory,
             isInteractivePlan: true,
             replanContext,
@@ -1637,6 +1646,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       try {
         const signing = await buildDispatchSignature(nodeId, projectId, options.targetMachineId)
         const safeDescription = truncateDispatchField(description, MAX_DESCRIPTION_LENGTH, "Playground description")
+        const pgSettings = useSettingsStore.getState()
+        const pgProvider = options.preferredProvider || pgSettings.defaultProvider || undefined
+        const pgModel = options.model || pgSettings.getModelForProvider(pgProvider) || undefined
         const response = await fetch(apiUrl("/api/dispatch/task"), {
           method: "POST",
           headers,
@@ -1648,8 +1660,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             dependencies: [],
             verification: "human",
             targetMachineId: options.targetMachineId,
-            model: options.model,
-            preferredProvider: options.preferredProvider,
+            model: pgModel,
+            preferredProvider: pgProvider,
             workingDirectory: options.workingDirectory,
             deliveryMode: "direct",
             skipSafetyCheck: true,
