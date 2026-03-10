@@ -8,6 +8,7 @@ import {
   Users,
   Zap,
   CheckCircle2,
+  Check,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
@@ -16,6 +17,8 @@ interface GitHubIntegrationGuideProps {
   className?: string;
   onOAuthClick?: () => void;
   onAppClick?: () => void;
+  oauthConnected?: boolean;
+  appInstalled?: boolean;
 }
 
 interface GuidanceCard {
@@ -27,6 +30,7 @@ interface GuidanceCard {
   recommended?: boolean;
   color: 'blue' | 'teal' | 'purple' | 'amber';
   buttonLabel: string;
+  connected?: boolean;
   onButtonClick: () => void;
 }
 
@@ -120,17 +124,27 @@ function GuidanceCard({ card }: { card: GuidanceCard }) {
       </div>
 
       {/* Button */}
-      <Button
-        onClick={card.onButtonClick}
-        variant="outline"
-        size="sm"
-        className={cn(
-          'mt-6 w-full',
-          card.recommended && 'border-2 font-semibold'
-        )}
-      >
-        {card.buttonLabel}
-      </Button>
+      {card.connected ? (
+        <div className={cn(
+          'mt-6 w-full flex items-center justify-center gap-1.5 rounded-md border-2 px-3 py-1.5 text-sm font-semibold',
+          'border-emerald-200 bg-emerald-50 text-emerald-700'
+        )}>
+          <Check className="h-3.5 w-3.5" />
+          Connected
+        </div>
+      ) : (
+        <Button
+          onClick={card.onButtonClick}
+          variant="outline"
+          size="sm"
+          className={cn(
+            'mt-6 w-full',
+            card.recommended && 'border-2 font-semibold'
+          )}
+        >
+          {card.buttonLabel}
+        </Button>
+      )}
     </div>
   );
 }
@@ -139,6 +153,8 @@ export function GitHubIntegrationGuide({
   className,
   onOAuthClick = () => {},
   onAppClick = () => {},
+  oauthConnected = false,
+  appInstalled = false,
 }: GitHubIntegrationGuideProps) {
 
   const cards: GuidanceCard[] = [
@@ -148,6 +164,7 @@ export function GitHubIntegrationGuide({
       icon: Github,
       color: 'blue',
       recommended: false,
+      connected: oauthConnected,
       features: [
         'Connect your personal GitHub account',
         'Browse all your accessible repositories',
@@ -168,6 +185,7 @@ export function GitHubIntegrationGuide({
       icon: Users,
       color: 'teal',
       recommended: true,
+      connected: appInstalled,
       features: [
         'Install app on organization or account',
         'Higher API rate limits (5,000 req/hr)',
