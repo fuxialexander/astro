@@ -12,6 +12,7 @@ import type projectsEn from '../../public/locales/en/projects.json'
 import type workflowsEn from '../../public/locales/en/workflows.json'
 import type initiativesEn from '../../public/locales/en/initiatives.json'
 import type communityEn from '../../public/locales/en/community.json'
+import type examplesEn from '../../public/locales/en/examples.json'
 
 declare module 'i18next' {
   interface CustomTypeOptions {
@@ -31,6 +32,7 @@ declare module 'i18next' {
       workflows: typeof workflowsEn
       initiatives: typeof initiativesEn
       community: typeof communityEn
+      examples: typeof examplesEn
     }
   }
 }

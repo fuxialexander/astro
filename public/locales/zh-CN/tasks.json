@@ -1,7 +1,7 @@
 {
-  "title": "筹谋",
-  "myTasks": "我的筹谋",
-  "allTasks": "全部筹谋",
+  "title": "任务",
+  "myTasks": "我的任务",
+  "allTasks": "全部任务",
   "filters": {
     "all": "全部",
     "assigned": "分配给我",
@@ -9,14 +9,14 @@
     "due": "即将到期"
   },
   "columns": {
-    "title": "标题",
+    "title": "任务名称",
     "status": "状态",
     "priority": "优先级",
     "assignee": "负责人",
     "dueDate": "截止日期",
-    "estimate": "估算",
-    "project": "经略",
-    "milestone": "枢机",
+    "estimate": "工作量",
+    "project": "项目",
+    "milestone": "里程碑",
     "labels": "标签",
     "created": "创建时间",
     "updated": "更新时间"
@@ -27,11 +27,11 @@
   },
   "selectAll": "全选",
   "deselectAll": "取消全选",
-  "bulkDelete": "删除所选",
-  "noTasks": "暂无筹谋",
+  "bulkDelete": "批量删除",
+  "noTasks": "暂无任务",
   "allStatuses": "全部状态",
   "allPriorities": "全部优先级",
-  "allProjects": "全部经略",
+  "allProjects": "全部项目",
   "clearFilters": "清除筛选",
-  "active": "当前"
+  "active": "进行中"
 }

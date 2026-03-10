@@ -35,5 +35,10 @@
     "actions": "Actions",
     "searchResults": "Search Results",
     "plugins": "Plugins"
-  }
+  },
+  "playgroundGoalPlaceholder": "What would you like to work on?",
+  "sendMessage": "Send a message...",
+  "askSession": "Ask about this session...",
+  "resumeSession": "Resume a previous session",
+  "cmdEnterStart": "⌘+Enter to start"
 }

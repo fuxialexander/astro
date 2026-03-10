@@ -821,13 +821,13 @@ export function ProjectNewPlan() {
                 }
               }}
               onPaste={handleGoalPaste}
-              placeholder={"What do you want to build or accomplish?\n\ne.g. \"Address issue #42 in my repo\" or \"SSH to the HPC cluster, fine-tune Llama-3 on my dataset, then evaluate on GSM8K locally\""}
+              placeholder={t('goalPlaceholder', { defaultValue: "What do you want to build or accomplish?\n\ne.g. \"Address issue #42 in my repo\" or \"SSH to the HPC cluster, fine-tune Llama-3 on my dataset, then evaluate on GSM8K locally\"" })}
               rows={5}
               autoFocus
               className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
             />
             <div className="flex justify-end px-4 pb-1">
-              <span className="text-[10px] text-muted-foreground/40">⌘+Enter to start planning</span>
+              <span className="text-[10px] text-muted-foreground/40">{t('cmdEnterPlan', { defaultValue: '⌘+Enter to start planning' })}</span>
             </div>
 
             {/* OR divider + options */}
@@ -849,7 +849,7 @@ export function ProjectNewPlan() {
                   ) : (
                     <LayoutTemplate className="h-3.5 w-3.5" />
                   )}
-                  {templateLaunching ? "Starting..." : "Start from an Example"}
+                  {templateLaunching ? t('starting', { defaultValue: 'Starting...' }) : t('startFromExample', { defaultValue: 'Start from an Example' })}
                 </button>
                 <button
                   type="button"
@@ -857,7 +857,7 @@ export function ProjectNewPlan() {
                   className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
                 >
                   <Layers className="h-3.5 w-3.5" />
-                  Resume a Session
+                  {t('resumeSession', { defaultValue: 'Resume a Session' })}
                 </button>
               </div>
             </div>
@@ -1031,7 +1031,7 @@ export function ProjectNewPlan() {
                   <textarea
                     value={visionDoc}
                     onChange={(e) => setVisionDoc(e.target.value)}
-                    placeholder="Define the product vision, research question, or project context here. This will be provided to all agents working on this project as persistent context (skill.md)..."
+                    placeholder={t('visionDocPlaceholder', { defaultValue: 'Define the product vision, research question, or project context here. This will be provided to all agents working on this project as persistent context (skill.md)...' })}
                     rows={6}
                     className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-y min-h-[100px]"
                   />

@@ -275,10 +275,11 @@ function GeneralContent() {
 }
 
 function AppearanceContent() {
-  const { t } = useTranslation("settings")
+  const { t, i18n } = useTranslation("settings")
   const { theme, setTheme, availableThemes } = useTheme()
   const [fontSize, setFontSize] = useState("default")
   const [pointerCursors, setPointerCursors] = useState(false)
+  const isChinese = i18n.language.startsWith('zh')
 
   return (
     <div className="flex flex-col gap-8">
@@ -312,10 +313,44 @@ function AppearanceContent() {
           <SettingsRow
             label={t("appearance.language")}
             description={t("appearance.languageDesc")}
-            last
+            last={!isChinese}
           >
             <LanguageSwitcher />
           </SettingsRow>
+          {isChinese && (
+            <SettingsRow
+              label={t("appearance.chineseStyle")}
+              description={t("appearance.chineseStyleDesc")}
+              last
+            >
+              <div className="flex rounded-md border border-border overflow-hidden text-sm">
+                <button
+                  type="button"
+                  onClick={() => i18n.changeLanguage('zh-CN')}
+                  className={cn(
+                    "px-3 py-1 transition-colors",
+                    !i18n.language.endsWith('-wy')
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  )}
+                >
+                  {t("appearance.chineseStyleProfessional")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => i18n.changeLanguage('zh-CN-wy')}
+                  className={cn(
+                    "px-3 py-1 transition-colors border-l border-border",
+                    i18n.language.endsWith('-wy')
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  )}
+                >
+                  {t("appearance.chineseStyleClassical")}
+                </button>
+              </div>
+            </SettingsRow>
+          )}
         </div>
       </section>
 

@@ -1,0 +1,14 @@
+{
+  "generic": "发生错误，请重试。",
+  "notFound": "未找到",
+  "unauthorized": "您无权执行此操作。",
+  "serverError": "服务器错误，请稍后重试。",
+  "connectionLost": "连接中断，正在重连…",
+  "reconnected": "已重新连接",
+  "emptyState": {
+    "noTasks": "尚无筹谋。创建第一个筹谋以开始。",
+    "noProjects": "尚无经略。新建一个经略。",
+    "noResults": "无匹配结果。",
+    "noActivity": "暂无动态。"
+  }
+}

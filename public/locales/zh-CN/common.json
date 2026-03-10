@@ -1,5 +1,5 @@
 {
-  "loading": "少候…",
+  "loading": "加载中…",
   "save": "保存",
   "cancel": "取消",
   "delete": "删除",
@@ -34,20 +34,20 @@
   "name": "名称",
   "description": "描述",
   "status": {
-    "planned": "谋定",
-    "dispatched": "发讫",
-    "in_progress": "方兴",
-    "auto_verified": "暗合",
-    "awaiting_approval": "定夺",
-    "awaiting_judgment": "审阅",
-    "completed": "竣事",
-    "pruned": "翦除"
+    "planned": "未开始",
+    "dispatched": "已派发",
+    "in_progress": "进行中",
+    "auto_verified": "已验证",
+    "awaiting_approval": "待审批",
+    "awaiting_judgment": "待评审",
+    "completed": "已完成",
+    "pruned": "已取消"
   },
   "priority": {
-    "urgent": "急",
-    "high": "要",
-    "medium": "平",
-    "low": "缓",
+    "urgent": "紧急",
+    "high": "高",
+    "medium": "中",
+    "low": "低",
     "none": "无"
   },
   "estimate": {
@@ -55,16 +55,16 @@
     "S": "小",
     "M": "中",
     "L": "大",
-    "XL": "极大"
+    "XL": "超大"
   },
-  "noResults": "无匹配结果。",
-  "comingSoon": "即将推出",
+  "noResults": "暂无匹配结果",
+  "comingSoon": "即将上线",
   "required": "必填",
   "optional": "选填",
   "updated": "已更新",
   "created": "已创建",
   "unknown": "未知",
-  "today": "今日",
-  "yesterday": "昨日",
-  "daysAgo": "{{count}} 日前"
+  "today": "今天",
+  "yesterday": "昨天",
+  "daysAgo": "{{count}} 天前"
 }

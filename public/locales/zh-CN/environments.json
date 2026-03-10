@@ -1,7 +1,7 @@
 {
-  "title": "阵列",
-  "noEnvironments": "尚无已连接的阵列",
-  "connect": "接入阵列",
+  "title": "环境",
+  "noEnvironments": "暂无已连接的环境",
+  "connect": "接入环境",
   "status": {
     "online": "在线",
     "offline": "离线",
@@ -13,10 +13,10 @@
     "cloud": "云端"
   },
   "resources": "资源",
-  "cpu": "处理器",
+  "cpu": "CPU",
   "memory": "内存",
-  "gpu": "显卡",
+  "gpu": "GPU",
   "storage": "存储",
-  "disconnect": "断开",
+  "disconnect": "断开连接",
   "reconnect": "重新连接"
 }

@@ -10,9 +10,12 @@ i18n
   ))
   .use(initReactI18next)
   .init({
-    fallbackLng: 'en',
     defaultNS: 'common',
-    ns: ['common', 'nav', 'settings', 'plan', 'tasks', 'dashboard', 'dialogs', 'auth', 'errors', 'environments', 'projects', 'workflows', 'initiatives', 'community'],
+    ns: ['common', 'nav', 'settings', 'plan', 'tasks', 'dashboard', 'dialogs', 'auth', 'errors', 'environments', 'projects', 'workflows', 'initiatives', 'community', 'examples'],
+    fallbackLng: {
+      'zh-CN-wy': ['zh-CN', 'en'],
+      default: ['en'],
+    },
     detection: {
       order: ['localStorage', 'navigator'],
       lookupLocalStorage: 'astro-lang',
@@ -27,8 +30,9 @@ i18n
   })
 
 // Set document lang attribute on language change (enables CJK font via CSS selector)
+// zh-CN-wy maps to zh-CN for the lang attribute so fonts activate for both styles
 i18n.on('languageChanged', (lang) => {
-  document.documentElement.lang = lang
+  document.documentElement.lang = lang.startsWith('zh') ? 'zh-CN' : lang
 })
 
 // Set initial lang on load

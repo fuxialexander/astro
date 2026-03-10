@@ -1,30 +1,30 @@
 {
   "views": {
-    "graph": "图谱",
+    "graph": "关系图",
     "list": "列表",
-    "timeline": "时间轴",
+    "timeline": "时间线",
     "board": "看板",
-    "overview": "总览",
-    "knowledge": "知识"
+    "overview": "概览",
+    "knowledge": "知识库"
   },
   "display": {
-    "title": "显示",
-    "groupBy": "分组方式",
-    "orderBy": "排序方式",
-    "properties": "属性",
+    "title": "显示设置",
+    "groupBy": "分组",
+    "orderBy": "排序",
+    "properties": "字段",
     "noGrouping": "不分组",
     "viewAs": "视图",
     "showCompleted": "显示已完成",
     "zoom": "缩放",
-    "showProjectList": "显示经略列表",
+    "showProjectList": "显示项目列表",
     "showEmptyGroups": "显示空分组",
     "resetToDefaults": "恢复默认",
     "groups": {
       "status": "状态",
       "priority": "优先级",
       "assignee": "负责人",
-      "milestone": "枢机",
-      "estimate": "估算",
+      "milestone": "里程碑",
+      "estimate": "工作量",
       "label": "标签"
     },
     "order": {
@@ -37,36 +37,42 @@
     }
   },
   "milestone": {
-    "new": "新建枢机",
-    "edit": "编辑枢机",
-    "editDescription": "更新枢机详情与截止日期。",
-    "createDescription": "创建新枢机以追踪进度。",
-    "title": "标题",
+    "new": "新建里程碑",
+    "edit": "编辑里程碑",
+    "editDescription": "修改里程碑详情与截止日期。",
+    "createDescription": "新建里程碑以追踪项目进度。",
+    "title": "名称",
     "dueDate": "截止日期",
     "description": "描述",
-    "noMilestone": "无枢机",
-    "createMilestone": "创建枢机"
+    "noMilestone": "无里程碑",
+    "createMilestone": "创建里程碑"
   },
   "tabs": {
-    "tasks": "筹谋",
+    "tasks": "任务",
     "description": "描述",
-    "knowledge": "知识"
+    "knowledge": "知识库"
   },
-  "newTask": "新建筹谋",
-  "addTask": "添加筹谋",
-  "noTasks": "尚无筹谋",
-  "generatePlan": "生成规划",
+  "newTask": "新建任务",
+  "addTask": "添加任务",
+  "noTasks": "暂无任务",
+  "generatePlan": "生成计划",
   "regenerate": "重新生成",
   "replan": "重新规划",
+  "planDesc": "详细描述您的目标，AI 将与您协作制定执行计划。",
+  "replanDesc": "更新目标后重新生成计划。",
+  "goalPlaceholder": "您想构建或实现什么？\n\n例如：\"修复仓库中的 #42 问题\"或\"连接到 HPC 集群，在我的数据集上微调 Llama-3，然后在 GSM8K 上评估\"",
+  "visionDocPlaceholder": "在此定义产品愿景、研究问题或项目背景。这将作为持久上下文（skill.md）提供给所有参与此项目的智能体……",
+  "startFromExample": "从模板开始",
+  "resumeSession": "恢复上次会话",
+  "cmdEnterPlan": "⌘+Enter 开始规划",
+  "starting": "启动中…",
   "dependencies": "依赖关系",
   "noDependencies": "无依赖",
   "addDependency": "添加依赖",
   "assignee": "负责人",
   "dueDate": "截止日期",
-  "estimate": "估算",
+  "estimate": "工作量",
   "labels": "标签",
   "startDate": "开始日期",
-  "endDate": "结束日期",
-  "planDesc": "详细描述您的目标，智能体将与您协作制定规划。",
-  "replanDesc": "审阅并更新您的目标，然后生成新的规划。"
+  "endDate": "结束日期"
 }

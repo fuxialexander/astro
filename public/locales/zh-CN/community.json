@@ -1,6 +1,6 @@
 {
   "title": "社区",
-  "browse": "浏览规划",
+  "browse": "浏览计划模板",
   "featured": "精选",
   "recent": "最新",
   "popular": "热门",
@@ -9,6 +9,6 @@
   "author": "作者",
   "likes": "{{count}} 个赞",
   "uses": "{{count}} 次使用",
-  "noPlans": "暂无社区规划",
-  "myPlans": "我的规划"
+  "noPlans": "暂无社区模板",
+  "myPlans": "我的模板"
 }

@@ -1,0 +1,13 @@
+{
+  "title": "宏图",
+  "new": "新建宏图",
+  "noInitiatives": "尚无宏图",
+  "createFirst": "创建首个宏图",
+  "projects": "经略",
+  "progress": "进展",
+  "status": "状态",
+  "dueDate": "截止日期",
+  "description": "描述",
+  "addProject": "添加经略",
+  "removeProject": "移除经略"
+}

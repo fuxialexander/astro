@@ -59,7 +59,7 @@ const projectColors = [
 ]
 
 export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
-  const { t } = useTranslation("nav")
+  const { t, i18n } = useTranslation("nav")
   const { theme, setTheme } = useTheme()
   // Resolve whether dark mode is active (accounts for "system" theme)
   const isDark = theme === "dark" || (theme === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches)
@@ -449,7 +449,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
         </div>
         {!collapsed && (
           <span className="font-secondary text-2xl font-bold text-foreground">
-            Astro
+            {i18n.language.startsWith('zh') ? 'Astro｜摘星' : 'Astro'}
           </span>
         )}
       </div>

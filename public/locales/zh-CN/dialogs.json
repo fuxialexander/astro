@@ -1,53 +1,53 @@
 {
   "approval": {
-    "title": "待定夺",
-    "agentQuestion": "智能体询问",
+    "title": "待审批",
+    "agentQuestion": "智能体提问",
     "approve": "批准",
-    "reject": "驳回",
-    "approving": "批准中…",
+    "reject": "拒绝",
+    "approving": "审批中…",
     "confirming": "确认中…",
-    "pending": "待定夺",
+    "pending": "待审批",
     "approved": "已批准",
-    "rejected": "已驳回"
+    "rejected": "已拒绝"
   },
   "taskCreation": {
-    "title": "新建筹谋",
-    "titlePlaceholder": "筹谋标题…",
-    "descriptionPlaceholder": "添加描述…",
-    "create": "创建筹谋",
-    "addToProject": "添加到经略",
+    "title": "新建任务",
+    "titlePlaceholder": "任务标题…",
+    "descriptionPlaceholder": "添加任务描述…",
+    "create": "创建任务",
+    "addToProject": "添加到项目",
     "createMore": "继续创建",
-    "typeTask": "筹谋",
+    "typeTask": "任务",
     "typeBranch": "分支"
   },
   "replan": {
     "title": "重新规划",
-    "description": "描述发生了哪些变化，或需要重新规划的内容",
+    "description": "描述需要调整的内容或变更原因",
     "placeholder": "需要做哪些调整？",
     "submit": "重新规划",
-    "regenerateTitle": "重新生成规划",
-    "regenerateDescription": "当前筹谋将被归档，系统将从执行历史中汲取经验，并生成新的规划。",
-    "totalTasks": "个筹谋",
+    "regenerateTitle": "重新生成计划",
+    "regenerateDescription": "当前任务将被归档，系统将结合执行历史重新生成计划。",
+    "totalTasks": "个任务",
     "completed": "已完成",
     "withOpenPrs": "有待合并的 PR",
     "whatShouldChange": "需要做哪些调整？",
-    "changePlaceholder": "描述新规划与当前规划的不同之处（可选）",
-    "runningWarning": "部分筹谋正在执行中，将被取消。",
+    "changePlaceholder": "描述新计划与当前计划的区别（选填）",
+    "runningWarning": "部分任务正在执行中，将被终止。",
     "regenerate": "重新生成",
-    "regenerating": "重新生成中…"
+    "regenerating": "生成中…"
   },
   "welcome": {
     "title": "欢迎使用 Astro",
-    "subtitle": "AI 驱动的规划平台",
+    "subtitle": "AI 驱动的项目规划平台",
     "getStarted": "开始使用",
-    "setupProfile": "设置档案",
-    "displayName": "您希望我们如何称呼您？",
-    "role": "您的角色是？"
+    "setupProfile": "完善信息",
+    "displayName": "您的姓名是？",
+    "role": "您的职位是？"
   },
   "deleteConfirm": {
-    "title": "删除",
-    "message": "此操作无法撤销。",
-    "confirm": "删除",
+    "title": "删除确认",
+    "message": "此操作不可撤销。",
+    "confirm": "确认删除",
     "cancel": "取消"
   }
 }

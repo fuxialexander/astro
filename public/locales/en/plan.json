@@ -68,5 +68,11 @@
   "startDate": "Start date",
   "endDate": "End date",
   "planDesc": "Describe your goal in detail. Agent will build a plan with you collaboratively.",
-  "replanDesc": "Review and update your goal, then generate a fresh plan."
+  "replanDesc": "Review and update your goal, then generate a fresh plan.",
+  "goalPlaceholder": "What do you want to build or accomplish?\n\ne.g. \"Address issue #42 in my repo\" or \"SSH to the HPC cluster, fine-tune Llama-3 on my dataset, then evaluate on GSM8K locally\"",
+  "visionDocPlaceholder": "Define the product vision, research question, or project context here. This will be provided to all agents working on this project as persistent context (skill.md)...",
+  "startFromExample": "Start from an Example",
+  "resumeSession": "Resume a previous session",
+  "cmdEnterPlan": "⌘+Enter to start planning",
+  "starting": "Starting..."
 }
