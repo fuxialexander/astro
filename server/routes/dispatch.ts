@@ -335,6 +335,7 @@ dispatchRoute.post('/task', async (c) => {
   let baseBranch: string | undefined
   let nodeNumber: number | null | undefined
   let githubContext: import('../lib/prompt-templates.js').GitHubContextForPrompt | undefined
+  let isBuiltinTemplate = false
   // ── Early serial execution check for 'direct' delivery mode ──────
   // Fail-fast optimization: if the client explicitly sends deliveryMode='direct',
   // we can reject duplicate dispatches before the DB lookups (saves ~2 queries).
@@ -455,9 +456,14 @@ dispatchRoute.post('/task', async (c) => {
       //   - EARLY check (search: "Early serial execution check"): runs when body provides deliveryMode
       //   - LATE check (search: "Serial execution constraint for 'direct'"): runs when deliveryMode resolved from DB
       deliveryMode ??= (dbProject.deliveryMode as typeof deliveryMode) || undefined
-      const source = dbProject.source as { localPath?: string; remoteType?: string; baseBranch?: string } | null
+      const source = dbProject.source as { localPath?: string; remoteType?: string; baseBranch?: string; type?: string; templateId?: string } | null
       remoteType ??= (source?.remoteType as typeof remoteType) || undefined
       baseBranch = source?.baseBranch || undefined
+
+      // Builtin templates (astro--*) skip safety checks — they are trusted
+      isBuiltinTemplate = source?.type === 'template'
+        && typeof source?.templateId === 'string'
+        && source.templateId.startsWith('astro--')
 
       // Build GitHub context for plan prompts
       if (dbProject.githubOwner?.trim() && dbProject.githubRepo?.trim()) {
@@ -721,7 +727,7 @@ async function dispatchViaRelay(
       const isPlayground = nodeId.startsWith('playground-')
       yoloEnabled = isPlayground
         ? settings?.playgroundYoloMode === 'true'
-        : settings?.yoloMode === 'true'
+        : settings?.yoloMode !== 'false'  // Default ON when unset (matches frontend default)
     } catch { /* fail closed — default non-YOLO */ }
   }
 
@@ -1172,6 +1178,17 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     console.warn(`[dispatch] Failed to persist projectBranch for project ${projectId}:`, err)
   }
 
+  // Override delivery mode when user chose 'proceed' on safety prompt (= direct mode, no git).
+  // The decision value is stored in approvedSafetyDirs: 'proceed' means the user explicitly
+  // opted for non-git direct execution. Respect that choice for all subsequent tasks.
+  const safetyDecision = workingDirectory
+    ? (approvedSafetyDirs.get(workingDirectory) ?? await redisPubSub.getApprovedSafetyDir(workingDirectory))
+    : null
+  if (safetyDecision === 'proceed') {
+    deliveryMode = 'direct'
+    useWorktree = false
+  }
+
   // Dispatch via relay
   const taskDispatch = {
     taskId: executionId,
@@ -1197,7 +1214,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     worktreeStrategy,
     useWorktree,
     images,
-    skipSafetyCheck: (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && (approvedSafetyDirs.has(workingDirectory) || await redisPubSub.getApprovedSafetyDir(workingDirectory) !== null)),
+    skipSafetyCheck: isBuiltinTemplate || (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && (approvedSafetyDirs.has(workingDirectory) || await redisPubSub.getApprovedSafetyDir(workingDirectory) !== null)),
     ...(isInteractivePlan ? { type: 'plan' as const, useWorktree: false, deliveryMode: 'direct' as const } : {}),
     ...(relaySystemPrompt ? { systemPrompt: relaySystemPrompt } : {}),
     ...(astroBaseUrl && { astroBaseUrl }),

@@ -427,7 +427,6 @@ Based on Nassim Taleb's "Antifragile" framework:
     maxTurns: 50,
     maxBudgetPerTask: 5.0,
     skills: ['moat-fragility'],
-    deliveryMode: 'branch',
     skipSafetyCheck: false,
     defaultVerification: 'mixed',
   },
