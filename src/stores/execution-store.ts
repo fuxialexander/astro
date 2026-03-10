@@ -9,6 +9,7 @@ import { useToastStore } from "./toast-store"
 import { getAccessToken } from "@/lib/supabase-client"
 import type { ApprovalRequest } from "@/components/approval-card"
 import { dataClient } from "@/lib/data-client"
+import { hydrateStreamingEvents } from '@/lib/streaming-event-hydrator'
 import { stripHtml, extractBlobUrls } from "@/lib/html-utils"
 import { apiUrl } from "@/lib/api-url"
 import { useTaskChatStore } from "./task-chat-store"
@@ -1868,7 +1869,17 @@ function hasTerminalEvent(events: StreamingEventRow[]): boolean {
   )
 }
 
-/** Process caught-up events through handleSSEEvent, same as live stream */
+/**
+ * Process caught-up events using hydrate-and-replace strategy.
+ *
+ * Instead of replaying events through handleSSEEvent (which unconditionally
+ * appends text/activity and causes duplication on reconnect), we hydrate all
+ * DB events into canonical state via hydrateStreamingEvents and replace the
+ * execution's accumulated fields. The DB is the single source of truth.
+ *
+ * Terminal event side effects (toasts, metrics, summary) are handled
+ * separately after state replacement.
+ */
 function processCatchUpEvents(
   events: StreamingEventRow[],
   nodeId: string,
@@ -1877,21 +1888,121 @@ function processCatchUpEvents(
   planStore: ReturnType<typeof usePlanStore.getState>,
   onResult?: (event: string, data: string) => void,
 ) {
-  for (const row of events) {
-    try {
-      // Text events are stored as { text: "..." } in the DB but the SSE handler
-      // expects a plain string. Extract the text field for text events to match
-      // the live SSE format (where data is msg.text, a plain string).
-      let data: string
-      if (row.eventType === 'text' && typeof row.data === 'object' && row.data !== null && 'text' in row.data) {
-        data = (row.data as { text: string }).text
+  if (events.length === 0) return
+
+  // 1. Was the execution already completed before this catch-up?
+  const execBefore = get().executions.get(nodeId)
+  const wasAlreadyCompleted = execBefore != null && (
+    execBefore.status === 'success' || execBefore.status === 'failure' || execBefore.status === 'cancelled'
+  )
+
+  // 2. Clear pending text batch to avoid stale data
+  clearTextBatch(nodeId)
+
+  // 3. Hydrate DB events into canonical state (stateless, no side effects)
+  const hydrated = hydrateStreamingEvents(events)
+
+  // 4. Replace execution state with hydrated canonical data.
+  //    Status is NOT set here — terminal event side effects in step 5 need
+  //    the pre-completion status to pass the alreadyCompleted guard.
+  set((state) => {
+    const newExecutions = new Map(state.executions)
+    const exec = newExecutions.get(nodeId)
+    if (!exec) return state
+
+    newExecutions.set(nodeId, {
+      ...exec,
+      streamText: hydrated.stdout,
+      activityEvents: hydrated.activityEvents,
+      toolTraces: hydrated.toolTraces.map((t, i) => ({
+        id: t.seq != null ? `tool-seq-${t.seq}` : `tool-hydrated-${i}`,
+        ...t,
+      } as ToolTrace)),
+      fileChanges: hydrated.fileChanges.map(f => ({
+        ...f,
+        action: f.action as FileChange['action'],
+      })),
+      ...(hydrated.sessionId ? { sessionId: hydrated.sessionId } : {}),
+      ...(hydrated.machineId ? { machineId: hydrated.machineId } : {}),
+    })
+    return { executions: newExecutions }
+  })
+
+  // 5. Process terminal events for side effects.
+  //    - result: delegate to handleSSEEvent which sets status, fires toasts,
+  //      metrics, summary generation, etc. Safe because the result handler
+  //      does not append to activityEvents (uses ...exec spread).
+  //    - error/aborted: handle directly to avoid handleSSEEvent appending
+  //      duplicate error activity events to the already-hydrated array.
+  if (!wasAlreadyCompleted) {
+    const resultEvent = events.find(e => e.eventType === 'result')
+    if (resultEvent) {
+      const data = typeof resultEvent.data === 'string'
+        ? resultEvent.data
+        : JSON.stringify(resultEvent.data)
+      handleSSEEvent('result', data, nodeId, set, get, planStore)
+    } else {
+      const errorEvent = events.find(e => e.eventType === 'error')
+      if (errorEvent) {
+        const errorData = errorEvent.data as Record<string, unknown>
+        const errorMessage = (errorData.error as string) || 'Unknown error'
+        set((state) => {
+          const newExecs = new Map(state.executions)
+          const exec = newExecs.get(nodeId)
+          if (exec) {
+            newExecs.set(nodeId, {
+              ...exec,
+              status: 'failure',
+              error: errorMessage,
+              completedAt: new Date(errorEvent.createdAt),
+            })
+          }
+          return { executions: newExecs }
+        })
+        // Fire summary generation for failed tasks (matches handleSSEEvent error path)
+        const execution = get().executions.get(nodeId)
+        const node = planStore.nodes.find((n) => n.id === nodeId)
+        if (execution) {
+          requestExecutionSummary(nodeId, execution, node)
+        }
+        useExecutionStore.getState().persist()
       } else {
-        data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+        const abortedEvent = events.find(e => e.eventType === 'aborted')
+        if (abortedEvent) {
+          set((state) => {
+            const newExecs = new Map(state.executions)
+            const exec = newExecs.get(nodeId)
+            if (exec) {
+              newExecs.set(nodeId, {
+                ...exec,
+                status: 'cancelled',
+                completedAt: new Date(abortedEvent.createdAt),
+              })
+            }
+            return { executions: newExecs }
+          })
+          useExecutionStore.getState().persist()
+        }
       }
-      handleSSEEvent(row.eventType, data, nodeId, set, get, planStore)
-      onResult?.(row.eventType, data)
-    } catch (err) {
-      console.error(`[sse-catchup] Failed to process event ${row.eventType} for ${nodeId}:`, err)
+    }
+  }
+
+  // 6. Fire onResult callbacks for downstream processing (plan extraction, etc.)
+  //    Guard with wasAlreadyCompleted to prevent duplicate plan extraction
+  //    on subsequent reconnections after the execution already completed.
+  if (onResult && !wasAlreadyCompleted) {
+    for (const row of events) {
+      try {
+        let data: string
+        if (row.eventType === 'text' && typeof row.data === 'object' && row.data !== null && 'text' in row.data) {
+          data = (row.data as { text: string }).text
+        } else {
+          data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+        }
+        onResult(row.eventType, data)
+      } catch (err) {
+        console.error(`[sse-catchup] Failed to process callback for ${row.eventType}:`, err)
+      }
     }
   }
 }
@@ -1923,18 +2034,6 @@ async function processSSEStreamWithReconnect(
 ): Promise<void> {
   let lastSeq = 0
   let streamCompleted = false
-  // Checkpoint: snapshot of exec state at the last heartbeat (or structural
-  // event with a seq). Text events received between the checkpoint and a
-  // stream drop may already be in activityEvents (100ms batch timer) AND
-  // in the catch-up DB fetch — we roll back to this checkpoint before
-  // catch-up replay so those events are added exactly once.
-  // Initialize checkpoint from current execution state so that if the stream
-  // drops before the first heartbeat (activityCountAtCheckpoint would otherwise
-  // stay 0), the rollback only removes events from the pre-heartbeat window,
-  // not all events accumulated from prior hydration or earlier stream segments.
-  const initialSnap = get().executions.get(nodeId)
-  let streamTextAtCheckpoint = initialSnap?.streamText ?? ''
-  let activityCountAtCheckpoint = initialSnap?.activityEvents.length ?? 0
 
   // Set initial connection state
   setConnectionState(nodeId, 'connected', set)
@@ -1958,15 +2057,6 @@ async function processSSEStreamWithReconnect(
           // covers all text persisted up to this point. After the flush,
           // activityEvents contains exactly the events ≤ lastSeq.
           flushTextBatch(nodeId, set)
-          // Snapshot state: everything here is in DB and won't be in the
-          // next catch-up fetch (afterSeq=lastSeq). Text received after
-          // this point and before the next heartbeat is at risk of
-          // duplication on reconnect — the rollback removes it before replay.
-          const snap = get().executions.get(nodeId)
-          if (snap) {
-            streamTextAtCheckpoint = snap.streamText
-            activityCountAtCheckpoint = snap.activityEvents.length
-          }
         }
       },
     })
@@ -2003,9 +2093,6 @@ async function processSSEStreamWithReconnect(
   setConnectionState(nodeId, 'reconnecting', set)
 
   let retryCount = 0
-  // Guard: rollback to checkpoint only once — before the first catch-up batch.
-  // Subsequent iterations use the updated lastSeq and don't re-duplicate.
-  let hasRolledBackForCatchUp = false
 
   while (retryCount < MAX_RECONNECT_RETRIES) {
     // Check if aborted
@@ -2023,34 +2110,16 @@ async function processSSEStreamWithReconnect(
     }
 
     try {
+      // Fetch all events from seq 0 so hydrateStreamingEvents can build
+      // complete canonical state (e.g. pairing tool_use ↔ tool_result,
+      // computing pending approvals). Data volume is small (<100 rows).
       const { events, lastSeq: newLastSeq } = await fetchStreamingEventsCatchUp(
         [executionId],
-        lastSeq,
+        0,
       )
 
-      if (events.length > 0) {
+      if (events.length > 0 && newLastSeq > lastSeq) {
         console.log(`[sse-reconnect] Caught up ${events.length} events for ${nodeId} (seq ${lastSeq} → ${newLastSeq})`)
-        // Before the first catch-up replay, roll back any text that arrived
-        // live after the last heartbeat checkpoint. Those events are in DB
-        // (and therefore in this catch-up batch) and were also flushed to
-        // activityEvents by the 100ms batch timer — replaying without rollback
-        // would append them twice.
-        if (!hasRolledBackForCatchUp) {
-          clearTextBatch(nodeId)
-          set((state) => {
-            const newExecutions = new Map(state.executions)
-            const exec = newExecutions.get(nodeId)
-            if (exec) {
-              newExecutions.set(nodeId, {
-                ...exec,
-                streamText: streamTextAtCheckpoint,
-                activityEvents: exec.activityEvents.slice(0, activityCountAtCheckpoint),
-              })
-            }
-            return { executions: newExecutions }
-          })
-          hasRolledBackForCatchUp = true
-        }
         processCatchUpEvents(events, nodeId, set, get, planStore, onEventCallback)
         lastSeq = newLastSeq
 
@@ -2098,12 +2167,13 @@ async function processSSEStreamWithReconnect(
       }
 
       try {
+        // Fetch all events from seq 0 for full hydrate-and-replace
         const { events, lastSeq: newLastSeq } = await fetchStreamingEventsCatchUp(
           [executionId],
-          lastSeq,
+          0,
         )
 
-        if (events.length > 0) {
+        if (events.length > 0 && newLastSeq > lastSeq) {
           processCatchUpEvents(events, nodeId, set, get, planStore, onEventCallback)
           lastSeq = newLastSeq
 
