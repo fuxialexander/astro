@@ -2075,35 +2075,15 @@ async function processSSEStreamWithReconnect(
   // 3. Check if we have an executionId to reconnect with
   const execution = get().executions.get(nodeId)
   if (!execution?.executionId) {
-    // No executionId means init event never arrived — can't catch up.
-    // If the page is unloading, the task may still be running server-side;
-    // on reload the restored-execution hook will attempt to reconcile via DB.
-    // Only mark as failed when the user is still actively viewing the page.
-    if (isPageUnloadingOrHidden()) {
-      console.log(`[sse-reconnect] No executionId for ${nodeId}, page hidden — skipping failure`)
-    } else if (execution && execution.status !== 'success' && execution.status !== 'failure' && execution.status !== 'cancelled') {
-      const errorMsg = execution.error || 'Connection to server lost before task started. The task may not have been dispatched.'
-      console.warn(`[sse-reconnect] No executionId for ${nodeId}, marking as failed`)
-      set((state) => {
-        const newExecutions = new Map(state.executions)
-        const exec = newExecutions.get(nodeId)
-        if (exec && exec.status !== 'success' && exec.status !== 'failure' && exec.status !== 'cancelled') {
-          newExecutions.set(nodeId, {
-            ...exec,
-            status: 'failure',
-            error: errorMsg,
-            completedAt: new Date(),
-            activityEvents: [...exec.activityEvents, { type: 'error' as const, error: errorMsg, timestamp: new Date() }],
-          })
-        }
-        return { executions: newExecutions }
-      })
-      planStore.updateNode(nodeId, {
-        status: 'awaiting_judgment',
-        executionError: errorMsg,
-      })
-      get().persist()
-    }
+    // No executionId means init event never arrived — can't reconnect.
+    // The task may still be initializing server-side (worktree creation,
+    // machine connection, etc.), so do NOT mark as failed here — that
+    // would create false failures for slow-starting tasks.
+    // Instead, clean up the SSE connection state and let other mechanisms
+    // reconcile: page refresh → useRestoredExecution hydrates from DB,
+    // or the result event arrives later and Fix 2 (finalStatus fallback)
+    // updates the plan node.
+    console.warn(`[sse-reconnect] No executionId for ${nodeId}, cannot reconnect — task may still be initializing server-side`)
     setConnectionState(nodeId, undefined, set)
     return
   }
