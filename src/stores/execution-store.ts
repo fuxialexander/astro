@@ -2077,17 +2077,17 @@ async function processSSEStreamWithReconnect(
   if (!execution?.executionId) {
     // No executionId means init event never arrived — can't catch up.
     // If the page is unloading, the task may still be running server-side;
-    // catch-up on reload will reconcile. Only mark as failed when the user
-    // is still actively viewing the page.
+    // on reload the restored-execution hook will attempt to reconcile via DB.
+    // Only mark as failed when the user is still actively viewing the page.
     if (isPageUnloadingOrHidden()) {
       console.log(`[sse-reconnect] No executionId for ${nodeId}, page hidden — skipping failure`)
-    } else if (execution && execution.status !== 'success' && execution.status !== 'failure') {
+    } else if (execution && execution.status !== 'success' && execution.status !== 'failure' && execution.status !== 'cancelled') {
       const errorMsg = execution.error || 'Connection to server lost before task started. The task may not have been dispatched.'
       console.warn(`[sse-reconnect] No executionId for ${nodeId}, marking as failed`)
       set((state) => {
         const newExecutions = new Map(state.executions)
         const exec = newExecutions.get(nodeId)
-        if (exec && exec.status !== 'success' && exec.status !== 'failure') {
+        if (exec && exec.status !== 'success' && exec.status !== 'failure' && exec.status !== 'cancelled') {
           newExecutions.set(nodeId, {
             ...exec,
             status: 'failure',
@@ -2098,6 +2098,11 @@ async function processSSEStreamWithReconnect(
         }
         return { executions: newExecutions }
       })
+      planStore.updateNode(nodeId, {
+        status: 'awaiting_judgment',
+        executionError: errorMsg,
+      })
+      get().persist()
     }
     setConnectionState(nodeId, undefined, set)
     return
@@ -2736,7 +2741,8 @@ function handleSSEEvent(
         // Fallback: if the result event carries finalStatus, update plan node directly.
         // This prevents nodes from staying "in_progress" if the global events SSE misses
         // the node:status_changed event (connection drop, auth failure, etc.).
-        if (parsed.finalStatus && !alreadyCompleted) {
+        const validFinalStatuses = new Set(['auto_verified', 'awaiting_judgment', 'completed', 'pruned'])
+        if (parsed.finalStatus && validFinalStatuses.has(parsed.finalStatus) && !alreadyCompleted) {
           planStore.updateNode(nodeId, { status: parsed.finalStatus })
         }
 
