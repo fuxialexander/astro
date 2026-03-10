@@ -77,7 +77,7 @@ export const moatFragilityTemplate: UseCaseTemplate = {
       type: 'textarea',
       required: false,
       prominent: true,
-      placeholder: 'e.g., No internet access — use only provided filings\nFocus on AI/cloud segment, compare capital allocation strategies',
+      placeholder: 'e.g., Offline — use provided filings only\nFocus on AI/cloud segment',
       group: 'source',
       order: 3,
     },
