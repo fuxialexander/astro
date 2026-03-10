@@ -112,7 +112,7 @@ export const academicPresentationTemplate: UseCaseTemplate = {
       type: 'textarea',
       required: false,
       prominent: true,
-      placeholder: 'e.g., Machine has no GPU — skip CUDA rendering\nFocus on methods A vs B, emphasize practical implications',
+      placeholder: 'e.g., Skip CUDA rendering (no GPU)\nFocus on methods comparison',
       group: 'source',
       order: 4,
     },

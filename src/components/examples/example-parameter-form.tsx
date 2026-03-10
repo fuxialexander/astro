@@ -279,9 +279,9 @@ function ParameterField({ parameter, value, error, onChange }: ParameterFieldPro
             value={(value as string) ?? ""}
             onChange={(e) => onChange(e.target.value)}
             placeholder={placeholder}
-            rows={1}
+            rows={3}
             className={cn(
-              "min-h-[36px] resize-y",
+              "resize-y",
               error && "border-red-500 focus-visible:ring-red-500"
             )}
           />
