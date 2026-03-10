@@ -241,11 +241,27 @@ export function PlanGeneration({
   // YOLO auto-navigation: when plan completes successfully in YOLO mode,
   // auto-navigate to the project view. executeAllProject is already triggered
   // by the execution-store's autoExecuteProjectIds mechanism.
+  //
+  // Guard: only navigate if the execution was observed transitioning through a
+  // live (pending/running) state during this mount. If the execution was already
+  // terminal (success/failure) when the component mounted, we're viewing a past
+  // session and must not redirect. This is derived from store state (backed by
+  // DB), not from which UI button was clicked.
   const yoloNavigated = useRef(false)
-  // Reset navigation guard when projectId changes
-  useEffect(() => { yoloNavigated.current = false }, [projectId])
+  const executionWasLive = useRef(false)
+  // Reset both guards when projectId changes
   useEffect(() => {
-    if (yoloMode && headerStatus === 'completed' && hasPlan && !yoloNavigated.current) {
+    yoloNavigated.current = false
+    executionWasLive.current = false
+  }, [projectId])
+  // Track live execution transitions (source of truth: execution-store → DB)
+  useEffect(() => {
+    if (execution?.status === 'pending' || execution?.status === 'running') {
+      executionWasLive.current = true
+    }
+  }, [execution?.status])
+  useEffect(() => {
+    if (executionWasLive.current && yoloMode && headerStatus === 'completed' && hasPlan && !yoloNavigated.current) {
       yoloNavigated.current = true
       useToastStore.getState().add({
         type: 'success',
