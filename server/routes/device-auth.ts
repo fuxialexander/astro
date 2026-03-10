@@ -1059,7 +1059,7 @@ deviceAuthRoute.post('/simulate-machine', requireAuth, async (c) => {
         type: p,
         status: 'available' as const,
         currentTasks: 0,
-        maxConcurrentTasks: isHpc ? 10 : 3,
+        maxConcurrentTasks: isHpc ? 20 : 5,
       })),
       load: {
         cpuPercent: Math.round(Math.random() * 30 + 5),

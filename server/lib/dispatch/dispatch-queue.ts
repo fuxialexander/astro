@@ -598,7 +598,7 @@ export class DispatchQueue extends EventEmitter {
 export function createDispatchQueue(config?: Partial<DispatchEngineConfig>): DispatchQueue {
   const fullConfig: DispatchEngineConfig = {
     autoDispatch: config?.autoDispatch ?? true,
-    maxConcurrentPerProject: config?.maxConcurrentPerProject ?? 5,
+    maxConcurrentPerProject: config?.maxConcurrentPerProject ?? 4,
     maxConcurrentTotal: config?.maxConcurrentTotal ?? 20,
     defaultPriority: config?.defaultPriority ?? 'normal',
     defaultMaxRetries: config?.defaultMaxRetries ?? 2,
