@@ -653,7 +653,7 @@ export function ProjectNewPlan() {
               localPath: workingDir.trim(),
               isGit: detection.isGit,
               remoteType: detection.remoteType,
-              baseBranch: effectiveBranch || detection.baseBranch || 'main',
+              baseBranch: effectiveBranch || detection.baseBranch || (detection.isGit ? 'main' : undefined),
               ...(detection.remoteUrl ? { remoteUrl: detection.remoteUrl } : {}),
             }
           : undefined
@@ -690,7 +690,7 @@ export function ProjectNewPlan() {
               localPath: workingDir.trim(),
               isGit: detection.isGit,
               remoteType: detection.remoteType,
-              baseBranch: effectiveBranch || detection.baseBranch || 'main',
+              baseBranch: effectiveBranch || detection.baseBranch || (detection.isGit ? 'main' : undefined),
               ...(detection.remoteUrl ? { remoteUrl: detection.remoteUrl } : {}),
             }
           : undefined

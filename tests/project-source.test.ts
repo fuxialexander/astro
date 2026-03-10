@@ -229,13 +229,23 @@ describe('resolveProjectSource', () => {
     expect(source!.isGit).toBe(true)
   })
 
-  it('defaults baseBranch to "main"', () => {
+  it('defaults baseBranch to "main" for git directories', () => {
     const project = {
       workingDirectory: '/home/user/project',
+      repository: 'https://github.com/user/repo.git',
     } as Project
 
     const source = resolveProjectSource(project)
     expect(source!.baseBranch).toBe('main')
+  })
+
+  it('leaves baseBranch undefined for non-git directories', () => {
+    const project = {
+      workingDirectory: '/home/user/scripts',
+    } as Project
+
+    const source = resolveProjectSource(project)
+    expect(source!.baseBranch).toBeUndefined()
   })
 })
 

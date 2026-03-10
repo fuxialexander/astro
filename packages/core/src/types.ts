@@ -155,7 +155,7 @@ export interface ProjectSource {
   subdirectory?: string
   remoteUrl?: string
   remoteType: RemoteType
-  baseBranch: string
+  baseBranch?: string
   isGit: boolean
 }
 
