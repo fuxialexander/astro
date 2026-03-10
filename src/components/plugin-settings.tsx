@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useTranslation } from "react-i18next"
 import { usePluginStore } from "@/stores/plugin-store"
 import { loadPluginFromUrl } from "@/lib/plugin-loader"
 import { cn } from "@/lib/utils"
@@ -129,6 +130,7 @@ function PluginCard({ entry, pluginId }: { entry: PluginEntry; pluginId: string 
 }
 
 export function PluginSettingsContent() {
+  const { t } = useTranslation('common')
   const plugins = usePluginStore((s) => s.plugins)
   const registerPlugin = usePluginStore((s) => s.registerPlugin)
   const [showAddPlugin, setShowAddPlugin] = useState(false)
@@ -211,7 +213,7 @@ export function PluginSettingsContent() {
                   {loading ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Loading...
+                      {t('loading')}
                     </>
                   ) : (
                     "Load Plugin"

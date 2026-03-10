@@ -1,0 +1,11 @@
+{
+  "title": "Workflows",
+  "new": "New Workflow",
+  "noWorkflows": "No workflows yet",
+  "trigger": "Trigger",
+  "steps": "Steps",
+  "enabled": "Enabled",
+  "disabled": "Disabled",
+  "enable": "Enable",
+  "disable": "Disable"
+}

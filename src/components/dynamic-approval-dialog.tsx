@@ -6,6 +6,7 @@
  */
 
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Check, X, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -21,6 +22,7 @@ import { Label } from '@/components/ui/label'
 import { useRealtimeStore } from '@/stores/realtime-store'
 
 export function DynamicApprovalDialog() {
+  const { t } = useTranslation(['dialogs', 'common'])
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
 
@@ -91,7 +93,7 @@ export function DynamicApprovalDialog() {
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-warning">
               <AlertCircle className="h-5 w-5 text-warning-foreground" />
             </div>
-            <DialogTitle className="text-xl">Agent Question</DialogTitle>
+            <DialogTitle className="text-xl">{t('approval.agentQuestion', { ns: 'dialogs' })}</DialogTitle>
           </div>
           <DialogDescription className="text-base">
             {pendingApproval?.question}
@@ -137,7 +139,7 @@ export function DynamicApprovalDialog() {
             disabled={responding}
           >
             <X className="h-4 w-4 mr-1.5" />
-            Cancel
+            {t('cancel', { ns: 'common' })}
           </Button>
           <Button
             size="sm"
@@ -145,7 +147,7 @@ export function DynamicApprovalDialog() {
             disabled={responding || !selectedOption}
           >
             <Check className="h-4 w-4 mr-1.5" />
-            {responding ? 'Confirming...' : 'Confirm'}
+            {responding ? t('approval.confirming', { ns: 'dialogs' }) : t('confirm', { ns: 'common' })}
           </Button>
         </DialogFooter>
       </DialogContent>

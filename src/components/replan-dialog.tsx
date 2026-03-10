@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react"
+import { useTranslation } from "react-i18next"
 import { useNavigate } from "react-router"
 import { RefreshCw, AlertTriangle, Loader2 } from "lucide-react"
 import {
@@ -25,6 +26,7 @@ interface ReplanDialogProps {
 }
 
 export function ReplanDialog({ open, onOpenChange, project }: ReplanDialogProps) {
+  const { t } = useTranslation('dialogs')
   const navigate = useNavigate()
   const [changeDescription, setChangeDescription] = useState("")
   const [isProcessing, setIsProcessing] = useState(false)
@@ -98,25 +100,24 @@ export function ReplanDialog({ open, onOpenChange, project }: ReplanDialogProps)
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <RefreshCw className="h-4 w-4" />
-            Regenerate Plan
+            {t('replan.regenerateTitle')}
           </DialogTitle>
           <DialogDescription>
-            This will archive your current tasks, gather lessons from execution history,
-            and generate a new plan.
+            {t('replan.regenerateDescription')}
           </DialogDescription>
         </DialogHeader>
 
         {/* Stats section */}
         <div className="flex gap-4 text-sm text-muted-foreground">
           <div>
-            <span className="font-medium text-foreground">{stats.total}</span> total tasks
+            <span className="font-medium text-foreground">{stats.total}</span> {t('replan.totalTasks')}
           </div>
           <div>
-            <span className="font-medium text-foreground">{stats.completed}</span> completed
+            <span className="font-medium text-foreground">{stats.completed}</span> {t('replan.completed')}
           </div>
           {stats.withPrs > 0 && (
             <div>
-              <span className="font-medium text-foreground">{stats.withPrs}</span> with open PRs
+              <span className="font-medium text-foreground">{stats.withPrs}</span> {t('replan.withOpenPrs')}
             </div>
           )}
         </div>
@@ -124,11 +125,11 @@ export function ReplanDialog({ open, onOpenChange, project }: ReplanDialogProps)
         {/* Change description textarea */}
         <div className="space-y-2">
           <label htmlFor="change-description" className="text-sm font-medium">
-            What should change?
+            {t('replan.whatShouldChange')}
           </label>
           <Textarea
             id="change-description"
-            placeholder="Describe what you'd like different in the new plan (optional)"
+            placeholder={t('replan.changePlaceholder')}
             value={changeDescription}
             onChange={(e) => setChangeDescription(e.target.value)}
             className="min-h-[80px] resize-none"
@@ -141,7 +142,7 @@ export function ReplanDialog({ open, onOpenChange, project }: ReplanDialogProps)
           <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
             <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-400" />
             <span>
-              Some tasks are currently running. They will be cancelled.
+              {t('replan.runningWarning')}
             </span>
           </div>
         )}
@@ -152,7 +153,7 @@ export function ReplanDialog({ open, onOpenChange, project }: ReplanDialogProps)
             onClick={() => onOpenChange(false)}
             disabled={isProcessing}
           >
-            Cancel
+            {t('cancel', { ns: 'common' })}
           </Button>
           <Button
             onClick={handleRegenerate}
@@ -161,12 +162,12 @@ export function ReplanDialog({ open, onOpenChange, project }: ReplanDialogProps)
             {isProcessing ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Regenerating...
+                {t('replan.regenerating')}
               </>
             ) : (
               <>
                 <RefreshCw className="h-4 w-4" />
-                Regenerate
+                {t('replan.regenerate')}
               </>
             )}
           </Button>

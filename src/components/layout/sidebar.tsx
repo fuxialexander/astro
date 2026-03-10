@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react"
+import { useTranslation } from "react-i18next"
 import { NavLink, useNavigate, useParams, useLocation } from "react-router"
 import { GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X, FlaskConical, PanelLeftClose, PanelLeft, AlertCircle, LayoutTemplate, ChevronRight, ChevronDown, MessageSquare } from "lucide-react"
 import { getFaIcon } from "@/lib/color-icon-utils"
@@ -23,6 +24,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Switch } from "@/components/ui/switch"
 import { InlineRenameInput } from "@/components/inline-rename-input"
+import { LanguageSwitcher } from "@/components/language-switcher"
 
 const iconMap: Record<string, typeof CheckSquare> = {
   CheckSquare,
@@ -58,6 +60,7 @@ const projectColors = [
 ]
 
 export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
+  const { t } = useTranslation("nav")
   const { theme, setTheme } = useTheme()
   // Resolve whether dark mode is active (accounts for "system" theme)
   const isDark = theme === "dark" || (theme === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches)
@@ -319,6 +322,13 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     return nameOrEmail
   }
 
+  // Translate sidebar nav item labels by item.id (falls back to item.label if no key)
+  const getItemLabel = (item: { id: string; label: string }): string => {
+    const key = item.id === "active" ? "active" : item.id
+    // Check if key exists in nav namespace; use defaultValue (item.label) as fallback
+    return t(key, { defaultValue: item.label })
+  }
+
   const getProjectColor = (index: number) => {
     return projectColors[index % projectColors.length]
   }
@@ -539,7 +549,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                         )}
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent side="right">{item.label}</TooltipContent>
+                    <TooltipContent side="right">{getItemLabel(item)}</TooltipContent>
                   </Tooltip>
                 </div>
               )
@@ -566,7 +576,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   >
                     <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
                     <Icon className="h-5 w-5" />
-                    <span className="flex-1">{item.label}</span>
+                    <span className="flex-1">{getItemLabel(item)}</span>
                     {!item.protected && (
                       <button
                         onClick={() => toggleItemVisibility(item.id)}
@@ -597,7 +607,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                     }
                   >
                     <Icon className="h-5 w-5" />
-                    <span className="flex-1">{item.label}</span>
+                    <span className="flex-1">{getItemLabel(item)}</span>
                     {item.autoRevealed && (
                       <>
                         <span className="text-[9px] font-semibold bg-info/10 text-info rounded-full px-1.5 py-0.5">
@@ -610,7 +620,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                             dismissAutoReveal(item.id)
                           }}
                           className="p-0.5 rounded-sm hover:bg-muted/80 transition-colors"
-                          aria-label={`Dismiss ${item.label}`}
+                          aria-label={`Dismiss ${getItemLabel(item)}`}
                         >
                           <X className="h-3 w-3 text-muted-foreground" />
                         </button>
@@ -835,12 +845,12 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                 <div className="h-2 w-2 rounded-full bg-warning" />
               </div>
             </TooltipTrigger>
-            <TooltipContent side="right">Local Mode</TooltipContent>
+            <TooltipContent side="right">{t("localMode")}</TooltipContent>
           </Tooltip>
         ) : (
           <div className="flex items-center gap-2 px-5 py-3 text-xs text-muted-foreground border-t border-border dark:border-border">
             <div className="h-2 w-2 rounded-full bg-warning" />
-            Local Mode
+            {t("localMode")}
           </div>
         )
       )}
@@ -997,6 +1007,15 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
                 />
               </div>
+
+              {/* Language Switcher */}
+              <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
+                <div className="flex items-center gap-3">
+                  <Globe className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium text-muted-foreground">Language</span>
+                </div>
+                <LanguageSwitcher />
+              </div>
             </div>
           )}
         </div>
@@ -1011,12 +1030,12 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                 <button
                   onClick={() => navigate("/settings")}
                   className="flex items-center justify-center h-8 w-8 rounded-md hover:bg-muted/50 transition-colors"
-                  title="Settings"
+                  title={t("settings")}
                 >
                   <Settings className="h-4 w-4 text-muted-foreground" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="right">Settings</TooltipContent>
+              <TooltipContent side="right">{t("settings")}</TooltipContent>
             </Tooltip>
           </div>
           <div className="flex justify-center w-full">
@@ -1029,7 +1048,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                   <PanelLeft className="h-4 w-4 text-muted-foreground" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="right">Expand sidebar</TooltipContent>
+              <TooltipContent side="right">{t("toggleSidebar")}</TooltipContent>
             </Tooltip>
           </div>
         </div>
@@ -1058,14 +1077,14 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
             <button
               onClick={() => navigate("/settings")}
               className="p-2 rounded-md hover:bg-muted/50 transition-colors"
-              title="Settings"
+              title={t("settings")}
             >
               <Settings className="h-4 w-4 text-muted-foreground" />
             </button>
             <button
               onClick={toggleSidebar}
               className="p-2 rounded-md hover:bg-muted/50 transition-colors"
-              title="Collapse sidebar"
+              title={t("toggleSidebar")}
             >
               <PanelLeftClose className="h-4 w-4 text-muted-foreground" />
             </button>

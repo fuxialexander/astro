@@ -1,5 +1,6 @@
 import { Circle, Send, Loader, CheckCircle2, Eye, Scissors } from "lucide-react"
 import type { PlanNode } from "@/types"
+import i18n from "@/i18n/config"
 
 type BadgeVariant = "default" | "secondary" | "destructive" | "warning" | "success" | "info" | "outline"
 
@@ -103,6 +104,14 @@ export const statusBarColors: Record<string, string> = Object.fromEntries(
 export const statusProgressColors: Record<string, string> = Object.fromEntries(
   Object.entries(STATUS_CONFIG).filter(([, v]) => v.progressClass).map(([k, v]) => [k, v.progressClass!])
 )
+
+/**
+ * Returns the i18n-translated label for a given task status.
+ * Falls back to the English label from STATUS_CONFIG if translation is unavailable.
+ */
+export function getStatusLabel(status: PlanNode["status"]): string {
+  return i18n.t(`status.${status}`, { ns: 'common', defaultValue: STATUS_CONFIG[status]?.label ?? status })
+}
 
 /**
  * Node statuses where the associated execution has finished running.

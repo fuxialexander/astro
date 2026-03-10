@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from "react"
+import { useTranslation } from "react-i18next"
 import { Command } from "cmdk"
 import { useNavigate } from "react-router"
 import { Search, X, Inbox } from "lucide-react"
@@ -17,6 +18,7 @@ import { TeamSelectorDialog } from "@/components/team-selector-dialog"
 import "./command-palette.css"
 
 export function CommandPalette() {
+  const { t } = useTranslation(["nav", "common"])
   const open = useUIStore((s) => s.commandPaletteOpen)
   const setOpen = useUIStore((s) => s.setCommandPaletteOpen)
   const commandHistory = useUIStore((s) => s.commandHistory)
@@ -466,7 +468,7 @@ export function CommandPalette() {
                   autoFocus
                   value={searchQuery}
                   onValueChange={setSearchQuery}
-                  placeholder="Type a command or search..."
+                  placeholder={t("searchPlaceholder", { ns: "nav" })}
                   className="command-palette-search-input w-full bg-transparent outline-none"
                 />
               )}
@@ -491,7 +493,7 @@ export function CommandPalette() {
                   {flatCommands.length === 0 ? (
                     <div className="command-empty-state">
                       <Inbox className="command-empty-icon" />
-                      <div className="command-empty-text">No results found</div>
+                      <div className="command-empty-text">{t("noResults", { ns: "common" })}</div>
                       <div className="command-empty-suggestions">Try a different search term</div>
                     </div>
                   ) : (

@@ -1,0 +1,37 @@
+{
+  "title": "Tasks",
+  "myTasks": "My Tasks",
+  "allTasks": "All Tasks",
+  "filters": {
+    "all": "All",
+    "assigned": "Assigned to me",
+    "created": "Created by me",
+    "due": "Due soon"
+  },
+  "columns": {
+    "title": "Title",
+    "status": "Status",
+    "priority": "Priority",
+    "assignee": "Assignee",
+    "dueDate": "Due Date",
+    "estimate": "Estimate",
+    "project": "Project",
+    "milestone": "Milestone",
+    "labels": "Labels",
+    "created": "Created",
+    "updated": "Updated"
+  },
+  "sort": {
+    "ascending": "Ascending",
+    "descending": "Descending"
+  },
+  "selectAll": "Select all",
+  "deselectAll": "Deselect all",
+  "bulkDelete": "Delete selected",
+  "noTasks": "No tasks",
+  "allStatuses": "All statuses",
+  "allPriorities": "All priorities",
+  "allProjects": "All projects",
+  "clearFilters": "Clear filters",
+  "active": "Active"
+}

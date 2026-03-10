@@ -1,0 +1,53 @@
+{
+  "approval": {
+    "title": "Approval Required",
+    "agentQuestion": "Agent Question",
+    "approve": "Approve",
+    "reject": "Reject",
+    "approving": "Approving...",
+    "confirming": "Confirming...",
+    "pending": "Pending approval",
+    "approved": "Approved",
+    "rejected": "Rejected"
+  },
+  "taskCreation": {
+    "title": "New Task",
+    "titlePlaceholder": "Task title...",
+    "descriptionPlaceholder": "Add description...",
+    "create": "Create Task",
+    "addToProject": "Add to project",
+    "createMore": "Create more",
+    "typeTask": "Task",
+    "typeBranch": "Branch"
+  },
+  "replan": {
+    "title": "Replan",
+    "description": "Describe what has changed or what needs to be replanned",
+    "placeholder": "What needs to change?",
+    "submit": "Replan",
+    "regenerateTitle": "Regenerate Plan",
+    "regenerateDescription": "This will archive your current tasks, gather lessons from execution history, and generate a new plan.",
+    "totalTasks": "total tasks",
+    "completed": "completed",
+    "withOpenPrs": "with open PRs",
+    "whatShouldChange": "What should change?",
+    "changePlaceholder": "Describe what you'd like different in the new plan (optional)",
+    "runningWarning": "Some tasks are currently running. They will be cancelled.",
+    "regenerate": "Regenerate",
+    "regenerating": "Regenerating..."
+  },
+  "welcome": {
+    "title": "Welcome to Astro",
+    "subtitle": "Your AI-powered planning platform",
+    "getStarted": "Get Started",
+    "setupProfile": "Setup Profile",
+    "displayName": "What should we call you?",
+    "role": "What's your role?"
+  },
+  "deleteConfirm": {
+    "title": "Delete",
+    "message": "This action cannot be undone.",
+    "confirm": "Delete",
+    "cancel": "Cancel"
+  }
+}

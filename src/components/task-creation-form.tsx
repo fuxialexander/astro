@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { usePlanStore, isLive } from "@/stores/plan-store"
@@ -42,6 +43,7 @@ export function TaskCreationForm({
   onCreated,
   onCancel,
 }: TaskCreationFormProps) {
+  const { t } = useTranslation(['dialogs', 'common'])
   const addNode = usePlanStore((s) => s.addNode)
   const addEdge = usePlanStore((s) => s.addEdge)
   const updateNode = usePlanStore((s) => s.updateNode)
@@ -204,7 +206,7 @@ export function TaskCreationForm({
         <input
           ref={titleRef}
           type="text"
-          placeholder="Task title"
+          placeholder={t('taskCreation.titlePlaceholder', { ns: 'dialogs' })}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           className="flex-1 bg-transparent text-xs font-medium outline-none placeholder:text-muted-foreground"
@@ -228,7 +230,7 @@ export function TaskCreationForm({
       <input
         ref={titleRef}
         type="text"
-        placeholder="Task title"
+        placeholder={t('taskCreation.titlePlaceholder', { ns: 'dialogs' })}
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         className={cn(
@@ -246,7 +248,7 @@ export function TaskCreationForm({
           fileTree={project?.fileTree}
           value={description}
           onChange={setDescription}
-          placeholder="Add description... (type @ to reference files)"
+          placeholder={`${t('taskCreation.descriptionPlaceholder', { ns: 'dialogs' })} (type @ to reference files)`}
           rows={mode === "dialog" ? 4 : 2}
           className={cn(
             "w-full bg-transparent text-sm text-muted-foreground outline-none placeholder:text-muted-foreground",
@@ -259,7 +261,7 @@ export function TaskCreationForm({
           onClick={() => setShowDescription(true)}
           className="text-left text-xs text-muted-foreground hover:text-foreground cursor-pointer"
         >
-          Add description...
+          {t('taskCreation.descriptionPlaceholder', { ns: 'dialogs' })}
         </button>
       )}
 
@@ -270,8 +272,8 @@ export function TaskCreationForm({
           onChange={(e) => setNodeType(e.target.value as "task" | "milestone")}
           className="h-7 rounded-md border border-border bg-background px-2 text-xs cursor-pointer"
         >
-          <option value="task">Task</option>
-          <option value="milestone">Milestone</option>
+          <option value="task">{t('taskCreation.typeTask', { ns: 'dialogs' })}</option>
+          <option value="milestone">{t('milestone.new', { ns: 'plan' })}</option>
         </select>
 
         {(parentNodeId || childNodeId) && (
@@ -280,8 +282,8 @@ export function TaskCreationForm({
             onChange={(e) => setEdgeType(e.target.value as EdgeType)}
             className="h-7 rounded-md border border-border bg-background px-2 text-xs cursor-pointer"
           >
-            <option value="dependency">Dependency</option>
-            <option value="branch">Branch</option>
+            <option value="dependency">{t('dependencies', { ns: 'plan' })}</option>
+            <option value="branch">{t('taskCreation.typeBranch', { ns: 'dialogs' })}</option>
           </select>
         )}
 
@@ -291,7 +293,7 @@ export function TaskCreationForm({
             onChange={(e) => setMilestoneId(e.target.value)}
             className="h-7 rounded-md border border-border bg-background px-2 text-xs cursor-pointer max-w-[120px]"
           >
-            <option value="">Milestone</option>
+            <option value="">{t('milestone.noMilestone', { ns: 'plan' })}</option>
             {milestones.map((m) => (
               <option key={m.id} value={m.id}>{m.title}</option>
             ))}
@@ -308,13 +310,13 @@ export function TaskCreationForm({
             onChange={(e) => setCreateMore(e.target.checked)}
             className="h-3.5 w-3.5"
           />
-          Create more
+          {t('taskCreation.createMore', { ns: 'dialogs' })}
         </label>
         <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onCancel}>
-          Cancel
+          {t('cancel', { ns: 'common' })}
         </Button>
         <Button size="sm" className="h-7 text-xs" onClick={handleCreate} disabled={!title.trim() && !description.trim()}>
-          Create
+          {t('create', { ns: 'common' })}
         </Button>
       </div>
     </div>

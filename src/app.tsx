@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, Suspense } from "react"
 import { useIOSKeyboardFix } from "@/hooks/use-ios-keyboard-fix"
 import { BrowserRouter, Routes, Route, Navigate } from "react-router"
 import { ThemeProvider } from "@/components/theme-provider"
@@ -313,6 +313,7 @@ export default function App() {
   useIOSKeyboardFix()
 
   return (
+    <Suspense fallback={null}>
     <ThemeProvider defaultTheme="system">
       <TooltipProvider>
         <BrowserRouter>
@@ -368,5 +369,6 @@ export default function App() {
         </BrowserRouter>
       </TooltipProvider>
     </ThemeProvider>
+    </Suspense>
   )
 }

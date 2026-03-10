@@ -1,0 +1,14 @@
+{
+  "generic": "Something went wrong. Please try again.",
+  "notFound": "Not found",
+  "unauthorized": "You are not authorized to perform this action.",
+  "serverError": "Server error. Please try again later.",
+  "connectionLost": "Connection lost. Reconnecting...",
+  "reconnected": "Reconnected",
+  "emptyState": {
+    "noTasks": "No tasks yet. Create your first task to get started.",
+    "noProjects": "No projects yet. Start a new project.",
+    "noResults": "No results match your search.",
+    "noActivity": "No activity to show."
+  }
+}

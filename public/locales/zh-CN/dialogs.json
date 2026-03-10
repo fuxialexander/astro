@@ -1,0 +1,53 @@
+{
+  "approval": {
+    "title": "待定夺",
+    "agentQuestion": "智能体询问",
+    "approve": "批准",
+    "reject": "驳回",
+    "approving": "批准中…",
+    "confirming": "确认中…",
+    "pending": "待定夺",
+    "approved": "已批准",
+    "rejected": "已驳回"
+  },
+  "taskCreation": {
+    "title": "新建筹谋",
+    "titlePlaceholder": "筹谋标题…",
+    "descriptionPlaceholder": "添加描述…",
+    "create": "创建筹谋",
+    "addToProject": "添加到经略",
+    "createMore": "继续创建",
+    "typeTask": "筹谋",
+    "typeBranch": "分支"
+  },
+  "replan": {
+    "title": "重新规划",
+    "description": "描述发生了哪些变化，或需要重新规划的内容",
+    "placeholder": "需要做哪些调整？",
+    "submit": "重新规划",
+    "regenerateTitle": "重新生成规划",
+    "regenerateDescription": "当前筹谋将被归档，系统将从执行历史中汲取经验，并生成新的规划。",
+    "totalTasks": "个筹谋",
+    "completed": "已完成",
+    "withOpenPrs": "有待合并的 PR",
+    "whatShouldChange": "需要做哪些调整？",
+    "changePlaceholder": "描述新规划与当前规划的不同之处（可选）",
+    "runningWarning": "部分筹谋正在执行中，将被取消。",
+    "regenerate": "重新生成",
+    "regenerating": "重新生成中…"
+  },
+  "welcome": {
+    "title": "欢迎使用 Astro",
+    "subtitle": "AI 驱动的规划平台",
+    "getStarted": "开始使用",
+    "setupProfile": "设置档案",
+    "displayName": "您希望我们如何称呼您？",
+    "role": "您的角色是？"
+  },
+  "deleteConfirm": {
+    "title": "删除",
+    "message": "此操作无法撤销。",
+    "confirm": "删除",
+    "cancel": "取消"
+  }
+}

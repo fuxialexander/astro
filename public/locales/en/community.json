@@ -1,0 +1,14 @@
+{
+  "title": "Community",
+  "browse": "Browse Plans",
+  "featured": "Featured",
+  "recent": "Recent",
+  "popular": "Popular",
+  "useTemplate": "Use Template",
+  "preview": "Preview",
+  "author": "Author",
+  "likes": "{{count}} likes",
+  "uses": "{{count}} uses",
+  "noPlans": "No community plans yet",
+  "myPlans": "My Plans"
+}

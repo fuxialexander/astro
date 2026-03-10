@@ -1,4 +1,6 @@
 import { useState, useCallback, useEffect } from "react"
+import { useTranslation } from "react-i18next"
+import i18n from "@/i18n/config"
 import { useNavigate, useLocation, useSearchParams } from "react-router"
 import { startRegistration, startAuthentication, browserSupportsWebAuthn, platformAuthenticatorIsAvailable } from "@simplewebauthn/browser"
 import { apiUrl } from "@/lib/api-url"
@@ -14,13 +16,13 @@ type AuthStep = "email" | "name" | "authenticating" | "registering" | "magic_lin
 // Map technical errors to user-friendly messages
 function getFriendlyErrorMessage(message: string): string {
   if (message.includes("Failed to get login options") || message.includes("Failed to check user") || message.includes("Failed to get registration options")) {
-    return "Connection error. Please check your internet and try again."
+    return i18n.t('errors.networkError', { ns: 'auth' })
   }
   if (message.includes("Authentication failed") || message.includes("Verification failed") || message.includes("Registration failed")) {
-    return "Authentication failed. Please try again."
+    return i18n.t('errors.passkeyFailed', { ns: 'auth' })
   }
   if (message.includes("platform") || message.includes("authenticator")) {
-    return "This device doesn't support passkeys. Please use a device with Face ID, Touch ID, or Windows Hello."
+    return i18n.t('errors.passkeyNotSupported', { ns: 'auth' })
   }
   if (message.includes("Authentication service not configured")) {
     return message // Keep specific config errors
@@ -31,12 +33,13 @@ function getFriendlyErrorMessage(message: string): string {
   }
   // SecurityError often means RP ID mismatch (WebAuthn domain config wrong)
   if (message.includes("SecurityError") || message.includes("relying party")) {
-    return "Passkey configuration error. The server's domain settings don't match this site."
+    return i18n.t('auth:errors.passkeyConfigError')
   }
-  return "Something went wrong. Please try again."
+  return i18n.t('auth:errors.generic')
 }
 
 export function Login() {
+  const { t } = useTranslation('auth')
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()
@@ -443,11 +446,11 @@ export function Login() {
           <img src="/icon-192.png" alt="Astro" className="mx-auto mb-4 h-12 w-12 rounded-xl" />
           <h1 className="text-2xl font-semibold tracking-tight">Astro</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {step === "email" && "Enter your email to continue"}
-            {step === "name" && (isReturningUser ? "Welcome back! Register a new passkey" : "Welcome! Let's create your account")}
-            {step === "authenticating" && "Authenticating..."}
-            {step === "registering" && "Creating your account..."}
-            {step === "magic_link_sent" && "Check your email"}
+            {step === "email" && t('enterEmailToContinue')}
+            {step === "name" && (isReturningUser ? t('welcomeBackRegisterPasskey') : t('welcomeCreateAccount'))}
+            {step === "authenticating" && t('authenticating')}
+            {step === "registering" && t('creatingAccount')}
+            {step === "magic_link_sent" && t('checkYourEmail')}
           </p>
         </div>
 
@@ -456,7 +459,7 @@ export function Login() {
           <div className="space-y-3">
             <div className="flex items-center gap-2 rounded-lg border border-warning/20 bg-warning/5 p-3 text-sm text-warning">
               <Code2 className="h-4 w-4 shrink-0" />
-              <span>Development mode — Supabase not configured</span>
+              <span>{t('devMode')}</span>
             </div>
             <Button
               className="w-full"
@@ -465,14 +468,14 @@ export function Login() {
               onClick={handleDevModeSkip}
             >
               <Code2 className="mr-2 h-4 w-4" />
-              Continue without auth (dev mode)
+              {t('continueWithoutAuth')}
             </Button>
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
                 <span className="w-full border-t" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-background px-2 text-muted-foreground">or configure Supabase</span>
+                <span className="bg-background px-2 text-muted-foreground">{t('orConfigureSupabase')}</span>
               </div>
             </div>
           </div>
@@ -491,7 +494,7 @@ export function Login() {
           <div className="space-y-4">
             <div>
               <label htmlFor="email" className="mb-1.5 block text-sm font-medium">
-                Email
+                {t('email')}
               </label>
               <Input
                 id="email"
@@ -505,7 +508,7 @@ export function Login() {
                 autoFocus
               />
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Press Enter to continue
+                {t('pressEnterToContinue')}
               </p>
             </div>
 
@@ -520,12 +523,12 @@ export function Login() {
               ) : (
                 <ArrowRight className="mr-2 h-4 w-4" />
               )}
-              Continue
+              {t('continue')}
             </Button>
 
             {platformAuthAvailable === false && (
               <p className="text-xs text-muted-foreground text-center">
-                Passkey authentication requires Face ID, Touch ID, or Windows Hello
+                {t('passkeyRequiresBiometrics')}
               </p>
             )}
 
@@ -547,7 +550,7 @@ export function Login() {
                   disabled={loading}
                 >
                   <Mail className="mr-2 h-4 w-4" />
-                  Sign in with email link
+                  {t('signInWithEmailLink')}
                 </Button>
               </>
             )}
@@ -561,7 +564,7 @@ export function Login() {
                 disabled={loading}
               >
                 <Mail className="mr-2 h-4 w-4" />
-                Sign in with email link instead
+                {t('signInWithEmailLinkInstead')}
               </Button>
             )}
 
@@ -600,7 +603,7 @@ export function Login() {
                   fill="#EA4335"
                 />
               </svg>
-              Continue with Google
+              {t('continueWithGoogle')}
             </Button>
 
             <Button
@@ -611,7 +614,7 @@ export function Login() {
               disabled={loading}
             >
               <Github className="mr-2 h-4 w-4" />
-              Continue with GitHub
+              {t('continueWithGitHub')}
             </Button>
           </div>
         )}
@@ -620,13 +623,13 @@ export function Login() {
         {step === "name" && (
           <div className="space-y-4">
             <div className="rounded-lg border bg-muted/50 p-3 text-sm">
-              <p className="text-muted-foreground">Email</p>
+              <p className="text-muted-foreground">{t('email')}</p>
               <p className="font-medium">{email}</p>
             </div>
 
             <div>
               <label htmlFor="name" className="mb-1.5 block text-sm font-medium">
-                Name
+                {t('name')}
               </label>
               <Input
                 id="name"
@@ -641,7 +644,7 @@ export function Login() {
                 autoFocus
               />
               <p className="mt-1.5 text-xs text-muted-foreground">
-                {isReturningUser ? "Press Enter to register a new passkey" : "Press Enter to create account with passkey"}
+                {isReturningUser ? t('pressEnterToRegisterPasskey') : t('pressEnterToCreateAccount')}
               </p>
             </div>
 
@@ -656,12 +659,12 @@ export function Login() {
               ) : (
                 <Fingerprint className="mr-2 h-4 w-4" />
               )}
-              {isReturningUser ? "Register Passkey" : "Create Account"}
+              {isReturningUser ? t('registerPasskey') : t('createAccount')}
             </Button>
 
             {platformAuthAvailable === false && (
               <p className="text-xs text-destructive text-center">
-                This device doesn't support passkey creation
+                {t('deviceDoesntSupportPasskeys')}
               </p>
             )}
 
@@ -676,7 +679,7 @@ export function Login() {
                 }}
                 disabled={loading}
               >
-                Different email
+                {t('differentEmail')}
               </Button>
               <Button
                 variant="ghost"
@@ -686,12 +689,12 @@ export function Login() {
                 disabled={loading}
               >
                 <Mail className="mr-1.5 h-3.5 w-3.5" />
-                Email link instead
+                {t('emailLinkInstead')}
               </Button>
             </div>
 
             <p className="text-xs text-muted-foreground text-center">
-              You'll use Face ID, Touch ID, or Windows Hello
+              {t('passkeyBiometricHint')}
             </p>
           </div>
         )}
@@ -704,11 +707,11 @@ export function Login() {
             </div>
             <div className="space-y-2">
               <p className="text-sm text-muted-foreground">
-                We sent a sign-in link to
+                {t('sentSignInLinkTo')}
               </p>
               <p className="text-sm font-medium">{email}</p>
               <p className="text-xs text-muted-foreground">
-                Click the link in the email to sign in. You can close this tab.
+                {t('clickLinkToSignIn')}
               </p>
             </div>
             <Button
@@ -720,7 +723,7 @@ export function Login() {
                 setError("")
               }}
             >
-              Use a different email
+              {t('useDifferentEmail')}
             </Button>
           </div>
         )}
@@ -733,8 +736,8 @@ export function Login() {
             </div>
             <p className="text-sm text-muted-foreground">
               {step === "authenticating"
-                ? "Follow the prompt on your device to sign in"
-                : "Follow the prompt on your device to create your account"}
+                ? t('followDevicePromptSignIn')
+                : t('followDevicePromptCreateAccount')}
             </p>
           </div>
         )}

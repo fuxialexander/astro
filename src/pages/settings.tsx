@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
+import { useTranslation } from "react-i18next"
 import { Link, useSearchParams } from "react-router"
 import {
   ChevronLeft,
@@ -32,6 +33,7 @@ import {
   Check,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { LanguageSwitcher } from "@/components/language-switcher"
 import { useTheme } from "@/components/theme-provider"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore } from "@/stores/execution-store"
@@ -102,20 +104,20 @@ type SettingsTab =
   | "plugins"
   | "skills"
 
-const personalItems: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
-  { id: "general", label: "General", icon: SlidersHorizontal },
-  { id: "appearance", label: "Appearance", icon: Paintbrush },
-  { id: "profile", label: "Profile", icon: User },
-  { id: "notifications", label: "Notifications", icon: Bell },
-  { id: "teams", label: "Teams", icon: Users },
-  { id: "connected-accounts", label: "Connected accounts", icon: LinkIcon },
+const personalItems: { id: SettingsTab; labelKey: string; icon: React.ElementType }[] = [
+  { id: "general", labelKey: "sidebar.general", icon: SlidersHorizontal },
+  { id: "appearance", labelKey: "sidebar.appearance", icon: Paintbrush },
+  { id: "profile", labelKey: "sidebar.profile", icon: User },
+  { id: "notifications", labelKey: "sidebar.notifications", icon: Bell },
+  { id: "teams", labelKey: "sidebar.teams", icon: Users },
+  { id: "connected-accounts", labelKey: "sidebar.connectedAccounts", icon: LinkIcon },
 ]
 
-const workspaceItems: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
-  { id: "environments", label: "Environments", icon: Server },
-  { id: "plugins", label: "Plugins", icon: Puzzle },
-  { id: "skills", label: "Skills", icon: Zap },
-  { id: "keyboard-shortcuts", label: "Keyboard shortcuts", icon: Keyboard },
+const workspaceItems: { id: SettingsTab; labelKey: string; icon: React.ElementType }[] = [
+  { id: "environments", labelKey: "sidebar.environments", icon: Server },
+  { id: "plugins", labelKey: "sidebar.plugins", icon: Puzzle },
+  { id: "skills", labelKey: "sidebar.skills", icon: Zap },
+  { id: "keyboard-shortcuts", labelKey: "sidebar.keyboardShortcuts", icon: Keyboard },
 ]
 
 function Toggle({
@@ -198,6 +200,7 @@ function SelectDropdown({
 }
 
 function GeneralContent() {
+  const { t } = useTranslation("settings")
   const [homeView, setHomeView] = useState("dashboard")
   const [displayNames, setDisplayNames] = useState("username")
   const [firstDay, setFirstDay] = useState("sunday")
@@ -206,61 +209,61 @@ function GeneralContent() {
 
   return (
     <div className="flex flex-col gap-8">
-      <h1 className="text-xl font-primary font-semibold">General</h1>
+      <h1 className="text-xl font-primary font-semibold">{t("general.title")}</h1>
 
       <section className="flex flex-col gap-3">
         <div className="rounded-xl border border-border bg-card">
           <SettingsRow
-            label="Default home view"
-            description="Select which view to display when launching Astro"
+            label={t("general.homeView")}
+            description={t("general.homeViewDesc")}
           >
             <SelectDropdown
               value={homeView}
               onChange={setHomeView}
               options={[
-                { value: "dashboard", label: "Dashboard" },
-                { value: "projects", label: "Projects" },
-                { value: "issues", label: "Issues" },
+                { value: "dashboard", label: t("general.views.dashboard") },
+                { value: "projects", label: t("general.views.projects") },
+                { value: "issues", label: t("general.views.issues") },
               ]}
             />
           </SettingsRow>
           <SettingsRow
-            label="Display names"
-            description="Select how names are displayed in the interface"
+            label={t("general.displayNames")}
+            description={t("general.displayNamesDesc")}
           >
             <SelectDropdown
               value={displayNames}
               onChange={setDisplayNames}
               options={[
-                { value: "username", label: "Username" },
-                { value: "full-name", label: "Full name" },
-                { value: "first-name", label: "First name" },
+                { value: "username", label: t("general.nameFormats.username") },
+                { value: "full-name", label: t("general.nameFormats.fullName") },
+                { value: "first-name", label: t("general.nameFormats.firstName") },
               ]}
             />
           </SettingsRow>
           <SettingsRow
-            label="First day of the week"
-            description="Used for date pickers"
+            label={t("general.firstDay")}
+            description={t("general.firstDayDesc")}
           >
             <SelectDropdown
               value={firstDay}
               onChange={setFirstDay}
               options={[
-                { value: "sunday", label: "Sunday" },
-                { value: "monday", label: "Monday" },
-                { value: "saturday", label: "Saturday" },
+                { value: "sunday", label: t("general.weekdays.sunday") },
+                { value: "monday", label: t("general.weekdays.monday") },
+                { value: "saturday", label: t("general.weekdays.saturday") },
               ]}
             />
           </SettingsRow>
           <SettingsRow
-            label="App sidebar"
-            description="Customize sidebar item visibility and order"
+            label={t("general.appSidebar")}
+            description={t("general.appSidebarDesc")}
           >
-            <button className="text-sm text-primary hover:underline" onClick={() => setEditing(true)}>Customize</button>
+            <button className="text-sm text-primary hover:underline" onClick={() => setEditing(true)}>{t("general.customize")}</button>
           </SettingsRow>
           <SettingsRow
-            label="Enable keyboard shortcuts"
-            description="Use keyboard shortcuts for common actions"
+            label={t("general.keyboardShortcuts")}
+            description={t("general.keyboardShortcutsDesc")}
             last
           >
             <Toggle checked={keyboardShortcuts} onChange={setKeyboardShortcuts} />
@@ -272,56 +275,71 @@ function GeneralContent() {
 }
 
 function AppearanceContent() {
+  const { t } = useTranslation("settings")
   const { theme, setTheme, availableThemes } = useTheme()
   const [fontSize, setFontSize] = useState("default")
   const [pointerCursors, setPointerCursors] = useState(false)
 
   return (
     <div className="flex flex-col gap-8">
-      <h1 className="text-xl font-primary font-semibold">Appearance</h1>
+      <h1 className="text-xl font-primary font-semibold">{t("appearance.title")}</h1>
 
       {/* Theme */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Theme</h2>
+        <h2 className="text-sm font-semibold">{t("appearance.theme")}</h2>
         <div className="rounded-xl border border-border bg-card">
           <SettingsRow
-            label="Theme"
-            description="Select your interface color scheme"
+            label={t("appearance.theme")}
+            description={t("appearance.themeDesc")}
             last
           >
             <SelectDropdown
               value={theme}
               onChange={setTheme}
-              options={availableThemes.map((t) => ({
-                value: t.id,
-                label: t.name,
+              options={availableThemes.map((th) => ({
+                value: th.id,
+                label: th.name,
               }))}
             />
           </SettingsRow>
         </div>
       </section>
 
-      {/* Interface */}
+      {/* Language */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Interface</h2>
+        <h2 className="text-sm font-semibold">{t("appearance.language")}</h2>
         <div className="rounded-xl border border-border bg-card">
           <SettingsRow
-            label="Font size"
-            description="Adjust the size of text across the app"
+            label={t("appearance.language")}
+            description={t("appearance.languageDesc")}
+            last
+          >
+            <LanguageSwitcher />
+          </SettingsRow>
+        </div>
+      </section>
+
+      {/* Interface */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">{t("appearance.interface")}</h2>
+        <div className="rounded-xl border border-border bg-card">
+          <SettingsRow
+            label={t("appearance.fontSize")}
+            description={t("appearance.fontSizeDesc")}
           >
             <SelectDropdown
               value={fontSize}
               onChange={setFontSize}
               options={[
-                { value: "small", label: "Small" },
-                { value: "default", label: "Default" },
-                { value: "large", label: "Large" },
+                { value: "small", label: t("appearance.fontSizes.small") },
+                { value: "default", label: t("appearance.fontSizes.default") },
+                { value: "large", label: t("appearance.fontSizes.large") },
               ]}
             />
           </SettingsRow>
           <SettingsRow
-            label="Use pointer cursors"
-            description="Change cursor to pointer when hovering on interactive elements"
+            label={t("appearance.pointerCursors")}
+            description={t("appearance.pointerCursorsDesc")}
             last
           >
             <Toggle checked={pointerCursors} onChange={setPointerCursors} />
@@ -358,6 +376,7 @@ function DomainChip({
 }
 
 function ProfileContent() {
+  const { t } = useTranslation("settings")
   const {
     profile,
     setName,
@@ -524,11 +543,11 @@ function ProfileContent() {
 
   return (
     <div className="flex flex-col gap-8">
-      <h1 className="text-xl font-primary font-semibold">Profile</h1>
+      <h1 className="text-xl font-primary font-semibold">{t("profile.title")}</h1>
 
       {/* User Identity */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Identity</h2>
+        <h2 className="text-sm font-semibold">{t("profile.identity")}</h2>
         <div className="rounded-xl border border-border bg-card">
           {/* Avatar */}
           <div className="flex items-center gap-4 border-b border-border px-4 py-4">
@@ -537,31 +556,31 @@ function ProfileContent() {
               <AvatarFallback className="text-lg">{getInitials(profile.name)}</AvatarFallback>
             </Avatar>
             <div className="flex flex-col gap-1">
-              <span className="text-sm font-medium">Profile photo</span>
+              <span className="text-sm font-medium">{t("profile.profilePhoto")}</span>
               <Button variant="outline" size="sm" className="w-fit">
                 <Camera className="mr-1.5 h-3.5 w-3.5" />
-                Change photo
+                {t("profile.changePhoto")}
               </Button>
             </div>
           </div>
           {/* Name */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4 border-b border-border px-4 py-3.5">
             <div className="flex flex-col gap-0.5">
-              <span className="text-sm">Name</span>
-              <span className="text-[13px] text-muted-foreground">Your display name</span>
+              <span className="text-sm">{t("profile.name")}</span>
+              <span className="text-[13px] text-muted-foreground">{t("profile.nameDesc")}</span>
             </div>
             <Input
               value={profile.name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Enter your name"
+              placeholder={t("profile.namePlaceholder")}
               className="w-full md:w-[240px]"
             />
           </div>
           {/* Email */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4 border-b border-border px-4 py-3.5">
             <div className="flex flex-col gap-0.5">
-              <span className="text-sm">Email</span>
-              <span className="text-[13px] text-muted-foreground">Your email address</span>
+              <span className="text-sm">{t("profile.email")}</span>
+              <span className="text-[13px] text-muted-foreground">{t("profile.emailDesc")}</span>
             </div>
             <Input
               type="email"
@@ -574,9 +593,9 @@ function ProfileContent() {
           {/* Bio */}
           <div className="flex flex-col gap-2 px-4 py-3.5">
             <div className="flex flex-col gap-0.5">
-              <span className="text-sm">Bio</span>
+              <span className="text-sm">{t("profile.bio")}</span>
               <span className="text-[13px] text-muted-foreground">
-                Brief description of your work (helps personalize planning)
+                {t("profile.bioDesc")}
               </span>
             </div>
             <textarea
@@ -591,10 +610,9 @@ function ProfileContent() {
 
       {/* Domain Expertise */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Domain Expertise</h2>
+        <h2 className="text-sm font-semibold">{t("profile.domainExpertise")}</h2>
         <p className="text-[13px] text-muted-foreground">
-          Select your areas of expertise. This helps the planning system provide more relevant
-          context and suggestions.
+          {t("profile.domainExpertiseDesc")}
         </p>
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="flex flex-wrap gap-2">
@@ -612,9 +630,9 @@ function ProfileContent() {
 
       {/* Experience Level */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Experience Level</h2>
+        <h2 className="text-sm font-semibold">{t("profile.experienceLevel")}</h2>
         <p className="text-[13px] text-muted-foreground">
-          This helps calibrate plan granularity and the level of detail in guidance.
+          {t("profile.experienceLevelDesc")}
         </p>
         <div className="rounded-xl border border-border bg-card">
           {experienceLevelOptions.map((option, idx) => (
@@ -644,13 +662,13 @@ function ProfileContent() {
 
       {/* Preferred Machines */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Preferred Machines</h2>
+        <h2 className="text-sm font-semibold">{t("profile.preferredMachines")}</h2>
         <p className="text-[13px] text-muted-foreground">
-          Select your preferred machines for task dispatch. Tasks will prioritize these machines when available.
+          {t("profile.preferredMachinesDesc")}
         </p>
         {machines.length === 0 ? (
           <div className="rounded-xl border border-border bg-card px-4 py-6 text-center">
-            <p className="text-sm text-muted-foreground">No registered machines found.</p>
+            <p className="text-sm text-muted-foreground">{t("profile.noMachines")}</p>
             <p className="mt-1 text-[13px] text-muted-foreground">
               Register machines from the{" "}
               <Link to="/environments" className="text-primary hover:underline">
@@ -707,10 +725,10 @@ function ProfileContent() {
         <section className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold">API Keys</h2>
+              <h2 className="text-sm font-semibold">{t("apiKeys.title")}</h2>
               <Badge variant="secondary" className="gap-1 text-[10px]">
                 <Lock className="h-2.5 w-2.5" />
-                Encrypted
+                {t("apiKeys.encrypted")}
               </Badge>
             </div>
             <Button
@@ -719,24 +737,23 @@ function ProfileContent() {
               onClick={() => setShowAddEncryptedKey(true)}
             >
               <Plus className="mr-1.5 h-3.5 w-3.5" />
-              Add Key
+              {t("apiKeys.addKey")}
             </Button>
           </div>
           <p className="text-[13px] text-muted-foreground">
-            Manage API keys for external services (OpenAI Whisper, etc.). Keys are encrypted
-            client-side before storage using Web Crypto API.
+            {t("apiKeys.addKeyDesc")}
           </p>
 
           <div className="rounded-xl border border-border bg-card">
             {keysLoading ? (
               <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                 <Loader2 className="mb-2 h-5 w-5 animate-spin" />
-                <span className="text-sm">Loading API keys...</span>
+                <span className="text-sm">{t("apiKeys.loading")}</span>
               </div>
             ) : encryptedKeys.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                 <Key className="mb-2 h-8 w-8" />
-                <span className="text-sm">No API keys configured</span>
+                <span className="text-sm">{t("apiKeys.noKeys")}</span>
               </div>
             ) : (
               encryptedKeys.map((key, idx) => {
@@ -801,15 +818,14 @@ function ProfileContent() {
       <Dialog open={showAddEncryptedKey} onOpenChange={setShowAddEncryptedKey}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add API Key</DialogTitle>
+            <DialogTitle>{t("apiKeys.addDialog.title")}</DialogTitle>
             <DialogDescription>
-              Add an encrypted API key for an external service. Your key will be encrypted
-              client-side before being stored.
+              {t("apiKeys.addDialog.description")}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4 py-4">
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Service Name</label>
+              <label className="text-sm font-medium">{t("apiKeys.addDialog.serviceName")}</label>
               <Input
                 value={newService}
                 onChange={(e) => setNewService(e.target.value)}
@@ -820,7 +836,7 @@ function ProfileContent() {
               </p>
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">API Key</label>
+              <label className="text-sm font-medium">{t("apiKeys.addDialog.apiKey")}</label>
               <Input
                 type="password"
                 value={newApiKey}
@@ -851,12 +867,12 @@ function ProfileContent() {
               {addingKey ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Adding...
+                  {t("apiKeys.addDialog.adding")}
                 </>
               ) : (
                 <>
                   <Lock className="mr-2 h-4 w-4" />
-                  Add Key
+                  {t("apiKeys.addDialog.addKey")}
                 </>
               )}
             </Button>
@@ -866,22 +882,22 @@ function ProfileContent() {
 
       {/* Account Actions */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Account</h2>
+        <h2 className="text-sm font-semibold">{t("profile.account")}</h2>
         <div className="rounded-xl border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
             <div className="flex flex-col gap-0.5">
-              <span className="text-sm">Change password</span>
-              <span className="text-[13px] text-muted-foreground">Update your account password</span>
+              <span className="text-sm">{t("profile.changePassword")}</span>
+              <span className="text-[13px] text-muted-foreground">{t("profile.changePasswordDesc")}</span>
             </div>
             <Button variant="outline" size="sm">
-              Change password
+              {t("profile.changePassword")}
             </Button>
           </div>
           <div className="flex items-center justify-between px-4 py-3.5">
             <div className="flex flex-col gap-0.5">
-              <span className="text-sm text-destructive">Delete account</span>
+              <span className="text-sm text-destructive">{t("profile.deleteAccount")}</span>
               <span className="text-[13px] text-muted-foreground">
-                Permanently delete your account and all data
+                {t("profile.deleteAccountDesc")}
               </span>
             </div>
             <Button
@@ -889,7 +905,7 @@ function ProfileContent() {
               size="sm"
               onClick={() => setShowDeleteConfirm(true)}
             >
-              Delete account
+              {t("profile.deleteAccount")}
             </Button>
           </div>
         </div>
@@ -901,11 +917,10 @@ function ProfileContent() {
               <div className="flex flex-col gap-3">
                 <div className="flex flex-col gap-1">
                   <span className="text-sm font-medium text-destructive">
-                    Are you sure you want to delete your account?
+                    {t("profile.deleteConfirm")}
                   </span>
                   <span className="text-[13px] text-muted-foreground">
-                    This action cannot be undone. All your projects, plans, and data will be
-                    permanently deleted.
+                    {t("profile.deleteConfirmDesc")}
                   </span>
                 </div>
                 <div className="flex gap-2">
@@ -926,10 +941,10 @@ function ProfileContent() {
                     {isDeletingAccount ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        Deleting...
+                        {t("profile.deleting")}
                       </>
                     ) : (
-                      "Yes, delete my account"
+                      t("profile.confirmDelete")
                     )}
                   </Button>
                 </div>
@@ -943,6 +958,7 @@ function ProfileContent() {
 }
 
 function ConnectedAccountsContent() {
+  const { t } = useTranslation("settings")
   const { connected, user, repos, selectedRepoIds, fetchStatus, disconnect, connect } = useGitHubStore()
   const { installations, install: installApp } = useGitHubAppStore()
   const { load: loadAccounts, loaded: accountsLoaded } = useConnectedAccountsStore()
@@ -1018,7 +1034,7 @@ function ConnectedAccountsContent() {
 
   return (
     <div className="flex flex-col gap-8">
-      <h1 className="text-xl font-primary font-semibold">Connected accounts</h1>
+      <h1 className="text-xl font-primary font-semibold">{t("connectedAccounts.title")}</h1>
 
       {/* GitHub Integration Guide — shown only until both integrations are set up */}
       {(!connected || installations.length === 0) && (
@@ -1172,6 +1188,7 @@ function ConnectedAccountsContent() {
 }
 
 function TeamsContent() {
+  const { t } = useTranslation("settings")
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null)
   const [teams, setTeams] = useState<Array<{ id: string; name: string; role: string }>>([])
   const [members, setMembers] = useState<Array<{ user_id: string; role: string; joined_at: string; user: { name: string; email: string } }>>([])
@@ -1190,9 +1207,9 @@ function TeamsContent() {
     const fetchTeams = async () => {
       try {
         const { teams: loaded } = await dataClient.listTeams()
-        setTeams(loaded.map((t) => ({
-          id: t.id,
-          name: t.name,
+        setTeams(loaded.map((team) => ({
+          id: team.id,
+          name: team.name,
           role: (t as unknown as Record<string, unknown>).memberRole as string ?? 'member',
         })))
         // Auto-select first team
@@ -1306,12 +1323,12 @@ function TeamsContent() {
   if (!isServerMode()) {
     return (
       <div className="flex flex-col gap-8">
-        <h1 className="text-xl font-primary font-semibold">Teams</h1>
+        <h1 className="text-xl font-primary font-semibold">{t("teams.title")}</h1>
         <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-16">
           <Users className="mb-4 h-12 w-12 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Teams are only available in server mode</p>
+          <p className="text-sm text-muted-foreground">{t("teams.serverModeOnly")}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Run Astro with Supabase to enable team collaboration
+            {t("teams.serverModeDesc")}
           </p>
         </div>
       </div>
@@ -1321,7 +1338,7 @@ function TeamsContent() {
   if (loading) {
     return (
       <div className="flex flex-col gap-8">
-        <h1 className="text-xl font-primary font-semibold">Teams</h1>
+        <h1 className="text-xl font-primary font-semibold">{t("teams.title")}</h1>
         <div className="flex items-center justify-center rounded-xl border border-border bg-card py-16">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -1329,26 +1346,26 @@ function TeamsContent() {
     )
   }
 
-  const selectedTeam = teams.find((t) => t.id === selectedTeamId)
+  const selectedTeam = teams.find((tm) => tm.id === selectedTeamId)
   const canInvite = selectedTeam && ['owner', 'admin'].includes(selectedTeam.role)
 
   return (
     <div className="flex flex-col gap-8">
-      <h1 className="text-xl font-primary font-semibold">Teams</h1>
+      <h1 className="text-xl font-primary font-semibold">{t("teams.title")}</h1>
 
       {teams.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-16">
           <Users className="mb-4 h-12 w-12 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">You're not a member of any teams yet</p>
+          <p className="text-sm text-muted-foreground">{t("teams.notMember")}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Ask a team admin to send you an invitation
+            {t("teams.notMemberDesc")}
           </p>
         </div>
       ) : (
         <>
           {/* Team Selector */}
           <section className="flex flex-col gap-3">
-            <h2 className="text-sm font-semibold">Select Team</h2>
+            <h2 className="text-sm font-semibold">{t("teams.selectTeam")}</h2>
             <div className="rounded-xl border border-border bg-card">
               {teams.map((team, idx) => (
                 <button
@@ -1377,11 +1394,11 @@ function TeamsContent() {
               {/* Team Members */}
               <section className="flex flex-col gap-3">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-semibold">Members</h2>
+                  <h2 className="text-sm font-semibold">{t("teams.members")}</h2>
                   {canInvite && (
                     <Button variant="outline" size="sm" onClick={() => setShowInviteDialog(true)}>
                       <Mail className="mr-1.5 h-3.5 w-3.5" />
-                      Invite Member
+                      {t("team.invite")}
                     </Button>
                   )}
                 </div>
@@ -1390,7 +1407,7 @@ function TeamsContent() {
                   {members.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                       <Users className="mb-2 h-8 w-8" />
-                      <span className="text-sm">No members yet</span>
+                      <span className="text-sm">{t("teams.noMembers")}</span>
                     </div>
                   ) : (
                     members.map((member, idx) => (
@@ -1437,12 +1454,12 @@ function TeamsContent() {
               {/* Pending Invitations */}
               {canInvite && (
                 <section className="flex flex-col gap-3">
-                  <h2 className="text-sm font-semibold">Pending Invitations</h2>
+                  <h2 className="text-sm font-semibold">{t("teams.pendingInvitations")}</h2>
                   <div className="rounded-xl border border-border bg-card">
                     {pendingInvites.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                         <Mail className="mb-2 h-8 w-8" />
-                        <span className="text-sm">No pending invitations</span>
+                        <span className="text-sm">{t("teams.noPendingInvitations")}</span>
                       </div>
                     ) : (
                       pendingInvites.map((invite, idx) => (
@@ -1505,14 +1522,14 @@ function TeamsContent() {
       <Dialog open={showInviteDialog} onOpenChange={setShowInviteDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Invite Team Member</DialogTitle>
+            <DialogTitle>{t("teams.inviteDialog.title")}</DialogTitle>
             <DialogDescription>
               Create an invitation to join {selectedTeam?.name}. Copy the invite link to share directly. Valid for 7 days.
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4 py-4">
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Email Address</label>
+              <label className="text-sm font-medium">{t("teams.inviteDialog.emailAddress")}</label>
               <Input
                 type="email"
                 value={inviteEmail}
@@ -1521,15 +1538,15 @@ function TeamsContent() {
               />
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Role</label>
+              <label className="text-sm font-medium">{t("teams.inviteDialog.role")}</label>
               <select
                 value={inviteRole}
                 onChange={(e) => setInviteRole(e.target.value as 'owner' | 'admin' | 'member')}
                 className="h-9 rounded-md border border-border bg-card px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
               >
-                <option value="member">Member — Can view and participate</option>
-                <option value="admin">Admin — Can manage members and settings</option>
-                <option value="owner">Owner — Full control</option>
+                <option value="member">{t("teams.inviteDialog.roleOptions.member")}</option>
+                <option value="admin">{t("teams.inviteDialog.roleOptions.admin")}</option>
+                <option value="owner">{t("teams.inviteDialog.roleOptions.owner")}</option>
               </select>
             </div>
           </div>
@@ -1549,12 +1566,12 @@ function TeamsContent() {
               {inviting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Sending...
+                  {t("teams.inviteDialog.sending")}
                 </>
               ) : (
                 <>
                   <Mail className="mr-2 h-4 w-4" />
-                  Send Invitation
+                  {t("teams.inviteDialog.sendInvitation")}
                 </>
               )}
             </Button>
@@ -1566,6 +1583,7 @@ function TeamsContent() {
 }
 
 function NotificationsContent() {
+  const { t } = useTranslation("settings")
   const {
     profile,
     setNotificationsEnabled,
@@ -1589,19 +1607,19 @@ function NotificationsContent() {
 
   return (
     <div className="flex flex-col gap-8">
-      <h1 className="text-xl font-primary font-semibold">Notifications</h1>
+      <h1 className="text-xl font-primary font-semibold">{t("notifications.title")}</h1>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Browser</h2>
+        <h2 className="text-sm font-semibold">{t("notifications.browser")}</h2>
         <div className="rounded-xl border border-border bg-card">
           <SettingsRow
-            label="Browser notifications"
+            label={t("notifications.browserNotifications")}
             description={
               browserPermission === "unsupported"
-                ? "Your browser does not support notifications"
+                ? t("notifications.browserUnsupported")
                 : browserPermission === "denied"
-                  ? "Notifications are blocked. Update your browser site settings to allow them."
-                  : "Show desktop notifications for task updates and decisions"
+                  ? t("notifications.browserDenied")
+                  : t("notifications.browserDesc")
             }
             last
           >
@@ -1614,11 +1632,11 @@ function NotificationsContent() {
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Email</h2>
+        <h2 className="text-sm font-semibold">{t("notifications.email")}</h2>
         <div className="rounded-xl border border-border bg-card">
           <SettingsRow
-            label="Email notifications"
-            description="Receive email digests for important updates"
+            label={t("notifications.emailNotifications")}
+            description={t("notifications.emailDesc")}
             last
           >
             <Toggle
@@ -1639,6 +1657,7 @@ const tierOptions = [
 ]
 
 function EnvironmentsSettingsContent() {
+  const { t } = useTranslation("settings")
   const { profile, setDefaultMachineId } = useUserProfileStore()
   const { modelTier, setModelTier, defaultProvider: settingsProvider, setDefaultProvider: setSettingsProvider, customModelMap, setCustomModel, getEffectiveTierMap } = useSettingsStore()
   const addToast = useToastStore((s) => s.add)
@@ -1734,22 +1753,22 @@ function EnvironmentsSettingsContent() {
 
   return (
     <div className="flex flex-col gap-8">
-      <h1 className="text-xl font-primary font-semibold">Environments</h1>
+      <h1 className="text-xl font-primary font-semibold">{t("environments.title")}</h1>
 
       {/* Default Machine */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Default Machine</h2>
+        <h2 className="text-sm font-semibold">{t("environments.defaultMachine")}</h2>
         <div className="rounded-xl border border-border bg-card">
           <SettingsRow
-            label="Machine"
-            description="Pre-selected machine for task execution"
+            label={t("environments.machine")}
+            description={t("environments.machineDesc")}
             last
           >
             <SelectDropdown
               value={profile.defaultMachineId || ""}
               onChange={(v) => setDefaultMachineId(v || undefined)}
               options={[
-                { value: "", label: "Auto (first available)" },
+                { value: "", label: t("environments.autoMachine") },
                 ...onlineMachines.map((m) => ({
                   value: m.machineId,
                   label: m.name,
@@ -1762,11 +1781,11 @@ function EnvironmentsSettingsContent() {
 
       {/* Default AI Agent */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Default AI Agent</h2>
+        <h2 className="text-sm font-semibold">{t("environments.defaultAgent")}</h2>
         <div className="rounded-xl border border-border bg-card">
           <SettingsRow
-            label="AI Agent"
-            description="AI agent for task execution"
+            label={t("environments.aiAgent")}
+            description={t("environments.aiAgentDesc")}
             last
           >
             <SelectDropdown
@@ -1775,7 +1794,7 @@ function EnvironmentsSettingsContent() {
                 setSettingsProvider(v)
               }}
               options={[
-                { value: "", label: "Auto (first available)" },
+                { value: "", label: t("environments.autoAgent") },
                 ...availableProviders.map((p) => ({
                   value: p.id,
                   label: p.name,
@@ -1797,11 +1816,11 @@ function EnvironmentsSettingsContent() {
 
       {/* Default Model Size */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Default Model</h2>
+        <h2 className="text-sm font-semibold">{t("environments.defaultModel")}</h2>
         <div className="rounded-xl border border-border bg-card">
           <SettingsRow
-            label="Model tier"
-            description="Model size used for plan generation and task execution"
+            label={t("environments.modelTier")}
+            description={t("environments.modelTierDesc")}
             last
           >
             <SelectDropdown
@@ -1828,21 +1847,21 @@ function EnvironmentsSettingsContent() {
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-semibold">Model Mapping</h2>
-            <p className="text-[11px] text-muted-foreground mt-0.5">Customize which model ID is used for each tier and provider</p>
+            <h2 className="text-sm font-semibold">{t("environments.modelMapping")}</h2>
+            <p className="text-[11px] text-muted-foreground mt-0.5">{t("environments.modelMappingDesc")}</p>
           </div>
           {saveStatus !== "idle" && (
             <div className="flex items-center gap-1.5">
               {saveStatus === "saving" && (
                 <>
                   <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">Saving...</span>
+                  <span className="text-xs text-muted-foreground">{t("environments.saving")}</span>
                 </>
               )}
               {saveStatus === "saved" && (
                 <>
                   <Check className="h-3 w-3 text-success" />
-                  <span className="text-xs text-success">Saved</span>
+                  <span className="text-xs text-success">{t("environments.saved")}</span>
                 </>
               )}
             </div>
@@ -1906,11 +1925,12 @@ function EnvironmentsSettingsContent() {
 }
 
 function PlaceholderContent({ title }: { title: string }) {
+  const { t: tc } = useTranslation("common")
   return (
     <div className="flex flex-col gap-8">
       <h1 className="text-xl font-primary font-semibold">{title}</h1>
       <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-16">
-        <p className="text-sm text-muted-foreground">Coming soon</p>
+        <p className="text-sm text-muted-foreground">{tc("comingSoon")}</p>
       </div>
     </div>
   )
@@ -1930,6 +1950,7 @@ const tabTitles: Record<SettingsTab, string> = {
 }
 
 export function Settings() {
+  const { t: ts } = useTranslation("settings")
   const [activeTab, setActiveTab] = useState<SettingsTab>("general")
   const [showContent, setShowContent] = useState(false)
 
@@ -1977,7 +1998,7 @@ export function Settings() {
             className="inline-flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground transition-colors"
           >
             <ChevronLeft className="h-4 w-4" />
-            Back to app
+            {ts("backToApp")}
           </Link>
         </div>
 
@@ -1997,7 +2018,7 @@ export function Settings() {
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
-                {item.label}
+                {ts(item.labelKey, { defaultValue: item.labelKey })}
               </button>
             )
           })}
@@ -2006,7 +2027,7 @@ export function Settings() {
         {/* Workspace section */}
         <div className="px-2 py-2">
           <span className="px-2.5 text-[11px] font-semibold uppercase text-muted-foreground">
-            Workspace
+            {ts("sidebar.workspace")}
           </span>
           <div className="mt-2 flex flex-col gap-0.5">
             {workspaceItems.map((item) => {
@@ -2023,7 +2044,7 @@ export function Settings() {
                   )}
                 >
                   <Icon className="h-4 w-4 shrink-0" />
-                  {item.label}
+                  {ts(item.labelKey, { defaultValue: item.labelKey })}
                 </button>
               )
             })}
@@ -2042,7 +2063,7 @@ export function Settings() {
           className="md:hidden inline-flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground transition-colors mb-4"
         >
           <ChevronLeft className="h-4 w-4" />
-          Settings
+          {ts("title")}
         </button>
         {renderContent()}
       </div>

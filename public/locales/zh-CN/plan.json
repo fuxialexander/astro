@@ -1,0 +1,70 @@
+{
+  "views": {
+    "graph": "图谱",
+    "list": "列表",
+    "timeline": "时间轴",
+    "board": "看板",
+    "overview": "总览",
+    "knowledge": "知识"
+  },
+  "display": {
+    "title": "显示",
+    "groupBy": "分组方式",
+    "orderBy": "排序方式",
+    "properties": "属性",
+    "noGrouping": "不分组",
+    "viewAs": "视图",
+    "showCompleted": "显示已完成",
+    "zoom": "缩放",
+    "showProjectList": "显示经略列表",
+    "showEmptyGroups": "显示空分组",
+    "resetToDefaults": "恢复默认",
+    "groups": {
+      "status": "状态",
+      "priority": "优先级",
+      "assignee": "负责人",
+      "milestone": "枢机",
+      "estimate": "估算",
+      "label": "标签"
+    },
+    "order": {
+      "priority": "优先级",
+      "status": "状态",
+      "created": "创建时间",
+      "updated": "更新时间",
+      "dueDate": "截止日期",
+      "name": "名称"
+    }
+  },
+  "milestone": {
+    "new": "新建枢机",
+    "edit": "编辑枢机",
+    "editDescription": "更新枢机详情与截止日期。",
+    "createDescription": "创建新枢机以追踪进度。",
+    "title": "标题",
+    "dueDate": "截止日期",
+    "description": "描述",
+    "noMilestone": "无枢机",
+    "createMilestone": "创建枢机"
+  },
+  "tabs": {
+    "tasks": "筹谋",
+    "description": "描述",
+    "knowledge": "知识"
+  },
+  "newTask": "新建筹谋",
+  "addTask": "添加筹谋",
+  "noTasks": "尚无筹谋",
+  "generatePlan": "生成规划",
+  "regenerate": "重新生成",
+  "replan": "重新规划",
+  "dependencies": "依赖关系",
+  "noDependencies": "无依赖",
+  "addDependency": "添加依赖",
+  "assignee": "负责人",
+  "dueDate": "截止日期",
+  "estimate": "估算",
+  "labels": "标签",
+  "startDate": "开始日期",
+  "endDate": "结束日期"
+}

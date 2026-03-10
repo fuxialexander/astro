@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from "react"
+import { useTranslation } from "react-i18next"
 import { Link, useNavigate } from "react-router"
 import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil, Github, ChevronRight, Braces } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -220,6 +221,7 @@ function getProjectBarColors(project: Project, progressMap: Record<string, numbe
 type ViewTab = "all" | "timeline" | "board"
 
 export function Projects() {
+  const { t } = useTranslation('projects')
   const allProjectsRaw = useProjectStore((s) => s.projects)
   const executions = useExecutionStore((s) => s.executions)
   // Filter out playground sessions from the project list
@@ -622,7 +624,7 @@ export function Projects() {
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-primary font-semibold">Projects</h1>
+            <h1 className="text-xl font-primary font-semibold">{t('title')}</h1>
           </div>
           <div className="flex items-center gap-3">
             {githubConnected ? (
@@ -660,7 +662,7 @@ export function Projects() {
             />
             <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
               <Plus className="h-3.5 w-3.5" />
-              <span className="hidden md:inline">Add project</span>
+              <span className="hidden md:inline">{t('new')}</span>
             </Button>
             <DisplayPopover config={{
               ...(viewTab === "timeline" ? projectsTimelineDisplayConfig : projectsDisplayConfig),

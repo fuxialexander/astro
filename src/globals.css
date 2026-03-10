@@ -745,3 +745,16 @@ body.timeline-dragging {
 .driver-popover.astro-tour-popover .driver-popover-arrow-side-bottom.driver-popover-arrow {
   border-color: var(--border);
 }
+
+/* ── CJK font override for zh-CN mode ── */
+/* Source Han Serif SC (思源宋体) loaded via <link> in index.html (Adobe Fonts Typekit) */
+html[lang="zh-CN"] {
+  font-family: "source-han-serif-sc", "PingFang SC", "Noto Sans SC", sans-serif;
+}
+
+html[lang="zh-CN"] .font-secondary,
+html[lang="zh-CN"] h1,
+html[lang="zh-CN"] h2,
+html[lang="zh-CN"] h3 {
+  font-family: "source-han-serif-sc", "PingFang SC", "Noto Serif SC", serif;
+}

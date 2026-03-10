@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { Link } from "react-router"
 import { ChevronDown, ChevronRight, Sparkles, Play, Clock, FileText, Cpu, AlertCircle, ArrowRight } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -227,6 +228,7 @@ function ProjectGroup({
 }
 
 export function ActiveTasks() {
+  const { t } = useTranslation('tasks')
   const executions = useExecutionStore((s) => s.executions)
   const projects = useProjectStore((s) => s.projects)
   const projectsLoaded = useProjectStore((s) => s.loaded)
@@ -329,7 +331,7 @@ export function ActiveTasks() {
       {/* Header */}
       <div className="flex items-center justify-between px-4 md:px-8 py-4 border-b border-border/60 shrink-0">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-primary font-semibold text-foreground">Active</h1>
+          <h1 className="text-xl font-primary font-semibold text-foreground">{t('active', 'Active')}</h1>
           {totalCount > 0 && (
             <span className="flex items-center gap-1.5 rounded-full bg-info/10 px-2.5 py-0.5 text-xs font-medium text-info">
               <div className="relative h-2 w-2">

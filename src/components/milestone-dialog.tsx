@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useTranslation } from "react-i18next"
 import { Diamond } from "lucide-react"
 import {
   Dialog,
@@ -32,6 +33,7 @@ export function MilestoneDialog({
   onSave,
   onDelete,
 }: MilestoneDialogProps) {
+  const { t } = useTranslation('plan')
   // Use key prop on Dialog to reset state when milestone changes
   const dialogKey = milestone?.id || "new"
   const [title, setTitle] = useState(milestone?.title || "")
@@ -72,18 +74,18 @@ export function MilestoneDialog({
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
               <Diamond className="h-4 w-4 text-primary-foreground" />
             </div>
-            <DialogTitle>{milestone ? "Edit Milestone" : "New Milestone"}</DialogTitle>
+            <DialogTitle>{milestone ? t('milestone.edit') : t('milestone.new')}</DialogTitle>
           </div>
           <DialogDescription>
             {milestone
-              ? "Update milestone details and timeline."
-              : "Create a new milestone to organize and track project progress."}
+              ? t('milestone.editDescription')
+              : t('milestone.createDescription')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-4 py-4">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="title">Title</Label>
+            <Label htmlFor="title">{t('milestone.title')}</Label>
             <Input
               id="title"
               placeholder="e.g., MVP Launch, Beta Release"
@@ -98,7 +100,7 @@ export function MilestoneDialog({
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="description">Description</Label>
+            <Label htmlFor="description">{t('milestone.description')}</Label>
             <Input
               id="description"
               placeholder="What needs to be accomplished by this milestone?"
@@ -108,7 +110,7 @@ export function MilestoneDialog({
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="dueDate">Due Date</Label>
+            <Label htmlFor="dueDate">{t('milestone.dueDate')}</Label>
             <Input
               id="dueDate"
               type="date"
@@ -122,16 +124,16 @@ export function MilestoneDialog({
           <div>
             {milestone && onDelete && (
               <Button variant="destructive" onClick={handleDelete}>
-                Delete
+                {t('delete', { ns: 'common' })}
               </Button>
             )}
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t('cancel', { ns: 'common' })}
             </Button>
             <Button onClick={handleSave} disabled={!title.trim()}>
-              {milestone ? "Save Changes" : "Create Milestone"}
+              {milestone ? t('save', { ns: 'common' }) : t('milestone.createMilestone')}
             </Button>
           </div>
         </DialogFooter>

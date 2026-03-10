@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { stripHtml } from "@/lib/html-utils"
 import { Link, useNavigate } from "react-router"
 import {
@@ -63,6 +64,8 @@ function ActivityItem({ event }: { event: ActivityEvent }) {
 }
 
 export function Dashboard() {
+  const { t } = useTranslation('dashboard')
+  const { t: tc } = useTranslation('common')
   const projects = useProjectStore((s) => s.projects)
   const rawNodes = usePlanStore((s) => s.nodes)
   const nodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
@@ -191,15 +194,15 @@ export function Dashboard() {
         const project = projects.find((p) => p.id === exec.projectId)
         return {
           id: exec.nodeId,
-          title: project?.name || "Plan Generation",
+          title: project?.name || t("planGeneration"),
           projectId: exec.projectId,
-          projectName: project?.name || "Plan Generation",
+          projectName: project?.name || t("planGeneration"),
           projectColor: project?.color,
           machineName: "planner",
           machineId: "planner",
           startedAt: exec.startedAt ? new Date(exec.startedAt).getTime() : Date.now(),
           progress: exec.status === "running" ? 50 : 10,
-          progressMessage: exec.status === "running" ? "Generating plan..." : "Starting...",
+          progressMessage: exec.status === "running" ? t("generatingPlan") : t("starting"),
           costUsd: undefined as number | undefined,
           category: "generation" as TaskCategory,
         }
@@ -213,22 +216,22 @@ export function Dashboard() {
         const machine = machines.get(project?.defaultMachineId || "")
         return {
           id: exec.nodeId,
-          title: project?.name || "Playground",
+          title: project?.name || t("playground"),
           projectId: exec.projectId,
-          projectName: project?.name || "Playground",
+          projectName: project?.name || t("playground"),
           projectColor: undefined as string | undefined,
           machineName: machine?.name || machine?.machineId || "local",
           machineId: project?.defaultMachineId || "local",
           startedAt: exec.startedAt ? new Date(exec.startedAt).getTime() : Date.now(),
           progress: 0,
-          progressMessage: exec.status === "pending" ? "Starting..." : undefined,
+          progressMessage: exec.status === "pending" ? t("starting") : undefined,
           costUsd: undefined as number | undefined,
           category: "playground" as TaskCategory,
         }
       })
 
     return [...planGenerationTasks, ...playgroundTasks, ...executionTasks]
-  }, [nodes, taskStreams, projects, machines, allExecutions])
+  }, [nodes, taskStreams, projects, machines, allExecutions, t])
 
   const tasksByCategory = useMemo(() => {
     const grouped: Record<TaskCategory, typeof activeTasksWithContext> = {
@@ -241,9 +244,9 @@ export function Dashboard() {
   }, [activeTasksWithContext])
 
   const categoryLabels: Record<TaskCategory, string> = {
-    generation: "Plan Generation",
-    playground: "Playground",
-    projects: "Projects",
+    generation: t("planGeneration"),
+    playground: t("playground"),
+    projects: t("projects"),
   }
 
   const timelineMachines = useMemo(
@@ -304,10 +307,10 @@ export function Dashboard() {
   // Time-aware greeting
   const greeting = useMemo(() => {
     const h = new Date().getHours()
-    if (h < 12) return "Good morning"
-    if (h < 17) return "Good afternoon"
-    return "Good evening"
-  }, [])
+    if (h < 12) return t("greeting.morning")
+    if (h < 17) return t("greeting.afternoon")
+    return t("greeting.evening")
+  }, [t])
 
   return (
     <div className="flex flex-col gap-6 p-6 md:px-10 md:py-8 max-w-[1100px] mx-auto w-full animate-stagger">
@@ -342,9 +345,9 @@ export function Dashboard() {
         {hasAttention ? (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-[13px] font-semibold tracking-wide">Needs Your Attention</h2>
+              <h2 className="text-[13px] font-semibold tracking-wide">{t("needsAttention")}</h2>
               <Button variant="ghost" size="sm" asChild className="h-6 text-[11px] text-muted-foreground/60 px-2">
-                <Link to="/tasks">View All</Link>
+                <Link to="/tasks">{t("viewAll")}</Link>
               </Button>
             </div>
 
@@ -353,7 +356,7 @@ export function Dashboard() {
                 <CardContent className="p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <Zap className="h-3.5 w-3.5 text-info" />
-                    <span className="text-[11px] font-semibold text-info">Agent Question</span>
+                    <span className="text-[11px] font-semibold text-info">{t("agentQuestion")}</span>
                   </div>
                   <InlineApprovalCard
                     requestId={approval.requestId}
@@ -397,7 +400,7 @@ export function Dashboard() {
                       {isLoadingExecution ? (
                         <div className="flex items-center gap-2 text-xs text-muted-foreground/60">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          <span>Loading...</span>
+                          <span>{tc('loading')}</span>
                         </div>
                       ) : summary ? (
                         <div className={cn(
@@ -449,7 +452,7 @@ export function Dashboard() {
                       ) : executionsLoaded && execution && (execution.status === 'pending' || execution.status === 'running') ? (
                         <div className="flex items-center gap-2 text-xs text-muted-foreground/60">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          <span>Generating summary...</span>
+                          <span>{t("loadingSummary")}</span>
                         </div>
                       ) : executionsLoaded && execution ? (
                         <div className="rounded-lg border border-border/30 p-3">
@@ -537,17 +540,17 @@ export function Dashboard() {
                     <div className="border-t border-border/30 px-4 py-3">
                       <div className="flex items-center gap-2">
                         <Button size="sm" onClick={() => updateNode(node.id, { status: "completed" })} className="h-8 text-xs">
-                          <Check className="h-3 w-3 mr-1" /> Approve
+                          <Check className="h-3 w-3 mr-1" /> {t("approve")}
                         </Button>
                         <Button variant="outline" size="sm" disabled={resettingId === node.id} onClick={async () => {
                           setResettingId(node.id)
                           try { await resetExecution(node.id) } finally { setResettingId(null) }
                         }} className="h-8 text-xs border-border/60">
                           <RotateCcw className={cn("h-3 w-3 mr-1", resettingId === node.id && "animate-spin")} />
-                          {resettingId === node.id ? "Resetting..." : "Reset"}
+                          {resettingId === node.id ? t("resetting") : t("reset")}
                         </Button>
                         <Button variant="ghost" size="sm" onClick={() => updateNode(node.id, { status: "pruned" })} className="h-8 text-xs text-muted-foreground/50">
-                          <Scissors className="h-3 w-3 mr-1" /> Prune
+                          <Scissors className="h-3 w-3 mr-1" /> {t("prune")}
                         </Button>
                       </div>
                     </div>
@@ -562,17 +565,17 @@ export function Dashboard() {
               <CheckCircle2 className="h-4 w-4 text-success/80" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-medium">All caught up</p>
+              <p className="text-[13px] font-medium">{t("allCaughtUp")}</p>
               <p className="text-xs text-muted-foreground/60 mt-0.5">
                 {activeTasks > 0
-                  ? `${activeTasks} task${activeTasks !== 1 ? 's' : ''} running quietly. You'll be notified when input is needed.`
-                  : "No active tasks right now."
+                  ? t(activeTasks !== 1 ? "tasksRunning_plural" : "tasksRunning", { count: activeTasks })
+                  : t("noActiveTasks")
                 }
               </p>
             </div>
             {activeTasks === 0 && projects.length > 0 && (
               <Button size="sm" variant="outline" className="h-8 text-xs border-border/60 shrink-0" onClick={() => navigate("/projects")}>
-                View Projects
+                {t("viewProjects")}
               </Button>
             )}
           </div>
@@ -584,17 +587,17 @@ export function Dashboard() {
         <div className="flex flex-col md:flex-row gap-6">
           {/* Machine fleet (left column) */}
           <div className="shrink-0 md:w-[120px]">
-            <h2 className="text-[11px] font-semibold tracking-wide text-muted-foreground/60 uppercase mb-3">Fleet</h2>
+            <h2 className="text-[11px] font-semibold tracking-wide text-muted-foreground/60 uppercase mb-3">{t("fleet")}</h2>
             <MachineFleetPanel machines={machineFleetData} />
           </div>
 
           {/* Running tasks grouped by category */}
           <div className="flex-1 min-w-0">
-            <h2 className="text-[11px] font-semibold tracking-wide text-muted-foreground/60 uppercase mb-3">Running Tasks</h2>
+            <h2 className="text-[11px] font-semibold tracking-wide text-muted-foreground/60 uppercase mb-3">{t("runningTasks")}</h2>
             <div className="rounded-xl glass-panel p-3 max-h-[min(50vh,400px)] overflow-y-auto">
               {activeTasksWithContext.length === 0 ? (
                 <div className="flex items-center justify-center py-8 text-muted-foreground/40 text-sm">
-                  All quiet — no running tasks
+                  {t("allQuiet")}
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
@@ -622,7 +625,7 @@ export function Dashboard() {
       {recentProjects.length > 0 && (
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-[13px] font-semibold tracking-wide">Projects</h2>
+            <h2 className="text-[13px] font-semibold tracking-wide">{t("projects")}</h2>
             {regularProjects.length > 6 && (
               <Button variant="ghost" size="sm" asChild className="h-6 text-[11px] text-muted-foreground/50 px-2">
                 <Link to="/projects">All {regularProjects.length}</Link>
@@ -655,7 +658,7 @@ export function Dashboard() {
       {recentPlaygrounds.length > 0 && (
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-[13px] font-semibold tracking-wide">Playground</h2>
+            <h2 className="text-[13px] font-semibold tracking-wide">{t("playground")}</h2>
             {playgroundProjects.length > 3 && (
               <Button variant="ghost" size="sm" asChild className="h-6 text-[11px] text-muted-foreground/50 px-2">
                 <Link to="/playground">All {playgroundProjects.length}</Link>
@@ -686,9 +689,9 @@ export function Dashboard() {
 
       {recentProjects.length === 0 && recentPlaygrounds.length === 0 && (
         <div className="rounded-xl border border-dashed border-border/40 p-5 text-center">
-          <p className="text-xs text-muted-foreground/50 mb-2">No active projects</p>
+          <p className="text-xs text-muted-foreground/50 mb-2">{t("noActiveProjects")}</p>
           <Button size="sm" variant="outline" className="h-7 text-xs border-border/60" onClick={() => navigate("/plan")}>
-            <Plus className="h-3 w-3" /> Create Project
+            <Plus className="h-3 w-3" /> {t("createProject")}
           </Button>
         </div>
       )}
@@ -721,7 +724,7 @@ export function Dashboard() {
         {/* Live feed */}
         {activityFeed.length > 0 && (
           <div className="flex flex-col gap-1">
-            <h2 className="text-[11px] font-semibold tracking-wide text-muted-foreground/60 uppercase mb-1">Live Feed</h2>
+            <h2 className="text-[11px] font-semibold tracking-wide text-muted-foreground/60 uppercase mb-1">{t("liveFeed")}</h2>
             <div className="flex flex-col gap-0.5">
               {activityFeed.slice(0, 8).map((event) => (
                 <ActivityItem key={event.id} event={event} />

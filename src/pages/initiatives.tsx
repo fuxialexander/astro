@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback } from "react"
+import { useTranslation } from "react-i18next"
 import { Link, useNavigate } from "react-router"
 import {
   Target,
@@ -419,6 +420,7 @@ function getProjectColumns(
 }
 
 export default function InitiativesPage() {
+  const { t } = useTranslation('initiatives')
   const navigate = useNavigate()
   const { initiatives, addInitiative, updateInitiative, deleteInitiative } = useInitiativeStore()
   const { projects, updateProject, deleteProject } = useProjectStore()
@@ -688,7 +690,7 @@ export default function InitiativesPage() {
         <div className="flex items-center justify-between h-14 px-6">
           <div className="flex items-center gap-3">
             <Target className="h-5 w-5 text-muted-foreground" />
-            <h1 className="text-xl font-primary font-semibold">Grand Plans</h1>
+            <h1 className="text-xl font-primary font-semibold">{t('title')}</h1>
             {initiatives.length > 0 && (
               <Badge variant="outline" className="text-xs">
                 {initiatives.length}
@@ -697,7 +699,7 @@ export default function InitiativesPage() {
           </div>
           <Button onClick={() => handleOpenDialog()} size="sm">
             <Plus className="h-4 w-4 mr-1.5" />
-            New Plan
+            {t('new')}
           </Button>
         </div>
       </div>

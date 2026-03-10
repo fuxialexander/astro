@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react"
+import { useTranslation } from "react-i18next"
 import { Search, ChevronLeft, ChevronRight, Globe, FileText, Edit2, Trash2, Star, GitFork, Sparkles } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { useCommunityStore } from "@/stores/community-store"
@@ -154,6 +155,7 @@ function MyPlanCard({ plan, onEdit, onUnpublish }: MyPlanCardProps) {
  * - Empty state
  */
 export function Community() {
+  const { t } = useTranslation('community')
   const {
     plans,
     myPlans,
@@ -327,7 +329,7 @@ export function Community() {
     return (
       <div className="flex flex-1 flex-col min-w-0 h-full">
         <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
-          <h1 className="text-xl font-primary font-semibold">Community Plans</h1>
+          <h1 className="text-xl font-primary font-semibold">{t('title')}</h1>
         </div>
         <div className="flex-1 overflow-auto p-6">
           <EmptyState
@@ -344,7 +346,7 @@ export function Community() {
     <div className="flex flex-1 flex-col min-w-0 h-full">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
-        <h1 className="text-xl font-primary font-semibold">Community Plans</h1>
+        <h1 className="text-xl font-primary font-semibold">{t('title')}</h1>
       </div>
 
       {/* Content */}
@@ -355,11 +357,11 @@ export function Community() {
             <TabsList className="mb-6">
               <TabsTrigger value="browse" className="gap-2">
                 <Globe className="h-4 w-4" />
-                Browse Community
+                {t('browse')}
               </TabsTrigger>
               <TabsTrigger value="my-plans" className="gap-2">
                 <FileText className="h-4 w-4" />
-                My Plans
+                {t('myPlans', 'My Plans')}
               </TabsTrigger>
             </TabsList>
 

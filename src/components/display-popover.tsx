@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { SlidersHorizontal, ChevronDown, ArrowUp, ArrowDown } from "lucide-react"
+import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
@@ -107,6 +108,7 @@ function ToggleRow({
 }
 
 export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
+  const { t } = useTranslation('plan')
   const settings = useDisplaySettingsStore((s) => s.get(config.viewKey))
   const update = useDisplaySettingsStore((s) => s.update)
   const reset = useDisplaySettingsStore((s) => s.reset)
@@ -128,7 +130,7 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm">
           <SlidersHorizontal className="h-3.5 w-3.5" />
-          <span className="hidden md:inline">Display</span>
+          <span className="hidden md:inline">{t('display.title')}</span>
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-72">
@@ -137,7 +139,7 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
           {config.viewAsOptions && config.viewAsOptions.length > 0 && (
             <>
               <div>
-                <span className="text-[11px] font-semibold text-muted-foreground uppercase">View as</span>
+                <span className="text-[11px] font-semibold text-muted-foreground uppercase">{t('display.viewAs', 'View as')}</span>
                 <div className="mt-1.5 flex items-center gap-1">
                   {config.viewAsOptions.map((opt) => (
                     <button
@@ -162,7 +164,7 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
           {/* Grouping (board views) */}
           {config.columnByOptions && (
             <InlineSelect
-              label="Grouping"
+              label={t('display.groupBy')}
               value={settings.columnBy ?? "status"}
               options={config.columnByOptions}
               onChange={(v) => handleUpdate({ columnBy: v as "status" | "priority" | "milestone" })}
@@ -172,7 +174,7 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
           {/* Grouping / Highlight by (list/timeline/graph views — hidden when columnBy is shown) */}
           {!config.columnByOptions && config.groupByOptions.length > 0 && (
             <InlineSelect
-              label={config.groupByLabel ?? "Grouping"}
+              label={config.groupByLabel ?? t('display.groupBy')}
               value={settings.groupBy}
               options={config.groupByOptions}
               onChange={(v) => handleUpdate({ groupBy: v })}
@@ -182,7 +184,7 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
           {/* Ordering */}
           {config.orderByOptions.length > 0 && (
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-muted-foreground uppercase">Ordering</span>
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase">{t('display.orderBy')}</span>
               <div className="flex items-center gap-1">
                 <div className="relative">
                   <InlineSelectInner
@@ -212,7 +214,7 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
 
           {/* Show completed */}
           <ToggleRow
-            label="Show completed"
+            label={t('display.showCompleted', 'Show completed')}
             checked={settings.showCompleted}
             onChange={(v) => handleUpdate({ showCompleted: v })}
           />
@@ -222,7 +224,7 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
             <>
               <Separator />
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-muted-foreground uppercase">Zoom</span>
+                <span className="text-[11px] font-semibold text-muted-foreground uppercase">{t('display.zoom', 'Zoom')}</span>
                 <div className="flex items-center gap-0.5">
                   {(["month", "quarter", "year"] as const).map((level) => (
                     <button
@@ -247,12 +249,12 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
           {config.showTimelineOptions && (
             <>
               <ToggleRow
-                label="Show project list"
+                label={t('display.showProjectList', 'Show project list')}
                 checked={settings.showProjectList ?? true}
                 onChange={(v) => handleUpdate({ showProjectList: v })}
               />
               <ToggleRow
-                label="Show empty groups"
+                label={t('display.showEmptyGroups', 'Show empty groups')}
                 checked={settings.showEmptyGroups ?? false}
                 onChange={(v) => handleUpdate({ showEmptyGroups: v })}
               />
@@ -265,7 +267,7 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
 
               {/* Display properties */}
               <div>
-                <span className="text-[11px] font-semibold text-muted-foreground uppercase">Properties</span>
+                <span className="text-[11px] font-semibold text-muted-foreground uppercase">{t('display.properties')}</span>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {config.propertyOptions.map((prop) => {
                     const active = settings.visibleProperties.includes(prop.value)
@@ -296,7 +298,7 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
             onClick={() => reset(config.viewKey)}
             className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer text-left"
           >
-            Reset to defaults
+            {t('display.resetToDefaults', 'Reset to defaults')}
           </button>
         </div>
       </PopoverContent>

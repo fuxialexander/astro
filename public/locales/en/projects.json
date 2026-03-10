@@ -1,0 +1,16 @@
+{
+  "title": "Projects",
+  "new": "New Project",
+  "name": "Project name",
+  "namePlaceholder": "Enter project name...",
+  "description": "Description",
+  "descriptionPlaceholder": "What is this project about?",
+  "create": "Create Project",
+  "delete": "Delete Project",
+  "deleteConfirm": "Delete this project? All tasks and data will be lost.",
+  "archive": "Archive Project",
+  "noProjects": "No projects yet",
+  "openProject": "Open project",
+  "lastUpdated": "Last updated",
+  "tasksCount": "{{count}} tasks"
+}
