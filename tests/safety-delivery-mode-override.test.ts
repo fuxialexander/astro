@@ -25,6 +25,7 @@ import {
   academicReviewTemplate,
   moatFragilityTemplate,
   BUILTIN_EXAMPLES,
+  BUILTIN_TEMPLATE_IDS,
 } from '../packages/core/src/templates/index.js'
 
 // ============================================================================
@@ -145,14 +146,15 @@ describe('Builtin template detection from project source', () => {
   /**
    * Simulates the isBuiltinTemplate detection logic in dispatch.ts.
    * A project is a builtin template if:
-   *   source.type === 'template' AND source.templateId starts with 'astro--'
+   *   source.type === 'template' AND source.templateId is in BUILTIN_TEMPLATE_IDS
+   * This prevents bypass via user-editable project source field.
    */
   function detectBuiltinTemplate(
     source: { type?: string; templateId?: string } | null,
   ): boolean {
     return source?.type === 'template'
       && typeof source?.templateId === 'string'
-      && source.templateId.startsWith('astro--')
+      && BUILTIN_TEMPLATE_IDS.has(source.templateId)
   }
 
   it('detects academic-presentation as builtin', () => {
@@ -179,7 +181,7 @@ describe('Builtin template detection from project source', () => {
   it('rejects non-template source type', () => {
     expect(detectBuiltinTemplate({
       type: 'github',
-      templateId: 'astro--something',
+      templateId: 'astro--academic-review',
     })).toBe(false)
   })
 
@@ -206,7 +208,7 @@ describe('Builtin template detection from project source', () => {
     })).toBe(false)
   })
 
-  it('rejects source with numeric templateId', () => {
+  it('rejects source with undefined templateId', () => {
     expect(detectBuiltinTemplate({
       type: 'template',
       templateId: undefined,
@@ -220,17 +222,32 @@ describe('Builtin template detection from project source', () => {
     })).toBe(false)
   })
 
-  it('rejects templateId that contains but does not start with astro--', () => {
+  it('rejects fabricated astro-- prefix not in registry', () => {
+    // Security hardening: user cannot craft a fake templateId
     expect(detectBuiltinTemplate({
       type: 'template',
-      templateId: 'my-astro--template',
+      templateId: 'astro--fake-template',
     })).toBe(false)
   })
 
-  it('all BUILTIN_EXAMPLES have IDs that start with astro--', () => {
+  it('rejects astro-- prefixed ID that does not match any real template', () => {
+    expect(detectBuiltinTemplate({
+      type: 'template',
+      templateId: 'astro--nonexistent',
+    })).toBe(false)
+  })
+
+  it('all BUILTIN_EXAMPLES have IDs in BUILTIN_TEMPLATE_IDS', () => {
     for (const template of BUILTIN_EXAMPLES) {
-      expect(template.id.startsWith('astro--')).toBe(true)
+      expect(BUILTIN_TEMPLATE_IDS.has(template.id)).toBe(true)
     }
+  })
+
+  it('BUILTIN_TEMPLATE_IDS contains exactly the known templates', () => {
+    expect(BUILTIN_TEMPLATE_IDS.size).toBe(BUILTIN_EXAMPLES.length)
+    expect(BUILTIN_TEMPLATE_IDS.has('astro--academic-presentation')).toBe(true)
+    expect(BUILTIN_TEMPLATE_IDS.has('astro--academic-review')).toBe(true)
+    expect(BUILTIN_TEMPLATE_IDS.has('astro--moat-fragility')).toBe(true)
   })
 })
 
@@ -502,9 +519,9 @@ describe('Source code: dispatch.ts safety/delivery mode changes', () => {
     expect(source).toContain('let isBuiltinTemplate = false')
   })
 
-  it('detects builtin templates via source.type and source.templateId', () => {
+  it('detects builtin templates via source.type and BUILTIN_TEMPLATE_IDS registry', () => {
     expect(source).toContain("source?.type === 'template'")
-    expect(source).toContain("source.templateId.startsWith('astro--')")
+    expect(source).toContain('BUILTIN_TEMPLATE_IDS.has(source.templateId)')
   })
 
   it('includes isBuiltinTemplate in skipSafetyCheck computation', () => {
@@ -607,10 +624,10 @@ describe('E2E scenario: builtin example on non-git directory', () => {
     workingDirectory: string
     approvedDirs: Map<string, string>
   }) {
-    // Step 1: Detect builtin template
+    // Step 1: Detect builtin template (hardened: checks against known registry)
     const isBuiltinTemplate = params.projectSource?.type === 'template'
       && typeof params.projectSource?.templateId === 'string'
-      && params.projectSource.templateId.startsWith('astro--')
+      && BUILTIN_TEMPLATE_IDS.has(params.projectSource.templateId)
 
     // Step 2: Compute skipSafetyCheck
     const skipSafetyCheck = isBuiltinTemplate

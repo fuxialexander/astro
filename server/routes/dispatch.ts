@@ -29,7 +29,7 @@ import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction } from '../lib/prompt-templates.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
-import { extractPlanJsonFromText } from '@astro/core'
+import { extractPlanJsonFromText, BUILTIN_TEMPLATE_IDS } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { autoDispatchDownstream, cascadePruneDownstream } from './data.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
@@ -460,10 +460,11 @@ dispatchRoute.post('/task', async (c) => {
       remoteType ??= (source?.remoteType as typeof remoteType) || undefined
       baseBranch = source?.baseBranch || undefined
 
-      // Builtin templates (astro--*) skip safety checks — they are trusted
+      // Builtin templates skip safety checks — verified against the known registry
+      // to prevent bypass via user-editable project source field.
       isBuiltinTemplate = source?.type === 'template'
         && typeof source?.templateId === 'string'
-        && source.templateId.startsWith('astro--')
+        && BUILTIN_TEMPLATE_IDS.has(source.templateId)
 
       // Build GitHub context for plan prompts
       if (dbProject.githubOwner?.trim() && dbProject.githubRepo?.trim()) {
@@ -687,12 +688,12 @@ async function dispatchViaRelay(
     priority,
     workingDirectory,
     computeBackend,
-    deliveryMode,
+    deliveryMode: deliveryModeParam,
     remoteType,
     baseBranch,
     agentDir,
     worktreeStrategy,
-    useWorktree,
+    useWorktree: useWorktreeParam,
     imageRefs,
     isInteractivePlan,
     skipSafetyCheck,
@@ -709,6 +710,9 @@ async function dispatchViaRelay(
     nodeNumber,
     replanContext,
   } = params
+  // Mutable copies: safety decision can override delivery mode to 'direct'
+  let deliveryMode = deliveryModeParam
+  let useWorktree = useWorktreeParam
 
   // Compute short hex IDs early — needed for prompt building + relay dispatch
   const shortProjectId = getShortId(projectId)
@@ -1214,7 +1218,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     worktreeStrategy,
     useWorktree,
     images,
-    skipSafetyCheck: isBuiltinTemplate || (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && (approvedSafetyDirs.has(workingDirectory) || await redisPubSub.getApprovedSafetyDir(workingDirectory) !== null)),
+    skipSafetyCheck: isBuiltinTemplate || (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && safetyDecision !== null),
     ...(isInteractivePlan ? { type: 'plan' as const, useWorktree: false, deliveryMode: 'direct' as const } : {}),
     ...(relaySystemPrompt ? { systemPrompt: relaySystemPrompt } : {}),
     ...(astroBaseUrl && { astroBaseUrl }),

@@ -86,6 +86,9 @@ export {
   getTemplateById,
   getTemplatesByCategory,
 
+  // ID set for server-side verification
+  BUILTIN_TEMPLATE_IDS,
+
   // Example aliases (UI terminology)
   BUILTIN_EXAMPLES,
   EXAMPLES_BY_CATEGORY,
