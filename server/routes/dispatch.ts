@@ -1883,7 +1883,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     // Tier 2 (ACTIVITY_TIMEOUT_MS): 2 hours between events during execution.
     //   Approval pause mechanism resets timer indefinitely while approvals are pending.
     //   task:stdout listener keeps SLURM/blocking-command sessions alive.
-    const heartbeat = setInterval(() => {
+    const heartbeat = setInterval(async () => {
       if (!alive) { clearInterval(heartbeat); return }
       // Use longer timeout on the final startup attempt to cover slow cold starts
       const startupTimeout = startupRetries >= MAX_STARTUP_RETRIES ? FINAL_STARTUP_TIMEOUT_MS : STARTUP_TIMEOUT_MS
