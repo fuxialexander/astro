@@ -1087,6 +1087,54 @@ $$
 
 Same structure but with `grid-template-columns: 1fr 1fr 1fr 1fr` and swapped width/height dimensions.
 
+### Poster Content Balancing — CRITICAL
+
+A poster with unevenly filled columns looks unprofessional. **Every column must be at least 95% filled** — all columns should end at roughly the same height. Empty space at the bottom of a column is the #1 poster layout failure.
+
+#### Column-Balancing Rules
+
+1. **Plan content BEFORE writing HTML.** Estimate how much text + figures each section will produce. Assign sections to columns so total content per column is approximately equal.
+2. **Redistribute when columns are uneven.** If one column is too short:
+   - Move a section from a longer column into the short one
+   - Expand the short column's content: add a figure, a callout box, additional bullet points, or a "Key Takeaway" summary box
+   - Split a long section across two columns (e.g., "Results" can become "Results — Accuracy" in col 2 and "Results — Ablations" in col 3)
+3. **Use `grid-row: span N` for sections that need more vertical space** (e.g., a tall figure or a key insight callout) — but only if this helps balance, not for decoration.
+4. **Every column must be at least 95% filled.** If after all content is placed a column is still short, add one or more of:
+   - A highlighted callout box with the key takeaway for that column's topic
+   - An additional figure (architecture diagram, comparison table, example visualization)
+   - A "Background" or "Related Work" mini-section that supports the adjacent content
+   - A QR code block + paper citation block at the bottom of the shortest column
+5. **Do NOT use `flex-grow` to fake balance.** Stretching a short section's box to fill space creates a visually obvious empty region. The fix is more *content*, not more whitespace in a stretched box.
+6. **Self-check before rendering:** After writing the poster HTML, mentally walk through each column and estimate its content height. Compare across all columns. If any column's content ends more than ~40mm above the others (on A0 scale), go back and add real content to that column before rendering to PDF. This is a blocking check — do not render until columns are balanced.
+
+#### Typical Content Distribution (Portrait, 3-column)
+
+| Column | Sections | Approx. Fill Target |
+|--------|----------|-------------------|
+| Left   | Motivation + Background/Related Work + Research Questions | 95-100% |
+| Middle | Method + Key Insight (callout) + possibly one result | 95-100% |
+| Right  | Results + Discussion + Conclusion/Future Work | 95-100% |
+
+If "Motivation + Research Questions" is short (as it often is), **add a Background section, a Related Work comparison table, or a prominent figure** to fill the left column. Do NOT leave it half-empty.
+
+#### Anti-Pattern: The Half-Empty Column
+
+```
+❌ BAD (flex-grow fakes it)     ✅ GOOD (real content fills)
+┌──────┬──────┬──────┐         ┌──────┬──────┬──────┐
+│Motiv.│Method│Result│         │Motiv.│Method│Result│
+│      │      │      │         │      │      │      │
+│R.Q.  │ Key  │Disc. │         │Backgr│ Key  │Disc. │
+│      │Insigh│      │         │      │Insigh│      │
+│░░░░░░│      │Futur │         │R.Q.  │      │Futur │
+│░EMPTY│Figure│      │         │      │Figure│      │
+│░WITH░│      │      │         │Figure│      │Concl.│
+│░FLEX░│      │      │         │      │      │      │
+│░GROW░│      │      │         │Takea.│      │Takea.│
+└──────┴──────┴──────┘         └──────┴──────┴──────┘
+  60%    100%   95%              97%    100%   97%
+```
+
 ---
 
 ## 9. Content Narrative Arc — Deep Guide
@@ -1232,6 +1280,8 @@ Before marking any deliverable as complete, verify:
 - [ ] Fits single A0 page without overflow
 - [ ] Header spans full width with title and authors
 - [ ] CSS grid layout matches orientation (3-col portrait, 4-col landscape)
+- [ ] **Column balance: every column at least 95% filled — no visible empty space at the bottom**
+- [ ] No `flex-grow` faking balance — short columns filled with real content (sections, figures, callout boxes), not stretched whitespace
 - [ ] Text is readable at poster viewing distance (24px+ body, 36px+ headings)
 - [ ] Key figure/diagram is prominent and legible
 - [ ] QR code or URL to paper/code included
