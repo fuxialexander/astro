@@ -53,7 +53,7 @@ export function PropertyPicker({
                 "hover:bg-accent transition-colors",
                 selected && "bg-accent/50"
               )}
-              onClick={() => { onSelect(opt.id); setOpen(false) }}
+              onClick={(e) => { e.stopPropagation(); onSelect(opt.id); setOpen(false) }}
             >
               {Icon && <Icon className={cn("h-4 w-4 shrink-0", opt.iconColor)} />}
               <span className="flex-1 text-left">{opt.label}</span>

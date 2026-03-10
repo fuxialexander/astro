@@ -2075,8 +2075,16 @@ async function processSSEStreamWithReconnect(
   // 3. Check if we have an executionId to reconnect with
   const execution = get().executions.get(nodeId)
   if (!execution?.executionId) {
-    // No executionId means init event never arrived — can't catch up
-    console.warn(`[sse-reconnect] No executionId for ${nodeId}, cannot reconnect`)
+    // No executionId means init event never arrived — can't reconnect.
+    // The task may still be initializing server-side (worktree creation,
+    // machine connection, etc.), so do NOT mark as failed here — that
+    // would create false failures for slow-starting tasks.
+    // Instead, clean up the SSE connection state and let other mechanisms
+    // reconcile: page refresh → useRestoredExecution hydrates from DB,
+    // or the result event arrives later and Fix 2 (finalStatus fallback)
+    // updates the plan node.
+    console.warn(`[sse-reconnect] No executionId for ${nodeId}, cannot reconnect — task may still be initializing server-side`)
+    setConnectionState(nodeId, undefined, set)
     return
   }
 
@@ -2708,11 +2716,15 @@ function handleSSEEvent(
           }
         }
 
-        // Plan-node status update is now handled by node:status_changed SSE event
-        // (DB-authoritative: server writes status, emits notification, frontend re-reads from DB)
-
-        // Project completion check is now handled by node:status_changed handler in realtime-store
-        // (reads fresh status from DB after mergeNodeFromDB, so never stale)
+        // Plan-node status update is primarily handled by node:status_changed SSE event
+        // (DB-authoritative: server writes status, emits notification, frontend re-reads from DB).
+        // Fallback: if the result event carries finalStatus, update plan node directly.
+        // This prevents nodes from staying "in_progress" if the global events SSE misses
+        // the node:status_changed event (connection drop, auth failure, etc.).
+        const validFinalStatuses = new Set(['auto_verified', 'awaiting_judgment', 'completed', 'pruned'])
+        if (parsed.finalStatus && validFinalStatuses.has(parsed.finalStatus) && !alreadyCompleted) {
+          planStore.updateNode(nodeId, { status: parsed.finalStatus })
+        }
 
         // Auto-assign defaultMachineId on the project if not set
         if (isSuccess && execution?.machineId && execution?.projectId) {
