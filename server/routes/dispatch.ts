@@ -611,6 +611,7 @@ dispatchRoute.post('/task', async (c) => {
     useWorktree,
     imageRefs,
     isInteractivePlan,
+    isBuiltinTemplate,
     skipSafetyCheck,
     verification,
     acceptanceCriteria,
@@ -655,6 +656,7 @@ async function dispatchViaRelay(
     useWorktree?: boolean
     imageRefs?: string[]
     isInteractivePlan?: boolean
+    isBuiltinTemplate?: boolean
     skipSafetyCheck?: boolean
     verification?: 'auto' | 'human'
     acceptanceCriteria?: Array<{ id: string; description: string; type: string; command?: string; autoVerifiable: boolean }>
@@ -696,6 +698,7 @@ async function dispatchViaRelay(
     useWorktree: useWorktreeParam,
     imageRefs,
     isInteractivePlan,
+    isBuiltinTemplate,
     skipSafetyCheck,
     verification,
     acceptanceCriteria,
