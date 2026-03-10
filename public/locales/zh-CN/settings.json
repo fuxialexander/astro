@@ -38,8 +38,8 @@
     "keyboardShortcuts": "启用键盘快捷键",
     "keyboardShortcutsDesc": "使用键盘快捷键执行常用操作",
     "views": {
-      "dashboard": "综览",
-      "projects": "经略",
+      "dashboard": "概览",
+      "projects": "项目",
       "issues": "问题"
     },
     "nameFormats": {
@@ -111,7 +111,7 @@
     "deleteAccount": "删除账户",
     "deleteAccountDesc": "永久删除您的账户及所有数据",
     "deleteConfirm": "确定要删除您的账户吗？",
-    "deleteConfirmDesc": "此操作不可撤销。您的所有经略、计划和数据将被永久删除。",
+    "deleteConfirmDesc": "此操作不可撤销。您的所有项目、计划和数据将被永久删除。",
     "deleting": "删除中…",
     "confirmDelete": "是的，删除我的账户"
   },

@@ -1,8 +1,8 @@
 {
-  "title": "目标",
-  "new": "新建目标",
-  "noInitiatives": "暂无目标",
-  "createFirst": "创建首个目标",
+  "title": "项目集",
+  "new": "新建项目集",
+  "noInitiatives": "暂无项目集",
+  "createFirst": "创建首个项目集",
   "projects": "项目",
   "progress": "进度",
   "status": "状态",
