@@ -146,6 +146,11 @@ async function streamChatViaRelay(
     let providerSessionId: string | undefined  // Real Claude SDK session ID from session_init
     const ACTIVITY_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000 // 5 days
 
+    // Hono's streamSSE only wires the abort signal for old Bun; on Node.js the
+    // signal fires via @hono/node-server's outgoing.on("close") but the SSE helper
+    // never listens — wire it explicitly so client disconnect sets alive=false.
+    c.req.raw.signal.addEventListener('abort', () => { alive = false }, { once: true })
+
     const onText = (msg: TaskTextMessage) => {
       if (!alive || msg.taskId !== opts.taskId) return
       lastActivity = Date.now()

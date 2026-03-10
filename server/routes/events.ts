@@ -78,6 +78,15 @@ eventsRoute.get('/stream', async (c) => {
   return streamSSE(c, async (stream) => {
     let alive = true
 
+    // Hono's streamSSE only wires c.req.raw.signal → stream.abort() for old Bun.
+    // On Node.js, @hono/node-server fires signal.abort() via outgoing.on("close"),
+    // but the SSE helper never listens to it — so onAbort() subscribers are never
+    // called when the client disconnects (tab close, refresh, network drop).
+    // Wire it explicitly so every client disconnect immediately sets alive=false.
+    c.req.raw.signal.addEventListener('abort', () => {
+      alive = false
+    }, { once: true })
+
     // Stdout throttle for this connection
     const throttle = new StdoutThrottle((taskId, data) => {
       if (!alive) return
