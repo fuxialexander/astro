@@ -80,6 +80,15 @@ eventsRoute.get('/stream', async (c) => {
     let alive = true
     incrementGlobalSSE()
 
+    // Hono's streamSSE only wires c.req.raw.signal → stream.abort() for old Bun.
+    // On Node.js, @hono/node-server fires signal.abort() via outgoing.on("close"),
+    // but the SSE helper never listens to it — so onAbort() subscribers are never
+    // called when the client disconnects (tab close, refresh, network drop).
+    // Wire it explicitly so every client disconnect immediately sets alive=false.
+    c.req.raw.signal.addEventListener('abort', () => {
+      alive = false
+    }, { once: true })
+
     // Stdout throttle for this connection
     const throttle = new StdoutThrottle((taskId, data) => {
       if (!alive) return
@@ -775,11 +784,23 @@ eventsRoute.get('/stream', async (c) => {
       })
     }, 15000)
 
+    // Max SSE connection lifetime: 2 hours. After this, close gracefully so the
+    // client reconnects with a fresh connection. Prevents zombie connections from
+    // crashed browsers (which the OS TCP keepalive won't clear for ~2h by default)
+    // from accumulating and exhausting Fly.io's per-instance connection limit.
+    const MAX_LIFETIME_MS = 2 * 60 * 60 * 1000 // 2 hours
+    const maxLifetimeTimer = setTimeout(() => {
+      if (!alive) return
+      stream.writeSSE({ event: 'server-close', data: JSON.stringify({ reason: 'max_lifetime' }) }).catch(() => {})
+      alive = false
+    }, MAX_LIFETIME_MS)
+
     // Wait for client disconnect
     stream.onAbort(() => {
       alive = false
       decrementGlobalSSE()
       clearInterval(heartbeat)
+      clearTimeout(maxLifetimeTimer)
       throttle.shutdown()
 
       // Flush any buffered text from relay-direct fallback path (GAP-9 fix)

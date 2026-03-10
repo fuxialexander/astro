@@ -26,6 +26,8 @@ interface ChatStreamEventsResult {
   pushChatEvent: (event: TaskActivityEvent) => void
   /** Force immediate re-render (call at end of turn) */
   flushChatEvents: () => void
+  /** Truncate chatEventsRef to the given length (rollback to a checkpoint) */
+  trimChatEvents: (toLength: number) => void
   /** Counter ref for generating unique tool IDs within a session */
   chatToolCounterRef: React.MutableRefObject<number>
 }
@@ -55,6 +57,10 @@ export function useChatStreamEvents(): ChatStreamEventsResult {
     setChatEventsVersion(v => v + 1)
   }, [])
 
+  const trimChatEvents = useCallback((toLength: number) => {
+    chatEventsRef.current = chatEventsRef.current.slice(0, toLength)
+  }, [])
+
   // Cleanup flush timer on unmount
   useEffect(() => {
     return () => {
@@ -67,6 +73,7 @@ export function useChatStreamEvents(): ChatStreamEventsResult {
     chatEventsVersion,
     pushChatEvent,
     flushChatEvents,
+    trimChatEvents,
     chatToolCounterRef,
   }
 }

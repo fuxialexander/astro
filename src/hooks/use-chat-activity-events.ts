@@ -44,7 +44,10 @@ export function useChatActivityEvents(
     if (!streamId) return
     if (hydratedRef.current === streamId) return
     hydratedRef.current = streamId
-    hydrateFromCatchUp([streamId], 0)
+    // Pass 'chat' streamType so the stream gets marked as isChatStream=true,
+    // preventing the global SSE reconnect handler from catching it up and
+    // updating hydratedChatEvents with current-turn events already in chatEventsRef.
+    hydrateFromCatchUp([streamId], 0, 'chat')
   }, [streamId, hydrateFromCatchUp])
 
   // Build the activity events list

@@ -1225,6 +1225,11 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     let resultSent = false
     let waitingForApproval = false
     let hasReceivedEvent = false // Whether we've received any event from agent-runner
+
+    // Hono's streamSSE only wires the abort signal for old Bun; on Node.js the
+    // signal fires via @hono/node-server's outgoing.on("close") but the SSE helper
+    // never listens — wire it explicitly so client disconnect sets alive=false.
+    c.req.raw.signal.addEventListener('abort', () => { alive = false }, { once: true })
     // Accumulated text from `text` events — used for plan extraction in onResult.
     // msg.result.output is equivalent for completed sessions; accumulatedText is the
     // fallback when the relay strips output from the result message.

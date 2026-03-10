@@ -142,6 +142,11 @@ export interface TaskStream {
     options: string[]
     answer?: string
   }>
+  /** True for chat-session streams (not task execution streams).
+   *  Chat streams are managed by useChatActivityEvents which handles its own
+   *  hydration — the global SSE reconnect handler must skip them to prevent
+   *  hydratedChatEvents from being updated with events already in chatEventsRef. */
+  isChatStream?: boolean
 }
 
 /** Attached session from MCP bridge */
@@ -183,7 +188,7 @@ interface RealtimeState {
   getDynamicApproval: (requestId: string) => DynamicApprovalRequest | undefined
   respondToDynamicApproval: (taskId: string, requestId: string, answer: string) => Promise<void>
   respondToSafetyPrompt: (taskId: string, decision: string) => Promise<void>
-  hydrateFromCatchUp: (executionIds: string[], afterSeq?: number) => Promise<void>
+  hydrateFromCatchUp: (executionIds: string[], afterSeq?: number, streamType?: 'chat') => Promise<void>
   pushActivityEvent: (executionId: string, event: TaskActivityEvent) => void
   /** Reconcile running tasks after page refresh: bootstrap execution store + task streams
    *  for plan nodes that are in_progress but have no execution store entries. */
@@ -265,10 +270,15 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       get().reconcileRunningTasks()
 
       const { taskStreams, hydrateFromCatchUp } = get()
-      // Collect execution IDs from all active (non-terminal) task streams
+      // Collect execution IDs from all active task execution streams.
+      // Skip chat-session streams (isChatStream=true) — they self-manage via
+      // useChatActivityEvents. The global reconnect must not update them or it
+      // would add current-turn events to hydratedChatEvents that are already
+      // in chatEventsRef, causing duplication in the merged activity feed.
       const activeIds: string[] = []
       for (const [execId, stream] of taskStreams) {
-        if (!stream.status || stream.status === 'running' || stream.status === 'in_progress') {
+        if (stream.isChatStream) continue
+        if (stream.status === 'running' || stream.status === 'in_progress') {
           activeIds.push(execId)
         }
       }
@@ -477,7 +487,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     }
   },
 
-  hydrateFromCatchUp: async (executionIds: string[], afterSeq = 0) => {
+  hydrateFromCatchUp: async (executionIds: string[], afterSeq = 0, streamType?: 'chat') => {
     if (executionIds.length === 0) return
     try {
       const { events, lastSeq: newSeq } = await fetchStreamingEventsCatchUp(executionIds, afterSeq)
@@ -587,6 +597,9 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               // them in the activity feed.
               toolTraces: mergeBySeq(existing.toolTraces, hydrated.toolTraces),
               fileChanges: mergeBySeq(existing.fileChanges, hydrated.fileChanges),
+              // Preserve isChatStream flag on reconnect so the global reconnect handler
+              // continues to skip this stream even after the initial full-hydration pass.
+              ...(streamType === 'chat' ? { isChatStream: true } : {}),
             })
           } else {
             // Full hydration (page refresh): hydrated events are the complete history
@@ -604,6 +617,11 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               activityEvents: mergedActivity,
               toolTraces: mergedToolTraces,
               fileChanges: mergedFileChanges,
+              // Mark chat-session streams so the global reconnect handler skips them.
+              // Chat streams self-manage hydration via useChatActivityEvents — the global
+              // reconnect must not update them or hydratedChatEvents gains current-turn
+              // events that are already in chatEventsRef, causing duplication.
+              ...(streamType === 'chat' ? { isChatStream: true } : {}),
             })
           }
         }
