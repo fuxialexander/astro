@@ -46,10 +46,10 @@ export const academicPresentationTemplate: UseCaseTemplate = {
       id: 'sourceFormat',
       name: 'Source Format',
       description:
-        'File format of the source paper(s). This determines which extraction tool is used. PDF files use the PDF skill; DOCX files use the DOCX skill; LaTeX and Markdown are read directly.',
+        'File format of the source paper(s). LaTeX or Markdown recommended — they are read directly and produce the best results. PDF and DOCX require extraction tools which may lose formatting.',
       type: 'select',
       required: true,
-      default: 'pdf',
+      default: 'latex',
       options: [
         { label: 'PDF', value: 'pdf', description: 'Uses the PDF skill for extraction' },
         { label: 'LaTeX (.tex)', value: 'latex', description: 'LaTeX source files — read and parsed directly' },
