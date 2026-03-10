@@ -593,7 +593,9 @@ export function Playground() {
     setFileSidebarOpen(false)
     setQueuedMessage(null)
     setEditingPrompt(null)
-  }, [setSearchParams])
+    // Clear accumulated chat events so the next session starts clean
+    chatEventsRef.current = []
+  }, [setSearchParams, chatEventsRef])
 
   // Edit & Retry: enter inline edit mode on the prompt bubble
   const handleRetry = useCallback(() => {

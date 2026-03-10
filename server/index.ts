@@ -408,23 +408,41 @@ async function start() {
       dispatchEngine.emit('relay:task:result', message)
     })
 
-    // Handle dead job detection (P2 heartbeat cross-reference)
+    // Handle dead job detection (P2 heartbeat cross-reference).
+    // This is a FALLBACK handler for when the per-dispatch SSE handler (dispatch.ts)
+    // has already cleaned up (browser disconnected, SSE stream closed).
+    // The dispatch.ts handler is the primary handler and clears all execution fields.
+    // This handler catches tasks whose SSE streams are gone — it uses executionId
+    // matching, so if dispatch.ts already cleared executionId to null, the SELECT
+    // returns nothing and we skip (no double-write).
     relayServer.on('task:dead', async (data) => {
       console.warn(`[relay] Dead task ${data.taskId} on machine ${data.machineId}: ${data.reason}`)
       try {
         const errorMsg = `Dead job detected: ${data.reason}. Task reset for re-execution.`
-        // Look up the node first so we can emit node:status_changed with nodeId/projectId
+        // Look up the node first so we can emit node:status_changed with nodeId/projectId.
+        // If the dispatch.ts handler already cleared executionId, this returns nothing.
         const [node] = await db.select({ clientId: planNodes.clientId, projectId: planNodes.projectId })
           .from(planNodes)
           .where(eq(planNodes.executionId, data.taskId))
           .limit(1)
         if (!node) {
-          console.log(`[relay] Dead task ${data.taskId} — no matching node found, skipping`)
+          console.log(`[relay] Dead task ${data.taskId} — no matching node (already handled by dispatch SSE), skipping`)
           return
         }
-        // Clear executionId to prevent stale task_result from overwriting the reset
+        // Clear ALL execution fields to match dispatch.ts handler behavior
+        const errorTime = new Date()
         await db.update(planNodes)
-          .set({ status: 'planned', executionId: null, executionError: errorMsg, updatedAt: new Date() })
+          .set({
+            status: 'planned',
+            executionId: null,
+            executionError: errorMsg,
+            executionStartedAt: null,
+            executionOutput: null,
+            executionCompletedAt: null,
+            endDate: errorTime.toISOString(),
+            actualEndDate: errorTime,
+            updatedAt: errorTime,
+          })
           .where(eq(planNodes.executionId, data.taskId))
         // DB-authoritative: notify all clients about the dead task reset
         executionEventBus.emit('node:status_changed', {
