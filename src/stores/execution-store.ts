@@ -19,6 +19,7 @@ import { getSigningPrivateKey, signDispatchIntent, generateNonce, type DispatchS
 import { useAuthStore } from "./auth-store"
 import { showBatchCompleteNotification } from "@/lib/notifications"
 import { deriveDeliveryMode } from "@/lib/project-source"
+import { useSettingsStore } from "./settings-store"
 
 // ─── Page Unload Detection ────────────────────────────────────────────
 // `document.visibilityState` is unreliable during page refresh — it may
@@ -472,6 +473,12 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       const headers = await getAuthHeaders()
       const signing = await buildDispatchSignature(nodeId, projectId, effectiveTargetMachineId)
       const rawDescription = node.content ? stripHtml(node.content) : (node.description || node.title)
+
+      // Resolve provider and model from settings if not explicitly passed
+      const settings = useSettingsStore.getState()
+      const effectiveProvider = options?.preferredProvider || settings.defaultProvider || undefined
+      const effectiveModel = options?.model || settings.getModelForProvider(effectiveProvider) || undefined
+
       const response = await fetch(apiUrl("/api/dispatch/task"), {
         method: "POST",
         headers,
@@ -484,9 +491,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           verification: node.verification,
           visionDoc: project?.visionDoc ? truncateDispatchField(project.visionDoc, MAX_VISIONDOC_LENGTH, "Vision doc") : undefined,
           dependencyOutputs,
-          preferredProvider: options?.preferredProvider,
+          preferredProvider: effectiveProvider,
           targetMachineId: effectiveTargetMachineId,
-          model: options?.model,
+          model: effectiveModel,
           maxTurns: options?.maxTurns,
           workingDirectory: resolvedDir,
           computeBackend: options?.computeBackend,
