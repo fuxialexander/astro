@@ -285,6 +285,8 @@ export class DispatchEngine extends EventEmitter {
           pending.reject(new Error('Execution cancelled'))
         }
       }
+      // Clear Redis pending-approval marker
+      redisPubSub.removePendingApproval(execution.executionId).catch(() => {})
 
       // Update node status
       if (this.nodeUpdateCallback) {
@@ -762,6 +764,10 @@ export class DispatchEngine extends EventEmitter {
       })
     }
 
+    // Write-through: mark in Redis so the cross-instance watchdog
+    // knows this execution has a pending approval (even if it runs on another instance).
+    redisPubSub.setPendingApproval(executionId).catch(() => {})
+
     // Create promise that will be resolved when user responds.
     // No timeout — approvals wait indefinitely. The in-memory cost is
     // negligible (one Map entry) and the agent runner persists reliably.
@@ -797,6 +803,11 @@ export class DispatchEngine extends EventEmitter {
     // If emitEvent or nodeUpdateCallback throws, a retry won't re-emit duplicates.
     this.pendingApprovals.delete(approvalId)
     this.respondedApprovals.set(approvalId, Date.now())
+
+    // Clear Redis pending-approval marker if no more approvals remain for this execution
+    if (!this.hasPendingApprovalForExecution(pending.executionId)) {
+      redisPubSub.removePendingApproval(pending.executionId).catch(() => {})
+    }
 
     // Opportunistic cleanup — prune stale entries on every successful approval
     // so pruning isn't gated on autoDispatch polling being active
@@ -879,6 +890,10 @@ export class DispatchEngine extends EventEmitter {
 
     // Note: We don't update node status for dynamic approvals since they can happen mid-execution
     // The agent is still running, just paused waiting for user input
+
+    // Write-through: mark in Redis so the cross-instance watchdog
+    // knows this execution has a pending approval.
+    redisPubSub.setPendingApproval(executionId).catch(() => {})
 
     // Create promise that will be resolved when user responds.
     // No timeout — approvals wait indefinitely. The in-memory cost is

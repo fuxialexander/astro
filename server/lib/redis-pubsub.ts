@@ -41,6 +41,7 @@ const KEYS = {
   TASK_DIR: 'relay:task:dir:', // + taskId → workingDirectory
   SAFETY_DIR: 'relay:safety:dir:', // + workingDirectory → decision
   NOTIFIED_APPROVAL: 'relay:notified:approval:', // + requestId → '1' (dedup)
+  PENDING_APPROVAL: 'relay:pending:approval:', // + executionId → '1' (cross-instance watchdog check)
 } as const;
 
 /** Message published for task dispatch routing */
@@ -708,6 +709,42 @@ export class RedisPubSub extends EventEmitter {
     const key = `${KEYS.NOTIFIED_APPROVAL}${requestId}`;
     const result = await this.publisher.set(key, '1', 'NX', 'EX', 300); // 5min TTL
     return result === 'OK';
+  }
+
+  // =========================================================================
+  // Pending Approval Tracking (cross-instance watchdog awareness)
+  // =========================================================================
+
+  /**
+   * Mark an execution as having a pending approval. Used by the watchdog
+   * to avoid resetting tasks that are waiting for user input on another instance.
+   */
+  async setPendingApproval(executionId: string): Promise<void> {
+    if (!this.publisher) return;
+    await this.publisher.set(
+      `${KEYS.PENDING_APPROVAL}${executionId}`,
+      '1',
+      'EX',
+      14400 // 4h — matches execution context TTL
+    );
+  }
+
+  /**
+   * Check if an execution has a pending approval on any instance.
+   * Returns true if a pending approval exists.
+   */
+  async hasPendingApproval(executionId: string): Promise<boolean> {
+    if (!this.publisher) return false; // single-instance: use local check
+    const val = await this.publisher.get(`${KEYS.PENDING_APPROVAL}${executionId}`);
+    return val !== null;
+  }
+
+  /**
+   * Remove the pending approval marker for an execution.
+   */
+  async removePendingApproval(executionId: string): Promise<void> {
+    if (!this.publisher) return;
+    await this.publisher.del(`${KEYS.PENDING_APPROVAL}${executionId}`);
   }
 
   // =========================================================================

@@ -56,9 +56,19 @@ async function isTaskTrulyStale(
     return true
   }
 
-  // Check 1: pending approval pauses the watchdog
+  // Check 1: pending approval pauses the watchdog.
+  // Check local dispatch engine first (fast-path), then Redis (cross-instance).
   if (dispatchEngine.hasPendingApprovalForExecution(executionId)) {
-    console.log(`[watchdog] Task ${executionId} has pending approval — skipping`)
+    console.log(`[watchdog] Task ${executionId} has pending approval (local) — skipping`)
+    return false
+  }
+  try {
+    if (await redisPubSub.hasPendingApproval(executionId)) {
+      console.log(`[watchdog] Task ${executionId} has pending approval (cross-instance) — skipping`)
+      return false
+    }
+  } catch {
+    // Redis check failed — err on the side of caution, don't reset
     return false
   }
 
