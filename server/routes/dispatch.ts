@@ -1546,7 +1546,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       executionEventBus.emit('task:stdout', { output: { taskId: executionId, data: msg.text, stream: 'stdout', timestamp: new Date() } })
     }
 
-    const onSessionInit = async (msg: import('../types/relay.js').TaskSessionInitMessage) => {
+    const onSessionInit = (msg: import('../types/relay.js').TaskSessionInitMessage) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
       hasReceivedEvent = true
@@ -1575,7 +1575,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       executionEventBus.emit('task:progress', { taskId: executionId, message: msg.message, progress: msg.progress })
     }
 
-    const onToolTrace = async (msg: import('../types/relay.js').TaskToolTraceMessage) => {
+    const onToolTrace = (msg: import('../types/relay.js').TaskToolTraceMessage) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
       hasReceivedEvent = true
@@ -1606,7 +1606,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       }
     }
 
-    const onFileChange = async (msg: import('../types/relay.js').TaskFileChangeMessage) => {
+    const onFileChange = (msg: import('../types/relay.js').TaskFileChangeMessage) => {
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
       hasReceivedEvent = true
@@ -1994,8 +1994,9 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         }
       }
       // Flush buffered text to DB and send its seq as the SSE event id.
-      // This advances realtimeClient.lastSeq on the client so that a subsequent
-      // SSE reconnect catch-up does NOT re-fetch text already delivered via SSE.
+      // relay-server.ts is the single persistence authority and owns the text buffer
+      // (via appendText). This flush drains that buffer so the client's lastSeq advances,
+      // preventing a reconnect catch-up from re-fetching text already delivered via SSE.
       const textSeq = await streamingEventLog.flushText(executionId).catch(() => null)
       stream.writeSSE({ id: textSeq ? String(textSeq) : undefined, event: 'heartbeat', data: '' }).catch(() => { alive = false; clearInterval(heartbeat) })
     }, 15000)
@@ -2005,7 +2006,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       decrementDispatchSSE()
       clearInterval(heartbeat)
       cleanup()
-      // Flush any buffered text before disconnect
+      // Flush relay-server's text buffer on disconnect so no text is lost between
+      // the last heartbeat and browser close.
       streamingEventLog.flushText(executionId).catch((err) => {
         console.error(`[dispatch] Failed to flush text on disconnect for ${executionId}:`, err)
       })
