@@ -2192,7 +2192,7 @@ export class RelayServer extends EventEmitter {
           serverTime: new Date().toISOString(),
           config: {
             heartbeatInterval: this.config.heartbeatIntervalMs,
-            maxConcurrentTasks: 4,
+            maxConcurrentTasks: 5,
           },
         },
       };
