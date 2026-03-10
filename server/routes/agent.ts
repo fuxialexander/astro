@@ -332,7 +332,7 @@ async function streamChatViaRelay(
     }
 
     // Keepalive + activity timeout
-    const heartbeat = setInterval(() => {
+    const heartbeat = setInterval(async () => {
       if (!alive) { clearInterval(heartbeat); return }
       if (Date.now() - lastActivity > ACTIVITY_TIMEOUT_MS) {
         // Don't timeout if we're waiting for user approval (ask_user_question)
@@ -345,10 +345,12 @@ async function streamChatViaRelay(
           return
         }
       }
-      // Flush buffered text to DB periodically so catch-up hydration has recent data
-      // (text is normally only flushed on structural events like tool_use or result)
-      streamingEventLog.flushText(persistId).catch(() => {})
-      stream.writeSSE({ event: 'heartbeat', data: '' }).catch(() => { alive = false; clearInterval(heartbeat) })
+      // Flush buffered text to DB and send its seq as the SSE event id.
+      // This advances realtimeClient.lastSeq on the client so that a subsequent
+      // SSE reconnect catch-up does NOT re-fetch text that was already delivered
+      // via SSE — preventing duplicate text output after a network blip.
+      const textSeq = await streamingEventLog.flushText(persistId).catch(() => null)
+      stream.writeSSE({ id: textSeq ? String(textSeq) : undefined, event: 'heartbeat', data: '' }).catch(() => { alive = false; clearInterval(heartbeat) })
     }, 15000)
 
     stream.onAbort(() => {
