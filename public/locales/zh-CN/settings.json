@@ -38,7 +38,7 @@
     "keyboardShortcuts": "启用键盘快捷键",
     "keyboardShortcutsDesc": "使用键盘快捷键执行常用操作",
     "views": {
-      "dashboard": "概览",
+      "dashboard": "工作台",
       "projects": "项目",
       "issues": "问题"
     },
