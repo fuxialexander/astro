@@ -1,14 +1,16 @@
 /**
  * Execution Context Store
  *
- * In-memory map tracking which user/machine owns each active execution.
- * Used by SSE event routes to filter task events per-user (preventing
- * cross-user data leaks) and by dispatch routes to validate ownership.
+ * Dual-layer store: in-memory Map for zero-latency local lookups + Redis
+ * write-through for cross-instance visibility. When a lookup misses the
+ * local Map, it falls back to Redis (e.g., approval POST routed to the
+ * wrong instance).
  *
- * Entries have a TTL (default 4 hours) and are automatically pruned
- * to prevent memory leaks from executions that complete without cleanup
- * (e.g., server restart mid-execution, aborted SSE connections).
+ * Entries have a TTL (4 hours local, 4 hours Redis) and are automatically
+ * pruned to prevent leaks from executions that complete without cleanup.
  */
+
+import { redisPubSub } from './redis-pubsub.js'
 
 export interface ExecutionContext {
   executionId: string
@@ -64,19 +66,55 @@ export const activeDispatchStreams = new Set<string>()
 
 export const executionContextStore = {
   register(ctx: Omit<ExecutionContext, 'createdAt'>): void {
-    store.set(ctx.executionId, { ...ctx, createdAt: Date.now() })
+    const entry = { ...ctx, createdAt: Date.now() }
+    store.set(ctx.executionId, entry)
+    // Write-through to Redis for cross-instance visibility
+    redisPubSub.registerExecutionContext(entry).catch((err) => {
+      console.error('[exec-context] Failed to write context to Redis:', err)
+    })
   },
 
   get(executionId: string): ExecutionContext | undefined {
     return store.get(executionId)
   },
 
+  /**
+   * Async get with Redis fallback. Use this when the caller can await
+   * and needs cross-instance visibility (e.g., approval routing).
+   */
+  async getWithFallback(executionId: string): Promise<ExecutionContext | undefined> {
+    const local = store.get(executionId)
+    if (local) return local
+    // Try Redis fallback for cross-instance scenario
+    const remote = await redisPubSub.getExecutionContext(executionId)
+    if (remote) {
+      // Cache locally for subsequent sync lookups
+      store.set(remote.executionId, remote)
+      return remote
+    }
+    return undefined
+  },
+
   remove(executionId: string): void {
     store.delete(executionId)
+    redisPubSub.removeExecutionContext(executionId).catch((err) => {
+      console.error('[exec-context] Failed to remove context from Redis:', err)
+    })
   },
 
   getUserIdForTask(executionId: string): string | undefined {
     return store.get(executionId)?.userId
+  },
+
+  /**
+   * Async userId lookup with Redis fallback. Use when cross-instance
+   * visibility is needed and the caller can await.
+   */
+  async getUserIdForTaskWithFallback(executionId: string): Promise<string | undefined> {
+    const local = store.get(executionId)?.userId
+    if (local) return local
+    const remote = await redisPubSub.getExecutionContext(executionId)
+    return remote?.userId
   },
 
   /** Number of tracked executions (for debugging/monitoring) */

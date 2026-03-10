@@ -23,6 +23,8 @@ const CHANNELS = {
   TASK_DISPATCH: 'relay:task:dispatch',
   TASK_CANCEL: 'relay:task:cancel',
   TASK_STREAMING: 'relay:task:streaming',
+  APPROVAL_RESPONSE: 'relay:approval:response',
+  TASK_STEER: 'relay:task:steer',
 } as const;
 
 /** Redis keys for shared state */
@@ -31,6 +33,8 @@ const KEYS = {
   MACHINE_INSTANCE: 'relay:machine:instance:', // + machineId
   TASK_MACHINE: 'relay:task:machine:', // + taskId
   INSTANCE_ID: 'relay:instance:', // + instanceId
+  EXEC_CONTEXT: 'relay:exec:context:', // + executionId
+  ACTIVE_DISPATCH_STREAMS: 'relay:dispatch:active:', // + executionId → instanceId
 } as const;
 
 /** Message published for task dispatch routing */
@@ -47,6 +51,36 @@ interface TaskCancelEvent {
   taskId: string;
   machineId: string;
   reason?: string;
+}
+
+/** Message published for cross-instance approval response routing */
+export interface ApprovalResponseEvent {
+  instanceId: string;
+  taskId: string;
+  machineId: string;
+  requestId: string;
+  answered: boolean;
+  answer?: string;
+  message?: string;
+}
+
+/** Message published for cross-instance steer routing */
+export interface TaskSteerEvent {
+  instanceId: string;
+  taskId: string;
+  machineId: string;
+  message: string;
+  interrupt?: boolean;
+}
+
+/** Execution context stored in Redis for cross-instance user isolation */
+export interface RedisExecutionContext {
+  executionId: string;
+  projectId: string;
+  nodeId: string;
+  userId: string;
+  machineId: string;
+  createdAt: number;
 }
 
 /** Streaming event types bridged via Redis */
@@ -71,6 +105,8 @@ export interface RedisPubSubEvents {
   'task:dispatch': (event: TaskDispatchEvent) => void;
   'task:cancel': (event: TaskCancelEvent) => void;
   'task:streaming': (event: StreamingEventMessage) => void;
+  'approval:response': (event: ApprovalResponseEvent) => void;
+  'task:steer': (event: TaskSteerEvent) => void;
   'error': (error: Error) => void;
   'connected': () => void;
   'disconnected': () => void;
@@ -135,7 +171,9 @@ export class RedisPubSub extends EventEmitter {
         CHANNELS.TASK_STATE,
         CHANNELS.TASK_DISPATCH,
         CHANNELS.TASK_CANCEL,
-        CHANNELS.TASK_STREAMING
+        CHANNELS.TASK_STREAMING,
+        CHANNELS.APPROVAL_RESPONSE,
+        CHANNELS.TASK_STEER
       );
 
       // Handle incoming messages
@@ -267,6 +305,28 @@ export class RedisPubSub extends EventEmitter {
     await this.publish(CHANNELS.TASK_CANCEL, event);
   }
 
+  /**
+   * Route an approval response cross-instance. Published when the approval
+   * POST lands on an instance that doesn't have the machine's WebSocket.
+   */
+  async routeApprovalResponse(event: Omit<ApprovalResponseEvent, 'instanceId'>): Promise<void> {
+    await this.publish(CHANNELS.APPROVAL_RESPONSE, {
+      ...event,
+      instanceId: this.instanceId,
+    });
+  }
+
+  /**
+   * Route a steer message cross-instance. Published when the steer POST
+   * lands on an instance that doesn't have the machine's WebSocket.
+   */
+  async routeTaskSteer(event: Omit<TaskSteerEvent, 'instanceId'>): Promise<void> {
+    await this.publish(CHANNELS.TASK_STEER, {
+      ...event,
+      instanceId: this.instanceId,
+    });
+  }
+
   // =========================================================================
   // Machine Registry Synchronization
   // =========================================================================
@@ -384,6 +444,83 @@ export class RedisPubSub extends EventEmitter {
   }
 
   // =========================================================================
+  // Execution Context (cross-instance user isolation)
+  // =========================================================================
+
+  /**
+   * Register execution context in Redis for cross-instance userId lookups.
+   * Write-through: callers also maintain the local in-memory store for
+   * zero-latency lookups on the originating instance.
+   */
+  async registerExecutionContext(ctx: RedisExecutionContext): Promise<void> {
+    if (!this.publisher) return;
+    await this.publisher.set(
+      `${KEYS.EXEC_CONTEXT}${ctx.executionId}`,
+      JSON.stringify(ctx),
+      'EX',
+      14400 // 4 hour TTL matching local store
+    );
+  }
+
+  /**
+   * Look up execution context from Redis. Used when the local in-memory
+   * store doesn't have the entry (cross-instance scenario).
+   */
+  async getExecutionContext(executionId: string): Promise<RedisExecutionContext | null> {
+    if (!this.publisher) return null;
+    const json = await this.publisher.get(`${KEYS.EXEC_CONTEXT}${executionId}`);
+    if (!json) return null;
+    try {
+      return JSON.parse(json) as RedisExecutionContext;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Remove execution context from Redis.
+   */
+  async removeExecutionContext(executionId: string): Promise<void> {
+    if (!this.publisher) return;
+    await this.publisher.del(`${KEYS.EXEC_CONTEXT}${executionId}`);
+  }
+
+  // =========================================================================
+  // Active Dispatch Streams (cross-instance SSE bridge tracking)
+  // =========================================================================
+
+  /**
+   * Register an active dispatch SSE stream. The value is the instance ID
+   * so other instances know which instance owns the dispatch bridge.
+   */
+  async registerActiveDispatchStream(executionId: string): Promise<void> {
+    if (!this.publisher) return;
+    await this.publisher.set(
+      `${KEYS.ACTIVE_DISPATCH_STREAMS}${executionId}`,
+      this.instanceId,
+      'EX',
+      3600 // 1 hour TTL (tasks rarely run longer)
+    );
+  }
+
+  /**
+   * Remove an active dispatch stream registration.
+   */
+  async removeActiveDispatchStream(executionId: string): Promise<void> {
+    if (!this.publisher) return;
+    await this.publisher.del(`${KEYS.ACTIVE_DISPATCH_STREAMS}${executionId}`);
+  }
+
+  /**
+   * Check if a dispatch stream is active on any instance.
+   */
+  async isDispatchStreamActive(executionId: string): Promise<boolean> {
+    if (!this.publisher) return false;
+    const val = await this.publisher.get(`${KEYS.ACTIVE_DISPATCH_STREAMS}${executionId}`);
+    return val !== null;
+  }
+
+  // =========================================================================
   // Private Methods
   // =========================================================================
 
@@ -435,6 +572,14 @@ export class RedisPubSub extends EventEmitter {
 
       case CHANNELS.TASK_STREAMING:
         this.emit('task:streaming', data as StreamingEventMessage);
+        break;
+
+      case CHANNELS.APPROVAL_RESPONSE:
+        this.emit('approval:response', data as ApprovalResponseEvent);
+        break;
+
+      case CHANNELS.TASK_STEER:
+        this.emit('task:steer', data as TaskSteerEvent);
         break;
     }
   }
