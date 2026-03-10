@@ -642,6 +642,9 @@ export class RelayServer extends EventEmitter {
           machineRegistry.disconnect(machineId, 'heartbeat_timeout');
         });
 
+        // Cross-instance routing: handle approval/steer/cancel from other instances
+        this.registerRedisRouting();
+
         console.log(`[relay] WebSocket server listening on port ${serverPort}`);
         resolve();
       });
@@ -1254,6 +1257,7 @@ export class RelayServer extends EventEmitter {
     this.taskToMachine.delete(message.result.taskId);
     this.taskDispatchedAt.delete(message.result.taskId);
     this.consecutiveMisses.delete(message.result.taskId);
+    redisPubSub.removeTaskMapping(message.result.taskId).catch(() => {});
     // Snapshot userId BEFORE emit — dispatch.ts's onResult handler synchronously
     // calls executionContextStore.remove(), so getUserIdForTask returns undefined
     // after emit returns. publishToRedis needs the userId for cross-instance isolation.
@@ -1458,25 +1462,40 @@ export class RelayServer extends EventEmitter {
     socket.send(JSON.stringify(agentRunnerMsg));
     this.taskToMachine.set(task.taskId, machineId);
     this.taskDispatchedAt.set(task.taskId, Date.now());
+    // Write-through to Redis for cross-instance cancel/steer routing
+    redisPubSub.mapTaskToMachine(task.taskId, machineId).catch((err) => {
+      console.error(`[relay] Failed to write taskToMachine to Redis:`, err);
+    });
     console.log(`[relay] Task ${task.taskId} dispatched to machine ${machineId}`);
     return true;
   }
 
   /**
-   * Cancel a task on an agent runner
+   * Cancel a task on an agent runner.
+   * If the machine is connected to this instance, sends directly via WebSocket.
+   * Otherwise, routes via Redis pub/sub to the instance that has the connection.
    */
   cancelTask(taskId: string, machineId: string, reason?: string): boolean {
-    // Resolve machineId from dispatch history if not provided
+    // Resolve machineId from local dispatch history if not provided
     const resolvedMachineId = machineId || this.taskToMachine.get(taskId);
     if (!resolvedMachineId) {
-      console.error(`[relay] No machine found for task ${taskId} cancellation (no machineId provided and no dispatch record)`);
-      return false;
+      // Try async Redis fallback (fire-and-forget with logging)
+      this.cancelTaskWithRedisFallback(taskId, reason);
+      return false; // Caller sees false; Redis routing may succeed asynchronously
     }
 
     const connection = machineRegistry.getConnection(resolvedMachineId);
     if (!connection) {
-      console.error(`[relay] Machine ${resolvedMachineId} not found for task cancellation`);
-      return false;
+      // Machine not on this instance — route via Redis to the instance that has it
+      redisPubSub.requestTaskCancel(taskId, resolvedMachineId, reason).catch((err) => {
+        console.error(`[relay] Failed to route cancel via Redis:`, err);
+      });
+      console.log(`[relay] Task ${taskId} cancel routed via Redis (machine ${resolvedMachineId} not local)`);
+      this.taskToMachine.delete(taskId);
+      this.taskDispatchedAt.delete(taskId);
+      this.consecutiveMisses.delete(taskId);
+      redisPubSub.removeTaskMapping(taskId).catch(() => {});
+      return true; // Optimistic: assume Redis routing will succeed
     }
 
     // Send in agent-runner's expected format (type: 'task_cancel')
@@ -1495,8 +1514,80 @@ export class RelayServer extends EventEmitter {
     this.taskToMachine.delete(taskId);
     this.taskDispatchedAt.delete(taskId);
     this.consecutiveMisses.delete(taskId);
+    redisPubSub.removeTaskMapping(taskId).catch(() => {});
     console.log(`[relay] Task ${taskId} cancel request sent to machine ${resolvedMachineId}`);
     return true;
+  }
+
+  /**
+   * Async fallback: look up machineId from Redis when local Map doesn't have it.
+   */
+  private async cancelTaskWithRedisFallback(taskId: string, reason?: string): Promise<void> {
+    try {
+      const machineId = await redisPubSub.getTaskMachine(taskId);
+      if (!machineId) {
+        console.error(`[relay] No machine found for task ${taskId} cancellation (not in local Map or Redis)`);
+        return;
+      }
+      // Route via Redis to whichever instance has this machine
+      await redisPubSub.requestTaskCancel(taskId, machineId, reason);
+      console.log(`[relay] Task ${taskId} cancel routed via Redis fallback (machine ${machineId})`);
+    } catch (err) {
+      console.error(`[relay] cancelTaskWithRedisFallback failed:`, err);
+    }
+  }
+
+  /**
+   * Register Redis pub/sub listeners for cross-instance command routing.
+   * When a cancel/approval/steer command arrives via Redis from another
+   * instance, execute it locally if we have the target machine's WebSocket.
+   */
+  private registerRedisRouting(): void {
+    // Cross-instance cancel: another instance requested a cancel for a machine we host
+    redisPubSub.on('task:cancel', (event) => {
+      if (event.instanceId === redisPubSub.getInstanceId()) return; // skip own
+      const connection = machineRegistry.getConnection(event.machineId);
+      if (!connection) return; // machine not on this instance either
+      console.log(`[relay] Executing cross-instance cancel for task ${event.taskId} on machine ${event.machineId}`);
+      const socket = connection.socket;
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+          type: 'task_cancel',
+          timestamp: new Date().toISOString(),
+          payload: { taskId: event.taskId, reason: event.reason },
+        }));
+        this.taskToMachine.delete(event.taskId);
+        this.taskDispatchedAt.delete(event.taskId);
+        this.consecutiveMisses.delete(event.taskId);
+      }
+    });
+
+    // Cross-instance approval response: route to local machine's WebSocket
+    redisPubSub.on('approval:response', (event) => {
+      if (event.instanceId === redisPubSub.getInstanceId()) return; // skip own
+      const connection = machineRegistry.getConnection(event.machineId);
+      if (!connection) return; // machine not on this instance
+      console.log(`[relay] Executing cross-instance approval for task ${event.taskId} request ${event.requestId}`);
+      this.sendApprovalResponseLocal(event.taskId, event.machineId, event.requestId, event.answered, event.answer, event.message);
+    });
+
+    // Cross-instance steer: route to local machine's WebSocket
+    redisPubSub.on('task:steer', (event) => {
+      if (event.instanceId === redisPubSub.getInstanceId()) return; // skip own
+      const connection = machineRegistry.getConnection(event.machineId);
+      if (!connection) return; // machine not on this instance
+      console.log(`[relay] Executing cross-instance steer for task ${event.taskId}`);
+      this.steerTaskLocal(event.taskId, event.machineId, event.message, event.action, event.interrupt, event.sessionId, event.branchName);
+    });
+
+    // Cross-instance safety decision: route to local machine's WebSocket
+    redisPubSub.on('safety:decision', (event) => {
+      if (event.instanceId === redisPubSub.getInstanceId()) return; // skip own
+      const connection = machineRegistry.getConnection(event.machineId);
+      if (!connection) return; // machine not on this instance
+      console.log(`[relay] Executing cross-instance safety decision for task ${event.taskId}: ${event.decision}`);
+      this.sendSafetyDecisionLocal(event.taskId, event.machineId, event.decision);
+    });
   }
 
   /**
@@ -1563,6 +1654,7 @@ export class RelayServer extends EventEmitter {
               this.consecutiveMisses.delete(taskId);
               this.taskToMachine.delete(taskId);
               this.taskDispatchedAt.delete(taskId);
+              redisPubSub.removeTaskMapping(taskId).catch(() => {});
 
               // Emit event for dispatch layer to handle DB reset
               this.emit('task:dead', {
@@ -1636,9 +1728,31 @@ export class RelayServer extends EventEmitter {
   }
 
   /**
-   * Steer a running task on an agent runner
+   * Steer a running task on an agent runner.
+   * If the machine is connected to this instance, sends directly via WebSocket.
+   * Otherwise, routes via Redis pub/sub to the instance that has the connection.
    */
   steerTask(taskId: string, machineId: string, message: string, action?: 'guidance' | 'redirect' | 'pause' | 'resume', interrupt?: boolean, sessionId?: string, branchName?: string): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      // Machine not on this instance — route via Redis
+      redisPubSub.routeTaskSteer({
+        taskId, machineId, message, action, interrupt, sessionId, branchName,
+      }).catch((err) => {
+        console.error(`[relay] Failed to route steer via Redis:`, err);
+      });
+      console.log(`[relay] Steer routed via Redis for task ${taskId} (machine ${machineId} not local)`);
+      return true; // Optimistic: assume Redis routing will succeed
+    }
+
+    return this.steerTaskLocal(taskId, machineId, message, action, interrupt, sessionId, branchName);
+  }
+
+  /**
+   * Steer a task via local WebSocket connection. Called both for direct
+   * sends and for Redis-routed messages.
+   */
+  private steerTaskLocal(taskId: string, machineId: string, message: string, action?: 'guidance' | 'redirect' | 'pause' | 'resume', interrupt?: boolean, sessionId?: string, branchName?: string): boolean {
     const connection = machineRegistry.getConnection(machineId);
     if (!connection) {
       console.error(`[relay] Machine ${machineId} not found for task steering`);
@@ -1668,9 +1782,38 @@ export class RelayServer extends EventEmitter {
   }
 
   /**
-   * Send approval response back to agent runner
+   * Send approval response back to agent runner.
+   * If the machine is connected to this instance, sends directly via WebSocket.
+   * Otherwise, routes via Redis pub/sub to the instance that has the connection.
    */
   sendApprovalResponse(
+    taskId: string,
+    machineId: string,
+    requestId: string,
+    answered: boolean,
+    answer?: string,
+    message?: string
+  ): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      // Machine not on this instance — route via Redis
+      redisPubSub.routeApprovalResponse({
+        taskId, machineId, requestId, answered, answer, message,
+      }).catch((err) => {
+        console.error(`[relay] Failed to route approval via Redis:`, err);
+      });
+      console.log(`[relay] Approval response routed via Redis for task ${taskId} (machine ${machineId} not local)`);
+      return true; // Optimistic: assume Redis routing will succeed
+    }
+
+    return this.sendApprovalResponseLocal(taskId, machineId, requestId, answered, answer, message);
+  }
+
+  /**
+   * Send approval response directly via local WebSocket connection.
+   * Called both for direct sends and for Redis-routed messages.
+   */
+  private sendApprovalResponseLocal(
     taskId: string,
     machineId: string,
     requestId: string,
@@ -1702,9 +1845,33 @@ export class RelayServer extends EventEmitter {
   }
 
   /**
-   * Send safety decision back to agent runner
+   * Send safety decision back to agent runner.
+   * If the machine is connected to this instance, sends directly via WebSocket.
+   * Otherwise, routes via Redis pub/sub to the instance that has the connection.
    */
   sendSafetyDecision(
+    taskId: string,
+    machineId: string,
+    decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel'
+  ): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      // Machine not on this instance — route via Redis
+      redisPubSub.routeSafetyDecision({ taskId, machineId, decision }).catch((err) => {
+        console.error(`[relay] Failed to route safety decision via Redis:`, err);
+      });
+      console.log(`[relay] Safety decision routed via Redis for task ${taskId} (machine ${machineId} not local)`);
+      return true; // Optimistic: assume Redis routing will succeed
+    }
+
+    return this.sendSafetyDecisionLocal(taskId, machineId, decision);
+  }
+
+  /**
+   * Send safety decision directly via local WebSocket connection.
+   * Called both for direct sends and for Redis-routed messages.
+   */
+  private sendSafetyDecisionLocal(
     taskId: string,
     machineId: string,
     decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel'
@@ -1802,6 +1969,7 @@ export class RelayServer extends EventEmitter {
           this.taskToMachine.delete(taskId);
           this.taskDispatchedAt.delete(taskId);
           this.consecutiveMisses.delete(taskId);
+          redisPubSub.removeTaskMapping(taskId).catch(() => {});
         }
       }
 
@@ -2320,6 +2488,7 @@ export class RelayServer extends EventEmitter {
     this.taskToMachine.delete(taskId);
     this.taskDispatchedAt.delete(taskId);
     this.consecutiveMisses.delete(taskId);
+    redisPubSub.removeTaskMapping(taskId).catch(() => {});
 
     // Convert to standard result message
     const resultMsg: TaskResultMessage = {

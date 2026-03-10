@@ -33,6 +33,7 @@ import { extractPlanJsonFromText } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { autoDispatchDownstream, cascadePruneDownstream } from './data.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
+import { redisPubSub } from '../lib/redis-pubsub.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup)
 const dispatchedTaskDirs = new Map<string, string>()  // taskId → workingDirectory
@@ -1724,6 +1725,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     const isServerSideDispatch = c.req.header('X-Server-Dispatch') === 'true'
     if (!isServerSideDispatch) {
       activeDispatchStreams.add(executionId)
+      redisPubSub.registerActiveDispatchStream(executionId).catch(() => {})
     }
 
     relayServer.on('task:result', onResult)
@@ -1739,7 +1741,10 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     relayServer.on('task:dead', onTaskDead)
 
     const cleanup = () => {
-      if (!isServerSideDispatch) activeDispatchStreams.delete(executionId)
+      if (!isServerSideDispatch) {
+        activeDispatchStreams.delete(executionId)
+        redisPubSub.removeActiveDispatchStream(executionId).catch(() => {})
+      }
       relayServer.off('task:result', onResult)
       relayServer.off('task:text', onText)
       relayServer.off('task:session_init', onSessionInit)
@@ -2002,11 +2007,17 @@ dispatchRoute.post('/steer', async (c) => {
   }
   const { taskId, machineId, message, action, interrupt, sessionId, branchName } = parsed.data
 
-  // Validate user owns this task
+  // Validate user owns this task (async fallback for cross-instance scenarios)
   const steerUser = c.get('user') as AuthUser | undefined
   if (steerUser?.id && steerUser.id !== LOCAL_USER_ID) {
-    const ctx = executionContextStore.get(taskId)
-    if (ctx && ctx.userId !== steerUser.id && ctx.userId !== LOCAL_USER_ID) {
+    const ctx = await executionContextStore.getWithFallback(taskId)
+    if (ctx) {
+      if (ctx.userId !== steerUser.id && ctx.userId !== LOCAL_USER_ID) {
+        return c.json({ success: false, error: 'Not authorized for this task' }, 403)
+      }
+    } else {
+      // Context not in local store or Redis — deny by default for security.
+      // The cancel endpoint has a DB fallback; steer requires an active execution.
       return c.json({ success: false, error: 'Not authorized for this task' }, 403)
     }
   }
@@ -2048,11 +2059,16 @@ dispatchRoute.post('/approval', async (c) => {
   }
   const { taskId, machineId, requestId, answered, answer, message } = parsed.data
 
-  // Validate user owns this task
+  // Validate user owns this task (async fallback for cross-instance scenarios)
   const approvalUser = c.get('user') as AuthUser | undefined
   if (approvalUser?.id && approvalUser.id !== LOCAL_USER_ID) {
-    const ctx = executionContextStore.get(taskId)
-    if (ctx && ctx.userId !== approvalUser.id && ctx.userId !== LOCAL_USER_ID) {
+    const ctx = await executionContextStore.getWithFallback(taskId)
+    if (ctx) {
+      if (ctx.userId !== approvalUser.id && ctx.userId !== LOCAL_USER_ID) {
+        return c.json({ success: false, error: 'Not authorized for this task' }, 403)
+      }
+    } else {
+      // Context not in local store or Redis — deny by default for security.
       return c.json({ success: false, error: 'Not authorized for this task' }, 403)
     }
   }
@@ -2099,11 +2115,15 @@ dispatchRoute.post('/safety-decision', async (c) => {
     return c.json({ success: false, error: `Invalid decision. Must be one of: ${validDecisions.join(', ')}` }, 400)
   }
 
-  // Validate user owns this task
+  // Validate user owns this task (async fallback for cross-instance scenarios)
   const safetyUser = c.get('user') as AuthUser | undefined
   if (safetyUser?.id && safetyUser.id !== LOCAL_USER_ID) {
-    const ctx = executionContextStore.get(taskId)
-    if (ctx && ctx.userId !== safetyUser.id && ctx.userId !== LOCAL_USER_ID) {
+    const ctx = await executionContextStore.getWithFallback(taskId)
+    if (ctx) {
+      if (ctx.userId !== safetyUser.id && ctx.userId !== LOCAL_USER_ID) {
+        return c.json({ success: false, error: 'Not authorized for this task' }, 403)
+      }
+    } else {
       return c.json({ success: false, error: 'Not authorized for this task' }, 403)
     }
   }
