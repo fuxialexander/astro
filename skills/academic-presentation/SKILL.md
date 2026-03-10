@@ -85,15 +85,17 @@ The outline is the most important task. It determines the quality of everything 
    - **Evidence** (3-5 slides): Does it work? Show quantitative results, comparisons, ablations. Lead with the strongest result first.
    - **Implications** (1-2 slides): So what? What does this enable? What are the limitations? What's next?
 
-3. **Slide-by-slide plan**: For each slide, specify:
+3. **Figure inventory** (see Section 5.1): Catalog all figures in the paper source. For each, note: file path, what it shows, which slide it maps to. Identify gaps where the paper has no figure but the presentation needs one — these will be new SVGs.
+
+4. **Slide-by-slide plan**: For each slide, specify:
    - Title
    - Layout type (1-5)
    - Key points (3-5 bullets max)
-   - Whether a figure/SVG is needed and what it should show
+   - Figure plan: `[original: path/to/fig.pdf]` or `[SVG: description of what to draw]` or `[none]` — follow the decision rubric in Section 5.2
    - Which equations to include (if any)
    - Transition: how does this slide connect to the next?
 
-4. **Adaptation for paper type**:
+5. **Adaptation for paper type**:
    - **Empirical ML papers**: Heavy on results, comparisons, ablations. Method section focused on architecture diagrams and loss functions.
    - **Theoretical papers**: Heavy on intuition-building, proof sketches, and implications. Use progressive formalization (intuition → informal statement → formal theorem).
    - **Systems papers**: Heavy on architecture diagrams, benchmarks, and design decisions. Emphasize the "why" behind each design choice.
@@ -615,30 +617,142 @@ Use these colored box styles for callouts, key insights, and grouped information
 
 ---
 
-## 5. SVG Figure Generation
+## 5. Figures & Visuals
 
-When generating figures (architecture diagrams, pipeline flows, comparison charts), use inline SVG that matches the color palette.
+### 5.1 Figure Inventory (Task 1 — Outline Phase)
 
-### SVG Guidelines
+Before generating any deliverable, build a **figure inventory** during the narrative outline. For each slide in the plan:
 
-1. **Colors**: Only use colors from the palette. Map diagram elements:
-   - Input/data nodes → dusty blue (`#8FA8B8`)
-   - Processing/model nodes → warm sand (`#C4A882`)
-   - Output/result nodes → sage (`#A8B8A0`)
-   - Connections/arrows → soft black (`#3A3A3A` at 60% opacity)
-   - Labels → soft black (`#3A3A3A`)
-   - Background fills → palette color at 15% opacity
+1. **List every visual need**: What concept, result, or comparison would benefit from a figure on this slide?
+2. **Search the paper source** for existing figures:
+   - LaTeX: scan `\includegraphics` paths, `figure` environments, image directories
+   - PDF: identify embedded figures (plots, diagrams, photos) by page
+   - Markdown/HTML: find `<img>` tags, `![](...)` references
+3. **Classify each visual need** using the decision rubric below
+4. **Record in the outline**: For each slide, note: `Figure: [original: fig3.pdf] / [SVG: architecture overview] / [none]`
 
-2. **Sizing**: SVGs should be sized to fit within the slide layout:
-   - Left-Right Split right panel: max 460×480px
-   - Three-Zone right panel: max 380×320px
-   - Full-width figure: max 1100×500px
+### 5.2 Figure Decision Rubric
 
-3. **Style**:
-   - Rounded rectangles (`rx="6"`) for nodes
-   - 2px stroke width for borders
-   - Arrow markers for directed connections
-   - Font: use the selected font family at 16px for labels
+For every slide or section that needs a visual, follow this decision process:
+
+```
+Does the paper have a figure for this concept?
+├─ YES → Is it directly usable (clear, high-res, self-contained)?
+│   ├─ YES → USE ORIGINAL. Embed it directly.
+│   └─ NO (too complex, low-res, or needs annotation)
+│       → USE ORIGINAL + SUPPLEMENT with annotated SVG overlay or simplified SVG version
+└─ NO → Does the concept need a visual to be understood?
+    ├─ YES → DRAW NEW SVG. Create a diagram, chart, or illustration.
+    └─ NO → Use text-only layout (Layout 3: Full Bullet)
+```
+
+**Key principle**: Every slide that explains a method, shows results, or introduces a concept should have a figure. If the paper provides one, use it. If the paper doesn't, draw one. The worst outcome is a slide that *needs* a visual but has none — never skip a figure just because the paper didn't include one.
+
+### 5.3 Per-Act Figure Requirements
+
+| Act | Required Figures | Source Priority |
+|-----|-----------------|-----------------|
+| **Hook** (1-2 slides) | 0-1: A striking visual that sets up the problem | SVG showing the gap/failure, OR an original figure showing the limitation |
+| **Gap / Prior Work** (2-3 slides) | 1-2: Comparison table or timeline of prior approaches | SVG timeline/comparison diagram (usually no paper figure for this) |
+| **Key Insight** (1 slide) | 1: THE most important visual — makes the core idea click | Original if the paper has a clear "key figure"; otherwise SVG that captures the intuition |
+| **Method** (3-6 slides) | 2-4: Architecture diagram, algorithm flow, equation visualization | Original architecture figure if it exists + SVG for step-by-step build-up, simplified views, or components the paper doesn't visualize separately |
+| **Evidence** (3-5 slides) | 2-4: Result plots, comparison tables, ablation charts | **Always use original** result figures/tables from the paper — these are authoritative data. Draw SVG bar charts only for ablation summaries or custom comparisons not in the paper |
+| **Implications** (1-2 slides) | 0-1: Future directions diagram or limitation illustration | SVG (papers rarely have figures for this) |
+
+**Minimum total figures by deck size**:
+
+| Deck Size | Min Figures | Target | Notes |
+|-----------|-------------|--------|-------|
+| 10-15 slides | 8 | 10-12 | Nearly every content slide should have a visual |
+| 16-25 slides | 14 | 18-20 | Method and Evidence acts expand — more figures needed |
+| 26-40 slides | 22 | 28-32 | Deep dives get their own figures; progressive build-ups across multiple slides |
+
+A presentation where fewer than 60% of content slides (excluding title and section dividers) have a figure is too text-heavy. When in doubt, add a figure — a redundant visual is better than a missing one.
+
+### 5.4 Figure Types by Source
+
+**Use original paper figures for:**
+- Experimental results (plots, accuracy curves, loss curves) — these are data, not decoration
+- Architecture diagrams IF the paper's version is clear at slide scale
+- Qualitative examples (generated images, attention maps, sample outputs)
+- Tables with numerical results (recreate as styled HTML if needed for readability)
+
+**Draw new SVG diagrams for:**
+- Background/prerequisite concepts the paper assumes the reader knows
+- Simplified architecture overviews when the paper's figure is too detailed for one slide
+- Step-by-step method build-ups (progressive disclosure across multiple slides)
+- Comparison diagrams (this approach vs. prior work)
+- Intuition illustrations (analogies, geometric intuitions, toy examples)
+- Anything the presentation needs that the paper doesn't visualize
+
+**Both (original + new SVG) for:**
+- Complex architectures: show the original full figure on one slide, then an SVG-simplified version zooming into a key component on the next
+- Dense result tables: show the original table, then an SVG bar chart highlighting the key comparison
+
+### 5.5 Per-Deliverable Figure Rules
+
+**Slides**: Every slide with Layout 4 (Left-Right Split) or Layout 5 (Three-Zone) MUST have a figure in the right panel. Use Layout 3 (Full Bullet) only for text-heavy conceptual slides that truly don't need a visual. Aim for at least 60% of slides to have a figure.
+
+**Blog posts**: Must include ALL figures that appear in the slides, plus any additional ones helpful for a reader (who can't hear a verbal explanation). A blog post without figures is incomplete. Minimum: key result figure + method diagram + one concept SVG. Embed with `![Caption](path)` and add descriptive captions — a reader should understand each figure from the caption alone.
+
+**Posters**: Lead with the most impactful original figure prominently. Every poster section should have at least one visual element. Simplify complex SVGs for poster scale (larger labels, fewer details).
+
+### 5.6 SVG Generation Guidelines
+
+When generating NEW figures (not reusing originals), use inline SVG that matches the color palette.
+
+**For complex diagrams** (>5 nodes, multi-layer architectures, detailed flowcharts): consider breaking the figure into a dedicated sub-task so it can be iterated independently without blocking the rest of the slide generation.
+
+#### Colors
+Only use colors from the palette. Map diagram elements:
+- Input/data nodes → dusty blue (`#8FA8B8`)
+- Processing/model nodes → warm sand (`#C4A882`)
+- Output/result nodes → sage (`#A8B8A0`)
+- Connections/arrows → soft black (`#3A3A3A` at 60% opacity)
+- Labels → soft black (`#3A3A3A`)
+- Background fills → palette color at 15% opacity
+
+#### Sizing
+SVGs MUST be sized to fit within the target container with margin to spare:
+- Left-Right Split right panel: **max 440×460px** (leave 20px padding from panel edges)
+- Three-Zone right panel: **max 360×300px**
+- Full-width figure: **max 1100×500px**
+- Blog inline figure: **max 700×500px**
+- Poster section figure: **max 220mm×280mm**
+
+#### Layout & Spacing — Preventing Overlap
+
+**CRITICAL**: Text overlap is the #1 quality problem in generated SVGs. Follow these rules strictly:
+
+1. **Minimum node size**: Every node (rectangle, circle, ellipse) must be large enough to contain its label text with at least **12px padding** on all sides. For a 16px font label, minimum node height is `16 + 12 + 12 = 40px`. Minimum node width is `(character_count × 9) + 24px`.
+
+2. **Minimum spacing between elements**:
+   - Between adjacent nodes: **at least 40px** gap (edge-to-edge, not center-to-center)
+   - Between a node and its connected arrow endpoint: **at least 10px**
+   - Between parallel arrows/lines: **at least 20px**
+   - Between any text label and any other element: **at least 8px**
+
+3. **Label placement rules**:
+   - Node labels: always `text-anchor="middle"` centered both horizontally and vertically within the node
+   - Edge labels: place above or below the line, never overlapping the line itself
+   - Axis labels (for charts): outside the plot area, never overlapping data points
+   - If a label is too long for its container, either: (a) abbreviate it, (b) break into two lines using `<tspan>`, or (c) increase the container size
+
+4. **Verify before output**: After constructing the SVG, mentally check that no text overlaps with other text, no node overlaps with another node, and all arrows connect cleanly without crossing through labels. If any overlap exists, increase spacing or rearrange the layout.
+
+5. **Font sizing hierarchy**:
+   - Title/header text: 18-20px
+   - Node labels: 14-16px
+   - Edge labels / annotations: 12-14px
+   - Fine print / footnotes: 10-12px
+   - Never go below 10px — it's unreadable in slides
+
+#### Style
+- Rounded rectangles (`rx="6"`) for nodes
+- 2px stroke width for borders
+- Arrow markers for directed connections
+- Font: use the selected font family at appropriate size (see hierarchy above)
+- White or off-white fill inside nodes for text readability (not transparent)
 
 4. **Example: Architecture Diagram**
 ```svg
@@ -869,8 +983,8 @@ $$
 
 ### Detailed vs. Succinct
 
-- **Detailed** (~2000-4000 words): Full methodology walkthrough with equations, multiple figures, ablation analysis, and comprehensive references. Include code snippets if GitHub repo is available.
-- **Succinct** (~800-1500 words): Focus on motivation, key contribution, and main results. One equation max. Skip ablations.
+- **Detailed** (~2000-4000 words): Full methodology walkthrough with equations, multiple figures, ablation analysis, and comprehensive references. Include code snippets if GitHub repo is available. Must include 4+ figures.
+- **Succinct** (~800-1500 words): Focus on motivation, key contribution, and main results. One equation max. Skip ablations. Must include 2+ figures.
 
 ---
 
@@ -1093,7 +1207,10 @@ Before marking any deliverable as complete, verify:
 - [ ] One idea per slide — no information overload
 - [ ] Max 6-8 bullet points per Full Bullet slide
 - [ ] Every equation has a plain-English annotation
-- [ ] Figures use SVG with palette colors
+- [ ] At least 60% of slides have a figure (original or SVG)
+- [ ] All original paper figures referenced in the outline are included
+- [ ] New SVG figures drawn for concepts the paper doesn't visualize
+- [ ] Generated SVGs use palette colors and have no text overlap
 - [ ] Max 2-3 accent colors per slide
 - [ ] Title slide has paper title, authors, and affiliation
 - [ ] Section dividers introduce each major topic
@@ -1103,6 +1220,9 @@ Before marking any deliverable as complete, verify:
 ### Blog Post
 - [ ] TL;DR at the top (2-3 sentences)
 - [ ] All claims backed by specific numbers from the paper
+- [ ] Includes ALL figures from the slides (original + SVG)
+- [ ] Minimum figures: key result + method diagram + 1 concept SVG
+- [ ] Every figure has a descriptive caption (readable standalone)
 - [ ] Proper citation format with arXiv/DOI links
 - [ ] Equations have accompanying plain-English explanation
 - [ ] Tables are properly formatted Markdown

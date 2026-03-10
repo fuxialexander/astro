@@ -40,7 +40,7 @@ export function buildClientCompletionMessage(opts: {
   let description: string
   if (projectName && allSuccess && projectBranch) {
     const wtPath = worktreePath(projectBranch)
-    description = `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. Browse files at {{${wtPath}}} or run \`git checkout ${projectBranch}\` to review. The .astro directory is hidden by default — enable "show hidden files" in your file manager to see it.`
+    description = `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. Browse files at {{${wtPath}}} or run \`git checkout ${projectBranch}\` to review. The .astro directory is hidden by default — press Cmd+Shift+. on Mac (or enable "show hidden files" in your file manager) to see it.`
   } else if (projectName && allSuccess) {
     description = `All tasks in "${projectName}" completed successfully.`
   } else if (projectName) {
@@ -98,7 +98,7 @@ export function buildServerCompletionMessage(opts: {
         : `All tasks completed on branch \`${projectBranch}\`.`
     } else {
       description = projectName
-        ? `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. Browse files at {{${wtPath}}} or run \`git checkout ${projectBranch}\` to review. The .astro directory is hidden by default — enable "show hidden files" in your file manager to see it.`
+        ? `All tasks in "${projectName}" completed. Changes on branch \`${projectBranch}\`. Browse files at {{${wtPath}}} or run \`git checkout ${projectBranch}\` to review. The .astro directory is hidden by default — press Cmd+Shift+. on Mac (or enable "show hidden files" in your file manager) to see it.`
         : `All tasks completed on branch \`${projectBranch}\`. Browse files at {{${wtPath}}} or run \`git checkout ${projectBranch}\` to review.`
     }
     return {

@@ -300,55 +300,10 @@ For **poster** (when selected):
 - "auto" for file creation and rendering tasks
 - "human" for content quality and narrative flow`,
 
-    taskExecution: `You are generating academic presentation deliverables from a research paper.
-
-## CRITICAL: Output Directory
-Save ALL output files (slides, blog posts, posters, figures, PDFs) under the \`outputs/\` directory in the working directory. Never write results to the repository root or git worktree root. Intermediate source files (HTML, Markdown) and final deliverables (PDFs) must all go under \`outputs/\`.
-
-## Context
-- Working Directory: {{workingDirectory}}
-- Source Format: {{sourceFormat}}
-- Paper Link: {{paperLink}}
-- Code Repository: {{githubUrl}}
-- Deliverables: {{deliverables}}
-- Target Audience: {{targetAudience}}
-
-## Obtaining the Paper
-- If a **paper link** is provided, fetch/download the paper from the link first into the working directory.
-- Then read the paper files from the working directory.
-
-## Document Reading — Source Format: {{sourceFormat}}
-
-Use the appropriate tool for the selected source format:
-- **PDF**: The PDF skill is included in your skill instructions. Follow it for extraction (pypdf, pdfplumber, or the Read tool on .pdf files).
-- **DOCX**: The DOCX skill is included in your skill instructions. Follow it for extraction.
-- **LaTeX**: Read .tex files directly with the Read tool. Parse \\section, \\subsection, equations (\\begin{equation}), figures (\\includegraphics), and bibliography.
-- **Markdown**: Read .md files directly with the Read tool.
-
-## IMPORTANT: Skill Reference
-This task uses the \`academic-presentation\` skill. Consult the skill's SKILL.md for:
-- Complete HTML/CSS templates for each slide layout type
-- Color hex values and usage rules
-- Typography scale and font stacks
-- Box style CSS classes
-- SVG figure generation guidelines
-- Playwright PDF rendering commands
-- Blog Markdown structure
-- Poster CSS grid layout
-
-## General Rules
-- One key idea per slide (max 6-8 bullet points)
-- Use SVG for all generated figures — match the color palette
-- Annotate equations with plain-English descriptions
-- Max 2-3 accent colors per slide/section
-- Every HTML slide must be self-contained with embedded CSS
-- Use Playwright for all HTML→PDF conversion
-
-## Content Depth by Audience
-- researcher: Full technical detail, reference prior art by name
-- graduate: Include intuition before formalism, define key terms
-- engineer: Lead with practical implications, include benchmarks
-- general: Use analogies, minimize notation, maximize visuals`,
+    // taskExecution removed: the agent receives SKILL.md as visionDoc (loaded by
+    // the frontend), not this prompt. Keeping it here would be dead code that
+    // could mislead future developers. All execution guidance lives in
+    // skills/academic-presentation/SKILL.md.
 
     sharedContext: `Academic Paper Presentation shared context:
 
