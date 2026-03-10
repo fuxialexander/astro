@@ -21,7 +21,6 @@ import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { useSettingsStore, resolveModel, type ModelTier } from "@/stores/settings-store"
 import { deriveAvailableProviders, isProviderAvailable, PROVIDER_NAMES } from "@/components/execution/provider-utils"
 import { apiUrl } from "@/lib/api-url"
-import { useMachinesStore } from "@/stores/machines-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
@@ -113,9 +112,8 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
   const launchExample = useExampleStore((s) => s.launchExample)
   const reset = useExampleStore((s) => s.reset)
 
-  // Machine state
+  // Machine state — only show currently detected (online) machines, not all registered
   const machines = useExecutionStore((s) => s.machines)
-  const registeredMachines = useMachinesStore((s) => s.machines)
   const realtimeMachines = useRealtimeStore((s) => s.machines)
   const allMachines = useMemo<MachineInfo[]>(() => [
     ...machines,
@@ -125,15 +123,7 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
       status: 'online' as const,
       providers: m.providers.map((p) => ({ type: p.type, status: p.status })),
     })),
-    ...registeredMachines
-      .filter((rm) => !machines.some((m) => m.machineId === rm.id))
-      .map((rm) => ({
-        machineId: rm.id,
-        name: rm.name,
-        status: 'offline' as const,
-        providers: [],
-      })),
-  ].filter((m, i, arr) => arr.findIndex((a) => a.machineId === m.machineId) === i), [machines, realtimeMachines, registeredMachines])
+  ].filter((m, i, arr) => arr.findIndex((a) => a.machineId === m.machineId) === i), [machines, realtimeMachines])
 
   // Determine step order based on skipBrowse prop
   const stepOrder = skipBrowse ? SKIP_BROWSE_STEP_ORDER : FULL_STEP_ORDER
