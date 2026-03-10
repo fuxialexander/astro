@@ -551,9 +551,19 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               if (e.seq != null) return !hydratedActivitySeqs.has(e.seq)
               return e.type !== 'text'
             })
-            // Add hydrated events not already covered by existing seqs
+            // Build set of no-seq event types already present in existingKept so that
+            // no-seq events from hydrated (e.g. plan_result, which carries no DB seq)
+            // don't produce duplicates when already delivered via SSE.
+            const existingKeptNoSeqTypes = new Set(
+              existingKept.filter(e => e.seq == null).map(e => e.type)
+            )
+            // Add hydrated events not already covered by existing seqs.
+            // For no-seq hydrated events (e.g. plan_result), skip if the same type
+            // already exists in existingKept to avoid duplicating SSE-delivered events.
             const hydratedNew = hydrated.activityEvents.filter(e =>
-              e.seq == null || !existingActivitySeqs.has(e.seq)
+              e.seq == null
+                ? !existingKeptNoSeqTypes.has(e.type)
+                : !existingActivitySeqs.has(e.seq)
             )
             const mergedActivity = [...existingKept, ...hydratedNew]
             mergedActivity.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
