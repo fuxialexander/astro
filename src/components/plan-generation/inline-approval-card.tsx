@@ -63,40 +63,25 @@ export function InlineApprovalCard({
     }
   }
 
-  if (answered && autoApproved) {
-    return (
-      <div className="mx-4 my-1.5 rounded-lg border border-muted/40 bg-muted/5 p-3">
-        <div className="flex items-center gap-2 mb-2">
-          <Zap className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-            Auto-decided (YOLO)
-          </span>
-        </div>
-        <p className="text-xs text-muted-foreground mb-2">{question}</p>
-        <div className="flex flex-col gap-0.5 mb-2">
-          {options.map((opt) => (
-            <div key={opt} className="flex items-center gap-2 text-xs">
-              <span className={opt === answer ? "text-foreground font-medium" : "text-muted-foreground/60"}>
-                {opt === answer ? "●" : "○"} {opt}
-              </span>
-            </div>
-          ))}
-        </div>
-        <p className="text-xs font-medium text-foreground/80">
-          Proceeding with: {answer}
-        </p>
-      </div>
-    )
-  }
-
   if (answered) {
     return (
       <div className="mx-4 my-2 rounded-lg border border-success/30 bg-success/5 p-3">
         <div className="flex items-start gap-2">
-          <Check className="h-4 w-4 mt-0.5 shrink-0 text-success" />
+          {autoApproved ? (
+            <Zap className="h-4 w-4 mt-0.5 shrink-0 text-success" />
+          ) : (
+            <Check className="h-4 w-4 mt-0.5 shrink-0 text-success" />
+          )}
           <div className="flex-1 min-w-0">
             <p className="text-xs text-muted-foreground mb-1">{question}</p>
-            <p className="text-sm font-medium text-foreground">{answer}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-medium text-foreground">{answer}</p>
+              {autoApproved && (
+                <span className="text-[10px] font-medium text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">
+                  auto
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>
