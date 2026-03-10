@@ -135,6 +135,15 @@ class StreamingEventLog {
   }
 
   /**
+   * Discard the in-memory text buffer for an execution without writing to DB.
+   * Use this for one-shot tasks (executeViaRelay) where text output is captured
+   * in a local variable and persistence is not needed.
+   */
+  discardText(executionId: string): void {
+    this.textBuffers.delete(executionId)
+  }
+
+  /**
    * Flush all text buffers (for graceful shutdown).
    */
   async flushAll(): Promise<void> {

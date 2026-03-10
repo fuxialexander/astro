@@ -2308,7 +2308,7 @@ export class RelayServer extends EventEmitter {
   /**
    * Handle agent runner's task tool trace message format (legacy)
    */
-  private handleAgentRunnerTaskToolTrace(message: AgentRunnerTaskToolTraceMessage): void {
+  private async handleAgentRunnerTaskToolTrace(message: AgentRunnerTaskToolTraceMessage): Promise<void> {
     const { payload } = message;
     const { taskId, toolName, toolInput, toolResult, success } = payload;
 
@@ -2322,11 +2322,24 @@ export class RelayServer extends EventEmitter {
       toolResult,
       success,
     };
-    this.emit('task:tool_trace', traceMsg);
+    // Persist so route handlers (which no longer write relay-originated events) don't silently
+    // drop legacy tool traces. Modern agents send task_tool_use/task_tool_result separately;
+    // this path handles older agent runners that send the combined task_tool_trace message.
     const eventType = toolResult !== undefined ? 'tool_result' as const : 'tool_use' as const;
+    const data = toolResult !== undefined
+      ? { toolName, toolResult, success }
+      : { toolName, toolInput };
+    let seq: number | undefined;
+    try {
+      seq = await streamingEventLog.append(taskId, eventType, data);
+    } catch (err) {
+      console.error(`[relay-server] Failed to persist legacy ${eventType} event for task ${taskId}:`, err);
+    }
+    this.emit('task:tool_trace', Object.assign(traceMsg, { _dbSeq: seq }));
     this.publishToRedis({
       eventType, taskId,
       data: { toolName, toolInput, toolResult, success },
+      dbSeq: seq,
     });
   }
 
@@ -2343,7 +2356,9 @@ export class RelayServer extends EventEmitter {
       text: payload.text,
       sequence: payload.sequence,
     };
-    // appendText is synchronous (in-memory buffer, flushed on next structural event)
+    // relay-server is the single persistence authority for relay-originated events.
+    // Route handlers (dispatch.ts, agent.ts) forward events to the browser SSE but
+    // do not write to streaming_events for relay-originated events.
     streamingEventLog.appendText(payload.taskId, payload.text);
     this.emit('task:text', textMsg);
     this.publishToRedis({
