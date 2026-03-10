@@ -2034,16 +2034,15 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 
 /**
  * Batch-drain pending steer messages from DB and deliver via relay.
- * Called on session_init (to deliver messages queued before agent was ready)
- * and on steer_ack (to deliver next batch after current one is processed).
+ * Called on session_init to deliver messages queued before the agent was ready.
  */
 async function drainPendingSteers(executionId: string, machineId: string): Promise<void> {
-  const pending = await streamingEventLog.getPendingSteerMessages(executionId)
-  if (pending.length === 0) return
-
-  // Batch: join all pending messages with double newlines
+  // Atomically claim all pending steers (prevents race with steer endpoint)
   const batchId = crypto.randomUUID()
-  const messages = pending.map((e) => {
+  const claimed = await streamingEventLog.claimPendingSteers(executionId, batchId)
+  if (claimed.length === 0) return
+
+  const messages = claimed.map((e) => {
     const d = e.data as Record<string, unknown>
     return (d.message as string) || ''
   }).filter(Boolean)
@@ -2051,17 +2050,17 @@ async function drainPendingSteers(executionId: string, machineId: string): Promi
   if (messages.length === 0) return
 
   const batchedMessage = messages.join('\n\n')
-  const seqs = pending.map((e) => e.seq)
 
   // Send the batched message via relay
   const sent = relayServer.steerTask(executionId, machineId, batchedMessage)
 
   if (sent) {
-    // Mark all as 'sent' with shared batchId
-    await streamingEventLog.batchUpdateSteerStatus(seqs, 'sent', batchId)
-    console.log(`[dispatch] Drained ${pending.length} pending steer(s) for ${executionId} (batch ${batchId})`)
+    console.log(`[dispatch] Drained ${claimed.length} pending steer(s) for ${executionId} (batch ${batchId})`)
   } else {
-    console.warn(`[dispatch] Failed to drain pending steers for ${executionId} — messages remain pending`)
+    // Relay send failed — revert claimed steers back to 'pending' so they can be retried
+    const seqs = claimed.map((e) => e.seq)
+    await streamingEventLog.batchUpdateSteerStatus(seqs, 'pending')
+    console.warn(`[dispatch] Failed to drain pending steers for ${executionId} — reverted to pending`)
   }
 }
 
@@ -2121,7 +2120,7 @@ dispatchRoute.post('/steer', async (c) => {
   // Even if relay send fails, the message is persisted as 'pending' and will be
   // batch-drained when session_init fires or between turns.
 
-  return c.json({ success: true, taskId, machineId, seq, message: sent ? 'Steer message sent' : 'Steer message queued' })
+  return c.json({ success: true, taskId, machineId, message: sent ? 'Steer message sent' : 'Steer message queued' })
 })
 
 /**

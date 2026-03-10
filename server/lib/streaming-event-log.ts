@@ -173,6 +173,33 @@ class StreamingEventLog {
   }
 
   /**
+   * Atomically claim pending steer messages by updating status to 'sent' and returning them.
+   * Prevents race conditions between the steer endpoint and drainPendingSteers.
+   */
+  async claimPendingSteers(executionId: string, batchId: string): Promise<StreamingEvent[]> {
+    try {
+      const rows = await db.execute(sql`
+        UPDATE streaming_events
+        SET data = data || ${JSON.stringify({ status: 'sent', batchId })}::jsonb
+        WHERE execution_id = ${executionId}
+          AND event_type = 'steer_message'
+          AND data->>'status' = 'pending'
+        RETURNING seq, execution_id AS "executionId", event_type AS "eventType", data, created_at AS "createdAt"
+      `)
+      return (rows.rows as Array<{ seq: number; executionId: string; eventType: string; data: unknown; createdAt: Date }>).map((r) => ({
+        seq: r.seq,
+        executionId: r.executionId,
+        eventType: r.eventType,
+        data: r.data,
+        createdAt: r.createdAt,
+      }))
+    } catch (err) {
+      console.warn('[streaming-event-log] Failed to claimPendingSteers:', (err as Error).message)
+      return []
+    }
+  }
+
+  /**
    * Update the status of a steer_message event by seq number.
    */
   async updateSteerStatus(seq: number, status: 'sent' | 'acknowledged' | 'timed_out', batchId?: string): Promise<void> {
