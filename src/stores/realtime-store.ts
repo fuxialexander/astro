@@ -924,11 +924,18 @@ function reconcileResultFromCatchUp(
     })
   }
 
-  // If this is a plan session, extract plan nodes from caught-up stdout
+  // If this is a plan session, extract plan nodes from caught-up stdout.
+  // Skip if the project already has plan nodes in the store — on page refresh,
+  // load() fetches authoritative nodes from DB; re-applying plan_result from
+  // streaming events would create nodes with new UUIDs and cause duplicates.
   for (const [nid, exec] of execStore.executions) {
     if (exec.executionId === executionId && nid.startsWith('plan-')) {
       const planProjectId = planNodeIdToProjectId(nid)!
-      // Only extract if project doesn't already have plan nodes
+      const existingProjectNodes = usePlanStore.getState().nodes.filter(n => n.projectId === planProjectId)
+      if (existingProjectNodes.length > 0) {
+        console.log(`[realtime] Skipping plan catch-up for project ${planProjectId} — ${existingProjectNodes.length} nodes already loaded from DB`)
+        break
+      }
       // Prefer pre-extracted plan_result from hydrator; fall back to regex extraction from stdout
       const result = hydrated.planResult
         ? applyPlanFromText(planProjectId, '', executionId, false, hydrated.planResult)
@@ -1157,10 +1164,13 @@ function handleRealtimeEvent(
       // Plan-node status update + notifications + YOLO trigger are now handled
       // by the node:status_changed SSE event (DB-authoritative pattern).
 
-      // If this is a plan session result, extract plan nodes from accumulated stdout
+      // If this is a plan session result, extract plan nodes from accumulated stdout.
+      // Skip if the project already has nodes — prevents UUID duplication on refresh.
       for (const [nid, exec] of execStore.executions) {
         if (exec.executionId === execId && nid.startsWith('plan-')) {
           const planProjectId = planNodeIdToProjectId(nid)!
+          const existingNodes = usePlanStore.getState().nodes.filter(n => n.projectId === planProjectId)
+          if (existingNodes.length > 0) break
           // Get accumulated stdout from task stream — use executionId for idempotency
           // to prevent race duplication with the SSE path in execution-store
           const stream = useRealtimeStore.getState().taskStreams.get(execId)
