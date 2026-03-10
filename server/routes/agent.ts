@@ -469,6 +469,11 @@ async function executeViaRelay(opts: {
     const cleanup = () => {
       relayServer.off('task:text', onText)
       relayServer.off('task:result', onResult)
+      // relay-server.ts unconditionally buffers text for all tasks via appendText().
+      // One-shot tasks capture text in the local `output` variable and don't need
+      // it in streaming_events. Discard the buffer to prevent it accumulating in
+      // memory until the next flushAll() (graceful shutdown).
+      streamingEventLog.discardText(opts.taskId)
     }
 
     relayServer.on('task:text', onText)
