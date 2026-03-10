@@ -2483,7 +2483,8 @@ export class RelayServer extends EventEmitter {
   }
 
   /**
-   * Handle agent runner's steer ack message
+   * Handle agent runner's steer ack message.
+   * Updates all 'sent' steer_message events to 'acknowledged' or 'timed_out'.
    */
   private handleAgentRunnerTaskSteerAck(message: AgentRunnerTaskSteerAckMessage): void {
     const { payload } = message;
@@ -2496,6 +2497,14 @@ export class RelayServer extends EventEmitter {
       interrupted: payload.interrupted,
     };
     this.emit('task:steer_ack', ackMsg);
+
+    // Persist ack status: update all 'sent' steer_messages for this execution
+    // to 'acknowledged' (or 'timed_out' if rejected). This ensures page-refresh
+    // recovery shows correct delivery indicators.
+    const status = payload.accepted ? 'acknowledged' as const : 'timed_out' as const
+    streamingEventLog.updateSentSteersStatus(payload.taskId, status).catch((err) => {
+      console.warn('[relay] Failed to update steer status on ack:', err)
+    })
   }
 
   /**
