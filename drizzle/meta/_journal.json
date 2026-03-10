@@ -148,6 +148,13 @@
       "when": 1773043200000,
       "tag": "0020_add_project_knowledge",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1773129600000,
+      "tag": "0021_add_execution_indexes",
+      "breakpoints": true
     }
   ]
 }

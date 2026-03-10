@@ -2106,8 +2106,7 @@ async function processSSEStreamWithReconnect(
       }
 
       try {
-        const executionsRecord = await dataClient.getExecutions()
-        const dbExec = executionsRecord[nodeId]
+        const dbExec = await dataClient.getExecutionByNodeId(nodeId)
         if (dbExec?.executionId) {
           console.log(`[sse-reconnect] Found executionId ${dbExec.executionId} for ${nodeId} from DB (attempt ${attempt + 1})`)
           // Update the in-memory execution with the executionId from DB

@@ -573,6 +573,12 @@ export const dataClient = {
     return result
   },
 
+  async getExecutionByNodeId(nodeId: string): Promise<{ executionId: string; status: string } | null> {
+    const row = await json<{ executionId?: string; status?: string } | null>(`${BASE}/executions/${encodeURIComponent(nodeId)}`)
+    if (!row?.executionId) return null
+    return { executionId: row.executionId, status: row.status || 'pending' }
+  },
+
   async saveExecution(execution: TaskExecution): Promise<void> {
     await post(`${BASE}/executions`, execution)
   },
