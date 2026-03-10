@@ -6,6 +6,7 @@
  */
 
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Check, X, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -30,6 +31,7 @@ interface ApprovalCardProps {
 }
 
 export function ApprovalCard({ approval, onRespond, className }: ApprovalCardProps) {
+  const { t } = useTranslation(['dialogs', 'common'])
   const [selectedOption, setSelectedOption] = useState<string | undefined>(
     approval.options?.[0]
   )
@@ -73,7 +75,7 @@ export function ApprovalCard({ approval, onRespond, className }: ApprovalCardPro
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-warning">
               <AlertCircle className="h-4 w-4 text-warning-foreground" />
             </div>
-            <p className="text-base font-semibold text-foreground">Approval Required</p>
+            <p className="text-base font-semibold text-foreground">{t('approval.title', { ns: 'dialogs' })}</p>
           </div>
 
           <p className="text-sm text-muted-foreground">{approval.message}</p>
@@ -121,7 +123,7 @@ export function ApprovalCard({ approval, onRespond, className }: ApprovalCardPro
                 className="flex-1"
               >
                 <X className="h-4 w-4 mr-1.5" />
-                Cancel
+                {t('cancel', { ns: 'common' })}
               </Button>
               <Button
                 size="sm"
@@ -130,7 +132,7 @@ export function ApprovalCard({ approval, onRespond, className }: ApprovalCardPro
                 className="flex-1"
               >
                 <Check className="h-4 w-4 mr-1.5" />
-                {responding ? 'Confirming...' : 'Confirm'}
+                {responding ? t('approval.confirming', { ns: 'dialogs' }) : t('confirm', { ns: 'common' })}
               </Button>
             </>
           ) : (
@@ -143,7 +145,7 @@ export function ApprovalCard({ approval, onRespond, className }: ApprovalCardPro
                 className="flex-1"
               >
                 <X className="h-4 w-4 mr-1.5" />
-                Reject
+                {t('approval.reject', { ns: 'dialogs' })}
               </Button>
               <Button
                 size="sm"
@@ -152,7 +154,7 @@ export function ApprovalCard({ approval, onRespond, className }: ApprovalCardPro
                 className="flex-1"
               >
                 <Check className="h-4 w-4 mr-1.5" />
-                {responding ? 'Approving...' : 'Approve'}
+                {responding ? t('approval.approving', { ns: 'dialogs' }) : t('approval.approve', { ns: 'dialogs' })}
               </Button>
             </>
           )}

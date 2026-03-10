@@ -7,6 +7,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import { useTranslation } from "react-i18next"
 import { useSearchParams, useLocation, useNavigate } from "react-router"
 import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, Info, Monitor, Bot, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -44,6 +45,7 @@ import type { LaunchExampleResult } from "@/lib/api-client"
 import type { ExamplePrefillData } from "@/components/examples/example-picker-dialog"
 
 export function ProjectNewPlan() {
+  const { t } = useTranslation('plan')
   const [searchParams, setSearchParams] = useSearchParams()
   const projectIdParam = searchParams.get("projectId")
   const location = useLocation()
@@ -769,12 +771,12 @@ export function ProjectNewPlan() {
       <div className="w-full max-w-2xl">
         <div className="text-center mb-8 mt-4 md:mt-8">
           <h1 className="text-xl md:text-2xl font-bold font-sans mb-2">
-            {isRegeneration ? "Regenerate Plan" : "Plan"}
+            {isRegeneration ? t('regenerate') : t('generatePlan', { defaultValue: 'Plan' })}
           </h1>
           <p className="text-sm text-muted-foreground">
             {isRegeneration
-              ? "Review and update your goal, then generate a fresh plan."
-              : "Describe your goal in detail. Agent will build a plan with you collaboratively."}
+              ? t('replanDesc', { defaultValue: 'Review and update your goal, then generate a fresh plan.' })
+              : t('planDesc', { defaultValue: 'Describe your goal in detail. Agent will build a plan with you collaboratively.' })}
           </p>
         </div>
 
@@ -819,13 +821,13 @@ export function ProjectNewPlan() {
                 }
               }}
               onPaste={handleGoalPaste}
-              placeholder={"What do you want to build or accomplish?\n\ne.g. \"Address issue #42 in my repo\" or \"SSH to the HPC cluster, fine-tune Llama-3 on my dataset, then evaluate on GSM8K locally\""}
+              placeholder={t('goalPlaceholder', { defaultValue: "What do you want to build or accomplish?\n\ne.g. \"Address issue #42 in my repo\" or \"SSH to the HPC cluster, fine-tune Llama-3 on my dataset, then evaluate on GSM8K locally\"" })}
               rows={5}
               autoFocus
               className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
             />
             <div className="flex justify-end px-4 pb-1">
-              <span className="text-[10px] text-muted-foreground/40">⌘+Enter to start planning</span>
+              <span className="text-[10px] text-muted-foreground/40">{t('cmdEnterPlan', { defaultValue: '⌘+Enter to start planning' })}</span>
             </div>
 
             {/* OR divider + options */}
@@ -847,7 +849,7 @@ export function ProjectNewPlan() {
                   ) : (
                     <LayoutTemplate className="h-3.5 w-3.5" />
                   )}
-                  {templateLaunching ? "Starting..." : "Start from an Example"}
+                  {templateLaunching ? t('starting', { defaultValue: 'Starting...' }) : t('startFromExample', { defaultValue: 'Start from an Example' })}
                 </button>
                 <button
                   type="button"
@@ -855,7 +857,7 @@ export function ProjectNewPlan() {
                   className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
                 >
                   <Layers className="h-3.5 w-3.5" />
-                  Resume a Session
+                  {t('resumeSession', { defaultValue: 'Resume a Session' })}
                 </button>
               </div>
             </div>
@@ -1029,7 +1031,7 @@ export function ProjectNewPlan() {
                   <textarea
                     value={visionDoc}
                     onChange={(e) => setVisionDoc(e.target.value)}
-                    placeholder="Define the product vision, research question, or project context here. This will be provided to all agents working on this project as persistent context (skill.md)..."
+                    placeholder={t('visionDocPlaceholder', { defaultValue: 'Define the product vision, research question, or project context here. This will be provided to all agents working on this project as persistent context (skill.md)...' })}
                     rows={6}
                     className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-y min-h-[100px]"
                   />

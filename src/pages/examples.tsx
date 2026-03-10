@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react"
+import { useTranslation } from "react-i18next"
 import { useNavigate } from "react-router"
 import { BookOpen } from "lucide-react"
 import { ExamplePickerDialog, type ExamplePrefillData } from "@/components/examples/example-picker-dialog"
@@ -16,6 +17,7 @@ import { Card } from "@/components/ui/card"
  * at the Configure step (skipping the Browse step).
  */
 export function Examples() {
+  const { t } = useTranslation('examples')
   const navigate = useNavigate()
   const templates = useExampleStore((s) => s.templates)
   const isLoading = useExampleStore((s) => s.isLoading)
@@ -38,7 +40,7 @@ export function Examples() {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
         <div className="flex items-center gap-4">
-          <h1 className="text-xl font-primary font-semibold">Examples</h1>
+          <h1 className="text-xl font-primary font-semibold">{t('title')}</h1>
         </div>
       </div>
 
@@ -47,14 +49,14 @@ export function Examples() {
         {templates.length === 0 && !isLoading ? (
           <EmptyState
             icon={BookOpen}
-            title="No examples available"
-            description="Examples help you quickly start projects with curated templates and best practices."
+            title={t('noExamples')}
+            description={t('noExamplesDesc')}
             className="h-full"
           />
         ) : (
           <div className="flex flex-col gap-6">
             <p className="text-sm text-muted-foreground">
-              Get started quickly with a curated example. Click to configure and create a project.
+              {t('getStarted')}
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

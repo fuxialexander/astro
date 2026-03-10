@@ -1,0 +1,11 @@
+{
+  "title": "章程",
+  "new": "新建章程",
+  "noWorkflows": "尚无章程",
+  "trigger": "触发条件",
+  "steps": "步骤",
+  "enabled": "已启用",
+  "disabled": "已禁用",
+  "enable": "启用",
+  "disable": "禁用"
+}

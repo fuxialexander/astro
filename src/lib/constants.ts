@@ -1,6 +1,7 @@
 import { AlertTriangle, ArrowUp, Minus, ArrowDown, Circle, Send, Loader, CheckCircle2, Eye, Scissors } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import type { Priority, Estimate } from "@/types"
+import i18n from "@/i18n/config"
 
 export const PRIORITY_CONFIG: Record<Priority, { icon: typeof Circle; color: string; label: string }> = {
   urgent: { icon: AlertTriangle, color: "text-error", label: "Urgent" },
@@ -28,6 +29,16 @@ export const DEFAULT_LABELS = [
   { id: "l4", name: "Infrastructure", color: "#7B6B9A" },
   { id: "l5", name: "Research", color: "#9A6878" },
 ]
+
+/** Returns the i18n-translated label for a given priority. */
+export function getPriorityLabel(priority: Priority): string {
+  return i18n.t(`priority.${priority}`, { ns: 'common', defaultValue: PRIORITY_CONFIG[priority]?.label ?? priority })
+}
+
+/** Returns the i18n-translated label for a given estimate. */
+export function getEstimateLabel(estimate: Estimate): string {
+  return i18n.t(`estimate.${estimate}`, { ns: 'common', defaultValue: estimate })
+}
 
 /* ── Picker option type ── */
 export interface PickerOption {

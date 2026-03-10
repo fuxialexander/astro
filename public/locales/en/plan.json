@@ -1,0 +1,78 @@
+{
+  "views": {
+    "graph": "Graph",
+    "list": "List",
+    "timeline": "Timeline",
+    "board": "Board",
+    "overview": "Overview",
+    "knowledge": "Knowledge"
+  },
+  "display": {
+    "title": "Display",
+    "groupBy": "Group by",
+    "orderBy": "Order by",
+    "properties": "Properties",
+    "noGrouping": "No grouping",
+    "viewAs": "View as",
+    "showCompleted": "Show completed",
+    "zoom": "Zoom",
+    "showProjectList": "Show project list",
+    "showEmptyGroups": "Show empty groups",
+    "resetToDefaults": "Reset to defaults",
+    "groups": {
+      "status": "Status",
+      "priority": "Priority",
+      "assignee": "Assignee",
+      "milestone": "Milestone",
+      "estimate": "Estimate",
+      "label": "Label"
+    },
+    "order": {
+      "priority": "Priority",
+      "status": "Status",
+      "created": "Created",
+      "updated": "Updated",
+      "dueDate": "Due date",
+      "name": "Name"
+    }
+  },
+  "milestone": {
+    "new": "New Milestone",
+    "edit": "Edit Milestone",
+    "editDescription": "Update milestone details and due date.",
+    "createDescription": "Create a new milestone to track progress.",
+    "title": "Title",
+    "dueDate": "Due date",
+    "description": "Description",
+    "noMilestone": "No milestone",
+    "createMilestone": "Create milestone"
+  },
+  "tabs": {
+    "tasks": "Tasks",
+    "description": "Description",
+    "knowledge": "Knowledge"
+  },
+  "newTask": "New Task",
+  "addTask": "Add Task",
+  "noTasks": "No tasks yet",
+  "generatePlan": "Generate Plan",
+  "regenerate": "Regenerate",
+  "replan": "Replan",
+  "dependencies": "Dependencies",
+  "noDependencies": "No dependencies",
+  "addDependency": "Add dependency",
+  "assignee": "Assignee",
+  "dueDate": "Due date",
+  "estimate": "Estimate",
+  "labels": "Labels",
+  "startDate": "Start date",
+  "endDate": "End date",
+  "planDesc": "Describe your goal in detail. Agent will build a plan with you collaboratively.",
+  "replanDesc": "Review and update your goal, then generate a fresh plan.",
+  "goalPlaceholder": "What do you want to build or accomplish?\n\ne.g. \"Address issue #42 in my repo\" or \"SSH to the HPC cluster, fine-tune Llama-3 on my dataset, then evaluate on GSM8K locally\"",
+  "visionDocPlaceholder": "Define the product vision, research question, or project context here. This will be provided to all agents working on this project as persistent context (skill.md)...",
+  "startFromExample": "Start from an Example",
+  "resumeSession": "Resume a previous session",
+  "cmdEnterPlan": "⌘+Enter to start planning",
+  "starting": "Starting..."
+}

@@ -1,0 +1,11 @@
+{
+  "title": "工作流",
+  "new": "新建工作流",
+  "noWorkflows": "暂无工作流",
+  "trigger": "触发条件",
+  "steps": "步骤",
+  "enabled": "已启用",
+  "disabled": "已禁用",
+  "enable": "启用",
+  "disable": "禁用"
+}

@@ -1,10 +1,10 @@
 import { Link, Outlet, useLocation } from 'react-router';
 import { LayoutDashboard, Sparkles, GitBranch, Server, FlaskConical } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useTranslation } from 'react-i18next';
 
 interface TabItem {
   id: string;
-  label: string;
   icon: React.ComponentType<{ className?: string }>;
   path: string;
 }
@@ -12,37 +12,33 @@ interface TabItem {
 const tabs: TabItem[] = [
   {
     id: 'dashboard',
-    label: 'Dashboard',
     icon: LayoutDashboard,
     path: '/dashboard',
   },
   {
     id: 'plan',
-    label: 'Plan',
     icon: Sparkles,
     path: '/plan',
   },
   {
     id: 'playground',
-    label: 'Playground',
     icon: FlaskConical,
     path: '/playground',
   },
   {
     id: 'projects',
-    label: 'Projects',
     icon: GitBranch,
     path: '/projects',
   },
   {
     id: 'environments',
-    label: 'Envs',
     icon: Server,
     path: '/environments',
   },
 ];
 
 export function MobileLayout() {
+  const { t } = useTranslation('nav');
   const location = useLocation();
 
   const isTabActive = (tabPath: string) => {
@@ -95,7 +91,7 @@ export function MobileLayout() {
                     isActive ? 'font-semibold text-foreground' : 'font-medium text-muted-foreground'
                   )}
                 >
-                  {tab.label}
+                  {t(tab.id, { defaultValue: tab.id })}
                 </span>
               </Link>
             );

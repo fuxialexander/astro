@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
+import { useTranslation } from "react-i18next"
 import { useParams, useLocation, useNavigate } from "react-router"
 import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors, Bot, Check } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
@@ -1740,6 +1741,7 @@ export function PlanBoardView({
 const VALID_VIEWS = new Set<ViewMode>(["graph", "list", "timeline", "board"])
 
 export function PlanView() {
+  const { t } = useTranslation('plan')
   const { id } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
@@ -1933,7 +1935,7 @@ export function PlanView() {
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
-            Tasks
+            {t('tabs.tasks', 'Tasks')}
           </button>
           <button
             onClick={() => navigate(`/project/${project.id}/overview`)}
@@ -1944,7 +1946,7 @@ export function PlanView() {
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
-            Description
+            {t('tabs.description', 'Description')}
           </button>
           <button
             onClick={() => navigate(`/project/${project.id}/knowledge`)}
@@ -1955,7 +1957,7 @@ export function PlanView() {
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
-            Knowledge
+            {t('tabs.knowledge', 'Knowledge')}
           </button>
         </div>
 
@@ -2051,10 +2053,10 @@ export function PlanView() {
           <DropdownMenuContent align="end" className="w-48">
             {/* Tasks/Description toggle */}
             <DropdownMenuItem onClick={() => navigate(`/project/${project.id}/list`)}>
-              Tasks
+              {t('tabs.tasks', 'Tasks')}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => navigate(`/project/${project.id}/overview`)}>
-              Description
+              {t('tabs.description', 'Description')}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             {/* Rename */}

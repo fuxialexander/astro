@@ -1,0 +1,22 @@
+{
+  "title": "Environments",
+  "noEnvironments": "No environments connected",
+  "connect": "Connect Environment",
+  "status": {
+    "online": "Online",
+    "offline": "Offline",
+    "connecting": "Connecting"
+  },
+  "type": {
+    "local": "Local",
+    "slurm": "SLURM",
+    "cloud": "Cloud"
+  },
+  "resources": "Resources",
+  "cpu": "CPU",
+  "memory": "Memory",
+  "gpu": "GPU",
+  "storage": "Storage",
+  "disconnect": "Disconnect",
+  "reconnect": "Reconnect"
+}

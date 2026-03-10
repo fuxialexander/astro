@@ -10,6 +10,7 @@
  */
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react"
+import { useTranslation } from "react-i18next"
 import { useSearchParams, useNavigate } from "react-router"
 import {
   Terminal,
@@ -70,6 +71,7 @@ function isPlaygroundProject(project: { projectType?: string; id: string }, exec
 }
 
 export function Playground() {
+  const { t } = useTranslation('nav')
   const isMobile = useMediaQuery("(max-width: 767px)")
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -852,7 +854,7 @@ export function Playground() {
                     handleSend()
                   }
                 }}
-                placeholder={isRunning ? "Send a message..." : "Ask about this session..."}
+                placeholder={isRunning ? t('sendMessage', { defaultValue: 'Send a message...' }) : t('askSession', { defaultValue: 'Ask about this session...' })}
                 rows={1}
                 className="flex-1 rounded-lg border border-border/20 bg-muted/30 px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/50 focus:bg-muted/40 transition-colors resize-none"
               />
@@ -911,9 +913,9 @@ export function Playground() {
     <div className="flex flex-col items-center justify-start min-h-full p-4 md:p-6 overflow-auto flex-1">
       <div className="w-full max-w-2xl">
         <div className="text-center mb-8 mt-4 md:mt-8">
-          <h1 className="text-xl md:text-2xl font-bold font-sans mb-2">Playground</h1>
+          <h1 className="text-xl md:text-2xl font-bold font-sans mb-2">{t('playground')}</h1>
           <p className="text-sm text-muted-foreground">
-            A regular Claude Code session in any of your machines.
+            {t('playgroundDesc', { defaultValue: 'A regular Claude Code session in any of your machines.' })}
           </p>
         </div>
 
@@ -929,13 +931,13 @@ export function Playground() {
                   handleSubmit()
                 }
               }}
-              placeholder="What would you like to work on?"
+              placeholder={t('playgroundGoalPlaceholder', { defaultValue: 'What would you like to work on?' })}
               rows={5}
               autoFocus
               className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
             />
             <div className="flex justify-end px-4 pb-1">
-              <span className="text-[10px] text-muted-foreground/40">⌘+Enter to start</span>
+              <span className="text-[10px] text-muted-foreground/40">{t('cmdEnterStart', { defaultValue: '⌘+Enter to start' })}</span>
             </div>
 
             {/* OR divider + resume button */}
@@ -952,7 +954,7 @@ export function Playground() {
                   className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
                 >
                   <Terminal className="h-3.5 w-3.5" />
-                  Resume a previous session
+                  {t('resumeSession', { defaultValue: 'Resume a previous session' })}
                 </button>
               </div>
             )}

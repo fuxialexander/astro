@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback, useEffect } from "react"
+import { useTranslation } from "react-i18next"
 import { useSearchParams } from "react-router"
 import {
   CheckSquare,
@@ -115,6 +116,7 @@ type MyTasksViewMode = "list" | "timeline" | "board"
 
 
 export function MyTasks() {
+  const { t } = useTranslation('tasks')
   const allProjects = useProjectStore((s) => s.projects)
   // Filter out playground sessions — they have no plan nodes and shouldn't appear in task views
   const projects = useMemo(
@@ -360,7 +362,7 @@ export function MyTasks() {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-primary font-semibold">Tasks</h1>
+          <h1 className="text-xl font-primary font-semibold">{t('myTasks')}</h1>
           {activeCount > 0 && (
             <Badge variant="info" className="text-xs">
               {activeCount} active
@@ -392,42 +394,42 @@ export function MyTasks() {
       <div className="flex items-center gap-3 border-b border-border px-6 py-3 shrink-0">
         <div className="flex items-center gap-2">
           <ListFilter className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium text-muted-foreground">Filter</span>
+          <span className="text-sm font-medium text-muted-foreground">{t('filter', { ns: 'common' })}</span>
         </div>
 
         <div className="flex items-center gap-3">
           <FilterSelect
-            label="Status"
+            label={t('columns.status')}
             value={statusFilter}
             options={[
-              { value: "all", label: "All statuses" },
-              { value: "planned", label: "Planned" },
-              { value: "dispatched", label: "Dispatched" },
-              { value: "in_progress", label: "In Progress" },
-              { value: "awaiting_judgment", label: "Needs Review" },
-              { value: "completed", label: "Completed" },
-              { value: "pruned", label: "Pruned" },
+              { value: "all", label: t('allStatuses', 'All statuses') },
+              { value: "planned", label: t('status.planned', { ns: 'common' }) },
+              { value: "dispatched", label: t('status.dispatched', { ns: 'common' }) },
+              { value: "in_progress", label: t('status.in_progress', { ns: 'common' }) },
+              { value: "awaiting_judgment", label: t('status.awaiting_judgment', { ns: 'common' }) },
+              { value: "completed", label: t('status.completed', { ns: 'common' }) },
+              { value: "pruned", label: t('status.pruned', { ns: 'common' }) },
             ]}
             onChange={(v) => setStatusFilter(v as StatusFilter)}
           />
           <FilterSelect
-            label="Priority"
+            label={t('columns.priority')}
             value={priorityFilter}
             options={[
-              { value: "all", label: "All priorities" },
-              { value: "urgent", label: "Urgent" },
-              { value: "high", label: "High" },
-              { value: "medium", label: "Medium" },
-              { value: "low", label: "Low" },
-              { value: "none", label: "None" },
+              { value: "all", label: t('allPriorities', 'All priorities') },
+              { value: "urgent", label: t('priority.urgent', { ns: 'common' }) },
+              { value: "high", label: t('priority.high', { ns: 'common' }) },
+              { value: "medium", label: t('priority.medium', { ns: 'common' }) },
+              { value: "low", label: t('priority.low', { ns: 'common' }) },
+              { value: "none", label: t('priority.none', { ns: 'common' }) },
             ]}
             onChange={(v) => setPriorityFilter(v as PriorityFilter)}
           />
           <FilterSelect
-            label="Project"
+            label={t('columns.project')}
             value={projectFilter}
             options={[
-              { value: "all", label: "All projects" },
+              { value: "all", label: t('allProjects', 'All projects') },
               ...projects.map((p) => ({ value: p.id, label: p.name })),
             ]}
             onChange={setProjectFilter}
@@ -440,7 +442,7 @@ export function MyTasks() {
             className="flex items-center gap-1.5 rounded-lg bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer ml-auto"
           >
             <X className="h-3.5 w-3.5" />
-            Clear filters
+            {t('clearFilters', 'Clear filters')}
           </button>
         )}
       </div>

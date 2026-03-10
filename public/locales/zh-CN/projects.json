@@ -1,0 +1,16 @@
+{
+  "title": "项目",
+  "new": "新建项目",
+  "name": "项目名称",
+  "namePlaceholder": "输入项目名称…",
+  "description": "项目描述",
+  "descriptionPlaceholder": "这个项目的目标是什么？",
+  "create": "创建项目",
+  "delete": "删除项目",
+  "deleteConfirm": "删除此项目？所有任务及数据将一并清除。",
+  "archive": "归档项目",
+  "noProjects": "暂无项目",
+  "openProject": "打开项目",
+  "lastUpdated": "最近更新",
+  "tasksCount": "{{count}} 个任务"
+}

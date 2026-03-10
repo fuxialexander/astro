@@ -124,6 +124,7 @@ dist
 .cache/
 public/*
 !public/landing/
+!public/locales/
 !public/favicon.ico
 !public/icon.png
 !public/icon-*.png

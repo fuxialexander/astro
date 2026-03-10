@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
 import {
   Server,
   Monitor,
@@ -500,6 +501,7 @@ function LocalBackendsCard({ backends, onBackendClick, title, subtitle }: { back
 }
 
 export function Environments() {
+  const { t } = useTranslation('environments')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedBackend, setSelectedBackend] = useState<ComputeBackendInfo | null>(null)
   const [backendContextString, setBackendContextString] = useState("")
@@ -697,7 +699,7 @@ export function Environments() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-1">
-          <h1 className="text-xl font-primary font-semibold">Environments</h1>
+          <h1 className="text-xl font-primary font-semibold">{t('title')}</h1>
           <p className="text-sm text-muted-foreground hidden md:block">
             Manage your connected machines and compute resources
           </p>
@@ -715,7 +717,7 @@ export function Environments() {
           </Button>
           <Button onClick={() => setDialogOpen(true)} className="hidden md:flex">
             <Plus className="h-4 w-4" />
-            Add Environment
+            {t('connect')}
           </Button>
         </div>
       </div>

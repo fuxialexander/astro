@@ -4,6 +4,7 @@
  */
 
 import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Github, RefreshCw, Loader2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { useGitHubStore } from '@/stores/github-store';
@@ -15,6 +16,7 @@ interface GitHubConnectButtonProps {
 }
 
 export function GitHubConnectButton({ className, onConnected }: GitHubConnectButtonProps) {
+  const { t } = useTranslation('common');
   const {
     connected,
     user,
@@ -53,7 +55,7 @@ export function GitHubConnectButton({ className, onConnected }: GitHubConnectBut
     return (
       <Button variant="outline" disabled className={className}>
         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-        Loading...
+        {t('loading')}
       </Button>
     );
   }

@@ -1,0 +1,13 @@
+{
+  "title": "Grand Plans",
+  "new": "New Plan",
+  "noInitiatives": "No grand plans yet",
+  "createFirst": "Create your first grand plan",
+  "projects": "Projects",
+  "progress": "Progress",
+  "status": "Status",
+  "dueDate": "Due date",
+  "description": "Description",
+  "addProject": "Add Projects",
+  "removeProject": "Remove Project"
+}

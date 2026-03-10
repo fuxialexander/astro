@@ -1,0 +1,16 @@
+{
+  "title": "经略",
+  "new": "新建经略",
+  "name": "经略名称",
+  "namePlaceholder": "输入经略名称…",
+  "description": "描述",
+  "descriptionPlaceholder": "此经略所为何事？",
+  "create": "创建经略",
+  "delete": "删除经略",
+  "deleteConfirm": "删除此经略？所有筹谋及数据将一并清除。",
+  "archive": "归档经略",
+  "noProjects": "尚无经略",
+  "openProject": "打开经略",
+  "lastUpdated": "最近更新",
+  "tasksCount": "{{count}} 个筹谋"
+}

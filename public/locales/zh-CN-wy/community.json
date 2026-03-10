@@ -1,0 +1,14 @@
+{
+  "title": "社区",
+  "browse": "浏览规划",
+  "featured": "精选",
+  "recent": "最新",
+  "popular": "热门",
+  "useTemplate": "使用模板",
+  "preview": "预览",
+  "author": "作者",
+  "likes": "{{count}} 个赞",
+  "uses": "{{count}} 次使用",
+  "noPlans": "暂无社区规划",
+  "myPlans": "我的规划"
+}
