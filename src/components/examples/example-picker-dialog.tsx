@@ -308,8 +308,7 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
       })
       return false
     }
-    const templateNeedsWorkDir = selectedTemplate?.requiredParameters?.some((p) => p.id === 'workingDirectory')
-    if ((selectedMachine || templateNeedsWorkDir) && !workingDirectory.trim()) {
+    if (!workingDirectory.trim()) {
       useToastStore.getState().add({
         type: "error",
         title: "Working directory required",
@@ -318,7 +317,7 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
       return false
     }
     return true
-  }, [validateParameters, projectName, workingDirectory, selectedMachine, selectedTemplate])
+  }, [validateParameters, projectName, workingDirectory])
 
   // Validate and move to next step
   const handleNext = useCallback(async () => {
@@ -462,8 +461,7 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
       case "browse":
         return !!selectedTemplate
       case "configure": {
-        const needsWorkDir = !!selectedMachine || selectedTemplate?.requiredParameters?.some((p) => p.id === 'workingDirectory')
-        return !!projectName.trim() && (!needsWorkDir || !!workingDirectory.trim()) && validationErrors.length === 0
+        return !!projectName.trim() && !!workingDirectory.trim() && validationErrors.length === 0
       }
       case "launch":
         return true
@@ -654,8 +652,7 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
                   </div>
                 )}
 
-                {/* Working directory — shown when a machine is selected OR when the template requires it */}
-                {(selectedMachine || selectedTemplate?.requiredParameters?.some((p) => p.id === 'workingDirectory')) && (
+                {/* Working directory — always required for examples (tasks need a place to execute) */}
                 <div className="space-y-2">
                   <Label htmlFor="working-directory" className="text-sm font-medium">
                     Working Directory <span className="text-red-500">*</span>
@@ -682,7 +679,6 @@ export function ExamplePickerDialog({ open, onOpenChange, onLaunchSuccess, onPre
                     Results will be saved inside this directory (e.g. <code className="text-[10px] bg-muted px-1 py-0.5 rounded">{workingDirectory || '/path/to/project'}/output/</code>)
                   </p>
                 </div>
-                )}
               </div>
             </div>
 

@@ -29,6 +29,17 @@ export const moatFragilityTemplate: UseCaseTemplate = {
 
   requiredParameters: [
     {
+      id: 'workingDirectory',
+      name: 'Working Directory',
+      description:
+        'Directory where the analysis output (report PDF, data files, charts) will be saved.',
+      type: 'file-path',
+      required: true,
+      placeholder: '/path/to/output',
+      group: 'source',
+      order: 0,
+    },
+    {
       id: 'tickerSymbol',
       name: 'Ticker Symbol',
       description:
@@ -43,7 +54,7 @@ export const moatFragilityTemplate: UseCaseTemplate = {
         message: 'Enter a valid uppercase ticker symbol (e.g., AAPL, BRK.B)',
       },
       group: 'source',
-      order: 0,
+      order: 1,
     },
   ],
 
@@ -150,6 +161,7 @@ export const moatFragilityTemplate: UseCaseTemplate = {
     planGeneration: `You are a Senior Equity Analyst designing a comprehensive competitive advantage analysis pipeline.
 
 ## Company Specification
+- Working Directory: {{workingDirectory}}
 - Ticker Symbol: {{tickerSymbol}}
 - Comparison Tickers: {{comparisonTickers}}
 - Supplementary Documents: {{supplementaryDocs}}
