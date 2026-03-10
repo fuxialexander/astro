@@ -12,6 +12,7 @@ import { executionEventBus } from '../lib/execution-event-bus.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { activeDispatchStreams } from '../lib/execution-context-store.js'
+import { incrementChatSSE, decrementChatSSE } from '../lib/sse-connection-tracker.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, ProviderType } from '../types/relay.js'
@@ -142,9 +143,10 @@ async function streamChatViaRelay(
 
   return streamSSE(c, async (stream) => {
     let alive = true
+    incrementChatSSE()
     let lastActivity = Date.now()
     let providerSessionId: string | undefined  // Real Claude SDK session ID from session_init
-    const ACTIVITY_TIMEOUT_MS = 5 * 24 * 60 * 60 * 1000 // 5 days
+    const ACTIVITY_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 hours (matches dispatch.ts; approval pause resets timer)
 
     // Hono's streamSSE only wires the abort signal for old Bun; on Node.js the
     // signal fires via @hono/node-server's outgoing.on("close") but the SSE helper
@@ -360,6 +362,7 @@ async function streamChatViaRelay(
 
     stream.onAbort(() => {
       alive = false
+      decrementChatSSE()
       clearInterval(heartbeat)
       cleanupAll()
       streamingEventLog.flushText(persistId).catch(() => {})

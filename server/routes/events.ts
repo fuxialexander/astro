@@ -33,6 +33,7 @@ import { executionContextStore, activeDispatchStreams } from '../lib/execution-c
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { isYoloMode } from '../lib/yolo-mode.js'
 import { channelRouter } from '../lib/channel/channel-router.js'
+import { incrementGlobalSSE, decrementGlobalSSE } from '../lib/sse-connection-tracker.js'
 import type {
   TaskTextMessage,
   TaskSessionInitMessage as RelayTaskSessionInitMessage,
@@ -77,6 +78,7 @@ eventsRoute.get('/stream', async (c) => {
 
   return streamSSE(c, async (stream) => {
     let alive = true
+    incrementGlobalSSE()
 
     // Hono's streamSSE only wires c.req.raw.signal → stream.abort() for old Bun.
     // On Node.js, @hono/node-server fires signal.abort() via outgoing.on("close"),
@@ -796,6 +798,7 @@ eventsRoute.get('/stream', async (c) => {
     // Wait for client disconnect
     stream.onAbort(() => {
       alive = false
+      decrementGlobalSSE()
       clearInterval(heartbeat)
       clearTimeout(maxLifetimeTimer)
       throttle.shutdown()

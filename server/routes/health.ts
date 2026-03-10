@@ -5,6 +5,7 @@ import { buildContextString } from '../lib/local-backends.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
+import { getSSEConnectionCounts } from '../lib/sse-connection-tracker.js'
 
 const healthRoute = new Hono()
 
@@ -29,6 +30,7 @@ healthRoute.get('/health', async (c) => {
           activeTasks: m.load.activeTasks,
         })),
       },
+      sse: getSSEConnectionCounts(),
     })
   } catch (e: unknown) {
     const message = errorMessage(e)
