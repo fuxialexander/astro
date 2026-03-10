@@ -1883,7 +1883,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     // Tier 2 (ACTIVITY_TIMEOUT_MS): 2 hours between events during execution.
     //   Approval pause mechanism resets timer indefinitely while approvals are pending.
     //   task:stdout listener keeps SLURM/blocking-command sessions alive.
-    const heartbeat = setInterval(() => {
+    const heartbeat = setInterval(async () => {
       if (!alive) { clearInterval(heartbeat); return }
       // Use longer timeout on the final startup attempt to cover slow cold starts
       const startupTimeout = startupRetries >= MAX_STARTUP_RETRIES ? FINAL_STARTUP_TIMEOUT_MS : STARTUP_TIMEOUT_MS
@@ -1959,9 +1959,11 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           return
         }
       }
-      // Flush buffered text to DB periodically so catch-up hydration has recent data
-      streamingEventLog.flushText(executionId).catch(() => {})
-      stream.writeSSE({ event: 'heartbeat', data: '' }).catch(() => { alive = false; clearInterval(heartbeat) })
+      // Flush buffered text to DB and send its seq as the SSE event id.
+      // This advances realtimeClient.lastSeq on the client so that a subsequent
+      // SSE reconnect catch-up does NOT re-fetch text already delivered via SSE.
+      const textSeq = await streamingEventLog.flushText(executionId).catch(() => null)
+      stream.writeSSE({ id: textSeq ? String(textSeq) : undefined, event: 'heartbeat', data: '' }).catch(() => { alive = false; clearInterval(heartbeat) })
     }, 15000)
 
     stream.onAbort(() => {

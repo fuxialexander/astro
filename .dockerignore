@@ -24,6 +24,7 @@ build/
 # Submodules not needed for backend deploy
 packages/agent-runner/
 packages/cli/
+packages/openclaw-plugin/
 
 # IDE
 .vscode/
@@ -67,6 +68,12 @@ docs/
 UI.pen
 .nexus-worktrees/
 NexusApp/
+
+# Claude Code memory and config (not needed at runtime)
+.claude/
+
+# Drizzle ORM snapshots (supabase/migrations used instead at runtime)
+drizzle/
 
 # Frontend static assets (deployed separately to Cloudflare Pages)
 # Note: public/landing/*.html is COPYed explicitly in Dockerfile

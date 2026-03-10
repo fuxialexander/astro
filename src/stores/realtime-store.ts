@@ -523,14 +523,70 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
           if (hydrated.machineId) metadata.machineId = hydrated.machineId
 
           if (isReconnect) {
-            // Append caught-up events to fill the gap from network blip
+            // On SSE reconnect, deduplicate events to prevent showing text twice.
+            // Text events are batched server-side: SSE delivers individual chunks (no seq),
+            // then heartbeat/structural events flush them to DB as a single row (with seq >
+            // lastSeq). Naive concatenation would render the same text twice.
+            //
+            // Strategy:
+            //  - Build seq sets for both sides for O(1) lookup
+            //  - From existing: keep seq'd events not overwritten by hydrated; drop no-seq
+            //    text events (their content is already in existing.stdout from SSE delivery,
+            //    and the DB has the canonical seq'd version in hydrated)
+            //  - From hydrated: add events with new seqs not already in existing
+            //  - Rebuild stdout from merged text events to stay consistent
+            const hydratedActivitySeqs = new Set<number>()
+            for (const e of hydrated.activityEvents) {
+              if (e.seq != null) hydratedActivitySeqs.add(e.seq)
+            }
+            const existingActivitySeqs = new Set<number>()
+            for (const e of existing.activityEvents) {
+              if (e.seq != null) existingActivitySeqs.add(e.seq)
+            }
+
+            // Keep existing events that are NOT superseded by a hydrated seq'd version
+            // Drop no-seq text events: their content is captured in existing.stdout and
+            // the DB has a batched seq'd version in the hydrated set
+            const existingKept = existing.activityEvents.filter(e => {
+              if (e.seq != null) return !hydratedActivitySeqs.has(e.seq)
+              return e.type !== 'text'
+            })
+            // Build set of no-seq event types already present in existingKept so that
+            // no-seq events from hydrated (e.g. plan_result, which carries no DB seq)
+            // don't produce duplicates when already delivered via SSE.
+            const existingKeptNoSeqTypes = new Set(
+              existingKept.filter(e => e.seq == null).map(e => e.type)
+            )
+            // Add hydrated events not already covered by existing seqs.
+            // For no-seq hydrated events (e.g. plan_result), skip if the same type
+            // already exists in existingKept to avoid duplicating SSE-delivered events.
+            const hydratedNew = hydrated.activityEvents.filter(e =>
+              e.seq == null
+                ? !existingKeptNoSeqTypes.has(e.type)
+                : !existingActivitySeqs.has(e.seq)
+            )
+            const mergedActivity = [...existingKept, ...hydratedNew]
+            mergedActivity.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+
+            // Rebuild stdout from merged text events; fall back to existing.stdout when
+            // no text events survived the merge (e.g. flush not yet in DB at catch-up time)
+            const mergedStdout = mergedActivity
+              .filter((e): e is Extract<typeof e, { type: 'text' }> => e.type === 'text')
+              .map(e => e.content)
+              .join('')
+
             streams.set(execId, {
               ...existing,
               ...metadata,
-              stdout: existing.stdout + hydrated.stdout,
-              activityEvents: [...existing.activityEvents, ...hydrated.activityEvents],
-              toolTraces: [...existing.toolTraces, ...hydrated.toolTraces],
-              fileChanges: [...existing.fileChanges, ...hydrated.fileChanges],
+              stdout: mergedStdout || existing.stdout,
+              activityEvents: mergedActivity,
+              // Use mergeBySeq to deduplicate toolTraces and fileChanges. When the
+              // heartbeat fires with an empty text buffer (textSeq = null), lastSeq is
+              // not advanced, so a subsequent catch-up may include tool_use/file_change
+              // events that were already delivered via SSE. Naive concat would duplicate
+              // them in the activity feed.
+              toolTraces: mergeBySeq(existing.toolTraces, hydrated.toolTraces),
+              fileChanges: mergeBySeq(existing.fileChanges, hydrated.fileChanges),
             })
           } else {
             // Full hydration (page refresh): hydrated events are the complete history
