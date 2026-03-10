@@ -357,8 +357,11 @@ export function PlanGeneration({
     // heartbeat seq. Used to roll back before catch-up replay so text received
     // live after the last heartbeat isn't appended twice (once from live SSE,
     // once from the catch-up DB fetch).
+    // Initialize from current ref length so that if the stream drops before
+    // the first heartbeat, the rollback only removes events from this turn
+    // (not prior turns already in chatEventsRef).
     let rawTextAtLastSeq = ""
-    let chatEventsCountAtLastSeq = 0
+    let chatEventsCountAtLastSeq = chatEventsRef.current.length
     try {
       await projectChatWithAgent(
         {

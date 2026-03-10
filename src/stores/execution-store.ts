@@ -1928,8 +1928,13 @@ async function processSSEStreamWithReconnect(
   // stream drop may already be in activityEvents (100ms batch timer) AND
   // in the catch-up DB fetch — we roll back to this checkpoint before
   // catch-up replay so those events are added exactly once.
-  let streamTextAtCheckpoint = ''
-  let activityCountAtCheckpoint = 0
+  // Initialize checkpoint from current execution state so that if the stream
+  // drops before the first heartbeat (activityCountAtCheckpoint would otherwise
+  // stay 0), the rollback only removes events from the pre-heartbeat window,
+  // not all events accumulated from prior hydration or earlier stream segments.
+  const initialSnap = get().executions.get(nodeId)
+  let streamTextAtCheckpoint = initialSnap?.streamText ?? ''
+  let activityCountAtCheckpoint = initialSnap?.activityEvents.length ?? 0
 
   // Set initial connection state
   setConnectionState(nodeId, 'connected', set)

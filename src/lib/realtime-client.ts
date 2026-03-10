@@ -154,6 +154,17 @@ export class RealtimeClient {
       this._reconnectDelay = Math.min(this._reconnectDelay * 2, 60000)
     }
 
+    // Handle graceful server-initiated close (e.g. max-lifetime timer).
+    // The server sends 'server-close' then terminates the stream. We do a
+    // clean reconnect immediately (no backoff increment) since this is not a
+    // network error.
+    this.eventSource.addEventListener('server-close', () => {
+      this._lastEventAt = Date.now()
+      this.disconnect()
+      this.scheduleReconnect(0)
+      // Do not increment _reconnectDelay — this is a planned server close.
+    })
+
     // Register known event types
     const eventTypes: RealtimeEventType[] = [
       'machines:snapshot',

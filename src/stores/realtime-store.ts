@@ -597,6 +597,9 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               // them in the activity feed.
               toolTraces: mergeBySeq(existing.toolTraces, hydrated.toolTraces),
               fileChanges: mergeBySeq(existing.fileChanges, hydrated.fileChanges),
+              // Preserve isChatStream flag on reconnect so the global reconnect handler
+              // continues to skip this stream even after the initial full-hydration pass.
+              ...(streamType === 'chat' ? { isChatStream: true } : {}),
             })
           } else {
             // Full hydration (page refresh): hydrated events are the complete history
