@@ -39,6 +39,9 @@ export function getTemplatesByCategory(category: string): UseCaseTemplate[] {
   return TEMPLATES_BY_CATEGORY[category] ?? []
 }
 
+/** Set of all builtin template IDs — used server-side to verify isBuiltinTemplate */
+export const BUILTIN_TEMPLATE_IDS: ReadonlySet<string> = new Set(BUILTIN_TEMPLATES.map(t => t.id))
+
 // ── Example Aliases (UI uses "Examples") ─────────────────────────
 
 /** Alias for BUILTIN_TEMPLATES — the UI calls these "Examples" */

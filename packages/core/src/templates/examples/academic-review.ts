@@ -441,7 +441,6 @@ The final review report follows this structure:
     maxTurns: 50,
     maxBudgetPerTask: 5.0,
     skills: ['academic-review'],
-    deliveryMode: 'branch',
     skipSafetyCheck: false,
     defaultVerification: 'mixed',
   },

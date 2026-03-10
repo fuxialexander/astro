@@ -425,7 +425,6 @@ Use the tool matching the source format ({{sourceFormat}}):
     maxTurns: 50,
     maxBudgetPerTask: 5.0,
     skills: ['academic-presentation'],
-    deliveryMode: 'branch',
     skipSafetyCheck: false,
     defaultVerification: 'mixed',
   },

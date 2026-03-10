@@ -29,7 +29,7 @@ import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction } from '../lib/prompt-templates.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
-import { extractPlanJsonFromText } from '@astro/core'
+import { extractPlanJsonFromText, BUILTIN_TEMPLATE_IDS } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { autoDispatchDownstream, cascadePruneDownstream } from './data.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
@@ -335,6 +335,7 @@ dispatchRoute.post('/task', async (c) => {
   let baseBranch: string | undefined
   let nodeNumber: number | null | undefined
   let githubContext: import('../lib/prompt-templates.js').GitHubContextForPrompt | undefined
+  let isBuiltinTemplate = false
   // ── Early serial execution check for 'direct' delivery mode ──────
   // Fail-fast optimization: if the client explicitly sends deliveryMode='direct',
   // we can reject duplicate dispatches before the DB lookups (saves ~2 queries).
@@ -455,9 +456,15 @@ dispatchRoute.post('/task', async (c) => {
       //   - EARLY check (search: "Early serial execution check"): runs when body provides deliveryMode
       //   - LATE check (search: "Serial execution constraint for 'direct'"): runs when deliveryMode resolved from DB
       deliveryMode ??= (dbProject.deliveryMode as typeof deliveryMode) || undefined
-      const source = dbProject.source as { localPath?: string; remoteType?: string; baseBranch?: string } | null
+      const source = dbProject.source as { localPath?: string; remoteType?: string; baseBranch?: string; type?: string; templateId?: string } | null
       remoteType ??= (source?.remoteType as typeof remoteType) || undefined
       baseBranch = source?.baseBranch || undefined
+
+      // Builtin templates skip safety checks — verified against the known registry
+      // to prevent bypass via user-editable project source field.
+      isBuiltinTemplate = source?.type === 'template'
+        && typeof source?.templateId === 'string'
+        && BUILTIN_TEMPLATE_IDS.has(source.templateId)
 
       // Build GitHub context for plan prompts
       if (dbProject.githubOwner?.trim() && dbProject.githubRepo?.trim()) {
@@ -681,12 +688,12 @@ async function dispatchViaRelay(
     priority,
     workingDirectory,
     computeBackend,
-    deliveryMode,
+    deliveryMode: deliveryModeParam,
     remoteType,
     baseBranch,
     agentDir,
     worktreeStrategy,
-    useWorktree,
+    useWorktree: useWorktreeParam,
     imageRefs,
     isInteractivePlan,
     skipSafetyCheck,
@@ -703,6 +710,9 @@ async function dispatchViaRelay(
     nodeNumber,
     replanContext,
   } = params
+  // Mutable copies: safety decision can override delivery mode to 'direct'
+  let deliveryMode = deliveryModeParam
+  let useWorktree = useWorktreeParam
 
   // Compute short hex IDs early — needed for prompt building + relay dispatch
   const shortProjectId = getShortId(projectId)
@@ -721,7 +731,7 @@ async function dispatchViaRelay(
       const isPlayground = nodeId.startsWith('playground-')
       yoloEnabled = isPlayground
         ? settings?.playgroundYoloMode === 'true'
-        : settings?.yoloMode === 'true'
+        : settings?.yoloMode !== 'false'  // Default ON when unset (matches frontend default)
     } catch { /* fail closed — default non-YOLO */ }
   }
 
@@ -1172,6 +1182,17 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     console.warn(`[dispatch] Failed to persist projectBranch for project ${projectId}:`, err)
   }
 
+  // Override delivery mode when user chose 'proceed' on safety prompt (= direct mode, no git).
+  // The decision value is stored in approvedSafetyDirs: 'proceed' means the user explicitly
+  // opted for non-git direct execution. Respect that choice for all subsequent tasks.
+  const safetyDecision = workingDirectory
+    ? (approvedSafetyDirs.get(workingDirectory) ?? await redisPubSub.getApprovedSafetyDir(workingDirectory))
+    : null
+  if (safetyDecision === 'proceed') {
+    deliveryMode = 'direct'
+    useWorktree = false
+  }
+
   // Dispatch via relay
   const taskDispatch = {
     taskId: executionId,
@@ -1197,7 +1218,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     worktreeStrategy,
     useWorktree,
     images,
-    skipSafetyCheck: (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && (approvedSafetyDirs.has(workingDirectory) || await redisPubSub.getApprovedSafetyDir(workingDirectory) !== null)),
+    skipSafetyCheck: isBuiltinTemplate || (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && safetyDecision !== null),
     ...(isInteractivePlan ? { type: 'plan' as const, useWorktree: false, deliveryMode: 'direct' as const } : {}),
     ...(relaySystemPrompt ? { systemPrompt: relaySystemPrompt } : {}),
     ...(astroBaseUrl && { astroBaseUrl }),

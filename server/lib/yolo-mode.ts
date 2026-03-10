@@ -18,7 +18,8 @@ export async function isYoloMode(userId: string | undefined, taskId?: string): P
     if (taskId?.startsWith('playground-')) {
       return settings?.playgroundYoloMode === 'true'
     }
-    return settings?.yoloMode === 'true'
+    // Default ON when unset (matches frontend default for new users)
+    return settings?.yoloMode !== 'false'
   } catch {
     return false
   }
