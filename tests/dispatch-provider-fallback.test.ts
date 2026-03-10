@@ -77,6 +77,14 @@ import { useSettingsStore } from '@/stores/settings-store'
 import { useExecutionStore } from '@/stores/execution-store'
 import { usePlanStore } from '@/stores/plan-store'
 import { useProjectStore } from '@/stores/project-store'
+import type { PlanNode, Project } from '@/types'
+
+/** Helper: find the dispatch/task fetch call in the spy's call log */
+function findDispatchCall(spy: ReturnType<typeof vi.fn>) {
+  return spy.mock.calls.find(
+    (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('/api/dispatch/task')
+  )
+}
 
 describe('dispatch provider fallback', () => {
   beforeEach(() => {
@@ -103,7 +111,7 @@ describe('dispatch provider fallback', () => {
           status: 'planned',
           dependencies: [],
           type: 'task',
-        } as any],
+        } as PlanNode],
         edges: [],
       })
       useProjectStore.setState({
@@ -112,7 +120,7 @@ describe('dispatch provider fallback', () => {
           name: 'Test Project',
           defaultMachineId: 'machine-1',
           workingDirectory: '/tmp/test',
-        } as any],
+        } as Project],
       })
 
       // defaultProvider is empty = "Auto"
@@ -124,9 +132,7 @@ describe('dispatch provider fallback', () => {
       expect(fetchSpy).toHaveBeenCalled()
 
       // Find the dispatch/task call
-      const dispatchCall = fetchSpy.mock.calls.find(
-        (c: any[]) => typeof c[0] === 'string' && c[0].includes('/api/dispatch/task')
-      )
+      const dispatchCall = findDispatchCall(fetchSpy)
       expect(dispatchCall).toBeDefined()
 
       const body = JSON.parse(dispatchCall![1].body)
@@ -144,7 +150,7 @@ describe('dispatch provider fallback', () => {
           status: 'planned',
           dependencies: [],
           type: 'task',
-        } as any],
+        } as PlanNode],
         edges: [],
       })
       useProjectStore.setState({
@@ -153,7 +159,7 @@ describe('dispatch provider fallback', () => {
           name: 'Test Project 2',
           defaultMachineId: 'machine-1',
           workingDirectory: '/tmp/test2',
-        } as any],
+        } as Project],
       })
 
       // Set default provider to codex
@@ -161,9 +167,7 @@ describe('dispatch provider fallback', () => {
 
       await useExecutionStore.getState().startExecution('node-2', 'proj-2')
 
-      const dispatchCall = fetchSpy.mock.calls.find(
-        (c: any[]) => typeof c[0] === 'string' && c[0].includes('/api/dispatch/task')
-      )
+      const dispatchCall = findDispatchCall(fetchSpy)
       expect(dispatchCall).toBeDefined()
 
       const body = JSON.parse(dispatchCall![1].body)
@@ -180,7 +184,7 @@ describe('dispatch provider fallback', () => {
           status: 'planned',
           dependencies: [],
           type: 'task',
-        } as any],
+        } as PlanNode],
         edges: [],
       })
       useProjectStore.setState({
@@ -189,7 +193,7 @@ describe('dispatch provider fallback', () => {
           name: 'Test Project 3',
           defaultMachineId: 'machine-1',
           workingDirectory: '/tmp/test3',
-        } as any],
+        } as Project],
       })
 
       // Set provider to codex, tier to medium → should resolve to "gpt-5.3-codex"
@@ -200,9 +204,7 @@ describe('dispatch provider fallback', () => {
 
       await useExecutionStore.getState().startExecution('node-3', 'proj-3')
 
-      const dispatchCall = fetchSpy.mock.calls.find(
-        (c: any[]) => typeof c[0] === 'string' && c[0].includes('/api/dispatch/task')
-      )
+      const dispatchCall = findDispatchCall(fetchSpy)
       expect(dispatchCall).toBeDefined()
 
       const body = JSON.parse(dispatchCall![1].body)
@@ -220,7 +222,7 @@ describe('dispatch provider fallback', () => {
           status: 'planned',
           dependencies: [],
           type: 'task',
-        } as any],
+        } as PlanNode],
         edges: [],
       })
       useProjectStore.setState({
@@ -229,7 +231,7 @@ describe('dispatch provider fallback', () => {
           name: 'Test Project 4',
           defaultMachineId: 'machine-1',
           workingDirectory: '/tmp/test4',
-        } as any],
+        } as Project],
       })
 
       // Set provider to claude-sdk, tier to large → should resolve to "opus"
@@ -240,9 +242,7 @@ describe('dispatch provider fallback', () => {
 
       await useExecutionStore.getState().startExecution('node-4', 'proj-4')
 
-      const dispatchCall = fetchSpy.mock.calls.find(
-        (c: any[]) => typeof c[0] === 'string' && c[0].includes('/api/dispatch/task')
-      )
+      const dispatchCall = findDispatchCall(fetchSpy)
       expect(dispatchCall).toBeDefined()
 
       const body = JSON.parse(dispatchCall![1].body)
@@ -260,7 +260,7 @@ describe('dispatch provider fallback', () => {
           status: 'planned',
           dependencies: [],
           type: 'task',
-        } as any],
+        } as PlanNode],
         edges: [],
       })
       useProjectStore.setState({
@@ -269,7 +269,7 @@ describe('dispatch provider fallback', () => {
           name: 'Test Project 5',
           defaultMachineId: 'machine-1',
           workingDirectory: '/tmp/test5',
-        } as any],
+        } as Project],
       })
 
       // Settings say codex, but explicit option says claude-sdk
@@ -279,9 +279,7 @@ describe('dispatch provider fallback', () => {
         preferredProvider: 'claude-sdk',
       })
 
-      const dispatchCall = fetchSpy.mock.calls.find(
-        (c: any[]) => typeof c[0] === 'string' && c[0].includes('/api/dispatch/task')
-      )
+      const dispatchCall = findDispatchCall(fetchSpy)
       expect(dispatchCall).toBeDefined()
 
       const body = JSON.parse(dispatchCall![1].body)
