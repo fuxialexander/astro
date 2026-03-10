@@ -34,6 +34,7 @@ import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { autoDispatchDownstream, cascadePruneDownstream } from './data.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import { redisPubSub } from '../lib/redis-pubsub.js'
+import { incrementDispatchSSE, decrementDispatchSSE } from '../lib/sse-connection-tracker.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup).
 // Dual-layer: local Map for zero-latency + Redis write-through for cross-instance.
@@ -1219,6 +1220,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 
   return streamSSE(c, async (stream) => {
     let alive = true
+    incrementDispatchSSE()
     let lastActivity = Date.now()
     let resultSent = false
     let waitingForApproval = false
@@ -1968,6 +1970,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 
     stream.onAbort(() => {
       alive = false
+      decrementDispatchSSE()
       clearInterval(heartbeat)
       cleanup()
       // Flush any buffered text before disconnect
