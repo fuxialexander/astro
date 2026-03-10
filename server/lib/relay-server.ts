@@ -2483,7 +2483,9 @@ export class RelayServer extends EventEmitter {
   }
 
   /**
-   * Handle agent runner's steer ack message
+   * Handle agent runner's steer ack message.
+   * Updates all 'sent' steer_message events to 'acknowledged' or 'timed_out',
+   * then drains any new pending steers that arrived while the agent was processing.
    */
   private handleAgentRunnerTaskSteerAck(message: AgentRunnerTaskSteerAckMessage): void {
     const { payload } = message;
@@ -2496,6 +2498,54 @@ export class RelayServer extends EventEmitter {
       interrupted: payload.interrupted,
     };
     this.emit('task:steer_ack', ackMsg);
+
+    // Persist ack status: update all 'sent' steer_messages for this execution
+    // to 'acknowledged' (or 'timed_out' if rejected). This ensures page-refresh
+    // recovery shows correct delivery indicators.
+    const status = payload.accepted ? 'acknowledged' as const : 'timed_out' as const
+    streamingEventLog.updateSentSteersStatus(payload.taskId, status).then(() => {
+      // After ack is persisted, drain any new pending steers that arrived mid-turn.
+      // Only drain if the agent accepted — no point sending more if it rejected.
+      if (!payload.accepted) return
+      const machineId = this.taskToMachine.get(payload.taskId)
+      if (!machineId) return
+      this.drainPendingSteers(payload.taskId, machineId)
+    }).catch((err) => {
+      console.warn('[relay] Failed to update steer status on ack:', err)
+    })
+  }
+
+  /**
+   * Batch-drain pending steer messages from DB and deliver via WebSocket.
+   * Called on session_init (via dispatch.ts) and after steer_ack (to deliver
+   * messages queued while the agent was processing the previous batch).
+   */
+  private drainPendingSteers(taskId: string, machineId: string): void {
+    const batchId = crypto.randomUUID()
+    streamingEventLog.claimPendingSteers(taskId, batchId).then((claimed) => {
+      if (claimed.length === 0) return
+
+      const messages = claimed.map((e) => {
+        const d = e.data as Record<string, unknown>
+        return (d.message as string) || ''
+      }).filter(Boolean)
+
+      if (messages.length === 0) return
+
+      const batchedMessage = messages.join('\n\n')
+      const sent = this.steerTask(taskId, machineId, batchedMessage)
+
+      if (sent) {
+        console.log(`[relay] Drained ${claimed.length} pending steer(s) for ${taskId} after ack (batch ${batchId})`)
+      } else {
+        // Revert claimed steers back to 'pending' so they can be retried
+        const seqs = claimed.map((e) => e.seq)
+        streamingEventLog.batchUpdateSteerStatus(seqs, 'pending').catch(() => {})
+        console.warn(`[relay] Failed to drain pending steers for ${taskId} after ack — reverted to pending`)
+      }
+    }).catch((err) => {
+      console.warn(`[relay] Failed to drain pending steers for ${taskId}:`, err)
+    })
   }
 
   /**

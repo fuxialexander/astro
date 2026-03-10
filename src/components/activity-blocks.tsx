@@ -27,6 +27,7 @@ import {
   MessageCircle,
   FileText,
   Network,
+  Clock,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { TaskActivityEvent, ExecutionSummary } from "@/types"
@@ -496,16 +497,33 @@ export function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEven
 }
 
 export function SteerBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'steer' }> }) {
-  // SteerBlock now only renders for failed/rejected steers.
-  // Accepted steers are emitted as chat_user events and rendered by ChatUserBlock.
+  // Pending steers (accepted === undefined) show a clock indicator.
+  // Failed/rejected steers (accepted === false) show error indicator.
+  const isPending = event.accepted === undefined
+  const isFailed = event.accepted === false
+
   return (
     <div className="flex flex-col items-end gap-1 px-4 py-1.5">
-      <div className="rounded-lg px-3 py-2 text-sm max-w-[80%] bg-error/20 text-foreground border border-error/30">
+      <div className={cn(
+        "rounded-lg px-3 py-2 text-sm max-w-[80%]",
+        isFailed
+          ? "bg-error/20 text-foreground border border-error/30"
+          : "bg-primary/50 text-primary-foreground",
+      )}>
         <p className="whitespace-pre-wrap">{event.message}</p>
       </div>
       <div className="flex items-center gap-1.5">
-        <XCircle className="h-3 w-3 text-error" />
-        <span className="text-[10px] text-error">{event.ackMessage || "Failed to send"}</span>
+        {isPending ? (
+          <>
+            <Clock className="h-3 w-3 text-muted-foreground animate-pulse" />
+            <span className="text-[10px] text-muted-foreground">Queued — will deliver when agent is ready</span>
+          </>
+        ) : (
+          <>
+            <XCircle className="h-3 w-3 text-error" />
+            <span className="text-[10px] text-error">{event.ackMessage || "Failed to send"}</span>
+          </>
+        )}
       </div>
     </div>
   )

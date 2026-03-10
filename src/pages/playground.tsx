@@ -93,7 +93,8 @@ export function Playground() {
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
   const [pendingSteerText, setPendingSteerText] = useState<string | null>(null)
-  const [queuedMessage, setQueuedMessage] = useState<string | null>(null)
+  // queuedMessage removed: steer messages are now persisted to streaming_events
+  // with status 'pending' and batch-drained by the relay when the agent is ready.
   const [editingPrompt, setEditingPrompt] = useState<string | null>(null)
   const [autoScroll, setAutoScroll] = useState(true)
   // Track provider during activity phase (for mid-session switching and follow-up chat)
@@ -434,25 +435,25 @@ export function Playground() {
   }, [isSubmitting, allMachines, startPlaygroundSession, setSearchParams])
 
   // Steer message handler (while running)
+  // Write-first: the server persists the message as 'pending' before attempting
+  // relay delivery. If delivery fails, the message is batch-drained later.
   const handleSteer = useCallback(async (text: string) => {
     if (!text || sending || !activeProjectId) return
     setSending(true)
     setPendingSteerText(text)
 
+    // Add to activity feed immediately as pending (shows clock indicator)
+    if (execution?.executionId) {
+      addSteerMessage(execution.executionId, text)
+    }
+
     try {
-      const ok = await steerPlaygroundSession(activeProjectId, text)
-      if (ok) {
-        // Steer succeeded — add to activity feed
-        if (execution?.executionId) {
-          addSteerMessage(execution.executionId, text)
-        }
-      } else {
-        // Steer failed (provider may not support it) — queue for follow-up chat
-        setQueuedMessage(text)
-      }
+      await steerPlaygroundSession(activeProjectId, text)
+      // Server persists as 'pending' then updates to 'sent' on relay success.
+      // The steer_ack SSE event will update the activity indicator to accepted/failed.
     } catch {
-      // Steer failed — queue for follow-up chat
-      setQueuedMessage(text)
+      // Server write-first: even if the HTTP call fails, the message may have
+      // been persisted as 'pending'. The relay batch-drain will pick it up.
     } finally {
       setSending(false)
       setPendingSteerText(null)
@@ -514,18 +515,8 @@ export function Playground() {
     }
   }, [input, activeProjectId, isRunning, handleSteer, handleChat])
 
-  // Auto-send queued message when execution finishes (steer fallback)
-  const prevIsRunning = useRef(isRunning)
-  useEffect(() => {
-    if (prevIsRunning.current && !isRunning && queuedMessage) {
-      // Only send if chat preconditions are met; otherwise keep in queue for next render
-      if (chatSession && activeProjectId && !isChatStreaming) {
-        handleChat(queuedMessage)
-        setQueuedMessage(null)
-      }
-    }
-    prevIsRunning.current = isRunning
-  }, [isRunning, queuedMessage, handleChat, chatSession, activeProjectId, isChatStreaming])
+  // Auto-send queued message removed: steer messages are now DB-backed
+  // with batch drain on session_init and between turns.
 
   // Handle approval response
   const handleApprovalResponse = useCallback(async (requestId: string, answer: string) => {
@@ -593,7 +584,6 @@ export function Playground() {
     setSearchParams({})
     setInput("")
     setFileSidebarOpen(false)
-    setQueuedMessage(null)
     setEditingPrompt(null)
     // Clear accumulated chat events so the next session starts clean
     chatEventsRef.current = []
@@ -803,13 +793,8 @@ export function Playground() {
               </div>
             )}
 
-            {/* Queued message indicator (steer failed, will send after execution) */}
-            {queuedMessage && isRunning && (
-              <div className="flex items-center gap-1.5 px-4 py-1">
-                <Clock className="h-3 w-3 text-muted-foreground" />
-                <span className="text-[10px] text-muted-foreground">Message queued — will send after this turn completes</span>
-              </div>
-            )}
+            {/* Queued message indicator removed: pending steers now appear
+                inline in the activity feed with clock indicators */}
 
             {/* Chat streaming indicator */}
             {isChatStreaming && (

@@ -321,9 +321,17 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       const stream = existing
         ? { ...existing, steerMessages: [...existing.steerMessages], activityEvents: [...existing.activityEvents] }
         : createEmptyTaskStream(taskId)
-      // Add to steerMessages (for tracking) but NOT to activityEvents yet —
-      // the message should only appear in the timeline after the agent ack's it.
+      // Add to steerMessages (for tracking)
       stream.steerMessages.push({ message, interrupted, timestamp: now })
+      // Add to activityEvents immediately as pending steer (accepted: undefined)
+      // so it appears in the timeline with a clock indicator right away
+      stream.activityEvents.push({
+        type: 'steer' as const,
+        message,
+        interrupted,
+        accepted: undefined,
+        timestamp: now,
+      })
       streams.set(taskId, stream)
       return { taskStreams: streams }
     })
@@ -337,10 +345,18 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
         const newSteerMessages = [...existing.steerMessages]
         newSteerMessages[index] = { ...newSteerMessages[index], ...update }
 
-        // Only add to activityEvents when the agent acknowledged the message
+        // Replace the pending steer event in activityEvents with the resolved version
         const newActivityEvents = [...existing.activityEvents]
         if (update.accepted !== undefined) {
           const steerMsg = newSteerMessages[index]
+          // Find and remove the matching pending steer event
+          for (let i = newActivityEvents.length - 1; i >= 0; i--) {
+            const e = newActivityEvents[i]
+            if (e.type === 'steer' && e.accepted === undefined && e.message === steerMsg.message) {
+              newActivityEvents.splice(i, 1)
+              break
+            }
+          }
           if (update.accepted) {
             // Accepted steers render as chat_user (visually identical to post-completion chat)
             newActivityEvents.push({
@@ -1365,44 +1381,52 @@ function handleRealtimeEvent(
         if (existing && existing.steerMessages.length > 0) {
           // Create new arrays to trigger Zustand selector re-renders
           const newSteerMessages = [...existing.steerMessages]
-          const lastIdx = newSteerMessages.length - 1
-          newSteerMessages[lastIdx] = {
-            ...newSteerMessages[lastIdx],
-            accepted,
-            ackMessage: data.message as string | undefined,
-            ...(data.interrupted !== undefined ? { interrupted: data.interrupted as boolean } : {}),
-          }
-          // Remove any pending steer activity event and replace with final version
           const newActivityEvents = [...existing.activityEvents]
-          // Find and remove the pending steer event (accepted === undefined)
+
+          // Resolve ALL pending steer messages (batch drain delivers multiple at once)
+          for (let idx = 0; idx < newSteerMessages.length; idx++) {
+            if (newSteerMessages[idx].accepted !== undefined) continue // already resolved
+            newSteerMessages[idx] = {
+              ...newSteerMessages[idx],
+              accepted,
+              ackMessage: data.message as string | undefined,
+              ...(data.interrupted !== undefined ? { interrupted: data.interrupted as boolean } : {}),
+            }
+          }
+
+          // Remove ALL pending steer activity events and replace with resolved versions
+          const pendingEvents: Array<{ message: string; interrupted?: boolean; timestamp: Date }> = []
           for (let i = newActivityEvents.length - 1; i >= 0; i--) {
             const e = newActivityEvents[i]
             if (e.type === 'steer' && e.accepted === undefined) {
+              pendingEvents.push({ message: e.message, interrupted: e.interrupted, timestamp: e.timestamp })
               newActivityEvents.splice(i, 1)
-              break
             }
           }
-          // Add the resolved event
-          const steerMsg = newSteerMessages[lastIdx]
-          if (accepted) {
-            // Accepted steers render as chat_user
-            newActivityEvents.push({
-              type: 'chat_user' as const,
-              message: steerMsg.message,
-              timestamp: steerMsg.timestamp,
-            })
-          } else {
-            // Failed steers keep the steer type (shows error indicator)
-            newActivityEvents.push({
-              type: 'steer' as const,
-              message: steerMsg.message,
-              interrupted: steerMsg.interrupted,
-              accepted: false,
-              ackMessage: data.message as string | undefined,
-              ...(data.interrupted !== undefined ? { interrupted: data.interrupted as boolean } : {}),
-              timestamp: steerMsg.timestamp,
-            })
+
+          // Add resolved events for each pending steer
+          for (const steerMsg of pendingEvents) {
+            if (accepted) {
+              // Accepted steers render as chat_user
+              newActivityEvents.push({
+                type: 'chat_user' as const,
+                message: steerMsg.message,
+                timestamp: steerMsg.timestamp,
+              })
+            } else {
+              // Failed steers keep the steer type (shows error indicator)
+              newActivityEvents.push({
+                type: 'steer' as const,
+                message: steerMsg.message,
+                interrupted: steerMsg.interrupted,
+                accepted: false,
+                ackMessage: data.message as string | undefined,
+                ...(data.interrupted !== undefined ? { interrupted: data.interrupted as boolean } : {}),
+                timestamp: steerMsg.timestamp,
+              })
+            }
           }
+
           streams.set(execId, { ...existing, steerMessages: newSteerMessages, activityEvents: newActivityEvents })
         }
         return { taskStreams: streams }

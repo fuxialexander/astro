@@ -9,7 +9,7 @@
 
 import { db } from './db/index.js'
 import { streamingEvents } from './db/schema.js'
-import { gt, and, inArray, lt } from 'drizzle-orm'
+import { eq, gt, and, inArray, lt, sql } from 'drizzle-orm'
 
 export interface StreamingEvent {
   seq: number
@@ -141,6 +141,119 @@ class StreamingEventLog {
    */
   discardText(executionId: string): void {
     this.textBuffers.delete(executionId)
+  }
+
+  /**
+   * Get pending steer messages for an execution, ordered by seq.
+   */
+  async getPendingSteerMessages(executionId: string): Promise<StreamingEvent[]> {
+    try {
+      const rows = await db.select()
+        .from(streamingEvents)
+        .where(
+          and(
+            eq(streamingEvents.executionId, executionId),
+            eq(streamingEvents.eventType, 'steer_message'),
+            sql`${streamingEvents.data}->>'status' = 'pending'`,
+          ),
+        )
+        .orderBy(streamingEvents.seq)
+
+      return rows.map((r: { seq: number; executionId: string; eventType: string; data: unknown; createdAt: Date }) => ({
+        seq: r.seq,
+        executionId: r.executionId,
+        eventType: r.eventType,
+        data: r.data,
+        createdAt: r.createdAt,
+      }))
+    } catch (err) {
+      console.warn('[streaming-event-log] Failed to getPendingSteerMessages:', (err as Error).message)
+      return []
+    }
+  }
+
+  /**
+   * Atomically claim pending steer messages by updating status to 'sent' and returning them.
+   * Prevents race conditions between the steer endpoint and drainPendingSteers.
+   */
+  async claimPendingSteers(executionId: string, batchId: string): Promise<StreamingEvent[]> {
+    try {
+      const rows = await db.execute(sql`
+        UPDATE streaming_events
+        SET data = data || ${JSON.stringify({ status: 'sent', batchId })}::jsonb
+        WHERE execution_id = ${executionId}
+          AND event_type = 'steer_message'
+          AND data->>'status' = 'pending'
+        RETURNING seq, execution_id AS "executionId", event_type AS "eventType", data, created_at AS "createdAt"
+      `)
+      return (rows.rows as Array<{ seq: number; executionId: string; eventType: string; data: unknown; createdAt: Date }>).map((r) => ({
+        seq: r.seq,
+        executionId: r.executionId,
+        eventType: r.eventType,
+        data: r.data,
+        createdAt: r.createdAt,
+      }))
+    } catch (err) {
+      console.warn('[streaming-event-log] Failed to claimPendingSteers:', (err as Error).message)
+      return []
+    }
+  }
+
+  /**
+   * Update the status of a steer_message event by seq number.
+   */
+  async updateSteerStatus(seq: number, status: 'sent' | 'acknowledged' | 'timed_out', batchId?: string): Promise<void> {
+    try {
+      const update: Record<string, unknown> = { status }
+      if (batchId) update.batchId = batchId
+      await db.update(streamingEvents)
+        .set({
+          data: sql`${streamingEvents.data} || ${JSON.stringify(update)}::jsonb`,
+        })
+        .where(eq(streamingEvents.seq, seq))
+    } catch (err) {
+      console.warn('[streaming-event-log] Failed to updateSteerStatus:', (err as Error).message)
+    }
+  }
+
+  /**
+   * Batch update status for multiple steer_message events.
+   */
+  async batchUpdateSteerStatus(seqs: number[], status: 'pending' | 'sent' | 'acknowledged' | 'timed_out', batchId?: string): Promise<void> {
+    if (seqs.length === 0) return
+    try {
+      const update: Record<string, unknown> = { status }
+      if (batchId) update.batchId = batchId
+      await db.update(streamingEvents)
+        .set({
+          data: sql`${streamingEvents.data} || ${JSON.stringify(update)}::jsonb`,
+        })
+        .where(inArray(streamingEvents.seq, seqs))
+    } catch (err) {
+      console.warn('[streaming-event-log] Failed to batchUpdateSteerStatus:', (err as Error).message)
+    }
+  }
+
+  /**
+   * Update all 'sent' steer_message events for an execution to a new status.
+   * Used when the agent acks (or rejects) all pending steers at once.
+   */
+  async updateSentSteersStatus(executionId: string, status: 'acknowledged' | 'timed_out'): Promise<void> {
+    try {
+      await db.update(streamingEvents)
+        .set({
+          data: sql`${streamingEvents.data} || ${JSON.stringify({ status })}::jsonb`,
+        })
+        .where(
+          and(
+            eq(streamingEvents.executionId, executionId),
+            eq(streamingEvents.eventType, 'steer_message'),
+            sql`${streamingEvents.data}->>'status' = 'sent'`,
+          ),
+        )
+    } catch (err) {
+      console.warn('[streaming-event-log] Failed to updateSentSteersStatus:', (err as Error).message)
+    }
   }
 
   /**

@@ -272,12 +272,35 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
         break
       }
       case 'steer_message': {
-        activityEvents.push({
-          type: 'chat_user',
-          message: (data.message as string) || '',
-          timestamp,
-          seq: event.seq,
-        })
+        const steerStatus = (data.status as string) || undefined
+        if (steerStatus === 'pending' || steerStatus === 'sent') {
+          // Steer still in-flight — show as pending steer with indicator
+          activityEvents.push({
+            type: 'steer' as const,
+            message: (data.message as string) || '',
+            accepted: undefined, // pending
+            timestamp,
+            seq: event.seq,
+          })
+        } else if (steerStatus === 'timed_out') {
+          // Steer was rejected/timed out
+          activityEvents.push({
+            type: 'steer' as const,
+            message: (data.message as string) || '',
+            accepted: false,
+            ackMessage: 'Timed out',
+            timestamp,
+            seq: event.seq,
+          })
+        } else {
+          // 'acknowledged' or legacy (no status field) — show as accepted
+          activityEvents.push({
+            type: 'chat_user',
+            message: (data.message as string) || '',
+            timestamp,
+            seq: event.seq,
+          })
+        }
         break
       }
       case 'approval_response': {
