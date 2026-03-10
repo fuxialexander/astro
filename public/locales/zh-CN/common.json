@@ -41,7 +41,7 @@
     "awaiting_approval": "待审批",
     "awaiting_judgment": "待评审",
     "completed": "已完成",
-    "pruned": "已取消"
+    "pruned": "已移除"
   },
   "priority": {
     "urgent": "紧急",
