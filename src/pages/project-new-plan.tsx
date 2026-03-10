@@ -579,7 +579,8 @@ export function ProjectNewPlan() {
       )
 
       // Register auto-execute for templates/examples (YOLO mode on by default)
-      if (autoExecute) {
+      // Skip if no working directory — can't execute without one
+      if (autoExecute && planGenerationRequest.workingDirectory) {
         setStoreAutoExecute(project.id, true)
       }
 
@@ -712,8 +713,8 @@ export function ProjectNewPlan() {
         projectId = result.projectId
       }
 
-      // Register auto-execute if YOLO mode is on (unless user chose plan-only)
-      if (autoExecute && !skipAutoExecute) {
+      // Register auto-execute if YOLO mode is on (unless user chose plan-only or no workDir)
+      if (autoExecute && !skipAutoExecute && workingDir.trim()) {
         setStoreAutoExecute(projectId, true)
       }
 

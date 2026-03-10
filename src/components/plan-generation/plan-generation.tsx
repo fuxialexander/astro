@@ -268,7 +268,7 @@ export function PlanGeneration({
     }
   }, [execution?.status, projectId])
   useEffect(() => {
-    if (executionWasLive && liveProjectIdRef.current === projectId && yoloMode && headerStatus === 'completed' && hasPlan && !yoloNavigated.current) {
+    if (executionWasLive && liveProjectIdRef.current === projectId && yoloMode && workingDirectory && headerStatus === 'completed' && hasPlan && !yoloNavigated.current) {
       yoloNavigated.current = true
       useToastStore.getState().add({
         type: 'success',
@@ -282,7 +282,7 @@ export function PlanGeneration({
       }, 500)
       return () => clearTimeout(timer)
     }
-  }, [executionWasLive, yoloMode, headerStatus, hasPlan, projectId, navigate])
+  }, [executionWasLive, yoloMode, workingDirectory, headerStatus, hasPlan, projectId, navigate])
 
   // Auto-scroll
   const eventsLength = allActivityEvents.length
