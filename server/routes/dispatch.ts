@@ -1539,8 +1539,10 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       lastActivity = Date.now()
       hasReceivedEvent = true
       waitingForApproval = false
-      // Buffer text for batch persistence (flushed when next structural event arrives)
-      streamingEventLog.appendText(executionId, msg.text)
+      // For server-side dispatch, relay-server is the persistence authority for
+      // relay-originated events (activeDispatchStreams is intentionally not set,
+      // so relay-server already wrote this). Skip to avoid double-persistence.
+      if (!isServerSideDispatch) streamingEventLog.appendText(executionId, msg.text)
       if (isInteractivePlan) accumulatedText += msg.text
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
       executionEventBus.emit('task:stdout', { output: { taskId: executionId, data: msg.text, stream: 'stdout', timestamp: new Date() } })
@@ -1551,7 +1553,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       lastActivity = Date.now()
       hasReceivedEvent = true
       const data = { sessionId: msg.sessionId, model: msg.model }
-      const seq = await streamingEventLog.append(executionId, 'session_init', data)
+      // relay-server persists for server-side dispatch; skip here to avoid double-persistence
+      const seq = isServerSideDispatch ? 0 : await streamingEventLog.append(executionId, 'session_init', data)
       stream.writeSSE({
         id: String(seq),
         event: 'session_init',
@@ -1584,7 +1587,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       // events for result-only traces from relay's separate toolUse/toolResult flow)
       if (msg.toolInput !== undefined) {
         const data = { toolName: msg.toolName, toolInput: msg.toolInput }
-        const seq = await streamingEventLog.append(executionId, 'tool_use', data)
+        // relay-server persists for server-side dispatch; skip here to avoid double-persistence
+        const seq = isServerSideDispatch ? 0 : await streamingEventLog.append(executionId, 'tool_use', data)
         stream.writeSSE({
           id: String(seq),
           event: 'tool_use',
@@ -1594,7 +1598,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       }
       if (msg.toolResult !== undefined) {
         const resultData = { toolName: msg.toolName, success: msg.success, result: msg.toolResult }
-        const seq = await streamingEventLog.append(executionId, 'tool_result', resultData)
+        // relay-server persists for server-side dispatch; skip here to avoid double-persistence
+        const seq = isServerSideDispatch ? 0 : await streamingEventLog.append(executionId, 'tool_result', resultData)
         stream.writeSSE({
           id: String(seq),
           event: 'tool_result',
@@ -1618,7 +1623,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         }
       }
       const data = { path: msg.path, action: msg.action, linesAdded, linesRemoved }
-      const seq = await streamingEventLog.append(executionId, 'file_change', data)
+      // relay-server persists for server-side dispatch; skip here to avoid double-persistence
+      const seq = isServerSideDispatch ? 0 : await streamingEventLog.append(executionId, 'file_change', data)
       stream.writeSSE({
         id: String(seq),
         event: 'file_change',
