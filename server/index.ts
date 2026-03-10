@@ -430,6 +430,7 @@ async function start() {
           return
         }
         // Clear ALL execution fields to match dispatch.ts handler behavior
+        const errorTime = new Date()
         await db.update(planNodes)
           .set({
             status: 'planned',
@@ -438,7 +439,9 @@ async function start() {
             executionStartedAt: null,
             executionOutput: null,
             executionCompletedAt: null,
-            updatedAt: new Date(),
+            endDate: errorTime.toISOString(),
+            actualEndDate: errorTime,
+            updatedAt: errorTime,
           })
           .where(eq(planNodes.executionId, data.taskId))
         // DB-authoritative: notify all clients about the dead task reset
