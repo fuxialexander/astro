@@ -2035,6 +2035,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 /**
  * Batch-drain pending steer messages from DB and deliver via relay.
  * Called on session_init to deliver messages queued before the agent was ready.
+ * The relay server also drains after each steer_ack for mid-turn queued messages.
  */
 async function drainPendingSteers(executionId: string, machineId: string): Promise<void> {
   // Atomically claim all pending steers (prevents race with steer endpoint)
