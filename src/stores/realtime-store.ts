@@ -580,11 +580,13 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               ...metadata,
               stdout: mergedStdout || existing.stdout,
               activityEvents: mergedActivity,
-              // toolTraces and fileChanges correspond to tool_use/file_change events which
-              // carry DB seqs that update lastSeq. So hydrated only contains genuinely new
-              // traces (seq > lastSeq) that weren't in existing — no dedup needed here.
-              toolTraces: [...existing.toolTraces, ...hydrated.toolTraces],
-              fileChanges: [...existing.fileChanges, ...hydrated.fileChanges],
+              // Use mergeBySeq to deduplicate toolTraces and fileChanges. When the
+              // heartbeat fires with an empty text buffer (textSeq = null), lastSeq is
+              // not advanced, so a subsequent catch-up may include tool_use/file_change
+              // events that were already delivered via SSE. Naive concat would duplicate
+              // them in the activity feed.
+              toolTraces: mergeBySeq(existing.toolTraces, hydrated.toolTraces),
+              fileChanges: mergeBySeq(existing.fileChanges, hydrated.fileChanges),
             })
           } else {
             // Full hydration (page refresh): hydrated events are the complete history
