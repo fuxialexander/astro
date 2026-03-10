@@ -28,6 +28,7 @@
   "openProject": "打开经略",
   "myTasks": "我的筹谋",
   "activeTasks": "进行中的筹谋",
+  "playgroundDesc": "在任意机器上运行的常规 Claude Code 会话。",
   "category": {
     "recent": "最近",
     "navigation": "导航",

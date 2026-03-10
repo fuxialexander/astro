@@ -24,7 +24,6 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Switch } from "@/components/ui/switch"
 import { InlineRenameInput } from "@/components/inline-rename-input"
-import { LanguageSwitcher } from "@/components/language-switcher"
 
 const iconMap: Record<string, typeof CheckSquare> = {
   CheckSquare,
@@ -1008,14 +1007,6 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                 />
               </div>
 
-              {/* Language Switcher */}
-              <div className="flex items-center justify-between rounded-[10px] px-3.5 py-2">
-                <div className="flex items-center gap-3">
-                  <Globe className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium text-muted-foreground">Language</span>
-                </div>
-                <LanguageSwitcher />
-              </div>
             </div>
           )}
         </div>

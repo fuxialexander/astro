@@ -66,5 +66,7 @@
   "estimate": "估算",
   "labels": "标签",
   "startDate": "开始日期",
-  "endDate": "结束日期"
+  "endDate": "结束日期",
+  "planDesc": "详细描述您的目标，智能体将与您协作制定规划。",
+  "replanDesc": "审阅并更新您的目标，然后生成新的规划。"
 }

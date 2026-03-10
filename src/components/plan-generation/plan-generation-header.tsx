@@ -7,6 +7,7 @@
 import { Loader2, X, Laptop, CheckCircle2, AlertCircle, XCircle, ChevronLeft, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { useTranslation } from "react-i18next"
 
 type PlanGenerationStatus = 'planning' | 'waiting' | 'completed' | 'error' | 'stopped'
 
@@ -29,6 +30,7 @@ export function PlanGenerationHeader({
   onBack,
   onNewPlan,
 }: PlanGenerationHeaderProps) {
+  const { t } = useTranslation('plan')
   const statusConfig: Record<PlanGenerationStatus, { label: string; color: string; icon: React.ReactNode }> = {
     planning: {
       label: "Planning",
@@ -98,7 +100,7 @@ export function PlanGenerationHeader({
           className="text-muted-foreground hover:text-foreground shrink-0"
         >
           <Plus className="h-3.5 w-3.5 mr-1" />
-          New Plan
+          {t('newTask', { defaultValue: 'New Plan' })}
         </Button>
       )}
 

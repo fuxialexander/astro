@@ -7,6 +7,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import { useTranslation } from "react-i18next"
 import { useSearchParams, useLocation, useNavigate } from "react-router"
 import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, Info, Monitor, Bot, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -44,6 +45,7 @@ import type { LaunchExampleResult } from "@/lib/api-client"
 import type { ExamplePrefillData } from "@/components/examples/example-picker-dialog"
 
 export function ProjectNewPlan() {
+  const { t } = useTranslation('plan')
   const [searchParams, setSearchParams] = useSearchParams()
   const projectIdParam = searchParams.get("projectId")
   const location = useLocation()
@@ -769,12 +771,12 @@ export function ProjectNewPlan() {
       <div className="w-full max-w-2xl">
         <div className="text-center mb-8 mt-4 md:mt-8">
           <h1 className="text-xl md:text-2xl font-bold font-sans mb-2">
-            {isRegeneration ? "Regenerate Plan" : "Plan"}
+            {isRegeneration ? t('regenerate') : t('generatePlan', { defaultValue: 'Plan' })}
           </h1>
           <p className="text-sm text-muted-foreground">
             {isRegeneration
-              ? "Review and update your goal, then generate a fresh plan."
-              : "Describe your goal in detail. Agent will build a plan with you collaboratively."}
+              ? t('replanDesc', { defaultValue: 'Review and update your goal, then generate a fresh plan.' })
+              : t('planDesc', { defaultValue: 'Describe your goal in detail. Agent will build a plan with you collaboratively.' })}
           </p>
         </div>
 

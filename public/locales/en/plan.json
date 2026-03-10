@@ -66,5 +66,7 @@
   "estimate": "Estimate",
   "labels": "Labels",
   "startDate": "Start date",
-  "endDate": "End date"
+  "endDate": "End date",
+  "planDesc": "Describe your goal in detail. Agent will build a plan with you collaboratively.",
+  "replanDesc": "Review and update your goal, then generate a fresh plan."
 }
