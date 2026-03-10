@@ -21,7 +21,7 @@ export const moatFragilityTemplate: UseCaseTemplate = {
     'Assess any public company\'s competitive moat and resilience. Provide a ticker symbol (e.g., AAPL) and optionally add competitor tickers or supplementary filings. Get a PDF report with quantitative scoring (market position, pricing power, ROIC), qualitative moat analysis (7 Powers framework), and an anti-fragility stress test — with charts, comparisons, and actionable insights.',
   category: 'finance',
   version: '1.0.0',
-  icon: '📑',
+  icon: '🏰',
   tags: ['finance', 'investing', 'moat', 'competitive-advantage', 'equity', 'analysis', 'antifragile'],
   maturity: 'stable',
 

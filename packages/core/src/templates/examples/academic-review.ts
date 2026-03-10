@@ -26,7 +26,7 @@ export const academicReviewTemplate: UseCaseTemplate = {
     'Get a thorough, expert-level review of any academic paper, book, or thesis. Provide your document (PDF, LaTeX, Markdown, or Word) and receive a structured review report covering novelty assessment, technical rigor, merits and shortcomings, and actionable recommendations — scored across 8 dimensions with a clear accept/reject verdict.',
   category: 'research',
   version: '1.0.0',
-  icon: '📖',
+  icon: '🔬',
   tags: ['review', 'academic', 'paper', 'book', 'critique', 'analysis', 'pdf', 'latex', 'docx'],
   maturity: 'stable',
 
