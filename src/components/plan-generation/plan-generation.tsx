@@ -248,20 +248,21 @@ export function PlanGeneration({
   // session and must not redirect. This is derived from store state (backed by
   // DB), not from which UI button was clicked.
   const yoloNavigated = useRef(false)
-  const executionWasLive = useRef(false)
+  const [executionWasLive, setExecutionWasLive] = useState(false)
   // Reset both guards when projectId changes
   useEffect(() => {
     yoloNavigated.current = false
-    executionWasLive.current = false
+    setExecutionWasLive(false)
   }, [projectId])
   // Track live execution transitions (source of truth: execution-store → DB)
+  // Using state (not ref) so changes trigger re-render and YOLO nav re-evaluates.
   useEffect(() => {
     if (execution?.status === 'pending' || execution?.status === 'running') {
-      executionWasLive.current = true
+      setExecutionWasLive(true)
     }
   }, [execution?.status])
   useEffect(() => {
-    if (executionWasLive.current && yoloMode && headerStatus === 'completed' && hasPlan && !yoloNavigated.current) {
+    if (executionWasLive && yoloMode && headerStatus === 'completed' && hasPlan && !yoloNavigated.current) {
       yoloNavigated.current = true
       useToastStore.getState().add({
         type: 'success',
@@ -275,7 +276,7 @@ export function PlanGeneration({
       }, 500)
       return () => clearTimeout(timer)
     }
-  }, [yoloMode, headerStatus, hasPlan, projectId, navigate])
+  }, [executionWasLive, yoloMode, headerStatus, hasPlan, projectId, navigate])
 
   // Auto-scroll
   const eventsLength = allActivityEvents.length
