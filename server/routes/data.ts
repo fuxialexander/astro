@@ -32,6 +32,19 @@ import { executionEventBus } from '../lib/execution-event-bus.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import { extractRepoInfo } from '../lib/git-url-utils.js'
 
+// Fallback icon/color pools for projects created without explicit icon/color
+const FALLBACK_COLORS = ['#4A6D8A', '#5F8D6B', '#A07D4F', '#7B6B9A', '#9A6878', '#A8785E', '#5B7F9A', '#8A7A6E', '#71717A']
+const FALLBACK_ICONS = [
+  '🚀', '🔬', '🧪', '🎯', '💡', '⚡', '🌿', '🎨', '🏗️', '🧩',
+  '🔮', '🌊', '🐉', '🦊', '🎸', '🏰', '🧠', '💎', '🌋', '🔭',
+  '🎪', '🦋', '🍄', '🐙', '🎲', '🛸', '🌈', '🧬', '⚙️', '🎭',
+]
+function pickByNameHash(name: string, arr: readonly string[]): string {
+  let h = 5381
+  for (let i = 0; i < name.length; i++) h = ((h << 5) + h + name.charCodeAt(i)) | 0
+  return arr[Math.abs(h) % arr.length]
+}
+
 /**
  * Build a team-scoped filter with legacy fallback.
  * Matches rows where teamId equals the user's active team,
@@ -123,8 +136,8 @@ app.post('/projects', async (c) => {
       teamId,
       progress: body.progress ?? 0,
       labels: body.labels ?? [],
-      color: body.color ?? '#3b82f6',
-      icon: body.icon ?? '📋',
+      color: body.color ?? pickByNameHash(body.name, FALLBACK_COLORS),
+      icon: body.icon ?? pickByNameHash(body.name, FALLBACK_ICONS),
       number: assignedNumber ?? (body.number ?? null),
       workingDirectory: body.workingDirectory || null,
       repository: body.repository || null,
@@ -343,8 +356,8 @@ app.post('/initiatives', async (c) => {
     startDate: body.startDate || null,
     targetDate: body.targetDate || null,
     lead: body.lead || null,
-    color: body.color ?? '#3b82f6',
-    icon: body.icon ?? '🎯',
+    color: body.color ?? pickByNameHash(body.name, FALLBACK_COLORS),
+    icon: body.icon ?? pickByNameHash(body.name, FALLBACK_ICONS),
     createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
     updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
   }

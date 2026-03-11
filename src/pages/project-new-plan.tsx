@@ -28,6 +28,7 @@ import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { BranchSelector } from "@/components/branch-selector"
 import { AttachmentList } from "@/components/task-detail/attachment-list"
 import { useDirectoryDetection } from "@/hooks/use-directory-detection"
+import { getColorForName, getProjectIconForName } from "@/lib/color-icon-utils"
 import { extractGitHubOwnerRepo } from "@/lib/project-source"
 import { dataClient } from "@/lib/data-client"
 import { apiUrl } from "@/lib/api-url"
@@ -560,6 +561,8 @@ export function ProjectNewPlan() {
         visionDoc: planGenerationRequest.visionDoc || "",
         status: "active",
         projectType: "plan",
+        color: getColorForName(project.name),
+        icon: getProjectIconForName(project.name),
         workingDirectory: planGenerationRequest.workingDirectory || undefined,
         createdAt: new Date(),
         updatedAt: new Date(),
