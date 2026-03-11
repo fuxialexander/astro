@@ -61,6 +61,9 @@ COPY --from=builder --chown=astro:astro /app/public/landing/about/index.html ./a
 # Skills directory (SKILL.md files served by /api/skills/files/ route)
 COPY --from=builder --chown=astro:astro /app/skills ./skills
 
+# Agent discovery docs (served by /api/docs/ route)
+COPY --from=builder --chown=astro:astro /app/docs/guides/agent-quickstart.md ./docs/guides/agent-quickstart.md
+
 # Supabase migrations (for reference / future use)
 COPY --from=builder --chown=astro:astro /app/supabase ./supabase
 

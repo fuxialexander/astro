@@ -23,6 +23,7 @@ import githubRoute from './routes/github.js'
 import githubAppRoute from './routes/github-app.js'
 import githubPrRoute from './routes/github-pr-data.js'
 import { wellKnownRoute } from './routes/well-known.js'
+import { docsRoute } from './routes/docs.js'
 import systemRoute from './routes/system.js'
 import { skillsRoute } from './routes/skills.js'
 import { machineInstructionsRoute } from './routes/machine-instructions.js'
@@ -189,6 +190,7 @@ export function createApp() {
 
   // Routes that work in both local and server mode
   app.route('/.well-known', wellKnownRoute)
+  app.route('/api/docs', docsRoute)
   app.route('/api', healthRoute)
   app.route('/api/agent', agentRoute)
   app.route('/api/relay', relayRoute)
