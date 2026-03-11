@@ -74,7 +74,7 @@ export interface ChatPlanEdgeContext {
 }
 
 export async function projectChatWithAgent(
-  params: { message: string; sessionId?: string; streamId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; selectedBackends?: string[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }> },
+  params: { message: string; sessionId?: string; streamId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; selectedBackends?: string[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }>; taskType?: 'plan' | 'execution' },
   callbacks: {
     onText: (text: string) => void
     onToolUse?: (data: { toolName: string; toolInput: unknown }) => void

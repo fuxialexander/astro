@@ -62,6 +62,8 @@ const chatSchema = z.object({
     role: z.enum(['user', 'assistant']),
     content: z.string().max(50000),
   })).max(100).nullish(),
+  /** When 'plan', the agent-runner restricts to read-only tools (Read, Glob, Grep, WebSearch, WebFetch). */
+  taskType: z.enum(['plan', 'execution']).nullish(),
 })
 
 /**
@@ -507,7 +509,7 @@ agentRoute.post('/project-chat', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400)
   }
 
-  const { message, sessionId: existingSessionId, streamId, projectId, model, providerId, visionDoc, planNodes, planEdges, messages: historyMessages } = body
+  const { message, sessionId: existingSessionId, streamId, projectId, model, providerId, visionDoc, planNodes, planEdges, messages: historyMessages, taskType } = body
   const chatUser = c.get('user') as AuthUser
   // Use streamId as stable taskId across turns (streamId = frontend session.id, stable per conversation).
   // Don't use existingSessionId — that's a provider session ID and changes the relay routing key.
@@ -605,7 +607,7 @@ agentRoute.post('/project-chat', async (c) => {
     nodeId: '',
     prompt: message,
     systemPrompt,
-    type: 'execution',
+    type: taskType || 'execution',
     messages: compactedMessages,
     model: model || undefined,
     preferredProvider: providerId || undefined,
@@ -613,7 +615,7 @@ agentRoute.post('/project-chat', async (c) => {
     targetMachineId: project?.defaultMachineId ?? undefined,
     resumeSessionId: existingSessionId || undefined,
     streamId,
-    pathwayType: 'project-chat',
+    pathwayType: taskType === 'plan' ? 'plan-chat' : 'project-chat',
     preStreamEvents,
   })
 })

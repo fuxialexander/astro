@@ -22,6 +22,7 @@ import { useUsageStore } from "@/stores/usage-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { projectChatWithAgent, fetchStreamingEventsCatchUp, replayChatCatchUpEvents, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { extractMutations, applyMutationsToStore } from "@/lib/plan-mutations"
+import { applyPlanFromText } from "@/lib/plan-extraction"
 import {
   groupActivityEvents,
   TextBlock,
@@ -363,9 +364,17 @@ export function PlanGeneration({
     abortRef.current = new AbortController()
 
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
-    const historyMessages = (chatSession.messages || [] as Array<{ role: string; content: string }>)
+
+    // Build conversation history: include original plan generation context on first turn
+    const sessionMessages = chatSession.messages || [] as Array<{ role: string; content: string }>
+    const chatHistory = sessionMessages
       .filter((m: { role: string; content: string }) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
       .map((m: { role: string; content: string }) => ({ role: m.role as "user" | "assistant", content: m.content }))
+
+    // Session resume handles context continuity — no need to inject streamText.
+    // On the first chat turn, execution.sessionId is passed as resumeSessionId
+    // so the provider restores the full plan generation conversation automatically.
+    const historyMessages = [...chatHistory]
 
     // Shared callback helpers for both live stream and catch-up replay
     const handleToolUse = (data: { toolName: string; toolInput: unknown }) => {
@@ -416,13 +425,14 @@ export function PlanGeneration({
       await projectChatWithAgent(
         {
           message: text,
-          sessionId: chatSession.providerSessionId || undefined,
+          sessionId: chatSession.providerSessionId || execution?.sessionId || undefined,
           streamId: turnStreamId,
           projectId,
           visionDoc: project?.visionDoc,
           planNodes: planNodeContext,
           planEdges: planEdgeContext,
           messages: historyMessages,
+          taskType: 'plan',
         },
         {
           onText: (chunk) => {
@@ -433,15 +443,11 @@ export function PlanGeneration({
           onToolResult: handleToolResult,
           onDone: (newSessionId) => {
             if (newSessionId) setProviderSessionId(sid, newSessionId)
-            // Extract and apply any mutation blocks before storing the message
-            const { mutations } = extractMutations(rawText)
-            const hasMutations = mutations.nodeUpdates.length > 0 || mutations.edgeOps.length > 0 || mutations.newNodes.length > 0
-            if (hasMutations) {
-              const { affectedNodeIds } = applyMutationsToStore(projectId, mutations)
-              if (affectedNodeIds.length > 0) {
-                usePlanStore.getState().markNodesAsUpdating(affectedNodeIds)
-              }
-              // Emit plan_result for inline graph after mutations
+
+            // Try full plan JSON extraction first (handles complete plan replacement)
+            const planResult = applyPlanFromText(projectId, rawText)
+            if (planResult.applied) {
+              console.log(`[plan-chat] Full plan extracted: ${planResult.nodeCount} nodes`)
               const updatedNodes = usePlanStore.getState().nodes.filter((n) => n.projectId === projectId)
               const updatedEdgeSet = new Set(updatedNodes.map((n) => n.id))
               const updatedEdges = usePlanStore.getState().edges.filter(
@@ -454,7 +460,30 @@ export function PlanGeneration({
                 projectName: projectName,
                 timestamp: new Date(),
               })
+            } else {
+              // Fall back to incremental mutation extraction
+              const { mutations } = extractMutations(rawText)
+              const hasMutations = mutations.nodeUpdates.length > 0 || mutations.edgeOps.length > 0 || mutations.newNodes.length > 0
+              if (hasMutations) {
+                const { affectedNodeIds } = applyMutationsToStore(projectId, mutations)
+                if (affectedNodeIds.length > 0) {
+                  usePlanStore.getState().markNodesAsUpdating(affectedNodeIds)
+                }
+                const updatedNodes = usePlanStore.getState().nodes.filter((n) => n.projectId === projectId)
+                const updatedEdgeSet = new Set(updatedNodes.map((n) => n.id))
+                const updatedEdges = usePlanStore.getState().edges.filter(
+                  (e) => updatedEdgeSet.has(e.source) || updatedEdgeSet.has(e.target)
+                )
+                pushChatEvent({
+                  type: 'plan_result',
+                  nodes: updatedNodes.map((n) => ({ id: n.id, title: n.title, type: n.type, status: n.status })),
+                  edges: updatedEdges.map((e) => ({ source: e.source, target: e.target })),
+                  projectName: projectName,
+                  timestamp: new Date(),
+                })
+              }
             }
+
             // Store full text in session message for conversation history
             addMessage(sid, { role: "assistant", content: rawText })
             chatStreamRef.current = { streamId: '', lastSeq: 0 }
@@ -516,13 +545,16 @@ export function PlanGeneration({
               onToolResult: handleToolResult,
               onDone: (newSessionId) => {
                 if (newSessionId) setProviderSessionId(sid, newSessionId)
-                // Extract and apply mutations from catch-up text
-                const { mutations: catchUpMutations } = extractMutations(rawText)
-                const hasCatchUpMutations = catchUpMutations.nodeUpdates.length > 0 || catchUpMutations.edgeOps.length > 0 || catchUpMutations.newNodes.length > 0
-                if (hasCatchUpMutations) {
-                  const { affectedNodeIds } = applyMutationsToStore(projectId, catchUpMutations)
-                  if (affectedNodeIds.length > 0) {
-                    usePlanStore.getState().markNodesAsUpdating(affectedNodeIds)
+                // Try full plan extraction first, fall back to mutations
+                const catchUpPlanResult = applyPlanFromText(projectId, rawText)
+                if (!catchUpPlanResult.applied) {
+                  const { mutations: catchUpMutations } = extractMutations(rawText)
+                  const hasCatchUpMutations = catchUpMutations.nodeUpdates.length > 0 || catchUpMutations.edgeOps.length > 0 || catchUpMutations.newNodes.length > 0
+                  if (hasCatchUpMutations) {
+                    const { affectedNodeIds } = applyMutationsToStore(projectId, catchUpMutations)
+                    if (affectedNodeIds.length > 0) {
+                      usePlanStore.getState().markNodesAsUpdating(affectedNodeIds)
+                    }
                   }
                 }
                 addMessage(sid, { role: "assistant", content: rawText })
