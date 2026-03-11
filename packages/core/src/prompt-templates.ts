@@ -789,6 +789,8 @@ Parallel tasks (no dependency edge between them) run as separate agents in isola
 
 ## Edge Rules
 - type: "dependency" for sequential, "branch" for parallel paths
+- Milestones are gate nodes: tasks flow IN to a milestone, and downstream tasks depend ON the milestone. Never create a milestone that only has incoming edges — it must also have outgoing edges to the tasks it gates. Example: tasks A,B,C → milestone M → task D (NOT A,B,C → M with D separately depending on A,B,C)
+- Every milestone must be on the critical path — no orphan milestones with zero outgoing edges
 
 ${importantSection}`
 }
