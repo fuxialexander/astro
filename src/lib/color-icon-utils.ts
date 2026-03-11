@@ -135,14 +135,33 @@ export const INITIATIVE_EMOJI_ICONS = [
   '🧠', '💪', '🌍', '🛡️', '⚔️', '🪄',
 ] as const;
 
+// Simple string hash (djb2) — deterministic, good distribution
+function hashString(str: string): number {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
 // Get a random color from the palette
 export function getRandomColor(): string {
   return COLOR_PALETTE[Math.floor(Math.random() * COLOR_PALETTE.length)];
 }
 
+// Get a deterministic color from a name
+export function getColorForName(name: string): string {
+  return COLOR_PALETTE[hashString(name) % COLOR_PALETTE.length];
+}
+
 // Get a random project icon (emoji)
 export function getRandomProjectIcon(): string {
   return PROJECT_EMOJI_ICONS[Math.floor(Math.random() * PROJECT_EMOJI_ICONS.length)];
+}
+
+// Get a deterministic project icon from a name
+export function getProjectIconForName(name: string): string {
+  return PROJECT_EMOJI_ICONS[hashString(name) % PROJECT_EMOJI_ICONS.length];
 }
 
 // Get a random initiative icon (emoji)
