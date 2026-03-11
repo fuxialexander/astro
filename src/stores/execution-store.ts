@@ -12,6 +12,7 @@ import { dataClient } from "@/lib/data-client"
 import { hydrateStreamingEvents } from '@/lib/streaming-event-hydrator'
 import { stripHtml, extractBlobUrls } from "@/lib/html-utils"
 import { apiUrl } from "@/lib/api-url"
+import { getColorForName, getProjectIconForName } from "@/lib/color-icon-utils"
 import { useTaskChatStore } from "./task-chat-store"
 import { useSessionStore } from "./session-store"
 import { resolveWorkingDirectory, buildDependencyOutputs } from "@astro/core/dispatch"
@@ -1074,6 +1075,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       name: displayName,
       description,
       status: 'active',
+      color: getColorForName(displayName),
+      icon: getProjectIconForName(displayName),
       visionDoc: options?.visionDoc || "",
       workingDirectory: options?.workingDirectory,
       repository: options?.repository,
