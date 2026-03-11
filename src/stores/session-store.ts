@@ -679,7 +679,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // Track raw text outside React state for synchronous access in onDone
     let rawAssistantText = ""
     let needsPlanRefresh = false
-    let localToolCount = 0
 
     // Push user event to realtime store
     useRealtimeStore.getState().pushActivityEvent(sid, {
@@ -710,36 +709,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         messages,
       },
       {
+        // Text/tool events are NOT pushed to the realtime store here — they
+        // arrive via the global SSE → realtime store path (DB-authoritative,
+        // multi-device consistent). Pushing here too causes duplicate rendering.
         onText: (chunk) => {
           rawAssistantText += chunk
           get().appendToLastAssistantMessage(sid, chunk)
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'text',
-            content: chunk,
-            timestamp: new Date(),
-          })
         },
         onToolUse: (data) => {
           if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
-          localToolCount++
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'tool_use',
-            id: `tool-${localToolCount}`,
-            toolName: data.toolName,
-            toolInput: data.toolInput,
-            timestamp: new Date(),
-          })
         },
         onToolResult: (data) => {
           if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'tool_result',
-            id: `tool-${localToolCount}`,
-            toolName: data.toolName,
-            toolResult: data.result,
-            success: data.success,
-            timestamp: new Date(),
-          })
         },
         onDone: (newProviderSessionId) => {
           if (newProviderSessionId) {
@@ -859,7 +840,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     chatAbortControllers.set(sid, abortController)
 
     let rawText = ""
-    let chatToolCounter = 0
 
     // Push user event
     useRealtimeStore.getState().pushActivityEvent(sid, {
@@ -890,34 +870,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         prUrl,
       },
       {
+        // Text/tool events arrive via global SSE → realtime store (DB-authoritative).
+        // Only accumulate rawText for session message storage.
         onText: (chunk) => {
           rawText += chunk
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'text',
-            content: chunk,
-            timestamp: new Date(),
-          })
         },
-        onToolUse: (data) => {
-          chatToolCounter++
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'tool_use',
-            id: `chat-tool-${chatToolCounter}`,
-            toolName: data.toolName,
-            toolInput: data.toolInput,
-            timestamp: new Date(),
-          })
-        },
-        onToolResult: (data) => {
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'tool_result',
-            id: `chat-tool-${chatToolCounter}`,
-            toolName: data.toolName,
-            toolResult: data.result,
-            success: data.success,
-            timestamp: new Date(),
-          })
-        },
+        onToolUse: () => {},
+        onToolResult: () => {},
         onDone: (newSessionId) => {
           if (newSessionId) get().setProviderSessionId(sid, newSessionId)
           // Store raw text only — tool context is already in taskOutput;
