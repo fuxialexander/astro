@@ -707,7 +707,8 @@ You MUST include a final task node titled "Push to GitHub" that:
 - Do NOT write code, create files, or build anything. Your only job is to plan — the tasks you create will be executed later by agents.
 - Your text output is visible to the user in real-time as a chat conversation.
 - The JSON plan MUST be wrapped in a \`\`\`json code fence.
-- After the JSON, you may list assumptions and open questions so the user can refine the plan.`
+- After the JSON, you may list assumptions and open questions so the user can refine the plan.
+- **CRITICAL: Whenever the user asks to update, modify, regenerate, or change the plan in ANY way, you MUST output the complete updated plan JSON in a \`\`\`json code fence.** This applies whether it is the first plan or a follow-up revision. The JSON is the ONLY way changes are applied to the graph — without it, nothing happens. Never just describe changes without emitting the JSON. Always output the full plan JSON (all nodes and edges, not just the changed ones) so it can replace the current plan entirely.`
 
   return `You are an interactive project planning assistant. Your goal is to help the user create a detailed, actionable project plan through exploration and discussion.
 
