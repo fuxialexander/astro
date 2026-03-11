@@ -313,10 +313,10 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   const effectiveProviderId = selectedProvider || defaultProvider || undefined
 
   const customModelMap = useSettingsStore((s) => s.customModelMap)
-  // Plan chat defaults to small tier (haiku); large is reserved for plan generation
+  const modelTier = useSettingsStore((s) => s.modelTier)
   const effectiveModel = (() => {
     if (selectedModel) return selectedModel
-    return resolveModel("small", effectiveProviderId, customModelMap)
+    return resolveModel(modelTier, effectiveProviderId, customModelMap)
   })()
 
   // No unmount abort needed — SSE is owned by session-store, survives navigation
