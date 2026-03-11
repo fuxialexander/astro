@@ -169,8 +169,6 @@ export function PlanGeneration({
     chatEventsVersion,
     pushChatEvent,
     flushChatEvents,
-    trimChatEvents,
-    chatToolCounterRef,
   } = useChatStreamEvents()
 
   // Hydrate chat events from streaming_events DB after page refresh
@@ -376,51 +374,8 @@ export function PlanGeneration({
     // so the provider restores the full plan generation conversation automatically.
     const historyMessages = [...chatHistory]
 
-    // Shared callback helpers for both live stream and catch-up replay
-    const handleToolUse = (data: { toolName: string; toolInput: unknown }) => {
-      const id = `chat-tool-${++chatToolCounterRef.current}`
-      pushChatEvent({
-        type: 'tool_use',
-        id,
-        toolName: data.toolName,
-        toolInput: data.toolInput,
-        timestamp: new Date(),
-      })
-    }
-    const handleToolResult = (data: { toolName: string; success: boolean; result: unknown }) => {
-      // Match with the last unmatched tool_use of the same tool name
-      const events = chatEventsRef.current
-      let matchId = `chat-tool-result-${++chatToolCounterRef.current}`
-      for (let i = events.length - 1; i >= 0; i--) {
-        const e = events[i]
-        if (e.type === 'tool_use' && e.toolName === data.toolName) {
-          const hasResult = events.some(r => r.type === 'tool_result' && r.id === e.id)
-          if (!hasResult) {
-            matchId = e.id
-            break
-          }
-        }
-      }
-      pushChatEvent({
-        type: 'tool_result',
-        id: matchId,
-        toolName: data.toolName,
-        toolResult: data.result,
-        success: data.success,
-        timestamp: new Date(),
-      })
-    }
-
     let rawText = ""
-    // Checkpoint: snapshot of rawText and chatEventsRef length at the last
-    // heartbeat seq. Used to roll back before catch-up replay so text received
-    // live after the last heartbeat isn't appended twice (once from live SSE,
-    // once from the catch-up DB fetch).
-    // Initialize from current ref length so that if the stream drops before
-    // the first heartbeat, the rollback only removes events from this turn
-    // (not prior turns already in chatEventsRef).
     let rawTextAtLastSeq = ""
-    let chatEventsCountAtLastSeq = chatEventsRef.current.length
     try {
       await projectChatWithAgent(
         {
@@ -435,12 +390,16 @@ export function PlanGeneration({
           taskType: 'plan',
         },
         {
+          // Text/tool events are NOT pushed to chatEventsRef — they arrive via
+          // the global SSE → realtime store → taskStreams path (DB-authoritative,
+          // multi-device consistent). chatEventsRef is only for frontend-only
+          // events (chat_user, plan_result, error) that don't go through the relay.
+          // rawText is still accumulated here for plan JSON extraction in onDone.
           onText: (chunk) => {
             rawText += chunk
-            pushChatEvent({ type: 'text', content: chunk, timestamp: new Date() })
           },
-          onToolUse: handleToolUse,
-          onToolResult: handleToolResult,
+          onToolUse: () => {},
+          onToolResult: () => {},
           onDone: (newSessionId) => {
             if (newSessionId) setProviderSessionId(sid, newSessionId)
 
@@ -498,10 +457,9 @@ export function PlanGeneration({
           },
           onSeq: (seq) => {
             chatStreamRef.current.lastSeq = seq
-            // Snapshot at each heartbeat seq — text and events up to here
-            // are persisted in DB and won't be re-fetched by catch-up.
+            // Snapshot rawText at each heartbeat — text up to here is persisted
+            // in DB and won't be re-fetched by catch-up.
             rawTextAtLastSeq = rawText
-            chatEventsCountAtLastSeq = chatEventsRef.current.length
           },
           onMetrics: (m) => {
             useUsageStore.getState().addTaskMetrics({
@@ -524,25 +482,24 @@ export function PlanGeneration({
         return
       }
 
-      // Network error — attempt catch-up using stored streamId and lastSeq
+      // Network error — attempt catch-up using stored streamId and lastSeq.
+      // Rendering events (text, tool_use, tool_result) are handled by the global SSE
+      // reconnect in the realtime store. We only need to catch up rawText for plan
+      // extraction and handle onDone lifecycle.
       const { streamId: catchUpStreamId, lastSeq } = chatStreamRef.current
       if (catchUpStreamId) {
         try {
           const { events } = await fetchStreamingEventsCatchUp([catchUpStreamId], lastSeq)
           if (events.length > 0) {
-            // Roll back to the last heartbeat checkpoint before replaying.
-            // Text received live after the last heartbeat has seq > lastSeq
-            // in DB, so it appears in this catch-up batch — without rollback
-            // it would be appended to rawText and chatEventsRef a second time.
+            // Roll back rawText to last checkpoint — text after that seq is in
+            // the catch-up batch and would be double-counted.
             rawText = rawTextAtLastSeq
-            trimChatEvents(chatEventsCountAtLastSeq)
             const { completed } = replayChatCatchUpEvents(events, {
               onText: (chunk) => {
                 rawText += chunk
-                pushChatEvent({ type: 'text', content: chunk, timestamp: new Date() })
               },
-              onToolUse: handleToolUse,
-              onToolResult: handleToolResult,
+              onToolUse: () => {},
+              onToolResult: () => {},
               onDone: (newSessionId) => {
                 if (newSessionId) setProviderSessionId(sid, newSessionId)
                 // Try full plan extraction first, fall back to mutations
