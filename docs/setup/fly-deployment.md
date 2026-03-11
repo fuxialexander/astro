@@ -273,22 +273,37 @@ Fly.io encrypts secrets at rest and injects them as environment variables at run
 
 #### Using env profiles (recommended)
 
-Instead of manually setting `VITE_*` vars every time you deploy, use the env profile system:
+Instead of manually setting `VITE_*` vars every time you deploy, use the env profile system. The flow is: **edit credentials once, activate the profile, deploy**.
 
 ```bash
-# One-time: generate .env.prod profile
+# 1. One-time: generate .env.prod profile template
 npm run env:init
 
-# Edit .env.prod with your remote Supabase credentials + deployment config:
-#   SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL
-#   VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_API_BASE_URL
-#   FLY_APP (must match fly.toml, default: astro-backend-deploy)
+# 2. Edit .env.prod with your production credentials:
+#    SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL
+#    VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_API_BASE_URL
+#    FLY_APP (must match fly.toml, default: astro-backend-deploy)
 
-# Switch to prod profile (symlinks .env.local → .env.prod)
+# 3. Activate the prod profile (symlinks .env.local → .env.prod)
 npm run env:prod
+
+# 4. Deploy from the main branch
+git checkout main && git pull
+npm run deploy
 ```
 
-Once activated, `scripts/deploy.sh` sources `.env` + `.env.local` automatically — no need to pass `VITE_*` vars on the command line.
+Once `.env.prod` is configured, subsequent deploys only need:
+
+```bash
+npm run env:prod     # Activate (if you switched to local/dev)
+npm run deploy       # Deploys backend + frontend
+```
+
+The deploy script sources `.env` + `.env.local` automatically. If you forget to activate the prod profile, the script will detect the issue and tell you exactly what to do.
+
+**Important:** Always deploy from the `main` branch. The deploy script will warn you if you're on a different branch. Non-main deployments create branch preview URLs on Cloudflare Pages, not production deployments.
+
+See [Environment Variables](./environment-variables.md) for the full profile system documentation.
 
 ### Step 4: Run database migrations
 
