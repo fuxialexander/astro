@@ -448,10 +448,12 @@ app.get('/plan', async (c) => {
   const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
   const projectIds = new Set(userProjects.map(p => p.id))
 
-  // Get all nodes for user's projects
-  const rawNodes = await db.select().from(planNodes)
+  // Get nodes for user's projects (scoped query instead of full table scan)
+  const ids = [...projectIds]
+  const rawNodes = ids.length > 0
+    ? await db.select().from(planNodes).where(and(inArray(planNodes.projectId, ids), isNull(planNodes.deletedAt)))
+    : []
   const nodes = rawNodes
-    .filter(n => projectIds.has(n.projectId) && !n.deletedAt)
     .map(n => ({
       id: n.clientId, // Use clientId as frontend ID
       projectId: n.projectId,
@@ -490,9 +492,10 @@ app.get('/plan', async (c) => {
       updatedAt: n.updatedAt,
     }))
 
-  const rawEdges = await db.select().from(planEdges)
+  const rawEdges = ids.length > 0
+    ? await db.select().from(planEdges).where(and(inArray(planEdges.projectId, ids), isNull(planEdges.deletedAt)))
+    : []
   const edges = rawEdges
-    .filter(e => projectIds.has(e.projectId) && !e.deletedAt)
     .map(e => ({
       id: e.clientId,
       source: e.sourceClientId,
@@ -1539,9 +1542,9 @@ app.get('/executions', async (c) => {
     return c.json({})
   }
 
-  // Get all executions for user's projects
-  const executions = await db.select().from(taskExecutions)
-  const filtered = executions.filter(e => projectIds.has(e.projectId))
+  // Get executions for user's projects (scoped query instead of full table scan)
+  const ids = [...projectIds]
+  const filtered = await db.select().from(taskExecutions).where(inArray(taskExecutions.projectId, ids))
 
   // Convert to map keyed by nodeClientId
   const result: Record<string, unknown> = {}

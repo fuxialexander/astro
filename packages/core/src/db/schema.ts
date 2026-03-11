@@ -43,7 +43,10 @@ export const projects = pgTable('projects', {
   projectPrNumber: integer('project_pr_number'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  teamIdIdx: index('idx_projects_team_id').on(table.teamId),
+  ownerIdIdx: index('idx_projects_owner_id').on(table.ownerId),
+}))
 
 // ── Initiatives ───────────────────────────────────────────────────────
 export const initiatives = pgTable('initiatives', {
@@ -61,7 +64,10 @@ export const initiatives = pgTable('initiatives', {
   teamId: uuid('team_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  teamIdIdx: index('idx_initiatives_team_id').on(table.teamId),
+  ownerIdIdx: index('idx_initiatives_owner_id').on(table.ownerId),
+}))
 
 // ── Teams ─────────────────────────────────────────────────────────────
 export const teams = pgTable('teams', {
@@ -166,7 +172,15 @@ export const planNodes = pgTable('plan_nodes', {
   deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  projectIdIdx: index('idx_plan_nodes_project').on(table.projectId),
+  clientIdIdx: index('idx_plan_nodes_client_id_standalone').on(table.clientId),
+  projectClientIdUniq: uniqueIndex('idx_plan_nodes_project_client').on(table.projectId, table.clientId),
+  statusIdx: index('idx_plan_nodes_status').on(table.status),
+  deletedAtIdx: index('idx_plan_nodes_deleted_at').on(table.deletedAt),
+  branchNameIdx: index('idx_plan_nodes_branch_name').on(table.branchName),
+  prNumberIdx: index('idx_plan_nodes_pr_number').on(table.prNumber),
+}))
 
 // ── Plan Node Dependencies ────────────────────────────────────────────
 export const planNodeDependencies = pgTable('plan_node_dependencies', {
@@ -188,7 +202,12 @@ export const planEdges = pgTable('plan_edges', {
   deletedAt: timestamp('deleted_at'),
   deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  projectIdIdx: index('idx_plan_edges_project').on(table.projectId),
+  sourceClientIdIdx: index('idx_plan_edges_source').on(table.sourceClientId),
+  targetClientIdIdx: index('idx_plan_edges_target').on(table.targetClientId),
+  deletedAtIdx: index('idx_plan_edges_deleted_at').on(table.deletedAt),
+}))
 
 // ── User Profiles ─────────────────────────────────────────────────────
 export const userProfiles = pgTable('user_profiles', {
@@ -266,7 +285,12 @@ export const sessions = pgTable('sessions', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
   completedAt: timestamp('completed_at'),
-})
+}, (table) => ({
+  userIdIdx: index('idx_sessions_user_id').on(table.userId),
+  projectIdIdx: index('idx_sessions_project_id').on(table.projectId),
+  nodeIdIdx: index('idx_sessions_node_id').on(table.nodeId),
+  typeIdx: index('idx_sessions_type').on(table.type),
+}))
 
 // ── Task Chat Sessions (legacy, will be migrated to sessions) ─────────
 export const taskChatSessions = pgTable('task_chat_sessions', {
@@ -277,7 +301,11 @@ export const taskChatSessions = pgTable('task_chat_sessions', {
   sessionId: text('session_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  userIdIdx: index('idx_task_chat_sessions_user_id').on(table.userId),
+  projectIdIdx: index('idx_task_chat_sessions_project_id').on(table.projectId),
+  nodeIdIdx: index('idx_task_chat_sessions_node_id').on(table.nodeId),
+}))
 
 // ── Task Chat Messages ────────────────────────────────────────────────
 export const taskChatMessages = pgTable('task_chat_messages', {
@@ -286,7 +314,9 @@ export const taskChatMessages = pgTable('task_chat_messages', {
   role: text('role').notNull(), // 'user' | 'assistant'
   content: text('content').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  sessionIdIdx: index('idx_task_chat_messages_session_id').on(table.sessionId),
+}))
 
 // ── Push Tokens ──────────────────────────────────────────────────────
 // Note: This table may be in a later migration (0003_push_tokens.sql)
@@ -298,7 +328,9 @@ export const pushTokens = pgTable('push_tokens', {
   preferences: jsonb('preferences').$type<Record<string, unknown>>().default({}),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  userIdIdx: index('idx_push_tokens_user_id').on(table.userId),
+}))
 
 // ── Machine Instructions ─────────────────────────────────────────────
 // Shared pool of markdown instruction documents that tell AI agents how
@@ -346,7 +378,10 @@ export const registeredMachines = pgTable('registered_machines', {
   dispatchPublicKey: jsonb('dispatch_public_key'),
   registeredAt: timestamp('registered_at').notNull().defaultNow(),
   lastSeenAt: timestamp('last_seen_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  userIdIdx: index('idx_registered_machines_user_id').on(table.userId),
+  teamIdIdx: index('idx_registered_machines_team_id').on(table.teamId),
+}))
 
 // ── Project Members ──────────────────────────────────────────────────
 export const projectMembers = pgTable('project_members', {
@@ -424,7 +459,10 @@ export const refreshTokens = pgTable('refresh_tokens', {
   isRevoked: boolean('is_revoked').notNull().default(false),
   expiresAt: timestamp('expires_at').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  machineIdIdx: index('idx_refresh_tokens_machine_id').on(table.machineId),
+  userIdIdx: index('idx_refresh_tokens_user_id').on(table.userId),
+}))
 
 // ── Passkey Credentials ──────────────────────────────────────────────
 export const passkeyCredentials = pgTable('passkey_credentials', {
@@ -436,7 +474,9 @@ export const passkeyCredentials = pgTable('passkey_credentials', {
   deviceName: text('device_name'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   lastUsedAt: timestamp('last_used_at'),
-})
+}, (table) => ({
+  userIdIdx: index('idx_passkey_credentials_user_id').on(table.userId),
+}))
 
 // ── Observation Events ───────────────────────────────────────────────
 export const observationEvents = pgTable('observation_events', {
@@ -459,7 +499,10 @@ export const observationEvents = pgTable('observation_events', {
   nodeId: text('node_id'),
   statusMessage: text('status_message'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  traceIdIdx: index('idx_observation_events_trace_id').on(table.traceId),
+  projectIdIdx: index('idx_observation_events_project_id').on(table.projectId),
+}))
 
 // ── Audit Logs ────────────────────────────────────────────────────────
 export const auditLogs = pgTable('audit_logs', {
@@ -472,7 +515,12 @@ export const auditLogs = pgTable('audit_logs', {
   ipAddress: text('ip_address'), // Source IP address
   userAgent: text('user_agent'), // User agent string
   createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  userIdIdx: index('idx_audit_logs_user_id').on(table.userId),
+  actionIdx: index('idx_audit_logs_action').on(table.action),
+  resourceTypeIdx: index('idx_audit_logs_resource_type').on(table.resourceType),
+  createdAtIdx: index('idx_audit_logs_created_at').on(table.createdAt),
+}))
 
 // ── Activity Events ─────────────────────────────────────────────────
 export const activityEvents = pgTable('activity_events', {
@@ -485,7 +533,11 @@ export const activityEvents = pgTable('activity_events', {
   nodeId: text('node_id'),
   metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  projectIdIdx: index('idx_activity_events_project_id').on(table.projectId),
+  userIdIdx: index('idx_activity_events_user_id').on(table.userId),
+  typeIdx: index('idx_activity_events_type').on(table.type),
+}))
 
 // ── Connected Accounts ──────────────────────────────────────────────
 export const connectedAccounts = pgTable('connected_accounts', {
@@ -500,7 +552,9 @@ export const connectedAccounts = pgTable('connected_accounts', {
   enabled: boolean('enabled').notNull().default(true),
   connectedAt: timestamp('connected_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  userIdIdx: index('idx_connected_accounts_user_id').on(table.userId),
+}))
 
 // ── WebAuthn Challenges ─────────────────────────────────────────
 // Stores short-lived WebAuthn challenges for cross-instance verification.
@@ -572,7 +626,11 @@ export const dispatchQueueEntries = pgTable('dispatch_queue_entries', {
   procedureState: jsonb('procedure_state'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  projectIdIdx: index('idx_dispatch_queue_project_id').on(table.projectId),
+  statusIdx: index('idx_dispatch_queue_status').on(table.status),
+  nodeIdIdx: index('idx_dispatch_queue_node_id').on(table.nodeId),
+}))
 
 // ── Machine Usage Logs ───────────────────────────────────────────
 export const machineUsageLogs = pgTable('machine_usage_logs', {
@@ -587,7 +645,11 @@ export const machineUsageLogs = pgTable('machine_usage_logs', {
   durationMs: integer('duration_ms'),
   status: text('status').notNull(), // 'success' | 'failure' | 'cancelled'
   createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  machineIdIdx: index('idx_machine_usage_logs_machine_id').on(table.machineId),
+  userIdIdx: index('idx_machine_usage_logs_user_id').on(table.userId),
+  projectIdIdx: index('idx_machine_usage_logs_project_id').on(table.projectId),
+}))
 
 // ── Blobs (image/file storage) ──────────────────────────────────
 export const blobs = pgTable('blobs', {
@@ -601,7 +663,10 @@ export const blobs = pgTable('blobs', {
   nodeId: text('node_id'),
   projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  ownerIdIdx: index('idx_blobs_owner_id').on(table.ownerId),
+  projectIdIdx: index('idx_blobs_project_id').on(table.projectId),
+}))
 
 // ── Node Comments ───────────────────────────────────────────────
 export const nodeComments = pgTable('node_comments', {
@@ -615,7 +680,10 @@ export const nodeComments = pgTable('node_comments', {
   parentCommentId: uuid('parent_comment_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  nodeIdIdx: index('idx_node_comments_node_id').on(table.nodeId),
+  projectIdIdx: index('idx_node_comments_project_id').on(table.projectId),
+}))
 
 // ── Environment Configs ─────────────────────────────────────────
 // Custom context overlays for HPC/SSH/Docker environments.
@@ -655,7 +723,10 @@ export const githubAppInstallations = pgTable('github_app_installations', {
   permissions: jsonb('permissions').$type<Record<string, string>>().notNull().default({}),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  userIdIdx: index('idx_github_app_installations_user_id').on(table.userId),
+  teamIdIdx: index('idx_github_app_installations_team_id').on(table.teamId),
+}))
 
 // ── Encrypted API Keys ──────────────────────────────────────────
 // Client-side encrypted API keys for external services (Web Crypto API).
@@ -667,7 +738,9 @@ export const encryptedApiKeys = pgTable('encrypted_api_keys', {
   iv: text('iv').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  userIdIdx: index('idx_encrypted_api_keys_user_id').on(table.userId),
+}))
 
 // ── Environment Configs ─────────────────────────────────────────
 // Custom context overlays for HPC/SSH/Docker environments.
