@@ -19,7 +19,16 @@ async function getAuthHeaders(): Promise<HeadersInit> {
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = await getAuthHeaders()
   const res = await fetch(apiUrl(url), { ...init, headers: { ...headers, ...init?.headers } })
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  if (!res.ok) {
+    // Try to extract descriptive error from API response body
+    try {
+      const body = await res.json() as { error?: string }
+      if (body?.error) throw new Error(body.error)
+    } catch (e) {
+      if (e instanceof Error && e.message !== `${res.status} ${res.statusText}`) throw e
+    }
+    throw new Error(`${res.status} ${res.statusText}`)
+  }
   return res.json() as Promise<T>
 }
 

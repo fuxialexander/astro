@@ -96,8 +96,9 @@ export function ScheduleForm({
           timezone,
           targetMachineId,
           enabled,
-          activeHoursStart: activeHoursStart || undefined,
-          activeHoursEnd: activeHoursEnd || undefined,
+          // Send null to clear active hours, undefined to keep unchanged
+          activeHoursStart: activeHoursStart || null,
+          activeHoursEnd: activeHoursEnd || null,
           maxConcurrency,
           missedRunPolicy,
           retryTtlMinutes,

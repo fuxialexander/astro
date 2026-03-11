@@ -174,7 +174,7 @@ export async function checkMaxConcurrency(scheduleId: string, maxConcurrency: nu
  * Check if a machine is online. Returns true if online or if the table
  * doesn't exist (PGlite local mode).
  */
-async function isMachineOnline(machineId: string): Promise<boolean> {
+export async function isMachineOnline(machineId: string): Promise<boolean> {
   try {
     const [machine] = await db.select({ isConnected: registeredMachines.isConnected })
       .from(registeredMachines)
@@ -215,9 +215,14 @@ export async function resetNodeIfTerminal(nodeId: string, now: Date): Promise<'r
         updatedAt: now,
       })
       .where(eq(planNodes.clientId, nodeId))
+    return 'reset'
   }
 
-  return 'reset'
+  // Node is 'planned' — already ready for dispatch
+  if (node.status === 'planned') return 'reset'
+
+  // Non-terminal, non-active statuses (e.g. awaiting_approval) — skip
+  return 'active'
 }
 
 /**
@@ -319,9 +324,16 @@ async function processSchedule(
     return
   }
 
-  // Max concurrency check
+  // Max concurrency check — record skip for audit trail
   if (!await checkMaxConcurrency(schedule.id, schedule.maxConcurrency)) {
     console.log(`${logPrefix}: max concurrency (${schedule.maxConcurrency}) reached, skipping`)
+    await insertScheduleRun({
+      scheduleId: schedule.id,
+      status: 'missed',
+      scheduledAt: now,
+      completedAt: now,
+      errorMessage: `Skipped: max concurrency (${schedule.maxConcurrency}) reached`,
+    })
     return
   }
 

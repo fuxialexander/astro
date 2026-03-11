@@ -10,7 +10,7 @@ import { Cron } from 'croner'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { db } from '../lib/db/index.js'
 import { schedules, scheduleRuns, projects, teamMembers, planNodes } from '../lib/db/schema.js'
-import { eq, and, desc } from 'drizzle-orm'
+import { eq, and, desc, isNull } from 'drizzle-orm'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import {
   insertScheduleRun,
@@ -19,6 +19,7 @@ import {
   checkMaxConcurrency,
   resetNodeIfTerminal,
   dispatchProjectRootNodes,
+  isMachineOnline,
 } from '../lib/cron-scheduler.js'
 
 export const schedulesRoute = new Hono()
@@ -129,11 +130,15 @@ schedulesRoute.post('/', async (c) => {
     return c.json({ success: false, error: 'nodeId is required for node-scope schedules' }, 400)
   }
 
-  // Verify nodeId belongs to the specified project
+  // Verify nodeId belongs to the specified project and is not deleted
   if (body.scope === 'node' && body.nodeId) {
     const [node] = await db.select({ clientId: planNodes.clientId })
       .from(planNodes)
-      .where(and(eq(planNodes.clientId, body.nodeId), eq(planNodes.projectId, body.projectId)))
+      .where(and(
+        eq(planNodes.clientId, body.nodeId),
+        eq(planNodes.projectId, body.projectId),
+        isNull(planNodes.deletedAt),
+      ))
       .limit(1)
     if (!node) {
       return c.json({ success: false, error: 'Node not found in the specified project' }, 404)
@@ -336,6 +341,16 @@ schedulesRoute.post('/:id/trigger', async (c) => {
   // Max concurrency check — manual triggers respect the same limit
   if (!await checkMaxConcurrency(schedule.id, schedule.maxConcurrency)) {
     return c.json({ success: false, error: `Max concurrency (${schedule.maxConcurrency}) reached. Wait for active runs to complete.` }, 429)
+  }
+
+  // Machine connectivity check — warn user if target machine is offline
+  try {
+    const online = await isMachineOnline(schedule.targetMachineId)
+    if (!online) {
+      return c.json({ success: false, error: 'Target machine is offline. Connect the machine and try again.' }, 503)
+    }
+  } catch {
+    // If we can't check connectivity (e.g. PGlite), proceed with dispatch
   }
 
   const now = new Date()
