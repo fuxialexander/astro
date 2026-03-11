@@ -34,7 +34,7 @@ export function ImportPreviewDialog({ open, onOpenChange, bundle }: ImportPrevie
     setError(null)
     try {
       if (bundle.type === 'project') {
-        const result = importProject(bundle.data as ProjectExportData)
+        const result = await importProject(bundle.data as ProjectExportData)
         if (result.success && result.projectId) {
           onOpenChange(false)
           navigate(`/project/${result.projectId}/graph`)

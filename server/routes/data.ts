@@ -1453,6 +1453,14 @@ app.post('/sessions', async (c) => {
   const userId = c.get('user')!.id
   const body = await c.req.json()
 
+  // Validate project exists before inserting to avoid FK violation
+  if (body.projectId) {
+    const [project] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, body.projectId))
+    if (!project) {
+      return c.json({ error: 'Project not found', projectId: body.projectId }, 404)
+    }
+  }
+
   await db.insert(sessions).values({
     ...body,
     userId,
