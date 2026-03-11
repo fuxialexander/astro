@@ -1579,6 +1579,7 @@ app.get('/executions', async (c) => {
       startedAt: exec.startedAt,
       completedAt: exec.completedAt,
       durationMs: exec.durationMs,
+      summary: exec.summary,
     }
   }
 
@@ -1618,6 +1619,7 @@ app.post('/executions', async (c) => {
     estimatedCostUsd: body.metrics?.estimatedCostUsd || null,
     model: body.metrics?.model || null,
     turnsUsed: body.metrics?.turnsUsed || null,
+    summary: body.summary || null,
   }).onConflictDoUpdate({
     target: taskExecutions.executionId,
     set: {
@@ -1632,6 +1634,7 @@ app.post('/executions', async (c) => {
       estimatedCostUsd: body.metrics?.estimatedCostUsd || null,
       model: body.metrics?.model || null,
       turnsUsed: body.metrics?.turnsUsed || null,
+      summary: body.summary || null,
     },
   })
 

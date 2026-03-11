@@ -556,6 +556,7 @@ export const dataClient = {
         ...r,
         startedAt: toDate(r.startedAt),
         completedAt: r.completedAt ? toDate(r.completedAt) : undefined,
+        summary: r.summary as TaskExecution['summary'],
         toolTraces: (r.toolTraces as Array<Record<string, unknown>> ?? []).map(t => ({
           ...t,
           timestamp: toDate(t.timestamp),
