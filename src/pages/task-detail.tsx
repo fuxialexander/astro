@@ -166,7 +166,7 @@ export function TaskDetail() {
             <span className="whitespace-nowrap">{formatDuration(node.executionStartedAt, node.executionCompletedAt)}</span>
           </div>
         )}
-        {taskStream?.progress != null && taskStream.progress > 0 && (
+        {taskStream?.progress != null && taskStream.progress > 0 && taskStream.progress < 100 && isRunning && (
           <div className="flex items-center gap-1.5 shrink-0">
             <div className="h-1.5 w-16 md:w-24 rounded-full bg-muted overflow-hidden">
               <div
