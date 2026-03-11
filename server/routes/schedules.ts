@@ -236,6 +236,13 @@ schedulesRoute.patch('/:id', async (c) => {
     return c.json({ success: false, error: 'Schedule not found' }, 404)
   }
 
+  // Cross-validate active hours: after applying the patch, both must be set or both null
+  const effectiveStart = body.activeHoursStart !== undefined ? body.activeHoursStart : current.activeHoursStart
+  const effectiveEnd = body.activeHoursEnd !== undefined ? body.activeHoursEnd : current.activeHoursEnd
+  if ((effectiveStart == null) !== (effectiveEnd == null)) {
+    return c.json({ success: false, error: 'Both activeHoursStart and activeHoursEnd must be provided together' }, 400)
+  }
+
   // Recompute nextRunAt if cron expression, timezone, or enabled changed
   const patch: Partial<typeof schedules.$inferInsert> = {
     ...body,
@@ -301,11 +308,6 @@ schedulesRoute.post('/:id/trigger', async (c) => {
 
   const now = new Date()
 
-  // Compute run number
-  const [maxRun] = await db.select({ maxNum: max(scheduleRuns.runNumber) })
-    .from(scheduleRuns).where(eq(scheduleRuns.scheduleId, id))
-  const runNumber = (maxRun?.maxNum ?? 0) + 1
-
   // Compute branch suffix
   const formatter = new Intl.DateTimeFormat('en-CA', {
     year: 'numeric',
@@ -320,14 +322,29 @@ schedulesRoute.post('/:id/trigger', async (c) => {
   const get = (type: Intl.DateTimeFormatPartTypes) => parts.find(p => p.type === type)?.value ?? ''
   const branchSuffix = `${get('year')}${get('month')}${get('day')}T${get('hour')}${get('minute')}`
 
-  // Create run entry
-  const [run] = await db.insert(scheduleRuns).values({
-    scheduleId: schedule.id,
-    runNumber,
-    status: 'dispatched',
-    scheduledAt: now,
-    startedAt: now,
-  }).returning()
+  // Create run entry with atomic run number (retry on unique constraint violation)
+  const run = await (async () => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const [maxRun] = await db.select({ maxNum: max(scheduleRuns.runNumber) })
+        .from(scheduleRuns).where(eq(scheduleRuns.scheduleId, id))
+      const runNumber = (maxRun?.maxNum ?? 0) + 1
+      try {
+        const [inserted] = await db.insert(scheduleRuns).values({
+          scheduleId: schedule.id,
+          runNumber,
+          status: 'dispatched',
+          scheduledAt: now,
+          startedAt: now,
+        }).returning()
+        return inserted
+      } catch (err: unknown) {
+        const pgErr = err as { code?: string }
+        if (pgErr.code === '23505' && attempt < 2) continue
+        throw err
+      }
+    }
+    throw new Error('Failed to create schedule run after retries')
+  })()
 
   if (schedule.scope === 'node' && schedule.nodeId) {
     // Reset node if terminal

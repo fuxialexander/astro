@@ -18,6 +18,36 @@ import { eq, and, lte, isNull, inArray, max } from 'drizzle-orm'
 import { redisPubSub } from './redis-pubsub.js'
 import { serverSideDispatch } from './server-side-dispatch.js'
 
+/**
+ * Insert a schedule run with an atomically computed run number.
+ * Uses SELECT max + INSERT with a retry loop to handle unique constraint violations
+ * from concurrent inserts.
+ */
+async function insertScheduleRun(
+  values: Omit<typeof scheduleRuns.$inferInsert, 'runNumber'>,
+): Promise<typeof scheduleRuns.$inferSelect> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const [maxRun] = await db.select({ maxNum: max(scheduleRuns.runNumber) })
+      .from(scheduleRuns).where(eq(scheduleRuns.scheduleId, values.scheduleId))
+    const runNumber = (maxRun?.maxNum ?? 0) + 1
+
+    try {
+      const [run] = await db.insert(scheduleRuns).values({
+        ...values,
+        runNumber,
+      }).returning()
+      return run
+    } catch (err: unknown) {
+      // Check for unique constraint violation (23505) — retry with next number
+      const pgErr = err as { code?: string }
+      if (pgErr.code === '23505' && attempt < 2) continue
+      throw err
+    }
+  }
+  // Unreachable but satisfies TypeScript
+  throw new Error('Failed to insert schedule run after retries')
+}
+
 export interface CronSchedulerConfig {
   enabled: boolean
   intervalMs: number
@@ -155,27 +185,16 @@ async function processSchedule(
     console.log(`${logPrefix}: target machine ${schedule.targetMachineId} is offline`)
 
     if (schedule.missedRunPolicy === 'skip') {
-      // Create missed run record
-      const [maxRun] = await db.select({ maxNum: max(scheduleRuns.runNumber) })
-        .from(scheduleRuns).where(eq(scheduleRuns.scheduleId, schedule.id))
-      const runNumber = (maxRun?.maxNum ?? 0) + 1
-
-      await db.insert(scheduleRuns).values({
+      await insertScheduleRun({
         scheduleId: schedule.id,
-        runNumber,
         status: 'missed',
         scheduledAt: now,
         errorMessage: `Target machine ${schedule.targetMachineId} is offline`,
       })
     } else if (schedule.missedRunPolicy === 'retry_on_reconnect') {
-      const [maxRun] = await db.select({ maxNum: max(scheduleRuns.runNumber) })
-        .from(scheduleRuns).where(eq(scheduleRuns.scheduleId, schedule.id))
-      const runNumber = (maxRun?.maxNum ?? 0) + 1
       const retryUntil = new Date(now.getTime() + schedule.retryTtlMinutes * 60 * 1000)
-
-      await db.insert(scheduleRuns).values({
+      await insertScheduleRun({
         scheduleId: schedule.id,
-        runNumber,
         status: 'missed',
         scheduledAt: now,
         errorMessage: `Target machine ${schedule.targetMachineId} is offline — will retry until ${retryUntil.toISOString()}`,
@@ -186,11 +205,6 @@ async function processSchedule(
     // Advance nextRunAt even on missed runs
     return
   }
-
-  // Compute run number
-  const [maxRun] = await db.select({ maxNum: max(scheduleRuns.runNumber) })
-    .from(scheduleRuns).where(eq(scheduleRuns.scheduleId, schedule.id))
-  const runNumber = (maxRun?.maxNum ?? 0) + 1
 
   // Compute branch suffix
   const branchSuffix = computeBranchSuffix(schedule.cronExpression, now, schedule.timezone)
@@ -211,9 +225,8 @@ async function processSchedule(
 
     if (!node || node.deletedAt) {
       console.log(`${logPrefix}: node ${schedule.nodeId} not found or deleted`)
-      await db.insert(scheduleRuns).values({
+      await insertScheduleRun({
         scheduleId: schedule.id,
-        runNumber,
         status: 'success',
         scheduledAt: now,
         completedAt: now,
@@ -246,18 +259,17 @@ async function processSchedule(
         .where(eq(planNodes.clientId, schedule.nodeId))
     }
 
-    // Create run entry
-    const [run] = await db.insert(scheduleRuns).values({
+    // Create run entry (atomic run number via insertScheduleRun)
+    const run = await insertScheduleRun({
       scheduleId: schedule.id,
-      runNumber,
       status: 'dispatched',
       branchName: `astro/${branchSuffix}`,
       scheduledAt: now,
       startedAt: now,
-    }).returning()
+    })
 
     // Dispatch
-    console.log(`${logPrefix}: dispatching node ${schedule.nodeId} (run #${runNumber})`)
+    console.log(`${logPrefix}: dispatching node ${schedule.nodeId} (run #${run.runNumber})`)
     serverSideDispatch(schedule.nodeId, schedule.projectId, {
       targetMachineId: schedule.targetMachineId,
       branchSuffix,
@@ -287,9 +299,8 @@ async function processSchedule(
 
     if (taskNodes.length === 0) {
       console.log(`${logPrefix}: no eligible nodes`)
-      await db.insert(scheduleRuns).values({
+      await insertScheduleRun({
         scheduleId: schedule.id,
-        runNumber,
         status: 'success',
         scheduledAt: now,
         completedAt: now,
@@ -317,14 +328,13 @@ async function processSchedule(
       }
     }
 
-    // Create run entry
-    const [run] = await db.insert(scheduleRuns).values({
+    // Create run entry (atomic run number via insertScheduleRun)
+    const run = await insertScheduleRun({
       scheduleId: schedule.id,
-      runNumber,
       status: 'dispatched',
       scheduledAt: now,
       startedAt: now,
-    }).returning()
+    })
 
     // Dispatch root nodes (no incoming edges from within the filtered set)
     const nodeIds = new Set(taskNodes.map(n => n.clientId))
@@ -344,7 +354,7 @@ async function processSchedule(
       })
 
       if (allDepsMet) {
-        console.log(`${logPrefix}: dispatching root node ${node.clientId} (run #${runNumber})`)
+        console.log(`${logPrefix}: dispatching root node ${node.clientId} (run #${run.runNumber})`)
         serverSideDispatch(node.clientId, schedule.projectId, {
           targetMachineId: schedule.targetMachineId,
           branchSuffix,
@@ -356,7 +366,7 @@ async function processSchedule(
       }
     }
 
-    console.log(`${logPrefix}: dispatched ${dispatched}/${taskNodes.length} root nodes (run #${runNumber})`)
+    console.log(`${logPrefix}: dispatched ${dispatched}/${taskNodes.length} root nodes (run #${run.runNumber})`)
   }
 
   // Schedule already advanced by claimSchedule() before processSchedule() was called
