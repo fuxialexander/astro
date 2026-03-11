@@ -3028,6 +3028,8 @@ async function requestExecutionSummary(
           }
           return { executions: newExecutions }
         })
+        // Persist the newly-generated summary to DB
+        useExecutionStore.getState().persist()
       } else {
         console.warn(`[execution-store] Summary response missing 'summary' field for ${nodeId}`)
         setFallbackSummary(nodeId, execution)

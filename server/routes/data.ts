@@ -1634,7 +1634,8 @@ app.post('/executions', async (c) => {
       estimatedCostUsd: body.metrics?.estimatedCostUsd || null,
       model: body.metrics?.model || null,
       turnsUsed: body.metrics?.turnsUsed || null,
-      summary: body.summary || null,
+      // Only overwrite summary when provided — preserve existing DB value otherwise
+      ...(body.summary ? { summary: body.summary } : {}),
     },
   })
 
