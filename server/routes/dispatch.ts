@@ -79,8 +79,15 @@ function getShortId(id: string): string {
 
 /**
  * Derive the default delivery mode from remoteType.
- * Mirrors the agent-runner's deriveDeliveryMode() logic so the server
- * sends the correct mode instead of always defaulting to 'pr'.
+ * This is a last-resort fallback — only runs when neither the request body
+ * nor the project DB provides a deliveryMode (line 462 resolves DB first).
+ *
+ * Note: the agent-runner's deriveDeliveryMode() also checks `isGit` to
+ * distinguish "local git, no remote" (→ 'branch') from "no git at all"
+ * (→ 'direct'). The server doesn't have `isGit`, but for local-git projects
+ * the DB deliveryMode is set to 'branch' during project creation from the
+ * agent's suggestedDeliveryMode, so this fallback only fires for non-git
+ * cases (templates, ephemeral directories).
  */
 function deriveDefaultDeliveryMode(remoteType?: string): 'pr' | 'push' | 'branch' | 'direct' {
   switch (remoteType) {

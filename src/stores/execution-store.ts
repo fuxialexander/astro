@@ -447,12 +447,23 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
     // Build dependency outputs from completed dependencies, truncating oversized outputs
     const rawDependencyOutputs = buildDependencyOutputs(node.dependencies, liveNodes, projectId)
-    const dependencyOutputs = rawDependencyOutputs.map(dep => ({
-      ...dep,
-      output: dep.output.length > MAX_DEP_OUTPUT_LENGTH
-        ? dep.output.slice(0, MAX_DEP_OUTPUT_LENGTH) + '\n\n[Output truncated...]'
-        : dep.output,
-    }))
+    const DEP_TRUNCATION_SUFFIX = '\n\n[Output truncated...]'
+    const dependencyOutputs = rawDependencyOutputs.map(dep => {
+      if (dep.output.length <= MAX_DEP_OUTPUT_LENGTH) return dep
+      return {
+        ...dep,
+        output: dep.output.slice(0, MAX_DEP_OUTPUT_LENGTH - DEP_TRUNCATION_SUFFIX.length) + DEP_TRUNCATION_SUFFIX,
+      }
+    })
+    const truncatedCount = dependencyOutputs.filter((d, i) => d.output !== rawDependencyOutputs[i].output).length
+    if (truncatedCount > 0) {
+      useToastStore.getState().add({
+        type: "warning",
+        title: `${truncatedCount} dependency output${truncatedCount > 1 ? 's' : ''} truncated`,
+        description: `Oversized dependency outputs were trimmed to ${MAX_DEP_OUTPUT_LENGTH.toLocaleString()} characters to fit dispatch limits.`,
+        duration: 10000,
+      })
+    }
 
     // Initialize execution state
     const execution: TaskExecution = {
