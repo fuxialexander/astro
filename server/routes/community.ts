@@ -14,6 +14,18 @@ import {
 import { eq, and, desc, isNull, ilike, or, sql } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 
+const FORK_COLORS = ['#4A6D8A', '#5F8D6B', '#A07D4F', '#7B6B9A', '#9A6878', '#A8785E', '#5B7F9A', '#8A7A6E', '#71717A']
+const FORK_ICONS = [
+  '🚀', '🔬', '🧪', '🎯', '💡', '⚡', '🌿', '🎨', '🏗️', '🧩',
+  '🔮', '🌊', '🐉', '🦊', '🎸', '🏰', '🧠', '💎', '🌋', '🔭',
+  '🎪', '🦋', '🍄', '🐙', '🎲', '🛸', '🌈', '🧬', '⚙️', '🎭',
+]
+function pickByNameHash(name: string, arr: readonly string[] = FORK_ICONS): string {
+  let h = 5381
+  for (let i = 0; i < name.length; i++) h = ((h << 5) + h + name.charCodeAt(i)) | 0
+  return arr[Math.abs(h) % arr.length]
+}
+
 const app = new Hono()
 
 // Apply authentication middleware to all routes
@@ -609,14 +621,17 @@ app.post('/plans/:id/fork', async (c) => {
   const now = new Date()
   const projectId = crypto.randomUUID()
 
+  const forkName = `${result.title} (Fork)`
   const projectData = {
     id: projectId,
     ownerId: user.id,
     teamId: user.teamId,
-    name: `${result.title} (Fork)`,
+    name: forkName,
     description: result.description || '',
     visionDoc: result.visionDoc || '',
     status: 'active' as const,
+    icon: pickByNameHash(forkName),
+    color: pickByNameHash(forkName, FORK_COLORS),
     source: {
       type: 'community-fork' as const,
       planId: result.id,

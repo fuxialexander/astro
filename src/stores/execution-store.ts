@@ -1613,6 +1613,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       name: displayName,
       description,
       status: 'active',
+      color: getColorForName(displayName),
+      icon: getProjectIconForName(displayName),
       visionDoc: "",
       workingDirectory: options.workingDirectory,
       defaultMachineId: options.targetMachineId,

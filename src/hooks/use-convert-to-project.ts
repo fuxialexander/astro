@@ -8,6 +8,7 @@ import { dataClient } from "@/lib/data-client"
 import { closePr, ensureBranch } from "@/lib/api-client"
 import { getShortId } from "@/lib/utils"
 import { isNodeIsolated } from "@/lib/plan-utils"
+import { getColorForName, getProjectIconForName } from "@/lib/color-icon-utils"
 import type { PlanNode, Project, ProjectSource } from "@/types"
 
 /**
@@ -186,6 +187,8 @@ export function useConvertToProject() {
         description: enrichedDescription,
         visionDoc: sourceProject.visionDoc || "",
         status: "active",
+        color: getColorForName(projectName),
+        icon: getProjectIconForName(projectName),
         workingDirectory: sourceProject.workingDirectory,
         repository: sourceProject.repository,
         githubOwner: sourceProject.githubOwner,
