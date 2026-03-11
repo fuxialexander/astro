@@ -1108,6 +1108,7 @@ function handleRealtimeEvent(
     case 'task:result': {
       const execId = data.taskId as string
       const status = data.status as string
+      const isSuccess = status === 'success' || status === 'completed'
       set((state) => {
         const streams = new Map(state.taskStreams)
         const existing = streams.get(execId) || createEmptyTaskStream(execId)
@@ -1116,6 +1117,7 @@ function handleRealtimeEvent(
           status,
           output: data.output as string | undefined,
           error: data.error as string | undefined,
+          ...(isSuccess ? { progress: 100 } : {}),
         })
 
         // Clean up any pending dynamic approvals for this task
@@ -1133,8 +1135,6 @@ function handleRealtimeEvent(
           ...(changed ? { dynamicApprovals: newApprovals } : {}),
         }
       })
-
-      const isSuccess = status === 'success' || status === 'completed'
       addActivity(
         set,
         isSuccess ? 'success' : 'failure',
