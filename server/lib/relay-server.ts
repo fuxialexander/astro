@@ -892,6 +892,21 @@ export class RelayServer extends EventEmitter {
       }
     }
 
+    // Defense-in-depth: ANY task message from the agent runner implicitly ACKs the dispatch.
+    // This ensures the 30s ACK timer is cleared even if the agent-runner version doesn't
+    // send explicit task_dispatch_ack (safe for rolling deployments).
+    if (typeof message.type === 'string' && message.type.startsWith('task')) {
+      const payload = (message as { payload?: { taskId?: string } }).payload;
+      const taskId = payload?.taskId;
+      if (taskId) {
+        const ackTimer = this.dispatchAckTimers.get(taskId);
+        if (ackTimer) {
+          clearTimeout(ackTimer);
+          this.dispatchAckTimers.delete(taskId);
+        }
+      }
+    }
+
     switch (message.type) {
       case 'machine.register':
         this.handleMachineRegister(socket, message as MachineRegisterMessage, setMachineId);
@@ -1605,6 +1620,8 @@ export class RelayServer extends EventEmitter {
         this.taskToMachine.delete(event.taskId);
         this.taskDispatchedAt.delete(event.taskId);
         this.consecutiveMisses.delete(event.taskId);
+        const ackRC = this.dispatchAckTimers.get(event.taskId);
+        if (ackRC) { clearTimeout(ackRC); this.dispatchAckTimers.delete(event.taskId); }
       }
     });
 
@@ -1713,6 +1730,8 @@ export class RelayServer extends EventEmitter {
                 this.consecutiveMisses.delete(taskId);
                 this.taskToMachine.delete(taskId);
                 this.taskDispatchedAt.delete(taskId);
+                const ackDJ = this.dispatchAckTimers.get(taskId);
+                if (ackDJ) { clearTimeout(ackDJ); this.dispatchAckTimers.delete(taskId); }
                 redisPubSub.removeTaskMapping(taskId).catch(() => {});
 
                 // Emit event for dispatch layer to handle DB reset
