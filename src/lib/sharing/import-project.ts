@@ -7,7 +7,7 @@ import type { ProjectExportData, ImportResult } from './types'
  * Import a project from exported data.
  * Generates new IDs for the project, nodes, and edges, remapping all references.
  */
-export function importProject(data: ProjectExportData): ImportResult {
+export async function importProject(data: ProjectExportData): Promise<ImportResult> {
   const warnings: string[] = []
 
   // Generate new project ID
@@ -94,10 +94,8 @@ export function importProject(data: ProjectExportData): ImportResult {
     warnings.push(`${skippedEdges} edge(s) skipped due to missing node references`)
   }
 
-  // Write to stores (fire-and-forget — addProject is async but import is sync)
-  useProjectStore.getState().addProject(project).catch((err) => {
-    console.error('[import-project] Failed to persist project:', err)
-  })
+  // Persist project before plan so downstream session creation finds the FK target
+  await useProjectStore.getState().addProject(project)
   usePlanStore.getState().setProjectPlan(newProjectId, nodes, edges)
 
   return {

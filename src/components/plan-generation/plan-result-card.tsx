@@ -60,10 +60,10 @@ export function PlanResultCard({
     setTimeout(() => setCopied(false), 2000)
   }
 
-  function handleCreateProject() {
+  async function handleCreateProject() {
     const name = newProjectName.trim() || `${projectName} (Copy)`
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
-    const result = importProject({
+    const result = await importProject({
       project: {
         name,
         description: project?.description ?? '',

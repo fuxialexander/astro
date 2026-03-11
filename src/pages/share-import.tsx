@@ -36,11 +36,11 @@ export function ShareImport() {
     return () => controller.abort()
   }, [id])
 
-  const handleImport = () => {
+  const handleImport = async () => {
     if (!bundle || bundle.type !== "project") return
     setImporting(true)
     try {
-      const result = importProject(bundle.data as ProjectExportData)
+      const result = await importProject(bundle.data as ProjectExportData)
       if (result.success && result.projectId) {
         navigate(`/project/${result.projectId}/graph`)
       } else {
