@@ -25,5 +25,6 @@ export { getEligibleSkills, buildSkillPromptInjection } from './skill-injector.j
 export * from './prompt-templates.js'
 export { extractPlanJsonFromText } from './plan-extraction.js'
 export type { PlanJsonResult } from './plan-extraction.js'
+export { BUILTIN_TEMPLATE_IDS, BUILTIN_TEMPLATES, BUILTIN_EXAMPLES } from './templates/index.js'
 // Built-in skills
 export * from './skills/index.js'
