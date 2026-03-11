@@ -502,6 +502,145 @@ describe('Issue #264: Graph edge bridging through hidden milestones', () => {
   })
 })
 
+// ============================================================================
+// computeMilestoneUpdates — Replicated from plan-store.ts for testing
+// Tests the fix for milestoneId-only relationships (no edges to milestone)
+// ============================================================================
+
+const COMPLETED_STATUSES: PlanNode['status'][] = ['completed', 'auto_verified']
+
+function computeMilestoneUpdates(
+  changedNodeId: string,
+  nodes: PlanNode[],
+  edges: PlanEdge[],
+): Array<{ id: string; status: PlanNode['status'] }> {
+  const liveNodes = nodes // tests don't use deletedAt
+  const liveEdges = edges
+
+  const statusMap = new Map(liveNodes.map((n) => [n.id, n.status]))
+  const changedNode = liveNodes.find((n) => n.id === changedNodeId)
+  if (!changedNode) return []
+
+  const projectMilestones = liveNodes.filter(
+    (n) => n.projectId === changedNode.projectId && n.type === 'milestone'
+  )
+  if (projectMilestones.length === 0) return []
+
+  const projectTasks = liveNodes.filter(
+    (n) => n.projectId === changedNode.projectId && n.type !== 'milestone'
+  )
+  const upstreamMap = new Map<string, string[]>()
+  for (const ms of projectMilestones) {
+    const edgeDeps = new Set(liveEdges.filter((e) => e.target === ms.id).map((e) => e.source))
+    for (const t of projectTasks) {
+      if (t.milestoneId === ms.id) edgeDeps.add(t.id)
+    }
+    upstreamMap.set(ms.id, [...edgeDeps])
+  }
+
+  const updates = new Map<string, PlanNode['status']>()
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const ms of projectMilestones) {
+      const deps = upstreamMap.get(ms.id) ?? []
+      if (deps.length === 0) continue
+
+      const currentStatus = statusMap.get(ms.id)!
+      const allDepsCompleted = deps.every((depId) => {
+        const s = statusMap.get(depId)
+        return s && COMPLETED_STATUSES.includes(s)
+      })
+
+      if (allDepsCompleted && !COMPLETED_STATUSES.includes(currentStatus)) {
+        statusMap.set(ms.id, 'auto_verified')
+        updates.set(ms.id, 'auto_verified')
+        changed = true
+      } else if (!allDepsCompleted && currentStatus === 'auto_verified') {
+        statusMap.set(ms.id, 'planned')
+        updates.set(ms.id, 'planned')
+        changed = true
+      }
+    }
+  }
+
+  return Array.from(updates, ([id, status]) => ({ id, status }))
+}
+
+describe('Milestone completion via milestoneId (no edges to milestone)', () => {
+  it('auto-completes milestone when all milestoneId tasks are done, even without edges', () => {
+    // Tasks have milestoneId pointing to m1 but NO edges from task→m1
+    const nodes: PlanNode[] = [
+      makeNode({ id: 't1', title: 'Setup Infrastructure', status: 'auto_verified', milestoneId: 'm1' }),
+      makeNode({ id: 't2', title: 'Create CSS System', status: 'auto_verified', milestoneId: 'm1' }),
+      makeNode({ id: 'm1', title: 'Infrastructure Ready', type: 'milestone', status: 'planned' }),
+      makeNode({ id: 't3', title: 'Convert Slides', status: 'planned', dependencies: ['m1'] }),
+    ]
+    // Only edge is m1→t3 (milestone blocks downstream), no edges t1→m1 or t2→m1
+    const edges: PlanEdge[] = [
+      makeEdge('m1', 't3'),
+    ]
+
+    const updates = computeMilestoneUpdates('t2', nodes, edges)
+    expect(updates).toHaveLength(1)
+    expect(updates[0]).toEqual({ id: 'm1', status: 'auto_verified' })
+  })
+
+  it('does not auto-complete milestone when some milestoneId tasks are still planned', () => {
+    const nodes: PlanNode[] = [
+      makeNode({ id: 't1', title: 'Task 1', status: 'auto_verified', milestoneId: 'm1' }),
+      makeNode({ id: 't2', title: 'Task 2', status: 'planned', milestoneId: 'm1' }),
+      makeNode({ id: 'm1', title: 'Milestone', type: 'milestone', status: 'planned' }),
+    ]
+    const edges: PlanEdge[] = []
+
+    const updates = computeMilestoneUpdates('t1', nodes, edges)
+    expect(updates).toHaveLength(0)
+  })
+
+  it('combines edge deps and milestoneId deps', () => {
+    // t1 has edge to m1, t2 has milestoneId=m1 but no edge
+    const nodes: PlanNode[] = [
+      makeNode({ id: 't1', title: 'Task 1', status: 'auto_verified' }),
+      makeNode({ id: 't2', title: 'Task 2', status: 'auto_verified', milestoneId: 'm1' }),
+      makeNode({ id: 'm1', title: 'Milestone', type: 'milestone', status: 'planned' }),
+    ]
+    const edges: PlanEdge[] = [
+      makeEdge('t1', 'm1'),
+    ]
+
+    const updates = computeMilestoneUpdates('t2', nodes, edges)
+    expect(updates).toHaveLength(1)
+    expect(updates[0]).toEqual({ id: 'm1', status: 'auto_verified' })
+  })
+
+  it('blocks milestone when edge dep is done but milestoneId dep is not', () => {
+    const nodes: PlanNode[] = [
+      makeNode({ id: 't1', title: 'Task 1', status: 'auto_verified' }),
+      makeNode({ id: 't2', title: 'Task 2', status: 'planned', milestoneId: 'm1' }),
+      makeNode({ id: 'm1', title: 'Milestone', type: 'milestone', status: 'planned' }),
+    ]
+    const edges: PlanEdge[] = [
+      makeEdge('t1', 'm1'),
+    ]
+
+    const updates = computeMilestoneUpdates('t1', nodes, edges)
+    expect(updates).toHaveLength(0)
+  })
+
+  it('reverts milestone if a milestoneId task is reset to planned', () => {
+    const nodes: PlanNode[] = [
+      makeNode({ id: 't1', title: 'Task 1', status: 'planned', milestoneId: 'm1' }),
+      makeNode({ id: 'm1', title: 'Milestone', type: 'milestone', status: 'auto_verified' }),
+    ]
+    const edges: PlanEdge[] = []
+
+    const updates = computeMilestoneUpdates('t1', nodes, edges)
+    expect(updates).toHaveLength(1)
+    expect(updates[0]).toEqual({ id: 'm1', status: 'planned' })
+  })
+})
+
 describe('Milestone node properties', () => {
   const dag = createTestDAG()
 

@@ -41,10 +41,19 @@ function computeMilestoneUpdates(
   if (projectMilestones.length === 0) return []
 
   // Build upstream map: milestoneId → [depId, ...]
+  // Combines edges pointing TO the milestone with tasks that have milestoneId set.
+  // This handles cases where the AI sets milestoneId but doesn't create a task→milestone edge.
+  const projectTasks = liveNodes.filter(
+    (n) => n.projectId === changedNode.projectId && n.type !== "milestone"
+  )
   const upstreamMap = new Map<string, string[]>()
   for (const ms of projectMilestones) {
-    const deps = liveEdges.filter((e) => e.target === ms.id).map((e) => e.source)
-    upstreamMap.set(ms.id, deps)
+    const edgeDeps = new Set(liveEdges.filter((e) => e.target === ms.id).map((e) => e.source))
+    // Also include tasks whose milestoneId points to this milestone
+    for (const t of projectTasks) {
+      if (t.milestoneId === ms.id) edgeDeps.add(t.id)
+    }
+    upstreamMap.set(ms.id, [...edgeDeps])
   }
 
   // Iterate until stable (handles cascading milestone → milestone deps)
