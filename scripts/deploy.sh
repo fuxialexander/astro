@@ -33,7 +33,48 @@ APP="${FLY_APP:-astro-backend-deploy}"
 PAGES_PROJECT="${CLOUDFLARE_PAGES_PROJECT:-astro-app}"
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
-# Validate required vars for prod deploy
+# Show active env profile and branch
+echo ""
+echo "  Branch:  $BRANCH"
+if [[ -L "$REPO_ROOT/.env.local" ]]; then
+  _target=$(readlink "$REPO_ROOT/.env.local")
+  if [[ "$_target" == *".prod" ]]; then
+    echo "  Profile: prod (.env.local → .env.prod)"
+  elif [[ "$_target" == *".local.dev" ]]; then
+    echo "  Profile: dev (.env.local → .env.local.dev)"
+  else
+    echo "  Profile: custom (.env.local → $_target)"
+  fi
+elif [[ ! -e "$REPO_ROOT/.env.local" ]]; then
+  echo "  Profile: local (no .env.local)"
+else
+  echo "  Profile: unknown (.env.local is a regular file)"
+fi
+
+# Warn if deploying from a non-main branch
+if [[ "$BRANCH" != "main" ]]; then
+  echo ""
+  echo "  Warning: You are deploying from branch '$BRANCH', not 'main'."
+  echo "  Production deploys should typically be from the main branch."
+  echo "  Frontend will be deployed as a branch preview, not production."
+  echo ""
+  if [[ -t 0 ]]; then
+    read -r -p "  Continue anyway? [y/N] " _confirm
+    if [[ "${_confirm:-n}" != [yY] ]]; then
+      echo "  Aborted. Switch to main first: git checkout main && git pull"
+      exit 0
+    fi
+  else
+    echo "  Non-interactive mode detected. Aborting non-main deploy."
+    echo "  Set DEPLOY_ALLOW_BRANCH=1 to override, or switch to main."
+    if [[ -z "${DEPLOY_ALLOW_BRANCH:-}" ]]; then
+      exit 1
+    fi
+  fi
+fi
+echo ""
+
+# Diagnose env profile and validate required vars for prod deploy
 check_required() {
   local missing=()
   [[ -z "${VITE_API_BASE_URL:-}" ]] && missing+=("VITE_API_BASE_URL")
@@ -41,15 +82,62 @@ check_required() {
   [[ -z "${VITE_SUPABASE_ANON_KEY:-}" ]] && missing+=("VITE_SUPABASE_ANON_KEY")
 
   if [[ ${#missing[@]} -gt 0 ]]; then
-    echo "Error: Missing required env vars for deployment:"
+    echo ""
+    echo "Error: Missing required env vars for frontend deployment:"
     for v in "${missing[@]}"; do
       echo "  - $v"
     done
     echo ""
-    echo "These should be set in .env.prod. Run:"
-    echo "  npm run env:init    # Generate profiles"
-    echo "  npm run env:prod    # Switch to prod"
-    echo "  Then edit .env.prod with your credentials"
+
+    # Diagnose the root cause
+    local env_local="$REPO_ROOT/.env.local"
+    local env_prod="$REPO_ROOT/.env.prod"
+
+    if [[ ! -e "$env_local" ]]; then
+      # No .env.local → user is in local mode
+      echo "Cause: No active env profile (.env.local does not exist)."
+      echo "  You are in local mode — deploy requires the prod profile."
+      echo ""
+      if [[ -f "$env_prod" ]]; then
+        echo "Fix: Your .env.prod already exists. Activate it and redeploy:"
+        echo "  npm run env:prod     # Activate prod profile"
+        echo "  npm run deploy       # Redeploy (backend is already up)"
+      else
+        echo "Fix: Create and activate a prod profile:"
+        echo "  1. npm run env:init    # Create .env.prod template"
+        echo "  2. Edit .env.prod      # Fill in your Supabase + API credentials"
+        echo "  3. npm run env:prod    # Activate prod profile"
+        echo "  4. npm run deploy      # Deploy"
+      fi
+    elif [[ -L "$env_local" ]]; then
+      local target
+      target=$(readlink "$env_local")
+      if [[ "$target" == *".local.dev" ]]; then
+        echo "Cause: You are in dev mode (.env.local → .env.local.dev)."
+        echo "  Dev mode uses local Supabase — deploy requires the prod profile."
+        echo ""
+        if [[ -f "$env_prod" ]]; then
+          echo "Fix: Switch to prod and redeploy:"
+          echo "  npm run env:prod     # Switch to prod profile"
+          echo "  npm run deploy       # Redeploy"
+        else
+          echo "Fix: Create a prod profile first:"
+          echo "  1. npm run env:init    # Create .env.prod template"
+          echo "  2. Edit .env.prod      # Fill in your credentials"
+          echo "  3. npm run env:prod    # Activate prod profile"
+          echo "  4. npm run deploy      # Deploy"
+        fi
+      else
+        echo "Cause: .env.local → $target, but required VITE_* vars are not set in it."
+        echo ""
+        echo "Fix: Edit $target and add the missing variables, then redeploy."
+      fi
+    else
+      echo "Cause: .env.local exists but is missing the required VITE_* variables."
+      echo ""
+      echo "Fix: Edit .env.local (or .env.prod) and add the missing variables."
+    fi
+    echo ""
     exit 1
   fi
 }
@@ -143,6 +231,8 @@ case "${1:-all}" in
     deploy_frontend
     ;;
   all)
+    # Fail-fast: check env before deploying backend (also checked inside deploy_frontend)
+    check_required
     deploy_backend
     deploy_frontend
     ;;
