@@ -6,7 +6,7 @@
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png" />
-    <title>Astro — Mission Control for the AI Age</title>
+    <title data-i18n="meta.title">Astro — Mission Control for the AI Age</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -182,6 +182,28 @@
             color: var(--text-secondary);
             background: rgba(255, 255, 255, 0.06);
         }
+
+        .nav-lang {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            overflow: hidden;
+            background: rgba(0, 0, 0, 0.15);
+        }
+        .nav-lang-btn {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.7rem;
+            padding: 0.35rem 0.6rem;
+            border: none;
+            background: none;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            transition: color 0.2s ease, background 0.2s ease;
+        }
+        .nav-lang-btn:hover { color: var(--text-secondary); background: rgba(255, 255, 255, 0.04); }
+        .nav-lang-btn.active { color: var(--text-primary); background: rgba(91, 163, 208, 0.12); }
 
         .nav-install { position: relative; }
         .nav-install-copied {
@@ -2034,15 +2056,19 @@
         <nav>
             <div class="logo">Astro</div>
             <div class="nav-links">
-                <button class="nav-link" onclick="document.querySelector('.pillars-section').scrollIntoView({behavior:'smooth'})">How It Works</button>
-                <button class="nav-link" onclick="document.querySelector('.personas-section').scrollIntoView({behavior:'smooth'})">What It Can Do</button>
-                <button class="nav-link" onclick="document.querySelector('.safety-section').scrollIntoView({behavior:'smooth'})">Safety</button>
-                <button class="nav-link" onclick="document.querySelector('#get-started').scrollIntoView({behavior:'smooth'})">Launch Sequence</button>
+                <button class="nav-link" onclick="document.querySelector('.pillars-section').scrollIntoView({behavior:'smooth'})" data-i18n="nav.howItWorks">How It Works</button>
+                <button class="nav-link" onclick="document.querySelector('.personas-section').scrollIntoView({behavior:'smooth'})" data-i18n="nav.whatItCanDo">What It Can Do</button>
+                <button class="nav-link" onclick="document.querySelector('.safety-section').scrollIntoView({behavior:'smooth'})" data-i18n="nav.safety">Safety</button>
+                <button class="nav-link" onclick="document.querySelector('#get-started').scrollIntoView({behavior:'smooth'})" data-i18n="nav.launchSequence">Launch Sequence</button>
+                <div class="nav-lang" role="group" aria-label="Language">
+                    <button type="button" class="nav-lang-btn" data-i18n-lang data-lang="en" aria-pressed="true">EN</button>
+                    <button type="button" class="nav-lang-btn" data-i18n-lang data-lang="zh" aria-pressed="false">中文</button>
+                </div>
                 <div class="nav-cta-group">
-                    <a class="nav-cta" href="/login">Get Started</a>
+                    <a class="nav-cta" href="/login" data-i18n="nav.getStarted">Get Started</a>
                     <div class="nav-install" onclick="navigator.clipboard.writeText('npx @astroanywhere/agent@latest launch');this.classList.add('copied');var el=this;setTimeout(function(){el.classList.remove('copied')},1500)">
                         <span class="nav-install-text"><span class="prompt">$</span> npx @astroanywhere/agent <span class="flag">launch</span></span>
-                        <span class="nav-install-copied">Copied!</span>
+                        <span class="nav-install-copied" data-i18n="nav.copied">Copied!</span>
                     </div>
                 </div>
             </div>
@@ -2051,15 +2077,15 @@
         <!-- ==================== HERO ==================== -->
         <section class="hero">
             <h1 class="hero-title">Astro</h1>
-            <p class="hero-subtitle">Mission control for the AI age</p>
-            <p class="hero-description">
+            <p class="hero-subtitle" data-i18n="hero.subtitle">Mission control for the AI age</p>
+            <p class="hero-description" data-i18n="hero.description">
                 Apollo missions aren't run from chat windows. Astro turns ambitious goals into coordinated
                 missions&mdash;parallel workstreams across every environment, strategic decisions at every branch,
                 from anywhere, by humans and agents.
             </p>
             <div class="hero-ctas">
                 <a class="cta-button" href="/login">
-                    <span>Get Started</span>
+                    <span data-i18n="hero.getStarted">Get Started</span>
                     <span class="arrow">&rarr;</span>
                 </a>
                 <div class="hero-install-inline" onclick="navigator.clipboard.writeText('npx @astroanywhere/agent@latest launch');var btn=this.querySelector('.install-copy-btn');btn.classList.add('copied');btn.textContent='Copied!';setTimeout(function(){btn.classList.remove('copied');btn.textContent=''},2000)">
@@ -2068,14 +2094,14 @@
                 </div>
             </div>
             <div class="hero-scroll-hint" onclick="document.querySelector('.pillars-section').scrollIntoView({behavior:'smooth'})">
-                <span>See how it works</span>
+                <span data-i18n="hero.seeHow">See how it works</span>
                 <div class="chevron-wrap"><div class="chevron-down"></div></div>
             </div>
             <div class="feature-pills">
-                <div class="pill">Plan the work</div>
-                <div class="pill">Execute in parallel</div>
-                <div class="pill">Decide anywhere</div>
-                <div class="pill">For human & agent</div>
+                <div class="pill" data-i18n="hero.pill1">Plan the work</div>
+                <div class="pill" data-i18n="hero.pill2">Execute in parallel</div>
+                <div class="pill" data-i18n="hero.pill3">Decide anywhere</div>
+                <div class="pill" data-i18n="hero.pill4">For human & agent</div>
             </div>
         </section>
 
@@ -2083,9 +2109,9 @@
         <!-- ==================== THREE PILLARS — BENTO GRID ==================== -->
         <section class="pillars-section fade-section section-divider">
             <div class="section-header">
-                <div class="section-label">How It Works</div>
-                <h2 class="section-title">Plan, Execute, Decide</h2>
-                <p class="section-description">
+                <div class="section-label" data-i18n="pillars.label">How It Works</div>
+                <h2 class="section-title" data-i18n="pillars.title">Plan, Execute, Decide</h2>
+                <p class="section-description" data-i18n="pillars.desc">
                     The workflow turn-by-turn tools can't provide: structured planning, parallel execution, strategic decisions from anywhere.
                 </p>
             </div>
@@ -2100,17 +2126,17 @@
                         </svg>
                     </div>
                     <div class="bento-number">01</div>
-                    <h3 class="bento-title">Plan the work</h3>
-                    <p class="bento-text">
+                    <h3 class="bento-title" data-i18n="bento.plan.title">Plan the work</h3>
+                    <p class="bento-text" data-i18n="bento.plan.text">
                         Decompose goals into a dependency graph — not a flat list. See what runs in parallel and what must wait.
                     </p>
                     <div class="bento-visual">
                         <!-- Interactive view toggle tabs -->
                         <div class="view-toggle" id="planViewToggle">
-                            <div class="view-toggle-tab active" data-view="graph">Graph</div>
-                            <div class="view-toggle-tab" data-view="list">List</div>
-                            <div class="view-toggle-tab" data-view="timeline">Timeline</div>
-                            <div class="view-toggle-tab" data-view="board">Board</div>
+                            <div class="view-toggle-tab active" data-view="graph" data-i18n="bento.viewGraph">Graph</div>
+                            <div class="view-toggle-tab" data-view="list" data-i18n="bento.viewList">List</div>
+                            <div class="view-toggle-tab" data-view="timeline" data-i18n="bento.viewTimeline">Timeline</div>
+                            <div class="view-toggle-tab" data-view="board" data-i18n="bento.viewBoard">Board</div>
                         </div>
 
                         <div class="plan-view-container">
@@ -2650,8 +2676,8 @@
                         </svg>
                     </div>
                     <div class="bento-number">02</div>
-                    <h3 class="bento-title">Execute Everywhere</h3>
-                    <p class="bento-text">
+                    <h3 class="bento-title" data-i18n="bento.execute.title">Execute Everywhere</h3>
+                    <p class="bento-text" data-i18n="bento.execute.text">
                         Launch tasks across local, HPC, and cloud simultaneously. Isolated worktrees, results as PRs.
                     </p>
                     <div class="bento-visual">
@@ -2687,35 +2713,35 @@
                         </svg>
                     </div>
                     <div class="bento-number">03</div>
-                    <h3 class="bento-title">Decide anywhere</h3>
-                    <p class="bento-text">
+                    <h3 class="bento-title" data-i18n="bento.decide.title">Decide anywhere</h3>
+                    <p class="bento-text" data-i18n="bento.decide.text">
                         Strategic decisions from any device. Approve, pivot, or prune branches without touching a terminal.
                     </p>
                     <div class="bento-visual">
                         <div class="mini-approval">
                             <div class="mini-approval-header">
                                 <div class="mini-approval-dot"></div>
-                                <div class="mini-approval-label">DECISION PENDING</div>
+                                <div class="mini-approval-label" data-i18n="mini.approval.pending">DECISION PENDING</div>
                             </div>
-                            <div class="mini-approval-question">
+                            <div class="mini-approval-question" data-i18n="mini.approval.question">
                                 "OAuth adds a dependency but is more secure. Use OAuth or session tokens?"
                             </div>
                             <div class="mini-approval-buttons">
-                                <div class="mini-approval-btn approve">OAuth</div>
-                                <div class="mini-approval-btn reject">Session tokens</div>
+                                <div class="mini-approval-btn approve" data-i18n="mini.approval.oauth">OAuth</div>
+                                <div class="mini-approval-btn reject" data-i18n="mini.approval.session">Session tokens</div>
                             </div>
                             <div class="mini-approval-stats">
                                 <div class="mini-stat">
                                     <div class="mini-stat-value">7</div>
-                                    <div class="mini-stat-label">Tasks active</div>
+                                    <div class="mini-stat-label" data-i18n="mini.approval.tasksActive">Tasks active</div>
                                 </div>
                                 <div class="mini-stat">
                                     <div class="mini-stat-value">2</div>
-                                    <div class="mini-stat-label">Decisions</div>
+                                    <div class="mini-stat-label" data-i18n="mini.approval.decisions">Decisions</div>
                                 </div>
                                 <div class="mini-stat">
                                     <div class="mini-stat-value">$1.24</div>
-                                    <div class="mini-stat-label">Cost</div>
+                                    <div class="mini-stat-label" data-i18n="mini.approval.cost">Cost</div>
                                 </div>
                             </div>
                         </div>
@@ -2727,9 +2753,9 @@
         <!-- ==================== A WORKFLOW FOR EVERYONE ==================== -->
         <section class="personas-section fade-section section-divider">
             <div class="section-header">
-                <div class="section-label">What It Can Do</div>
-                <h2 class="section-title">One platform. Every workflow.</h2>
-                <p class="section-description">
+                <div class="section-label" data-i18n="personas.label">What It Can Do</div>
+                <h2 class="section-title" data-i18n="personas.title">One platform. Every workflow.</h2>
+                <p class="section-description" data-i18n="personas.desc">
                     Same entry point, different journeys. Describe your goal, point at a directory, and Astro adapts to your workflow.
                 </p>
             </div>
@@ -2744,15 +2770,15 @@
                             </svg>
                         </div>
                         <div>
-                            <div class="persona-label" style="color: var(--cyan);">Human Builders</div>
-                            <div class="persona-name">PR-based development</div>
+                            <div class="persona-label" style="color: var(--cyan);" data-i18n="persona.builders.label">Human Builders</div>
+                            <div class="persona-name" data-i18n="persona.builders.name">PR-based development</div>
                         </div>
                     </div>
                     <ol class="persona-steps">
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(91, 163, 208, 0.08); color: var(--cyan);">1</span><span class="persona-step-text">Point at a git repo with a GitHub remote</span></li>
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(91, 163, 208, 0.08); color: var(--cyan);">2</span><span class="persona-step-text">AI generates a plan with task dependencies</span></li>
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(91, 163, 208, 0.08); color: var(--cyan);">3</span><span class="persona-step-text">Each task runs in a worktree, opens a PR</span></li>
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(91, 163, 208, 0.08); color: var(--cyan);">4</span><span class="persona-step-text">Review and merge PRs from GitHub</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(91, 163, 208, 0.08); color: var(--cyan);">1</span><span class="persona-step-text" data-i18n="persona.builders.step1">Point at a git repo with a GitHub remote</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(91, 163, 208, 0.08); color: var(--cyan);">2</span><span class="persona-step-text" data-i18n="persona.builders.step2">AI generates a plan with task dependencies</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(91, 163, 208, 0.08); color: var(--cyan);">3</span><span class="persona-step-text" data-i18n="persona.builders.step3">Each task runs in a worktree, opens a PR</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(91, 163, 208, 0.08); color: var(--cyan);">4</span><span class="persona-step-text" data-i18n="persona.builders.step4">Review and merge PRs from GitHub</span></li>
                     </ol>
                 </div>
 
@@ -2764,15 +2790,15 @@
                             </svg>
                         </div>
                         <div>
-                            <div class="persona-label" style="color: var(--orange);">Scientists</div>
-                            <div class="persona-name">Data analysis pipelines</div>
+                            <div class="persona-label" style="color: var(--orange);" data-i18n="persona.scientists.label">Scientists</div>
+                            <div class="persona-name" data-i18n="persona.scientists.name">Data analysis pipelines</div>
                         </div>
                     </div>
                     <ol class="persona-steps">
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(212, 165, 116, 0.08); color: var(--orange);">1</span><span class="persona-step-text">Point at scripts + data directory</span></li>
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(212, 165, 116, 0.08); color: var(--orange);">2</span><span class="persona-step-text">Dispatch to HPC clusters or cloud GPUs</span></li>
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(212, 165, 116, 0.08); color: var(--orange);">3</span><span class="persona-step-text">Branching analyses run in parallel</span></li>
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(212, 165, 116, 0.08); color: var(--orange);">4</span><span class="persona-step-text">Review outputs, compare approaches</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(212, 165, 116, 0.08); color: var(--orange);">1</span><span class="persona-step-text" data-i18n="persona.scientists.step1">Point at scripts + data directory</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(212, 165, 116, 0.08); color: var(--orange);">2</span><span class="persona-step-text" data-i18n="persona.scientists.step2">Dispatch to HPC clusters or cloud GPUs</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(212, 165, 116, 0.08); color: var(--orange);">3</span><span class="persona-step-text" data-i18n="persona.scientists.step3">Branching analyses run in parallel</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(212, 165, 116, 0.08); color: var(--orange);">4</span><span class="persona-step-text" data-i18n="persona.scientists.step4">Review outputs, compare approaches</span></li>
                     </ol>
                 </div>
 
@@ -2784,15 +2810,15 @@
                             </svg>
                         </div>
                         <div>
-                            <div class="persona-label" style="color: var(--green);">Knowledge Workers</div>
-                            <div class="persona-name">Structured planning</div>
+                            <div class="persona-label" style="color: var(--green);" data-i18n="persona.knowledge.label">Knowledge Workers</div>
+                            <div class="persona-name" data-i18n="persona.knowledge.name">Structured planning</div>
                         </div>
                     </div>
                     <ol class="persona-steps">
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(110, 192, 122, 0.08); color: var(--green);">1</span><span class="persona-step-text">Describe a complex goal in plain language</span></li>
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(110, 192, 122, 0.08); color: var(--green);">2</span><span class="persona-step-text">AI decomposes into a dependency graph</span></li>
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(110, 192, 122, 0.08); color: var(--green);">3</span><span class="persona-step-text">Define milestones and track progress</span></li>
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(110, 192, 122, 0.08); color: var(--green);">4</span><span class="persona-step-text">Coordinate teams with task assignments</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(110, 192, 122, 0.08); color: var(--green);">1</span><span class="persona-step-text" data-i18n="persona.knowledge.step1">Describe a complex goal in plain language</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(110, 192, 122, 0.08); color: var(--green);">2</span><span class="persona-step-text" data-i18n="persona.knowledge.step2">AI decomposes into a dependency graph</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(110, 192, 122, 0.08); color: var(--green);">3</span><span class="persona-step-text" data-i18n="persona.knowledge.step3">Define milestones and track progress</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(110, 192, 122, 0.08); color: var(--green);">4</span><span class="persona-step-text" data-i18n="persona.knowledge.step4">Coordinate teams with task assignments</span></li>
                     </ol>
                 </div>
             </div>
@@ -2807,15 +2833,15 @@
                             </svg>
                         </div>
                         <div>
-                            <div class="persona-label" style="color: var(--purple);">Agentic AI Users</div>
-                            <div class="persona-name">Multi-agent orchestration</div>
+                            <div class="persona-label" style="color: var(--purple);" data-i18n="persona.agentic.label">Agentic AI Users</div>
+                            <div class="persona-name" data-i18n="persona.agentic.name">Multi-agent orchestration</div>
                         </div>
                     </div>
                     <ol class="persona-steps">
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(167, 139, 250, 0.08); color: var(--purple);">1</span><span class="persona-step-text">Set up multiple agents across providers</span></li>
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(167, 139, 250, 0.08); color: var(--purple);">2</span><span class="persona-step-text">Dispatch tasks to the right agent + machine</span></li>
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(167, 139, 250, 0.08); color: var(--purple);">3</span><span class="persona-step-text">Monitor all agents from a single dashboard</span></li>
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(167, 139, 250, 0.08); color: var(--purple);">4</span><span class="persona-step-text">Steer decisions in real-time</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(167, 139, 250, 0.08); color: var(--purple);">1</span><span class="persona-step-text" data-i18n="persona.agentic.step1">Set up multiple agents across providers</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(167, 139, 250, 0.08); color: var(--purple);">2</span><span class="persona-step-text" data-i18n="persona.agentic.step2">Dispatch tasks to the right agent + machine</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(167, 139, 250, 0.08); color: var(--purple);">3</span><span class="persona-step-text" data-i18n="persona.agentic.step3">Monitor all agents from a single dashboard</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(167, 139, 250, 0.08); color: var(--purple);">4</span><span class="persona-step-text" data-i18n="persona.agentic.step4">Steer decisions in real-time</span></li>
                     </ol>
                 </div>
 
@@ -2827,15 +2853,15 @@
                             </svg>
                         </div>
                         <div>
-                            <div class="persona-label" style="color: var(--rose);">Agents Themselves</div>
-                            <div class="persona-name">Self-organizing AI agents</div>
+                            <div class="persona-label" style="color: var(--rose);" data-i18n="persona.agents.label">Agents Themselves</div>
+                            <div class="persona-name" data-i18n="persona.agents.name">Self-organizing AI agents</div>
                         </div>
                     </div>
                     <ol class="persona-steps">
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">1</span><span class="persona-step-text">Use CLI tools to query and update plans</span></li>
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">2</span><span class="persona-step-text">Create sub-tasks and new dependencies</span></li>
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">3</span><span class="persona-step-text">Coordinate with other agents via the graph</span></li>
-                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">4</span><span class="persona-step-text">Ask humans only when it truly matters</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">1</span><span class="persona-step-text" data-i18n="persona.agents.step1">Use CLI tools to query and update plans</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">2</span><span class="persona-step-text" data-i18n="persona.agents.step2">Create sub-tasks and new dependencies</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">3</span><span class="persona-step-text" data-i18n="persona.agents.step3">Coordinate with other agents via the graph</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">4</span><span class="persona-step-text" data-i18n="persona.agents.step4">Ask humans only when it truly matters</span></li>
                     </ol>
                 </div>
             </div>
@@ -2844,9 +2870,9 @@
         <!-- ==================== ENVIRONMENTS ==================== -->
         <section class="environments-section fade-section section-divider">
             <div class="section-header">
-                <div class="section-label">Environments</div>
-                <h2 class="section-title">Run Anywhere</h2>
-                <p class="section-description">
+                <div class="section-label" data-i18n="env.label">Environments</div>
+                <h2 class="section-title" data-i18n="env.title">Run Anywhere</h2>
+                <p class="section-description" data-i18n="env.desc">
                     Tasks dispatch to the right environment automatically. Register machines once, dispatch forever.
                 </p>
             </div>
@@ -2858,9 +2884,9 @@
                             <rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
                         </svg>
                     </div>
-                    <h3 class="env-card-title">Local Machine</h3>
-                    <p class="env-card-text">Your laptop or workstation. Zero setup. Agent runs alongside you with full file access.</p>
-                    <div class="env-card-stat">Tasks dispatched: <span class="counter" data-target="1247">0</span></div>
+                    <h3 class="env-card-title" data-i18n="env.local.title">Local Machine</h3>
+                    <p class="env-card-text" data-i18n="env.local.text">Your laptop or workstation. Zero setup. Agent runs alongside you with full file access.</p>
+                    <div class="env-card-stat"><span data-i18n="env.local.stat">Tasks dispatched:</span> <span class="counter" data-target="1247">0</span></div>
                 </div>
                 <div class="env-card stagger-child" style="transition-delay: 0.2s">
                     <div class="env-card-icon" style="background: rgba(212, 165, 116, 0.06); border: 1px solid rgba(212, 165, 116, 0.1);">
@@ -2869,9 +2895,9 @@
                             <circle cx="6" cy="6" r="1" fill="var(--orange)" /><circle cx="6" cy="18" r="1" fill="var(--orange)" />
                         </svg>
                     </div>
-                    <h3 class="env-card-title">HPC / SLURM</h3>
-                    <p class="env-card-text">Submit to compute clusters. SBATCH scripts generated automatically. Monitor jobs live.</p>
-                    <div class="env-card-stat">Jobs submitted: <span class="counter" data-target="384">0</span></div>
+                    <h3 class="env-card-title" data-i18n="env.hpc.title">HPC / SLURM</h3>
+                    <p class="env-card-text" data-i18n="env.hpc.text">Submit to compute clusters. SBATCH scripts generated automatically. Monitor jobs live.</p>
+                    <div class="env-card-stat"><span data-i18n="env.hpc.stat">Jobs submitted:</span> <span class="counter" data-target="384">0</span></div>
                 </div>
                 <div class="env-card stagger-child" style="transition-delay: 0.3s">
                     <div class="env-card-icon" style="background: rgba(110, 192, 122, 0.06); border: 1px solid rgba(110, 192, 122, 0.1);">
@@ -2879,9 +2905,9 @@
                             <path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z" />
                         </svg>
                     </div>
-                    <h3 class="env-card-title">Cloud</h3>
-                    <p class="env-card-text"><strong>Kubernetes</strong>, AWS, GCP, or any cloud VM. Register once via device auth flow. Dispatch remotely.</p>
-                    <div class="env-card-stat">Instances: <span class="counter" data-target="56">0</span></div>
+                    <h3 class="env-card-title" data-i18n="env.cloud.title">Cloud</h3>
+                    <p class="env-card-text" data-i18n="env.cloud.text"><strong>Kubernetes</strong>, AWS, GCP, or any cloud VM. Register once via device auth flow. Dispatch remotely.</p>
+                    <div class="env-card-stat"><span data-i18n="env.cloud.stat">Instances:</span> <span class="counter" data-target="56">0</span></div>
                 </div>
                 <div class="env-card stagger-child" style="transition-delay: 0.4s">
                     <div class="env-card-icon" style="background: rgba(167, 139, 250, 0.06); border: 1px solid rgba(167, 139, 250, 0.1);">
@@ -2889,9 +2915,9 @@
                             <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
                         </svg>
                     </div>
-                    <h3 class="env-card-title">Terminal</h3>
-                    <p class="env-card-text">CLI and TUI apps for your terminal. Plan, dispatch, and monitor without leaving the command line.</p>
-                    <div class="env-card-stat">Interfaces: <span class="counter" data-target="2">0</span></div>
+                    <h3 class="env-card-title" data-i18n="env.terminal.title">Terminal</h3>
+                    <p class="env-card-text" data-i18n="env.terminal.text">CLI and TUI apps for your terminal. Plan, dispatch, and monitor without leaving the command line.</p>
+                    <div class="env-card-stat"><span data-i18n="env.terminal.stat">Interfaces:</span> <span class="counter" data-target="2">0</span></div>
                 </div>
             </div>
         </section>
@@ -2899,9 +2925,9 @@
         <!-- ==================== SAFETY & PRIVACY ==================== -->
         <section class="safety-section fade-section section-divider">
             <div class="section-header">
-                <div class="section-label">Safety &amp; Privacy</div>
-                <h2 class="section-title">Your machines, your keys, your control</h2>
-                <p class="section-description">
+                <div class="section-label" data-i18n="safety.label">Safety &amp; Privacy</div>
+                <h2 class="section-title" data-i18n="safety.title">Your machines, your keys, your control</h2>
+                <p class="section-description" data-i18n="safety.desc">
                     Security isn't an afterthought. Every layer of Astro is designed to keep you in control of what runs on your machines.
                 </p>
             </div>
@@ -2913,8 +2939,8 @@
                             <rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
                         </svg>
                     </div>
-                    <h3 class="safety-card-title">Your compute, your keys</h3>
-                    <p class="safety-card-text">Agent runners execute on your machines with your API keys. The Astro server never calls AI models directly and never sees your API keys.</p>
+                    <h3 class="safety-card-title" data-i18n="safety.keys.title">Your compute, your keys</h3>
+                    <p class="safety-card-text" data-i18n="safety.keys.text">Agent runners execute on your machines with your API keys. The Astro server never calls AI models directly and never sees your API keys.</p>
                 </div>
 
                 <div class="safety-card stagger-child" style="transition-delay: 0.15s">
@@ -2924,8 +2950,8 @@
                             <polyline points="9 12 11 14 15 10" />
                         </svg>
                     </div>
-                    <h3 class="safety-card-title">Signed dispatches</h3>
-                    <p class="safety-card-text">Every task dispatch is cryptographically signed by your browser. Your agent runner verifies the signature before executing, so no one can forge tasks on your machines.</p>
+                    <h3 class="safety-card-title" data-i18n="safety.signed.title">Signed dispatches</h3>
+                    <p class="safety-card-text" data-i18n="safety.signed.text">Every task dispatch is cryptographically signed by your browser. Your agent runner verifies the signature before executing, so no one can forge tasks on your machines.</p>
                 </div>
 
                 <div class="safety-card stagger-child" style="transition-delay: 0.3s">
@@ -2934,8 +2960,8 @@
                             <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /><line x1="14" y1="4" x2="10" y2="20" />
                         </svg>
                     </div>
-                    <h3 class="safety-card-title">Open source &amp; auditable</h3>
-                    <p class="safety-card-text">The relay protocol, agent runner, and signing implementation are open source. You can inspect exactly what runs on your machine.</p>
+                    <h3 class="safety-card-title" data-i18n="safety.open.title">Open source &amp; auditable</h3>
+                    <p class="safety-card-text" data-i18n="safety.open.text">The relay protocol, agent runner, and signing implementation are open source. You can inspect exactly what runs on your machine.</p>
                 </div>
             </div>
         </section>
@@ -2943,60 +2969,60 @@
         <!-- ==================== GET ACCESS ==================== -->
         <section id="get-started" class="get-started-section fade-section section-divider">
             <div class="section-header">
-                <div class="section-label">Launch Sequence</div>
+                <div class="section-label" data-i18n="getStarted.label">Launch Sequence</div>
             </div>
 
             <div class="access-grid">
                 <div class="access-card">
                     <div class="access-card-num">01</div>
-                    <div class="access-card-title">Start planning in Mission Control</div>
-                    <div class="access-card-desc">Create projects, decompose goals into plans, and monitor your agents from anywhere.</div>
+                    <div class="access-card-title" data-i18n="getStarted.card1.title">Start planning in Mission Control</div>
+                    <div class="access-card-desc" data-i18n="getStarted.card1.desc">Create projects, decompose goals into plans, and monitor your agents from anywhere.</div>
                     <a href="/login" class="cta-button" style="text-decoration: none;">
-                        <span>Open Mission Control</span>
+                        <span data-i18n="getStarted.openMC">Open Mission Control</span>
                         <span class="arrow">&rarr;</span>
                     </a>
                 </div>
                 <div class="access-card">
                     <div class="access-card-num">02</div>
-                    <div class="access-card-title">Connect all your machines</div>
-                    <div class="access-card-desc">One command discovers your SSH hosts, authenticates via your browser, creates your account, and starts agents everywhere.</div>
-                    <div class="install-command" onclick="navigator.clipboard.writeText('npx @astroanywhere/agent@latest launch');this.querySelector('.install-copy').textContent='Copied!'">
+                    <div class="access-card-title" data-i18n="getStarted.card2.title">Connect all your machines</div>
+                    <div class="access-card-desc" data-i18n="getStarted.card2.desc">One command discovers your SSH hosts, authenticates via your browser, creates your account, and starts agents everywhere.</div>
+                    <div class="install-command" onclick="navigator.clipboard.writeText('npx @astroanywhere/agent@latest launch');var L=window.__landingLang,d=window.LANDING_TRANSLATIONS;this.querySelector('.install-copy').textContent=d&&d[L]&&d[L]['nav.copied']?d[L]['nav.copied']:'Copied!';">
                         <span><span class="prompt">$</span> <span class="cmd">npx @astroanywhere/agent</span> <span class="flag">launch</span></span>
-                        <span class="install-copy">Copy</span>
+                        <span class="install-copy" data-i18n="getStarted.copy">Copy</span>
                     </div>
-                    <p class="install-hint">Requires Node.js 18+. No global install.</p>
+                    <p class="install-hint" data-i18n="getStarted.installHint">Requires Node.js 18+. No global install.</p>
                 </div>
             </div>
 
-            <div style="text-align: center; margin-top: 3rem; margin-bottom: 0.5rem; font-size: 0.75rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace;">The launch includes</div>
+            <div style="text-align: center; margin-top: 3rem; margin-bottom: 0.5rem; font-size: 0.75rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace;" data-i18n="getStarted.includes">The launch includes</div>
 
             <div class="install-steps">
                 <div class="install-step">
                     <span class="install-step-num">01</span>
                     <div class="install-step-content">
-                        <div class="install-step-title">Detects your AI providers</div>
-                        <div class="install-step-desc">Finds Claude SDK, Claude Code, or Codex on your machine automatically.</div>
+                        <div class="install-step-title" data-i18n="getStarted.step1.title">Detects your AI providers</div>
+                        <div class="install-step-desc" data-i18n="getStarted.step1.desc">Finds Claude SDK, Claude Code, or Codex on your machine automatically.</div>
                     </div>
                 </div>
                 <div class="install-step">
                     <span class="install-step-num">02</span>
                     <div class="install-step-content">
-                        <div class="install-step-title">Discovers your SSH hosts</div>
-                        <div class="install-step-desc">Reads <code>~/.ssh/config</code> and offers to register remote machines (servers, HPC login nodes, cloud VMs).</div>
+                        <div class="install-step-title" data-i18n="getStarted.step2.title">Discovers your SSH hosts</div>
+                        <div class="install-step-desc" data-i18n="getStarted.step2.desc">Reads <code>~/.ssh/config</code> and offers to register remote machines (servers, HPC login nodes, cloud VMs).</div>
                     </div>
                 </div>
                 <div class="install-step">
                     <span class="install-step-num">03</span>
                     <div class="install-step-content">
-                        <div class="install-step-title">Authenticates and creates your account</div>
-                        <div class="install-step-desc">Opens your browser directly. Approve the device code to sign in or create your Astro account in one step.</div>
+                        <div class="install-step-title" data-i18n="getStarted.step3.title">Authenticates and creates your account</div>
+                        <div class="install-step-desc" data-i18n="getStarted.step3.desc">Opens your browser directly. Approve the device code to sign in or create your Astro account in one step.</div>
                     </div>
                 </div>
                 <div class="install-step">
                     <span class="install-step-num">04</span>
                     <div class="install-step-content">
-                        <div class="install-step-title">Connects and listens</div>
-                        <div class="install-step-desc">Joins the relay network. Tasks dispatched from the Astro UI land on your machine in seconds.</div>
+                        <div class="install-step-title" data-i18n="getStarted.step4.title">Connects and listens</div>
+                        <div class="install-step-desc" data-i18n="getStarted.step4.desc">Joins the relay network. Tasks dispatched from the Astro UI land on your machine in seconds.</div>
                     </div>
                 </div>
             </div>
@@ -3031,21 +3057,24 @@
         <!-- ==================== FOOTER CTA ==================== -->
         <section class="footer-cta fade-section section-divider">
             <div class="footer-cta-inner">
-                <h2 class="footer-title">Ready to launch?</h2>
-                <p class="footer-subtitle">Register your machine in 30 seconds</p>
-                <div class="install-command" style="max-width: 480px; margin: 0 auto; font-size: 1rem;" onclick="navigator.clipboard.writeText('npx @astroanywhere/agent@latest launch');this.querySelector('.install-copy').textContent='Copied!'">
+                <h2 class="footer-title" data-i18n="footer.ready">Ready to launch?</h2>
+                <p class="footer-subtitle" data-i18n="footer.register">Register your machine in 30 seconds</p>
+                <div class="install-command" style="max-width: 480px; margin: 0 auto; font-size: 1rem;" onclick="navigator.clipboard.writeText('npx @astroanywhere/agent@latest launch');var L=window.__landingLang,d=window.LANDING_TRANSLATIONS;this.querySelector('.install-copy').textContent=d&&d[L]&&d[L]['nav.copied']?d[L]['nav.copied']:'Copied!';">
                     <span><span class="prompt">$</span> <span class="cmd">npx @astroanywhere/agent</span> <span class="flag">launch</span></span>
-                    <span class="install-copy">Copy</span>
+                    <span class="install-copy" data-i18n="getStarted.copy">Copy</span>
                 </div>
             </div>
         </section>
 
         <!-- Footer -->
         <footer class="footer-bottom">
-            <p><a href="/landing/about" style="color: var(--text-tertiary); text-decoration: none; border-bottom: 1px solid rgba(255,255,255,0.1); transition: color 0.2s;">About</a> &nbsp;&middot;&nbsp; &copy; 2026 Astro</p>
+            <p><a href="/landing/about" style="color: var(--text-tertiary); text-decoration: none; border-bottom: 1px solid rgba(255,255,255,0.1); transition: color 0.2s;" data-i18n="footer.about">About</a> &nbsp;&middot;&nbsp; <span data-i18n="footer.copyright">© 2026 Astro</span></p>
         </footer>
     </div>
 
+    <!-- i18n: load first so text is applied before other scripts -->
+    <script src="/landing/translations.js"></script>
+    <script src="/landing/i18n.js"></script>
     <!-- Three.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>

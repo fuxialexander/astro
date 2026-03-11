@@ -94,6 +94,12 @@ Everything runs locally — no Fly.io, Redis, or external services needed for de
 
 ## Architecture
 
+### Architecture Principles
+
+**Server must remain stateless.** Never store per-request or per-session state on the server. All state lives in the database (Drizzle ORM / Postgres or PGlite). The server reads and writes DB; it does not hold in-memory session maps, caches, or flags.
+
+**Frontend derives UI state from the DB as single source of truth.** Do not use in-memory React state to encode information that already exists in the store/DB (e.g., "did we just start this?"). Instead, derive decisions from observable store fields (execution status, plan nodes, etc.) that are backed by the database. Transient UI-only state (modal open/close, input text) is fine, but anything that affects routing or data decisions must be derived from store state, not from which button was clicked.
+
 ### Path Alias
 `@/` maps to `./src/` (configured in both `vite.config.ts` and `tsconfig.app.json`).
 
