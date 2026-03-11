@@ -18,12 +18,16 @@ import { eq, and, lte, isNull, inArray, max } from 'drizzle-orm'
 import { redisPubSub } from './redis-pubsub.js'
 import { serverSideDispatch } from './server-side-dispatch.js'
 
+// ── Shared constants ─────────────────────────────────────────────
+export const TERMINAL_STATUSES = ['completed', 'auto_verified', 'pruned', 'awaiting_judgment']
+const COMPLETED_STATUSES = ['completed', 'auto_verified']
+
 /**
  * Insert a schedule run with an atomically computed run number.
  * Uses SELECT max + INSERT with a retry loop to handle unique constraint violations
  * from concurrent inserts.
  */
-async function insertScheduleRun(
+export async function insertScheduleRun(
   values: Omit<typeof scheduleRuns.$inferInsert, 'runNumber'>,
 ): Promise<typeof scheduleRuns.$inferSelect> {
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -48,6 +52,18 @@ async function insertScheduleRun(
   throw new Error('Failed to insert schedule run after retries')
 }
 
+/**
+ * Validate that a timezone string is supported by the runtime.
+ */
+export function isValidTimezone(tz: string): boolean {
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: tz })
+    return true
+  } catch {
+    return false
+  }
+}
+
 export interface CronSchedulerConfig {
   enabled: boolean
   intervalMs: number
@@ -67,7 +83,7 @@ let config: CronSchedulerConfig = DEFAULT_CONFIG
 /**
  * Check if a schedule is within its active hours window.
  */
-function isWithinActiveHours(
+export function isWithinActiveHours(
   activeHoursStart: string | null,
   activeHoursEnd: string | null,
   now: Date,
@@ -105,7 +121,7 @@ function isWithinActiveHours(
  * Compute a branch suffix based on cron frequency.
  * Daily or less frequent → YYYYMMDD. Sub-daily → YYYYMMDDTHHmm.
  */
-function computeBranchSuffix(cronExpression: string, now: Date, timezone: string): string {
+export function computeBranchSuffix(cronExpression: string, now: Date, timezone: string): string {
   const formatter = new Intl.DateTimeFormat('en-CA', {
     year: 'numeric',
     month: '2-digit',
@@ -142,6 +158,143 @@ function computeBranchSuffix(cronExpression: string, now: Date, timezone: string
 }
 
 /**
+ * Check max concurrency for a schedule. Returns true if under the limit.
+ */
+export async function checkMaxConcurrency(scheduleId: string, maxConcurrency: number): Promise<boolean> {
+  const activeRuns = await db.select({ id: scheduleRuns.id })
+    .from(scheduleRuns)
+    .where(and(
+      eq(scheduleRuns.scheduleId, scheduleId),
+      inArray(scheduleRuns.status, ['pending', 'dispatched', 'running']),
+    ))
+  return activeRuns.length < maxConcurrency
+}
+
+/**
+ * Check if a machine is online. Returns true if online or if the table
+ * doesn't exist (PGlite local mode).
+ */
+async function isMachineOnline(machineId: string): Promise<boolean> {
+  try {
+    const [machine] = await db.select({ isConnected: registeredMachines.isConnected })
+      .from(registeredMachines)
+      .where(eq(registeredMachines.id, machineId))
+      .limit(1)
+    return machine?.isConnected ?? false
+  } catch (error: unknown) {
+    // Only assume online if table doesn't exist (PGlite); rethrow real errors
+    const err = error as { cause?: { code?: string }; code?: string }
+    if (err?.cause?.code === '42P01' || err?.code === '42P01') return true
+    throw error
+  }
+}
+
+/**
+ * Reset a single node to 'planned' if it's in a terminal status.
+ * Only resets if the node exists, isn't deleted, and is in a terminal state.
+ * Returns false if the node is currently in_progress/dispatched (skip it).
+ */
+export async function resetNodeIfTerminal(nodeId: string, now: Date): Promise<'reset' | 'active' | 'not_found'> {
+  const [node] = await db.select({ status: planNodes.status, deletedAt: planNodes.deletedAt })
+    .from(planNodes)
+    .where(eq(planNodes.clientId, nodeId))
+    .limit(1)
+
+  if (!node || node.deletedAt) return 'not_found'
+  if (node.status === 'in_progress' || node.status === 'dispatched') return 'active'
+
+  if (TERMINAL_STATUSES.includes(node.status)) {
+    await db.update(planNodes)
+      .set({
+        status: 'planned',
+        executionId: null,
+        executionOutput: null,
+        executionError: null,
+        executionStartedAt: null,
+        executionCompletedAt: null,
+        updatedAt: now,
+      })
+      .where(eq(planNodes.clientId, nodeId))
+  }
+
+  return 'reset'
+}
+
+/**
+ * Dispatch eligible root nodes for a project-scope schedule.
+ * Returns the number of nodes dispatched.
+ */
+export async function dispatchProjectRootNodes(
+  schedule: typeof schedules.$inferSelect,
+  run: typeof scheduleRuns.$inferSelect,
+  branchSuffix: string,
+  now: Date,
+  logPrefix: string,
+): Promise<number> {
+  const allNodes = await db.select()
+    .from(planNodes)
+    .where(and(eq(planNodes.projectId, schedule.projectId), isNull(planNodes.deletedAt)))
+  const allEdges = await db.select()
+    .from(planEdges)
+    .where(and(eq(planEdges.projectId, schedule.projectId), isNull(planEdges.deletedAt)))
+
+  // Filter to specific nodes if nodeFilter is set
+  let taskNodes = allNodes.filter(n => n.type === 'task')
+  if (schedule.nodeFilter && schedule.nodeFilter.length > 0) {
+    const filterSet = new Set(schedule.nodeFilter)
+    taskNodes = taskNodes.filter(n => filterSet.has(n.clientId))
+  }
+
+  if (taskNodes.length === 0) return 0
+
+  // Reset all terminal task nodes to planned
+  for (const node of taskNodes) {
+    if (TERMINAL_STATUSES.includes(node.status)) {
+      await db.update(planNodes)
+        .set({
+          status: 'planned',
+          executionId: null,
+          executionOutput: null,
+          executionError: null,
+          executionStartedAt: null,
+          executionCompletedAt: null,
+          updatedAt: now,
+        })
+        .where(eq(planNodes.clientId, node.clientId))
+    }
+  }
+
+  // Dispatch root nodes (no incoming edges from within the filtered set)
+  const nodeIds = new Set(taskNodes.map(n => n.clientId))
+  let dispatched = 0
+
+  for (const node of taskNodes) {
+    if (node.status === 'in_progress' || node.status === 'dispatched') continue
+
+    const depEdges = allEdges.filter(e => e.targetClientId === node.clientId)
+    const allDepsMet = depEdges.every(depEdge => {
+      const depNode = allNodes.find(n => n.clientId === depEdge.sourceClientId)
+      if (!nodeIds.has(depEdge.sourceClientId)) return true
+      return depNode && COMPLETED_STATUSES.includes(depNode.status)
+    })
+
+    if (allDepsMet) {
+      console.log(`${logPrefix}: dispatching root node ${node.clientId} (run #${run.runNumber})`)
+      serverSideDispatch(node.clientId, schedule.projectId, {
+        targetMachineId: schedule.targetMachineId,
+        branchSuffix,
+        scheduleRunId: run.id,
+      }).catch((err) => {
+        console.error(`${logPrefix}: dispatch failed for ${node.clientId}:`, err)
+      })
+      dispatched++
+    }
+  }
+
+  return dispatched
+}
+
+/**
  * Process a single due schedule: create run, dispatch nodes.
  */
 async function processSchedule(
@@ -150,35 +303,39 @@ async function processSchedule(
 ): Promise<void> {
   const logPrefix = `[cron] schedule=${schedule.id.slice(0, 8)} "${schedule.name}"`
 
-  // Active hours check
+  // Active hours check — record skip in run history for audit trail
   if (!isWithinActiveHours(schedule.activeHoursStart, schedule.activeHoursEnd, now, schedule.timezone)) {
     console.log(`${logPrefix}: outside active hours, skipping`)
+    await insertScheduleRun({
+      scheduleId: schedule.id,
+      status: 'missed',
+      scheduledAt: now,
+      completedAt: now,
+      errorMessage: 'Skipped: outside active hours window',
+    })
     return
   }
 
   // Max concurrency check
-  const activeRuns = await db.select({ id: scheduleRuns.id })
-    .from(scheduleRuns)
-    .where(and(
-      eq(scheduleRuns.scheduleId, schedule.id),
-      inArray(scheduleRuns.status, ['pending', 'dispatched', 'running']),
-    ))
-  if (activeRuns.length >= schedule.maxConcurrency) {
+  if (!await checkMaxConcurrency(schedule.id, schedule.maxConcurrency)) {
     console.log(`${logPrefix}: max concurrency (${schedule.maxConcurrency}) reached, skipping`)
     return
   }
 
   // Machine connectivity check
-  let machineOnline = false
+  let machineOnline: boolean
   try {
-    const [machine] = await db.select({ isConnected: registeredMachines.isConnected })
-      .from(registeredMachines)
-      .where(eq(registeredMachines.id, schedule.targetMachineId))
-      .limit(1)
-    machineOnline = machine?.isConnected ?? false
-  } catch {
-    // If table doesn't exist (PGlite), assume online
-    machineOnline = true
+    machineOnline = await isMachineOnline(schedule.targetMachineId)
+  } catch (err) {
+    console.error(`${logPrefix}: error checking machine connectivity:`, err)
+    await insertScheduleRun({
+      scheduleId: schedule.id,
+      status: 'failure',
+      scheduledAt: now,
+      completedAt: now,
+      errorMessage: `Error checking machine connectivity: ${String(err)}`,
+    })
+    return
   }
 
   if (!machineOnline) {
@@ -213,17 +370,11 @@ async function processSchedule(
     // ── Node scope: dispatch a single node ──
     if (!schedule.nodeId) {
       console.error(`${logPrefix}: node-scope schedule missing nodeId`)
-
       return
     }
 
-    // Check node exists and isn't deleted
-    const [node] = await db.select({ status: planNodes.status, deletedAt: planNodes.deletedAt })
-      .from(planNodes)
-      .where(eq(planNodes.clientId, schedule.nodeId))
-      .limit(1)
-
-    if (!node || node.deletedAt) {
+    const nodeResult = await resetNodeIfTerminal(schedule.nodeId, now)
+    if (nodeResult === 'not_found') {
       console.log(`${logPrefix}: node ${schedule.nodeId} not found or deleted`)
       await insertScheduleRun({
         scheduleId: schedule.id,
@@ -232,31 +383,11 @@ async function processSchedule(
         completedAt: now,
         summary: { message: 'Node not found or deleted' },
       })
-
       return
     }
-
-    // Skip if node is currently in_progress
-    if (node.status === 'in_progress' || node.status === 'dispatched') {
-      console.log(`${logPrefix}: node ${schedule.nodeId} already ${node.status}, skipping`)
-
+    if (nodeResult === 'active') {
+      console.log(`${logPrefix}: node ${schedule.nodeId} already active, skipping`)
       return
-    }
-
-    // Reset node to planned if terminal
-    const terminalStatuses = ['completed', 'auto_verified', 'pruned', 'awaiting_judgment']
-    if (terminalStatuses.includes(node.status)) {
-      await db.update(planNodes)
-        .set({
-          status: 'planned',
-          executionId: null,
-          executionOutput: null,
-          executionError: null,
-          executionStartedAt: null,
-          executionCompletedAt: null,
-          updatedAt: now,
-        })
-        .where(eq(planNodes.clientId, schedule.nodeId))
     }
 
     // Create run entry (atomic run number via insertScheduleRun)
@@ -283,52 +414,7 @@ async function processSchedule(
     })
   } else {
     // ── Project scope: dispatch all eligible root nodes ──
-    const allNodes = await db.select()
-      .from(planNodes)
-      .where(and(eq(planNodes.projectId, schedule.projectId), isNull(planNodes.deletedAt)))
-    const allEdges = await db.select()
-      .from(planEdges)
-      .where(and(eq(planEdges.projectId, schedule.projectId), isNull(planEdges.deletedAt)))
-
-    // Filter to specific nodes if nodeFilter is set
-    let taskNodes = allNodes.filter(n => n.type === 'task')
-    if (schedule.nodeFilter && schedule.nodeFilter.length > 0) {
-      const filterSet = new Set(schedule.nodeFilter)
-      taskNodes = taskNodes.filter(n => filterSet.has(n.clientId))
-    }
-
-    if (taskNodes.length === 0) {
-      console.log(`${logPrefix}: no eligible nodes`)
-      await insertScheduleRun({
-        scheduleId: schedule.id,
-        status: 'success',
-        scheduledAt: now,
-        completedAt: now,
-        summary: { message: 'No eligible nodes' },
-      })
-
-      return
-    }
-
-    // Reset all terminal task nodes to planned
-    const terminalStatuses = ['completed', 'auto_verified', 'pruned', 'awaiting_judgment']
-    for (const node of taskNodes) {
-      if (terminalStatuses.includes(node.status)) {
-        await db.update(planNodes)
-          .set({
-            status: 'planned',
-            executionId: null,
-            executionOutput: null,
-            executionError: null,
-            executionStartedAt: null,
-            executionCompletedAt: null,
-            updatedAt: now,
-          })
-          .where(eq(planNodes.clientId, node.clientId))
-      }
-    }
-
-    // Create run entry (atomic run number via insertScheduleRun)
+    // Create run entry first
     const run = await insertScheduleRun({
       scheduleId: schedule.id,
       status: 'dispatched',
@@ -336,37 +422,15 @@ async function processSchedule(
       startedAt: now,
     })
 
-    // Dispatch root nodes (no incoming edges from within the filtered set)
-    const nodeIds = new Set(taskNodes.map(n => n.clientId))
-    const COMPLETED_STATUSES = ['completed', 'auto_verified']
-    let dispatched = 0
+    const dispatched = await dispatchProjectRootNodes(schedule, run, branchSuffix, now, logPrefix)
 
-    for (const node of taskNodes) {
-      // Skip if already running
-      if (node.status === 'in_progress' || node.status === 'dispatched') continue
-
-      const depEdges = allEdges.filter(e => e.targetClientId === node.clientId)
-      const allDepsMet = depEdges.every(depEdge => {
-        const depNode = allNodes.find(n => n.clientId === depEdge.sourceClientId)
-        // Deps outside node filter are always considered met
-        if (!nodeIds.has(depEdge.sourceClientId)) return true
-        return depNode && COMPLETED_STATUSES.includes(depNode.status)
-      })
-
-      if (allDepsMet) {
-        console.log(`${logPrefix}: dispatching root node ${node.clientId} (run #${run.runNumber})`)
-        serverSideDispatch(node.clientId, schedule.projectId, {
-          targetMachineId: schedule.targetMachineId,
-          branchSuffix,
-          scheduleRunId: run.id,
-        }).catch((err) => {
-          console.error(`${logPrefix}: dispatch failed for ${node.clientId}:`, err)
-        })
-        dispatched++
-      }
+    if (dispatched === 0) {
+      await db.update(scheduleRuns)
+        .set({ status: 'success', completedAt: now, summary: { message: 'No eligible nodes to dispatch' } })
+        .where(eq(scheduleRuns.id, run.id))
     }
 
-    console.log(`${logPrefix}: dispatched ${dispatched}/${taskNodes.length} root nodes (run #${run.runNumber})`)
+    console.log(`${logPrefix}: dispatched ${dispatched} root nodes (run #${run.runNumber})`)
   }
 
   // Schedule already advanced by claimSchedule() before processSchedule() was called
@@ -498,6 +562,7 @@ export async function retryMissedRunsForMachine(machineId: string): Promise<void
           .where(eq(scheduleRuns.id, run.id))
 
         const branchSuffix = computeBranchSuffix(schedule.cronExpression, run.scheduledAt, schedule.timezone)
+        const logPrefix = `[cron] retry run=${run.id.slice(0, 8)}`
 
         if (schedule.scope === 'node' && schedule.nodeId) {
           serverSideDispatch(schedule.nodeId, schedule.projectId, {
@@ -505,15 +570,21 @@ export async function retryMissedRunsForMachine(machineId: string): Promise<void
             branchSuffix,
             scheduleRunId: run.id,
           }).catch((err) => {
-            console.error(`[cron] Retry dispatch failed for run ${run.id}:`, err)
+            console.error(`${logPrefix}: dispatch failed:`, err)
             // Reset to missed so it remains eligible for retry
             db.update(scheduleRuns)
               .set({ status: 'missed', startedAt: null })
               .where(eq(scheduleRuns.id, run.id))
               .execute().catch(() => {})
           })
+        } else if (schedule.scope === 'project') {
+          const dispatched = await dispatchProjectRootNodes(schedule, run, branchSuffix, now, logPrefix)
+          if (dispatched === 0) {
+            await db.update(scheduleRuns)
+              .set({ status: 'success', completedAt: now, summary: { message: 'No eligible nodes on retry' } })
+              .where(eq(scheduleRuns.id, run.id))
+          }
         }
-        // Project-scope retry would need the same root-node logic — for now, skip
       } catch (err) {
         console.error(`[cron] Error retrying run ${run.id}:`, err)
       }

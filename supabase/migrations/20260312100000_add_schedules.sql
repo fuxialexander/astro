@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS schedules (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE schedules ADD CONSTRAINT schedules_scope_check CHECK (scope IN ('project', 'node'));
+ALTER TABLE schedules ADD CONSTRAINT schedules_missed_run_policy_check CHECK (missed_run_policy IN ('skip', 'retry_on_reconnect'));
+
 CREATE INDEX IF NOT EXISTS schedules_project_id_idx ON schedules(project_id);
 CREATE INDEX IF NOT EXISTS schedules_next_run_enabled_idx ON schedules(next_run_at) WHERE enabled = true;
 
@@ -42,7 +45,10 @@ CREATE TABLE IF NOT EXISTS schedule_runs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE schedule_runs ADD CONSTRAINT schedule_runs_status_check CHECK (status IN ('pending', 'dispatched', 'running', 'success', 'failure', 'missed'));
+
 CREATE INDEX IF NOT EXISTS schedule_runs_schedule_id_idx ON schedule_runs(schedule_id);
+CREATE INDEX IF NOT EXISTS schedule_runs_status_idx ON schedule_runs(status) WHERE status IN ('missed', 'pending', 'dispatched', 'running');
 ALTER TABLE schedule_runs ADD CONSTRAINT schedule_runs_schedule_id_run_number_unique UNIQUE (schedule_id, run_number);
 
 -- RLS policies

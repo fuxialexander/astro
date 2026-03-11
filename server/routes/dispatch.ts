@@ -23,7 +23,7 @@ import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
-import { projects, planNodes, planEdges, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines } from '../lib/db/schema.js'
+import { projects, planNodes, planEdges, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines, scheduleRuns } from '../lib/db/schema.js'
 import { eq, isNull, and, or, inArray, sql } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
@@ -1520,7 +1520,6 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 
       // Update schedule run status if this dispatch was triggered by a cron schedule
       if (scheduleRunId) {
-        const { scheduleRuns } = await import('../lib/db/schema.js')
         const runStatus = (finalNodeStatus === 'auto_verified' || finalNodeStatus === 'completed') ? 'success' : 'failure'
         db.update(scheduleRuns)
           .set({ status: runStatus, completedAt: new Date(), executionIds: [executionId] })

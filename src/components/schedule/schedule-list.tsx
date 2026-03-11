@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Clock, Play, Trash2, Pencil, ToggleLeft, ToggleRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -106,6 +106,19 @@ function ScheduleRow({
   onToggle: () => void
   onTrigger: () => void
 }) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  const handleDelete = useCallback(() => {
+    if (confirmDelete) {
+      onDelete()
+      setConfirmDelete(false)
+    } else {
+      setConfirmDelete(true)
+      // Auto-reset after 3 seconds
+      setTimeout(() => setConfirmDelete(false), 3000)
+    }
+  }, [confirmDelete, onDelete])
+
   return (
     <div>
       <div className="flex items-center justify-between p-3">
@@ -148,7 +161,13 @@ function ScheduleRow({
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit} title="Edit">
             <Pencil className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={onDelete} title="Delete">
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`h-7 w-7 ${confirmDelete ? 'bg-destructive text-destructive-foreground' : 'text-destructive'}`}
+            onClick={handleDelete}
+            title={confirmDelete ? 'Click again to confirm delete' : 'Delete'}
+          >
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
         </div>

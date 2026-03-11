@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -130,14 +130,14 @@ export function ScheduleForm({
     createSchedule, updateSchedule, onSave,
   ])
 
-  // Get sorted list of timezones
-  const timezones = (() => {
+  // Get sorted list of timezones (memoized — ~500 entries, stable across renders)
+  const timezones = useMemo(() => {
     try {
       return Intl.supportedValuesOf('timeZone')
     } catch {
       return ['UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'Europe/London', 'Europe/Berlin', 'Asia/Tokyo', 'Asia/Shanghai']
     }
-  })()
+  }, [])
 
   return (
     <div className="space-y-4">

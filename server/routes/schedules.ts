@@ -10,10 +10,16 @@ import { Cron } from 'croner'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { db } from '../lib/db/index.js'
 import { schedules, scheduleRuns, projects, teamMembers } from '../lib/db/schema.js'
-import { eq, and, desc, max } from 'drizzle-orm'
+import { eq, and, desc } from 'drizzle-orm'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
-import { planNodes, planEdges } from '../lib/db/schema.js'
-import { isNull } from 'drizzle-orm'
+import {
+  insertScheduleRun,
+  isValidTimezone,
+  computeBranchSuffix,
+  checkMaxConcurrency,
+  resetNodeIfTerminal,
+  dispatchProjectRootNodes,
+} from '../lib/cron-scheduler.js'
 
 export const schedulesRoute = new Hono()
 
@@ -123,6 +129,11 @@ schedulesRoute.post('/', async (c) => {
     return c.json({ success: false, error: 'nodeId is required for node-scope schedules' }, 400)
   }
 
+  // Validate timezone
+  if (!isValidTimezone(body.timezone)) {
+    return c.json({ success: false, error: `Invalid timezone: ${body.timezone}` }, 400)
+  }
+
   // Validate cron expression
   const validation = validateCronExpression(body.cronExpression)
   if (!validation.valid) {
@@ -226,6 +237,11 @@ schedulesRoute.patch('/:id', async (c) => {
     }
   }
 
+  // Validate timezone if changed
+  if (body.timezone && !isValidTimezone(body.timezone)) {
+    return c.json({ success: false, error: `Invalid timezone: ${body.timezone}` }, 400)
+  }
+
   // Fetch current schedule to compute nextRunAt
   const [current] = await db.select()
     .from(schedules)
@@ -306,66 +322,33 @@ schedulesRoute.post('/:id/trigger', async (c) => {
     return c.json({ success: false, error: 'Schedule not found' }, 404)
   }
 
+  // Max concurrency check — manual triggers respect the same limit
+  if (!await checkMaxConcurrency(schedule.id, schedule.maxConcurrency)) {
+    return c.json({ success: false, error: `Max concurrency (${schedule.maxConcurrency}) reached. Wait for active runs to complete.` }, 429)
+  }
+
   const now = new Date()
 
-  // Compute branch suffix
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: schedule.timezone,
-  })
-  const parts = formatter.formatToParts(now)
-  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find(p => p.type === type)?.value ?? ''
-  const branchSuffix = `${get('year')}${get('month')}${get('day')}T${get('hour')}${get('minute')}`
+  // Use shared branch suffix computation (always includes time for manual triggers)
+  const branchSuffix = computeBranchSuffix(schedule.cronExpression, now, schedule.timezone)
 
-  // Create run entry with atomic run number (retry on unique constraint violation)
-  const run = await (async () => {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const [maxRun] = await db.select({ maxNum: max(scheduleRuns.runNumber) })
-        .from(scheduleRuns).where(eq(scheduleRuns.scheduleId, id))
-      const runNumber = (maxRun?.maxNum ?? 0) + 1
-      try {
-        const [inserted] = await db.insert(scheduleRuns).values({
-          scheduleId: schedule.id,
-          runNumber,
-          status: 'dispatched',
-          scheduledAt: now,
-          startedAt: now,
-        }).returning()
-        return inserted
-      } catch (err: unknown) {
-        const pgErr = err as { code?: string }
-        if (pgErr.code === '23505' && attempt < 2) continue
-        throw err
-      }
-    }
-    throw new Error('Failed to create schedule run after retries')
-  })()
+  // Create run entry using shared atomic helper
+  const run = await insertScheduleRun({
+    scheduleId: schedule.id,
+    status: 'dispatched',
+    scheduledAt: now,
+    startedAt: now,
+  })
+
+  const logPrefix = `[schedules] trigger run=#${run.runNumber}`
 
   if (schedule.scope === 'node' && schedule.nodeId) {
-    // Reset node if terminal
-    const [node] = await db.select({ status: planNodes.status })
-      .from(planNodes).where(eq(planNodes.clientId, schedule.nodeId)).limit(1)
-
-    if (node) {
-      const terminalStatuses = ['completed', 'auto_verified', 'pruned', 'awaiting_judgment']
-      if (terminalStatuses.includes(node.status)) {
-        await db.update(planNodes)
-          .set({
-            status: 'planned',
-            executionId: null,
-            executionOutput: null,
-            executionError: null,
-            executionStartedAt: null,
-            executionCompletedAt: null,
-            updatedAt: now,
-          })
-          .where(eq(planNodes.clientId, schedule.nodeId))
-      }
+    const nodeResult = await resetNodeIfTerminal(schedule.nodeId, now)
+    if (nodeResult === 'not_found') {
+      await db.update(scheduleRuns)
+        .set({ status: 'failure', completedAt: now, errorMessage: 'Node not found or deleted' })
+        .where(eq(scheduleRuns.id, run.id))
+      return c.json({ success: false, error: 'Target node not found or deleted' }, 404)
     }
 
     serverSideDispatch(schedule.nodeId, schedule.projectId, {
@@ -373,69 +356,22 @@ schedulesRoute.post('/:id/trigger', async (c) => {
       branchSuffix,
       scheduleRunId: run.id,
     }).catch((err) => {
-      console.error(`[schedules] Manual trigger dispatch failed:`, err)
+      console.error(`${logPrefix}: dispatch failed:`, err)
       db.update(scheduleRuns)
         .set({ status: 'failure', completedAt: new Date(), errorMessage: String(err) })
         .where(eq(scheduleRuns.id, run.id))
         .execute().catch(() => {})
     })
   } else {
-    // Project scope — dispatch root nodes
-    const allNodes = await db.select()
-      .from(planNodes)
-      .where(and(eq(planNodes.projectId, schedule.projectId), isNull(planNodes.deletedAt)))
-    const allEdges = await db.select()
-      .from(planEdges)
-      .where(and(eq(planEdges.projectId, schedule.projectId), isNull(planEdges.deletedAt)))
+    const dispatched = await dispatchProjectRootNodes(schedule, run, branchSuffix, now, logPrefix)
 
-    let taskNodes = allNodes.filter(n => n.type === 'task')
-    if (schedule.nodeFilter && schedule.nodeFilter.length > 0) {
-      const filterSet = new Set(schedule.nodeFilter)
-      taskNodes = taskNodes.filter(n => filterSet.has(n.clientId))
+    if (dispatched === 0) {
+      await db.update(scheduleRuns)
+        .set({ status: 'success', completedAt: now, summary: { message: 'No eligible nodes to dispatch' } })
+        .where(eq(scheduleRuns.id, run.id))
     }
 
-    // Reset terminal nodes
-    const terminalStatuses = ['completed', 'auto_verified', 'pruned', 'awaiting_judgment']
-    for (const node of taskNodes) {
-      if (terminalStatuses.includes(node.status)) {
-        await db.update(planNodes)
-          .set({
-            status: 'planned',
-            executionId: null,
-            executionOutput: null,
-            executionError: null,
-            executionStartedAt: null,
-            executionCompletedAt: null,
-            updatedAt: now,
-          })
-          .where(eq(planNodes.clientId, node.clientId))
-      }
-    }
-
-    // Dispatch root nodes
-    const nodeIds = new Set(taskNodes.map(n => n.clientId))
-    let dispatched = 0
-    for (const node of taskNodes) {
-      if (node.status === 'in_progress' || node.status === 'dispatched') continue
-      const depEdges = allEdges.filter(e => e.targetClientId === node.clientId)
-      const allDepsMet = depEdges.every(depEdge => {
-        if (!nodeIds.has(depEdge.sourceClientId)) return true
-        const depNode = allNodes.find(n => n.clientId === depEdge.sourceClientId)
-        return depNode && ['completed', 'auto_verified'].includes(depNode.status)
-      })
-      if (allDepsMet) {
-        serverSideDispatch(node.clientId, schedule.projectId, {
-          targetMachineId: schedule.targetMachineId,
-          branchSuffix,
-          scheduleRunId: run.id,
-        }).catch((err) => {
-          console.error(`[schedules] Manual trigger dispatch failed for ${node.clientId}:`, err)
-        })
-        dispatched++
-      }
-    }
-
-    console.log(`[schedules] Manual trigger: dispatched ${dispatched} root nodes`)
+    console.log(`${logPrefix}: dispatched ${dispatched} root nodes`)
   }
 
   return c.json({ success: true, data: run })
