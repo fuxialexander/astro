@@ -26,6 +26,7 @@ import { wellKnownRoute } from './routes/well-known.js'
 import systemRoute from './routes/system.js'
 import { skillsRoute } from './routes/skills.js'
 import { machineInstructionsRoute } from './routes/machine-instructions.js'
+import { schedulesRoute } from './routes/schedules.js'
 import { examplesRoute } from './routes/examples.js'
 import { shareRoute } from './routes/share.js'
 import { connectedAccountsRoute } from './routes/connected-accounts.js'
@@ -42,6 +43,7 @@ import { dispatchEngine } from './lib/dispatch/index.js'
 import { updateMachineConnectionStatus, ensureMachineRegistered, resetAllConnectionStatuses, getMachine } from './lib/registered-machines-store.js'
 import { validateEnvironment, getRelayConfig, getRedisConfig, isProduction, isTest, isLocalMode as isLocalModeEnv } from './lib/environment.js'
 import { startCleanupScheduler, stopCleanupScheduler } from './lib/cleanup-scheduler.js'
+import { startCronScheduler, stopCronScheduler, retryMissedRunsForMachine } from './lib/cron-scheduler.js'
 import { startExecutionWatchdog, stopExecutionWatchdog } from './lib/execution-watchdog.js'
 import { db } from './lib/db/index.js'
 import { planNodes } from './lib/db/schema.js'
@@ -200,6 +202,7 @@ export function createApp() {
   app.route('/api/system', systemRoute)
   app.route('/api/skills', skillsRoute)
   app.route('/api/machine-instructions', machineInstructionsRoute)
+  app.route('/api/schedules', schedulesRoute)
   app.route('/api/examples', examplesRoute)
 
   // Backward-compat redirect: /api/templates → /api/examples
@@ -489,6 +492,11 @@ async function start() {
           timestamp: new Date(),
         })
       }
+
+      // Retry missed cron schedule runs targeting this machine
+      retryMissedRunsForMachine(machineId).catch((err) => {
+        console.warn(`[cron] Failed to retry missed runs for machine ${machineId}:`, err)
+      })
     })
 
     relayServer.on('machine:disconnected', async (machineId, reason) => {
@@ -533,6 +541,15 @@ async function start() {
       },
     })
     console.log('[cleanup] Cleanup scheduler started')
+  }
+
+  // Start cron scheduler for recurring task execution
+  if (!isTest()) {
+    startCronScheduler({
+      enabled: true,
+      intervalMs: 60_000, // 60 seconds
+    })
+    console.log('[cron] Cron scheduler started')
   }
 
   // Start execution watchdog (P7: server-side in_progress safety net)
@@ -634,6 +651,7 @@ async function shutdown(signal: string) {
 
   try {
     stopCleanupScheduler()
+    stopCronScheduler()
     stopExecutionWatchdog()
     await observationCollector.stop()
     await streamingEventLog.flushAll()

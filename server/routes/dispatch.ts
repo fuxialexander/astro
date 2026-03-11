@@ -23,7 +23,7 @@ import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
-import { projects, planNodes, planEdges, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines } from '../lib/db/schema.js'
+import { projects, planNodes, planEdges, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines, scheduleRuns } from '../lib/db/schema.js'
 import { eq, isNull, and, or, inArray, sql } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
@@ -242,6 +242,8 @@ const dispatchTaskSchema = z.object({
     timestamp: z.string(),
     nonce: z.string(),
   }).optional(),
+  branchSuffix: z.string().max(20).regex(/^[a-zA-Z0-9][a-zA-Z0-9T-]*$/).optional(),
+  scheduleRunId: z.string().uuid().optional(),
   resumeSessionId: z.string().max(200).optional(),
   forkSession: z.boolean().optional(),
   replanContext: z.object({
@@ -310,6 +312,8 @@ dispatchRoute.post('/task', async (c) => {
     skipSafetyCheck,
     dispatchSignature,
     dispatchSigningPayload,
+    branchSuffix,
+    scheduleRunId,
     resumeSessionId,
     forkSession,
     replanContext,
@@ -618,6 +622,8 @@ dispatchRoute.post('/task', async (c) => {
     githubIssueUrl,
     githubIssueNumber,
     githubContext,
+    branchSuffix,
+    scheduleRunId,
     resumeSessionId,
     forkSession,
     dispatchSignature,
@@ -663,6 +669,8 @@ async function dispatchViaRelay(
     githubIssueUrl?: string
     githubIssueNumber?: number
     githubContext?: import('../lib/prompt-templates.js').GitHubContextForPrompt
+    branchSuffix?: string
+    scheduleRunId?: string
     resumeSessionId?: string
     forkSession?: boolean
     dispatchSignature?: string
@@ -705,6 +713,8 @@ async function dispatchViaRelay(
     githubIssueUrl,
     githubIssueNumber,
     githubContext,
+    branchSuffix,
+    scheduleRunId,
     resumeSessionId,
     forkSession,
     dispatchSignature,
@@ -967,7 +977,9 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       const effectiveUseWorktree = useWorktree !== false
       const effectiveAgentDir = agentDir ?? '.astro'
       const usesWorktree = workingDirectory && effectiveUseWorktree && effectiveDelivery !== 'direct'
-      const branchName = `astro/${shortProjectId}-${shortNodeId}`
+      const branchName = branchSuffix
+        ? `astro/${shortProjectId}-${shortNodeId}-${branchSuffix}`
+        : `astro/${shortProjectId}-${shortNodeId}`
 
       if (effectiveDelivery === 'pr' && usesWorktree) {
         promptParts.push(`## Workspace & Delivery
@@ -1504,6 +1516,18 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         }
       } catch (err: unknown) {
         console.error('[dispatch] Error persisting execution result to plan node:', err)
+      }
+
+      // Update schedule run status if this dispatch was triggered by a cron schedule
+      if (scheduleRunId) {
+        const runStatus = (finalNodeStatus === 'auto_verified' || finalNodeStatus === 'completed') ? 'success' : 'failure'
+        db.update(scheduleRuns)
+          .set({ status: runStatus, completedAt: new Date(), executionIds: [executionId] })
+          .where(eq(scheduleRuns.id, scheduleRunId))
+          .execute()
+          .catch((err: unknown) => {
+            console.error('[dispatch] Error updating schedule run:', err)
+          })
       }
 
       // Auto-assign defaultMachineId on the project if not yet set

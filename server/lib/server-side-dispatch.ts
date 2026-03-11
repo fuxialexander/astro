@@ -20,6 +20,12 @@ import { LOCAL_USER_ID, LOCAL_TEAM_ID } from './db/bootstrap-local.js'
 
 const SERVER_PORT = process.env.PORT || 3001
 
+export interface ServerSideDispatchOptions {
+  targetMachineId?: string   // override project.defaultMachineId
+  branchSuffix?: string      // append to branch name for timestamped runs
+  scheduleRunId?: string     // link dispatch back to schedule run
+}
+
 /**
  * Dispatch a task server-side by making an internal HTTP request to the
  * dispatch endpoint. Reuses all existing dispatch logic (validation, machine
@@ -29,7 +35,7 @@ const SERVER_PORT = process.env.PORT || 3001
  * connection alive) but not processed — event persistence happens inside
  * the dispatch handler via StreamingEventLog.
  */
-export async function serverSideDispatch(nodeId: string, projectId: string): Promise<void> {
+export async function serverSideDispatch(nodeId: string, projectId: string, options?: ServerSideDispatchOptions): Promise<void> {
   // Check node status — skip if already dispatched/in_progress/completed
   const [node] = await db.select({ status: planNodes.status })
     .from(planNodes).where(eq(planNodes.clientId, nodeId)).limit(1)
@@ -38,11 +44,12 @@ export async function serverSideDispatch(nodeId: string, projectId: string): Pro
     return
   }
 
-  // Resolve project to get owner and team
+  // Resolve project to get owner, team, and provider preference
   const [project] = await db.select({
     ownerId: projects.ownerId,
     teamId: projects.teamId,
     defaultMachineId: projects.defaultMachineId,
+    defaultProvider: projects.defaultProvider,
   }).from(projects).where(eq(projects.id, projectId)).limit(1)
 
   if (!project) {
@@ -76,11 +83,14 @@ export async function serverSideDispatch(nodeId: string, projectId: string): Pro
   // dependencies, vision doc, working directory, etc.) and manages
   // executionId generation, status updates, and event persistence.
   const url = `http://localhost:${SERVER_PORT}/api/dispatch/task`
-  const body = {
+  const body: Record<string, unknown> = {
     nodeId,
     projectId,
-    targetMachineId: project.defaultMachineId ?? undefined,
+    targetMachineId: options?.targetMachineId ?? project.defaultMachineId ?? undefined,
+    preferredProvider: project.defaultProvider ?? undefined,
   }
+  if (options?.branchSuffix) body.branchSuffix = options.branchSuffix
+  if (options?.scheduleRunId) body.scheduleRunId = options.scheduleRunId
 
   try {
     const headers: Record<string, string> = {

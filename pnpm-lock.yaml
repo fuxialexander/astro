@@ -137,6 +137,9 @@ importers:
       cmdk:
         specifier: ^1.1.1
         version: 1.1.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      croner:
+        specifier: ^10.0.1
+        version: 10.0.1
       d3:
         specifier: ^7.9.0
         version: 7.9.0
@@ -3090,6 +3093,10 @@ packages:
 
   crelt@1.0.6:
     resolution: {integrity: sha512-VQ2MBenTq1fWZUH9DJNGti7kKv6EeAuYr3cLwxUWhIu1baTaXh4Ib5W2CqHVqib4/MqbYGJqiL3Zb8GJZr3l4g==}
+
+  croner@10.0.1:
+    resolution: {integrity: sha512-ixNtAJndqh173VQ4KodSdJEI6nuioBWI0V1ITNKhZZsO0pEMoDxz539T4FTTbSZ/xIOSuDnzxLVRqBVSvPNE2g==}
+    engines: {node: '>=18.0'}
 
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
@@ -7739,14 +7746,6 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.0.3
 
-  '@vitest/mocker@4.0.18(vite@7.3.1(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0))':
-    dependencies:
-      '@vitest/spy': 4.0.18
-      estree-walker: 3.0.3
-      magic-string: 0.30.21
-    optionalDependencies:
-      vite: 7.3.1(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0)
-
   '@vitest/mocker@4.0.18(vite@7.3.1(@types/node@25.3.0)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0))':
     dependencies:
       '@vitest/spy': 4.0.18
@@ -8121,6 +8120,8 @@ snapshots:
       layout-base: 2.0.1
 
   crelt@1.0.6: {}
+
+  croner@10.0.1: {}
 
   cross-spawn@7.0.6:
     dependencies:
@@ -10799,7 +10800,7 @@ snapshots:
   vitest@4.0.18(@types/node@22.19.15)(@vitest/ui@4.0.18)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0):
     dependencies:
       '@vitest/expect': 4.0.18
-      '@vitest/mocker': 4.0.18(vite@7.3.1(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0))
+      '@vitest/mocker': 4.0.18(vite@7.3.1(@types/node@25.3.0)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0))
       '@vitest/pretty-format': 4.0.18
       '@vitest/runner': 4.0.18
       '@vitest/snapshot': 4.0.18
