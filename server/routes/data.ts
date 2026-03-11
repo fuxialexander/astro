@@ -449,9 +449,15 @@ app.get('/plan', async (c) => {
   const projectIds = new Set(userProjects.map(p => p.id))
 
   // Get all nodes for user's projects
-  const rawNodes = await db.select().from(planNodes)
+  const projectIdArray = Array.from(projectIds)
+  if (projectIdArray.length === 0) {
+    return c.json({ nodes: [], edges: [] })
+  }
+
+  const rawNodes = await db.select().from(planNodes).where(
+    and(inArray(planNodes.projectId, projectIdArray), isNull(planNodes.deletedAt))
+  )
   const nodes = rawNodes
-    .filter(n => projectIds.has(n.projectId) && !n.deletedAt)
     .map(n => ({
       id: n.clientId, // Use clientId as frontend ID
       projectId: n.projectId,
@@ -490,9 +496,10 @@ app.get('/plan', async (c) => {
       updatedAt: n.updatedAt,
     }))
 
-  const rawEdges = await db.select().from(planEdges)
+  const rawEdges = await db.select().from(planEdges).where(
+    and(inArray(planEdges.projectId, projectIdArray), isNull(planEdges.deletedAt))
+  )
   const edges = rawEdges
-    .filter(e => projectIds.has(e.projectId) && !e.deletedAt)
     .map(e => ({
       id: e.clientId,
       source: e.sourceClientId,
@@ -1540,12 +1547,14 @@ app.get('/executions', async (c) => {
   }
 
   // Get all executions for user's projects
-  const executions = await db.select().from(taskExecutions)
-  const filtered = executions.filter(e => projectIds.has(e.projectId))
+  const projectIdArray = Array.from(projectIds)
+  const executions = await db.select().from(taskExecutions).where(
+    inArray(taskExecutions.projectId, projectIdArray)
+  )
 
   // Convert to map keyed by nodeClientId
   const result: Record<string, unknown> = {}
-  for (const exec of filtered) {
+  for (const exec of executions) {
     result[exec.nodeClientId] = {
       executionId: exec.executionId,
       nodeId: exec.nodeClientId,
