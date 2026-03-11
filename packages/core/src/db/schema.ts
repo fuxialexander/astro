@@ -941,6 +941,55 @@ export const userAchievements = pgTable('user_achievements', {
   pk: primaryKey({ columns: [table.userId, table.slug] }),
 }))
 
+// ── Schedules ────────────────────────────────────────────────────
+// Cron schedule definitions for recurring task/project execution.
+// The server polls `next_run_at <= NOW()` every 60s to fire due schedules.
+export const schedules = pgTable('schedules', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  scope: text('scope').notNull(),              // 'project' | 'node'
+  nodeId: text('node_id'),                     // required when scope='node'
+  name: text('name').notNull(),
+  cronExpression: text('cron_expression').notNull(),
+  timezone: text('timezone').notNull().default('UTC'),
+  targetMachineId: text('target_machine_id').notNull(),
+  nodeFilter: text('node_filter').array(),     // project scope: subset of node IDs
+  enabled: boolean('enabled').notNull().default(true),
+  nextRunAt: timestamp('next_run_at', { withTimezone: true }),
+  lastRunAt: timestamp('last_run_at', { withTimezone: true }),
+  activeHoursStart: text('active_hours_start'),
+  activeHoursEnd: text('active_hours_end'),
+  maxConcurrency: integer('max_concurrency').notNull().default(1),
+  missedRunPolicy: text('missed_run_policy').notNull().default('skip'), // 'skip' | 'retry_on_reconnect'
+  retryTtlMinutes: integer('retry_ttl_minutes').notNull().default(60),
+  createdBy: uuid('created_by').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index('schedules_project_id_idx').on(table.projectId),
+  index('schedules_next_run_enabled_idx').on(table.nextRunAt),
+])
+
+// ── Schedule Runs ────────────────────────────────────────────────
+// Execution history per cron fire.
+export const scheduleRuns = pgTable('schedule_runs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  scheduleId: uuid('schedule_id').notNull().references(() => schedules.id, { onDelete: 'cascade' }),
+  runNumber: integer('run_number').notNull(),
+  status: text('status').notNull().default('pending'), // pending|dispatched|running|success|failure|missed
+  branchName: text('branch_name'),
+  executionIds: text('execution_ids').array().default([]),
+  scheduledAt: timestamp('scheduled_at', { withTimezone: true }).notNull(),
+  startedAt: timestamp('started_at', { withTimezone: true }),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+  summary: jsonb('summary'),
+  errorMessage: text('error_message'),
+  retryUntil: timestamp('retry_until', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index('schedule_runs_schedule_id_idx').on(table.scheduleId),
+])
+
 // ── GitHub Sync Log ──────────────────────────────────────────────
 // Audit log for all GitHub sync operations (both directions).
 // Used by the sync health dashboard for monitoring and retry.

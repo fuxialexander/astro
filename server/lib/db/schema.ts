@@ -52,4 +52,6 @@ export {
   githubSyncLog,
   userAchievements,
   projectKnowledge,
+  schedules,
+  scheduleRuns,
 } from '../../../packages/core/src/db/schema.js'

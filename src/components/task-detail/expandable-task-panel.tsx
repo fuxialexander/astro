@@ -12,6 +12,7 @@ import {
   Save,
   Loader2,
   ExternalLink,
+  Clock,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -27,7 +28,10 @@ import type { PlanNode, TaskAttachment, TaskLink } from '@/types'
 import { AttachmentList } from './attachment-list'
 import { LinkList } from './link-list'
 import { GitHubIssueActions } from './github-issue-actions'
-import { useRef } from 'react'
+import { ScheduleForm } from '@/components/schedule/schedule-form'
+import { RunHistory } from '@/components/schedule/run-history'
+import { useScheduleStore } from '@/stores/schedule-store'
+import { useRef, useEffect } from 'react'
 
 export type PanelSize = 'split' | 'three-quarter' | 'full'
 
@@ -67,7 +71,7 @@ export function ExpandableTaskPanel({
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [size, setSize] = useState<PanelSize>(initialSize)
-  const [activeTab, setActiveTab] = useState<'content' | 'attachments' | 'links' | 'activity'>('content')
+  const [activeTab, setActiveTab] = useState<'content' | 'attachments' | 'links' | 'activity' | 'schedule'>('content')
   const [isSaving, setIsSaving] = useState(false)
   const [hasChanges, setHasChanges] = useState(false)
   const editorRef = useRef<RichTextEditorRef>(null)
@@ -75,6 +79,13 @@ export function ExpandableTaskPanel({
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const updateNode = usePlanStore((s) => s.updateNode)
   const nodes = usePlanStore((s) => s.nodes)
+  const schedules = useScheduleStore((s) => s.schedules)
+  const loadSchedules = useScheduleStore((s) => s.loadSchedules)
+  const nodeSchedule = schedules.find((s) => s.scope === 'node' && s.nodeId === node.id)
+
+  useEffect(() => {
+    loadSchedules(projectId)
+  }, [projectId, loadSchedules])
 
   const [draftContent, setDraftContent] = useState(node.content || '')
 
@@ -252,6 +263,10 @@ export function ExpandableTaskPanel({
           <TabsTrigger value="activity" className="text-xs">
             Activity
           </TabsTrigger>
+          <TabsTrigger value="schedule" className="text-xs">
+            <Clock className="h-3.5 w-3.5 mr-1" />
+            Schedule
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="content" className="flex-1 m-0 min-h-0 overflow-auto p-4">
@@ -346,6 +361,35 @@ export function ExpandableTaskPanel({
 
         <TabsContent value="activity" className="flex-1 m-0 min-h-0">
           {children}
+        </TabsContent>
+
+        <TabsContent value="schedule" className="flex-1 m-0 min-h-0 overflow-auto p-4">
+          <div className="space-y-4">
+            {nodeSchedule ? (
+              <>
+                <ScheduleForm
+                  projectId={projectId}
+                  scope="node"
+                  nodeId={node.id}
+                  schedule={nodeSchedule}
+                  onSave={() => loadSchedules(projectId)}
+                />
+                <RunHistory scheduleId={nodeSchedule.id} />
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Set up a recurring schedule for this task.
+                </p>
+                <ScheduleForm
+                  projectId={projectId}
+                  scope="node"
+                  nodeId={node.id}
+                  onSave={() => loadSchedules(projectId)}
+                />
+              </>
+            )}
+          </div>
         </TabsContent>
       </Tabs>
     </div>

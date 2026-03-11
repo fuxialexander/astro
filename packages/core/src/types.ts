@@ -542,3 +542,44 @@ export interface MachineInstruction {
   createdAt: Date;
   updatedAt: Date;
 }
+
+// Cron schedule for recurring task execution
+export interface Schedule {
+  id: string;
+  projectId: string;
+  scope: 'project' | 'node';
+  nodeId?: string | null;
+  name: string;
+  cronExpression: string;
+  timezone: string;
+  targetMachineId: string;
+  nodeFilter?: string[] | null;
+  enabled: boolean;
+  nextRunAt?: Date | null;
+  lastRunAt?: Date | null;
+  activeHoursStart?: string | null;
+  activeHoursEnd?: string | null;
+  maxConcurrency: number;
+  missedRunPolicy: 'skip' | 'retry_on_reconnect';
+  retryTtlMinutes: number;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Execution history entry for a schedule run
+export interface ScheduleRun {
+  id: string;
+  scheduleId: string;
+  runNumber: number;
+  status: 'pending' | 'dispatched' | 'running' | 'success' | 'failure' | 'missed';
+  branchName?: string | null;
+  executionIds?: string[] | null;
+  scheduledAt: Date;
+  startedAt?: Date | null;
+  completedAt?: Date | null;
+  summary?: Record<string, unknown> | null;
+  errorMessage?: string | null;
+  retryUntil?: Date | null;
+  createdAt: Date;
+}
