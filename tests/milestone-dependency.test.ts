@@ -124,13 +124,14 @@ function canExecuteNode(node: PlanNode, allNodes: PlanNode[], edges?: PlanEdge[]
   if (upstreamIds.length === 0) return { ready: true }
 
   const pendingDependencies: string[] = []
-  const completedStatuses: PlanNode['status'][] = ['completed', 'auto_verified']
+  const completedStatuses: PlanNode['status'][] = ['completed', 'auto_verified', 'awaiting_judgment']
 
   for (const depId of upstreamIds) {
     const depNode = projectNodes.find((n) => n.id === depId)
     if (!depNode) continue
     if (!completedStatuses.includes(depNode.status)) {
-      pendingDependencies.push(depNode.title)
+      const label = depNode.type === 'milestone' ? `${depNode.title} (milestone)` : depNode.title
+      pendingDependencies.push(label)
     }
   }
 
@@ -298,7 +299,7 @@ describe('Issue #262: Dispatch milestone dependency satisfaction', () => {
     const nodesWithNx = [...dag.nodes, nodeAfterM2]
     const result = canExecuteNode(nodeAfterM2, nodesWithNx, edgesWithNx)
     expect(result.ready).toBe(false)
-    expect(result.pendingDependencies).toContain('Feature Complete')
+    expect(result.pendingDependencies).toContain('Feature Complete (milestone)')
   })
 
   it('canExecuteNode works with dependencies array fallback (no edges)', () => {
