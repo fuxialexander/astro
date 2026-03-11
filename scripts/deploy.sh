@@ -58,10 +58,18 @@ if [[ "$BRANCH" != "main" ]]; then
   echo "  Production deploys should typically be from the main branch."
   echo "  Frontend will be deployed as a branch preview, not production."
   echo ""
-  read -r -p "  Continue anyway? [y/N] " _confirm
-  if [[ "${_confirm:-n}" != [yY] ]]; then
-    echo "  Aborted. Switch to main first: git checkout main && git pull"
-    exit 0
+  if [[ -t 0 ]]; then
+    read -r -p "  Continue anyway? [y/N] " _confirm
+    if [[ "${_confirm:-n}" != [yY] ]]; then
+      echo "  Aborted. Switch to main first: git checkout main && git pull"
+      exit 0
+    fi
+  else
+    echo "  Non-interactive mode detected. Aborting non-main deploy."
+    echo "  Set DEPLOY_ALLOW_BRANCH=1 to override, or switch to main."
+    if [[ -z "${DEPLOY_ALLOW_BRANCH:-}" ]]; then
+      exit 1
+    fi
   fi
 fi
 echo ""
@@ -223,6 +231,7 @@ case "${1:-all}" in
     deploy_frontend
     ;;
   all)
+    # Fail-fast: check env before deploying backend (also checked inside deploy_frontend)
     check_required
     deploy_backend
     deploy_frontend
