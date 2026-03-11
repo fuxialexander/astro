@@ -1639,6 +1639,7 @@ app.get('/executions/:nodeId', async (c) => {
     completedAt: taskExecutions.completedAt,
   }).from(taskExecutions)
     .where(eq(taskExecutions.nodeClientId, nodeId))
+    .orderBy(desc(taskExecutions.createdAt))
     .limit(1)
 
   if (!exec) {
