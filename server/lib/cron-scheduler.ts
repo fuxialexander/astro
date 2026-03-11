@@ -141,11 +141,11 @@ async function processSchedule(
   // Machine connectivity check
   let machineOnline = false
   try {
-    const [machine] = await db.select({ connectionStatus: registeredMachines.connectionStatus })
+    const [machine] = await db.select({ isConnected: registeredMachines.isConnected })
       .from(registeredMachines)
       .where(eq(registeredMachines.id, schedule.targetMachineId))
       .limit(1)
-    machineOnline = machine?.connectionStatus === 'online'
+    machineOnline = machine?.isConnected ?? false
   } catch {
     // If table doesn't exist (PGlite), assume online
     machineOnline = true

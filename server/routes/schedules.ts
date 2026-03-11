@@ -20,6 +20,7 @@ export const schedulesRoute = new Hono()
 schedulesRoute.use('/*', requireAuth)
 
 const VALID_RUN_STATUSES = ['pending', 'dispatched', 'running', 'success', 'failure', 'missed'] as const
+const uuidSchema = z.string().uuid()
 
 /**
  * Verify the authenticated user has access to a project (owner or team member).
@@ -177,6 +178,7 @@ schedulesRoute.get('/', async (c) => {
 schedulesRoute.get('/:id', async (c) => {
   const user = c.get('user') as AuthUser
   const id = c.req.param('id')
+  if (!uuidSchema.safeParse(id).success) return c.json({ success: false, error: 'Invalid schedule ID' }, 400)
 
   const [schedule] = await db.select()
     .from(schedules)
@@ -201,6 +203,7 @@ schedulesRoute.get('/:id', async (c) => {
 schedulesRoute.patch('/:id', async (c) => {
   const user = c.get('user') as AuthUser
   const id = c.req.param('id')
+  if (!uuidSchema.safeParse(id).success) return c.json({ success: false, error: 'Invalid schedule ID' }, 400)
 
   let body: z.infer<typeof updateScheduleSchema>
   try {
@@ -262,6 +265,7 @@ schedulesRoute.patch('/:id', async (c) => {
 schedulesRoute.delete('/:id', async (c) => {
   const user = c.get('user') as AuthUser
   const id = c.req.param('id')
+  if (!uuidSchema.safeParse(id).success) return c.json({ success: false, error: 'Invalid schedule ID' }, 400)
 
   // Verify ownership before deletion
   const [schedule] = await db.select({ projectId: schedules.projectId })
@@ -281,6 +285,7 @@ schedulesRoute.delete('/:id', async (c) => {
 schedulesRoute.post('/:id/trigger', async (c) => {
   const user = c.get('user') as AuthUser
   const id = c.req.param('id')
+  if (!uuidSchema.safeParse(id).success) return c.json({ success: false, error: 'Invalid schedule ID' }, 400)
 
   const [schedule] = await db.select()
     .from(schedules)
@@ -421,6 +426,7 @@ schedulesRoute.post('/:id/trigger', async (c) => {
 schedulesRoute.get('/:id/runs', async (c) => {
   const user = c.get('user') as AuthUser
   const id = c.req.param('id')
+  if (!uuidSchema.safeParse(id).success) return c.json({ success: false, error: 'Invalid schedule ID' }, 400)
 
   // Verify access
   const [schedule] = await db.select({ projectId: schedules.projectId })
