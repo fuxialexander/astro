@@ -1622,6 +1622,40 @@ app.post('/executions', async (c) => {
   return c.json({ ok: true })
 })
 
+app.get('/executions/:nodeId', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const nodeId = c.req.param('nodeId')
+
+  // Single indexed lookup: WHERE node_client_id = ? (idx_executions_node)
+  const [exec] = await db.select({
+    executionId: taskExecutions.executionId,
+    nodeId: taskExecutions.nodeClientId,
+    projectId: taskExecutions.projectId,
+    status: taskExecutions.status,
+    error: taskExecutions.error,
+    machineId: taskExecutions.machineId,
+    sessionId: taskExecutions.sessionId,
+    startedAt: taskExecutions.startedAt,
+    completedAt: taskExecutions.completedAt,
+  }).from(taskExecutions)
+    .where(eq(taskExecutions.nodeClientId, nodeId))
+    .orderBy(desc(taskExecutions.createdAt))
+    .limit(1)
+
+  if (!exec) {
+    return c.json(null)
+  }
+
+  // Verify project access via team scope
+  const [project] = await db.select({ id: projects.id }).from(projects)
+    .where(and(eq(projects.id, exec.projectId), teamScopeFilter(projects, user)))
+  if (!project) {
+    return c.json({ error: 'Not authorized' }, 403)
+  }
+
+  return c.json(exec)
+})
+
 app.delete('/executions/:nodeId', async (c) => {
   const user = c.get('user')! as AuthUser
   const nodeId = c.req.param('nodeId')

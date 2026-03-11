@@ -2075,17 +2075,67 @@ async function processSSEStreamWithReconnect(
   // 3. Check if we have an executionId to reconnect with
   const execution = get().executions.get(nodeId)
   if (!execution?.executionId) {
-    // No executionId means init event never arrived — can't reconnect.
+    // No executionId means init event never arrived — can't catch up yet.
     // The task may still be initializing server-side (worktree creation,
-    // machine connection, etc.), so do NOT mark as failed here — that
-    // would create false failures for slow-starting tasks.
-    // Instead, clean up the SSE connection state and let other mechanisms
-    // reconcile: page refresh → useRestoredExecution hydrates from DB,
-    // or the result event arrives later and Fix 2 (finalStatus fallback)
-    // updates the plan node.
-    console.warn(`[sse-reconnect] No executionId for ${nodeId}, cannot reconnect — task may still be initializing server-side`)
-    setConnectionState(nodeId, undefined, set)
-    return
+    // machine connection, etc.). Poll the database (ground truth) to check
+    // if the server has created a task_execution record for this node.
+    // Once we find the executionId, hand off to the normal catch-up loop.
+    if (isPageUnloadingOrHidden()) {
+      console.log(`[sse-reconnect] No executionId for ${nodeId}, page hidden — skipping`)
+      setConnectionState(nodeId, undefined, set)
+      return
+    }
+
+    console.log(`[sse-reconnect] No executionId for ${nodeId}, polling DB for execution record...`)
+    setConnectionState(nodeId, 'reconnecting', set)
+
+    const MAX_EXEC_POLL_ATTEMPTS = 10
+    const EXEC_POLL_INTERVAL_MS = 3000
+
+    for (let attempt = 0; attempt < MAX_EXEC_POLL_ATTEMPTS; attempt++) {
+      if (signal?.aborted) {
+        setConnectionState(nodeId, undefined, set)
+        return
+      }
+
+      // Check if execution was cancelled/completed while polling
+      const currentExec = get().executions.get(nodeId)
+      if (!currentExec || currentExec.status === 'success' || currentExec.status === 'failure' || currentExec.status === 'cancelled') {
+        setConnectionState(nodeId, undefined, set)
+        return
+      }
+
+      try {
+        const dbExec = await dataClient.getExecutionByNodeId(nodeId)
+        if (dbExec?.executionId) {
+          console.log(`[sse-reconnect] Found executionId ${dbExec.executionId} for ${nodeId} from DB (attempt ${attempt + 1})`)
+          // Update the in-memory execution with the executionId from DB
+          set((state) => {
+            const newExecutions = new Map(state.executions)
+            const exec = newExecutions.get(nodeId)
+            if (exec && !exec.executionId) {
+              newExecutions.set(nodeId, { ...exec, executionId: dbExec.executionId })
+            }
+            return { executions: newExecutions }
+          })
+          // Now we have the executionId — break out and fall through to
+          // the normal catch-up/reconnection loop below.
+          break
+        }
+      } catch (pollError) {
+        console.warn(`[sse-reconnect] DB poll failed for ${nodeId} (attempt ${attempt + 1}):`, pollError)
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, EXEC_POLL_INTERVAL_MS))
+    }
+
+    // Re-check: did we find the executionId?
+    const updatedExec = get().executions.get(nodeId)
+    if (!updatedExec?.executionId) {
+      console.warn(`[sse-reconnect] No execution record found in DB for ${nodeId} after ${MAX_EXEC_POLL_ATTEMPTS} attempts`)
+      setConnectionState(nodeId, undefined, set)
+      return
+    }
   }
 
   // 3a. If page is hidden (unload/navigate away), skip reconnection
@@ -2094,7 +2144,12 @@ async function processSSEStreamWithReconnect(
     return
   }
 
-  const executionId = execution.executionId
+  // Re-read execution from store (may have been updated by the polling loop above)
+  const executionId = get().executions.get(nodeId)?.executionId
+  if (!executionId) {
+    setConnectionState(nodeId, undefined, set)
+    return
+  }
 
   // 3b. Start reconnection loop
   console.log(`[sse-reconnect] Starting reconnection for ${nodeId} (executionId: ${executionId}, lastSeq: ${lastSeq})`)

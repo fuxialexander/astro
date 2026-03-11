@@ -382,7 +382,10 @@ export const taskExecutions = pgTable('task_executions', {
   turnsUsed: integer('turns_used'),
   markdownSummary: text('markdown_summary'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  idx_executions_project: index('idx_executions_project').on(table.projectId),
+  idx_executions_node: index('idx_executions_node').on(table.nodeClientId),
+}))
 
 // ── Tool Traces ──────────────────────────────────────────────────────
 export const toolTraces = pgTable('tool_traces', {
@@ -394,7 +397,9 @@ export const toolTraces = pgTable('tool_traces', {
   success: boolean('success'),
   duration: integer('duration'),
   timestamp: timestamp('timestamp').notNull().defaultNow(),
-})
+}, (table) => ({
+  idx_tool_traces_execution: index('idx_tool_traces_execution').on(table.executionId),
+}))
 
 // ── File Changes ──────────────────────────────────────────────────────
 export const fileChanges = pgTable('file_changes', {
@@ -405,7 +410,9 @@ export const fileChanges = pgTable('file_changes', {
   linesAdded: integer('lines_added'),
   linesRemoved: integer('lines_removed'),
   timestamp: timestamp('timestamp').notNull().defaultNow(),
-})
+}, (table) => ({
+  idx_file_changes_execution: index('idx_file_changes_execution').on(table.executionId),
+}))
 
 // ── Refresh Tokens ────────────────────────────────────────────────────
 export const refreshTokens = pgTable('refresh_tokens', {
@@ -687,7 +694,9 @@ export const streamingEvents = pgTable('streaming_events', {
   eventType: text('event_type').notNull(), // 'text' | 'tool_use' | 'tool_result' | 'file_change' | 'session_init' | 'progress' | 'result'
   data: jsonb('data').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  idx_streaming_events_exec_seq: index('idx_streaming_events_exec_seq').on(table.executionId, table.seq),
+}))
 
 // ── Skills ───────────────────────────────────────────────────────
 // Reusable skill definitions that can be assigned to tasks/agents.
