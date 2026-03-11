@@ -83,6 +83,7 @@ export function getProjectMachineLock(project: Project | undefined): {
 // Dispatch field length limits — must match server-side Zod schema in dispatch.ts
 const MAX_DESCRIPTION_LENGTH = 200_000
 const MAX_VISIONDOC_LENGTH = 100_000
+const MAX_DEP_OUTPUT_LENGTH = 100_000
 
 /**
  * Truncate a dispatch field if it exceeds the max length.
@@ -444,8 +445,25 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       return
     }
 
-    // Build dependency outputs from completed dependencies
-    const dependencyOutputs = buildDependencyOutputs(node.dependencies, liveNodes, projectId)
+    // Build dependency outputs from completed dependencies, truncating oversized outputs
+    const rawDependencyOutputs = buildDependencyOutputs(node.dependencies, liveNodes, projectId)
+    const DEP_TRUNCATION_SUFFIX = '\n\n[Output truncated...]'
+    const dependencyOutputs = rawDependencyOutputs.map(dep => {
+      if (dep.output.length <= MAX_DEP_OUTPUT_LENGTH) return dep
+      return {
+        ...dep,
+        output: dep.output.slice(0, MAX_DEP_OUTPUT_LENGTH - DEP_TRUNCATION_SUFFIX.length) + DEP_TRUNCATION_SUFFIX,
+      }
+    })
+    const truncatedCount = dependencyOutputs.filter((d, i) => d.output !== rawDependencyOutputs[i].output).length
+    if (truncatedCount > 0) {
+      useToastStore.getState().add({
+        type: "warning",
+        title: `${truncatedCount} dependency output${truncatedCount > 1 ? 's' : ''} truncated`,
+        description: `Oversized dependency outputs were trimmed to ${MAX_DEP_OUTPUT_LENGTH.toLocaleString()} characters to fit dispatch limits.`,
+        duration: 10000,
+      })
+    }
 
     // Initialize execution state
     const execution: TaskExecution = {
