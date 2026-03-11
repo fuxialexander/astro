@@ -9,7 +9,7 @@ import { z } from 'zod'
 import { Cron } from 'croner'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { db } from '../lib/db/index.js'
-import { schedules, scheduleRuns, projects, teamMembers } from '../lib/db/schema.js'
+import { schedules, scheduleRuns, projects, teamMembers, planNodes } from '../lib/db/schema.js'
 import { eq, and, desc } from 'drizzle-orm'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import {
@@ -58,8 +58,8 @@ const createScheduleSchema = z.object({
   targetMachineId: z.string().min(1).max(100),
   nodeFilter: z.array(z.string().max(100)).optional(),
   enabled: z.boolean().default(true),
-  activeHoursStart: z.string().max(10).optional(),
-  activeHoursEnd: z.string().max(10).optional(),
+  activeHoursStart: z.string().regex(/^\d{1,2}:\d{2}$/, 'Must be HH:MM format').optional(),
+  activeHoursEnd: z.string().regex(/^\d{1,2}:\d{2}$/, 'Must be HH:MM format').optional(),
   maxConcurrency: z.number().int().min(1).max(10).default(1),
   missedRunPolicy: z.enum(['skip', 'retry_on_reconnect']).default('skip'),
   retryTtlMinutes: z.number().int().min(1).max(1440).default(60),
@@ -75,8 +75,8 @@ const updateScheduleSchema = z.object({
   targetMachineId: z.string().min(1).max(100).optional(),
   nodeFilter: z.array(z.string().max(100)).optional(),
   enabled: z.boolean().optional(),
-  activeHoursStart: z.string().max(10).nullable().optional(),
-  activeHoursEnd: z.string().max(10).nullable().optional(),
+  activeHoursStart: z.string().regex(/^\d{1,2}:\d{2}$/, 'Must be HH:MM format').nullable().optional(),
+  activeHoursEnd: z.string().regex(/^\d{1,2}:\d{2}$/, 'Must be HH:MM format').nullable().optional(),
   maxConcurrency: z.number().int().min(1).max(10).optional(),
   missedRunPolicy: z.enum(['skip', 'retry_on_reconnect']).optional(),
   retryTtlMinutes: z.number().int().min(1).max(1440).optional(),
@@ -127,6 +127,17 @@ schedulesRoute.post('/', async (c) => {
   // Validate scope + nodeId
   if (body.scope === 'node' && !body.nodeId) {
     return c.json({ success: false, error: 'nodeId is required for node-scope schedules' }, 400)
+  }
+
+  // Verify nodeId belongs to the specified project
+  if (body.scope === 'node' && body.nodeId) {
+    const [node] = await db.select({ clientId: planNodes.clientId })
+      .from(planNodes)
+      .where(and(eq(planNodes.clientId, body.nodeId), eq(planNodes.projectId, body.projectId)))
+      .limit(1)
+    if (!node) {
+      return c.json({ success: false, error: 'Node not found in the specified project' }, 404)
+    }
   }
 
   // Validate timezone

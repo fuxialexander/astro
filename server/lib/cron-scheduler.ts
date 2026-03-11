@@ -247,7 +247,7 @@ export async function dispatchProjectRootNodes(
 
   if (taskNodes.length === 0) return 0
 
-  // Reset all terminal task nodes to planned
+  // Reset all terminal task nodes to planned, updating in-memory status to match
   for (const node of taskNodes) {
     if (TERMINAL_STATUSES.includes(node.status)) {
       await db.update(planNodes)
@@ -261,6 +261,7 @@ export async function dispatchProjectRootNodes(
           updatedAt: now,
         })
         .where(eq(planNodes.clientId, node.clientId))
+      node.status = 'planned'
     }
   }
 
@@ -273,7 +274,9 @@ export async function dispatchProjectRootNodes(
 
     const depEdges = allEdges.filter(e => e.targetClientId === node.clientId)
     const allDepsMet = depEdges.every(depEdge => {
-      const depNode = allNodes.find(n => n.clientId === depEdge.sourceClientId)
+      // Use taskNodes (with updated statuses) for dependency lookup within the filtered set
+      const depNode = taskNodes.find(n => n.clientId === depEdge.sourceClientId)
+        ?? allNodes.find(n => n.clientId === depEdge.sourceClientId)
       if (!nodeIds.has(depEdge.sourceClientId)) return true
       return depNode && COMPLETED_STATUSES.includes(depNode.status)
     })
@@ -556,6 +559,12 @@ export async function retryMissedRunsForMachine(machineId: string): Promise<void
 
     for (const { run, schedule } of retriable) {
       try {
+        // Respect max concurrency on retry
+        if (!await checkMaxConcurrency(schedule.id, schedule.maxConcurrency)) {
+          console.log(`[cron] retry: max concurrency (${schedule.maxConcurrency}) reached for schedule ${schedule.id.slice(0, 8)}, skipping`)
+          continue
+        }
+
         // Update run status to dispatched
         await db.update(scheduleRuns)
           .set({ status: 'dispatched', startedAt: now })
