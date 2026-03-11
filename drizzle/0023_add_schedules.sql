@@ -18,7 +18,9 @@ CREATE TABLE IF NOT EXISTS "schedules" (
 	"retry_ttl_minutes" integer DEFAULT 60 NOT NULL,
 	"created_by" uuid NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "schedules_scope_check" CHECK ("scope" IN ('project', 'node')),
+	CONSTRAINT "schedules_missed_run_policy_check" CHECK ("missed_run_policy" IN ('skip', 'retry_on_reconnect'))
 );
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "schedule_runs" (
@@ -35,7 +37,8 @@ CREATE TABLE IF NOT EXISTS "schedule_runs" (
 	"error_message" text,
 	"retry_until" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "schedule_runs_schedule_id_run_number_unique" UNIQUE("schedule_id","run_number")
+	CONSTRAINT "schedule_runs_schedule_id_run_number_unique" UNIQUE("schedule_id","run_number"),
+	CONSTRAINT "schedule_runs_status_check" CHECK ("status" IN ('pending', 'dispatched', 'running', 'success', 'failure', 'missed'))
 );
 --> statement-breakpoint
 DO $$ BEGIN

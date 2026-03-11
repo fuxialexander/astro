@@ -968,6 +968,8 @@ export const schedules = pgTable('schedules', {
 }, (table) => [
   index('schedules_project_id_idx').on(table.projectId),
   index('schedules_next_run_enabled_idx').on(table.nextRunAt).where(sql`enabled = true`),
+  check('schedules_scope_check', sql`${table.scope} IN ('project', 'node')`),
+  check('schedules_missed_run_policy_check', sql`${table.missedRunPolicy} IN ('skip', 'retry_on_reconnect')`),
 ])
 
 // ── Schedule Runs ────────────────────────────────────────────────
@@ -989,6 +991,7 @@ export const scheduleRuns = pgTable('schedule_runs', {
 }, (table) => [
   index('schedule_runs_schedule_id_idx').on(table.scheduleId),
   unique('schedule_runs_schedule_id_run_number_unique').on(table.scheduleId, table.runNumber),
+  check('schedule_runs_status_check', sql`${table.status} IN ('pending', 'dispatched', 'running', 'success', 'failure', 'missed')`),
 ])
 
 // ── GitHub Sync Log ──────────────────────────────────────────────
