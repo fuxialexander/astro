@@ -9,7 +9,7 @@
 
 import type { AstroEvent, EventHook } from '../types.js'
 import { db } from '../../db/index.js'
-import { projects, planNodes } from '../../db/schema.js'
+import { projects, planNodes, activityEvents } from '../../db/schema.js'
 import { eq } from 'drizzle-orm'
 import type { Project, PlanNode } from '../../../../src/types/index.js'
 import { resolveGitHubToken } from '../../github-client.js'
@@ -248,6 +248,13 @@ export const projectCompletionHook: EventHook = async (event: AstroEvent) => {
 
   console.log(`[project-completion-hook] All tasks complete for project ${projectId} (branch: ${projectBranch})`)
 
+  // Query project owner — needed for both PR creation and activity event persistence
+  const [dbProject] = await db
+    .select({ ownerId: projects.ownerId, teamId: projects.teamId })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1)
+
   // Try to create a final PR for GitHub projects
   let prUrl: string | undefined
   let prNumber: number | undefined
@@ -261,15 +268,7 @@ export const projectCompletionHook: EventHook = async (event: AstroEvent) => {
     )
     if (pushToGithubNode) {
       console.log(`[project-completion-hook] Skipping PR — project has explicit Push to GitHub node (${pushToGithubNode.id})`)
-    } else {
-      // Resolve GitHub token via the unified priority chain
-      const [dbProject] = await db
-        .select({ ownerId: projects.ownerId, teamId: projects.teamId })
-        .from(projects)
-        .where(eq(projects.id, projectId))
-        .limit(1)
-
-      if (dbProject) {
+    } else if (dbProject) {
         const tokenResult = await resolveGitHubToken(
           project.githubOwner!,
           project.githubRepo!,
@@ -315,7 +314,6 @@ export const projectCompletionHook: EventHook = async (event: AstroEvent) => {
             `— final PR will not be created.`
           )
         }
-      }
     }
   } else if (project.projectPrUrl) {
     // Already has a PR — carry forward its info
@@ -324,6 +322,7 @@ export const projectCompletionHook: EventHook = async (event: AstroEvent) => {
   }
 
   // Emit project.completed event for ALL projects (both remote and local)
+  const completedAt = new Date()
   await astroEventTransport.emitEvent({
     type: 'project.completed',
     projectId,
@@ -331,6 +330,33 @@ export const projectCompletionHook: EventHook = async (event: AstroEvent) => {
     projectBranch,
     projectPrUrl: prUrl,
     projectPrNumber: prNumber,
-    timestamp: new Date(),
+    timestamp: completedAt,
   })
+
+  // Persist to activity_events so the completion is recoverable on SSE reconnect
+  if (dbProject) {
+    try {
+      await db.insert(activityEvents).values({
+        userId: dbProject.ownerId,
+        projectId,
+        type: 'project_completed',
+        title: `Project completed: ${project.name}`,
+        description: prUrl
+          ? `All tasks finished. PR: ${prUrl}`
+          : `All tasks finished on branch ${projectBranch}.`,
+        metadata: {
+          prUrl,
+          prNumber,
+          projectBranch,
+          deliveryMode: project.deliveryMode,
+          completedAt: completedAt.toISOString(),
+        },
+        createdAt: completedAt,
+      })
+      console.log(`[project-completion-hook] Persisted project_completed activity event for project ${projectId}`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`[project-completion-hook] Failed to persist activity event: ${msg}`)
+    }
+  }
 }
