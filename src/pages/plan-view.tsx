@@ -11,6 +11,7 @@ import { TaskCreationForm } from "@/components/task-creation-form"
 import { TaskRow } from "@/components/task-row"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import { Progress } from "@/components/ui/progress"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { PlanCanvas } from "@/components/plan-graph/plan-canvas"
 import { ChatPanel } from "@/components/agent/chat-panel"
@@ -1202,7 +1203,12 @@ export function PlanListView({
           label: m.title,
           icon: <Diamond className="h-3 w-3 text-primary" />,
           items: grouped,
-          meta: <span className="text-[11px] text-muted-foreground">{completion}% &middot; {grouped.length} tasks</span>,
+          meta: (
+            <div className="flex items-center gap-2">
+              <Progress value={completion} className="h-1.5 w-16" indicatorClassName="bg-emerald-500" />
+              <span className="text-[11px] text-muted-foreground whitespace-nowrap">{completedCount}/{grouped.length}</span>
+            </div>
+          ),
         })
       }
       const unassigned = tasks.filter((n) => !n.milestoneId)
