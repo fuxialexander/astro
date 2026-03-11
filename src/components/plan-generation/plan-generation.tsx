@@ -547,7 +547,20 @@ export function PlanGeneration({
                 if (newSessionId) setProviderSessionId(sid, newSessionId)
                 // Try full plan extraction first, fall back to mutations
                 const catchUpPlanResult = applyPlanFromText(projectId, rawText)
-                if (!catchUpPlanResult.applied) {
+                if (catchUpPlanResult.applied) {
+                  const updatedNodes = usePlanStore.getState().nodes.filter((n) => n.projectId === projectId)
+                  const updatedEdgeSet = new Set(updatedNodes.map((n) => n.id))
+                  const updatedEdges = usePlanStore.getState().edges.filter(
+                    (e) => updatedEdgeSet.has(e.source) || updatedEdgeSet.has(e.target)
+                  )
+                  pushChatEvent({
+                    type: 'plan_result',
+                    nodes: updatedNodes.map((n) => ({ id: n.id, title: n.title, type: n.type, status: n.status })),
+                    edges: updatedEdges.map((e) => ({ source: e.source, target: e.target })),
+                    projectName: projectName,
+                    timestamp: new Date(),
+                  })
+                } else {
                   const { mutations: catchUpMutations } = extractMutations(rawText)
                   const hasCatchUpMutations = catchUpMutations.nodeUpdates.length > 0 || catchUpMutations.edgeOps.length > 0 || catchUpMutations.newNodes.length > 0
                   if (hasCatchUpMutations) {
