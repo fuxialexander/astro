@@ -728,9 +728,12 @@ export function ProjectNewPlan() {
   }
 
   // ─── Chat Phase ─────────────────────────────────────────────────
-  // Skip chat phase for existing projects with no plan nodes and no execution (re-generation pre-fill).
-  // Once the user submits, execution becomes truthy and we enter chat phase normally.
-  const showInputForRegeneration = existingProjectHasNoNodes && !execution && !fromPlaygroundId
+  // Skip chat phase for existing projects with no plan nodes and no active execution (re-generation pre-fill).
+  // A terminal execution (cancelled/failure/success) with zero nodes means the previous attempt
+  // produced nothing — show the input form so the user can re-generate.
+  // Once the user submits, execution status resets to "pending" and we enter chat phase normally.
+  const executionIsTerminal = execution?.status === 'cancelled' || execution?.status === 'failure' || execution?.status === 'success'
+  const showInputForRegeneration = existingProjectHasNoNodes && (!execution || executionIsTerminal) && !fromPlaygroundId
   if (activeProjectId && (execution || project) && !showInputForRegeneration) {
     return (
       <div className="h-full">
