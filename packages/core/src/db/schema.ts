@@ -967,7 +967,7 @@ export const schedules = pgTable('schedules', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index('schedules_project_id_idx').on(table.projectId),
-  index('schedules_next_run_enabled_idx').on(table.nextRunAt),
+  index('schedules_next_run_enabled_idx').on(table.nextRunAt).where(sql`enabled = true`),
 ])
 
 // ── Schedule Runs ────────────────────────────────────────────────
@@ -988,6 +988,7 @@ export const scheduleRuns = pgTable('schedule_runs', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index('schedule_runs_schedule_id_idx').on(table.scheduleId),
+  unique('schedule_runs_schedule_id_run_number_unique').on(table.scheduleId, table.runNumber),
 ])
 
 // ── GitHub Sync Log ──────────────────────────────────────────────

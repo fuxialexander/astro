@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS schedule_runs (
 );
 
 CREATE INDEX IF NOT EXISTS schedule_runs_schedule_id_idx ON schedule_runs(schedule_id);
+ALTER TABLE schedule_runs ADD CONSTRAINT schedule_runs_schedule_id_run_number_unique UNIQUE (schedule_id, run_number);
 
 -- RLS policies
 ALTER TABLE schedules ENABLE ROW LEVEL SECURITY;

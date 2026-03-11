@@ -57,7 +57,10 @@ const createScheduleSchema = z.object({
   maxConcurrency: z.number().int().min(1).max(10).default(1),
   missedRunPolicy: z.enum(['skip', 'retry_on_reconnect']).default('skip'),
   retryTtlMinutes: z.number().int().min(1).max(1440).default(60),
-})
+}).refine(
+  (d) => (d.activeHoursStart == null) === (d.activeHoursEnd == null),
+  { message: 'Both activeHoursStart and activeHoursEnd must be provided together', path: ['activeHoursStart'] },
+)
 
 const updateScheduleSchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -436,8 +439,8 @@ schedulesRoute.get('/:id/runs', async (c) => {
     return c.json({ success: false, error: 'Schedule not found' }, 404)
   }
 
-  const limit = Math.min(parseInt(c.req.query('limit') || '20', 10), 100)
-  const offset = parseInt(c.req.query('offset') || '0', 10)
+  const limit = Math.min(Math.max(1, parseInt(c.req.query('limit') || '20', 10) || 20), 100)
+  const offset = Math.max(0, parseInt(c.req.query('offset') || '0', 10) || 0)
   const statusParam = c.req.query('status')
   const status = statusParam && (VALID_RUN_STATUSES as readonly string[]).includes(statusParam) ? statusParam : undefined
 
