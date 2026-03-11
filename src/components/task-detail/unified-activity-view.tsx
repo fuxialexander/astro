@@ -243,8 +243,32 @@ export function UnifiedActivityView({
   // eslint-disable-next-line react-hooks/exhaustive-deps -- chatEventsRef is a stable ref
   }, [activityEvents, chatEventsVersion])
 
-  // Group events for display
-  const displayBlocks = useMemo(() => groupActivityEvents(allActivityEvents), [allActivityEvents])
+  // Group events for display.
+  // When a SummaryCard is visible (execution.summary exists), the raw "## Executive Summary"
+  // in the agent's text output is redundant — the structured follow-up turn already produced
+  // it. Drop the trailing text block that contains the executive summary heading to avoid
+  // showing the same content twice (styled card + raw markdown). This is more robust than
+  // regex stripping because the prompt guarantees the summary is the last text output.
+  const displayBlocks = useMemo(() => {
+    const blocks = groupActivityEvents(allActivityEvents)
+    if (!execution?.summary || blocks.length === 0) return blocks
+
+    // Find the last text block and check if it contains the executive summary
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      if (blocks[i].type === 'text') {
+        const text = blocks[i].events
+          .filter((e): e is Extract<TaskActivityEvent, { type: 'text' }> => e.type === 'text')
+          .map(e => e.content)
+          .join('')
+        if (text.includes('## Executive Summary') || text.includes('## executive summary')) {
+          // Remove this block — its content is already in the SummaryCard
+          return [...blocks.slice(0, i), ...blocks.slice(i + 1)]
+        }
+        break // only check the last text block
+      }
+    }
+    return blocks
+  }, [allActivityEvents, execution?.summary])
 
   // Pre-build approval response lookup (answered set + response map) to avoid O(n) scans in render
   const { answeredRequestIds, approvalResponseMap } = useMemo(() => {
