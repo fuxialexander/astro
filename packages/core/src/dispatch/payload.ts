@@ -41,6 +41,8 @@ export interface DependencyNode {
   projectId: string
   title: string
   executionOutput?: string | null
+  status?: string | null
+  type?: string | null
 }
 
 // ── Output types ────────────────────────────────────────────────────
@@ -192,6 +194,14 @@ export function buildDependencyOutputs(
         nodeId: depNode.id,
         title: depNode.title,
         output: depNode.executionOutput,
+      })
+    } else if (depNode && (depNode.status === 'completed' || depNode.status === 'auto_verified')) {
+      // Milestones and tasks without output but with completed status
+      // still satisfy dependencies
+      outputs.push({
+        nodeId: depNode.id,
+        title: depNode.title,
+        output: `[${depNode.type || 'node'} ${depNode.status}]`,
       })
     }
   }

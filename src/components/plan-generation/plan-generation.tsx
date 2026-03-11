@@ -15,6 +15,7 @@ import { useExecutionStore } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useToastStore } from "@/stores/toast-store"
+import { useNotificationStore } from "@/stores/notification-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useUsageStore } from "@/stores/usage-store"
@@ -254,9 +255,11 @@ export function PlanGeneration({
   // Track which projectId the executionWasLive flag belongs to, so a stale `true`
   // from a previous project can't trigger navigation after a projectId switch.
   const liveProjectIdRef = useRef<string | null>(null)
-  // Reset both guards when projectId changes
+  const planNotified = useRef(false)
+  // Reset all guards when projectId changes
   useEffect(() => {
     yoloNavigated.current = false
+    planNotified.current = false
     setExecutionWasLive(false)
     liveProjectIdRef.current = null
   }, [projectId])
@@ -276,13 +279,39 @@ export function PlanGeneration({
         description: `Navigating to project view.`,
         duration: 4000,
       })
+      useNotificationStore.getState().add({
+        type: 'success',
+        title: 'Plan generated',
+        description: `Plan for "${projectName || 'project'}" has been generated and execution is starting.`,
+        projectId,
+      })
       // Small delay for the toast to be visible before navigation
       const timer = setTimeout(() => {
         navigate(`/project/${projectId}`)
       }, 500)
       return () => clearTimeout(timer)
     }
-  }, [executionWasLive, yoloMode, workingDirectory, headerStatus, hasPlan, projectId, navigate])
+  }, [executionWasLive, yoloMode, workingDirectory, headerStatus, hasPlan, projectId, projectName, navigate])
+
+  // Non-YOLO: notify when plan generation completes
+  useEffect(() => {
+    if (planNotified.current) return
+    if (executionWasLive && liveProjectIdRef.current === projectId && !yoloMode && headerStatus === 'completed' && hasPlan) {
+      planNotified.current = true
+      useToastStore.getState().add({
+        type: 'success',
+        title: 'Plan generated',
+        description: `Plan for "${projectName || 'project'}" is ready for review.`,
+        duration: 5000,
+      })
+      useNotificationStore.getState().add({
+        type: 'success',
+        title: 'Plan generated',
+        description: `Plan for "${projectName || 'project'}" is ready for review.`,
+        projectId,
+      })
+    }
+  }, [executionWasLive, yoloMode, headerStatus, hasPlan, projectId, projectName])
 
   // Auto-scroll
   const eventsLength = allActivityEvents.length

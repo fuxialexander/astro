@@ -3110,7 +3110,8 @@ export function canExecuteNode(node: PlanNode, allNodes: PlanNode[], edges?: Pla
     }
 
     if (!completedStatuses.includes(depNode.status)) {
-      pendingDependencies.push(depNode.title)
+      const label = depNode.type === 'milestone' ? `${depNode.title} (milestone)` : depNode.title
+      pendingDependencies.push(label)
     }
   }
 
