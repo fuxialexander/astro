@@ -62,6 +62,7 @@ docs/
 *.md
 !README.md
 !skills/machine_instruction_presets/*.md
+!docs/guides/agent-quickstart.md
 
 # Project-specific dev files
 .plan.md

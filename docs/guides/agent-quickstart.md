@@ -60,11 +60,13 @@ Register additional machines for multi-environment dispatch:
 astro-cli machine register
 ```
 
-## MCP Tools Integration
+## MCP Integration
 
-For richer integration, Astro provides an MCP (Model Context Protocol) tools server with 17 tools:
+Astro provides two MCP (Model Context Protocol) servers for different use cases:
 
-### Setup
+### Session Bridge (for attaching to tasks)
+
+The session bridge lets you attach your running session to an Astro task, enabling bidirectional communication during execution.
 
 ```json
 {
@@ -78,7 +80,16 @@ For richer integration, Astro provides an MCP (Model Context Protocol) tools ser
 }
 ```
 
-### Available Tools
+| Tool | Description |
+|------|-------------|
+| `astro_attach` | Attach your session to an Astro task |
+| `astro_detach` | Detach from the current task |
+| `astro_status` | Check current attachment status |
+| `astro_send` | Send a message/event to Astro |
+
+### Data-Access Tools (injected during task execution)
+
+When Astro dispatches a task to an agent, 17 server-side MCP tools are automatically injected into the agent's session. These provide full access to plan management, project data, and user interaction:
 
 | Category | Tools |
 |----------|-------|
@@ -88,6 +99,8 @@ For richer integration, Astro provides an MCP (Model Context Protocol) tools ser
 | **Data Access** | `get_user_profile`, `query_executions` |
 | **Knowledge Store** | `store_knowledge`, `query_knowledge` |
 | **User Interaction** | `ask_user_question` |
+
+You do not need to configure these tools — they are provided automatically when a task is dispatched to your agent.
 
 ## Key Concepts
 
