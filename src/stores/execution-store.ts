@@ -83,6 +83,7 @@ export function getProjectMachineLock(project: Project | undefined): {
 // Dispatch field length limits — must match server-side Zod schema in dispatch.ts
 const MAX_DESCRIPTION_LENGTH = 200_000
 const MAX_VISIONDOC_LENGTH = 100_000
+const MAX_DEP_OUTPUT_LENGTH = 100_000
 
 /**
  * Truncate a dispatch field if it exceeds the max length.
@@ -444,8 +445,14 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       return
     }
 
-    // Build dependency outputs from completed dependencies
-    const dependencyOutputs = buildDependencyOutputs(node.dependencies, liveNodes, projectId)
+    // Build dependency outputs from completed dependencies, truncating oversized outputs
+    const rawDependencyOutputs = buildDependencyOutputs(node.dependencies, liveNodes, projectId)
+    const dependencyOutputs = rawDependencyOutputs.map(dep => ({
+      ...dep,
+      output: dep.output.length > MAX_DEP_OUTPUT_LENGTH
+        ? dep.output.slice(0, MAX_DEP_OUTPUT_LENGTH) + '\n\n[Output truncated...]'
+        : dep.output,
+    }))
 
     // Initialize execution state
     const execution: TaskExecution = {

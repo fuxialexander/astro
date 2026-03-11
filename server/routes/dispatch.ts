@@ -82,7 +82,7 @@ function getShortId(id: string): string {
  * Mirrors the agent-runner's deriveDeliveryMode() logic so the server
  * sends the correct mode instead of always defaulting to 'pr'.
  */
-function deriveDefaultDeliveryMode(remoteType?: string): 'pr' | 'push' | 'branch' {
+function deriveDefaultDeliveryMode(remoteType?: string): 'pr' | 'push' | 'branch' | 'direct' {
   switch (remoteType) {
     case 'github':
     case 'gitlab':
@@ -91,6 +91,7 @@ function deriveDefaultDeliveryMode(remoteType?: string): 'pr' | 'push' | 'branch
     case 'generic':
       return 'push'
     case 'none':
+      return 'direct'
     default:
       return 'branch'
   }
