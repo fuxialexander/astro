@@ -43,7 +43,10 @@ export const projects = pgTable('projects', {
   projectPrNumber: integer('project_pr_number'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  teamIdIdx: index('idx_projects_team_id').on(table.teamId),
+  ownerIdIdx: index('idx_projects_owner_id').on(table.ownerId),
+}))
 
 // ── Initiatives ───────────────────────────────────────────────────────
 export const initiatives = pgTable('initiatives', {
@@ -166,7 +169,15 @@ export const planNodes = pgTable('plan_nodes', {
   deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  projectIdIdx: index('idx_plan_nodes_project').on(table.projectId),
+  clientIdIdx: index('idx_plan_nodes_client_id_standalone').on(table.clientId),
+  projectClientIdUniq: uniqueIndex('idx_plan_nodes_project_client').on(table.projectId, table.clientId),
+  statusIdx: index('idx_plan_nodes_status').on(table.status),
+  deletedAtIdx: index('idx_plan_nodes_deleted_at').on(table.deletedAt),
+  branchNameIdx: index('idx_plan_nodes_branch_name').on(table.branchName),
+  prNumberIdx: index('idx_plan_nodes_pr_number').on(table.prNumber),
+}))
 
 // ── Plan Node Dependencies ────────────────────────────────────────────
 export const planNodeDependencies = pgTable('plan_node_dependencies', {
@@ -188,7 +199,12 @@ export const planEdges = pgTable('plan_edges', {
   deletedAt: timestamp('deleted_at'),
   deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  projectIdIdx: index('idx_plan_edges_project').on(table.projectId),
+  sourceClientIdIdx: index('idx_plan_edges_source').on(table.sourceClientId),
+  targetClientIdIdx: index('idx_plan_edges_target').on(table.targetClientId),
+  deletedAtIdx: index('idx_plan_edges_deleted_at').on(table.deletedAt),
+}))
 
 // ── User Profiles ─────────────────────────────────────────────────────
 export const userProfiles = pgTable('user_profiles', {
