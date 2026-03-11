@@ -402,6 +402,13 @@ async function processSchedule(
     }
     if (nodeResult === 'active') {
       console.log(`${logPrefix}: node ${schedule.nodeId} already active, skipping`)
+      await insertScheduleRun({
+        scheduleId: schedule.id,
+        status: 'missed',
+        scheduledAt: now,
+        completedAt: now,
+        errorMessage: `Skipped: node ${schedule.nodeId} is currently active (in_progress, dispatched, or awaiting_approval)`,
+      })
       return
     }
 

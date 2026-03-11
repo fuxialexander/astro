@@ -44,11 +44,12 @@ export async function serverSideDispatch(nodeId: string, projectId: string, opti
     return
   }
 
-  // Resolve project to get owner and team
+  // Resolve project to get owner, team, and provider preference
   const [project] = await db.select({
     ownerId: projects.ownerId,
     teamId: projects.teamId,
     defaultMachineId: projects.defaultMachineId,
+    defaultProvider: projects.defaultProvider,
   }).from(projects).where(eq(projects.id, projectId)).limit(1)
 
   if (!project) {
@@ -86,6 +87,7 @@ export async function serverSideDispatch(nodeId: string, projectId: string, opti
     nodeId,
     projectId,
     targetMachineId: options?.targetMachineId ?? project.defaultMachineId ?? undefined,
+    preferredProvider: project.defaultProvider ?? undefined,
   }
   if (options?.branchSuffix) body.branchSuffix = options.branchSuffix
   if (options?.scheduleRunId) body.scheduleRunId = options.scheduleRunId
