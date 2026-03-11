@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>About Astro — Our Philosophy</title>
+    <title data-i18n="about.meta.title">About Astro — Our Philosophy</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -99,6 +99,28 @@
         .nav-link.active {
             color: var(--text-primary);
         }
+
+        .nav-lang {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            overflow: hidden;
+            background: rgba(0, 0, 0, 0.15);
+        }
+        .nav-lang-btn {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.7rem;
+            padding: 0.35rem 0.6rem;
+            border: none;
+            background: none;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            transition: color 0.2s ease, background 0.2s ease;
+        }
+        .nav-lang-btn:hover { color: var(--text-secondary); background: rgba(255, 255, 255, 0.04); }
+        .nav-lang-btn.active { color: var(--text-primary); background: rgba(91, 163, 208, 0.12); }
 
         .nav-cta {
             font-family: 'Inter', sans-serif;
@@ -742,17 +764,21 @@
         <nav>
             <a href="/landing" class="logo">Astro</a>
             <div class="nav-links">
-                <a href="/landing" class="nav-link">&larr; Home</a>
-                <a href="/landing/about" class="nav-link active">About</a>
-                <a href="/login" class="nav-cta">Get Started</a>
+                <a href="/landing" class="nav-link" data-i18n="about.nav.home">&larr; Home</a>
+                <a href="/landing/about" class="nav-link active" data-i18n="about.nav.about">About</a>
+                <div class="nav-lang" role="group" aria-label="Language">
+                    <button type="button" class="nav-lang-btn" data-i18n-lang data-lang="en" aria-pressed="true">EN</button>
+                    <button type="button" class="nav-lang-btn" data-i18n-lang data-lang="zh" aria-pressed="false">中文</button>
+                </div>
+                <a href="/login" class="nav-cta" data-i18n="about.nav.getStarted">Get Started</a>
             </div>
         </nav>
 
         <!-- ==================== HERO ==================== -->
         <section class="hero">
-            <div class="hero-label">Our Philosophy</div>
-            <h1 class="hero-title">Why "Astro"?</h1>
-            <p class="hero-description">
+            <div class="hero-label" data-i18n="about.hero.label">Our Philosophy</div>
+            <h1 class="hero-title" data-i18n="about.hero.title">Why "Astro"?</h1>
+            <p class="hero-description" data-i18n="about.hero.description">
                 The name comes from three things: a brain cell, an ancient navigation tool,
                 and space explorers. They all point to the same idea about keeping humans
                 in charge of complex work.
@@ -791,28 +817,28 @@
                         </svg>
                     </div>
                     <div>
-                        <div class="metaphor-number">ONE</div>
-                        <h2 class="metaphor-title">Astrocyte</h2>
+                        <div class="metaphor-number" data-i18n="about.metaphor.one.num">ONE</div>
+                        <h2 class="metaphor-title" data-i18n="about.metaphor.one.title">Astrocyte</h2>
                     </div>
                 </div>
                 <div class="metaphor-body">
-                    <p class="metaphor-text">
+                    <p class="metaphor-text" data-i18n="about.metaphor.one.p1">
                         Astrocytes are star-shaped cells in your brain. They don't fire signals like neurons do.
                         They just make sure neurons have what they need: oxygen, nutrients, cleanup of waste products.
                         <strong>The infrastructure team of the brain.</strong>
                     </p>
-                    <p class="metaphor-text">
+                    <p class="metaphor-text" data-i18n="about.metaphor.one.p2">
                         That's what Astro does. Your laptop, your HPC cluster, Claude Code&mdash;those are the neurons
                         doing actual work. Astro is the support layer that keeps track of dependencies, routes tasks
                         to the right machines, makes sure everything has the context it needs.
                     </p>
                     <div class="highlight-box">
-                        <p>
+                        <p data-i18n="about.metaphor.one.highlight">
                             The real power isn't execution. It's coordination. Astro handles the wiring so you can
                             run many things at once without losing track of what depends on what.
                         </p>
                     </div>
-                    <p class="metaphor-text">
+                    <p class="metaphor-text" data-i18n="about.metaphor.one.p3">
                         We picked "Astro" from astrocyte because that's the part people miss.
                         Everyone wants better agents. <strong>What you actually need is better orchestration.</strong>
                     </p>
@@ -845,30 +871,30 @@
                         </svg>
                     </div>
                     <div>
-                        <div class="metaphor-number">TWO</div>
-                        <h2 class="metaphor-title">Astrolabe</h2>
+                        <div class="metaphor-number" data-i18n="about.metaphor.two.num">TWO</div>
+                        <h2 class="metaphor-title" data-i18n="about.metaphor.two.title">Astrolabe</h2>
                     </div>
                 </div>
                 <div class="metaphor-body">
-                    <p class="metaphor-text">
+                    <p class="metaphor-text" data-i18n="about.metaphor.two.p1">
                         Before GPS, before accurate maps, explorers navigated by the stars using an astrolabe.
                         You'd measure the angle of celestial bodies to figure out where you were
                         and plot a course forward.
                     </p>
-                    <p class="metaphor-text">
+                    <p class="metaphor-text" data-i18n="about.metaphor.two.p2">
                         <strong>Your plan is that instrument.</strong> It doesn't do the work, but it shows you
                         where you are relative to where you're going. When you break your moonshot into
                         connected tasks with dependencies, you're making a map. A real map, not a list.
                         You can see what can happen in parallel, what's blocked, how it all connects.
                     </p>
                     <div class="highlight-box">
-                        <p>
+                        <p data-i18n="about.metaphor.two.highlight">
                             The astrolabe didn't just improve accuracy. It let explorers go farther.
                             Same here&mdash;a clear plan means you can spin up more parallel work
                             without losing the thread.
                         </p>
                     </div>
-                    <p class="metaphor-text">
+                    <p class="metaphor-text" data-i18n="about.metaphor.two.p3">
                         The point isn't rigid planning. It's having something to orient against
                         when things get messy. Which they will.
                     </p>
@@ -900,38 +926,38 @@
                         </svg>
                     </div>
                     <div>
-                        <div class="metaphor-number">THREE</div>
-                        <h2 class="metaphor-title">Astronaut</h2>
+                        <div class="metaphor-number" data-i18n="about.metaphor.three.num">THREE</div>
+                        <h2 class="metaphor-title" data-i18n="about.metaphor.three.title">Astronaut</h2>
                     </div>
                 </div>
                 <div class="metaphor-body">
-                    <p class="metaphor-text">
+                    <p class="metaphor-text" data-i18n="about.metaphor.three.p1">
                         Astronauts have a destination. The North Star. It's not poetic&mdash;it's literal.
                         When you're far from anything familiar, <strong>you need to know what direction you're pointed.</strong>
                     </p>
-                    <p class="metaphor-text">
+                    <p class="metaphor-text" data-i18n="about.metaphor.three.p2">
                         You have a North Star too. Maybe it's a product you want to ship, maybe it's a research
                         question, maybe it's a technical capability that doesn't exist yet. Everything else&mdash;bugs,
                         architecture debates, which approach to try&mdash;is just navigation.
                     </p>
-                    <p class="metaphor-text">
+                    <p class="metaphor-text" data-i18n="about.metaphor.three.p3">
                         But here's the thing: complex work hides your North Star behind immediate problems.
                         You spend a week debugging, lose sight of whether this whole direction even makes sense
                         anymore. AI tools make this worse because they're good at tasks but have no opinion about strategy.
                     </p>
                     <div class="highlight-box">
-                        <p>
+                        <p data-i18n="about.metaphor.three.highlight">
                             Astro keeps your destination visible. When you hit decision points&mdash;pivot or
                             push through? kill this branch or keep exploring?&mdash;you judge based on your goal,
                             not the tool's output.
                         </p>
                     </div>
-                    <p class="metaphor-text">
+                    <p class="metaphor-text" data-i18n="about.metaphor.three.p4">
                         Only you know what you're building. AI can execute brilliantly, even generate plans.
                         But it can't tell you whether approach A's promising results are worth abandoning
                         approach B's half-finished work. <strong>That's judgment, and it requires knowing where you're headed.</strong>
                     </p>
-                    <p class="metaphor-text">
+                    <p class="metaphor-text" data-i18n="about.metaphor.three.p5">
                         Oh, and one more thing. Astronauts aren't stuck at mission control. They make decisions
                         from wherever they are. Same with Astro&mdash;check progress on your phone, make a call
                         about which branch to pursue, keep moving. The whole system is built so you're not
@@ -944,30 +970,30 @@
         <!-- ==================== CLOSING ==================== -->
         <div class="closing">
             <div class="closing-card">
-                <h2 class="closing-title">Three Angles on the Same Thing</h2>
-                <p class="closing-text">
+                <h2 class="closing-title" data-i18n="about.closing.title">Three Angles on the Same Thing</h2>
+                <p class="closing-text" data-i18n="about.closing.intro">
                     Astrocyte, astrolabe, astronaut. They're all pointing at the same gap in how AI tools work right now.
                 </p>
 
                 <div class="pillars-summary">
                     <div class="pillar-mini">
                         <div class="pillar-mini-icon" style="color: var(--cyan);">&#x2726;</div>
-                        <div class="pillar-mini-label" style="color: var(--cyan);">Coordination</div>
-                        <div class="pillar-mini-desc">Across machines, not just better execution on one</div>
+                        <div class="pillar-mini-label" style="color: var(--cyan);" data-i18n="about.pillar.coordination">Coordination</div>
+                        <div class="pillar-mini-desc" data-i18n="about.pillar.coordination.desc">Across machines, not just better execution on one</div>
                     </div>
                     <div class="pillar-mini">
                         <div class="pillar-mini-icon" style="color: var(--orange);">&#x2737;</div>
-                        <div class="pillar-mini-label" style="color: var(--orange);">Navigation</div>
-                        <div class="pillar-mini-desc">Tools that scale with complexity, not linear lists</div>
+                        <div class="pillar-mini-label" style="color: var(--orange);" data-i18n="about.pillar.navigation">Navigation</div>
+                        <div class="pillar-mini-desc" data-i18n="about.pillar.navigation.desc">Tools that scale with complexity, not linear lists</div>
                     </div>
                     <div class="pillar-mini">
                         <div class="pillar-mini-icon" style="color: var(--green);">&#x2605;</div>
-                        <div class="pillar-mini-label" style="color: var(--green);">Human Judgment</div>
-                        <div class="pillar-mini-desc">In the decision loop at the right altitude</div>
+                        <div class="pillar-mini-label" style="color: var(--green);" data-i18n="about.pillar.judgment">Human Judgment</div>
+                        <div class="pillar-mini-desc" data-i18n="about.pillar.judgment.desc">In the decision loop at the right altitude</div>
                     </div>
                 </div>
 
-                <p class="closing-text">
+                <p class="closing-text" data-i18n="about.closing.outro">
                     <strong>That's Astro.</strong> We don't replace judgment. We give you the infrastructure to exercise it
                     at a scale that used to require a whole team.
                 </p>
@@ -977,14 +1003,14 @@
         <!-- ==================== FOOTER CTA ==================== -->
         <section class="footer-cta">
             <div class="footer-cta-inner">
-                <h2 class="footer-title">Ready to launch?</h2>
-                <p class="footer-subtitle">One command to connect all your machines</p>
+                <h2 class="footer-title" data-i18n="about.footer.ready">Ready to launch?</h2>
+                <p class="footer-subtitle" data-i18n="about.footer.subtitle">One command to connect all your machines</p>
                 <div class="footer-cta-row">
                     <a href="/login" class="cta-button">
-                        <span>Get Started</span>
+                        <span data-i18n="about.nav.getStarted">Get Started</span>
                         <span class="arrow">&rarr;</span>
                     </a>
-                    <div class="footer-install" onclick="navigator.clipboard.writeText('npx @astroanywhere/agent@latest launch');var btn=this.querySelector('.copy-btn');btn.classList.add('copied');btn.textContent='Copied!';setTimeout(function(){btn.classList.remove('copied');btn.textContent=''},2000)">
+                    <div class="footer-install" onclick="navigator.clipboard.writeText('npx @astroanywhere/agent@latest launch');var L=window.__landingLang,d=window.LANDING_TRANSLATIONS;var btn=this.querySelector('.copy-btn');btn.classList.add('copied');btn.textContent=d&&d[L]&&d[L]['nav.copied']?d[L]['nav.copied']:'Copied!';setTimeout(function(){btn.classList.remove('copied');btn.textContent=''},2000)">
                         <span><span class="prompt">$</span> <span class="cmd">npx @astroanywhere/agent</span> <span class="flag">launch</span></span>
                         <span class="copy-btn"></span>
                     </div>
@@ -994,10 +1020,13 @@
 
         <!-- Footer -->
         <footer class="footer-bottom">
-            <p>&copy; 2026 Astro</p>
+            <p><span data-i18n="footer.copyright">© 2026 Astro</span></p>
         </footer>
     </div>
 
+    <!-- i18n: load first so text is applied before other scripts -->
+    <script src="/landing/translations.js"></script>
+    <script src="/landing/i18n.js"></script>
     <!-- Three.js (same starfield as index.html) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
