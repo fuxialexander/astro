@@ -601,6 +601,9 @@ export class RelayServer extends EventEmitter {
   // Dead job detection: periodic cross-reference of heartbeat task IDs vs server-side tracking
   private deadJobCheckInterval: ReturnType<typeof setInterval> | null = null;
   private consecutiveMisses: Map<string, number> = new Map();
+  // Dispatch ACK: timers that fire if the agent runner doesn't acknowledge a dispatch within 30s.
+  // Detects lost WS messages much faster than the 5-minute dead job checker.
+  private dispatchAckTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 
   constructor(config: Partial<RelayServerConfig> = {}) {
     super();
@@ -689,6 +692,12 @@ export class RelayServer extends EventEmitter {
         clearTimeout(timer);
       }
       this.disconnectGracePeriods.clear();
+
+      // Clear all pending dispatch ACK timers
+      for (const timer of this.dispatchAckTimers.values()) {
+        clearTimeout(timer);
+      }
+      this.dispatchAckTimers.clear();
 
       machineRegistry.shutdown();
 
@@ -960,6 +969,10 @@ export class RelayServer extends EventEmitter {
 
       case 'task_steer_ack':
         this.handleAgentRunnerTaskSteerAck(message as AgentRunnerTaskSteerAckMessage);
+        break;
+
+      case 'task_dispatch_ack':
+        this.handleTaskDispatchAck(message as { type: 'task_dispatch_ack'; payload: { taskId: string } });
         break;
 
       case 'task_approval_request':
@@ -1258,6 +1271,8 @@ export class RelayServer extends EventEmitter {
     this.taskToMachine.delete(message.result.taskId);
     this.taskDispatchedAt.delete(message.result.taskId);
     this.consecutiveMisses.delete(message.result.taskId);
+    const ackTimer2 = this.dispatchAckTimers.get(message.result.taskId);
+    if (ackTimer2) { clearTimeout(ackTimer2); this.dispatchAckTimers.delete(message.result.taskId); }
     redisPubSub.removeTaskMapping(message.result.taskId).catch(() => {});
     // Snapshot userId BEFORE emit — dispatch.ts's onResult handler synchronously
     // calls executionContextStore.remove(), so getUserIdForTask returns undefined
@@ -1467,6 +1482,32 @@ export class RelayServer extends EventEmitter {
     redisPubSub.mapTaskToMachine(task.taskId, machineId).catch((err) => {
       console.error(`[relay] Failed to write taskToMachine to Redis:`, err);
     });
+
+    // Start dispatch ACK timer — if the agent runner doesn't acknowledge
+    // within 30s, the WS message was likely lost (e.g., during reconnection).
+    // This detects lost dispatches in 30s instead of the 5-minute dead job checker.
+    const DISPATCH_ACK_TIMEOUT_MS = 30_000;
+    const ackTimer = setTimeout(() => {
+      this.dispatchAckTimers.delete(task.taskId);
+      // Only fire if the task is still tracked (hasn't completed or been cancelled)
+      if (this.taskToMachine.has(task.taskId)) {
+        console.warn(
+          `[relay] Dispatch ACK timeout: task ${task.taskId} not acknowledged by machine ${machineId} ` +
+          `within ${DISPATCH_ACK_TIMEOUT_MS / 1000}s — WS message likely lost`
+        );
+        this.taskToMachine.delete(task.taskId);
+        this.taskDispatchedAt.delete(task.taskId);
+        this.consecutiveMisses.delete(task.taskId);
+        redisPubSub.removeTaskMapping(task.taskId).catch(() => {});
+        this.emit('task:dead', {
+          taskId: task.taskId,
+          machineId,
+          reason: `Agent runner did not acknowledge dispatch within ${DISPATCH_ACK_TIMEOUT_MS / 1000}s (message likely lost during WebSocket reconnection)`,
+        });
+      }
+    }, DISPATCH_ACK_TIMEOUT_MS);
+    this.dispatchAckTimers.set(task.taskId, ackTimer);
+
     console.log(`[relay] Task ${task.taskId} dispatched to machine ${machineId}`);
     return true;
   }
@@ -1495,6 +1536,8 @@ export class RelayServer extends EventEmitter {
       this.taskToMachine.delete(taskId);
       this.taskDispatchedAt.delete(taskId);
       this.consecutiveMisses.delete(taskId);
+      const ackT1 = this.dispatchAckTimers.get(taskId);
+      if (ackT1) { clearTimeout(ackT1); this.dispatchAckTimers.delete(taskId); }
       redisPubSub.removeTaskMapping(taskId).catch(() => {});
       return true; // Optimistic: assume Redis routing will succeed
     }
@@ -1515,6 +1558,8 @@ export class RelayServer extends EventEmitter {
     this.taskToMachine.delete(taskId);
     this.taskDispatchedAt.delete(taskId);
     this.consecutiveMisses.delete(taskId);
+    const ackT2 = this.dispatchAckTimers.get(taskId);
+    if (ackT2) { clearTimeout(ackT2); this.dispatchAckTimers.delete(taskId); }
     redisPubSub.removeTaskMapping(taskId).catch(() => {});
     console.log(`[relay] Task ${taskId} cancel request sent to machine ${resolvedMachineId}`);
     return true;
@@ -1986,6 +2031,8 @@ export class RelayServer extends EventEmitter {
           this.taskToMachine.delete(taskId);
           this.taskDispatchedAt.delete(taskId);
           this.consecutiveMisses.delete(taskId);
+          const ackT = this.dispatchAckTimers.get(taskId);
+          if (ackT) { clearTimeout(ackT); this.dispatchAckTimers.delete(taskId); }
           redisPubSub.removeTaskMapping(taskId).catch(() => {});
         }
       }
@@ -2483,6 +2530,20 @@ export class RelayServer extends EventEmitter {
   }
 
   /**
+   * Handle dispatch acknowledgment from agent runner.
+   * Clears the ACK timeout timer — the agent runner confirmed it received the task.
+   */
+  private handleTaskDispatchAck(message: { type: 'task_dispatch_ack'; payload: { taskId: string } }): void {
+    const { taskId } = message.payload;
+    const timer = this.dispatchAckTimers.get(taskId);
+    if (timer) {
+      clearTimeout(timer);
+      this.dispatchAckTimers.delete(taskId);
+      console.log(`[relay] Dispatch ACK received for task ${taskId}`);
+    }
+  }
+
+  /**
    * Handle agent runner's steer ack message.
    * Updates all 'sent' steer_message events to 'acknowledged' or 'timed_out',
    * then drains any new pending steers that arrived while the agent was processing.
@@ -2570,6 +2631,9 @@ export class RelayServer extends EventEmitter {
     this.taskToMachine.delete(taskId);
     this.taskDispatchedAt.delete(taskId);
     this.consecutiveMisses.delete(taskId);
+    // Clear dispatch ACK timer — task completed before or after ACK
+    const ackTimer = this.dispatchAckTimers.get(taskId);
+    if (ackTimer) { clearTimeout(ackTimer); this.dispatchAckTimers.delete(taskId); }
     redisPubSub.removeTaskMapping(taskId).catch(() => {});
 
     // Convert to standard result message
