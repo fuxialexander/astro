@@ -202,9 +202,12 @@ export function Playground() {
       backingRef.current = false
       return
     }
-    if (projectIdParam && !activeProjectId) {
+    if (projectIdParam && projectIdParam !== activeProjectId) {
       setActiveProvider(urlExecProviderId || "")
       setActiveProjectId(projectIdParam)
+    }
+    if (!projectIdParam && activeProjectId) {
+      setActiveProjectId(null)
     }
   }, [projectIdParam, activeProjectId, urlExecProviderId])
 
