@@ -2850,6 +2850,18 @@ function handleSSEEvent(
         const validFinalStatuses = new Set(['auto_verified', 'awaiting_judgment', 'completed', 'pruned'])
         if (parsed.finalStatus && validFinalStatuses.has(parsed.finalStatus)) {
           planStore.updateNode(nodeId, { status: parsed.finalStatus })
+
+          // Trigger batch cascade: the dispatch SSE result often arrives before
+          // node:status_changed. When that happens, the plan node is already at
+          // the terminal status by the time node:status_changed fires, so its
+          // prevStatus === freshNode.status check skips triggerBatchWave. Calling
+          // it here ensures downstream tasks are dispatched regardless of event ordering.
+          if (!nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
+            const projectId = get().executions.get(nodeId)?.projectId
+            if (projectId) {
+              get().triggerBatchWave(projectId)
+            }
+          }
         }
 
         // Auto-assign defaultMachineId on the project if not set
@@ -3220,14 +3232,14 @@ function dispatchNextBatchWave(projectId: string) {
   })
 
   if (newlyReady.length === 0) {
-    // Check if all dispatched nodes are done — if so, batch is complete
-    const allDone = projectNodes
-      .filter((n) => batch.dispatchedNodeIds.has(n.id))
-      .every((n) => !["dispatched", "in_progress"].includes(n.status))
+    // Batch is complete when nothing is running and nothing new can start.
+    // We check dispatched/in_progress (not planned) because planned nodes
+    // may be permanently blocked by pruned dependencies. Including planned
+    // in this check would cause the batch to hang forever.
+    const ACTIVE = new Set(["dispatched", "in_progress"])
+    const nothingActive = projectNodes.every((n) => !ACTIVE.has(n.status))
 
-    const noPlannedLeft = projectNodes.every((n) => n.status !== "planned")
-
-    if (allDone || noPlannedLeft) {
+    if (nothingActive) {
       // Compute batch stats before deactivating
       const dispatched = projectNodes.filter((n) => batch.dispatchedNodeIds.has(n.id))
       const succeeded = dispatched.filter((n) => ["completed", "auto_verified"].includes(n.status)).length

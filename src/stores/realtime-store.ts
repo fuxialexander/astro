@@ -1867,13 +1867,23 @@ function handleRealtimeEvent(
             }
           }
 
-          // Trigger batch execution next wave (now safe — node status is fresh from DB)
-          if (isNowTerminal && !nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
+        }
+
+        // Always attempt batch cascade on terminal status, even when the status
+        // transition was already applied by the dispatch SSE result handler
+        // (prevStatus === freshNode.status). Without this, the cascade breaks
+        // when handleSSEEvent updates the plan node before node:status_changed.
+        {
+          const BATCH_TERMINAL = new Set(['completed', 'auto_verified', 'pruned', 'awaiting_judgment', 'awaiting_approval'])
+          if (BATCH_TERMINAL.has(freshNode.status) && !nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
             useExecutionStore.getState().triggerBatchWave(projectId)
           }
+        }
 
+        {
           // Check if all tasks in the project are now complete
-          if (isNowTerminal && !nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
+          const PROJ_TERMINAL = new Set(['completed', 'auto_verified', 'pruned', 'awaiting_judgment', 'awaiting_approval'])
+          if (PROJ_TERMINAL.has(freshNode.status) && !nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
             const execStore = useExecutionStore.getState()
             if (!execStore.completedProjectIds.has(projectId)) {
               const COMPLETE_TERMINAL = new Set(['completed', 'auto_verified', 'pruned'])
