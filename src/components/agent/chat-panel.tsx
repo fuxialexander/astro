@@ -356,8 +356,13 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       })()
 
     if (busy) {
-      setPendingMessage(text)
-      setInput("")
+      // Only queue if no message is already pending (avoid silent overwrite).
+      // Use functional update to read current state without adding pendingMessage to deps.
+      setPendingMessage((prev) => {
+        if (prev) return prev // keep existing queued message
+        setInput("")
+        return text
+      })
       return
     }
 
