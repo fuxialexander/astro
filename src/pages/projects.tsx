@@ -1,7 +1,7 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { Link, useNavigate } from "react-router"
-import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil, Github, ChevronRight, Braces } from "lucide-react"
+import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil, Github, ChevronRight, Braces, Archive, ArchiveRestore } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -316,15 +316,54 @@ export function Projects() {
 
   // Helper to get team name from ID
 
-  const projectBatchActions: BatchAction[] = useMemo(() => [
-    {
+  const getProjectBatchActions = useCallback((selectedIds: string[]): BatchAction[] => {
+    const selectedProjects = selectedIds.map(id => projects.find(p => p.id === id)).filter(Boolean)
+    const hasActive = selectedProjects.some(p => p!.status === "active")
+    const hasArchived = selectedProjects.some(p => p!.status === "archived")
+    const actions: BatchAction[] = []
+    if (hasActive) {
+      actions.push({
+        id: "archive",
+        label: "Archive",
+        icon: <Archive className="h-3.5 w-3.5" />,
+        onAction: (ids) => {
+          const toArchive = ids.filter(id => {
+            const p = projects.find(proj => proj.id === id)
+            return p && p.status === "active"
+          })
+          for (const id of toArchive) updateProject(id, { status: "archived" })
+          if (toArchive.length > 0) {
+            addToast({ type: "success", title: `${toArchive.length} project${toArchive.length > 1 ? "s" : ""} archived` })
+          }
+        },
+      })
+    }
+    if (hasArchived) {
+      actions.push({
+        id: "activate",
+        label: "Activate",
+        icon: <ArchiveRestore className="h-3.5 w-3.5" />,
+        onAction: (ids) => {
+          const toActivate = ids.filter(id => {
+            const p = projects.find(proj => proj.id === id)
+            return p && p.status === "archived"
+          })
+          for (const id of toActivate) updateProject(id, { status: "active" })
+          if (toActivate.length > 0) {
+            addToast({ type: "success", title: `${toActivate.length} project${toActivate.length > 1 ? "s" : ""} activated` })
+          }
+        },
+      })
+    }
+    actions.push({
       id: "delete",
       label: "Delete",
       icon: <Trash2 className="h-3.5 w-3.5" />,
       variant: "destructive",
       onAction: (ids) => { for (const id of ids) deleteProject(id) },
-    },
-  ], [deleteProject])
+    })
+    return actions
+  }, [deleteProject, updateProject, projects, addToast])
 
   // Task counts per project (live from plan nodes, same logic as sidebar)
   const projectTaskCounts = useMemo(() => {
@@ -784,7 +823,7 @@ export function Projects() {
               visibleColumns={displaySettings.visibleProperties}
               onItemClick={(p) => navigate(`/project/${p.id}/graph`)}
               getItemId={(p) => p.id}
-              batchActions={projectBatchActions}
+              batchActions={getProjectBatchActions}
               sortColumn={displaySettings.orderBy}
               sortDirection={displaySettings.orderDirection}
               onSort={handleSort}

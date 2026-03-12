@@ -69,8 +69,8 @@ interface ItemListViewProps<T> {
   footer?: (groupKey: string) => ReactNode
   indentGroupedRows?: boolean
   showGroupHeaders?: boolean
-  /** Batch actions shown when items are selected */
-  batchActions?: BatchAction[]
+  /** Batch actions shown when items are selected. Can be a static array or a function of selected IDs for context-sensitive actions. */
+  batchActions?: BatchAction[] | ((selectedIds: string[]) => BatchAction[])
   /** Current sort column key (matches ListColumn.sortKey) */
   sortColumn?: string
   /** Current sort direction */
@@ -274,7 +274,12 @@ export function ItemListView<T>({
     return () => clear()
   }, [clear])
 
-  const selectable = batchActions && batchActions.length > 0
+  const selectable = batchActions && (typeof batchActions === "function" || batchActions.length > 0)
+
+  const selectedIds = Array.from(selected)
+  const resolvedBatchActions = typeof batchActions === "function"
+    ? batchActions(selectedIds)
+    : batchActions
 
   const allItemIds = groups.flatMap((g) => g.items.map(getItemId))
   const allSelected = selectable && allItemIds.length > 0 && allItemIds.every((id) => selected.has(id))
@@ -550,13 +555,13 @@ export function ItemListView<T>({
   return (
     <>
       {/* Batch action bar */}
-      {someSelected && batchActions && (
+      {someSelected && resolvedBatchActions && resolvedBatchActions.length > 0 && (
         <div className="flex items-center gap-3 border-b border-border bg-muted/50 px-6 h-10 shrink-0">
           <span className="text-xs font-medium text-muted-foreground">
             {selected.size} selected
           </span>
           <div className="flex items-center gap-1.5">
-            {batchActions.map((action) => (
+            {resolvedBatchActions.map((action) => (
               <Button
                 key={action.id}
                 variant={action.variant === "destructive" ? "destructive" : "outline"}
