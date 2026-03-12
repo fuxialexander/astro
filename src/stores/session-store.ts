@@ -1002,7 +1002,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           // messages to avoid timing issues with throttled flush.
           const updatedSession = get().sessions.get(sid)
           const isFirstExchange = updatedSession && !updatedSession.title &&
-            rawText.length > 0 &&
+            rawAssistantText.length > 0 &&
             updatedSession.messages.filter((m) => m.role === 'assistant' && m.content.length > 0).length <= 1
           if (isFirstExchange && message.length > 0) {
             // Snapshot project name before async title generation so we can
@@ -1011,7 +1011,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             const projectNameBefore = projectBefore?.name
             const titleInput = message.length > 200
               ? message.slice(0, 200)
-              : `${message}\n---\n${rawText.slice(0, 300)}`
+              : `${message}\n---\n${rawAssistantText.slice(0, 300)}`
             generateTitle(titleInput).then((aiTitle) => {
               if (aiTitle) {
                 // Update session title
