@@ -367,9 +367,12 @@ eventsRoute.get('/stream', async (c) => {
           const ctx = executionContextStore.get(msg.taskId)
           if (ctx?.projectId) {
             // Route plan generation approvals to dashboard (plan page is empty during generation)
+            // Route playground approvals to playground page (no plan node exists)
             const astroUrl = ctx.nodeId?.startsWith('plan-')
               ? ASTRO_BASE_URL
-              : `${ASTRO_BASE_URL}/project/${ctx.projectId}/task/${ctx.nodeId}`
+              : ctx.nodeId?.startsWith('playground-')
+                ? `${ASTRO_BASE_URL}/playground?projectId=${ctx.projectId}`
+                : `${ASTRO_BASE_URL}/project/${ctx.projectId}/task/${ctx.nodeId}`
             channelRouter.sendNotification({
               type: 'approval.requested',
               projectId: ctx.projectId,

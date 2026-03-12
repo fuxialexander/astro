@@ -18,11 +18,16 @@ export const channelNotificationHook: EventHook = async (event) => {
   switch (event.type) {
     case 'task.completed': {
       const taskTitle = event.node?.title || 'Unknown task'
+      // Playground tasks (nodeId starts with 'playground-') are not plan nodes;
+      // link to the playground page instead of task detail to avoid "Task not found".
+      const completedUrl = event.nodeId?.startsWith('playground-')
+        ? `${BASE_URL}/playground?projectId=${event.projectId}`
+        : `${BASE_URL}/project/${event.projectId}/task/${event.nodeId}`
       notification = {
         type: 'task.completed' as NotificationType,
         projectId: event.projectId,
         summary: `Task completed: ${taskTitle}`,
-        astroUrl: `${BASE_URL}/project/${event.projectId}/task/${event.nodeId}`,
+        astroUrl: completedUrl,
         metadata: {
           nodeId: event.nodeId,
           executionId: event.executionId,
@@ -33,11 +38,16 @@ export const channelNotificationHook: EventHook = async (event) => {
 
     case 'task.failed': {
       const failedTitle = event.node?.title || 'Unknown task'
+      // Playground tasks (nodeId starts with 'playground-') are not plan nodes;
+      // link to the playground page instead of task detail to avoid "Task not found".
+      const failedUrl = event.nodeId?.startsWith('playground-')
+        ? `${BASE_URL}/playground?projectId=${event.projectId}`
+        : `${BASE_URL}/project/${event.projectId}/task/${event.nodeId}`
       notification = {
         type: 'task.failed' as NotificationType,
         projectId: event.projectId,
         summary: `Task failed: ${failedTitle} — ${event.error}`,
-        astroUrl: `${BASE_URL}/project/${event.projectId}/task/${event.nodeId}`,
+        astroUrl: failedUrl,
         metadata: {
           nodeId: event.nodeId,
           executionId: event.executionId,
@@ -49,9 +59,12 @@ export const channelNotificationHook: EventHook = async (event) => {
 
     case 'approval.requested': {
       // Route plan generation approvals to dashboard (plan page is empty during generation)
+      // Route playground approvals to playground page (no plan node exists)
       const approvalUrl = event.nodeId?.startsWith('plan-')
         ? BASE_URL
-        : `${BASE_URL}/project/${event.projectId}/task/${event.nodeId}`
+        : event.nodeId?.startsWith('playground-')
+          ? `${BASE_URL}/playground?projectId=${event.projectId}`
+          : `${BASE_URL}/project/${event.projectId}/task/${event.nodeId}`
       notification = {
         type: 'approval.requested' as NotificationType,
         projectId: event.projectId,
