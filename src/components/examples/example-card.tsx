@@ -29,6 +29,7 @@ const categoryLabels: Record<string, string> = {
   'machine-learning': 'ML',
   'devops-infrastructure': 'DevOps',
   'research-analysis': 'Research',
+  'research': 'Research',
   'documentation': 'Docs',
   'testing-qa': 'Testing',
   'security': 'Security',

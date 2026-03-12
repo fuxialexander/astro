@@ -2,18 +2,17 @@
  * Built-in Use Case Template Examples
  *
  * Curated example templates available to all Astro users.
- *
- * Only the active 3 templates are maintained here.
- * Obsolete templates (web-app, ml-pipeline, etc.) have been removed.
  */
 
 export { academicPresentationTemplate } from './academic-presentation.js'
 export { academicReviewTemplate } from './academic-review.js'
 export { moatFragilityTemplate } from './moat-fragility.js'
+export { dailyPaperAnalysisTemplate } from './daily-paper-analysis.js'
 
 import { academicPresentationTemplate } from './academic-presentation.js'
 import { academicReviewTemplate } from './academic-review.js'
 import { moatFragilityTemplate } from './moat-fragility.js'
+import { dailyPaperAnalysisTemplate } from './daily-paper-analysis.js'
 import type { UseCaseTemplate } from '../../types/use-case-template.js'
 
 /** All built-in templates/examples */
@@ -21,11 +20,12 @@ export const BUILTIN_TEMPLATES: UseCaseTemplate[] = [
   academicPresentationTemplate,
   academicReviewTemplate,
   moatFragilityTemplate,
+  dailyPaperAnalysisTemplate,
 ]
 
 /** Templates/examples grouped by category */
 export const TEMPLATES_BY_CATEGORY: Record<string, UseCaseTemplate[]> = {
-  'research-analysis': [academicPresentationTemplate, academicReviewTemplate],
+  'research-analysis': [academicPresentationTemplate, academicReviewTemplate, dailyPaperAnalysisTemplate],
   'data-science': [moatFragilityTemplate],
 }
 
