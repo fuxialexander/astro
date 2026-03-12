@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react"
+import { QRCodeSVG } from "qrcode.react"
 import { Send, Check, Loader2, Unlink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { apiUrl } from "@/lib/api-url"
@@ -162,25 +163,32 @@ export function TelegramConnectCard() {
             </Button>
           </div>
         ) : linkUrl ? (
-          <div className="space-y-3">
+          <div className="space-y-4">
             <p className="text-[13px] text-muted-foreground">
-              Open this link on your phone to connect Telegram:
+              Scan this QR code with your phone, or click the link below:
             </p>
-            <a
-              href={linkUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={cn(
-                "block rounded-md border border-border bg-muted/50 px-3 py-2",
-                "text-sm font-mono text-primary hover:bg-muted transition-colors",
-                "truncate"
-              )}
-            >
-              {linkUrl}
-            </a>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Waiting for you to tap Start in Telegram...
+            <div className="flex items-start gap-4">
+              <div className="rounded-lg border border-border bg-white p-2 shrink-0">
+                <QRCodeSVG value={linkUrl} size={120} />
+              </div>
+              <div className="flex flex-col gap-2 min-w-0">
+                <a
+                  href={linkUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(
+                    "block rounded-md border border-border bg-muted/50 px-3 py-2",
+                    "text-sm font-mono text-primary hover:bg-muted transition-colors",
+                    "truncate"
+                  )}
+                >
+                  {linkUrl}
+                </a>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Waiting for you to tap Start in Telegram...
+                </div>
+              </div>
             </div>
           </div>
         ) : (
