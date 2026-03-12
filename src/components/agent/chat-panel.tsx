@@ -19,7 +19,7 @@ import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore, getSessionTitle } from "@/stores/session-store"
-import { SessionDialog } from "@/components/session-dialog"
+import { InlineRenameInput } from "@/components/inline-rename-input"
 import { useProjectMachineId } from "@/hooks/use-project-machine"
 import { useChatActivityEvents } from "@/hooks/use-chat-activity-events"
 import {
@@ -90,10 +90,9 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   const sessions = useSessionStore((s) => s.sessions)
   const activeSessionIds = useSessionStore((s) => s.activeSessionIds)
 
-  // State for session dialog and dropdown
-  const [sessionDialogOpen, setSessionDialogOpen] = useState(false)
-  const [editingSession, setEditingSession] = useState<Session | null>(null)
+  // State for session dropdown and inline rename
   const [sessionDropdownOpen, setSessionDropdownOpen] = useState(false)
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
 
   // Slash command autocomplete state
   // Dropdown refs for provider/model menus (for /sessions and /model commands)
@@ -169,17 +168,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     setActiveSessionId(projectId, "project-chat", newSession.id)
   }, [createSession, projectId, setActiveSessionId])
 
-  // Handler to open session edit dialog
-  const handleEditSession = useCallback((session: Session, e?: React.UIEvent) => {
-    e?.stopPropagation() // Prevent dropdown item click
-    setEditingSession(session)
-    setSessionDialogOpen(true)
-  }, [])
-
-  // Handler for session rename
-  const handleRenameSession = useCallback((sessionId: string, title: string) => {
-    renameSession(sessionId, title)
-  }, [renameSession])
 
   // Handler for session delete
   const handleDeleteSession = useCallback((sessionId: string) => {
@@ -527,24 +515,48 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                   return (
                     <div
                       key={session.id}
-                      onClick={() => { handleSessionSwitch(session.id); setSessionDropdownOpen(false) }}
+                      onClick={() => { if (renamingSessionId !== session.id) { handleSessionSwitch(session.id); setSessionDropdownOpen(false) } }}
                       className="flex flex-col items-start gap-0.5 py-2 px-2 rounded-sm cursor-pointer hover:bg-accent transition-colors"
                     >
                       <div className="flex items-center gap-2 w-full">
                         <MessageSquare className="h-3 w-3 shrink-0" />
-                        <span className="text-xs truncate flex-1" title={sessionTitle}>
-                          {sessionTitle}
-                        </span>
-                        {isActive && (
+                        {renamingSessionId === session.id ? (
+                          <div className="flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
+                            <InlineRenameInput
+                              value={sessionTitle}
+                              onSave={(newTitle) => {
+                                renameSession(session.id, newTitle)
+                                setRenamingSessionId(null)
+                              }}
+                              onCancel={() => setRenamingSessionId(null)}
+                              validate={(v) => v.trim().length === 0 ? "Title cannot be empty" : null}
+                              className="text-xs"
+                            />
+                          </div>
+                        ) : (
+                          <span
+                            className="text-xs truncate flex-1"
+                            title={sessionTitle}
+                            onDoubleClick={(e) => {
+                              e.stopPropagation()
+                              setRenamingSessionId(session.id)
+                            }}
+                          >
+                            {sessionTitle}
+                          </span>
+                        )}
+                        {isActive && renamingSessionId !== session.id && (
                           <CheckCircle2 className="h-3 w-3 text-primary shrink-0" />
                         )}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleEditSession(session); setSessionDropdownOpen(false) }}
-                          className="p-1.5 hover:bg-accent rounded opacity-60 [@media(hover:hover)]:opacity-40 hover:opacity-100 transition-opacity"
-                          title="Rename session"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
+                        {renamingSessionId !== session.id && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setRenamingSessionId(session.id) }}
+                            className="p-1.5 hover:bg-accent rounded opacity-60 [@media(hover:hover)]:opacity-40 hover:opacity-100 transition-opacity"
+                            title="Rename session"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                         <button
                           onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.id) }}
                           className="p-1.5 hover:bg-destructive/10 rounded opacity-60 [@media(hover:hover)]:opacity-40 hover:opacity-100 transition-opacity text-destructive"
@@ -813,13 +825,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       </div>
 
       {/* Session Edit/Delete Dialog */}
-      <SessionDialog
-        open={sessionDialogOpen}
-        onOpenChange={setSessionDialogOpen}
-        session={editingSession}
-        onRename={handleRenameSession}
-        onDelete={handleDeleteSession}
-      />
+      {/* SessionDialog removed — inline rename replaces it */}
     </div>
   )
 }

@@ -12,9 +12,10 @@
 
 import { create } from "zustand"
 import { dataClient } from "@/lib/data-client"
-import { projectChatWithAgent, chatWithTask, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
+import { projectChatWithAgent, chatWithTask, generateTitle, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { extractMutations, applyMutationsToStore } from "@/lib/plan-mutations"
 import { usePlanStore } from "./plan-store"
+import { useProjectStore } from "./project-store"
 import { useRealtimeStore } from "./realtime-store"
 import { useUsageStore } from "./usage-store"
 import { useToastStore } from "./toast-store"
@@ -802,6 +803,22 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             return { streamingSessions: ss }
           })
 
+          // Auto-generate title after first conversation round completes.
+          // Use rawAssistantText (synchronous) instead of relying solely on
+          // store messages to avoid timing issues with throttled flush.
+          const updatedSession = get().sessions.get(sid)
+          const isFirstExchange = updatedSession && !updatedSession.title &&
+            rawAssistantText.length > 0 &&
+            updatedSession.messages.filter((m) => m.role === 'assistant' && m.content.length > 0).length <= 1
+          if (isFirstExchange && message.length > 0) {
+            const titleInput = message.length > 200
+              ? message.slice(0, 200)
+              : `${message}\n---\n${rawAssistantText.slice(0, 300)}`
+            generateTitle(titleInput).then((aiTitle) => {
+              if (aiTitle) get().renameSession(sid, aiTitle)
+            }).catch(() => {}) // silent — auto-generated title is optional
+          }
+
           // Notify if component is not mounted
           if (!get().mountedSessionIds.has(sid)) {
             const proj = get().sessions.get(sid)
@@ -977,6 +994,37 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             ss.delete(sid)
             return { streamingSessions: ss }
           })
+
+          // Auto-generate title after first conversation round completes.
+          // Only fires when session has no custom title yet and this is the
+          // first completed exchange (user msg + non-empty assistant response).
+          // Use rawText (synchronous) instead of relying solely on store
+          // messages to avoid timing issues with throttled flush.
+          const updatedSession = get().sessions.get(sid)
+          const isFirstExchange = updatedSession && !updatedSession.title &&
+            rawText.length > 0 &&
+            updatedSession.messages.filter((m) => m.role === 'assistant' && m.content.length > 0).length <= 1
+          if (isFirstExchange && message.length > 0) {
+            // Snapshot project name before async title generation so we can
+            // detect if the user manually renamed it while we were waiting.
+            const projectBefore = useProjectStore.getState().projects.find((p) => p.id === projectId)
+            const projectNameBefore = projectBefore?.name
+            const titleInput = message.length > 200
+              ? message.slice(0, 200)
+              : `${message}\n---\n${rawText.slice(0, 300)}`
+            generateTitle(titleInput).then((aiTitle) => {
+              if (aiTitle) {
+                // Update session title
+                get().renameSession(sid, aiTitle)
+                // Also update the playground project name so the history list
+                // reflects it — but only if the user hasn't manually renamed it.
+                const projectNow = useProjectStore.getState().projects.find((p) => p.id === projectId)
+                if (projectNow && projectNow.name === projectNameBefore) {
+                  useProjectStore.getState().updateProject(projectId, { name: aiTitle })
+                }
+              }
+            }).catch(() => {}) // silent — auto-generated title is optional
+          }
 
           // Notify if component is not mounted
           if (!get().mountedSessionIds.has(sid)) {

@@ -37,6 +37,7 @@ import { useMachinesStore } from "@/stores/machines-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { PlaygroundHeader } from "@/components/playground/playground-header"
+import { InlineRenameInput } from "@/components/inline-rename-input"
 import { FileBrowser } from "@/components/file-browser"
 import { InlineApprovalCard } from "@/components/plan-generation/inline-approval-card"
 import {
@@ -97,6 +98,7 @@ export function Playground() {
   // with status 'pending' and batch-drained by the relay when the agent is ready.
   const [editingPrompt, setEditingPrompt] = useState<string | null>(null)
   const [autoScroll, setAutoScroll] = useState(true)
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
   // Track provider during activity phase (for mid-session switching and follow-up chat)
   const [activeProvider, setActiveProvider] = useState("")
   const containerRef = useRef<HTMLDivElement>(null)
@@ -114,6 +116,7 @@ export function Playground() {
     activeProjectId ? s.projects.find((p) => p.id === activeProjectId) : undefined
   )
   const allProjects = useProjectStore((s) => s.projects)
+  const updateProject = useProjectStore((s) => s.updateProject)
   const deleteProject = useProjectStore((s) => s.deleteProject)
 
   // Machines
@@ -685,6 +688,7 @@ export function Playground() {
             onAbort={() => cancelPlaygroundSession(activeProjectId)}
             onRetry={handleRetry}
             onToggleFileSidebar={() => setFileSidebarOpen(!fileSidebarOpen)}
+            onRename={(newTitle) => updateProject(activeProjectId, { name: newTitle })}
           />
 
           {/* Activity Timeline — always visible (playground IS the activity view) */}
@@ -1108,13 +1112,46 @@ export function Playground() {
                     key={p.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => viewSession(p.id)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') viewSession(p.id) }}
+                    onClick={() => renamingSessionId !== p.id && viewSession(p.id)}
+                    onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && renamingSessionId !== p.id) viewSession(p.id) }}
                     className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted/50 transition-all duration-200 text-left group cursor-pointer"
                   >
                     <span className={cn("h-2 w-2 rounded-full shrink-0", statusColor)} />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm truncate">{p.name}</p>
+                      {renamingSessionId === p.id ? (
+                        <InlineRenameInput
+                          value={p.name}
+                          onSave={(newName) => {
+                            updateProject(p.id, { name: newName })
+                            setRenamingSessionId(null)
+                          }}
+                          onCancel={() => setRenamingSessionId(null)}
+                          validate={(v) => v.trim().length === 0 ? "Name cannot be empty" : null}
+                          className="text-sm"
+                        />
+                      ) : (
+                        <div className="group/name flex items-center gap-1">
+                          <p
+                            className="text-sm truncate"
+                            onDoubleClick={(e) => {
+                              e.stopPropagation()
+                              setRenamingSessionId(p.id)
+                            }}
+                          >
+                            {p.name}
+                          </p>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setRenamingSessionId(p.id)
+                            }}
+                            className="p-0.5 rounded opacity-0 group-hover/name:opacity-60 hover:!opacity-100 transition-opacity shrink-0"
+                            title="Rename session"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )}
                       <div className="flex items-center gap-1.5">
                         <p className="text-[10px] text-muted-foreground truncate font-mono">
                           {p.workingDirectory || "—"}
