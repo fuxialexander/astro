@@ -14,13 +14,20 @@
 import { Cron } from 'croner'
 import { db } from './db/index.js'
 import { schedules, scheduleRuns, planNodes, planEdges, registeredMachines } from './db/schema.js'
-import { eq, and, lte, isNull, inArray, max } from 'drizzle-orm'
+import { eq, and, lte, gt, isNull, inArray, max } from 'drizzle-orm'
 import { redisPubSub } from './redis-pubsub.js'
 import { serverSideDispatch } from './server-side-dispatch.js'
 
 // ── Shared constants ─────────────────────────────────────────────
 export const TERMINAL_STATUSES = ['completed', 'auto_verified', 'pruned', 'awaiting_judgment']
 const COMPLETED_STATUSES = ['completed', 'auto_verified']
+
+/**
+ * Runs stuck in an active status beyond this threshold are considered zombie
+ * runs and are excluded from the concurrency check / cleaned up automatically.
+ * 24 hours is conservative — real executions should complete or fail much sooner.
+ */
+const STALE_RUN_THRESHOLD_MS = 24 * 60 * 60 * 1000 // 24 hours
 
 /**
  * Insert a schedule run with an atomically computed run number.
@@ -159,13 +166,20 @@ export function computeBranchSuffix(cronExpression: string, now: Date, timezone:
 
 /**
  * Check max concurrency for a schedule. Returns true if under the limit.
+ *
+ * Runs that have been stuck in an active status for longer than
+ * STALE_RUN_THRESHOLD_MS are excluded — they are zombie runs from a crashed
+ * server or disconnected machine and should not block new executions.
  */
 export async function checkMaxConcurrency(scheduleId: string, maxConcurrency: number): Promise<boolean> {
+  const staleThreshold = new Date(Date.now() - STALE_RUN_THRESHOLD_MS)
   const activeRuns = await db.select({ id: scheduleRuns.id })
     .from(scheduleRuns)
     .where(and(
       eq(scheduleRuns.scheduleId, scheduleId),
       inArray(scheduleRuns.status, ['pending', 'dispatched', 'running']),
+      // Exclude zombie runs — created too long ago to be genuinely in-flight
+      gt(scheduleRuns.createdAt, staleThreshold),
     ))
   return activeRuns.length < maxConcurrency
 }
@@ -493,6 +507,34 @@ async function claimSchedule(
 }
 
 /**
+ * Mark schedule runs that have been stuck in an active status for longer than
+ * STALE_RUN_THRESHOLD_MS as 'failure'. This prevents zombie runs (from server
+ * crashes, machine disconnects, etc.) from permanently blocking concurrency.
+ */
+export async function cleanupStaleScheduleRuns(): Promise<void> {
+  const staleThreshold = new Date(Date.now() - STALE_RUN_THRESHOLD_MS)
+  try {
+    const stale = await db.update(scheduleRuns)
+      .set({
+        status: 'failure',
+        completedAt: new Date(),
+        errorMessage: 'Timed out: run was stuck in an active state for over 24 hours (server crash or machine disconnect)',
+      })
+      .where(and(
+        inArray(scheduleRuns.status, ['pending', 'dispatched', 'running']),
+        lte(scheduleRuns.createdAt, staleThreshold),
+      ))
+      .returning({ id: scheduleRuns.id })
+
+    if (stale.length > 0) {
+      console.log(`[cron] Cleaned up ${stale.length} stale schedule run(s) stuck in active status`)
+    }
+  } catch (err) {
+    console.error('[cron] Error cleaning up stale schedule runs:', err)
+  }
+}
+
+/**
  * Main cron tick: query all due schedules and process them.
  */
 async function runCronTick(): Promise<void> {
@@ -500,6 +542,9 @@ async function runCronTick(): Promise<void> {
   console.log('[cron] Running cron tick...')
 
   try {
+    // Clean up zombie runs first so stale entries don't block concurrency checks
+    await cleanupStaleScheduleRuns()
+
     const dueSchedules = await db.select()
       .from(schedules)
       .where(and(
