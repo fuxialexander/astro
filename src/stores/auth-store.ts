@@ -2,7 +2,7 @@ import { create } from "zustand"
 import type { Session, User } from "@supabase/supabase-js"
 import { getSupabase } from "@/lib/supabase-client"
 import { isLocalMode } from "@/lib/app-mode"
-import { setupRealtimeSync, teardownRealtimeSync } from "@/lib/realtime-sync"
+import { teardownRealtimeSync } from "@/lib/realtime-sync"
 import { apiUrl } from "@/lib/api-url"
 
 interface AuthState {
@@ -66,10 +66,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       initialized: true,
     })
 
-    // Setup realtime sync if authenticated
-    if (session) {
-      setupRealtimeSync()
-    }
+    // Realtime sync is set up by DataLoader (app.tsx) after teams load,
+    // so it can pass the active teamId for scoped subscriptions.
 
     // Listen for auth changes (single listener, cleaned up on re-initialize)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -78,10 +76,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         user: session?.user ?? null,
       })
 
-      // Setup/teardown realtime sync based on auth state
       if (session) {
-        setupRealtimeSync()
-
+        // Realtime sync is set up by DataLoader after teams load (with teamId).
         // For OAuth sign-ins, ensure user profile + personal team exist.
         // This is idempotent and safe to call on every sign-in.
         if (event === 'SIGNED_IN' && session.user?.app_metadata?.provider !== 'email') {

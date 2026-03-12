@@ -18,6 +18,7 @@ import { redisPubSub } from './redis-pubsub.js';
 interface CleanupConfig {
   enabled: boolean;
   intervalMs: number;
+  streamingEventsIntervalMs: number;
   retentionDays: {
     executions: number;
     chatHistory: number;
@@ -27,6 +28,7 @@ interface CleanupConfig {
 const DEFAULT_CONFIG: CleanupConfig = {
   enabled: true,
   intervalMs: 24 * 60 * 60 * 1000, // 24 hours
+  streamingEventsIntervalMs: 4 * 60 * 60 * 1000, // 4 hours
   retentionDays: {
     executions: 90,
     chatHistory: 180,
@@ -34,10 +36,12 @@ const DEFAULT_CONFIG: CleanupConfig = {
 };
 
 const LEADER_NAME = 'cleanup-scheduler';
+const STREAMING_LEADER_NAME = 'cleanup-scheduler-streaming';
 /** Leader lock TTL — must be longer than one cleanup cycle but short enough for failover */
 const LEADER_TTL_SECONDS = 3600; // 1 hour
 
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+let streamingCleanupTimer: ReturnType<typeof setInterval> | null = null;
 let config: CleanupConfig = DEFAULT_CONFIG;
 
 /**
@@ -201,6 +205,26 @@ async function runCleanupIfLeader(): Promise<void> {
 }
 
 /**
+ * Run streaming events cleanup only if this instance is the leader.
+ * Uses a separate leader lock to avoid contention with the full cleanup cycle.
+ */
+async function runStreamingCleanupIfLeader(): Promise<void> {
+  const acquired = await redisPubSub.tryAcquireLeader(STREAMING_LEADER_NAME, LEADER_TTL_SECONDS);
+  const renewed = !acquired && await redisPubSub.renewLeadership(STREAMING_LEADER_NAME, LEADER_TTL_SECONDS);
+
+  if (!acquired && !renewed) {
+    console.log('[cleanup] Another instance is the streaming cleanup leader — skipping');
+    return;
+  }
+
+  try {
+    await cleanupOldStreamingEvents();
+  } catch (error) {
+    console.error('[cleanup] Streaming events cleanup failed:', error);
+  }
+}
+
+/**
  * Start the cleanup scheduler
  */
 export function startCleanupScheduler(customConfig?: Partial<CleanupConfig>): void {
@@ -228,12 +252,27 @@ export function startCleanupScheduler(customConfig?: Partial<CleanupConfig>): vo
       console.error('[cleanup] Scheduled cleanup failed:', err);
     });
   }, config.intervalMs);
+
+  // Schedule more frequent streaming events cleanup (default every 4h)
+  streamingCleanupTimer = setInterval(() => {
+    runStreamingCleanupIfLeader().catch((err) => {
+      console.error('[cleanup] Scheduled streaming cleanup failed:', err);
+    });
+  }, config.streamingEventsIntervalMs);
+
+  console.log(`[cleanup] Streaming events cleanup interval: ${config.streamingEventsIntervalMs / 1000 / 60 / 60}h`);
 }
 
 /**
  * Stop the cleanup scheduler
  */
 export function stopCleanupScheduler(): void {
+  if (streamingCleanupTimer) {
+    clearInterval(streamingCleanupTimer);
+    streamingCleanupTimer = null;
+    // Release streaming leader lock so another instance can take over immediately
+    redisPubSub.releaseLeadership(STREAMING_LEADER_NAME).catch(() => {});
+  }
   if (cleanupTimer) {
     clearInterval(cleanupTimer);
     cleanupTimer = null;

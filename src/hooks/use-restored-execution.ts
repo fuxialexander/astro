@@ -8,6 +8,8 @@
 
 import { useMemo, useEffect, useRef, useState } from "react"
 import type { TaskExecution, TaskActivityEvent, ToolTrace, FileChange } from "@/types"
+/** Execution-level terminal statuses (distinct from plan-node-level TERMINAL_NODE_STATUSES) */
+const TERMINAL_EXECUTION_STATUSES: Set<string> = new Set(['success', 'failure', 'cancelled'])
 import type { TaskStream } from "@/stores/realtime-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 
@@ -98,10 +100,21 @@ export function useRestoredExecution(
   useEffect(() => {
     if (!executionId || hasLiveEvents) return
     if (catchUpAttempted.current === executionId) return
+
+    // Skip catch-up for terminal-status executions.
+    // Results are already in execution store (task_executions table).
+    // streaming_events are transport-only and get purged after 7 days.
+    if (execution?.status && TERMINAL_EXECUTION_STATUSES.has(execution.status)) {
+      catchUpAttempted.current = executionId
+      // Defer to avoid synchronous setState in effect body (lint: set-state-in-effect)
+      Promise.resolve().then(() => setCatchUpCompletedId(executionId))
+      return
+    }
+
     catchUpAttempted.current = executionId
     console.log('[use-restored] trying streaming events catch-up for', executionId)
     hydrateFromCatchUp([executionId], 0).then(() => setCatchUpCompletedId(executionId))
-  }, [executionId, hasLiveEvents, hydrateFromCatchUp])
+  }, [executionId, hasLiveEvents, hydrateFromCatchUp, execution?.status])
 
   const catchUpDone = catchUpCompletedId === executionId
 
