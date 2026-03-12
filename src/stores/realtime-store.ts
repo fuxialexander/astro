@@ -1867,10 +1867,6 @@ function handleRealtimeEvent(
             }
           }
 
-          // Trigger batch execution next wave (now safe — node status is fresh from DB)
-          if (isNowTerminal && !nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
-            useExecutionStore.getState().triggerBatchWave(projectId)
-          }
         }
 
         // Always attempt batch cascade on terminal status, even when the status

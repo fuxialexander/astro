@@ -3232,13 +3232,14 @@ function dispatchNextBatchWave(projectId: string) {
   })
 
   if (newlyReady.length === 0) {
-    // Batch is complete only when ALL project tasks are terminal — not just
-    // the ones tracked in dispatchedNodeIds. Server-side autoDispatchDownstream
-    // may have dispatched tasks that the frontend batch doesn't track.
-    const IN_FLIGHT = new Set(["dispatched", "in_progress", "planned"])
-    const allProjectDone = projectNodes.every((n) => !IN_FLIGHT.has(n.status))
+    // Batch is complete when nothing is running and nothing new can start.
+    // We check dispatched/in_progress (not planned) because planned nodes
+    // may be permanently blocked by pruned dependencies. Including planned
+    // in this check would cause the batch to hang forever.
+    const ACTIVE = new Set(["dispatched", "in_progress"])
+    const nothingActive = projectNodes.every((n) => !ACTIVE.has(n.status))
 
-    if (allProjectDone) {
+    if (nothingActive) {
       // Compute batch stats before deactivating
       const dispatched = projectNodes.filter((n) => batch.dispatchedNodeIds.has(n.id))
       const succeeded = dispatched.filter((n) => ["completed", "auto_verified"].includes(n.status)).length
