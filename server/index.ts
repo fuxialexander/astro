@@ -266,6 +266,18 @@ export function createApp() {
     }
   })
 
+  app.get('/privacy', (c) => c.redirect('/landing/privacy', 301))
+
+  app.get('/landing/privacy', (c) => {
+    try {
+      const html = readFileSync(join(__dirname, '../public/landing/privacy.html'), 'utf-8')
+      return c.html(html)
+    } catch (err) {
+      console.error('[landing] Failed to read privacy page:', err)
+      return c.text('Privacy page not found', 404)
+    }
+  })
+
   return app
 }
 
