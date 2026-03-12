@@ -694,11 +694,22 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     )
     const providerUnchanged = !session.providerId || session.providerId === providerId
 
+    // Determine if we can resume the provider session.
+    // A valid resume requires a real provider session ID (not the frontend session ID).
+    const canResume = hasCompletedExchange && providerUnchanged &&
+      session.providerSessionId && session.providerSessionId !== sid
+    const resumeId = canResume ? session.providerSessionId : undefined
+
+    // When resuming a provider session, the session already has conversation context.
+    // Sending `messages` again would create duplicate context that can confuse the model.
+    // Only send messages when NOT resuming (fresh conversation or provider changed).
+    const conversationMessages = resumeId ? undefined : messages
+
     // Fire-and-forget — stream runs in background
     projectChatWithAgent(
       {
         message,
-        sessionId: (hasCompletedExchange && providerUnchanged) ? session.providerSessionId : undefined,
+        sessionId: resumeId,
         streamId: sid,
         projectId,
         visionDoc,
@@ -706,21 +717,42 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         providerId,
         planNodes,
         planEdges,
-        messages,
+        messages: conversationMessages,
       },
       {
-        // Text/tool events are NOT pushed to the realtime store here — they
-        // arrive via the global SSE → realtime store path (DB-authoritative,
-        // multi-device consistent). Pushing here too causes duplicate rendering.
+        // Push streaming events to realtime store for live display.
+        // The global SSE suppresses events for tasks with an active direct SSE
+        // (activeDispatchStreams), so we must push events here for the UI to
+        // show streaming output. Session messages are also updated for persistence.
         onText: (chunk) => {
           rawAssistantText += chunk
           get().appendToLastAssistantMessage(sid, chunk)
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'text',
+            content: chunk,
+            timestamp: new Date(),
+          })
         },
         onToolUse: (data) => {
           if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'tool_use',
+            id: `tool-${Date.now()}`,
+            toolName: data.toolName,
+            toolInput: data.toolInput,
+            timestamp: new Date(),
+          })
         },
         onToolResult: (data) => {
           if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'tool_result',
+            id: `tool-${Date.now()}`,
+            toolName: data.toolName,
+            toolResult: data.result,
+            success: data.success,
+            timestamp: new Date(),
+          })
         },
         onDone: (newProviderSessionId) => {
           if (newProviderSessionId) {
@@ -839,7 +871,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const abortController = new AbortController()
     chatAbortControllers.set(sid, abortController)
 
-    let rawText = ""
+    // Track raw text outside React state for synchronous access in onDone
+    let rawAssistantText = ""
 
     // Push user event
     useRealtimeStore.getState().pushActivityEvent(sid, {
@@ -848,14 +881,30 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       timestamp: new Date(),
     })
 
+    // Determine if we should resume a provider session.
+    // A valid resume requires: (1) a completed assistant exchange, AND
+    // (2) a real provider session ID (not the frontend session ID which would
+    // be stored if the agent-runner never emitted session_init).
     const hasCompletedExchange = session.messages.some(
       (m) => m.role === "assistant" && m.content.length > 0
     )
+    const hasRealProviderSession = !!(
+      hasCompletedExchange &&
+      session.providerSessionId &&
+      session.providerSessionId !== sid
+    )
+
+    // When resuming a provider session, the session already has conversation
+    // context — sending `messages` again would create duplicate context that
+    // confuses the model (often producing empty responses on 2nd+ turns).
+    // Only send messages when NOT resuming (i.e., starting a fresh conversation).
+    const resumeSessionId = hasRealProviderSession ? session.providerSessionId : undefined
+    const conversationMessages = resumeSessionId ? undefined : messages
 
     chatWithTask(
       {
         message,
-        sessionId: hasCompletedExchange ? session.providerSessionId : undefined,
+        sessionId: resumeSessionId,
         streamId: sid,
         nodeId,
         projectId,
@@ -865,24 +914,56 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         visionDoc,
         model,
         providerId,
-        messages,
+        messages: conversationMessages,
         branchName,
         prUrl,
       },
       {
-        // Text/tool events arrive via global SSE → realtime store (DB-authoritative).
-        // Only accumulate rawText for session message storage.
+        // Push streaming events to realtime store for live display.
+        // The global SSE suppresses events for tasks with an active direct SSE
+        // (activeDispatchStreams), so we must push events here for the UI to
+        // show streaming output during playground chat.
         onText: (chunk) => {
-          rawText += chunk
+          rawAssistantText += chunk
+          get().appendToLastAssistantMessage(sid, chunk)
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'text',
+            content: chunk,
+            timestamp: new Date(),
+          })
         },
-        onToolUse: () => {},
-        onToolResult: () => {},
+        onToolUse: (data) => {
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'tool_use',
+            id: `tool-${Date.now()}`,
+            toolName: data.toolName,
+            toolInput: data.toolInput,
+            timestamp: new Date(),
+          })
+        },
+        onToolResult: (data) => {
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'tool_result',
+            id: `tool-${Date.now()}`,
+            toolName: data.toolName,
+            toolResult: data.result,
+            success: data.success,
+            timestamp: new Date(),
+          })
+        },
         onDone: (newSessionId) => {
-          if (newSessionId) get().setProviderSessionId(sid, newSessionId)
-          // Store raw text only — tool context is already in taskOutput;
-          // appending tool summaries here would pollute conversation history
-          // sent to the LLM on subsequent turns
-          get().addMessage(sid, { role: "assistant", content: rawText })
+          if (newSessionId) get().setProviderSessionId(sid, newSessionId, providerId)
+
+          // Finalize the assistant message. If a placeholder was added by the
+          // caller (handleChat), update it in place. Otherwise add a new message
+          // (backward compat for callers that don't add the placeholder).
+          const currentSession = get().sessions.get(sid)
+          const lastMsg = currentSession?.messages[currentSession.messages.length - 1]
+          if (lastMsg?.role === 'assistant') {
+            get().updateLastAssistantMessage(sid, rawAssistantText)
+          } else {
+            get().addMessage(sid, { role: "assistant", content: rawAssistantText })
+          }
 
           chatAbortControllers.delete(sid)
           set((state) => {
