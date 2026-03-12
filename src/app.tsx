@@ -28,6 +28,7 @@ import { useActivityStore } from "@/stores/activity-store"
 import { useAuthStore } from "@/stores/auth-store"
 import { useSidebarStore } from "@/stores/sidebar-store"
 import { isLocalMode } from "@/lib/app-mode"
+import { setupRealtimeSync } from "@/lib/realtime-sync"
 import { usePluginStore } from "@/stores/plugin-store"
 import { useSkillStore } from "@/stores/skill-store"
 import { useExampleStore } from "@/stores/example-store"
@@ -198,6 +199,12 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     if (!agentLoaded) loadAgent()
 
     connectRealtime()
+
+    // Re-subscribe Supabase Realtime with team-scoped filter
+    const activeTeamId = useTeamStore.getState().teams[0]?.id
+    if (activeTeamId) {
+      setupRealtimeSync(activeTeamId)
+    }
 
     // Pre-cache browser hostname for file URL building
     getBrowserHostname().catch((err) => {

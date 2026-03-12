@@ -1336,10 +1336,17 @@ app.patch('/settings', async (c) => {
 // ── Task Chat ─────────────────────────────────────────────────────────
 
 app.get('/chat', async (c) => {
-  const sessions = await db.select().from(taskChatSessions).where(eq(taskChatSessions.userId, c.get('user')!.id))
-  const result: Record<string, { session: typeof sessions[0]; messages: Array<typeof taskChatMessages.$inferSelect> }> = {}
+  const user = c.get('user')! as AuthUser
+  const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
+  const projectIds = userProjects.map(p => p.id)
+  if (projectIds.length === 0) return c.json({})
 
-  for (const session of sessions) {
+  const chatSessions = await db.select().from(taskChatSessions).where(
+    and(eq(taskChatSessions.userId, user.id), inArray(taskChatSessions.projectId, projectIds))
+  )
+  const result: Record<string, { session: typeof chatSessions[0]; messages: Array<typeof taskChatMessages.$inferSelect> }> = {}
+
+  for (const session of chatSessions) {
     const messages = await db.select().from(taskChatMessages).where(
       eq(taskChatMessages.sessionId, session.id)
     )
@@ -1451,8 +1458,14 @@ app.delete('/chat/:nodeId', async (c) => {
 // ── Unified Sessions ──────────────────────────────────────────────────
 
 app.get('/sessions', async (c) => {
-  const userId = c.get('user')!.id
-  const userSessions = await db.select().from(sessions).where(eq(sessions.userId, userId))
+  const user = c.get('user')! as AuthUser
+  const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
+  const projectIds = userProjects.map(p => p.id)
+  if (projectIds.length === 0) return c.json([])
+
+  const userSessions = await db.select().from(sessions).where(
+    and(eq(sessions.userId, user.id), inArray(sessions.projectId, projectIds))
+  )
   return c.json(userSessions)
 })
 
