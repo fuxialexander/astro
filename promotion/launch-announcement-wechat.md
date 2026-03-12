@@ -31,7 +31,10 @@ Quick start：
 4. 开始 planning
 
 Agent runner 开源：github.com/astro-anywhere/astro-agent
-Twitter thread: x.com/0astroanywhere0/status/2032157710213603592
+网站：astroanywhere.com
+
+Twitter 发布帖在这里，欢迎帮忙转发点赞：
+x.com/0astroanywhere0/status/2032157710213603592
 
 欢迎试用，期待反馈！
 
@@ -49,5 +52,7 @@ Twitter thread: x.com/0astroanywhere0/status/2032157710213603592
 
 Agent runner 开源：github.com/astro-anywhere/astro-agent
 网站：astroanywhere.com
+
+Twitter thread 欢迎转发：x.com/0astroanywhere0/status/2032157710213603592
 
 [配图]

@@ -115,7 +115,9 @@ Agent runner 开源：[github.com/astro-anywhere/astro-agent](https://github.com
 
 网站：[astroanywhere.com](https://astroanywhere.com)
 
-Twitter: [@0astroanywhere0](https://x.com/0astroanywhere0/status/2032157710213603592)
+Twitter 发布帖在这里，欢迎帮忙转发点赞：[x.com/0astroanywhere0/status/2032157710213603592](https://x.com/0astroanywhere0/status/2032157710213603592)
+
+GitHub 点个 star 也非常感谢：[github.com/astro-anywhere/astro-agent](https://github.com/astro-anywhere/astro-agent)
 
 ---
 

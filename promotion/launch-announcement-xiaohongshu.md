@@ -50,7 +50,9 @@ C: 开源发布：Astro — AI 时代的 Mission Control
 
 Agent runner 开源：github.com/astro-anywhere/astro-agent
 网站：astroanywhere.com
-Twitter: x.com/0astroanywhere0/status/2032157710213603592
+
+Twitter 发布帖在这里，欢迎帮忙转发点赞：
+x.com/0astroanywhere0/status/2032157710213603592
 
 欢迎试用，期待反馈！
 
