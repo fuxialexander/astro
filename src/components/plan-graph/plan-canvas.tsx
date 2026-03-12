@@ -27,6 +27,7 @@ import { TaskNode } from "./task-node"
 import { DeletableEdge } from "./deletable-edge"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
+import { RecentWorkdirPopover } from "@/components/recent-workdir-popover"
 import { calculateChildPosition, calculateParentPosition } from "@/lib/graph-utils"
 import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
@@ -808,6 +809,12 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
                     Set work directory
                   </button>
                 )}
+                <RecentWorkdirPopover
+                  machineId={resolvedMachineId}
+                  onSelect={({ workingDirectory }) => {
+                    updateProject(projectId, { workingDirectory })
+                  }}
+                />
               </div>
             )}
           </div>

@@ -25,6 +25,7 @@ import { PlanGeneration } from "@/components/plan-generation/plan-generation"
 import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
 import { ExamplePickerDialog } from "@/components/examples/example-picker-dialog"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
+import { RecentWorkdirPopover } from "@/components/recent-workdir-popover"
 import { BranchSelector } from "@/components/branch-selector"
 import { AttachmentList } from "@/components/task-detail/attachment-list"
 import { useDirectoryDetection } from "@/hooks/use-directory-detection"
@@ -963,6 +964,15 @@ export function ProjectNewPlan() {
                 >
                   <FolderOpen className="h-4 w-4" />
                 </button>
+                <RecentWorkdirPopover
+                  machineId={selectedMachine?.machineId}
+                  onSelect={({ machineId, workingDirectory }) => {
+                    setWorkingDir(workingDirectory)
+                    setSelectedBranch(null)
+                    const machine = allMachines.find((m) => m.machineId === machineId)
+                    if (machine) setSelectedMachine(machine)
+                  }}
+                />
                 <input
                   type="text"
                   value={workingDir}
