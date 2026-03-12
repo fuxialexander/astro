@@ -724,8 +724,7 @@ agentRoute.post('/task-chat', async (c) => {
 
   // Playground chat is open-ended — override the agent-runner's default of 10 turns
   // for type=chat tasks. Each tool call counts as a turn, so 10 is easily exhausted.
-  const isResumed = !!existingSessionId
-  const chatMaxTurns = isResumed ? 50 : 50
+  const chatMaxTurns = 50
 
   return streamChatViaRelay(c, {
     taskId,
