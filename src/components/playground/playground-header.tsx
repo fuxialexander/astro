@@ -4,7 +4,8 @@
  * Compact header bar showing session title, machine info, status, provider selector, and controls.
  */
 
-import { ArrowLeft, Loader2, X, Laptop, CheckCircle2, AlertCircle, FolderOpen, StopCircle, RotateCcw, Bot, ChevronDown } from "lucide-react"
+import { useState } from "react"
+import { ArrowLeft, Loader2, X, Laptop, CheckCircle2, AlertCircle, FolderOpen, StopCircle, RotateCcw, Bot, ChevronDown, Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -14,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+import { InlineRenameInput } from "@/components/inline-rename-input"
 import { PROVIDER_NAMES } from "@/components/execution/provider-utils"
 import type { ProviderStatus } from "@/types"
 
@@ -32,6 +34,7 @@ interface PlaygroundHeaderProps {
   onAbort: () => void
   onRetry?: () => void
   onToggleFileSidebar: () => void
+  onRename?: (newTitle: string) => void
 }
 
 export function PlaygroundHeader({
@@ -47,7 +50,9 @@ export function PlaygroundHeader({
   onAbort,
   onRetry,
   onToggleFileSidebar,
+  onRename,
 }: PlaygroundHeaderProps) {
+  const [isRenaming, setIsRenaming] = useState(false)
   const statusConfig: Record<PlaygroundStatus, { label: string; color: string; icon: React.ReactNode }> = {
     running: {
       label: "Running",
@@ -94,7 +99,37 @@ export function PlaygroundHeader({
       </Button>
 
       <div className="flex-1 min-w-0">
-        <h2 className="text-sm font-semibold truncate">{title}</h2>
+        {isRenaming && onRename ? (
+          <InlineRenameInput
+            value={title}
+            onSave={(newTitle) => {
+              onRename(newTitle)
+              setIsRenaming(false)
+            }}
+            onCancel={() => setIsRenaming(false)}
+            validate={(v) => v.trim().length === 0 ? "Title cannot be empty" : null}
+            className="text-sm font-semibold"
+          />
+        ) : (
+          <div className="group/title flex items-center gap-1.5">
+            <h2
+              className="text-sm font-semibold truncate cursor-pointer"
+              onDoubleClick={() => onRename && setIsRenaming(true)}
+              title="Double-click to rename"
+            >
+              {title}
+            </h2>
+            {onRename && (
+              <button
+                onClick={() => setIsRenaming(true)}
+                className="p-0.5 rounded opacity-0 group-hover/title:opacity-60 hover:!opacity-100 transition-opacity"
+                title="Rename session"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        )}
         <div className="flex items-center gap-2 mt-0.5">
           <span className={cn("flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-full font-medium", config.color)}>
             {config.icon}
