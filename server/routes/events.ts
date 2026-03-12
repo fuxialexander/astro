@@ -42,6 +42,8 @@ import type {
   TaskFileChangeMessage as RelayTaskFileChangeMessage,
 } from '../types/relay.js'
 
+const ASTRO_BASE_URL = process.env.ASTRO_BASE_URL || 'http://localhost:5173'
+
 const eventsRoute = new Hono()
 
 // Dedup set for channel notifications — prevents sending N Telegram polls
@@ -224,7 +226,10 @@ eventsRoute.get('/stream', async (c) => {
       // SSE bridge died (tab closed, page refresh), the result must still be persisted
       // so hydration on fresh page loads finds the terminal event.
       if (!activeDispatchStreams.has(msg.result.taskId)) {
+        const resultCtx = executionContextStore.get(msg.result.taskId)
         streamingEventLog.append(msg.result.taskId, 'result', {
+          executionId: msg.result.taskId,
+          nodeId: resultCtx?.nodeId,
           status: msg.result.status,
           output: msg.result.output,
           error: msg.result.error,
@@ -362,10 +367,9 @@ eventsRoute.get('/stream', async (c) => {
           const ctx = executionContextStore.get(msg.taskId)
           if (ctx?.projectId) {
             // Route plan generation approvals to dashboard (plan page is empty during generation)
-            const base = process.env.ASTRO_BASE_URL || 'http://localhost:5173'
             const astroUrl = ctx.nodeId?.startsWith('plan-')
-              ? base
-              : `${base}/project/${ctx.projectId}/task/${ctx.nodeId}`
+              ? ASTRO_BASE_URL
+              : `${ASTRO_BASE_URL}/project/${ctx.projectId}/task/${ctx.nodeId}`
             channelRouter.sendNotification({
               type: 'approval.requested',
               projectId: ctx.projectId,
