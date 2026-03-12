@@ -7,6 +7,7 @@ import { useExecutionStore } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
+import { useSessionStore } from "@/stores/session-store"
 import { statusBadgeVariants, TERMINAL_NODE_STATUSES } from "@/lib/status-config"
 
 interface ActiveTask {
@@ -235,10 +236,14 @@ export function ActiveTasks() {
   const rawNodes = usePlanStore((s) => s.nodes)
   const nodesLoaded = usePlanStore((s) => s.loaded)
   const nodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
+  const streamingSessions = useSessionStore((s) => s.streamingSessions)
+  const allSessions = useSessionStore((s) => s.sessions)
 
-  // Build active task list from executions
+  // Build active task list from executions + streaming sessions
   const { groupedTasks, totalCount } = useMemo(() => {
     const taskMap = new Map<string, ActiveTask[]>()
+    // Track nodeIds already added from executions so we don't double-count
+    const addedNodeIds = new Set<string>()
 
     // Active task executions
     for (const [nodeId, exec] of executions) {
@@ -286,6 +291,7 @@ export function ActiveTasks() {
       const list = taskMap.get(projectId) || []
       list.push(task)
       taskMap.set(projectId, list)
+      addedNodeIds.add(nodeId)
     }
 
     // Also check for nodes with in_progress/dispatched status that might not have execution entries
@@ -305,11 +311,46 @@ export function ActiveTasks() {
       taskMap.set(node.projectId, list)
     }
 
+    // Include streaming chat/playground sessions that aren't already covered by executions.
+    // The sidebar counts these in activeCount, so the active-tasks page must show them too.
+    for (const sessionId of streamingSessions) {
+      const session = allSessions.get(sessionId)
+      if (!session?.projectId) continue
+
+      // Determine a stable nodeId for dedup — playground sessions use
+      // "playground-{projectId}" as their execution key
+      const isPlayground = session.type === 'task-chat'
+      const stableNodeId = isPlayground
+        ? `playground-${session.projectId}`
+        : `chat-${sessionId}`
+
+      // Skip if already represented by an execution entry
+      if (addedNodeIds.has(stableNodeId) || addedNodeIds.has(sessionId)) continue
+
+      const proj = projects.find((p) => p.id === session.projectId)
+      const title = session.title
+        || (session.messages.find((m) => m.role === 'user')?.content.slice(0, 50) + (
+          (session.messages.find((m) => m.role === 'user')?.content.length ?? 0) > 50 ? '...' : ''
+        ))
+        || proj?.name
+        || 'Chat Session'
+
+      const list = taskMap.get(session.projectId) || []
+      list.push({
+        nodeId: stableNodeId,
+        projectId: session.projectId,
+        title: isPlayground ? `${title}` : `Chat: ${title}`,
+        status: 'running',
+        startedAt: session.updatedAt,
+      })
+      taskMap.set(session.projectId, list)
+    }
+
     let count = 0
     for (const tasks of taskMap.values()) count += tasks.length
 
     return { groupedTasks: taskMap, totalCount: count }
-  }, [executions, rawNodes, nodes, projects, nodesLoaded])
+  }, [executions, rawNodes, nodes, projects, nodesLoaded, streamingSessions, allSessions])
 
   // Sort projects: those with more active tasks first
   const sortedProjects = useMemo(() => {
@@ -353,7 +394,7 @@ export function ActiveTasks() {
             <div>
               <p className="text-sm font-medium text-foreground">No active tasks</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Running tasks and plan generations will appear here
+                Running tasks, playground sessions, and plan generations will appear here
               </p>
             </div>
           </div>
