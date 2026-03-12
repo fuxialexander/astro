@@ -601,6 +601,10 @@ agentRoute.post('/project-chat', async (c) => {
     }
   }
 
+  // Project chat is open-ended — override the agent-runner's default of 10 turns
+  // for type=chat tasks. Each tool call counts as a turn, so 10 is easily exhausted.
+  const projectChatMaxTurns = (taskType === 'plan') ? undefined : 50
+
   return streamChatViaRelay(c, {
     taskId,
     projectId,
@@ -608,6 +612,7 @@ agentRoute.post('/project-chat', async (c) => {
     prompt: message,
     systemPrompt,
     type: taskType || 'execution',
+    maxTurns: projectChatMaxTurns,
     messages: compactedMessages,
     model: model || undefined,
     preferredProvider: providerId || undefined,
@@ -717,6 +722,11 @@ agentRoute.post('/task-chat', async (c) => {
   // Persist user message for catch-up hydration
   await streamingEventLog.append(streamId || taskId, 'steer_message', { message })
 
+  // Playground chat is open-ended — override the agent-runner's default of 10 turns
+  // for type=chat tasks. Each tool call counts as a turn, so 10 is easily exhausted.
+  const isResumed = !!existingSessionId
+  const chatMaxTurns = isResumed ? 50 : 50
+
   return streamChatViaRelay(c, {
     taskId,
     projectId,
@@ -724,6 +734,7 @@ agentRoute.post('/task-chat', async (c) => {
     prompt: message,
     systemPrompt,
     type: 'chat',
+    maxTurns: chatMaxTurns,
     messages: historyMessages,
     model: model || undefined,
     preferredProvider: providerId || undefined,

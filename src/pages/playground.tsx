@@ -319,7 +319,10 @@ export function Playground() {
     isChatStreaming,
   )
 
-  // Merge: live store events > local ref events > hydrated events
+  // Merge: live store events > local ref events > hydrated events.
+  // Dedup: activity events from the execution stream and chat events from the session
+  // stream can overlap when catch-up hydration re-delivers events after the SSE bridge
+  // closes. We deduplicate by checking (type, timestamp) pairs.
   const allActivityEvents: TaskActivityEvent[] = useMemo(() => {
     void chatEventsVersion
     const chatEvents = liveChatEvents.length > 0
@@ -327,7 +330,24 @@ export function Playground() {
       : chatEventsRef.current.length > 0
         ? chatEventsRef.current
         : hydratedChatEvents
-    return [...activityEvents, ...chatEvents]
+
+    // Fast path: no overlap possible if either side is empty
+    if (activityEvents.length === 0) return chatEvents
+    if (chatEvents.length === 0) return activityEvents
+
+    // Deduplicate: build a fingerprint set from activityEvents, skip chatEvents that match
+    const seen = new Set<string>()
+    for (const e of activityEvents) {
+      // Use type + timestamp + first 40 chars of content as a fingerprint
+      const content = ('content' in e && typeof e.content === 'string') ? e.content.slice(0, 40) : ''
+      seen.add(`${e.type}|${new Date(e.timestamp).getTime()}|${content}`)
+    }
+    const dedupedChat = chatEvents.filter((e) => {
+      const content = ('content' in e && typeof e.content === 'string') ? e.content.slice(0, 40) : ''
+      return !seen.has(`${e.type}|${new Date(e.timestamp).getTime()}|${content}`)
+    })
+
+    return [...activityEvents, ...dedupedChat]
   // eslint-disable-next-line react-hooks/exhaustive-deps -- chatEventsRef is a stable ref
   }, [activityEvents, chatEventsVersion, liveChatEvents, hydratedChatEvents])
 
