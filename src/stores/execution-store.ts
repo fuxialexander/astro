@@ -1820,6 +1820,26 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       const executionsRecord = await dataClient.getExecutions()
       // dataClient already deserializes dates, just convert Record to Map
       const executions = new Map<string, TaskExecution>(Object.entries(executionsRecord))
+
+      // Backfill summaries for completed executions that have streamText but no summary
+      for (const [nodeId, exec] of executions) {
+        if (!exec.summary && exec.streamText && (exec.status === 'success' || exec.status === 'failure')) {
+          const parsed = parseExecutiveSummary(exec.streamText)
+          if (parsed?.status && parsed?.workCompleted) {
+            executions.set(nodeId, {
+              ...exec,
+              summary: {
+                workCompleted: parsed.workCompleted,
+                keyFindings: parsed.keyFindings || [],
+                filesChanged: exec.fileChanges?.map((f) => f.path) ?? [],
+                status: parsed.status,
+                followUps: parsed.followUps || [],
+              },
+            })
+          }
+        }
+      }
+
       set({ executions, loaded: true })
       console.log('[execution-store] Loaded executions from API:', executions.size)
     } catch (error) {
@@ -3036,6 +3056,8 @@ async function requestExecutionSummary(
           }
           return { executions: newExecutions }
         })
+        // Persist the newly-generated summary to DB
+        useExecutionStore.getState().persist()
       } else {
         console.warn(`[execution-store] Summary response missing 'summary' field for ${nodeId}`)
         setFallbackSummary(nodeId, execution)
