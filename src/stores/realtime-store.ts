@@ -22,6 +22,25 @@ import type { TaskActivityEvent } from '@/types'
 import { useToastStore } from './toast-store'
 import { useNotificationStore } from './notification-store'
 import { buildServerCompletionMessage, buildClientCompletionMessage } from '@/lib/completion-messages'
+import { useSessionStore } from './session-store'
+
+/**
+ * Derive from DB-backed session type whether this stream is a chat session.
+ * Chat sessions push events via direct SSE callbacks (sendPlaygroundChat /
+ * sendChatMessage); the global SSE handler must skip them to prevent
+ * double-delivery. Falls back to streamingSessions for the window before
+ * session-store loads on fresh page load.
+ */
+function isChatSessionStream(streamId: string): boolean {
+  const sessionState = useSessionStore.getState()
+  const session = sessionState.sessions.get(streamId)
+  if (session) {
+    return session.type === 'project-chat' || session.type === 'task-chat'
+  }
+  // Fallback: if session store hasn't loaded yet, check if the session store
+  // is actively streaming this ID (set synchronously before SSE starts).
+  return sessionState.streamingSessions.has(streamId)
+}
 
 // Per-node fetch generation counter to prevent out-of-order getNode() responses
 // from overwriting newer state (e.g., rapid dispatched → in_progress → completed).
@@ -142,11 +161,6 @@ export interface TaskStream {
     options: string[]
     answer?: string
   }>
-  /** True for chat-session streams (not task execution streams).
-   *  Chat streams are managed by useChatActivityEvents which handles its own
-   *  hydration — the global SSE reconnect handler must skip them to prevent
-   *  hydratedChatEvents from being updated with events already in chatEventsRef. */
-  isChatStream?: boolean
 }
 
 /** Attached session from MCP bridge */
@@ -188,11 +202,8 @@ interface RealtimeState {
   getDynamicApproval: (requestId: string) => DynamicApprovalRequest | undefined
   respondToDynamicApproval: (taskId: string, requestId: string, answer: string) => Promise<void>
   respondToSafetyPrompt: (taskId: string, decision: string) => Promise<void>
-  hydrateFromCatchUp: (executionIds: string[], afterSeq?: number, streamType?: 'chat') => Promise<void>
+  hydrateFromCatchUp: (executionIds: string[], afterSeq?: number) => Promise<void>
   pushActivityEvent: (executionId: string, event: TaskActivityEvent) => void
-  /** Mark a stream as a chat-session stream so the global SSE handler skips it.
-   *  Call before starting a direct-SSE chat request to prevent double-delivery. */
-  markAsChatStream: (streamId: string) => void
   /** Reconcile running tasks after page refresh: bootstrap execution store + task streams
    *  for plan nodes that are in_progress but have no execution store entries. */
   reconcileRunningTasks: () => void
@@ -274,13 +285,14 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
 
       const { taskStreams, hydrateFromCatchUp } = get()
       // Collect execution IDs from all active task execution streams.
-      // Skip chat-session streams (isChatStream=true) — they self-manage via
-      // useChatActivityEvents. The global reconnect must not update them or it
-      // would add current-turn events to hydratedChatEvents that are already
-      // in chatEventsRef, causing duplication in the merged activity feed.
+      // Skip chat-session streams — they self-manage via useChatActivityEvents.
+      // The global reconnect must not update them or it would add current-turn
+      // events to hydratedChatEvents that are already in chatEventsRef, causing
+      // duplication in the merged activity feed. Chat streams are identified by
+      // deriving from the DB-backed session type (project-chat / task-chat).
       const activeIds: string[] = []
       for (const [execId, stream] of taskStreams) {
-        if (stream.isChatStream) continue
+        if (isChatSessionStream(execId)) continue
         if (stream.status === 'running' || stream.status === 'in_progress') {
           activeIds.push(execId)
         }
@@ -506,7 +518,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     }
   },
 
-  hydrateFromCatchUp: async (executionIds: string[], afterSeq = 0, streamType?: 'chat') => {
+  hydrateFromCatchUp: async (executionIds: string[], afterSeq = 0) => {
     if (executionIds.length === 0) return
     try {
       const { events, lastSeq: newSeq } = await fetchStreamingEventsCatchUp(executionIds, afterSeq)
@@ -616,9 +628,6 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               // them in the activity feed.
               toolTraces: mergeBySeq(existing.toolTraces, hydrated.toolTraces),
               fileChanges: mergeBySeq(existing.fileChanges, hydrated.fileChanges),
-              // Preserve isChatStream flag on reconnect so the global reconnect handler
-              // continues to skip this stream even after the initial full-hydration pass.
-              ...(streamType === 'chat' ? { isChatStream: true } : {}),
             })
           } else {
             // Full hydration (page refresh): hydrated events are the complete history
@@ -636,11 +645,6 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               activityEvents: mergedActivity,
               toolTraces: mergedToolTraces,
               fileChanges: mergedFileChanges,
-              // Mark chat-session streams so the global reconnect handler skips them.
-              // Chat streams self-manage hydration via useChatActivityEvents — the global
-              // reconnect must not update them or hydratedChatEvents gains current-turn
-              // events that are already in chatEventsRef, causing duplication.
-              ...(streamType === 'chat' ? { isChatStream: true } : {}),
             })
           }
         }
@@ -744,15 +748,6 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       })
     }
   })(),
-
-  markAsChatStream: (streamId: string) => {
-    set((state) => {
-      const streams = new Map(state.taskStreams)
-      const existing = streams.get(streamId) || createEmptyTaskStream(streamId)
-      streams.set(streamId, { ...existing, isChatStream: true })
-      return { taskStreams: streams }
-    })
-  },
 
   reconcileRunningTasks: () => {
     const planStore = usePlanStore.getState()
@@ -1074,8 +1069,8 @@ function handleRealtimeEvent(
     case 'task:text': {
       const execId = data.taskId as string
       // Skip chat-session streams — they receive text via direct SSE callbacks
-      // (sendPlaygroundChat.onText) to avoid double-delivery.
-      if (useRealtimeStore.getState().taskStreams.get(execId)?.isChatStream) break
+      // (sendPlaygroundChat.onText / sendChatMessage.onText) to avoid double-delivery.
+      if (isChatSessionStream(execId)) break
       const text = data.data as string
       // Batch text chunks — flush every 50ms for smooth ~20fps rendering
       realtimeTextBatch.set(execId, (realtimeTextBatch.get(execId) || '') + text)
@@ -1235,8 +1230,8 @@ function handleRealtimeEvent(
     case 'task:tool_trace': {
       const execId = data.taskId as string
       // Skip chat-session streams — they receive tool events via direct SSE callbacks
-      // (sendPlaygroundChat.onToolUse/onToolResult) to avoid double-delivery.
-      if (useRealtimeStore.getState().taskStreams.get(execId)?.isChatStream) break
+      // (sendPlaygroundChat / sendChatMessage) to avoid double-delivery.
+      if (isChatSessionStream(execId)) break
       const now = new Date()
       const toolName = data.toolName as string
       const hasInput = data.toolInput !== undefined

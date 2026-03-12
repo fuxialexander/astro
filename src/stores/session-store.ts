@@ -888,12 +888,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const abortController = new AbortController()
     chatAbortControllers.set(sid, abortController)
 
-    // Mark stream as a chat stream BEFORE starting SSE so the global SSE handler
-    // skips task:stdout and task:tool_trace events for this stream.
-    // Without this, both the direct SSE callbacks below and the global SSE handler
-    // would push to taskStreams[sid], producing duplicate text/tool blocks.
-    useRealtimeStore.getState().markAsChatStream(sid)
-
     // Track raw text outside React state for synchronous access in onDone
     let rawAssistantText = ""
 
