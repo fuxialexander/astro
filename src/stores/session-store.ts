@@ -771,10 +771,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             return { streamingSessions: ss }
           })
 
-          // Auto-generate title after first conversation round completes
+          // Auto-generate title after first conversation round completes.
+          // Use rawAssistantText (synchronous) instead of relying solely on
+          // store messages to avoid timing issues with throttled flush.
           const updatedSession = get().sessions.get(sid)
           const isFirstExchange = updatedSession && !updatedSession.title &&
-            updatedSession.messages.filter((m) => m.role === 'assistant' && m.content.length > 0).length === 1
+            rawAssistantText.length > 0 &&
+            updatedSession.messages.filter((m) => m.role === 'assistant' && m.content.length > 0).length <= 1
           if (isFirstExchange && message.length > 0) {
             const titleInput = message.length > 200
               ? message.slice(0, 200)
@@ -908,10 +911,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           // Auto-generate title after first conversation round completes.
           // Only fires when session has no custom title yet and this is the
           // first completed exchange (user msg + non-empty assistant response).
+          // Use rawText (synchronous) instead of relying solely on store
+          // messages to avoid timing issues with throttled flush.
           const updatedSession = get().sessions.get(sid)
           const isFirstExchange = updatedSession && !updatedSession.title &&
-            updatedSession.messages.filter((m) => m.role === 'assistant' && m.content.length > 0).length === 1
+            rawText.length > 0 &&
+            updatedSession.messages.filter((m) => m.role === 'assistant' && m.content.length > 0).length <= 1
           if (isFirstExchange && message.length > 0) {
+            // Snapshot project name before async title generation so we can
+            // detect if the user manually renamed it while we were waiting.
+            const projectBefore = useProjectStore.getState().projects.find((p) => p.id === projectId)
+            const projectNameBefore = projectBefore?.name
             const titleInput = message.length > 200
               ? message.slice(0, 200)
               : `${message}\n---\n${rawText.slice(0, 300)}`
@@ -919,8 +929,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               if (aiTitle) {
                 // Update session title
                 get().renameSession(sid, aiTitle)
-                // Also update the playground project name so the history list reflects it
-                useProjectStore.getState().updateProject(projectId, { name: aiTitle })
+                // Also update the playground project name so the history list
+                // reflects it — but only if the user hasn't manually renamed it.
+                const projectNow = useProjectStore.getState().projects.find((p) => p.id === projectId)
+                if (projectNow && projectNow.name === projectNameBefore) {
+                  useProjectStore.getState().updateProject(projectId, { name: aiTitle })
+                }
               }
             }).catch(() => {}) // silent — auto-generated title is optional
           }
