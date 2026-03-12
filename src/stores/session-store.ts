@@ -888,8 +888,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const hasCompletedExchange = session.messages.some(
       (m) => m.role === "assistant" && m.content.length > 0
     )
+    const providerUnchanged = !session.providerId || session.providerId === providerId
     const hasRealProviderSession = !!(
       hasCompletedExchange &&
+      providerUnchanged &&
       session.providerSessionId &&
       session.providerSessionId !== sid
     )
@@ -957,11 +959,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           // Finalize the assistant message. If a placeholder was added by the
           // caller (handleChat), update it in place. Otherwise add a new message
           // (backward compat for callers that don't add the placeholder).
+          // Guard: don't overwrite partial streamed content with empty string
+          // (e.g., on abort where onDone fires with no accumulated text).
           const currentSession = get().sessions.get(sid)
           const lastMsg = currentSession?.messages[currentSession.messages.length - 1]
           if (lastMsg?.role === 'assistant') {
-            get().updateLastAssistantMessage(sid, rawAssistantText)
-          } else {
+            if (rawAssistantText.length > 0) {
+              get().updateLastAssistantMessage(sid, rawAssistantText)
+            }
+          } else if (rawAssistantText.length > 0) {
             get().addMessage(sid, { role: "assistant", content: rawAssistantText })
           }
 
@@ -978,6 +984,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           }
         },
         onError: (error) => {
+          // Fill the assistant placeholder with the error so it isn't left as
+          // a blank ghost message after page refresh (matches sendChatMessage).
+          get().appendToLastAssistantMessage(sid, `\nError: ${error}`)
           useRealtimeStore.getState().pushActivityEvent(sid, {
             type: 'error',
             error,
