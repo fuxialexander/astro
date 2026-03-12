@@ -18,7 +18,7 @@
 
 **Scene 0 — Tension.** Set the problem. The audience feels the frustration of the current AI coding workflow: one agent, one chat window, one task at a time. You're stuck babysitting. Then the turn: there's a better way.
 
-**Scene 1 — ASTRO Reveal.** Brand moment. Show Astro's identity and four pillars: describe once (no iterative chatting), any agent on any machine (universal control plane), browser and mobile access (phone, iPad), and OpenClaw integration (Telegram, Slack, Discord).
+**Scene 1 — ASTRO Reveal.** Brand moment. Show Astro's identity and four pillars: describe once (no iterative chatting), multiple agents on any machine (universal control plane), browser and mobile access (phone, iPad), and OpenClaw plugin support (approve and steer via Telegram, Slack, Discord).
 
 **Scene 2 — Describe.** The first step of the workflow. User types a single natural-language goal. Astro's AI generates a structured plan — not a flat list, but a DAG with dependencies and milestones. No back-and-forth chat loop.
 
@@ -42,7 +42,7 @@ Copy each block exactly. Read at a natural, measured pace (~140 words/min).
 
 ### Scene 1 (ASTRO Reveal)
 
-> Astro. Mission control for the AI age. Describe your goal once — no iterative chatting. Run any agent on any machine from a single control plane. Access it from your browser, your phone, or your iPad. And with OpenClaw, approve and steer from Telegram, Slack, or Discord.
+> Astro. Mission control for the AI age. Describe your goal once — no iterative chatting. Run multiple agents on any machine from a single control plane. Access it from your browser, your phone, or your iPad. And as an OpenClaw plugin, approve and steer from Telegram, Slack, or Discord.
 
 ### Scene 2 (Describe)
 
