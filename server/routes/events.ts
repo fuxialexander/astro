@@ -42,6 +42,8 @@ import type {
   TaskFileChangeMessage as RelayTaskFileChangeMessage,
 } from '../types/relay.js'
 
+const ASTRO_BASE_URL = process.env.ASTRO_BASE_URL || 'http://localhost:5173'
+
 const eventsRoute = new Hono()
 
 // Dedup set for channel notifications — prevents sending N Telegram polls
@@ -218,6 +220,26 @@ eventsRoute.get('/stream', async (c) => {
       })
       const id = eventBuffer.push('task:result', data)
       stream.writeSSE({ id, event: 'task:result', data }).catch(() => { alive = false })
+
+      // Persist result when no active dispatch stream is handling it.
+      // dispatch.ts is the primary persister for 'result' events, but if the dispatch
+      // SSE bridge died (tab closed, page refresh), the result must still be persisted
+      // so hydration on fresh page loads finds the terminal event.
+      if (!activeDispatchStreams.has(msg.result.taskId)) {
+        const resultCtx = executionContextStore.get(msg.result.taskId)
+        streamingEventLog.append(msg.result.taskId, 'result', {
+          executionId: msg.result.taskId,
+          nodeId: resultCtx?.nodeId,
+          status: msg.result.status,
+          output: msg.result.output,
+          error: msg.result.error,
+          duration: msg.result.duration,
+          branchName: msg.result.branchName,
+          prUrl: msg.result.prUrl,
+          prNumber: msg.result.prNumber,
+          deliveryStatus: msg.result.deliveryStatus,
+        }).catch(() => {})
+      }
     }
 
     const onTaskStdout = (msg: TaskStdoutMessage) => {
@@ -317,6 +339,19 @@ eventsRoute.get('/stream', async (c) => {
         const id = eventBuffer.push('task:approval_request', data)
         stream.writeSSE({ id, event: 'task:approval_request', data }).catch(() => { alive = false })
 
+        // Persist approval_request when no active dispatch stream is handling it.
+        // The dispatch SSE bridge (dispatch.ts) normally persists approval_request events,
+        // but if the bridge died (tab closed, page refresh), events.ts takes over delivery
+        // and must also persist so hydration works on fresh page loads.
+        if (!activeDispatchStreams.has(msg.taskId)) {
+          streamingEventLog.append(msg.taskId, 'approval_request', {
+            requestId: msg.requestId,
+            question: msg.question,
+            options: msg.options,
+            machineId: msg.machineId,
+          }).catch(() => {})
+        }
+
         // Also route to configured channels (OpenClaw/Telegram/Slack/etc.)
         // Channels can respond interactively — first response wins (agent runner deduplicates).
         // Deduplicate: multiple SSE connections (browser tabs) share this relay event,
@@ -331,11 +366,15 @@ eventsRoute.get('/stream', async (c) => {
 
           const ctx = executionContextStore.get(msg.taskId)
           if (ctx?.projectId) {
+            // Route plan generation approvals to dashboard (plan page is empty during generation)
+            const astroUrl = ctx.nodeId?.startsWith('plan-')
+              ? ASTRO_BASE_URL
+              : `${ASTRO_BASE_URL}/project/${ctx.projectId}/task/${ctx.nodeId}`
             channelRouter.sendNotification({
               type: 'approval.requested',
               projectId: ctx.projectId,
               summary: msg.question,
-              astroUrl: `${process.env.ASTRO_BASE_URL || 'http://localhost:5173'}/project/${ctx.projectId}`,
+              astroUrl,
               metadata: {
                 requestId: msg.requestId,
                 taskId: msg.taskId,
@@ -397,6 +436,18 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id: autoId, event: 'task:safety_auto_proceeded', data: autoData }).catch(() => { alive = false })
     }
 
+    /** Persist safety_prompt when no active dispatch stream is handling it (same pattern as approval_request). */
+    const persistSafetyPromptIfNeeded = (msg: { taskId: string; safetyTier: string; warning?: string; machineId?: string; options: Array<{ id: string; label: string; description?: string }> }) => {
+      if (!activeDispatchStreams.has(msg.taskId)) {
+        streamingEventLog.append(msg.taskId, 'safety_prompt', {
+          safetyTier: msg.safetyTier,
+          warning: msg.warning,
+          machineId: msg.machineId,
+          options: msg.options,
+        }).catch(() => {})
+      }
+    }
+
     const onTaskSafetyPrompt = (msg: { taskId: string; safetyTier: string; warning?: string; machineId?: string; options: Array<{ id: string; label: string; description?: string }> }) => {
       if (!alive) return
       if (!isTaskOwnedByUser(msg.taskId)) return
@@ -405,6 +456,7 @@ eventsRoute.get('/stream', async (c) => {
         const data = JSON.stringify(msg)
         const id = eventBuffer.push('task:safety_prompt', data)
         stream.writeSSE({ id, event: 'task:safety_prompt', data }).catch(() => { alive = false })
+        persistSafetyPromptIfNeeded(msg)
         return
       }
 
@@ -428,10 +480,12 @@ eventsRoute.get('/stream', async (c) => {
         const data = JSON.stringify(msg)
         const id = eventBuffer.push('task:safety_prompt', data)
         stream.writeSSE({ id, event: 'task:safety_prompt', data }).catch(() => { alive = false })
+        persistSafetyPromptIfNeeded(msg)
       }).catch(() => {
         const data = JSON.stringify(msg)
         const id = eventBuffer.push('task:safety_prompt', data)
         stream.writeSSE({ id, event: 'task:safety_prompt', data }).catch(() => { alive = false })
+        persistSafetyPromptIfNeeded(msg)
       })
     }
 
