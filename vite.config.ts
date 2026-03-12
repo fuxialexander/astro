@@ -16,6 +16,10 @@ export default defineConfig(({ mode }) => {
             req.url = '/landing/index.html'
           } else if (req.url === '/landing/about' || req.url === '/landing/about/') {
             req.url = '/landing/about.html'
+          } else if (req.url === '/landing/privacy' || req.url === '/landing/privacy/') {
+            req.url = '/landing/privacy.html'
+          } else if (req.url === '/privacy' || req.url === '/privacy/') {
+            req.url = '/landing/privacy.html'
           }
           next()
         })
