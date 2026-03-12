@@ -78,6 +78,9 @@ export function Playground() {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const projectIdParam = searchParams.get("projectId")
+  // URL params for pre-filling machine/workdir from command palette "Start Playground In..."
+  const machineParam = searchParams.get("machine")
+  const workdirParam = searchParams.get("workdir")
 
   // Input phase state
   const [description, setDescription] = useState("")
@@ -235,6 +238,35 @@ export function Playground() {
       providers: m.providers.map((p) => ({ type: p.type, status: p.status })),
     })),
   ].filter((m, i, arr) => arr.findIndex((a) => a.machineId === m.machineId) === i), [machines, realtimeMachines])
+
+  // Consume machine/workdir URL params to pre-fill landing phase fields.
+  // Runs once machines are loaded to ensure we can resolve the machine object.
+  const prefillConsumedRef = useRef(false)
+  useEffect(() => {
+    if (prefillConsumedRef.current) return
+    if (!machineParam && !workdirParam) return
+    // Wait until machines have loaded before attempting to resolve
+    if (!machinesLoaded) return
+
+    prefillConsumedRef.current = true
+
+    if (workdirParam) {
+      setWorkingDir(decodeURIComponent(workdirParam))
+    }
+    if (machineParam) {
+      const machineId = decodeURIComponent(machineParam)
+      const found = allMachines.find((m) => m.machineId === machineId)
+      if (found) setSelectedMachine(found)
+    }
+
+    // Clear the params from the URL after consuming them
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.delete('machine')
+      next.delete('workdir')
+      return next
+    }, { replace: true })
+  }, [machineParam, workdirParam, machinesLoaded, allMachines, setSearchParams])
 
   // Providers for the active session (derived from the execution's machine)
   const activeSessionProviders = useMemo(() => {
