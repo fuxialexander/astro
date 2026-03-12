@@ -2027,7 +2027,7 @@ function processCatchUpEvents(
         if (parsed.finalStatus && validFinalStatuses.has(parsed.finalStatus)) {
           planStore.updateNode(nodeId, { status: parsed.finalStatus })
         }
-      } catch { /* ignore parse errors */ }
+      } catch (err) { console.warn("[sse-catchup] Failed to parse result event for plan-node status update:", err) }
     }
   }
 

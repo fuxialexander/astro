@@ -700,6 +700,7 @@ export class DispatchEngine extends EventEmitter {
       nodeId: node.id,
       projectId: queueEntry.projectId,
       executionId: result.taskId,
+      finalNodeStatus: routing.targetStatus,
       result,
       node,
       project,
