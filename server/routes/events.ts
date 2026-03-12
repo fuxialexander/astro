@@ -218,6 +218,23 @@ eventsRoute.get('/stream', async (c) => {
       })
       const id = eventBuffer.push('task:result', data)
       stream.writeSSE({ id, event: 'task:result', data }).catch(() => { alive = false })
+
+      // Persist result when no active dispatch stream is handling it.
+      // dispatch.ts is the primary persister for 'result' events, but if the dispatch
+      // SSE bridge died (tab closed, page refresh), the result must still be persisted
+      // so hydration on fresh page loads finds the terminal event.
+      if (!activeDispatchStreams.has(msg.result.taskId)) {
+        streamingEventLog.append(msg.result.taskId, 'result', {
+          status: msg.result.status,
+          output: msg.result.output,
+          error: msg.result.error,
+          duration: msg.result.duration,
+          branchName: msg.result.branchName,
+          prUrl: msg.result.prUrl,
+          prNumber: msg.result.prNumber,
+          deliveryStatus: msg.result.deliveryStatus,
+        }).catch(() => {})
+      }
     }
 
     const onTaskStdout = (msg: TaskStdoutMessage) => {
@@ -415,6 +432,18 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id: autoId, event: 'task:safety_auto_proceeded', data: autoData }).catch(() => { alive = false })
     }
 
+    /** Persist safety_prompt when no active dispatch stream is handling it (same pattern as approval_request). */
+    const persistSafetyPromptIfNeeded = (msg: { taskId: string; safetyTier: string; warning?: string; machineId?: string; options: Array<{ id: string; label: string; description?: string }> }) => {
+      if (!activeDispatchStreams.has(msg.taskId)) {
+        streamingEventLog.append(msg.taskId, 'safety_prompt', {
+          safetyTier: msg.safetyTier,
+          warning: msg.warning,
+          machineId: msg.machineId,
+          options: msg.options,
+        }).catch(() => {})
+      }
+    }
+
     const onTaskSafetyPrompt = (msg: { taskId: string; safetyTier: string; warning?: string; machineId?: string; options: Array<{ id: string; label: string; description?: string }> }) => {
       if (!alive) return
       if (!isTaskOwnedByUser(msg.taskId)) return
@@ -423,6 +452,7 @@ eventsRoute.get('/stream', async (c) => {
         const data = JSON.stringify(msg)
         const id = eventBuffer.push('task:safety_prompt', data)
         stream.writeSSE({ id, event: 'task:safety_prompt', data }).catch(() => { alive = false })
+        persistSafetyPromptIfNeeded(msg)
         return
       }
 
@@ -446,10 +476,12 @@ eventsRoute.get('/stream', async (c) => {
         const data = JSON.stringify(msg)
         const id = eventBuffer.push('task:safety_prompt', data)
         stream.writeSSE({ id, event: 'task:safety_prompt', data }).catch(() => { alive = false })
+        persistSafetyPromptIfNeeded(msg)
       }).catch(() => {
         const data = JSON.stringify(msg)
         const id = eventBuffer.push('task:safety_prompt', data)
         stream.writeSSE({ id, event: 'task:safety_prompt', data }).catch(() => { alive = false })
+        persistSafetyPromptIfNeeded(msg)
       })
     }
 
