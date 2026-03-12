@@ -317,6 +317,19 @@ eventsRoute.get('/stream', async (c) => {
         const id = eventBuffer.push('task:approval_request', data)
         stream.writeSSE({ id, event: 'task:approval_request', data }).catch(() => { alive = false })
 
+        // Persist approval_request when no active dispatch stream is handling it.
+        // The dispatch SSE bridge (dispatch.ts) normally persists approval_request events,
+        // but if the bridge died (tab closed, page refresh), events.ts takes over delivery
+        // and must also persist so hydration works on fresh page loads.
+        if (!activeDispatchStreams.has(msg.taskId)) {
+          streamingEventLog.append(msg.taskId, 'approval_request', {
+            requestId: msg.requestId,
+            question: msg.question,
+            options: msg.options,
+            machineId: msg.machineId,
+          }).catch(() => {})
+        }
+
         // Also route to configured channels (OpenClaw/Telegram/Slack/etc.)
         // Channels can respond interactively — first response wins (agent runner deduplicates).
         // Deduplicate: multiple SSE connections (browser tabs) share this relay event,
@@ -331,11 +344,16 @@ eventsRoute.get('/stream', async (c) => {
 
           const ctx = executionContextStore.get(msg.taskId)
           if (ctx?.projectId) {
+            // Route plan generation approvals to dashboard (plan page is empty during generation)
+            const base = process.env.ASTRO_BASE_URL || 'http://localhost:5173'
+            const astroUrl = ctx.nodeId?.startsWith('plan-')
+              ? base
+              : `${base}/project/${ctx.projectId}/task/${ctx.nodeId}`
             channelRouter.sendNotification({
               type: 'approval.requested',
               projectId: ctx.projectId,
               summary: msg.question,
-              astroUrl: `${process.env.ASTRO_BASE_URL || 'http://localhost:5173'}/project/${ctx.projectId}`,
+              astroUrl,
               metadata: {
                 requestId: msg.requestId,
                 taskId: msg.taskId,

@@ -48,11 +48,15 @@ export const channelNotificationHook: EventHook = async (event) => {
     }
 
     case 'approval.requested': {
+      // Route plan generation approvals to dashboard (plan page is empty during generation)
+      const approvalUrl = event.nodeId?.startsWith('plan-')
+        ? BASE_URL
+        : `${BASE_URL}/project/${event.projectId}/task/${event.nodeId}`
       notification = {
         type: 'approval.requested' as NotificationType,
         projectId: event.projectId,
         summary: `Approval needed: ${event.message}`,
-        astroUrl: `${BASE_URL}/project/${event.projectId}/task/${event.nodeId}`,
+        astroUrl: approvalUrl,
         metadata: {
           approvalId: event.approvalId,
           nodeId: event.nodeId,
