@@ -27,6 +27,7 @@ import {
   Zap,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { RecentWorkdirPopover } from "@/components/recent-workdir-popover"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useMediaQuery } from "@/hooks/use-media-query"
@@ -1066,6 +1067,17 @@ export function Playground() {
                 >
                   <FolderOpen className="h-4 w-4" />
                 </button>
+                <RecentWorkdirPopover
+                  machineId={selectedMachine?.machineId}
+                  onSelect={(selection) => {
+                    setWorkingDir(selection.workingDirectory)
+                    // Switch machine if the selected workdir is from a different machine
+                    if (selection.machineId !== selectedMachine?.machineId) {
+                      const machine = allMachines.find((m) => m.machineId === selection.machineId)
+                      if (machine) setSelectedMachine(machine)
+                    }
+                  }}
+                />
                 <input
                   type="text"
                   value={workingDir}
