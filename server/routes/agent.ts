@@ -601,6 +601,11 @@ agentRoute.post('/project-chat', async (c) => {
     }
   }
 
+  // When resuming a provider session, the session already has conversation context.
+  // Sending messages again would create duplicate context that confuses the model.
+  const resolvedResumeId = existingSessionId || undefined
+  const resolvedMessages = resolvedResumeId ? undefined : compactedMessages
+
   return streamChatViaRelay(c, {
     taskId,
     projectId,
@@ -608,12 +613,12 @@ agentRoute.post('/project-chat', async (c) => {
     prompt: message,
     systemPrompt,
     type: taskType || 'execution',
-    messages: compactedMessages,
+    messages: resolvedMessages,
     model: model || undefined,
     preferredProvider: providerId || undefined,
     workingDirectory: project?.workingDirectory ?? undefined,
     targetMachineId: project?.defaultMachineId ?? undefined,
-    resumeSessionId: existingSessionId || undefined,
+    resumeSessionId: resolvedResumeId,
     streamId,
     pathwayType: taskType === 'plan' ? 'plan-chat' : 'project-chat',
     preStreamEvents,
@@ -717,6 +722,11 @@ agentRoute.post('/task-chat', async (c) => {
   // Persist user message for catch-up hydration
   await streamingEventLog.append(streamId || taskId, 'steer_message', { message })
 
+  // When resuming a provider session, the session already has conversation context.
+  // Sending messages again would create duplicate context that confuses the model.
+  const tcResumeId = existingSessionId || undefined
+  const tcMessages = tcResumeId ? undefined : historyMessages
+
   return streamChatViaRelay(c, {
     taskId,
     projectId,
@@ -724,13 +734,12 @@ agentRoute.post('/task-chat', async (c) => {
     prompt: message,
     systemPrompt,
     type: 'chat',
-    messages: historyMessages,
+    messages: tcMessages,
     model: model || undefined,
     preferredProvider: providerId || undefined,
     workingDirectory: project?.workingDirectory ?? undefined,
     targetMachineId: project?.defaultMachineId ?? undefined,
-    // When we have a provider session ID, pass it so agent-runner can resume the Claude session
-    resumeSessionId: existingSessionId || undefined,
+    resumeSessionId: tcResumeId,
     streamId,
     pathwayType: 'task-chat',
   })

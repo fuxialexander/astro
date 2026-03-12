@@ -328,10 +328,9 @@ export function ActiveTasks() {
       if (addedNodeIds.has(stableNodeId) || addedNodeIds.has(sessionId)) continue
 
       const proj = projects.find((p) => p.id === session.projectId)
+      const firstUserMsg = session.messages.find((m) => m.role === 'user')?.content
       const title = session.title
-        || (session.messages.find((m) => m.role === 'user')?.content.slice(0, 50) + (
-          (session.messages.find((m) => m.role === 'user')?.content.length ?? 0) > 50 ? '...' : ''
-        ))
+        || (firstUserMsg ? firstUserMsg.slice(0, 50) + (firstUserMsg.length > 50 ? '...' : '') : undefined)
         || proj?.name
         || 'Chat Session'
 
@@ -339,7 +338,7 @@ export function ActiveTasks() {
       list.push({
         nodeId: stableNodeId,
         projectId: session.projectId,
-        title: isPlayground ? `${title}` : `Chat: ${title}`,
+        title: isPlayground ? title : `Chat: ${title}`,
         status: 'running',
         startedAt: session.updatedAt,
       })
