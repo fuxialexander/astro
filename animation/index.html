@@ -64,7 +64,7 @@
       flex-direction: column;
       gap: 8px;
       align-items: flex-start;
-      transform: scale(1.2);
+      transform: scale(1.5);
       transform-origin: center center;
     }
     .scene-label {
@@ -131,11 +131,117 @@
     .vo-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
     .vo-btn.active { background: var(--cyan); color: #fff; border-color: var(--cyan); }
 
-    /* === Intro === */
+    /* === Intro (Scene 0) === */
     .intro-center {
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
       text-align: center;
+      gap: 32px;
+      transform: scale(1.5);
+      transform-origin: center center;
+    }
+    .intro-ui-row {
+      display: flex; gap: 24px;
+      align-items: flex-start;
+      opacity: 0;
+    }
+    /* Mini chat box for Scene 0 */
+    .intro-chat {
+      width: 420px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--card);
+      overflow: hidden;
+    }
+    .intro-chat-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px; font-weight: 600; color: var(--fg);
+    }
+    .intro-chat-header .hdr-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+    .intro-chat-body {
+      padding: 14px;
+      height: 260px;
+      display: flex; flex-direction: column; gap: 10px;
+      overflow-y: auto;
+    }
+    .intro-chat-body::-webkit-scrollbar { width: 0; }
+    .intro-chat-input {
+      padding: 10px 14px;
+      border-top: 1px solid var(--border);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .intro-chat-input .input-box {
+      flex: 1;
+      font-family: var(--font-primary); font-size: 12px;
+      color: var(--muted-fg);
+      background: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 10px;
+    }
+    .intro-mini-bubble {
+      max-width: 85%;
+      padding: 7px 11px;
+      border-radius: 10px;
+      font-size: 12px; line-height: 1.5;
+    }
+    .intro-mini-bubble.user {
+      align-self: flex-end;
+      background: var(--cyan); color: #fff;
+      border-bottom-right-radius: 3px;
+    }
+    .intro-mini-bubble.assistant {
+      align-self: flex-start;
+      background: rgba(255,255,255,0.06); color: var(--fg);
+      border-bottom-left-radius: 3px;
+    }
+    /* To-do list for Scene 0 */
+    .intro-todo {
+      width: 240px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--card);
+      overflow: hidden;
+    }
+    .intro-todo-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px; font-weight: 600; color: var(--fg);
+    }
+    .intro-todo-body {
+      padding: 6px 0;
+    }
+    .todo-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 14px;
+      font-size: 12px; color: var(--fg);
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+    }
+    .todo-item:last-child { border-bottom: none; }
+    .todo-item .todo-status {
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      border: 1.5px solid rgba(255,255,255,0.15);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      font-size: 9px;
+    }
+    .todo-item .todo-status.running {
+      border-color: var(--cyan);
+      color: var(--cyan);
+      animation: pulse-ring 2s ease-in-out infinite;
+    }
+    .todo-item .todo-status.waiting {
+      border-color: rgba(255,255,255,0.1);
+      color: var(--muted-fg);
+    }
+    .todo-item.waiting-item { color: var(--muted-fg); }
+    @keyframes pulse-ring {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(91,163,208,0.3); }
+      50% { box-shadow: 0 0 0 4px rgba(91,163,208,0); }
     }
     .intro-line {
       font-family: var(--font-display);
@@ -158,6 +264,8 @@
       display: flex; flex-direction: column;
       align-items: center; text-align: center;
       gap: 24px;
+      transform: scale(1.5);
+      transform-origin: center center;
     }
     .astro-wordmark {
       font-family: var(--font-display);
@@ -522,6 +630,8 @@
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
       text-align: center; gap: 16px;
+      transform: scale(1.5);
+      transform-origin: center center;
     }
     .close-wordmark {
       font-family: var(--font-display);
@@ -592,13 +702,64 @@
   <!-- Crop guide: 16:9 area showing where content lives. Toggle with button. -->
   <div class="crop-guide" id="crop-guide-16x9" data-label="16:9 — 1280x720"></div>
 
-  <!-- SCENE 0: Tension -->
+  <!-- SCENE 0: Tension — traditional approach bottleneck -->
   <section class="scene active" id="scene-0">
     <div class="intro-center">
-      <div class="intro-line large" id="intro-1">One agent.</div>
-      <div class="intro-line large" id="intro-2" style="margin-top:8px;">One chat.</div>
-      <div class="intro-line large" id="intro-3" style="margin-top:8px;">One task at a time.</div>
-      <div class="intro-line reveal" id="intro-4" style="margin-top:48px;">There's a better way.</div>
+      <!-- Chat + Todo UI showing the one-agent bottleneck -->
+      <div class="intro-ui-row" id="intro-ui">
+        <!-- Chat box with a running agent -->
+        <div class="intro-chat" id="intro-chat">
+          <div class="intro-chat-header">
+            <div class="hdr-dot"></div>
+            Claude Agent
+            <span style="margin-left:auto;font-size:10px;color:var(--muted-fg);font-weight:400;">Running...</span>
+          </div>
+          <div class="intro-chat-body" id="intro-chat-body">
+            <div class="intro-mini-bubble user">Set up authentication with passkeys and create the Postgres schema</div>
+            <div class="intro-mini-bubble assistant" id="intro-agent-reply">
+              <span id="intro-agent-text"></span><span class="streaming-cursor"></span>
+            </div>
+          </div>
+          <div class="intro-chat-input">
+            <div class="input-box">Waiting for agent to finish...</div>
+          </div>
+        </div>
+
+        <!-- To-do list — only one item running, rest blocked -->
+        <div class="intro-todo" id="intro-todo">
+          <div class="intro-todo-header">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+            Project Tasks
+          </div>
+          <div class="intro-todo-body">
+            <div class="todo-item" id="todo-1">
+              <div class="todo-status running">
+                <svg class="spinner" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+              </div>
+              <span>Auth & database</span>
+            </div>
+            <div class="todo-item waiting-item" id="todo-2">
+              <div class="todo-status waiting"></div>
+              <span>API endpoints</span>
+            </div>
+            <div class="todo-item waiting-item" id="todo-3">
+              <div class="todo-status waiting"></div>
+              <span>Dashboard UI</span>
+            </div>
+            <div class="todo-item waiting-item" id="todo-4">
+              <div class="todo-status waiting"></div>
+              <span>E2E tests</span>
+            </div>
+            <div class="todo-item waiting-item" id="todo-5">
+              <div class="todo-status waiting"></div>
+              <span>Deploy to Fly.io</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reveal text -->
+      <div class="intro-line reveal" id="intro-4">There's a better way.</div>
     </div>
   </section>
 
@@ -976,13 +1137,31 @@ function stopExecTimer() {
 // =====================================================================
 function buildScene0() {
   const tl = gsap.timeline({ paused: true });
-  gsap.set(['#intro-1','#intro-2','#intro-3','#intro-4'], { opacity: 0, y: 20 });
+  gsap.set('#intro-ui', { opacity: 0, y: 20 });
+  gsap.set('#intro-4', { opacity: 0, y: 20 });
 
-  tl.to('#intro-1', { opacity: 1, y: 0, duration: 0.6, ease: 'power2.out' }, '+=0.5');
-  tl.to('#intro-2', { opacity: 1, y: 0, duration: 0.6, ease: 'power2.out' }, '+=0.4');
-  tl.to('#intro-3', { opacity: 1, y: 0, duration: 0.6, ease: 'power2.out' }, '+=0.4');
-  tl.to(['#intro-1','#intro-2','#intro-3'], { opacity: 0.2, duration: 0.5 }, '+=1.0');
-  tl.to('#intro-4', { opacity: 1, y: 0, duration: 0.8, ease: 'power2.out' }, '+=0.2');
+  // Fade in the chat + todo UI
+  tl.to('#intro-ui', { opacity: 1, y: 0, duration: 0.8, ease: 'power2.out' }, '+=0.3');
+
+  // Simulate agent typing in the chat
+  const agentText = "I'll start by setting up the WebAuthn passkey flow and creating the Postgres migration. Let me read the existing schema first...";
+  tl.add(() => {
+    const textEl = document.getElementById('intro-agent-text');
+    textEl.textContent = '';
+    let i = 0;
+    const iv = setInterval(() => {
+      textEl.textContent += agentText[i++];
+      if (i >= agentText.length) clearInterval(iv);
+    }, 25);
+  }, '+=0.3');
+  tl.to({}, { duration: agentText.length * 0.025 + 0.5 });
+
+  // Pause — user is stuck waiting. The to-do list shows only 1 running, 4 blocked.
+  tl.to({}, { duration: 1.5 });
+
+  // Dim the UI and reveal the better way
+  tl.to('#intro-ui', { opacity: 0.15, duration: 0.6 });
+  tl.to('#intro-4', { opacity: 1, y: 0, duration: 0.8, ease: 'power2.out' }, '-=0.2');
   return tl;
 }
 
