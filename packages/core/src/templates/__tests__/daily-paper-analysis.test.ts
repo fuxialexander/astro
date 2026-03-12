@@ -183,9 +183,9 @@ describe('planGeneration interpolation', () => {
     expect(result).toContain('Could not resolve')
   })
 
-  it('contains AlphaXiv fallback instructions', () => {
+  it('contains AlphaXiv as primary source with fallback chain', () => {
     const result = interpolatePrompt(prompt, FULL_PARAMS)
-    expect(result).toContain('AlphaXiv fallback')
+    expect(result).toContain('AlphaXiv is the primary source')
     expect(result).toContain('ai_summary')
   })
 
