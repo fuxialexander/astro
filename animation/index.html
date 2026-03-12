@@ -1,0 +1,1343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Astro — Mission Control for the AI Age</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700&family=Cormorant+Garamond:wght@300;400;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #050510;
+      --fg: #f0f0f0;
+      --card: rgba(255,255,255,0.04);
+      --border: rgba(255,255,255,0.08);
+      --muted: rgba(255,255,255,0.06);
+      --muted-fg: rgba(240,240,240,0.4);
+      --primary: #5ba3d0;
+      --success: #6aab78;
+      --warning: #d4a574;
+      --error: #c06060;
+      --cyan: #5ba3d0;
+      --orange: #d4a574;
+      --font-primary: 'DM Sans', sans-serif;
+      --font-display: 'Cormorant Garamond', serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    html, body {
+      width: 100%; height: 100%;
+      font-family: var(--font-primary);
+      background: #000;
+      color: var(--fg);
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .canvas {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(100vw, 177.78vh);
+      height: min(100vh, 56.25vw);
+      overflow: hidden;
+      background: var(--bg);
+    }
+
+    .scene {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      background: var(--bg);
+    }
+    .scene.active { opacity: 1; pointer-events: auto; }
+
+    /* Scene label — flows above content */
+    .scene-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: flex-start;
+    }
+    .scene-label {
+      opacity: 0;
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+    .scene-label .label-number {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: rgba(240,240,240,0.3);
+      letter-spacing: 0.06em;
+    }
+    .scene-label .label-title {
+      font-family: var(--font-display);
+      font-size: 36px;
+      font-weight: 300;
+      color: rgba(240,240,240,0.15);
+      letter-spacing: 0.03em;
+      line-height: 1;
+    }
+
+    /* Nav */
+    .nav {
+      position: absolute;
+      bottom: 24px; left: 50%;
+      transform: translateX(-50%);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .nav-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      border: 1.5px solid rgba(255,255,255,0.2);
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    .nav-dot.active { background: var(--cyan); border-color: var(--cyan); transform: scale(1.3); }
+    .nav-dot:hover { border-color: var(--cyan); }
+
+    /* Voiceover controls */
+    .vo-controls {
+      position: absolute;
+      top: 20px; right: 24px;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .vo-btn {
+      font-family: var(--font-primary);
+      font-size: 11px; font-weight: 500;
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.04);
+      color: rgba(255,255,255,0.5);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .vo-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+    .vo-btn.active { background: var(--cyan); color: #fff; border-color: var(--cyan); }
+
+    /* === Intro === */
+    .intro-center {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      text-align: center;
+    }
+    .intro-line {
+      font-family: var(--font-display);
+      font-weight: 300;
+      letter-spacing: 0.03em;
+      opacity: 0; line-height: 1.3;
+    }
+    .intro-line.large { font-size: 56px; color: var(--fg); }
+    .intro-line.reveal {
+      font-size: 44px;
+      background: linear-gradient(135deg, var(--cyan), var(--fg) 40%, var(--orange));
+      background-size: 200% 200%;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* === ASTRO Reveal === */
+    .astro-center {
+      display: flex; flex-direction: column;
+      align-items: center; text-align: center;
+      gap: 24px;
+    }
+    .astro-wordmark {
+      font-family: var(--font-display);
+      font-size: 88px; font-weight: 300;
+      letter-spacing: 0.05em;
+      background: linear-gradient(135deg, var(--cyan), var(--fg) 40%, var(--orange));
+      background-size: 200% 200%;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      opacity: 0;
+    }
+    .astro-wordmark.shimmer { animation: gradientShift 8s ease infinite; }
+    @keyframes gradientShift {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+    .astro-tagline {
+      font-family: var(--font-display);
+      font-size: 22px; font-weight: 300;
+      letter-spacing: 0.06em;
+      color: var(--muted-fg);
+      opacity: 0;
+    }
+    .highlights-row {
+      display: flex; gap: 16px;
+      margin-top: 32px;
+    }
+    .highlight-pill {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 20px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    .highlight-pill .pill-icon {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .highlight-pill .pill-icon svg { width: 16px; height: 16px; }
+    .highlight-pill .pill-icon.cyan { background: rgba(91,163,208,0.12); color: var(--cyan); }
+    .highlight-pill .pill-icon.orange { background: rgba(212,165,116,0.12); color: var(--orange); }
+    .highlight-pill .pill-icon.green { background: rgba(106,171,120,0.12); color: var(--success); }
+    .highlight-pill .pill-text { font-size: 13px; font-weight: 500; color: var(--fg); line-height: 1.4; }
+    .highlight-pill .pill-sub { font-size: 11px; color: var(--muted-fg); font-weight: 400; }
+
+    /* === Chat (dark) === */
+    .chat-container {
+      width: 480px; max-width: 90%;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--card);
+      overflow: hidden;
+    }
+    .chat-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px; font-weight: 600; color: var(--fg);
+    }
+    .chat-header-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); }
+    .chat-body {
+      padding: 16px;
+      min-height: 240px; max-height: 340px;
+      display: flex; flex-direction: column; gap: 12px;
+      overflow-y: auto;
+    }
+    .chat-body::-webkit-scrollbar { width: 0; }
+    .chat-input-area {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .chat-input {
+      flex: 1;
+      font-family: var(--font-primary); font-size: 13px;
+      color: var(--fg);
+      background: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 12px;
+      min-height: 34px;
+      overflow: hidden; white-space: nowrap;
+    }
+    .chat-send-btn {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      background: var(--cyan);
+      border: none;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; flex-shrink: 0;
+    }
+    .chat-send-btn svg { width: 14px; height: 14px; fill: none; stroke: white; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .chat-bubble {
+      max-width: 85%;
+      padding: 8px 12px;
+      border-radius: 12px;
+      font-size: 13px; line-height: 1.5;
+      opacity: 0;
+    }
+    .chat-bubble.user {
+      align-self: flex-end;
+      background: var(--cyan); color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .chat-bubble.assistant {
+      align-self: flex-start;
+      background: rgba(255,255,255,0.06); color: var(--fg);
+      border-bottom-left-radius: 4px;
+    }
+    .streaming-cursor {
+      display: inline-block;
+      width: 2px; height: 14px;
+      background: var(--cyan);
+      margin-left: 2px;
+      vertical-align: text-bottom;
+      animation: blink 0.8s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+    .tool-block {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden; font-size: 12px; opacity: 0;
+    }
+    .tool-header {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 10px;
+      background: var(--muted);
+      font-weight: 500; color: var(--muted-fg);
+    }
+    .tool-header .icon { width: 12px; height: 12px; color: var(--cyan); }
+    .tool-body {
+      padding: 8px 10px;
+      font-family: var(--font-mono); font-size: 11px;
+      color: var(--muted-fg); line-height: 1.6;
+    }
+    .tool-result {
+      margin-top: 4px; padding-top: 4px;
+      border-top: 1px dashed var(--border);
+      color: var(--success);
+    }
+
+    /* === Plan Graph (dark) === */
+    .graph-area {
+      position: relative;
+      width: 680px; max-width: 90%; height: 420px;
+    }
+    .graph-bg-dots {
+      position: absolute; inset: 0;
+      background-image: radial-gradient(circle, rgba(255,255,255,0.04) 1px, transparent 1px);
+      background-size: 40px 40px;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+    }
+    .task-node {
+      position: absolute;
+      display: flex; align-items: center; gap: 10px;
+      padding: 0 12px;
+      height: 44px; width: 140px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1);
+      font-size: 12px; font-weight: 500; color: var(--fg);
+      opacity: 0; transform: scale(0.8);
+      white-space: nowrap; overflow: hidden;
+    }
+    .task-node .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .task-node .node-label { overflow: hidden; text-overflow: ellipsis; }
+    .task-node .node-number { color: var(--muted-fg); margin-right: 2px; }
+    .task-node .handle {
+      position: absolute;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.1);
+      left: 50%; transform: translateX(-50%);
+    }
+    .task-node .handle-top { top: -4px; }
+    .task-node .handle-bottom { bottom: -4px; }
+    .task-node.planned .status-dot { background: var(--muted-fg); }
+    .task-node.in-progress { border-color: var(--cyan); box-shadow: 0 0 24px rgba(91,163,208,0.15); }
+    .task-node.in-progress .status-dot { background: var(--cyan); }
+    .task-node.completed { border-color: var(--success); }
+    .task-node.completed .status-dot { background: var(--success); }
+    .task-node.running-glow::after {
+      content: '';
+      position: absolute; inset: -16px;
+      border-radius: 50%;
+      background: radial-gradient(ellipse 140px 60px at center, rgba(91,163,208,0.12) 0%, transparent 70%);
+      pointer-events: none; z-index: -1;
+    }
+    .node-progress {
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      background: rgba(91,163,208,0.1);
+      border-radius: 12px 0 0 12px;
+      width: 0;
+    }
+    .milestone-node {
+      position: absolute;
+      display: flex; align-items: center; gap: 8px;
+      padding: 0 16px;
+      height: 36px; width: 240px;
+      border-radius: 9999px;
+      background: rgba(91,163,208,0.03);
+      border: 2px dashed rgba(91,163,208,0.2);
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: rgba(240,240,240,0.5);
+      opacity: 0; transform: scale(0.8);
+    }
+    .milestone-node .diamond { width: 14px; height: 14px; color: rgba(91,163,208,0.5); }
+    .graph-edges {
+      position: absolute; inset: 0;
+      pointer-events: none;
+    }
+    .graph-edges svg { width: 100%; height: 100%; }
+    .edge-path {
+      fill: none;
+      stroke: rgba(255,255,255,0.12);
+      stroke-width: 2;
+      opacity: 0;
+    }
+    .edge-path.active { stroke: var(--cyan); stroke-width: 2.5; }
+
+    /* === Execution (dark) === */
+    .exec-container {
+      display: flex; gap: 24px;
+      align-items: flex-start;
+      max-width: 90%;
+    }
+    .exec-node-panel {
+      width: 220px;
+      display: flex; flex-direction: column; gap: 12px;
+      flex-shrink: 0;
+    }
+    .exec-activity {
+      flex: 1; width: 440px; min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      background: var(--card);
+    }
+    .exec-activity-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px; font-weight: 600; color: var(--fg);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .exec-activity-body {
+      padding: 12px 16px;
+      display: flex; flex-direction: column; gap: 6px;
+      min-height: 240px; max-height: 380px;
+      overflow-y: auto;
+      scroll-behavior: smooth;
+    }
+    .exec-activity-body::-webkit-scrollbar { width: 0; }
+    .stream-line {
+      font-size: 13px; line-height: 1.6;
+      color: var(--fg); opacity: 0;
+      flex-shrink: 0;
+    }
+    .stream-line.muted { color: var(--muted-fg); font-size: 12px; }
+    .file-change {
+      border: 1px solid var(--border);
+      border-radius: 8px; overflow: hidden;
+      font-family: var(--font-mono); font-size: 11px;
+      opacity: 0; flex-shrink: 0;
+    }
+    .file-change-header {
+      padding: 4px 8px;
+      background: var(--muted); color: var(--muted-fg);
+      font-weight: 500;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .file-change-body { padding: 6px 8px; }
+    .diff-add { color: var(--success); }
+    .diff-remove { color: var(--error); text-decoration: line-through; opacity: 0.7; }
+
+    /* === Timeline (dark) === */
+    .timeline-container {
+      width: 720px; max-width: 90%;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      background: var(--card);
+    }
+    .timeline-header {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+    }
+    .timeline-label-col {
+      width: 160px; flex-shrink: 0;
+      padding: 10px 16px;
+      font-size: 11px; font-weight: 600;
+      color: var(--muted-fg);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-right: 1px solid var(--border);
+    }
+    .timeline-dates { flex: 1; display: flex; }
+    .timeline-date-col {
+      flex: 1;
+      padding: 10px 8px;
+      font-size: 10px; font-weight: 500;
+      color: var(--muted-fg);
+      text-align: center;
+      border-right: 1px solid rgba(255,255,255,0.04);
+    }
+    .timeline-date-col:last-child { border-right: none; }
+    .timeline-body { display: flex; flex-direction: column; }
+    .timeline-row {
+      display: flex; align-items: center;
+      height: 44px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      opacity: 0;
+    }
+    .timeline-row:last-child { border-bottom: none; }
+    .timeline-row-label {
+      width: 160px; flex-shrink: 0;
+      padding: 0 16px;
+      font-size: 12px; font-weight: 500; color: var(--fg);
+      border-right: 1px solid var(--border);
+      display: flex; align-items: center; gap: 8px;
+      overflow: hidden;
+    }
+    .timeline-row-label .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .timeline-row-label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .timeline-bar-area { flex: 1; position: relative; height: 100%; }
+    .timeline-bar {
+      position: absolute;
+      height: 10px; top: 50%;
+      transform: translateY(-50%);
+      border-radius: 5px;
+      width: 0;
+    }
+    .timeline-bar.completed { background: linear-gradient(90deg, var(--success), #7DB888); }
+    .timeline-bar.in-progress { background: linear-gradient(90deg, var(--cyan), #7DBAD4); }
+    .timeline-bar.planned { background: linear-gradient(90deg, rgba(255,255,255,0.15), rgba(255,255,255,0.08)); }
+    .today-line {
+      position: absolute;
+      top: 0; bottom: 0;
+      width: 2px;
+      background: var(--cyan);
+      opacity: 0; z-index: 5;
+    }
+    .today-line::before {
+      content: 'Today';
+      position: absolute;
+      top: -20px; left: 50%;
+      transform: translateX(-50%);
+      font-size: 9px; font-weight: 600;
+      color: var(--cyan); white-space: nowrap;
+    }
+
+    /* === Close === */
+    .close-center {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      text-align: center; gap: 16px;
+    }
+    .close-wordmark {
+      font-family: var(--font-display);
+      font-size: 96px; font-weight: 300;
+      letter-spacing: 0.04em;
+      background: linear-gradient(135deg, var(--cyan), var(--fg) 40%, var(--orange));
+      background-size: 200% 200%;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      opacity: 0;
+    }
+    .close-wordmark.shimmer { animation: gradientShift 8s ease infinite; }
+    .close-subtitle {
+      font-family: var(--font-display);
+      font-size: 22px; font-weight: 300;
+      letter-spacing: 0.06em;
+      color: var(--muted-fg); opacity: 0;
+    }
+    .close-url {
+      font-family: var(--font-mono);
+      font-size: 14px; color: var(--muted-fg);
+      opacity: 0; margin-top: 8px;
+    }
+    .close-terminal {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: rgba(240,240,240,0.3);
+      opacity: 0;
+    }
+
+    .spinner { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<div class="canvas" id="canvas">
+
+  <div class="nav" id="nav"></div>
+
+  <div class="vo-controls">
+    <button class="vo-btn" id="vo-toggle" onclick="toggleVoiceover()">Voiceover: Off</button>
+    <button class="vo-btn" id="replay-btn" onclick="replayScene()">Replay</button>
+  </div>
+
+  <!-- SCENE 0: Tension -->
+  <section class="scene active" id="scene-0">
+    <div class="intro-center">
+      <div class="intro-line large" id="intro-1">One agent.</div>
+      <div class="intro-line large" id="intro-2" style="margin-top:8px;">One chat.</div>
+      <div class="intro-line large" id="intro-3" style="margin-top:8px;">One task at a time.</div>
+      <div class="intro-line reveal" id="intro-4" style="margin-top:48px;">There's a better way.</div>
+    </div>
+  </section>
+
+  <!-- SCENE 1: ASTRO Reveal + Highlights -->
+  <section class="scene" id="scene-1">
+    <div class="astro-center">
+      <div class="astro-wordmark" id="astro-wm">Astro</div>
+      <div class="astro-tagline" id="astro-tag">Mission control for the AI age</div>
+      <div class="highlights-row" id="hl-row">
+        <div class="highlight-pill" id="hl-1">
+          <div class="pill-icon cyan">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </div>
+          <div>
+            <div class="pill-text">Describe once</div>
+            <div class="pill-sub">No iterative chatting</div>
+          </div>
+        </div>
+        <div class="highlight-pill" id="hl-2">
+          <div class="pill-icon orange">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
+          </div>
+          <div>
+            <div class="pill-text">Any agent, any machine</div>
+            <div class="pill-sub">Universal control plane</div>
+          </div>
+        </div>
+        <div class="highlight-pill" id="hl-3">
+          <div class="pill-icon cyan">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>
+          </div>
+          <div>
+            <div class="pill-text">Browser & mobile</div>
+            <div class="pill-sub">Phone, iPad, anywhere</div>
+          </div>
+        </div>
+        <div class="highlight-pill" id="hl-4">
+          <div class="pill-icon green">
+            <span style="font-size:18px;line-height:1;">🦞</span>
+          </div>
+          <div>
+            <div class="pill-text">OpenClaw</div>
+            <div class="pill-sub">Telegram, Slack, Discord</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCENE 2: Describe (Chat) -->
+  <section class="scene" id="scene-2">
+    <div class="scene-wrap">
+    <div class="scene-label" id="s2-label">
+      <span class="label-number">01</span>
+      <span class="label-title">Describe</span>
+    </div>
+    <div class="chat-container" id="s2-chat">
+      <div class="chat-header">
+        <div class="chat-header-dot"></div>
+        Plan Chat
+      </div>
+      <div class="chat-body" id="s2-body"></div>
+      <div class="chat-input-area">
+        <div class="chat-input" id="s2-input"></div>
+        <button class="chat-send-btn">
+          <svg viewBox="0 0 24 24"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>
+        </button>
+      </div>
+    </div>
+    </div>
+  </section>
+
+  <!-- SCENE 3: Plan Graph -->
+  <section class="scene" id="scene-3">
+    <div class="scene-wrap">
+    <div class="scene-label" id="s3-label">
+      <span class="label-number">02</span>
+      <span class="label-title">Plan</span>
+    </div>
+    <div class="graph-area" id="s3-graph">
+      <div class="graph-bg-dots"></div>
+      <div class="graph-edges">
+        <svg viewBox="0 0 680 420">
+          <path class="edge-path" id="e-m1-t1" d="M 340,66 C 340,98 90,98 90,130" />
+          <path class="edge-path" id="e-m1-t2" d="M 340,66 C 340,98 340,98 340,130" />
+          <path class="edge-path" id="e-m1-t3" d="M 340,66 C 340,98 570,98 570,130" />
+          <path class="edge-path" id="e-t1-m2" d="M 90,174 C 90,212 340,212 340,250" />
+          <path class="edge-path" id="e-t2-m2" d="M 340,174 C 340,212 340,212 340,250" />
+          <path class="edge-path" id="e-t3-m2" d="M 570,174 C 570,212 340,212 340,250" />
+          <path class="edge-path" id="e-m2-t4" d="M 340,286 C 340,318 200,318 200,350" />
+          <path class="edge-path" id="e-m2-t5" d="M 340,286 C 340,318 470,318 470,350" />
+        </svg>
+      </div>
+      <!-- Milestone 1 -->
+      <div class="milestone-node" id="n-m1" style="left:220px;top:30px;">
+        <svg class="diamond" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2.7 10.3a2.41 2.41 0 000 3.41l7.59 7.59a2.41 2.41 0 003.41 0l7.59-7.59a2.41 2.41 0 000-3.41L13.7 2.71a2.41 2.41 0 00-3.41 0z"/></svg>
+        <span>PHASE 1: SETUP</span>
+        <span style="margin-left:auto;font-size:10px;font-weight:400;opacity:0.4;">3 tasks</span>
+      </div>
+      <!-- Row 1: 3 parallel -->
+      <div class="task-node planned" id="n-t1" style="left:20px;top:130px;">
+        <div class="handle handle-top"></div>
+        <span class="status-dot"></span>
+        <span class="node-label"><span class="node-number">#1</span>Auth & database</span>
+        <div class="handle handle-bottom"></div>
+      </div>
+      <div class="task-node planned" id="n-t2" style="left:270px;top:130px;">
+        <div class="handle handle-top"></div>
+        <span class="status-dot"></span>
+        <span class="node-label"><span class="node-number">#2</span>API endpoints</span>
+        <div class="handle handle-bottom"></div>
+      </div>
+      <div class="task-node planned" id="n-t3" style="left:500px;top:130px;">
+        <div class="handle handle-top"></div>
+        <span class="status-dot"></span>
+        <span class="node-label"><span class="node-number">#3</span>Dashboard UI</span>
+        <div class="handle handle-bottom"></div>
+      </div>
+      <!-- Milestone 2 -->
+      <div class="milestone-node" id="n-m2" style="left:220px;top:250px;">
+        <svg class="diamond" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2.7 10.3a2.41 2.41 0 000 3.41l7.59 7.59a2.41 2.41 0 003.41 0l7.59-7.59a2.41 2.41 0 000-3.41L13.7 2.71a2.41 2.41 0 00-3.41 0z"/></svg>
+        <span>PHASE 2: INTEGRATION</span>
+        <span style="margin-left:auto;font-size:10px;font-weight:400;opacity:0.4;">2 tasks</span>
+      </div>
+      <!-- Row 2: 2 parallel -->
+      <div class="task-node planned" id="n-t4" style="left:130px;top:350px;">
+        <div class="handle handle-top"></div>
+        <span class="status-dot"></span>
+        <span class="node-label"><span class="node-number">#4</span>E2E tests</span>
+        <div class="handle handle-bottom"></div>
+      </div>
+      <div class="task-node planned" id="n-t5" style="left:400px;top:350px;">
+        <div class="handle handle-top"></div>
+        <span class="status-dot"></span>
+        <span class="node-label"><span class="node-number">#5</span>Deploy to Fly.io</span>
+        <div class="handle handle-bottom"></div>
+      </div>
+    </div>
+    </div>
+  </section>
+
+  <!-- SCENE 4: Execute -->
+  <section class="scene" id="scene-4">
+    <div class="scene-wrap">
+    <div class="scene-label" id="s4-label">
+      <span class="label-number">03</span>
+      <span class="label-title">Execute</span>
+    </div>
+    <div class="exec-container" id="s4-exec">
+      <div class="exec-node-panel">
+        <div class="task-node planned" id="ex-node" style="position:relative;opacity:1;transform:none;width:200px;">
+          <div class="node-progress" id="ex-progress"></div>
+          <span class="status-dot"></span>
+          <span class="node-label"><span class="node-number">#2</span>API endpoints</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted-fg);display:flex;align-items:center;gap:6px;padding:4px 0;opacity:0;" id="ex-meta">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          <span id="ex-elapsed">0:00</span>
+          <span style="margin-left:auto;color:var(--cyan);" id="ex-cost">$0.00</span>
+        </div>
+      </div>
+      <div class="exec-activity">
+        <div class="exec-activity-header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Activity
+          <span style="margin-left:auto;font-size:11px;font-weight:400;color:var(--muted-fg);" id="ex-event-count">0 events</span>
+        </div>
+        <div class="exec-activity-body" id="s4-activity"></div>
+      </div>
+    </div>
+    </div>
+  </section>
+
+  <!-- SCENE 5: Observe (Timeline) -->
+  <section class="scene" id="scene-5">
+    <div class="scene-wrap">
+    <div class="scene-label" id="s5-label">
+      <span class="label-number">04</span>
+      <span class="label-title">Observe</span>
+    </div>
+    <div class="timeline-container" id="s5-timeline">
+      <div class="timeline-header">
+        <div class="timeline-label-col">Task</div>
+        <div class="timeline-dates">
+          <div class="timeline-date-col">Mar 10</div>
+          <div class="timeline-date-col">Mar 11</div>
+          <div class="timeline-date-col">Mar 12</div>
+          <div class="timeline-date-col">Mar 13</div>
+          <div class="timeline-date-col">Mar 14</div>
+        </div>
+      </div>
+      <div class="timeline-body" id="s5-body"></div>
+    </div>
+    </div>
+  </section>
+
+  <!-- SCENE 6: Close -->
+  <section class="scene" id="scene-6">
+    <div class="close-center">
+      <div class="close-wordmark" id="close-wordmark">Astro</div>
+      <div class="close-subtitle" id="close-subtitle">Mission control for the AI age</div>
+      <div class="close-terminal" id="close-terminal">npx @astroanywhere/agent@latest launch</div>
+      <div class="close-url" id="close-url">astroanywhere.com</div>
+      <div class="close-terminal" id="close-repo" style="margin-top:4px;">github.com/astro-anywhere/astro-agent</div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+// =====================================================================
+// CONFIG
+// =====================================================================
+const SCENE_COUNT = 7;
+const SCENE_DURATION = 12000;
+let currentScene = 0;
+let sceneTimelines = [];
+let transitioning = false;
+let autoAdvance = true;
+let voiceoverEnabled = false;
+
+const VO_SCRIPT = [
+  "One agent. One chat. One task at a time. There's a better way.",
+  "Astro. Mission control for the AI age. Describe once, walk away. Any agent, any machine. One dashboard. Decide from anywhere.",
+  "Describe your goal. Astro generates a structured plan with dependencies, parallel paths, and milestones.",
+  "The plan is a directed graph. Tasks that can run in parallel do. Dependencies are explicit.",
+  "Any agent executes the task. Watch the activity stream in real time: tool calls, file changes, progress.",
+  "One timeline. All tasks. See what's running, what's done, and what needs your attention.",
+  "Astro. Mission control for the AI age.",
+];
+
+// =====================================================================
+// NAVIGATION
+// =====================================================================
+const nav = document.getElementById('nav');
+for (let i = 0; i < SCENE_COUNT; i++) {
+  const dot = document.createElement('div');
+  dot.className = 'nav-dot' + (i === 0 ? ' active' : '');
+  dot.addEventListener('click', () => { autoAdvance = false; goToScene(i); });
+  nav.appendChild(dot);
+}
+
+function updateNavDots() {
+  document.querySelectorAll('.nav-dot').forEach((d, i) => {
+    d.classList.toggle('active', i === currentScene);
+  });
+}
+
+function goToScene(idx) {
+  if (idx === currentScene || transitioning || idx < 0 || idx >= SCENE_COUNT) return;
+  transitioning = true;
+  if (currentScene === 4) stopExecTimer();
+
+  const curr = document.getElementById(`scene-${currentScene}`);
+  const next = document.getElementById(`scene-${idx}`);
+  if (sceneTimelines[currentScene]) sceneTimelines[currentScene].pause();
+
+  gsap.to(curr, {
+    opacity: 0, duration: 0.35,
+    onComplete: () => {
+      curr.classList.remove('active');
+      currentScene = idx;
+      next.classList.add('active');
+      gsap.fromTo(next, { opacity: 0 }, {
+        opacity: 1, duration: 0.35,
+        onComplete: () => {
+          transitioning = false;
+          playScene(currentScene);
+        }
+      });
+      updateNavDots();
+    }
+  });
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === ' ') { autoAdvance = false; goToScene(currentScene + 1); }
+  if (e.key === 'ArrowLeft') { autoAdvance = false; goToScene(currentScene - 1); }
+});
+
+// =====================================================================
+// VOICEOVER
+// =====================================================================
+function toggleVoiceover() {
+  voiceoverEnabled = !voiceoverEnabled;
+  const btn = document.getElementById('vo-toggle');
+  btn.textContent = `Voiceover: ${voiceoverEnabled ? 'On' : 'Off'}`;
+  btn.classList.toggle('active', voiceoverEnabled);
+}
+function speakText(text) {
+  if (!voiceoverEnabled || !('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 0.9; u.pitch = 1.0;
+  const voices = speechSynthesis.getVoices();
+  const pref = voices.find(v => v.name.includes('Samantha') || v.name.includes('Daniel'));
+  if (pref) u.voice = pref;
+  speechSynthesis.speak(u);
+}
+function replayScene() {
+  autoAdvance = false;
+  if (sceneTimelines[currentScene]) sceneTimelines[currentScene].kill();
+  if (currentScene === 4) stopExecTimer();
+  playScene(currentScene);
+}
+
+// =====================================================================
+// HELPERS
+// =====================================================================
+function typeText(el, text, speed = 30) {
+  return new Promise(resolve => {
+    let i = 0;
+    el.textContent = '';
+    const iv = setInterval(() => {
+      el.textContent += text[i++];
+      if (i >= text.length) { clearInterval(iv); resolve(); }
+    }, speed);
+  });
+}
+
+function drawPath(pathEl, duration = 0.8) {
+  if (!pathEl) return gsap.to({}, { duration: 0 });
+  const len = pathEl.getTotalLength();
+  gsap.set(pathEl, { opacity: 1, attr: { 'stroke-dasharray': len, 'stroke-dashoffset': len } });
+  return gsap.to(pathEl, { attr: { 'stroke-dashoffset': 0 }, duration, ease: 'power2.inOut' });
+}
+
+// Execution timer
+let execTimerRef = null;
+let execSeconds = 0;
+function startExecTimer() {
+  execSeconds = 0;
+  const el = document.getElementById('ex-elapsed');
+  const costEl = document.getElementById('ex-cost');
+  el.textContent = '0:00';
+  costEl.textContent = '$0.00';
+  execTimerRef = setInterval(() => {
+    execSeconds++;
+    el.textContent = `${Math.floor(execSeconds / 60)}:${(execSeconds % 60).toString().padStart(2, '0')}`;
+    costEl.textContent = `$${(execSeconds * 0.032).toFixed(2)}`;
+  }, 1000);
+}
+function stopExecTimer() {
+  if (execTimerRef) { clearInterval(execTimerRef); execTimerRef = null; }
+}
+
+// =====================================================================
+// SCENE 0: Tension
+// =====================================================================
+function buildScene0() {
+  const tl = gsap.timeline({ paused: true });
+  gsap.set(['#intro-1','#intro-2','#intro-3','#intro-4'], { opacity: 0, y: 20 });
+
+  tl.to('#intro-1', { opacity: 1, y: 0, duration: 0.6, ease: 'power2.out' }, '+=0.5');
+  tl.to('#intro-2', { opacity: 1, y: 0, duration: 0.6, ease: 'power2.out' }, '+=0.4');
+  tl.to('#intro-3', { opacity: 1, y: 0, duration: 0.6, ease: 'power2.out' }, '+=0.4');
+  tl.to(['#intro-1','#intro-2','#intro-3'], { opacity: 0.2, duration: 0.5 }, '+=1.0');
+  tl.to('#intro-4', { opacity: 1, y: 0, duration: 0.8, ease: 'power2.out' }, '+=0.2');
+  return tl;
+}
+
+// =====================================================================
+// SCENE 1: ASTRO Reveal + Highlights
+// =====================================================================
+function buildScene1() {
+  const tl = gsap.timeline({ paused: true });
+  gsap.set('#astro-wm', { opacity: 0, y: 15 });
+  gsap.set('#astro-tag', { opacity: 0, y: 10 });
+  gsap.set('.highlight-pill', { opacity: 0, y: 12 });
+
+  tl.to('#astro-wm', { opacity: 1, y: 0, duration: 1.0, ease: 'power2.out' }, '+=0.4');
+  tl.add(() => document.getElementById('astro-wm').classList.add('shimmer'), '-=0.3');
+  tl.to('#astro-tag', { opacity: 1, y: 0, duration: 0.6, ease: 'power2.out' }, '+=0.3');
+
+  ['hl-1','hl-2','hl-3','hl-4'].forEach((id, i) => {
+    tl.to(`#${id}`, { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' }, `+=${i === 0 ? 0.5 : 0.2}`);
+  });
+  return tl;
+}
+
+// =====================================================================
+// SCENE 2: Describe (Chat)
+// =====================================================================
+function buildScene2() {
+  const tl = gsap.timeline({ paused: true });
+  const body = document.getElementById('s2-body');
+  const input = document.getElementById('s2-input');
+  body.innerHTML = '';
+  input.textContent = '';
+
+  const userMsg = "Build a real-time analytics dashboard with user auth, Postgres backend, and deploy to Fly.io";
+  const assistantMsg = "I'll create a structured plan for your analytics dashboard. Let me break this down...";
+
+  tl.to('#s2-label', { opacity: 1, duration: 0.5 }, '+=0.2');
+
+  // Type into input
+  tl.add(() => typeText(input, userMsg, 18), '+=0.3');
+  tl.to({}, { duration: userMsg.length * 0.018 + 0.3 });
+
+  // Send
+  tl.to('#scene-2 .chat-send-btn', { scale: 0.9, duration: 0.08 });
+  tl.to('#scene-2 .chat-send-btn', { scale: 1, duration: 0.08 });
+
+  // User bubble
+  tl.add(() => {
+    input.textContent = '';
+    const b = document.createElement('div');
+    b.className = 'chat-bubble user';
+    b.textContent = userMsg;
+    body.appendChild(b);
+    gsap.fromTo(b, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.3 });
+  });
+  tl.to({}, { duration: 0.5 });
+
+  // Assistant streams
+  tl.add(() => {
+    const b = document.createElement('div');
+    b.className = 'chat-bubble assistant';
+    b.innerHTML = '<span class="text"></span><span class="streaming-cursor"></span>';
+    body.appendChild(b);
+    gsap.to(b, { opacity: 1, duration: 0.2 });
+    const textEl = b.querySelector('.text');
+    const cursor = b.querySelector('.streaming-cursor');
+    let i = 0;
+    const iv = setInterval(() => {
+      textEl.textContent += assistantMsg[i++];
+      if (i >= assistantMsg.length) { clearInterval(iv); cursor.remove(); }
+    }, 22);
+  });
+  tl.to({}, { duration: assistantMsg.length * 0.022 + 0.4 });
+
+  // Tool call
+  tl.add(() => {
+    const tool = document.createElement('div');
+    tool.className = 'tool-block';
+    tool.innerHTML = `
+      <div class="tool-header">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+        generate_plan
+        <svg class="spinner" style="margin-left:auto;width:12px;height:12px;" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+      </div>
+      <div class="tool-body">
+        Analyzing requirements...<br/>Identifying dependencies...<br/>
+        <div class="tool-result" style="opacity:0;" id="s2-tool-result">&#10003; Generated 5 tasks, 8 edges, 2 milestones</div>
+      </div>
+    `;
+    body.appendChild(tool);
+    gsap.fromTo(tool, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.3 });
+  });
+  tl.to({}, { duration: 1.2 });
+  tl.to('#s2-tool-result', { opacity: 1, duration: 0.3 });
+  tl.add(() => {
+    const spinner = document.querySelector('#s2-body .spinner');
+    if (spinner) spinner.remove();
+  });
+
+  // Final
+  tl.add(() => {
+    const b = document.createElement('div');
+    b.className = 'chat-bubble assistant';
+    b.textContent = "Plan generated! 5 tasks across 2 phases. 3 run in parallel. View the graph to adjust.";
+    body.appendChild(b);
+    gsap.fromTo(b, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.3 });
+  }, '+=0.3');
+
+  return tl;
+}
+
+// =====================================================================
+// SCENE 3: Plan Graph
+// =====================================================================
+function buildScene3() {
+  const tl = gsap.timeline({ paused: true });
+
+  // Reset
+  document.querySelectorAll('#scene-3 .task-node, #scene-3 .milestone-node').forEach(el => {
+    gsap.set(el, { opacity: 0, scale: 0.8 });
+    el.classList.remove('in-progress', 'completed', 'running-glow');
+    el.classList.add('planned');
+    el.style.borderColor = '';
+    el.style.background = '';
+  });
+  document.querySelectorAll('#scene-3 .edge-path').forEach(path => {
+    gsap.set(path, { opacity: 0 });
+    path.classList.remove('active');
+  });
+
+  tl.to('#s3-label', { opacity: 1, duration: 0.5 }, '+=0.2');
+
+  // Milestone 1
+  tl.to('#n-m1', { opacity: 1, scale: 1, duration: 0.5, ease: 'back.out(1.5)' }, '+=0.2');
+
+  // Row 1: 3 parallel
+  tl.to('#n-t1', { opacity: 1, scale: 1, duration: 0.4, ease: 'back.out(1.5)' }, '+=0.15');
+  tl.add(() => drawPath(document.getElementById('e-m1-t1'), 0.5), '<');
+  tl.to('#n-t2', { opacity: 1, scale: 1, duration: 0.4, ease: 'back.out(1.5)' }, '-=0.15');
+  tl.add(() => drawPath(document.getElementById('e-m1-t2'), 0.5), '<');
+  tl.to('#n-t3', { opacity: 1, scale: 1, duration: 0.4, ease: 'back.out(1.5)' }, '-=0.15');
+  tl.add(() => drawPath(document.getElementById('e-m1-t3'), 0.5), '<');
+
+  // Milestone 2
+  tl.to('#n-m2', { opacity: 1, scale: 1, duration: 0.5, ease: 'back.out(1.5)' }, '+=0.25');
+  tl.add(() => drawPath(document.getElementById('e-t1-m2'), 0.5), '<');
+  tl.add(() => drawPath(document.getElementById('e-t2-m2'), 0.5), '<');
+  tl.add(() => drawPath(document.getElementById('e-t3-m2'), 0.5), '<');
+
+  // Row 2: 2 parallel
+  tl.to('#n-t4', { opacity: 1, scale: 1, duration: 0.4, ease: 'back.out(1.5)' }, '+=0.15');
+  tl.add(() => drawPath(document.getElementById('e-m2-t4'), 0.5), '<');
+  tl.to('#n-t5', { opacity: 1, scale: 1, duration: 0.4, ease: 'back.out(1.5)' }, '-=0.15');
+  tl.add(() => drawPath(document.getElementById('e-m2-t5'), 0.5), '<');
+
+  // Row 1 -> in-progress -> completed
+  tl.add(() => {
+    ['n-t1','n-t2','n-t3'].forEach(id => {
+      const el = document.getElementById(id);
+      el.classList.remove('planned');
+      el.classList.add('in-progress', 'running-glow');
+    });
+  }, '+=0.6');
+
+  tl.to({}, { duration: 1.2 });
+
+  tl.add(() => {
+    ['n-t1','n-t2','n-t3'].forEach(id => {
+      const el = document.getElementById(id);
+      el.classList.remove('in-progress', 'running-glow');
+      el.classList.add('completed');
+    });
+    ['e-m1-t1','e-m1-t2','e-m1-t3','e-t1-m2','e-t2-m2','e-t3-m2'].forEach(id => {
+      document.getElementById(id).classList.add('active');
+    });
+    const m1 = document.getElementById('n-m1');
+    m1.style.borderColor = 'rgba(106,171,120,0.4)';
+    m1.style.background = 'rgba(106,171,120,0.04)';
+  });
+
+  // Row 2 starts
+  tl.add(() => {
+    ['n-t4','n-t5'].forEach(id => {
+      const el = document.getElementById(id);
+      el.classList.remove('planned');
+      el.classList.add('in-progress', 'running-glow');
+    });
+  }, '+=0.4');
+
+  return tl;
+}
+
+// =====================================================================
+// SCENE 4: Execute
+// =====================================================================
+function buildScene4() {
+  const tl = gsap.timeline({ paused: true });
+  const activity = document.getElementById('s4-activity');
+  const node = document.getElementById('ex-node');
+  const progress = document.getElementById('ex-progress');
+  const meta = document.getElementById('ex-meta');
+  const countEl = document.getElementById('ex-event-count');
+  let eventCount = 0;
+
+  activity.innerHTML = '';
+  progress.style.width = '0%';
+  node.classList.remove('in-progress', 'completed', 'running-glow');
+  node.classList.add('planned');
+  gsap.set(meta, { opacity: 0 });
+
+  function addEvent(html, cls = '') {
+    eventCount++;
+    countEl.textContent = `${eventCount} events`;
+    const div = document.createElement('div');
+    div.className = `stream-line ${cls}`;
+    div.innerHTML = html;
+    activity.appendChild(div);
+    gsap.fromTo(div, { opacity: 0, y: 4 }, { opacity: 1, y: 0, duration: 0.2 });
+    requestAnimationFrame(() => { activity.scrollTop = activity.scrollHeight; });
+  }
+
+  tl.to('#s4-label', { opacity: 1, duration: 0.5 }, '+=0.2');
+
+  // Dispatch
+  tl.add(() => {
+    node.classList.remove('planned');
+    node.classList.add('in-progress', 'running-glow');
+    addEvent('<span style="color:var(--cyan);">&#9889;</span> Task dispatched to <strong>local</strong> machine');
+    startExecTimer();
+  }, '+=0.3');
+
+  tl.to(meta, { opacity: 1, duration: 0.3 }, '+=0.2');
+  tl.add(() => addEvent('Session initialized — Claude Agent SDK v1.2', 'muted'), '+=0.4');
+
+  // Stream text
+  const texts = [
+    'Reading the project structure and existing routes...',
+    "I'll create RESTful API endpoints for the analytics dashboard.",
+    'Setting up Hono route handlers with Zod validation...',
+  ];
+  texts.forEach((text, i) => {
+    tl.add(() => addEvent(text), `+=${0.5 + i * 0.1}`);
+  });
+
+  // Tool call
+  tl.add(() => {
+    const tool = document.createElement('div');
+    tool.className = 'tool-block';
+    tool.style.opacity = '0';
+    tool.innerHTML = `
+      <div class="tool-header">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+        write_file
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+      <div class="tool-body">routes.ts — server/routes/analytics.ts</div>
+    `;
+    activity.appendChild(tool);
+    gsap.to(tool, { opacity: 1, duration: 0.3 });
+    eventCount += 2;
+    countEl.textContent = `${eventCount} events`;
+    requestAnimationFrame(() => { activity.scrollTop = activity.scrollHeight; });
+  }, '+=0.6');
+
+  // File change
+  tl.add(() => {
+    const fc = document.createElement('div');
+    fc.className = 'file-change';
+    fc.innerHTML = `
+      <div class="file-change-header">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z"/></svg>
+        analytics.ts
+        <span style="margin-left:auto;color:var(--success);">+38</span>
+        <span style="color:var(--error);">-2</span>
+      </div>
+      <div class="file-change-body">
+        <div class="diff-add">+ app.get('/api/analytics/events', async (c) => {</div>
+        <div class="diff-add">+   const events = await db.select().from(analyticsEvents);</div>
+        <div class="diff-add">+   return c.json(events);</div>
+        <div class="diff-add">+ });</div>
+      </div>
+    `;
+    activity.appendChild(fc);
+    gsap.fromTo(fc, { opacity: 0, y: 4 }, { opacity: 1, y: 0, duration: 0.3 });
+    eventCount++;
+    countEl.textContent = `${eventCount} events`;
+    requestAnimationFrame(() => { activity.scrollTop = activity.scrollHeight; });
+  }, '+=0.5');
+
+  // Progress
+  [25, 50, 75, 100].forEach((p, i) => {
+    tl.add(() => {
+      gsap.to(progress, { width: `${p}%`, duration: 0.3, ease: 'power1.out' });
+    }, `+=${0.5 + i * 0.15}`);
+  });
+
+  tl.add(() => addEvent('Running type check and lint...'), '+=0.3');
+  tl.add(() => addEvent('<span style="color:var(--success);">&#10003;</span> Build passed — 0 errors'), '+=0.6');
+
+  // Complete
+  tl.add(() => {
+    node.classList.remove('in-progress', 'running-glow');
+    node.classList.add('completed');
+    addEvent('<span style="color:var(--success);font-weight:600;">&#10003; Task completed</span> — auto-verified');
+    stopExecTimer();
+  }, '+=0.4');
+
+  return tl;
+}
+
+// =====================================================================
+// SCENE 5: Timeline
+// =====================================================================
+function buildScene5() {
+  const tl = gsap.timeline({ paused: true });
+  const body = document.getElementById('s5-body');
+  body.innerHTML = '';
+
+  const tasks = [
+    { name: '#1 Auth & database', dot: 'var(--success)', barClass: 'completed', start: 0, width: 30 },
+    { name: '#2 API endpoints', dot: 'var(--success)', barClass: 'completed', start: 5, width: 28 },
+    { name: '#3 Dashboard UI', dot: 'var(--cyan)', barClass: 'in-progress', start: 5, width: 40 },
+    { name: '#4 E2E tests', dot: 'var(--muted-fg)', barClass: 'planned', start: 50, width: 25 },
+    { name: '#5 Deploy', dot: 'var(--muted-fg)', barClass: 'planned', start: 70, width: 20 },
+  ];
+
+  tasks.forEach(t => {
+    const row = document.createElement('div');
+    row.className = 'timeline-row';
+    row.innerHTML = `
+      <div class="timeline-row-label">
+        <div class="dot" style="background:${t.dot};"></div>
+        <span>${t.name}</span>
+      </div>
+      <div class="timeline-bar-area">
+        <div class="timeline-bar ${t.barClass}" style="left:${t.start}%;"></div>
+      </div>
+    `;
+    body.appendChild(row);
+  });
+
+  // Today line
+  const container = document.getElementById('s5-timeline');
+  container.style.position = 'relative';
+  container.querySelectorAll('.today-line').forEach(el => el.remove());
+  const todayLine = document.createElement('div');
+  todayLine.className = 'today-line';
+  todayLine.style.left = 'calc(160px + 40%)';
+  container.appendChild(todayLine);
+
+  tl.to('#s5-label', { opacity: 1, duration: 0.5 }, '+=0.2');
+
+  const rows = body.querySelectorAll('.timeline-row');
+  rows.forEach((row, i) => {
+    tl.to(row, { opacity: 1, duration: 0.3 }, `+=${i === 0 ? 0.2 : 0.1}`);
+    const bar = row.querySelector('.timeline-bar');
+    tl.to(bar, { width: `${tasks[i].width}%`, duration: 0.6, ease: 'power2.out' }, '<+=0.05');
+  });
+
+  tl.to(todayLine, { opacity: 1, duration: 0.4 }, '-=0.3');
+  return tl;
+}
+
+// =====================================================================
+// SCENE 6: Close
+// =====================================================================
+function buildScene6() {
+  const tl = gsap.timeline({ paused: true });
+  gsap.set(['#close-wordmark','#close-subtitle','#close-terminal','#close-url','#close-repo'], { opacity: 0, y: 15 });
+
+  tl.to('#close-wordmark', { opacity: 1, y: 0, duration: 1.0, ease: 'power2.out' }, '+=0.5');
+  tl.add(() => document.getElementById('close-wordmark').classList.add('shimmer'), '-=0.3');
+  tl.to('#close-subtitle', { opacity: 1, y: 0, duration: 0.7, ease: 'power2.out' }, '+=0.4');
+  tl.to('#close-terminal', { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' }, '+=0.5');
+  tl.to('#close-url', { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' }, '+=0.3');
+  tl.to('#close-repo', { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' }, '+=0.2');
+  return tl;
+}
+
+// =====================================================================
+// ORCHESTRATION
+// =====================================================================
+const builders = [buildScene0, buildScene1, buildScene2, buildScene3, buildScene4, buildScene5, buildScene6];
+
+function playScene(idx) {
+  if (sceneTimelines[idx]) sceneTimelines[idx].kill();
+  const label = document.querySelector(`#scene-${idx} .scene-label`);
+  if (label) gsap.set(label, { opacity: 0 });
+
+  sceneTimelines[idx] = builders[idx]();
+  sceneTimelines[idx].play();
+  if (VO_SCRIPT[idx]) speakText(VO_SCRIPT[idx]);
+}
+
+function start() {
+  playScene(0);
+  setInterval(() => {
+    if (!autoAdvance) return;
+    goToScene((currentScene + 1) % SCENE_COUNT);
+  }, SCENE_DURATION);
+}
+
+if ('speechSynthesis' in window) {
+  speechSynthesis.onvoiceschanged = () => {};
+  speechSynthesis.getVoices();
+}
+start();
+</script>
+
+</body>
+</html>
