@@ -103,12 +103,9 @@ function mergeWithDedup(
   const seenSeqs = new Set<number>()
   const seenFingerprints = new Set<string>()
   for (const e of activityEvents) {
-    if (e.seq != null) {
-      seenSeqs.add(e.seq)
-    } else {
-      const content = e.content ? e.content.slice(0, 40) : ''
-      seenFingerprints.add(`${e.type}|${new Date(e.timestamp).getTime()}|${content}`)
-    }
+    if (e.seq != null) seenSeqs.add(e.seq)
+    const content = e.content ? e.content.slice(0, 40) : ''
+    seenFingerprints.add(`${e.type}|${new Date(e.timestamp).getTime()}|${content}`)
   }
   const dedupedChat = chatEvents.filter((e) => {
     if (e.seq != null) return !seenSeqs.has(e.seq)
@@ -263,5 +260,21 @@ describe('Bug 2: Duplicate text deduplication', () => {
 
     const merged = mergeWithDedup(activityEvents, chatEvents)
     expect(merged).toHaveLength(1)
+  })
+
+  it('cross-mode: activity with seq blocks chat without seq via fingerprint', () => {
+    // Hydrated activity event has seq, live SSE chat event lacks seq
+    // Both represent the same logical event — fingerprint fallback catches this
+    const ts = new Date('2026-03-12T10:00:00Z')
+    const activityEvents: MockEvent[] = [
+      { type: 'text', content: 'Hello world', timestamp: ts, seq: 42 },
+    ]
+    const chatEvents: MockEvent[] = [
+      { type: 'text', content: 'Hello world', timestamp: ts }, // no seq
+    ]
+
+    const merged = mergeWithDedup(activityEvents, chatEvents)
+    expect(merged).toHaveLength(1)
+    expect(merged[0].seq).toBe(42)
   })
 })

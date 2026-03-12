@@ -335,16 +335,14 @@ export function Playground() {
     if (activityEvents.length === 0) return chatEvents
     if (chatEvents.length === 0) return activityEvents
 
-    // Deduplicate: prefer seq-based dedup (definitive), fall back to fingerprint heuristic
+    // Deduplicate: prefer seq-based dedup (definitive), fall back to fingerprint heuristic.
+    // Always register fingerprint too, so seq'd activity events can block seq-less chat duplicates.
     const seenSeqs = new Set<number>()
     const seenFingerprints = new Set<string>()
     for (const e of activityEvents) {
-      if (e.seq != null) {
-        seenSeqs.add(e.seq)
-      } else {
-        const content = ('content' in e && typeof e.content === 'string') ? e.content.slice(0, 40) : ''
-        seenFingerprints.add(`${e.type}|${new Date(e.timestamp).getTime()}|${content}`)
-      }
+      if (e.seq != null) seenSeqs.add(e.seq)
+      const content = ('content' in e && typeof e.content === 'string') ? e.content.slice(0, 40) : ''
+      seenFingerprints.add(`${e.type}|${new Date(e.timestamp).getTime()}|${content}`)
     }
     const dedupedChat = chatEvents.filter((e) => {
       if (e.seq != null) return !seenSeqs.has(e.seq)
