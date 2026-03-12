@@ -348,6 +348,12 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   },
 
   updateNode: (id, updates) => {
+    // Skip redundant status-only updates (e.g. duplicate SSE delivery setting same terminal status)
+    if (updates.status && Object.keys(updates).length === 1) {
+      const existing = get().nodes.find((n) => n.id === id)
+      if (existing?.status === updates.status) return
+    }
+
     const nextNodes = get().nodes.map((n) =>
       n.id === id ? { ...n, ...updates, updatedAt: new Date() } : n
     )

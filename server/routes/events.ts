@@ -196,7 +196,7 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'task:ready', data }).catch(() => { alive = false })
     }
 
-    const onTaskResult = (msg: TaskResultMessage) => {
+    const onTaskResult = (msg: TaskResultMessage & { finalNodeStatus?: string }) => {
       if (!alive) return
       // NOTE: Do NOT suppress task:result via activeDispatchStreams.
       // task:result is a terminal event — if the dispatch SSE dies (browser navigation,
@@ -214,6 +214,7 @@ eventsRoute.get('/stream', async (c) => {
         prUrl: msg.result.prUrl,
         prNumber: msg.result.prNumber,
         deliveryStatus: msg.result.deliveryStatus,
+        finalNodeStatus: msg.finalNodeStatus,
       })
       const id = eventBuffer.push('task:result', data)
       stream.writeSSE({ id, event: 'task:result', data }).catch(() => { alive = false })

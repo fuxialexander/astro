@@ -1454,6 +1454,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         projectId,
         executionId,
         machineId: machineId || undefined,
+        finalNodeStatus: finalNodeStatus,
         result: dispatchResult,
         node: {
           id: nodeId,

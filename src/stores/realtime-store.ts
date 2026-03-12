@@ -1177,8 +1177,23 @@ function handleRealtimeEvent(
         }
       }
 
-      // Plan-node status update + notifications + YOLO trigger are now handled
-      // by the node:status_changed SSE event (DB-authoritative pattern).
+      // Plan-node status update fallback: if task:result carries finalNodeStatus,
+      // update the plan node directly. This prevents "stuck in_progress" when the
+      // dispatch SSE drops and node:status_changed is delayed or missed.
+      // The node:status_changed handler (DB-authoritative) will overwrite if needed.
+      const finalNodeStatus = data.finalNodeStatus as string | undefined
+      if (finalNodeStatus) {
+        const validStatuses = new Set(['auto_verified', 'awaiting_judgment', 'completed', 'pruned'])
+        if (validStatuses.has(finalNodeStatus)) {
+          // Find the nodeId for this executionId
+          for (const [nid, exec] of useExecutionStore.getState().executions) {
+            if (exec.executionId === execId) {
+              usePlanStore.getState().updateNode(nid, { status: finalNodeStatus as 'auto_verified' | 'awaiting_judgment' | 'completed' | 'pruned' })
+              break
+            }
+          }
+        }
+      }
 
       // If this is a plan session result, extract plan nodes from accumulated stdout.
       // Skip if the project already has nodes — prevents UUID duplication on refresh.
