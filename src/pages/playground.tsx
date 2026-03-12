@@ -322,7 +322,7 @@ export function Playground() {
   // Merge: live store events > local ref events > hydrated events.
   // Dedup: activity events from the execution stream and chat events from the session
   // stream can overlap when catch-up hydration re-delivers events after the SSE bridge
-  // closes. We deduplicate by checking (type, timestamp) pairs.
+  // closes. We deduplicate by seq when available, falling back to (type, timestamp, content) fingerprint.
   const allActivityEvents: TaskActivityEvent[] = useMemo(() => {
     void chatEventsVersion
     const chatEvents = liveChatEvents.length > 0
@@ -335,16 +335,21 @@ export function Playground() {
     if (activityEvents.length === 0) return chatEvents
     if (chatEvents.length === 0) return activityEvents
 
-    // Deduplicate: build a fingerprint set from activityEvents, skip chatEvents that match
-    const seen = new Set<string>()
+    // Deduplicate: prefer seq-based dedup (definitive), fall back to fingerprint heuristic
+    const seenSeqs = new Set<number>()
+    const seenFingerprints = new Set<string>()
     for (const e of activityEvents) {
-      // Use type + timestamp + first 40 chars of content as a fingerprint
-      const content = ('content' in e && typeof e.content === 'string') ? e.content.slice(0, 40) : ''
-      seen.add(`${e.type}|${new Date(e.timestamp).getTime()}|${content}`)
+      if (e.seq != null) {
+        seenSeqs.add(e.seq)
+      } else {
+        const content = ('content' in e && typeof e.content === 'string') ? e.content.slice(0, 40) : ''
+        seenFingerprints.add(`${e.type}|${new Date(e.timestamp).getTime()}|${content}`)
+      }
     }
     const dedupedChat = chatEvents.filter((e) => {
+      if (e.seq != null) return !seenSeqs.has(e.seq)
       const content = ('content' in e && typeof e.content === 'string') ? e.content.slice(0, 40) : ''
-      return !seen.has(`${e.type}|${new Date(e.timestamp).getTime()}|${content}`)
+      return !seenFingerprints.has(`${e.type}|${new Date(e.timestamp).getTime()}|${content}`)
     })
 
     return [...activityEvents, ...dedupedChat]
