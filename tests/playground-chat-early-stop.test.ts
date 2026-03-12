@@ -1,79 +1,39 @@
 /**
- * Playground Chat: Early Stop and Duplicate Text Tests
+ * Playground Chat: Duplicate Text Tests
  *
- * Tests for two bugs:
- * 1. Agent stops after ~10 turns because agent-runner defaults maxTurns=10
- *    for type=chat tasks, and the server didn't override it.
- * 2. Duplicate text blocks when activity events from execution stream and
- *    chat events from session stream overlap after SSE catch-up hydration.
+ * Tests for duplicate text blocks when activity events from execution stream and
+ * chat events from session stream overlap after SSE catch-up hydration.
+ *
+ * maxTurns is now unlimited by default for all task types — no default limit
+ * is applied in the agent-runner unless the caller explicitly provides one.
  */
 import { describe, it, expect } from 'vitest'
 
 // ============================================================================
-// Bug 1: maxTurns override for chat routes
+// maxTurns: no default limit
 // ============================================================================
 
-describe('Bug 1: maxTurns override for chat tasks', () => {
+describe('maxTurns: unlimited by default', () => {
   /**
    * Simulates the agent-runner's maxTurns resolution logic.
-   * Source: tests/relay-protocol-fields.test.ts lines 313-317
+   * No default limit — unlimited unless the caller provides one.
    */
-  function resolveMaxTurns(
-    taskMaxTurns: number | undefined,
-    taskType: string,
-  ): number | undefined {
-    const isTextOnly = taskType === 'chat' || taskType === 'summarize'
-    const defaultMaxTurns = isTextOnly ? 10 : undefined
-    return taskMaxTurns ?? defaultMaxTurns
+  function resolveMaxTurns(taskMaxTurns: number | undefined): number | undefined {
+    return taskMaxTurns
   }
 
-  it('agent-runner defaults to 10 turns for chat tasks when no override', () => {
-    // This is the broken behavior — the agent stops after 10 turns
-    const turns = resolveMaxTurns(undefined, 'chat')
-    expect(turns).toBe(10)
+  it('agent-runner has no default turn limit for any task type', () => {
+    expect(resolveMaxTurns(undefined)).toBeUndefined()
   })
 
-  it('agent-runner defaults to 10 turns for summarize tasks', () => {
-    const turns = resolveMaxTurns(undefined, 'summarize')
-    expect(turns).toBe(10)
+  it('explicit maxTurns is respected when provided', () => {
+    expect(resolveMaxTurns(50)).toBe(50)
+    expect(resolveMaxTurns(1)).toBe(1)
   })
 
-  it('agent-runner has no turn limit for execution tasks', () => {
-    const turns = resolveMaxTurns(undefined, 'execution')
-    expect(turns).toBeUndefined()
-  })
-
-  it('explicit maxTurns overrides the default', () => {
-    // This is the fix: server sends maxTurns=50 for playground chat
-    const turns = resolveMaxTurns(50, 'chat')
-    expect(turns).toBe(50)
-  })
-
-  it('maxTurns=1 still works for summarize endpoints', () => {
-    const turns = resolveMaxTurns(1, 'summarize')
-    expect(turns).toBe(1)
-  })
-
-  it('server route should set maxTurns for task-chat (playground)', () => {
-    // Simulates the fix in agent.ts task-chat route
-    const chatMaxTurns = 50
-    const resolved = resolveMaxTurns(chatMaxTurns, 'chat')
-    expect(resolved).toBe(50)
-  })
-
-  it('server route should set maxTurns for project-chat', () => {
-    // Simulates the fix in agent.ts project-chat route
-    const taskType = 'execution' // project-chat uses type='execution' by default
-    const projectChatMaxTurns = (taskType === 'plan') ? undefined : 50
-    const resolved = resolveMaxTurns(projectChatMaxTurns, taskType)
-    expect(resolved).toBe(50)
-  })
-
-  it('plan tasks should NOT have maxTurns override', () => {
-    const taskType = 'plan'
-    const projectChatMaxTurns = (taskType === 'plan') ? undefined : 50
-    const resolved = resolveMaxTurns(projectChatMaxTurns, taskType)
-    expect(resolved).toBeUndefined()
+  it('server routes do not set maxTurns — chat is unlimited', () => {
+    // Both task-chat and project-chat omit maxTurns
+    expect(resolveMaxTurns(undefined)).toBeUndefined()
   })
 })
 
