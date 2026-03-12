@@ -12,6 +12,7 @@ import { useToastStore } from "@/stores/toast-store"
 import { useRepoSetup } from "@/hooks/use-repo-setup"
 import { useDirectoryDetection } from "@/hooks/use-directory-detection"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
+import { RecentWorkdirPopover } from "@/components/recent-workdir-popover"
 import { BranchSelector } from "@/components/branch-selector"
 import { validateAbsolutePath } from "@/lib/path-utils"
 import { validateGitUrl } from "@/lib/git-url-utils"
@@ -297,14 +298,26 @@ export function RepoConfigDialog({
                     )}
                   </div>
                   {selectedMachineId && (
-                    <button
-                      type="button"
-                      onClick={() => setShowPathBrowser(true)}
-                      title="Browse directories"
-                      className="flex items-center justify-center h-8 w-8 rounded-md border border-input bg-background hover:bg-muted transition-colors cursor-pointer text-muted-foreground hover:text-foreground shrink-0"
-                    >
-                      <FolderOpen className="h-3.5 w-3.5" />
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setShowPathBrowser(true)}
+                        title="Browse directories"
+                        className="flex items-center justify-center h-8 w-8 rounded-md border border-input bg-background hover:bg-muted transition-colors cursor-pointer text-muted-foreground hover:text-foreground shrink-0"
+                      >
+                        <FolderOpen className="h-3.5 w-3.5" />
+                      </button>
+                      <RecentWorkdirPopover
+                        machineId={selectedMachineId}
+                        onSelect={({ machineId, workingDirectory }) => {
+                          setWorkDir(workingDirectory)
+                          setPathError(null)
+                          setRepoAutoFilled(false)
+                          if (repoAutoFilled) setRepoUrl("")
+                          setSelectedMachineId(machineId)
+                        }}
+                      />
+                    </>
                   )}
                 </div>
                 {pathError && (
