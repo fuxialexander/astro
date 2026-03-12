@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { stripHtml } from "@/lib/html-utils"
-import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2 } from "lucide-react"
+import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -68,6 +68,7 @@ interface ChatPanelProps {
 export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, headerActions }: ChatPanelProps) {
   const [input, setInput] = useState("")
   const [autoScroll, setAutoScroll] = useState(true)
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const initialMessageSent = useRef(false)
   // Session store for persistent chat
@@ -138,6 +139,13 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
   // Derive streaming state from store
   const isStreaming = currentSession ? streamingSessions.has(currentSession.id) : false
+
+  // Detect active plan generation (plan-{projectId} execution in non-terminal state)
+  const planExecution = useExecutionStore((s) => s.executions.get(`plan-${projectId}`))
+  const isPlanGenerating = !!planExecution && !['success', 'failure', 'cancelled'].includes(planExecution.status)
+
+  // Combined "busy" state — either chat streaming or plan generation in progress
+  const isBusy = isStreaming || isPlanGenerating
 
   // Register/unregister mounted state for background notification detection
   const currentSessionId = currentSession?.id
@@ -338,8 +346,22 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     const store = useSessionStore.getState()
     const activeId = store.activeSessionIds.get(`${projectId}:project-chat`)
     const session = activeId ? store.sessions.get(activeId) : undefined
-    if (!text || isStreaming || !session) return
+    if (!text || !session) return
 
+    // If busy (streaming or plan generating), queue the message for auto-send later
+    const busy = useSessionStore.getState().streamingSessions.has(session.id) ||
+      (() => {
+        const pe = useExecutionStore.getState().executions.get(`plan-${projectId}`)
+        return !!pe && !['success', 'failure', 'cancelled'].includes(pe.status)
+      })()
+
+    if (busy) {
+      setPendingMessage(text)
+      setInput("")
+      return
+    }
+
+    setPendingMessage(null)
     setInput("")
     const sid = session.id
     addMessage(sid, { role: "user", content: text })
@@ -365,7 +387,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       planEdges: planEdgeContext,
       messages: historyMessages,
     })
-  }, [isStreaming, projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, addMessage, sendChatMessage])
+  }, [projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, addMessage, sendChatMessage])
 
   function handleSend() {
     const text = input.trim()
@@ -373,15 +395,27 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     sendMessage(text)
   }
 
+  // Auto-send pending message when busy state clears
+  useEffect(() => {
+    if (!isBusy && pendingMessage) {
+      const timer = setTimeout(() => {
+        const msg = pendingMessage
+        setPendingMessage(null)
+        sendMessage(msg)
+      }, 300) // Brief delay to ensure session state is settled
+      return () => clearTimeout(timer)
+    }
+  }, [isBusy, pendingMessage, sendMessage])
+
   // Handle initialMessage (from decompose button)
   useEffect(() => {
-    if (initialMessage && !initialMessageSent.current && !isStreaming) {
+    if (initialMessage && !initialMessageSent.current && !isBusy) {
       initialMessageSent.current = true
       // Auto-send after a brief delay so the session is ready
       const timer = setTimeout(() => sendMessage(initialMessage), 100)
       return () => clearTimeout(timer)
     }
-  }, [initialMessage, isStreaming, sendMessage])
+  }, [initialMessage, isBusy, sendMessage])
 
   // Display labels
   const providerLabel = selectedProviderObj?.name
@@ -697,6 +731,29 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
             <TypingIndicator className="text-muted-foreground py-1" />
           </div>
         )}
+
+        {/* Pending message indicator — shown when user queued a message during streaming/plan-gen */}
+        {pendingMessage && (
+          <div className="mx-3 my-2 flex items-start gap-2 rounded-lg border border-border/40 bg-muted/30 px-3 py-2 text-sm">
+            <Clock className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground animate-pulse" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-muted-foreground mb-0.5">Queued — will send when current response finishes</p>
+              <p className="text-foreground whitespace-pre-wrap break-words">{pendingMessage}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setInput(pendingMessage)
+                setPendingMessage(null)
+              }}
+              title="Edit message"
+            >
+              <Pencil className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Scroll to bottom button */}
@@ -726,9 +783,8 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
           mentionItems={mentionItems}
           value={input}
           onChange={setInput}
-          placeholder="Ask about the project, modify tasks, or explore ideas..."
+          placeholder={isBusy ? "Type a message — it will be sent when the current response finishes..." : "Ask about the project, modify tasks, or explore ideas..."}
           rows={2}
-          disabled={isStreaming}
           onSubmit={handleSend}
           className="flex-1 rounded-lg border border-border/20 bg-muted/30 px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/50 focus:bg-muted/40 transition-colors"
         />
@@ -736,11 +792,15 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
           size="icon"
           className="h-9 w-9 shrink-0"
           onClick={handleSend}
-          disabled={!input.trim() || isStreaming}
-          title="Send (⌘+Enter)"
+          disabled={!input.trim() || !!pendingMessage}
+          title={isBusy ? "Queue message (⌘+Enter)" : "Send (⌘+Enter)"}
         >
-          {isStreaming ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+          {isBusy ? (
+            pendingMessage ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Clock className="h-4 w-4" />
+            )
           ) : (
             <Send className="h-4 w-4" />
           )}

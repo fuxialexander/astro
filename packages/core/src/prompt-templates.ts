@@ -708,9 +708,11 @@ You MUST include a final task node titled "Push to GitHub" that:
 - Your text output is visible to the user in real-time as a chat conversation.
 - The JSON plan MUST be wrapped in a \`\`\`json code fence.
 - After the JSON, you may list assumptions and open questions so the user can refine the plan.
-- **CRITICAL: Whenever the user asks to update, modify, regenerate, or change the plan in ANY way, you MUST output the complete updated plan JSON in a \`\`\`json code fence.** This applies whether it is the first plan or a follow-up revision. The JSON is the ONLY way changes are applied to the graph — without it, nothing happens. Never just describe changes without emitting the JSON. Always output the full plan JSON (all nodes and edges, not just the changed ones) so it can replace the current plan entirely.`
+- **CRITICAL — YOU MUST OUTPUT JSON:** Every response that creates or modifies a plan MUST include the complete plan JSON in a \`\`\`json code fence. This applies to the FIRST plan generation AND all follow-up revisions. The JSON is the ONLY way changes are applied to the graph — without it, nothing happens. Never just describe what the plan should be without emitting the JSON block. Always output the full plan JSON (all nodes and edges, not just the changed ones) so it can replace the current plan entirely. Do not end your response without the JSON block.`
 
   return `You are an interactive project planning assistant. Your goal is to help the user create a detailed, actionable project plan through exploration and discussion.
+
+**You MUST produce a complete plan JSON in a \`\`\`json code fence before finishing.** Without the JSON, no plan is created. Everything else (exploration, questions, reasoning) is preparation for the JSON output.
 
 ## User's Goal
 <user_goal>
@@ -793,7 +795,10 @@ Parallel tasks (no dependency edge between them) run as separate agents in isola
 - Milestones are gate nodes: tasks flow IN to a milestone, and downstream tasks depend ON the milestone. Never create a milestone that only has incoming edges — it must also have outgoing edges to the tasks it gates. Example: tasks A,B,C → milestone M → task D (NOT A,B,C → M with D separately depending on A,B,C)
 - Every milestone must be on the critical path — no orphan milestones with zero outgoing edges
 
-${importantSection}`
+${importantSection}
+
+## Reminder
+After exploration, reasoning, and any clarifying questions, you MUST output the complete plan as a \`\`\`json code fence. This is not optional — it is the primary deliverable of this conversation.`
 }
 
 // ─── Compaction ──────────────────────────────────────────────────────
