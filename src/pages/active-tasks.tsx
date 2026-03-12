@@ -317,15 +317,20 @@ export function ActiveTasks() {
       const session = allSessions.get(sessionId)
       if (!session?.projectId) continue
 
+      // Only include playground (task-chat) and project-chat sessions;
+      // other types (plan-generation, skill-create, steer, execution)
+      // are already represented by execution entries or aren't user-facing chat.
+      const isPlayground = session.type === 'task-chat'
+      if (!isPlayground && session.type !== 'project-chat') continue
+
       // Determine a stable nodeId for dedup — playground sessions use
       // "playground-{projectId}" as their execution key
-      const isPlayground = session.type === 'task-chat'
       const stableNodeId = isPlayground
         ? `playground-${session.projectId}`
         : `chat-${sessionId}`
 
       // Skip if already represented by an execution entry
-      if (addedNodeIds.has(stableNodeId) || addedNodeIds.has(sessionId)) continue
+      if (addedNodeIds.has(stableNodeId)) continue
 
       const proj = projects.find((p) => p.id === session.projectId)
       const firstUserMsg = session.messages.find((m) => m.role === 'user')?.content
