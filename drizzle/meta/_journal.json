@@ -169,6 +169,13 @@
       "when": 1773302400000,
       "tag": "0023_add_schedules",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1773388800000,
+      "tag": "0024_add_execution_summary",
+      "breakpoints": true
     }
   ]
 }
