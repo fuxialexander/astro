@@ -10,6 +10,7 @@ import {
   FolderOpen,
 } from "lucide-react"
 import { apiUrl } from "@/lib/api-url"
+import { authHeaders } from "@/lib/auth-headers"
 import { Button } from "@/components/ui/button"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
@@ -322,7 +323,7 @@ export function UnifiedActivityView({
     try {
       const response = await fetch(apiUrl("/api/dispatch/steer"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({
           taskId: executionId,
           machineId,
