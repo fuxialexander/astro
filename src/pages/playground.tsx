@@ -470,10 +470,16 @@ export function Playground() {
     // Add user event for display
     pushChatEvent({ type: 'chat_user', message: text, timestamp: new Date() })
 
-    // Store in session for conversation history
+    // Store user message + empty assistant placeholder in session for conversation history.
+    // The placeholder is streamed into by sendPlaygroundChat's onText callback.
     addMessage(sid, { role: "user", content: text })
+    addMessage(sid, { role: "assistant", content: "" })
 
-    const historyMessages = (chatSession.messages || [])
+    // Re-read messages from store after adding user msg + placeholder (avoids stale closure)
+    const freshSession = useSessionStore.getState().sessions.get(sid)
+    const freshMessages = freshSession?.messages || []
+    const historyMessages = freshMessages
+      .slice(0, -2) // remove the just-added user msg + empty assistant placeholder
       .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
 
