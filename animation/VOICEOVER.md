@@ -4,13 +4,15 @@
 
 | Scene | Label | Duration | What's on screen |
 |-------|-------|----------|------------------|
-| 0 | Tension | ~8s | "One agent. One chat. One task at a time." then "There's a better way." |
-| 1 | ASTRO Reveal | ~10s | Wordmark + tagline + 4 highlight pills |
-| 2 | Describe | ~10s | Chat panel: user types goal, AI generates plan |
-| 3 | Plan | ~10s | DAG graph: milestones, 3 parallel tasks, status changes |
-| 4 | Execute | ~10s | Activity feed: streaming events, tool calls, file changes, timer/cost |
-| 5 | Observe | ~8s | Timeline with progress bars, today line |
+| 0 | Tension | ~10s | "One agent. One chat. One task at a time." then "There's a better way." |
+| 1 | ASTRO Reveal | ~12s | Wordmark + tagline + 4 highlight pills |
+| 2 | Describe | ~14s | Chat panel: user types goal, AI generates plan |
+| 3 | Plan | ~14s | DAG graph: milestones, 3 parallel tasks, status changes |
+| 4 | Execute | ~16s | Activity feed: streaming events, tool calls, file changes, timer/cost |
+| 5 | Observe | ~10s | Timeline with progress bars, today line |
 | 6 | Close | ~8s | Wordmark, tagline, npx command, URLs |
+
+**Total: ~84s (~1:24)**
 
 ---
 
@@ -18,7 +20,7 @@
 
 **Scene 0 — Tension.** Set the problem. The audience feels the frustration of the current AI coding workflow: one agent, one chat window, one task at a time. You're stuck babysitting. Then the turn: there's a better way.
 
-**Scene 1 — ASTRO Reveal.** Brand moment. Show Astro's identity and four pillars: describe once (no iterative chatting), multiple agents on any machine (universal control plane), browser and mobile access (phone, iPad), and OpenClaw plugin support (approve and steer via Telegram, Slack, Discord).
+**Scene 1 — ASTRO Reveal.** Brand moment. Show Astro's identity and core pillars: describe once, multiple agents on any machine, and approve/steer from anywhere (browser, phone, Telegram).
 
 **Scene 2 — Describe.** The first step of the workflow. User types a single natural-language goal. Astro's AI generates a structured plan — not a flat list, but a DAG with dependencies and milestones. No back-and-forth chat loop.
 
@@ -36,31 +38,31 @@
 
 Copy each block exactly. Read at a natural, measured pace (~140 words/min).
 
-### Scene 0 (Tension)
+### Scene 0 (Tension) — ~10s, 27 words
 
-> One agent. One chat. One task at a time. You describe what you want, and then you sit there — waiting, steering, copy-pasting between windows. The ceiling isn't capability. It's coordination. There's a better way.
+> One agent. One chat. One task at a time. You're stuck — waiting, steering, copy-pasting. The ceiling isn't capability. It's coordination. There's a better way.
 
-### Scene 1 (ASTRO Reveal)
+### Scene 1 (ASTRO Reveal) — ~12s, 27 words
 
-> Astro. Mission control for the AI age. Describe your goal once — no iterative chatting. Run multiple agents on any machine from a single control plane. Access it from your browser, your phone, or your iPad. And as an OpenClaw plugin, approve and steer from Telegram, Slack, or Discord.
+> Astro. Mission control for the AI age. Describe your goal once. Run multiple agents on any machine. Approve and steer from anywhere — browser, phone, or Telegram.
 
-### Scene 2 (Describe)
+### Scene 2 (Describe) — ~14s, 22 words
 
-> You start with a goal. "Build a real-time analytics dashboard with auth, Postgres, and deploy to Fly." Astro's AI breaks this down into a structured plan — tasks, dependencies, milestones. Not a flat to-do list. A graph.
+> Start with a goal. Astro's AI breaks it into a structured plan — tasks, dependencies, milestones. Not a to-do list. A graph.
 
-### Scene 3 (Plan)
+### Scene 3 (Plan) — ~14s, 23 words
 
-> The plan is a directed graph. Tasks that can run in parallel do. Here, three tasks execute simultaneously — auth, API, and UI. When they converge, the next phase begins. Dependencies are explicit. Nothing runs before it's ready.
+> The plan is a directed graph. Tasks that can run in parallel do. When they converge, the next phase begins. Dependencies are explicit.
 
-### Scene 4 (Execute)
+### Scene 4 (Execute) — ~16s, 28 words
 
-> Now watch a task run. The activity feed streams in real time. Tool calls, file changes, code diffs — everything is visible. The timer ticks, cost accumulates. The agent works autonomously. You watch, or you walk away.
+> Watch a task run. The activity feed streams in real time — tool calls, file changes, code diffs. The agent works autonomously. You watch, or you walk away.
 
-### Scene 5 (Observe)
+### Scene 5 (Observe) — ~10s, 18 words
 
-> One timeline. All tasks. You see what's completed, what's running, and what's still planned. No switching between terminals. No guessing. One dashboard for the entire project.
+> One timeline. All tasks. See what's done, what's running, what's planned. No switching between terminals. One dashboard for everything.
 
-### Scene 6 (Close)
+### Scene 6 (Close) — ~8s, 10 words
 
 > Astro. Mission control for the AI age. Try it now.
 
@@ -68,9 +70,9 @@ Copy each block exactly. Read at a natural, measured pace (~140 words/min).
 
 ## Part 3: Production Plan
 
-### Step 1 — Record per-scene audio files
+### Step 1 — Generate per-scene audio with TTS
 
-For each scene, record the voiceover separately:
+Use MegaTTS3 for final quality (or Kokoro for rapid iteration):
 
 ```
 scene-0-tension.mp3
@@ -82,9 +84,29 @@ scene-5-observe.mp3
 scene-6-close.mp3
 ```
 
-Use any recording app (Voice Memos, Audacity, etc.). Read at ~140 wpm. Leave 0.5s silence at the start and end of each clip.
+**Tips for TTS generation:**
+- Use a calm, confident male/female voice reference — avoid overly enthusiastic delivery
+- Add 0.5s silence at the start and end of each clip
+- For Scene 0, ensure clear pauses between "One agent." / "One chat." / "One task at a time." — these are dramatic beats
+- For Scene 6, slow the pace slightly for gravitas
 
-### Step 2 — Screen-capture each scene independently
+### Step 2 — Adjust animation timing to match audio
+
+After generating audio, measure each clip's duration and update `SCENE_DURATIONS` in `animation/index.html`:
+
+```javascript
+// Update these values to match your actual audio durations (in ms)
+const SCENE_DURATIONS = [10000, 12000, 14000, 14000, 16000, 10000, 8000];
+```
+
+If a scene's audio is longer than its animation:
+- Increase the corresponding `SCENE_DURATIONS` value
+- Add delays in the GSAP timeline for that scene (increase `+=` values in `buildSceneN()`)
+
+If shorter:
+- Reduce the `+=` delay values in the corresponding `buildSceneN()` function
+
+### Step 3 — Screen-capture each scene independently
 
 Open `animation/index.html` in Chrome full-screen. For each scene:
 
@@ -100,7 +122,7 @@ This gives you 7 separate video clips:
 scene-0.mov  scene-1.mov  ...  scene-6.mov
 ```
 
-### Step 3 — Sync audio to video per scene
+### Step 4 — Sync audio to video per scene
 
 In any video editor (iMovie, DaVinci Resolve, CapCut, or FFmpeg):
 
@@ -108,14 +130,6 @@ In any video editor (iMovie, DaVinci Resolve, CapCut, or FFmpeg):
 2. Align the audio start to when the first visual element appears
 3. Trim the video to match audio duration (or vice versa)
 4. Export each scene as a clip
-
-### Step 4 — Adjust timing if needed
-
-If the voiceover is longer or shorter than the animation:
-
-- **Voiceover too long**: In `index.html`, increase `SCENE_DURATION` (currently 12000ms) or add delays in the GSAP timeline for that scene (increase the `+=` values in `buildSceneN()`)
-- **Voiceover too short**: Reduce the `+=` delay values in the corresponding `buildSceneN()` function
-- Re-capture only that single scene. The other scenes don't change.
 
 ### Step 5 — Assemble final video
 
@@ -133,4 +147,4 @@ Or drag all 7 clips into a timeline in iMovie / DaVinci Resolve.
 
 ### Step 6 — Add background music (optional)
 
-Layer a subtle ambient track at -20dB under the voiceover. Fade in at Scene 0, fade out at Scene 6.
+Layer a subtle ambient/electronic track at -18dB under the voiceover. Fade in at Scene 0, fade out at Scene 6.

@@ -1166,47 +1166,6 @@ function ConnectedAccountsContent() {
       {/* Telegram */}
       <TelegramConnectCard />
 
-      {/* GitHub Webhooks */}
-      <ChannelAccountCard
-        channel="github_webhook"
-        icon={Github}
-        title="GitHub Webhooks"
-        description="Receive GitHub webhook events (issues, PRs, pushes) and route them to Astro projects."
-        fields={[
-          { key: 'authToken', label: 'Auth Token', placeholder: 'ghp_...', type: 'password', required: true },
-          { key: 'webhookSecret', label: 'Webhook Secret', placeholder: 'Enter webhook secret', type: 'password', required: true },
-        ]}
-        mappingLabel="owner/repo → Project"
-        mappingKeyPlaceholder="owner/repo-name"
-      />
-
-      {/* Linear */}
-      <ChannelAccountCard
-        channel="linear"
-        icon={LinkIcon}
-        title="Linear"
-        description="Connect Linear to sync issues and receive webhook events for your Astro projects."
-        fields={[
-          { key: 'apiToken', label: 'API Token', placeholder: 'lin_api_...', type: 'password', required: true },
-          { key: 'webhookSecret', label: 'Webhook Secret', placeholder: 'Enter webhook secret', type: 'password', required: true },
-        ]}
-        mappingLabel="Team ID → Project"
-        mappingKeyPlaceholder="TEAM-123"
-      />
-
-      {/* OpenClaw */}
-      <ChannelAccountCard
-        channel="openclaw"
-        icon={Zap}
-        title="OpenClaw"
-        description="Connect to an OpenClaw gateway for notifications and chat."
-        fields={[
-          { key: 'gatewayUrl', label: 'Gateway URL', placeholder: 'ws://localhost:18789', type: 'text', required: true },
-          { key: 'apiKey', label: 'API Key (Optional)', placeholder: 'Gateway auth token', type: 'password', required: false },
-        ]}
-        mappingLabel="Channel → Project"
-        mappingKeyPlaceholder="channel-id"
-      />
     </div>
   )
 }
