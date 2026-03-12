@@ -28,8 +28,9 @@ import { useSessionStore } from './session-store'
  * Derive from DB-backed session type whether this stream is a chat session.
  * Chat sessions push events via direct SSE callbacks (sendPlaygroundChat /
  * sendChatMessage); the global SSE handler must skip them to prevent
- * double-delivery. Falls back to streamingSessions for the window before
- * session-store loads on fresh page load.
+ * double-delivery. Falls back to streamingSessions for the edge case where
+ * a chat starts (createSession + sendPlaygroundChat) before the session
+ * store's initial load() from the API has completed.
  */
 function isChatSessionStream(streamId: string): boolean {
   const sessionState = useSessionStore.getState()
@@ -37,8 +38,9 @@ function isChatSessionStream(streamId: string): boolean {
   if (session) {
     return session.type === 'project-chat' || session.type === 'task-chat'
   }
-  // Fallback: if session store hasn't loaded yet, check if the session store
-  // is actively streaming this ID (set synchronously before SSE starts).
+  // Fallback: if session store hasn't loaded yet (load() still in-flight),
+  // check if the session store is actively streaming this ID
+  // (streamingSessions is set synchronously before SSE starts).
   return sessionState.streamingSessions.has(streamId)
 }
 
