@@ -32,6 +32,8 @@ import { examplesRoute } from './routes/examples.js'
 import { shareRoute } from './routes/share.js'
 import { connectedAccountsRoute } from './routes/connected-accounts.js'
 import { openClawChannel } from './lib/channel/adapters/openclaw-channel.js'
+import { telegramChannel } from './lib/channel/adapters/telegram-channel.js'
+import { telegramRoute } from './routes/telegram.js'
 import { teamsRoute } from './routes/teams.js'
 import { communityRoute } from './routes/community.js'
 import { runMigrations } from './lib/db/migrate.js'
@@ -227,6 +229,9 @@ export function createApp() {
 
   // Connected accounts — needed in all modes for OpenClaw channel config
   app.route('/api/connected-accounts', connectedAccountsRoute)
+
+  // Telegram channel (webhook + link/status/disconnect)
+  app.route('/api/telegram', telegramRoute)
 
   // Server-only routes (require Supabase Auth)
   if (!isLocalModeEnv()) {
@@ -525,10 +530,13 @@ async function start() {
   dispatchEngine.start()
   console.log('[dispatch] Dispatch engine started')
 
-  // Start OpenClaw channel adapter (non-blocking, optional)
+  // Start channel adapters (non-blocking, optional)
   if (!isTest()) {
     openClawChannel.start().catch((err) => {
       console.warn('[openclaw] Failed to start channel adapter:', err)
+    })
+    telegramChannel.start().catch((err) => {
+      console.warn('[telegram] Failed to start channel adapter:', err)
     })
   }
 

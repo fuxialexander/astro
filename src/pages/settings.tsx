@@ -22,7 +22,6 @@ import {
   Loader2,
   Github,
   MessageSquare,
-  Send,
   Eye,
   EyeOff,
   Lock,
@@ -66,6 +65,7 @@ import { PluginSettingsContent } from "@/components/plugin-settings"
 import { SkillSettingsContent } from "@/components/skill-settings"
 import { ChannelAccountCard } from "@/components/channel-account-card"
 import { GitHubProjectLinker } from "@/components/github-project-linker"
+import { TelegramConnectCard } from "@/components/telegram-connect-card"
 import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
 import type { DomainExpertise, ExperienceLevel } from "@/types"
 import { dataClient } from "@/lib/data-client"
@@ -1164,18 +1164,7 @@ function ConnectedAccountsContent() {
       />
 
       {/* Telegram */}
-      <ChannelAccountCard
-        channel="telegram"
-        icon={Send}
-        title="Telegram"
-        description="Connect a Telegram bot to interact with Astro from Telegram chats."
-        fields={[
-          { key: 'botToken', label: 'Bot Token', placeholder: '123456:ABC-DEF...', type: 'password', required: true },
-          { key: 'webhookSecret', label: 'Webhook Secret (Optional)', placeholder: 'Enter webhook secret for additional security', type: 'password', required: false },
-        ]}
-        mappingLabel="Chat ID → Project"
-        mappingKeyPlaceholder="-1001234567890"
-      />
+      <TelegramConnectCard />
 
       {/* GitHub Webhooks */}
       <ChannelAccountCard
