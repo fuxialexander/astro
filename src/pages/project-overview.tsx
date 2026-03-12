@@ -44,6 +44,7 @@ import { exportProject, downloadBundle } from "@/lib/sharing/export-project"
 import { apiUrl } from "@/lib/api-url"
 import { PROVIDER_NAMES } from "@/components/execution/provider-utils"
 import { InstructionPicker } from "@/components/execution/instruction-picker"
+import { ScheduleList } from "@/components/schedule/schedule-list"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
 import { useSettingsStore } from "@/stores/settings-store"
@@ -372,6 +373,9 @@ export function OverviewTab({
             </div>
           )}
         </div>
+
+        {/* Schedules Section */}
+        <ScheduleList projectId={project.id} />
 
         {/* Resources Section */}
         <div className="flex flex-col gap-3">
