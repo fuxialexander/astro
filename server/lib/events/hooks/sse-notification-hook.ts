@@ -38,6 +38,7 @@ export const sseNotificationHook: EventHook = async (event) => {
           prUrl: event.result.prUrl,
           prNumber: event.result.prNumber,
           deliveryStatus: event.result.deliveryStatus,
+          finalNodeStatus: (event as Record<string, unknown>).finalNodeStatus as string | undefined,
         },
       })
       break

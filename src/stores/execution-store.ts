@@ -2010,6 +2010,27 @@ function processCatchUpEvents(
     }
   }
 
+  // 5b. Always attempt plan-node status update from result event, even when
+  //     wasAlreadyCompleted is true. The global events SSE task:result handler
+  //     may have set the execution to 'success' (causing wasAlreadyCompleted=true)
+  //     without updating the plan node. This ensures the plan node transitions
+  //     out of "in_progress" regardless of which SSE path processed the result first.
+  if (wasAlreadyCompleted) {
+    const resultEvent = events.find(e => e.eventType === 'result')
+    if (resultEvent) {
+      try {
+        const data = typeof resultEvent.data === 'string'
+          ? resultEvent.data
+          : JSON.stringify(resultEvent.data)
+        const parsed = JSON.parse(data)
+        const validFinalStatuses = new Set(['auto_verified', 'awaiting_judgment', 'completed', 'pruned'])
+        if (parsed.finalStatus && validFinalStatuses.has(parsed.finalStatus)) {
+          planStore.updateNode(nodeId, { status: parsed.finalStatus })
+        }
+      } catch { /* ignore parse errors */ }
+    }
+  }
+
   // 6. Fire onResult callbacks for downstream processing (plan extraction, etc.)
   //    Guard with wasAlreadyCompleted to prevent duplicate plan extraction
   //    on subsequent reconnections after the execution already completed.
@@ -2799,8 +2820,15 @@ function handleSSEEvent(
         // Fallback: if the result event carries finalStatus, update plan node directly.
         // This prevents nodes from staying "in_progress" if the global events SSE misses
         // the node:status_changed event (connection drop, auth failure, etc.).
+        //
+        // NOT gated by alreadyCompleted: the global events SSE task:result handler
+        // sets execution status to 'success' but does NOT update the plan node
+        // (it defers to node:status_changed). If task:result races ahead of this
+        // handler, alreadyCompleted would be true and the plan node would never
+        // transition out of "in_progress". Since this is idempotent (setting a
+        // terminal status), running it twice is harmless.
         const validFinalStatuses = new Set(['auto_verified', 'awaiting_judgment', 'completed', 'pruned'])
-        if (parsed.finalStatus && validFinalStatuses.has(parsed.finalStatus) && !alreadyCompleted) {
+        if (parsed.finalStatus && validFinalStatuses.has(parsed.finalStatus)) {
           planStore.updateNode(nodeId, { status: parsed.finalStatus })
         }
 

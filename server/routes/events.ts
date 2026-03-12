@@ -214,6 +214,7 @@ eventsRoute.get('/stream', async (c) => {
         prUrl: msg.result.prUrl,
         prNumber: msg.result.prNumber,
         deliveryStatus: msg.result.deliveryStatus,
+        finalNodeStatus: (msg.result as Record<string, unknown>).finalNodeStatus,
       })
       const id = eventBuffer.push('task:result', data)
       stream.writeSSE({ id, event: 'task:result', data }).catch(() => { alive = false })
