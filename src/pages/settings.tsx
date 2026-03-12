@@ -21,7 +21,6 @@ import {
   XCircle,
   Loader2,
   Github,
-  MessageSquare,
   Eye,
   EyeOff,
   Lock,
@@ -63,7 +62,6 @@ import { GitHubAppInstallationManager } from "@/components/github-app-installati
 import { GitHubIntegrationGuide } from "@/components/github-integration-guide"
 import { PluginSettingsContent } from "@/components/plugin-settings"
 import { SkillSettingsContent } from "@/components/skill-settings"
-import { ChannelAccountCard } from "@/components/channel-account-card"
 import { GitHubProjectLinker } from "@/components/github-project-linker"
 import { TelegramConnectCard } from "@/components/telegram-connect-card"
 import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
@@ -1148,20 +1146,6 @@ function ConnectedAccountsContent() {
 
       {/* GitHub Projects */}
       <GitHubProjectLinker />
-
-      {/* Slack */}
-      <ChannelAccountCard
-        channel="slack"
-        icon={MessageSquare}
-        title="Slack"
-        description="Connect your Slack workspace to receive notifications and interact with Astro."
-        fields={[
-          { key: 'botToken', label: 'Bot Token', placeholder: 'xoxb-...', type: 'password', required: true },
-          { key: 'signingSecret', label: 'Signing Secret', placeholder: 'Enter signing secret', type: 'password', required: true },
-        ]}
-        mappingLabel="Channel ID → Project"
-        mappingKeyPlaceholder="C01ABC23DEF"
-      />
 
       {/* Telegram */}
       <TelegramConnectCard />
