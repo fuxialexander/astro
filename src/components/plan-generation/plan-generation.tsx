@@ -7,7 +7,7 @@
  */
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react"
-import { Send, Loader2, ArrowDown, Sparkles, AlertCircle, Monitor } from "lucide-react"
+import { Send, Loader2, ArrowDown, Sparkles, AlertCircle, Monitor, Clock, Pencil } from "lucide-react"
 import { useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -74,6 +74,7 @@ export function PlanGeneration({
   // pendingSteerText removed: pending steers now render inline in activityEvents
   const [isChatStreaming, setIsChatStreaming] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
+  const [pendingSteer, setPendingSteer] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -329,11 +330,17 @@ export function PlanGeneration({
   // Steer message handler (while running)
   async function handleSteer(text: string) {
     if (!text || sending) return
+
+    // If executionId isn't available yet (agent hasn't sent init), queue the message
+    if (!execution?.executionId || !execution?.machineId) {
+      setPendingSteer(text)
+      return
+    }
+
+    setPendingSteer(null)
     setSending(true)
 
-    if (execution?.executionId) {
-      addSteerMessage(execution.executionId, text)
-    }
+    addSteerMessage(execution.executionId, text)
 
     try {
       await steerPlanGeneration(projectId, text)
@@ -341,6 +348,17 @@ export function PlanGeneration({
       setSending(false)
     }
   }
+
+  // Auto-send pending steer when executionId becomes available
+  useEffect(() => {
+    if (pendingSteer && execution?.executionId && execution?.machineId && !sending) {
+      const msg = pendingSteer
+      setPendingSteer(null)
+      setSending(true)
+      addSteerMessage(execution.executionId, msg)
+      steerPlanGeneration(projectId, msg).finally(() => setSending(false))
+    }
+  }, [pendingSteer, execution?.executionId, execution?.machineId, sending, projectId, addSteerMessage, steerPlanGeneration])
 
   // Chat message handler (post-completion)
   async function handleChat(text: string) {
@@ -755,6 +773,29 @@ export function PlanGeneration({
             status="success"
           />
         )}
+
+        {/* Pending steer indicator — shown when user sent a message before executionId is available */}
+        {pendingSteer && (
+          <div className="mx-3 my-2 flex items-start gap-2 rounded-lg border border-border/40 bg-muted/30 px-3 py-2 text-sm">
+            <Clock className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground animate-pulse" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-muted-foreground mb-0.5">Queued — will deliver when the agent session starts</p>
+              <p className="text-foreground whitespace-pre-wrap break-words">{pendingSteer}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setInput(pendingSteer)
+                setPendingSteer(null)
+              }}
+              title="Edit message"
+            >
+              <Pencil className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Scroll to bottom button */}
@@ -802,7 +843,7 @@ export function PlanGeneration({
             size="icon"
             className="h-9 w-9 shrink-0"
             onClick={handleSend}
-            disabled={!input.trim() || sending || isChatStreaming}
+            disabled={!input.trim() || sending || isChatStreaming || !!pendingSteer}
           >
             {sending || isChatStreaming ? (
               <Loader2 className="h-4 w-4 animate-spin" />
