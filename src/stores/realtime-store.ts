@@ -190,6 +190,9 @@ interface RealtimeState {
   respondToSafetyPrompt: (taskId: string, decision: string) => Promise<void>
   hydrateFromCatchUp: (executionIds: string[], afterSeq?: number, streamType?: 'chat') => Promise<void>
   pushActivityEvent: (executionId: string, event: TaskActivityEvent) => void
+  /** Mark a stream as a chat-session stream so the global SSE handler skips it.
+   *  Call before starting a direct-SSE chat request to prevent double-delivery. */
+  markAsChatStream: (streamId: string) => void
   /** Reconcile running tasks after page refresh: bootstrap execution store + task streams
    *  for plan nodes that are in_progress but have no execution store entries. */
   reconcileRunningTasks: () => void
@@ -742,6 +745,15 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     }
   })(),
 
+  markAsChatStream: (streamId: string) => {
+    set((state) => {
+      const streams = new Map(state.taskStreams)
+      const existing = streams.get(streamId) || createEmptyTaskStream(streamId)
+      streams.set(streamId, { ...existing, isChatStream: true })
+      return { taskStreams: streams }
+    })
+  },
+
   reconcileRunningTasks: () => {
     const planStore = usePlanStore.getState()
     const execStore = useExecutionStore.getState()
@@ -1061,6 +1073,9 @@ function handleRealtimeEvent(
     case 'task:stdout':
     case 'task:text': {
       const execId = data.taskId as string
+      // Skip chat-session streams — they receive text via direct SSE callbacks
+      // (sendPlaygroundChat.onText) to avoid double-delivery.
+      if (useRealtimeStore.getState().taskStreams.get(execId)?.isChatStream) break
       const text = data.data as string
       // Batch text chunks — flush every 50ms for smooth ~20fps rendering
       realtimeTextBatch.set(execId, (realtimeTextBatch.get(execId) || '') + text)
@@ -1219,6 +1234,9 @@ function handleRealtimeEvent(
 
     case 'task:tool_trace': {
       const execId = data.taskId as string
+      // Skip chat-session streams — they receive tool events via direct SSE callbacks
+      // (sendPlaygroundChat.onToolUse/onToolResult) to avoid double-delivery.
+      if (useRealtimeStore.getState().taskStreams.get(execId)?.isChatStream) break
       const now = new Date()
       const toolName = data.toolName as string
       const hasInput = data.toolInput !== undefined
