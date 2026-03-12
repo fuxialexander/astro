@@ -472,7 +472,7 @@ async function claimSchedule(
     const cron = new Cron(schedule.cronExpression, { timezone: schedule.timezone })
     const nextRun = cron.nextRun()
 
-    const result = await db.update(schedules)
+    const rows = await db.update(schedules)
       .set({
         nextRunAt: nextRun,
         lastRunAt: now,
@@ -483,8 +483,9 @@ async function claimSchedule(
         // Optimistic lock: only update if nextRunAt hasn't changed
         eq(schedules.nextRunAt, schedule.nextRunAt!),
       ))
+      .returning({ id: schedules.id })
 
-    return (result.rowCount ?? 0) > 0
+    return rows.length > 0
   } catch (err) {
     console.error(`[cron] Failed to claim schedule ${schedule.id}:`, err)
     return false
