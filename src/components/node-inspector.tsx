@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Link } from "react-router"
-import { FileText, XCircle, RotateCcw, X, Plus, Pencil, ArrowUpRight, Diamond } from "lucide-react"
+import { FileText, XCircle, RotateCcw, X, Plus, Pencil, ArrowUpRight, Diamond, Clock, Play, Trash2, ToggleLeft, ToggleRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { PropertyPicker } from "@/components/property-picker"
@@ -12,6 +12,8 @@ import { LabelManagerDialog } from "@/components/label-manager-dialog"
 import { ConvertToProjectDialog } from "@/components/convert-to-project-dialog"
 
 import { ExecutionPanel } from "@/components/execution"
+import { ScheduleForm } from "@/components/schedule/schedule-form"
+import { useScheduleStore } from "@/stores/schedule-store"
 
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -224,6 +226,19 @@ export function NodeInspectorContent({
   const [addDepSearch, setAddDepSearch] = useState("")
   const [labelManagerOpen, setLabelManagerOpen] = useState(false)
   const [convertDialogOpen, setConvertDialogOpen] = useState(false)
+  const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false)
+
+  // Schedule state
+  const schedules = useScheduleStore((s) => s.schedules)
+  const loadSchedules = useScheduleStore((s) => s.loadSchedules)
+  const deleteSchedule = useScheduleStore((s) => s.deleteSchedule)
+  const updateScheduleStore = useScheduleStore((s) => s.updateSchedule)
+  const triggerSchedule = useScheduleStore((s) => s.triggerSchedule)
+  const nodeSchedule = schedules.find((s) => s.scope === 'node' && s.nodeId === node.id)
+
+  useEffect(() => {
+    loadSchedules(node.projectId)
+  }, [node.projectId, loadSchedules])
 
   // Full project (for convert-to-project: needs githubOwner, githubRepo, etc.)
   const fullProject = useProjectStore((s) => s.projects.find((p) => p.id === node.projectId))
@@ -487,8 +502,89 @@ export function NodeInspectorContent({
             <ElapsedTime node={node} />
           </div>
         )}
+
+        {/* Schedule */}
+        <div className="flex items-center justify-between text-[13px]">
+          <span className="text-muted-foreground">Schedule</span>
+          {nodeSchedule ? (
+            <div className="flex items-center gap-1.5">
+              <code className="text-[11px] bg-muted px-1.5 py-0.5 rounded font-mono">{nodeSchedule.cronExpression}</code>
+              <button
+                type="button"
+                onClick={() => updateScheduleStore(nodeSchedule.id, { enabled: !nodeSchedule.enabled })}
+                className="p-0.5 rounded hover:bg-muted transition-colors cursor-pointer"
+                title={nodeSchedule.enabled ? "Pause" : "Enable"}
+              >
+                {nodeSchedule.enabled ? (
+                  <ToggleRight className="h-3.5 w-3.5 text-success" />
+                ) : (
+                  <ToggleLeft className="h-3.5 w-3.5 text-muted-foreground" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setScheduleDialogOpen(true)}
+                className="p-0.5 rounded hover:bg-muted transition-colors cursor-pointer"
+                title="Edit schedule"
+              >
+                <Pencil className="h-3 w-3 text-muted-foreground" />
+              </button>
+              <button
+                type="button"
+                onClick={() => triggerSchedule(nodeSchedule.id)}
+                className="p-0.5 rounded hover:bg-muted transition-colors cursor-pointer"
+                title="Run now"
+              >
+                <Play className="h-3 w-3 text-muted-foreground" />
+              </button>
+              <button
+                type="button"
+                onClick={() => deleteSchedule(nodeSchedule.id)}
+                className="p-0.5 rounded hover:bg-muted transition-colors cursor-pointer"
+                title="Delete schedule"
+              >
+                <Trash2 className="h-3 w-3 text-destructive" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setScheduleDialogOpen(true)}
+              className="inline-flex items-center gap-1 text-[13px] text-primary hover:underline cursor-pointer"
+            >
+              <Clock className="h-3 w-3" />
+              Add
+            </button>
+          )}
+        </div>
+        {nodeSchedule?.nextRunAt && (
+          <div className="flex items-center justify-between text-[11px] -mt-1.5">
+            <span className="text-muted-foreground/60 pl-0.5">Next run</span>
+            <span className="text-muted-foreground/60">{new Date(nodeSchedule.nextRunAt).toLocaleString()}</span>
+          </div>
+        )}
       </div>
       <Separator />
+
+      {/* Schedule Dialog */}
+      <Dialog open={scheduleDialogOpen} onOpenChange={setScheduleDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{nodeSchedule ? 'Edit Schedule' : 'Create Schedule'}</DialogTitle>
+          </DialogHeader>
+          <ScheduleForm
+            projectId={node.projectId}
+            scope="node"
+            nodeId={node.id}
+            schedule={nodeSchedule}
+            onSave={() => {
+              setScheduleDialogOpen(false)
+              loadSchedules(node.projectId)
+            }}
+            onCancel={() => setScheduleDialogOpen(false)}
+          />
+        </DialogContent>
+      </Dialog>
 
       <div className="flex flex-col gap-2.5">
         {node.executionId ? (
