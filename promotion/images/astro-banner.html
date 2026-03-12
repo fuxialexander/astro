@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=DM+Sans:wght@300;400;500&family=JetBrains+Mono:wght@300;400&display=swap');
+
+  body {
+    width: 1500px;
+    height: 500px;
+    overflow: hidden;
+    background: #050510;
+    font-family: 'DM Sans', sans-serif;
+    color: #f0f0f0;
+  }
+
+  .banner {
+    width: 1500px;
+    height: 500px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  /* Subtle grid background */
+  .grid-bg {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(91,163,208,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(91,163,208,0.04) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+
+  /* Subtle radial glow behind center */
+  .glow {
+    position: absolute;
+    width: 800px;
+    height: 500px;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(ellipse at center, rgba(91,163,208,0.08) 0%, transparent 70%);
+  }
+
+  /* Content */
+  .content {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 80px;
+  }
+
+  /* Left: wordmark */
+  .wordmark-group {
+    text-align: right;
+  }
+
+  .wordmark {
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 300;
+    font-size: 96px;
+    letter-spacing: 24px;
+    text-transform: uppercase;
+    color: #f0f0f0;
+    line-height: 1;
+  }
+
+  .tagline {
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 300;
+    font-size: 18px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: rgba(240,240,240,0.5);
+    margin-top: 12px;
+  }
+
+  /* Divider line */
+  .divider {
+    width: 1px;
+    height: 140px;
+    background: linear-gradient(to bottom, transparent, rgba(91,163,208,0.4), transparent);
+  }
+
+  /* Right: pillars */
+  .pillars {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .pill {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 400;
+    font-size: 16px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(240,240,240,0.6);
+  }
+
+  .pill .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .pill:nth-child(1) .dot { background: #5ba3d0; }
+  .pill:nth-child(2) .dot { background: #d4a574; }
+  .pill:nth-child(3) .dot { background: #7ecfa0; }
+  .pill:nth-child(4) .dot { background: #c4a0d4; }
+
+  /* Subtle corner accents */
+  .corner {
+    position: absolute;
+    width: 40px;
+    height: 40px;
+    border-color: rgba(91,163,208,0.15);
+    border-style: solid;
+    border-width: 0;
+  }
+  .corner.tl { top: 30px; left: 30px; border-top-width: 1px; border-left-width: 1px; }
+  .corner.tr { top: 30px; right: 30px; border-top-width: 1px; border-right-width: 1px; }
+  .corner.bl { bottom: 30px; left: 30px; border-bottom-width: 1px; border-left-width: 1px; }
+  .corner.br { bottom: 30px; right: 30px; border-bottom-width: 1px; border-right-width: 1px; }
+
+  /* URL at bottom */
+  .url {
+    position: absolute;
+    bottom: 30px;
+    right: 40px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 300;
+    font-size: 13px;
+    letter-spacing: 1px;
+    color: rgba(240,240,240,0.25);
+  }
+</style>
+</head>
+<body>
+<div class="banner">
+  <div class="grid-bg"></div>
+  <div class="glow"></div>
+
+  <div class="corner tl"></div>
+  <div class="corner tr"></div>
+  <div class="corner bl"></div>
+  <div class="corner br"></div>
+
+  <div class="content">
+    <div class="wordmark-group">
+      <div class="wordmark">ASTRO</div>
+      <div class="tagline">Mission control for the AI age</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="pillars">
+      <div class="pill"><span class="dot"></span>Plan the work</div>
+      <div class="pill"><span class="dot"></span>Execute in parallel</div>
+      <div class="pill"><span class="dot"></span>Decide anywhere</div>
+      <div class="pill"><span class="dot"></span>Human & agent</div>
+    </div>
+  </div>
+
+  <div class="url">astroanywhere.com</div>
+</div>
+</body>
+</html>
