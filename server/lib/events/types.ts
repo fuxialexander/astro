@@ -57,6 +57,8 @@ export interface TaskCompletedEvent {
   project?: Project
   /** Machine that executed the task (for relay-dispatched hooks like git-pull) */
   machineId?: string
+  /** Computed plan-node status (auto_verified / awaiting_judgment) for SSE forwarding */
+  finalNodeStatus?: string
   timestamp: Date
 }
 

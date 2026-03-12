@@ -2010,11 +2010,11 @@ function processCatchUpEvents(
     }
   }
 
-  // 5b. Always attempt plan-node status update from result event, even when
-  //     wasAlreadyCompleted is true. The global events SSE task:result handler
-  //     may have set the execution to 'success' (causing wasAlreadyCompleted=true)
-  //     without updating the plan node. This ensures the plan node transitions
-  //     out of "in_progress" regardless of which SSE path processed the result first.
+  // 5b. Plan-node status update when wasAlreadyCompleted (handleSSEEvent was
+  //     skipped in step 5). The global events SSE task:result handler may have
+  //     set the execution to 'success' (causing wasAlreadyCompleted=true) without
+  //     updating the plan node. Extract finalStatus from the result event and
+  //     apply it directly so the plan node transitions out of "in_progress".
   if (wasAlreadyCompleted) {
     const resultEvent = events.find(e => e.eventType === 'result')
     if (resultEvent) {
