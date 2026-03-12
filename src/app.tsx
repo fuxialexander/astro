@@ -200,11 +200,10 @@ function DataLoader({ children }: { children: React.ReactNode }) {
 
     connectRealtime()
 
-    // Re-subscribe Supabase Realtime with team-scoped filter
+    // Re-subscribe Supabase Realtime with team-scoped filter.
+    // Pass undefined if no teams yet — setupRealtimeSync handles it gracefully.
     const activeTeamId = useTeamStore.getState().teams[0]?.id
-    if (activeTeamId) {
-      setupRealtimeSync(activeTeamId)
-    }
+    setupRealtimeSync(activeTeamId)
 
     // Pre-cache browser hostname for file URL building
     getBrowserHostname().catch((err) => {

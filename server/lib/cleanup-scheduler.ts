@@ -270,6 +270,8 @@ export function stopCleanupScheduler(): void {
   if (streamingCleanupTimer) {
     clearInterval(streamingCleanupTimer);
     streamingCleanupTimer = null;
+    // Release streaming leader lock so another instance can take over immediately
+    redisPubSub.releaseLeadership(STREAMING_LEADER_NAME).catch(() => {});
   }
   if (cleanupTimer) {
     clearInterval(cleanupTimer);
