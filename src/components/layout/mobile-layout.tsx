@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from 'react-router';
-import { LayoutDashboard, Sparkles, GitBranch, Server, FlaskConical } from 'lucide-react';
+import { LayoutDashboard, Sparkles, GitBranch, Server, FlaskConical, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 
@@ -34,6 +34,11 @@ const tabs: TabItem[] = [
     id: 'environments',
     icon: Server,
     path: '/environments',
+  },
+  {
+    id: 'settings',
+    icon: Settings,
+    path: '/settings',
   },
 ];
 
