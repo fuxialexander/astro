@@ -14,7 +14,6 @@ import { db } from '../../db/index.js'
 import { connectedAccounts, projects, teamMembers, webauthnChallenges } from '../../db/schema.js'
 import { eq, and, inArray, gt } from 'drizzle-orm'
 import { channelRouter } from '../channel-router.js'
-import { formatForChannel } from '../channel-formatter.js'
 import { channelConfigManager } from '../channel-config-manager.js'
 import type { ChannelNotification } from '../channel-types.js'
 
@@ -45,13 +44,50 @@ async function sendMessage(
   token: string,
   chatId: string,
   text: string,
-  parseMode: 'HTML' | 'MarkdownV2' = 'HTML'
+  options?: { parseMode?: 'HTML' | 'MarkdownV2'; replyMarkup?: unknown }
 ): Promise<TelegramApiResponse> {
-  return telegramApi(token, 'sendMessage', {
+  const body: Record<string, unknown> = {
     chat_id: chatId,
     text,
-    parse_mode: parseMode,
+    parse_mode: options?.parseMode ?? 'HTML',
+  }
+  if (options?.replyMarkup) {
+    body.reply_markup = options.replyMarkup
+  }
+  return telegramApi(token, 'sendMessage', body)
+}
+
+async function editMessageText(
+  token: string,
+  chatId: string,
+  messageId: number,
+  text: string,
+): Promise<TelegramApiResponse> {
+  return telegramApi(token, 'editMessageText', {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    parse_mode: 'HTML',
   })
+}
+
+async function answerCallbackQuery(
+  token: string,
+  callbackQueryId: string,
+  text?: string,
+): Promise<TelegramApiResponse> {
+  return telegramApi(token, 'answerCallbackQuery', {
+    callback_query_id: callbackQueryId,
+    text,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +206,12 @@ class TelegramChannelAdapter {
    */
   async handleUpdate(update: Record<string, unknown>): Promise<void> {
     if (!this.botToken) return
+
+    // Handle callback queries (inline keyboard button taps)
+    if (update.callback_query) {
+      await this.handleCallbackQuery(update.callback_query as Record<string, unknown>)
+      return
+    }
 
     const msg = update.message as Record<string, unknown> | undefined
     if (!msg?.text) return
@@ -298,6 +340,84 @@ class TelegramChannelAdapter {
     }
   }
 
+  /**
+   * Handle inline keyboard button taps (approval responses).
+   * Callback data format: "approve:<approvalId>" or "reject:<approvalId>"
+   * or "option:<approvalId>:<selectedOption>"
+   */
+  private async handleCallbackQuery(query: Record<string, unknown>): Promise<void> {
+    if (!this.botToken) return
+
+    const callbackId = query.id as string
+    const data = query.data as string | undefined
+    const message = query.message as Record<string, unknown> | undefined
+    const chatId = message ? String((message.chat as Record<string, unknown>).id) : null
+    const messageId = message?.message_id as number | undefined
+
+    if (!data || !chatId) {
+      await answerCallbackQuery(this.botToken, callbackId, 'Invalid request')
+      return
+    }
+
+    // Parse callback data
+    let approvalId: string
+    let approved: boolean
+    let selectedOption: string | undefined
+
+    if (data.startsWith('approve:')) {
+      approvalId = data.slice(8)
+      approved = true
+    } else if (data.startsWith('reject:')) {
+      approvalId = data.slice(7)
+      approved = false
+    } else if (data.startsWith('option:')) {
+      const parts = data.slice(7).split(':')
+      approvalId = parts[0]
+      selectedOption = parts.slice(1).join(':')
+      approved = true
+    } else {
+      await answerCallbackQuery(this.botToken, callbackId, 'Unknown action')
+      return
+    }
+
+    // Call the approval API
+    try {
+      const { dispatchEngine } = await import('../../dispatch/index.js')
+      await dispatchEngine.respondToApproval(approvalId, approved, selectedOption)
+
+      // Update the message to show the response
+      const responseText = approved
+        ? (selectedOption ? `Approved: ${selectedOption}` : 'Approved')
+        : 'Rejected'
+
+      if (messageId) {
+        const originalText = (message?.text as string) || 'Approval request'
+        await editMessageText(
+          this.botToken,
+          chatId,
+          messageId,
+          `${originalText}\n\n✅ <b>${responseText}</b>`,
+        )
+      }
+
+      await answerCallbackQuery(this.botToken, callbackId, responseText)
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Unknown error'
+      console.error(`[telegram] Approval response failed for ${approvalId}:`, errMsg)
+
+      // Try to give a useful error
+      if (errMsg.includes('No pending approval found')) {
+        await answerCallbackQuery(this.botToken, callbackId, 'This approval has expired or was already handled.')
+        if (messageId) {
+          const originalText = (message?.text as string) || 'Approval request'
+          await editMessageText(this.botToken, chatId, messageId, `${originalText}\n\n⚠️ <b>Expired or already handled</b>`)
+        }
+      } else {
+        await answerCallbackQuery(this.botToken, callbackId, `Error: ${errMsg.slice(0, 100)}`)
+      }
+    }
+  }
+
   private async handleDisconnectCommand(chatId: string): Promise<void> {
     if (!this.botToken) return
 
@@ -374,17 +494,43 @@ class TelegramChannelAdapter {
 
       if (accounts.length === 0) return
 
-      // Format notification
-      const text = formatForChannel(
-        `<b>${notification.type.replace('.', ' ').toUpperCase()}</b>\n${notification.summary}\n\n<a href="${notification.astroUrl}">View in Astro</a>`,
-        'telegram_html'
-      )
+      // Format notification as HTML (do NOT pass through formatForChannel — we're writing HTML directly)
+      const typeLabel = notification.type.replace('.', ' ').toUpperCase()
+      // Escape user-provided text for HTML safety
+      const safeSummary = escapeHtml(notification.summary)
+      const text = `<b>${typeLabel}</b>\n${safeSummary}\n\n<a href="${notification.astroUrl}">View in Astro</a>`
+
+      // Build inline keyboard for approval requests
+      let replyMarkup: unknown = undefined
+      if (notification.type === 'approval.requested' && notification.metadata) {
+        const approvalId = notification.metadata.approvalId as string | undefined
+        const options = notification.metadata.options as string[] | undefined
+
+        if (approvalId) {
+          if (options && options.length > 0) {
+            // Show each option as a button
+            replyMarkup = {
+              inline_keyboard: options.map((opt) => ([
+                { text: opt, callback_data: `option:${approvalId}:${opt}`.slice(0, 64) },
+              ])),
+            }
+          } else {
+            // Default approve/reject buttons
+            replyMarkup = {
+              inline_keyboard: [[
+                { text: 'Approve', callback_data: `approve:${approvalId}` },
+                { text: 'Reject', callback_data: `reject:${approvalId}` },
+              ]],
+            }
+          }
+        }
+      }
 
       // Send to each connected chat
       const sendPromises = accounts
         .filter((a) => a.externalId)
         .map((a) =>
-          sendMessage(this.botToken!, a.externalId!, text).catch((err) => {
+          sendMessage(this.botToken!, a.externalId!, text, { replyMarkup }).catch((err) => {
             console.warn(`[telegram] Failed to send to chat ${a.externalId}:`, err)
           })
         )
