@@ -83,7 +83,7 @@ The API returns a JSON array. Each entry contains:
 - `paper.authors[].name` — Author names
 - `paper.upvotes` — Community upvotes (use for ranking)
 - `publishedAt` — Publication timestamp
-- `paper.ai_summary` — HuggingFace AI-generated summary (short)
+- `paper.ai_summary` — HuggingFace AI-generated TL;DR (~1-2 sentences, ~200 chars). Too shallow to drive in-depth analysis on its own, but valuable as a TL;DR seed for both the digest one-paragraph summary and the in-depth analysis TL;DR box.
 - `paper.ai_keywords` — AI-generated keywords
 
 **Date validation**: If the API returns an empty array `[]`, the date has no papers. This typically happens on weekends, holidays, or future dates. In this case:
@@ -92,22 +92,25 @@ The API returns a JSON array. Each entry contains:
 
 **Typical volume**: 24-49 papers per weekday. Rank by `upvotes` descending to select top-N for in-depth analysis.
 
-### 1.2 AlphaXiv — AI-Generated Research Reports
+### 1.2 AlphaXiv — AI-Generated Research Reports (Primary Source for In-Depth Analysis)
 
 AlphaXiv provides two hidden markdown endpoints for arXiv papers. **Always follow redirects** (`-L` flag).
 
 ```bash
-# AI-generated research overview (~5000+ words, structured analysis)
+# AI-generated research overview (~16K chars, multi-section structured analysis)
 curl -sL "https://alphaxiv.org/overview/ARXIV_ID.md"
 
 # Full LaTeX source extracted as markdown
 curl -sL "https://alphaxiv.org/abs/ARXIV_ID.md"
 ```
 
-**Coverage**: ~73% of HuggingFace Daily Papers have AlphaXiv overviews. When an overview is unavailable (returns 404 or empty), fall back to:
-1. The HuggingFace `ai_summary` field (always available)
-2. The paper abstract from the API
-3. Attempt to fetch the AlphaXiv full text (`/abs/ID.md`) which may still be available
+**The AlphaXiv overview is the primary data source for in-depth analysis.** Each overview is a ~16K-char structured report covering authors, context, methodology, results, and impact — far richer than the HF `ai_summary` (which is only ~200 chars / 1-2 sentences).
+
+**Coverage**: ~80% of HuggingFace Daily Papers have AlphaXiv overviews. When an overview is unavailable (returns 404 or empty), fall back to:
+1. The paper abstract from the API (`paper.summary`, ~1300 chars) — this is the primary fallback
+2. Attempt to fetch the AlphaXiv full text (`/abs/ID.md`) which may still be available even without an overview
+3. The HuggingFace `ai_summary` as a last resort for analysis depth (only ~200 chars — still useful as the TL;DR seed)
+4. Note in the analysis: "AlphaXiv overview unavailable — analysis based on abstract and available sources"
 
 **Important**: The AlphaXiv overview is a pre-built analysis — use it as high-quality source material, not as your final output. Your job is to synthesize, curate, and add value beyond what AlphaXiv provides (architecture figures, cross-paper connections, missing background context).
 
@@ -154,7 +157,7 @@ For each paper, include:
 2. **Authors** (first 3, then "et al.")
 3. **Upvotes** badge
 4. **Keywords** (from `ai_keywords`)
-5. **One-paragraph summary** — Synthesize the `ai_summary` with the abstract. Focus on: what problem, what approach, what result. Keep to 3-5 sentences.
+5. **One-paragraph summary** — Synthesize the abstract (and `ai_summary` as a TL;DR seed) into a 3-5 sentence summary. Focus on: what problem, what approach, what result.
 6. **Key contribution** — Single bold sentence highlighting the main takeaway
 7. **Links**: arXiv, PDF, GitHub (if available), HuggingFace paper page
 
@@ -198,7 +201,7 @@ Each paper analysis HTML document must contain these sections:
    - Tags: [from daily papers] / [user-requested] / [not in daily papers]
 
 2. TL;DR (box-pink)
-   - 2-3 sentence executive summary
+   - 2-3 sentence executive summary (use `ai_summary` as a seed, then expand with your own synthesis)
    - Who should read this and why
 
 3. Background & Prerequisites (box-blue)

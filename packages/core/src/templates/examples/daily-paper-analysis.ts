@@ -188,10 +188,10 @@ Decompose into a DAG of tasks:
 - For each paper in the in-depth set (top-N + additional papers, deduplicated):
   - Fetch AlphaXiv overview: \`curl -sL "https://alphaxiv.org/overview/PAPER_ID.md"\`
   - Fetch AlphaXiv full text: \`curl -sL "https://alphaxiv.org/abs/PAPER_ID.md"\`
-  - **AlphaXiv fallback**: ~27% of papers lack AlphaXiv overviews. If overview returns 404 or empty:
-    1. Use the HuggingFace \`ai_summary\` field (always available)
-    2. Use the paper abstract from the API
-    3. Still attempt \`/abs/ID.md\` for full text (may be available even without overview)
+  - **AlphaXiv is the primary source** for in-depth analysis (~16K chars per overview vs ~200 chars for HF ai_summary). ~20% of papers lack overviews. If overview returns 404 or empty:
+    1. Use the paper abstract from the API (\`paper.summary\`, ~1300 chars) — primary fallback
+    2. Still attempt \`/abs/ID.md\` for full text (may be available even without overview)
+    3. Use HF \`ai_summary\` as last resort for analysis depth (~200 chars — still useful as TL;DR seed)
     4. Note in the analysis: "AlphaXiv overview unavailable — analysis based on abstract and available sources"
   - Generate in-depth analysis as both HTML and Markdown for each paper
   - Create SVG architecture/workflow figure(s)
@@ -230,13 +230,14 @@ Decompose into a DAG of tasks:
 \`\`\`
 GET https://huggingface.co/api/daily_papers?date=YYYY-MM-DD
 \`\`\`
-Returns JSON array with fields: paper.id, paper.title, paper.summary, paper.authors[].name, paper.upvotes, paper.ai_summary, paper.ai_keywords, publishedAt.
+Returns JSON array with fields: paper.id, paper.title, paper.summary (~1300 chars abstract), paper.authors[].name, paper.upvotes, paper.ai_summary (~200 chars TL;DR), paper.ai_keywords, publishedAt.
 Typical volume: 24-49 papers/weekday. Empty array on weekends/holidays.
+Note: paper.ai_summary is ~200 chars (1-2 sentences) — too shallow to drive in-depth analysis alone, but valuable as a TL;DR seed for both the digest summary and the in-depth analysis TL;DR box.
 
-### AlphaXiv Endpoints (follow redirects with -L)
-- Overview (AI report): \`https://alphaxiv.org/overview/ARXIV_ID.md\`
+### AlphaXiv Endpoints (follow redirects with -L) — PRIMARY source for in-depth analysis
+- Overview (AI report, ~16K chars): \`https://alphaxiv.org/overview/ARXIV_ID.md\`
 - Full text (LaTeX→MD): \`https://alphaxiv.org/abs/ARXIV_ID.md\`
-Coverage: ~73% of HF daily papers have overviews.
+Coverage: ~80% of HF daily papers have overviews. Fallback chain: abstract → /abs/ full text → ai_summary (last resort).
 
 ## Color Palette
 - Background: #FAF8F5 (warm off-white)
@@ -304,7 +305,7 @@ Additional papers may or may not be in the daily papers list.
 ## Corner Cases
 1. **No papers for date**: API returns \`[]\` → report to user, STOP immediately
 2. **API error / network failure**: Report error, STOP
-3. **AlphaXiv unavailable for a paper**: Fall back to abstract + HF ai_summary, note in output
+3. **AlphaXiv unavailable for a paper**: Fall back to abstract (primary) → /abs/ full text → ai_summary (last resort), note in output
 4. **User paper not resolvable**: Log "Could not resolve: [input]", skip, continue with others
 5. **User paper already in top-N**: Deduplicate — don't analyze twice
 6. **Fewer papers than topN**: If daily list has fewer papers than requested top-N, analyze all available
