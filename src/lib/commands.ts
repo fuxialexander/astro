@@ -13,6 +13,7 @@ import {
   Sparkles,
   Zap,
   BookOpen,
+  Terminal,
   type LucideIcon,
 } from "lucide-react"
 
@@ -155,6 +156,14 @@ export const actionCommands: CommandDefinition[] = [
     icon: Plus,
     category: "actions",
     keywords: ["create", "initiative", "goal", "grand plan"],
+  },
+  {
+    id: "action-playground-in",
+    label: "Start Playground In...",
+    description: "Start a playground session in a recent machine:workdir",
+    icon: Terminal,
+    category: "actions",
+    keywords: ["playground", "start", "session", "workdir", "machine", "ssh", "recent"],
   },
   {
     id: "action-toggle-theme",

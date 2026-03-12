@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useRef, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { Command } from "cmdk"
 import { useNavigate } from "react-router"
-import { Search, X, Inbox } from "lucide-react"
+import { Search, X, Inbox, Terminal } from "lucide-react"
 import Fuse from "fuse.js"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useUIStore } from "@/stores/ui-store"
@@ -15,6 +15,7 @@ import { CommandCategory as CategorySection } from "./command-category"
 import { Breadcrumbs } from "./breadcrumbs"
 import { QuickActions } from "./quick-actions"
 import { TeamSelectorDialog } from "@/components/team-selector-dialog"
+import { useRecentWorkdirs, parseMachineWorkdir } from "@/hooks/use-recent-workdirs"
 import "./command-palette.css"
 
 export function CommandPalette() {
@@ -34,6 +35,8 @@ export function CommandPalette() {
   // Separate planning projects from playground sessions
   const projects = useMemo(() => allProjects.filter((p) => p.projectType !== 'playground'), [allProjects])
   const playgroundProjects = useMemo(() => allProjects.filter((p) => p.projectType === 'playground'), [allProjects])
+  // Recent machine:workdir combinations from playground history
+  const recentWorkdirs = useRecentWorkdirs()
   const { theme, setTheme, availableThemes } = useTheme()
   const navigate = useNavigate()
 
@@ -193,6 +196,19 @@ export function CommandPalette() {
           }))
         return { ...cmd, children: [...planChildren, ...playgroundChildren] }
       }
+      if (cmd.id === "action-playground-in") {
+        // Build nested children from recent workdirs
+        const workdirChildren: CommandItemType[] = recentWorkdirs.map((wd) => ({
+          id: `playground-in-${wd.machineId}-${encodeURIComponent(wd.workingDirectory)}`,
+          label: `${wd.machineName}:${wd.workingDirectory}`,
+          description: `Last used ${formatRelativeTime(wd.lastUsedAt)}${wd.useCount > 1 ? ` · ${wd.useCount} sessions` : ''}`,
+          icon: Terminal as React.ComponentType<{ className?: string }>,
+          category: "actions" as CommandCategory,
+          keywords: [wd.machineName, wd.workingDirectory, "playground", "workdir"],
+          action: () => navigate(`/playground?machine=${encodeURIComponent(wd.machineId)}&workdir=${encodeURIComponent(wd.workingDirectory)}`),
+        }))
+        return { ...cmd, children: workdirChildren }
+      }
       if (cmd.id === "action-new-initiative") {
         return { ...cmd, action: () => navigate("/initiatives") }
       }
@@ -213,7 +229,7 @@ export function CommandPalette() {
 
       return cmd
     })
-  }, [allCommands, navigate, theme, setTheme, availableThemes, projects, playgroundProjects])
+  }, [allCommands, navigate, theme, setTheme, availableThemes, projects, playgroundProjects, recentWorkdirs])
 
   // Get commands to display (either root commands or children of current breadcrumb)
   const displayCommands = useMemo(() => {
@@ -237,15 +253,37 @@ export function CommandPalette() {
     [displayCommands]
   )
 
+  // Detect if we're currently in the playground-in nested view
+  const isInPlaygroundIn = breadcrumbs.length > 0 &&
+    breadcrumbs[breadcrumbs.length - 1].id === 'action-playground-in'
+
   // Filter and search commands
   const filteredCommands = useMemo(() => {
+    // When in playground-in view, check if search looks like a machine:path direct input
+    const directInputItem: CommandItemType | null = (() => {
+      if (!isInPlaygroundIn || searchQuery.length < 3) return null
+      const parsed = parseMachineWorkdir(searchQuery)
+      if (!parsed || !parsed.machine || !parsed.path) return null
+      return {
+        id: 'playground-in-direct-input',
+        label: `Use ${parsed.machine}:${parsed.path}`,
+        description: 'Start playground with this machine:path',
+        icon: Terminal as React.ComponentType<{ className?: string }>,
+        category: 'actions' as CommandCategory,
+        keywords: ['playground', parsed.machine, parsed.path],
+        action: () => navigate(`/playground?machine=${encodeURIComponent(parsed.machine)}&workdir=${encodeURIComponent(parsed.path)}`),
+      }
+    })()
+
     if (searchQuery.length < 2) {
       // No search - show recent and all commands
       const recent = getRecentCommands(displayCommands, commandHistory)
-      return {
-        recent,
-        byCategory: groupByCategory(displayCommands),
+      const byCategory = groupByCategory(displayCommands)
+      // Inject direct-input item at front of actions when in playground-in view
+      if (directInputItem) {
+        byCategory['actions'] = [directInputItem, ...(byCategory['actions'] ?? [])]
       }
+      return { recent, byCategory }
     }
 
     // Fuzzy search
@@ -255,11 +293,14 @@ export function CommandPalette() {
       score: Math.round((1 - (r.score || 0)) * 100),
     }))
 
+    // Prepend direct-input item when search matches machine:path pattern
+    const searchItems = directInputItem ? [directInputItem, ...scored] : scored
+
     return {
       recent: [],
-      byCategory: { search: scored },
+      byCategory: { search: searchItems },
     }
-  }, [searchQuery, displayCommands, commandHistory, fuse])
+  }, [searchQuery, displayCommands, commandHistory, fuse, isInPlaygroundIn, navigate])
 
   // Flatten commands for virtualization
   const flatCommands = useMemo(() => {
@@ -460,9 +501,18 @@ export function CommandPalette() {
           {/* Header */}
           <div className="command-palette-header flex items-center gap-3 px-5 py-4">
             <Search className="h-4 w-4 text-muted-foreground shrink-0" />
-            <div className="flex-1">
+            <div className="flex-1 flex flex-col gap-1.5">
               {breadcrumbs.length > 0 ? (
-                <Breadcrumbs items={breadcrumbs} onNavigate={handleNavigateBack} />
+                <>
+                  <Breadcrumbs items={breadcrumbs} onNavigate={handleNavigateBack} />
+                  <input
+                    autoFocus
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder={isInPlaygroundIn ? "Filter or paste machine:path..." : "Filter..."}
+                    className="command-palette-search-input w-full bg-transparent outline-none"
+                  />
+                </>
               ) : (
                 <Command.Input
                   autoFocus
@@ -581,6 +631,23 @@ export function CommandPalette() {
       </div>
     </>
   )
+}
+
+/**
+ * Format an ISO date string as a relative time (e.g. "2 hours ago")
+ */
+function formatRelativeTime(isoDate: string): string {
+  const diff = Date.now() - new Date(isoDate).getTime()
+  const seconds = Math.floor(diff / 1000)
+  if (seconds < 60) return 'just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  const weeks = Math.floor(days / 7)
+  return `${weeks}w ago`
 }
 
 /**
