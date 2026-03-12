@@ -148,6 +148,7 @@ This project uses the \`daily-paper-analysis\` skill. The skill's SKILL.md conta
 - Digest structure and grouping rules
 - In-depth analysis document structure (9 sections)
 - Color palette, typography, box styles, SVG figure guidelines
+- Markdown output guidelines (Obsidian-compatible format, YAML frontmatter, callouts)
 - Compiled document assembly and PDF rendering
 
 **The SKILL.md is the single source of truth for all rendering and analysis details.**
@@ -176,10 +177,11 @@ Decompose into a DAG of tasks:
 - If keyword filter is set ({{filterKeywords}}), filter the in-depth selection to only papers whose title, abstract, or ai_keywords match at least one keyword. User-specified additional papers bypass this filter.
 
 ### Phase 2: Daily Digest (depends on Phase 1)
-- Generate a single HTML document summarizing ALL papers for the day
+- Generate the digest as both HTML (styled) and Markdown (Obsidian-compatible with YAML frontmatter)
+- Render the digest HTML to PDF via Chrome headless
 - Group by research area (inferred from ai_keywords)
 - Include: title, authors, upvotes, keywords, one-paragraph summary, key contribution, links
-- Use the color palette and box styles from the skill
+- Use the color palette and box styles from the skill (HTML) and Obsidian callouts (Markdown)
 - All output goes under \`{{workingDirectory}}/\`
 
 ### Phase 3: In-Depth Analyses (depends on Phase 1, parallel with Phase 2)
@@ -191,7 +193,7 @@ Decompose into a DAG of tasks:
     2. Use the paper abstract from the API
     3. Still attempt \`/abs/ID.md\` for full text (may be available even without overview)
     4. Note in the analysis: "AlphaXiv overview unavailable — analysis based on abstract and available sources"
-  - Generate in-depth analysis HTML with all 9 sections from the skill
+  - Generate in-depth analysis as both HTML and Markdown for each paper
   - Create SVG architecture/workflow figure(s)
   - Fill background context, explain prerequisites
 - Split into batches of ~5 papers per task for parallelism
@@ -199,8 +201,10 @@ Decompose into a DAG of tasks:
 
 ### Phase 4: Compilation & PDF (depends on Phases 2 and 3)
 - Assemble compiled HTML: cover page + TOC + digest + all in-depth analyses
-- Render to PDF via Chrome headless or puppeteer-core
-- Verify all links, figures, and formatting
+- Assemble compiled Markdown: single .md with all content (Obsidian-compatible)
+- Render compiled HTML and digest HTML to PDF via Chrome headless or puppeteer-core
+- **Dual output**: Every document has both .html and .md versions. PDFs rendered from HTML.
+- Verify all links, figures, and formatting in both HTML and Markdown
 - **Output directory**: All files must be written under \`{{workingDirectory}}/\` with the folder structure specified in the skill
 - **If running in a git worktree**: After all tasks complete, copy the entire output directory to \`{{workingDirectory}}/\` in the main repo. The user's working directory is the final destination.
 
@@ -260,24 +264,30 @@ Coverage: ~73% of HF daily papers have overviews.
 - box-red (#A86464): Critical limitations, warnings
 
 ## Deliverables
-1. **Daily Digest**: Single HTML — ALL papers grouped by area, ranked by upvotes
-2. **In-Depth Analyses**: Individual HTML per paper — 9-section structure with SVG figures
-3. **Compiled Document**: Combined HTML + PDF — cover, TOC, digest, all analyses
+Every document is produced as **both HTML and Markdown**. PDFs are rendered from the HTML versions.
+1. **Daily Digest**: HTML + MD + PDF — ALL papers grouped by area, ranked by upvotes
+2. **In-Depth Analyses**: HTML + MD per paper — 9-section structure with SVG figures
+3. **Compiled Document**: HTML + MD + PDF — cover, TOC, digest, all analyses
 
 ## Output Folder Structure
 All output goes under \`{{workingDirectory}}/\`:
 \`\`\`
 {{workingDirectory}}/
-  daily-digest-YYYY-MM-DD.html          # All-papers digest
+  daily-digest-YYYY-MM-DD.html          # All-papers digest (styled)
+  daily-digest-YYYY-MM-DD.md            # Digest in Markdown (Obsidian-ready)
+  daily-digest-YYYY-MM-DD.pdf           # Digest PDF
   papers/                                # Individual in-depth analyses
     01-paper-title-slug.html
+    01-paper-title-slug.md              # Markdown version (Obsidian)
     ...
     extra-01-title.html                  # User-specified extras
+    extra-01-title.md
   figures/                               # SVG architecture diagrams
     01-architecture.svg
     ...
   daily-papers-YYYY-MM-DD.html           # Compiled (cover+TOC+digest+analyses)
-  daily-papers-YYYY-MM-DD.pdf            # Final PDF
+  daily-papers-YYYY-MM-DD.md             # Compiled Markdown (Obsidian)
+  daily-papers-YYYY-MM-DD.pdf            # Final compiled PDF
   data/
     daily-papers.json                    # Raw API response
     paper-metadata.md                    # Rankings & resolution notes
@@ -305,21 +315,26 @@ Additional papers may or may not be in the daily papers list.
   outputFormat: {
     type: 'free',
     description:
-      'Structured output directory rooted at the user-specified working directory. Contains digest, individual analyses, compiled document, PDF, and raw data.',
+      'Dual HTML+Markdown output with PDFs. Markdown files are Obsidian-compatible with YAML frontmatter. PDFs rendered from styled HTML.',
     example: `{{workingDirectory}}/
-  daily-digest-YYYY-MM-DD.html                # Digest of ALL papers (grouped by area)
+  daily-digest-YYYY-MM-DD.html                # Digest (styled HTML)
+  daily-digest-YYYY-MM-DD.md                  # Digest (Obsidian-ready Markdown)
+  daily-digest-YYYY-MM-DD.pdf                 # Digest PDF
   papers/
-    01-paper-title-slug.html                  # In-depth analysis (ranked by upvotes)
+    01-paper-title-slug.html                  # In-depth analysis (styled HTML)
+    01-paper-title-slug.md                    # In-depth analysis (Markdown)
     02-paper-title-slug.html
+    02-paper-title-slug.md
     ...
-    10-paper-title-slug.html
-    extra-01-user-requested-title.html        # User-specified paper (if any)
+    extra-01-user-requested-title.html        # User-specified paper
+    extra-01-user-requested-title.md
   figures/
     01-architecture.svg                       # SVG figures for each in-depth paper
     02-workflow.svg
     ...
-  daily-papers-YYYY-MM-DD.html                # Compiled document (cover + TOC + digest + all analyses)
-  daily-papers-YYYY-MM-DD.pdf                 # Final PDF rendered from compiled HTML
+  daily-papers-YYYY-MM-DD.html                # Compiled document (HTML)
+  daily-papers-YYYY-MM-DD.md                  # Compiled document (Markdown)
+  daily-papers-YYYY-MM-DD.pdf                 # Final compiled PDF
   data/
     daily-papers.json                         # Raw HF API response
     paper-metadata.md                         # Parsed metadata, rankings, resolution notes`,

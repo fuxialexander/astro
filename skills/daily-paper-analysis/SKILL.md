@@ -11,8 +11,10 @@ allowedTools: [Read, Write, Edit, Glob, Grep, Bash]
 
 You are a senior research analyst producing two deliverables from HuggingFace Daily Papers:
 
-1. **Daily Digest** — A single HTML document summarizing ALL papers for the selected date
-2. **In-Depth Analyses** — Individual HTML documents for top-N papers (by upvotes), with thorough technical analysis, architecture figures, and background context
+1. **Daily Digest** — Summarizing ALL papers for the selected date
+2. **In-Depth Analyses** — Individual documents for top-N papers (by upvotes), with thorough technical analysis, architecture figures, and background context
+
+**Dual output format**: Every document is produced as both **styled HTML** (for PDF rendering and web viewing) and **Markdown** (Obsidian-compatible, with YAML frontmatter). PDFs are rendered from the HTML versions via Chrome headless.
 
 All deliverables use the same low-saturation color palette and Palatino typography as the academic-presentation skill.
 
@@ -32,31 +34,30 @@ Task 1: Data Retrieval & Validation
   -> If no papers exist: report to user and STOP
 
 Task 2: Daily Digest Generation
-  -> Output: daily-digest-YYYY-MM-DD.html
+  -> Output: daily-digest-YYYY-MM-DD.{html,md,pdf}
   -> Depends on: Task 1
-  -> Summarize ALL papers in a single document
+  -> Summarize ALL papers (HTML + Markdown + PDF)
 
 Task 3: In-Depth Analysis — Papers 1-5
-  -> Output: papers/01-paper-title-slug.html through 05-paper-title-slug.html
+  -> Output: papers/01-paper-title-slug.{html,md} through 05-paper-title-slug.{html,md}
   -> Depends on: Task 1
   -> Fetch AlphaXiv overview + LaTeX source for each paper
-  -> Generate architecture figures, fill background context
+  -> Generate architecture figures, produce HTML + Markdown per paper
 
 Task 4: In-Depth Analysis — Papers 6-10
-  -> Output: papers/06-paper-title-slug.html through 10-paper-title-slug.html
+  -> Output: papers/06-paper-title-slug.{html,md} through 10-paper-title-slug.{html,md}
   -> Depends on: Task 1 (can run in parallel with Task 3)
 
 Task 5: Additional Papers (if user-specified papers exist)
-  -> Output: papers/extra-01-title.html, ...
+  -> Output: papers/extra-01-title.{html,md}, ...
   -> Depends on: Task 1
   -> Resolve user-specified links/titles, check if in daily papers
   -> Analyze regardless of origin
 
 Task 6: Compilation & PDF Assembly
-  -> Output: daily-papers-YYYY-MM-DD.html (compiled), daily-papers-YYYY-MM-DD.pdf
+  -> Output: daily-papers-YYYY-MM-DD.{html,md,pdf}
   -> Depends on: Tasks 2, 3, 4, 5
-  -> Combine digest + all in-depth analyses into one compiled document
-  -> Render PDF via Playwright/Chrome headless
+  -> Combine all content into compiled HTML, Markdown, and PDF
 
 Milestone: Analysis Complete
   -> Depends on: Task 6
@@ -141,7 +142,10 @@ After resolving, determine:
 
 ## 2. Daily Digest — All Papers Summary
 
-The digest is a single HTML document summarizing every paper from the day. It serves as a quick-scan reference.
+The digest summarizes every paper from the day. It serves as a quick-scan reference. Produce as:
+- **HTML**: Styled with color palette and box styles (self-contained CSS)
+- **Markdown**: Obsidian-compatible with YAML frontmatter (date, paper count, tags)
+- **PDF**: Rendered from the HTML via Chrome headless
 
 ### 2.1 Digest Structure
 
@@ -171,7 +175,7 @@ Within each group, sort by upvotes descending. Show the group count in the secti
 
 ## 3. In-Depth Paper Analysis
 
-Each in-depth analysis is a standalone HTML document. The agent must go significantly beyond a simple summary.
+Each in-depth analysis is produced as both a standalone **HTML** document and a standalone **Markdown** file. The agent must go significantly beyond a simple summary.
 
 ### 3.1 Analysis Pipeline Per Paper
 
@@ -467,7 +471,10 @@ Generate SVG architecture/workflow diagrams for each in-depth paper. These figur
 
 ## 6. Compiled Document
 
-After all individual analyses are complete, assemble a single compiled HTML document:
+After all individual analyses are complete, assemble the compiled document in three formats:
+- **HTML**: Styled document with cover, TOC, digest, and all analyses (self-contained CSS)
+- **Markdown**: Single .md combining all content (Obsidian-compatible with YAML frontmatter)
+- **PDF**: Rendered from the compiled HTML via Chrome headless
 
 ### 6.1 Compiled Structure
 
@@ -528,7 +535,59 @@ const path = require('path');
 
 ---
 
-## 7. Quality Checklist
+## 7. Markdown Output Guidelines
+
+All Markdown files must be **Obsidian-compatible**:
+
+### 7.1 YAML Frontmatter
+
+Every .md file must start with YAML frontmatter:
+
+\`\`\`yaml
+---
+title: "Paper Title or Digest Title"
+date: YYYY-MM-DD
+type: digest | analysis | compiled
+tags: [daily-papers, YYYY-MM-DD, research-area]
+papers: 42                    # total paper count (digest/compiled only)
+rank: 3                       # paper rank by upvotes (analysis only)
+arxiv: "2501.12345"           # arXiv ID (analysis only)
+---
+\`\`\`
+
+### 7.2 Markdown Conventions
+
+- Use standard Markdown headers (\`#\`, \`##\`, \`###\`) matching the HTML section structure
+- Inline math: \`$equation$\`, display math: \`$$equation$$\` (Obsidian renders both)
+- Reference SVG figures with relative paths: \`![Architecture](../figures/01-architecture.svg)\`
+- Use Obsidian wikilinks for cross-references between papers: \`[[01-paper-title-slug|Paper Title]]\`
+- Tables use standard Markdown pipe syntax
+- Callout boxes use Obsidian callout syntax:
+  \`\`\`markdown
+  > [!abstract] TL;DR
+  > Summary text here
+
+  > [!info] Background & Prerequisites
+  > Technical context here
+
+  > [!success] Key Results
+  > Results text here
+
+  > [!warning] Limitations
+  > Limitations text here
+  \`\`\`
+- Links: \`[arXiv](https://arxiv.org/abs/ID)\`, \`[PDF](https://arxiv.org/pdf/ID)\`, \`[GitHub](url)\`
+
+### 7.3 File Naming
+
+Markdown files use the same base name as their HTML counterparts:
+- \`daily-digest-YYYY-MM-DD.html\` -> \`daily-digest-YYYY-MM-DD.md\`
+- \`papers/01-paper-title-slug.html\` -> \`papers/01-paper-title-slug.md\`
+- \`daily-papers-YYYY-MM-DD.html\` -> \`daily-papers-YYYY-MM-DD.md\`
+
+---
+
+## 8. Quality Checklist
 
 - [ ] Date validated — API returns non-empty array before proceeding
 - [ ] All papers from the API are included in the digest (none missing)
@@ -540,7 +599,13 @@ const path = require('path');
 - [ ] Background/prerequisites section fills knowledge gaps for each paper
 - [ ] All HTML documents are self-contained with embedded CSS
 - [ ] Color palette matches specification (low-saturation, Palatino font)
-- [ ] KaTeX included in pages with equations
+- [ ] KaTeX included in HTML pages with equations
+- [ ] Every HTML document has a corresponding .md file with same base name
+- [ ] All .md files have valid YAML frontmatter (title, date, type, tags)
+- [ ] Markdown uses Obsidian callout syntax for colored boxes
+- [ ] Markdown uses Obsidian wikilinks for cross-paper references
+- [ ] SVG figure paths in Markdown are correct relative paths
+- [ ] Digest PDF renders cleanly (daily-digest-YYYY-MM-DD.pdf)
+- [ ] Compiled PDF renders cleanly (daily-papers-YYYY-MM-DD.pdf)
 - [ ] Compiled document has working table of contents
-- [ ] PDF renders cleanly without clipping or overflow
-- [ ] All arXiv, GitHub, and HuggingFace links are correct and working
+- [ ] All arXiv, GitHub, and HuggingFace links are correct in both HTML and MD
