@@ -813,21 +813,22 @@
 // CONFIG
 // =====================================================================
 const SCENE_COUNT = 7;
-const SCENE_DURATION = 12000;
+const SCENE_DURATIONS = [10000, 12000, 14000, 14000, 16000, 10000, 8000];
 let currentScene = 0;
 let sceneTimelines = [];
 let transitioning = false;
 let autoAdvance = true;
 let voiceoverEnabled = false;
+let autoAdvanceTimer = null;
 
 const VO_SCRIPT = [
-  "One agent. One chat. One task at a time. There's a better way.",
-  "Astro. Mission control for the AI age. Describe once, walk away. Multiple agents, any machine. One dashboard. Decide from anywhere.",
-  "Describe your goal. Astro generates a structured plan with dependencies, parallel paths, and milestones.",
-  "The plan is a directed graph. Tasks that can run in parallel do. Dependencies are explicit.",
-  "Any agent executes the task. Watch the activity stream in real time: tool calls, file changes, progress.",
-  "One timeline. All tasks. See what's running, what's done, and what needs your attention.",
-  "Astro. Mission control for the AI age.",
+  "One agent. One chat. One task at a time. You're stuck — waiting, steering, copy-pasting. The ceiling isn't capability. It's coordination. There's a better way.",
+  "Astro. Mission control for the AI age. Describe your goal once. Run multiple agents on any machine. Approve and steer from anywhere — browser, phone, or Telegram.",
+  "Start with a goal. Astro's AI breaks it into a structured plan — tasks, dependencies, milestones. Not a to-do list. A graph.",
+  "The plan is a directed graph. Tasks that can run in parallel do. When they converge, the next phase begins. Dependencies are explicit.",
+  "Watch a task run. The activity feed streams in real time — tool calls, file changes, code diffs. The agent works autonomously. You watch, or you walk away.",
+  "One timeline. All tasks. See what's done, what's running, what's planned. No switching between terminals. One dashboard for everything.",
+  "Astro. Mission control for the AI age. Try it now.",
 ];
 
 // =====================================================================
@@ -867,6 +868,7 @@ function goToScene(idx) {
         onComplete: () => {
           transitioning = false;
           playScene(currentScene);
+          scheduleNextScene();
         }
       });
       updateNavDots();
@@ -1374,12 +1376,18 @@ function playScene(idx) {
   if (VO_SCRIPT[idx]) speakText(VO_SCRIPT[idx]);
 }
 
-function start() {
-  playScene(0);
-  setInterval(() => {
+function scheduleNextScene() {
+  if (autoAdvanceTimer) clearTimeout(autoAdvanceTimer);
+  if (!autoAdvance) return;
+  autoAdvanceTimer = setTimeout(() => {
     if (!autoAdvance) return;
     goToScene((currentScene + 1) % SCENE_COUNT);
-  }, SCENE_DURATION);
+  }, SCENE_DURATIONS[currentScene]);
+}
+
+function start() {
+  playScene(0);
+  scheduleNextScene();
 }
 
 if ('speechSynthesis' in window) {

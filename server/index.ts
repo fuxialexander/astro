@@ -21,6 +21,7 @@ import { dataRoute } from './routes/data.js'
 import { notificationsRoute } from './routes/notifications.js'
 import githubRoute from './routes/github.js'
 import githubAppRoute from './routes/github-app.js'
+import githubAppWebhookRoute from './routes/github-app-webhook.js'
 import githubPrRoute from './routes/github-pr-data.js'
 import { wellKnownRoute } from './routes/well-known.js'
 import { docsRoute } from './routes/docs.js'
@@ -238,6 +239,7 @@ export function createApp() {
     app.route('/api/notifications', notificationsRoute)
     app.route('/api/github', githubRoute)
     app.route('/api/github-app', githubAppRoute)
+    app.route('/api/github-app', githubAppWebhookRoute)
     app.route('/api/github/pr', githubPrRoute)
     app.route('/api/share', shareRoute)
   }
