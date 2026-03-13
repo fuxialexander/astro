@@ -685,6 +685,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                   events={block.events}
                   isStreaming={isStreaming && isLastBlock}
                   preprocessContent={preprocessTextContent}
+                  onSendPrompt={sendMessage}
                   onLinkClick={(href) => {
                     const match = href.match(/^astro:node:(.+)$/)
                     if (match) {
@@ -712,6 +713,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                   key={i}
                   event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_assistant' }>}
                   isStreaming={isStreaming && isLastBlock}
+                  onSendPrompt={sendMessage}
                   onLinkClick={(href) => {
                     const match = href.match(/^astro:node:(.+)$/)
                     if (match) {
