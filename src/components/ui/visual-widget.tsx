@@ -10,6 +10,8 @@ export interface VisualWidgetProps {
   onSendPrompt?: (text: string) => void
   /** Additional CSS class names */
   className?: string
+  /** Additional inline styles */
+  style?: React.CSSProperties
 }
 
 /**
@@ -140,6 +142,7 @@ export function VisualWidget({
   isStreaming = false,
   onSendPrompt,
   className,
+  style,
 }: VisualWidgetProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
@@ -232,7 +235,7 @@ export function VisualWidget({
       src={blobUrl}
       sandbox="allow-scripts"
       className={cn("w-full border-0", className)}
-      style={{ height: `${iframeHeight}px` }}
+      style={{ height: `${iframeHeight}px`, ...style }}
       title="Visual widget"
     />
   )

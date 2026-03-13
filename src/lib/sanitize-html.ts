@@ -7,15 +7,9 @@
 export function sanitizeHtml(html: string): string {
   const doc = new DOMParser().parseFromString(html, 'text/html')
 
-  // Remove dangerous elements (preserve visualise iframes)
+  // Remove dangerous elements
   const dangerousTags = doc.querySelectorAll('script, iframe, object, embed, form, base, meta, link, style')
-  dangerousTags.forEach((el) => {
-    // Preserve iframes marked as visualise embeds
-    if (el.tagName === 'IFRAME' && el.getAttribute('data-visualise') === 'true') {
-      return
-    }
-    el.remove()
-  })
+  dangerousTags.forEach((el) => el.remove())
 
   // Remove event handlers and dangerous attributes from all elements
   const allElements = doc.body.querySelectorAll('*')
