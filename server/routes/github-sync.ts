@@ -12,6 +12,12 @@ import { db } from '../lib/db/index.js';
 import { projects, planNodes, planEdges, githubSyncLog } from '../lib/db/schema.js';
 import { eq, and, or, isNotNull, inArray, gte, desc, count } from 'drizzle-orm';
 import { marked } from 'marked';
+import {
+  getLinkedNodeIdsForProject,
+  getRepoCacheSnapshot,
+  getWorkspaceGitHubSummary,
+  syncGitHubRepoCache,
+} from '../lib/github-repo-cache.js';
 
 /** Convert GitHub issue body (markdown) to HTML for the tiptap `content` field. */
 function githubMarkdownToHtml(body: string | null | undefined): string | null {
@@ -380,6 +386,7 @@ app.post('/projects', async (c) => {
 
   // Trigger initial issue sync — prefer installation token over user OAuth
   let syncStats = { created: 0, updated: 0, total: 0 };
+  let cacheStats: { issueCount: number; prCount: number; syncedAt: string } | null = null;
   try {
     const tokenResult = await resolveGitHubToken(owner, repo, user.id, user.teamId ?? null);
     const syncToken = tokenResult?.token ?? connection.accessToken;
@@ -387,11 +394,12 @@ app.post('/projects', async (c) => {
       console.log(`[github] Issue sync using ${tokenResult.type} token (${tokenResult.source}) for ${owner}/${repo}`);
     }
     syncStats = await syncIssuesForProject(projectId, owner, repo, syncToken);
+    cacheStats = await syncGitHubRepoCache(project, user.id, user.teamId ?? null);
   } catch (err) {
     console.error(`[github] Initial issue sync failed for ${owner}/${repo}:`, err);
   }
 
-  return c.json({ project, sync: syncStats }, 201);
+  return c.json({ project, sync: syncStats, repoCache: cacheStats }, 201);
 });
 
 /**
@@ -448,7 +456,8 @@ app.post('/projects/:projectId/sync-issues', async (c) => {
       project.githubRepo,
       tokenResult.token,
     );
-    return c.json(stats);
+    const repoCache = await syncGitHubRepoCache(project, user.id, user.teamId ?? null);
+    return c.json({ ...stats, repoCache });
   } catch (err) {
     console.error(`[github] Issue sync failed for ${project.githubOwner}/${project.githubRepo}:`, err);
     return c.json({ error: 'Failed to sync issues' }, 500);
@@ -501,6 +510,133 @@ app.get('/projects', async (c) => {
     ));
 
   return c.json({ projects: rows });
+});
+
+// ── Repo Cache & Workspace Endpoints ─────────────────────────────────
+
+/**
+ * POST /api/github/projects/:projectId/repo-cache/sync
+ * Refresh the repo explorer cache (issues + PRs) for a GitHub-linked project.
+ */
+app.post('/projects/:projectId/repo-cache/sync', async (c) => {
+  const user = c.get('user') as AuthUser;
+  const projectId = c.req.param('projectId');
+
+  const [project] = await db.select()
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId)))
+    .limit(1);
+
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
+  }
+
+  if (project.projectType !== 'github') {
+    return c.json({ error: 'Project is not a GitHub-linked project' }, 400);
+  }
+
+  try {
+    const repoCache = await syncGitHubRepoCache(project, user.id, user.teamId ?? null);
+    return c.json({ success: true, repoCache });
+  } catch (error) {
+    console.error(`[github] Repo cache sync failed for ${project.githubOwner}/${project.githubRepo}:`, error);
+    return c.json({ error: error instanceof Error ? error.message : 'Failed to sync repo cache' }, 500);
+  }
+});
+
+/**
+ * GET /api/github/projects/:projectId/repo-cache
+ * Return cached issues + PRs for the repo explorer tab.
+ */
+app.get('/projects/:projectId/repo-cache', async (c) => {
+  const user = c.get('user') as AuthUser;
+  const projectId = c.req.param('projectId');
+
+  const [project] = await db.select()
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId)))
+    .limit(1);
+
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
+  }
+
+  if (project.projectType !== 'github') {
+    return c.json({ error: 'Project is not a GitHub-linked project' }, 400);
+  }
+
+  const [snapshot, linkedNodeIds] = await Promise.all([
+    getRepoCacheSnapshot(projectId),
+    getLinkedNodeIdsForProject(projectId),
+  ]);
+
+  return c.json({
+    ...snapshot,
+    repo: `${project.githubOwner}/${project.githubRepo}`,
+    linkedNodeIds,
+  });
+});
+
+/**
+ * GET /api/github/projects/:projectId/pr/:prNumber/files
+ * Fetch the changed files (with patch diffs) for a pull request.
+ */
+app.get('/projects/:projectId/pr/:prNumber/files', async (c) => {
+  const user = c.get('user') as AuthUser;
+  const projectId = c.req.param('projectId');
+  const prNumber = Number(c.req.param('prNumber'));
+
+  if (!Number.isFinite(prNumber) || prNumber <= 0) {
+    return c.json({ error: 'Invalid PR number' }, 400);
+  }
+
+  const [project] = await db.select()
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId)))
+    .limit(1);
+
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
+  }
+
+  if (project.projectType !== 'github' || !project.githubOwner || !project.githubRepo) {
+    return c.json({ error: 'Project is not a GitHub-linked project' }, 400);
+  }
+
+  const tokenResult = await resolveGitHubToken(
+    project.githubOwner,
+    project.githubRepo,
+    user.id,
+    user.teamId ?? null,
+  );
+
+  if (!tokenResult) {
+    return c.json({ error: 'No GitHub token available' }, 401);
+  }
+
+  try {
+    const { getPrFiles } = await import('../lib/github-repo-cache.js');
+    const files = await getPrFiles(tokenResult.token, project.githubOwner, project.githubRepo, prNumber);
+    return c.json({ files });
+  } catch (err) {
+    console.error(`[github] PR files fetch failed for ${project.githubOwner}/${project.githubRepo}#${prNumber}:`, err);
+    return c.json({ error: 'Failed to fetch PR files' }, 500);
+  }
+});
+
+/**
+ * GET /api/github/workspace/summary
+ * Aggregate repo explorer health across all GitHub-linked projects in the team.
+ */
+app.get('/workspace/summary', async (c) => {
+  const user = c.get('user') as AuthUser;
+
+  const githubProjects = await db.select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.projectType, 'github'), eq(projects.teamId, user.teamId)));
+
+  const summary = await getWorkspaceGitHubSummary(githubProjects.map((project) => project.id));
+  return c.json(summary);
 });
 
 // ── Issue creation, linking, and search endpoints ─────────────────────

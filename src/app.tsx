@@ -51,6 +51,7 @@ import { Environments } from "@/pages/environments"
 import { MyTasks } from "@/pages/my-tasks"
 import { Workflows } from "@/pages/workflows"
 import { ActiveTasks } from "@/pages/active-tasks"
+import { Workspace } from "@/pages/workspace"
 import { TeamInvite } from "@/pages/team-invite"
 import { ProjectNewPlan } from "@/pages/project-new-plan"
 import { Playground } from "@/pages/playground"
@@ -340,6 +341,7 @@ export default function App() {
               <Route element={<AuthGuard><ResponsiveLayout /></AuthGuard>}>
                 <Route path="welcome" element={<ProjectNewPlan />} />
                 <Route path="dashboard" element={<Dashboard />} />
+                <Route path="workspace" element={<Workspace />} />
                 <Route path="projects" element={<Projects />} />
                 <Route path="plan" element={<ProjectNewPlan />} />
                 <Route path="projects/new" element={<Navigate to="/projects" replace />} />
@@ -351,6 +353,7 @@ export default function App() {
                 <Route path="project/:id/board" element={<PlanView />} />
                 <Route path="project/:id/overview" element={<PlanView />} />
                 <Route path="project/:id/knowledge" element={<PlanView />} />
+                <Route path="project/:id/repo" element={<PlanView />} />
                 <Route path="project/:id/task/:nodeId" element={<TaskDetail />} />
                 <Route path="initiatives" element={<Initiatives />} />
                 <Route path="tasks" element={<MyTasks />} />

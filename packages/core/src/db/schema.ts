@@ -995,6 +995,60 @@ export const scheduleRuns = pgTable('schedule_runs', {
   check('schedule_runs_status_check', sql`${table.status} IN ('pending', 'dispatched', 'running', 'success', 'failure', 'missed')`),
 ])
 
+// ── GitHub Repo Explorer Cache ───────────────────────────────────
+export const githubIssueCache = pgTable('github_issue_cache', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  issueNumber: integer('issue_number').notNull(),
+  title: text('title').notNull(),
+  body: text('body'),
+  state: text('state').notNull(),
+  url: text('url').notNull(),
+  authorLogin: text('author_login'),
+  labels: jsonb('labels').$type<Array<{ name: string; color?: string }>>().notNull().default([]),
+  assignees: jsonb('assignees').$type<Array<{ login: string }>>().notNull().default([]),
+  commentsCount: integer('comments_count').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }),
+  closedAt: timestamp('closed_at', { withTimezone: true }),
+  cachedAt: timestamp('cached_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('github_issue_cache_project_issue_idx').on(table.projectId, table.issueNumber),
+  index('github_issue_cache_project_state_idx').on(table.projectId, table.state),
+  index('github_issue_cache_project_updated_idx').on(table.projectId, table.updatedAt),
+])
+
+export const githubPrCache = pgTable('github_pr_cache', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  prNumber: integer('pr_number').notNull(),
+  title: text('title').notNull(),
+  body: text('body'),
+  state: text('state').notNull(),
+  url: text('url').notNull(),
+  authorLogin: text('author_login'),
+  headBranch: text('head_branch'),
+  baseBranch: text('base_branch'),
+  labels: jsonb('labels').$type<Array<{ name: string; color?: string }>>().notNull().default([]),
+  ciStatus: text('ci_status'),
+  reviewDecision: text('review_decision'),
+  mergeableState: text('mergeable_state'),
+  additions: integer('additions').notNull().default(0),
+  deletions: integer('deletions').notNull().default(0),
+  changedFiles: integer('changed_files').notNull().default(0),
+  commentsCount: integer('comments_count').notNull().default(0),
+  draft: boolean('draft').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }),
+  mergedAt: timestamp('merged_at', { withTimezone: true }),
+  closedAt: timestamp('closed_at', { withTimezone: true }),
+  cachedAt: timestamp('cached_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('github_pr_cache_project_pr_idx').on(table.projectId, table.prNumber),
+  index('github_pr_cache_project_state_idx').on(table.projectId, table.state),
+  index('github_pr_cache_project_review_idx').on(table.projectId, table.reviewDecision),
+])
+
 // ── GitHub Sync Log ──────────────────────────────────────────────
 // Audit log for all GitHub sync operations (both directions).
 // Used by the sync health dashboard for monitoring and retry.
