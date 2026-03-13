@@ -297,7 +297,7 @@ export function ToolStatusIcon({ icon }: { icon: 'spinner' | 'check' | 'x' | 'ch
 
 // ─── Block Components ───────────────────────────────────────────────
 
-export function TextBlock({ events, isStreaming, onLinkClick, preprocessContent }: { events: TaskActivityEvent[]; isStreaming?: boolean; onLinkClick?: (href: string, e: React.MouseEvent) => boolean | void; preprocessContent?: (text: string) => string }) {
+export function TextBlock({ events, isStreaming, onLinkClick, onSendPrompt, preprocessContent }: { events: TaskActivityEvent[]; isStreaming?: boolean; onLinkClick?: (href: string, e: React.MouseEvent) => boolean | void; onSendPrompt?: (text: string) => void; preprocessContent?: (text: string) => string }) {
   let text = events
     .filter((e): e is Extract<TaskActivityEvent, { type: 'text' }> => e.type === 'text')
     .map(e => e.content)
@@ -308,7 +308,7 @@ export function TextBlock({ events, isStreaming, onLinkClick, preprocessContent 
 
   return (
     <div className="px-4 py-1">
-      <StreamingMarkdown content={text} isStreaming={isStreaming} className="text-xs leading-relaxed" onLinkClick={onLinkClick} />
+      <StreamingMarkdown content={text} isStreaming={isStreaming} className="text-xs leading-relaxed" onLinkClick={onLinkClick} onSendPrompt={onSendPrompt} />
     </div>
   )
 }
@@ -640,12 +640,12 @@ export function ChatUserBlock({ event, onEdit }: { event: Extract<TaskActivityEv
   )
 }
 
-export function ChatAssistantBlock({ event, isStreaming, onLinkClick }: { event: Extract<TaskActivityEvent, { type: 'chat_assistant' }>; isStreaming?: boolean; onLinkClick?: (href: string, e: React.MouseEvent) => boolean | void }) {
+export function ChatAssistantBlock({ event, isStreaming, onLinkClick, onSendPrompt }: { event: Extract<TaskActivityEvent, { type: 'chat_assistant' }>; isStreaming?: boolean; onLinkClick?: (href: string, e: React.MouseEvent) => boolean | void; onSendPrompt?: (text: string) => void }) {
   return (
     <div className="flex flex-col items-start gap-1 px-4 py-1.5">
       <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Claude</span>
       <div className="rounded-lg bg-muted px-3 py-2 text-sm text-foreground max-w-[90%]">
-        <StreamingMarkdown content={event.content} isStreaming={isStreaming} className="text-xs leading-relaxed" onLinkClick={onLinkClick} />
+        <StreamingMarkdown content={event.content} isStreaming={isStreaming} className="text-xs leading-relaxed" onLinkClick={onLinkClick} onSendPrompt={onSendPrompt} />
       </div>
     </div>
   )
