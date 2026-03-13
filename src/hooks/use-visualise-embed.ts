@@ -1,47 +1,42 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
-interface VisualiseEmbedState {
-  isFullscreen: boolean
-  isCopied: boolean
-  isLoaded: boolean
-}
-
 /**
  * Manages the embed lifecycle: loading state, fullscreen toggle, copy action.
  */
 export function useVisualiseEmbed(html: string) {
-  const [state, setState] = useState<VisualiseEmbedState>({
-    isFullscreen: false,
-    isCopied: false,
-    isLoaded: false,
-  })
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isCopied, setIsCopied] = useState(false)
+  // Track which html content has finished "loading" — when it doesn't match
+  // the current html, the skeleton shows. This avoids calling setState
+  // directly in an effect to reset isLoaded.
+  const [loadedHtml, setLoadedHtml] = useState<string | null>(null)
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Mark as loaded once we have html content
+  const isLoaded = loadedHtml === html
+
+  // Mark as loaded after a small delay to let the iframe initialize
   useEffect(() => {
-    if (html && !state.isLoaded) {
-      // Small delay to let the iframe initialize
-      const timer = setTimeout(() => {
-        setState((s) => ({ ...s, isLoaded: true }))
-      }, 150)
-      return () => clearTimeout(timer)
-    }
-  }, [html, state.isLoaded])
+    if (!html || isLoaded) return
+    const timer = setTimeout(() => {
+      setLoadedHtml(html)
+    }, 150)
+    return () => clearTimeout(timer)
+  }, [html, isLoaded])
 
   const toggleFullscreen = useCallback(() => {
-    setState((s) => ({ ...s, isFullscreen: !s.isFullscreen }))
+    setIsFullscreen((v) => !v)
   }, [])
 
   const closeFullscreen = useCallback(() => {
-    setState((s) => ({ ...s, isFullscreen: false }))
+    setIsFullscreen(false)
   }, [])
 
   const copySource = useCallback(() => {
     navigator.clipboard.writeText(html).then(() => {
-      setState((s) => ({ ...s, isCopied: true }))
+      setIsCopied(true)
       if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
       copyTimeoutRef.current = setTimeout(() => {
-        setState((s) => ({ ...s, isCopied: false }))
+        setIsCopied(false)
       }, 2000)
     })
   }, [html])
@@ -53,5 +48,5 @@ export function useVisualiseEmbed(html: string) {
     }
   }, [])
 
-  return { ...state, toggleFullscreen, closeFullscreen, copySource }
+  return { isFullscreen, isCopied, isLoaded, toggleFullscreen, closeFullscreen, copySource }
 }

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
 
+/** Maximum iframe height in pixels to prevent layout abuse */
+const MAX_IFRAME_HEIGHT = 8000
+
 export interface VisualWidgetProps {
   /** Raw HTML/SVG/JS content from the visualizer code fence */
   code: string
@@ -8,6 +11,8 @@ export interface VisualWidgetProps {
   isStreaming?: boolean
   /** Callback when the iframe sends a sendPrompt message */
   onSendPrompt?: (text: string) => void
+  /** Callback when the iframe sends an openLink message. Defaults to window.open. */
+  onOpenLink?: (url: string) => void
   /** Additional CSS class names */
   className?: string
   /** Additional inline styles */
@@ -141,6 +146,7 @@ export function VisualWidget({
   code,
   isStreaming = false,
   onSendPrompt,
+  onOpenLink,
   className,
   style,
 }: VisualWidgetProps) {
@@ -196,15 +202,19 @@ export function VisualWidget({
     }
   }, [])
 
-  // Listen for postMessage events from the iframe
+  // Listen for postMessage events from the iframe.
+  // Only accept messages from our own iframe's contentWindow to prevent
+  // spoofing from other iframes or cross-origin scripts.
   const handleMessage = useCallback(
     (event: MessageEvent) => {
+      // Validate message source matches our iframe
+      if (!iframeRef.current || event.source !== iframeRef.current.contentWindow) return
       if (!event.data || typeof event.data !== "object") return
 
       switch (event.data.type) {
         case "visualise:resize":
           if (typeof event.data.height === "number" && event.data.height > 0) {
-            setIframeHeight(event.data.height)
+            setIframeHeight(Math.min(event.data.height, MAX_IFRAME_HEIGHT))
           }
           break
         case "visualise:sendPrompt":
@@ -214,12 +224,20 @@ export function VisualWidget({
           break
         case "visualise:openLink":
           if (typeof event.data.url === "string") {
-            window.open(event.data.url, "_blank", "noopener,noreferrer")
+            const url = event.data.url
+            // Only allow http(s) URLs to prevent javascript: / data: attacks
+            if (url.startsWith("https://") || url.startsWith("http://")) {
+              if (onOpenLink) {
+                onOpenLink(url)
+              } else {
+                window.open(url, "_blank", "noopener,noreferrer")
+              }
+            }
           }
           break
       }
     },
-    [onSendPrompt]
+    [onSendPrompt, onOpenLink]
   )
 
   useEffect(() => {

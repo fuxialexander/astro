@@ -1,4 +1,4 @@
-import { Component, useCallback, useEffect, useState, type ReactNode } from "react"
+import { Component, useCallback, useState, type ReactNode } from "react"
 import { Maximize2, Minimize2, Copy, Check, AlertTriangle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { VisualWidget } from "./visual-widget"
@@ -169,35 +169,12 @@ export function VisualiseEmbed({
     copySource,
   } = useVisualiseEmbed(html)
 
-  // Wire up openLink: use custom callback or default window.open
   const handleSendPrompt = useCallback(
     (text: string) => {
       onSendPrompt?.(text)
     },
     [onSendPrompt]
   )
-
-  // Intercept openLink messages from VisualWidget
-  // VisualWidget already handles openLink via window.open, but if a custom
-  // onOpenLink is provided we need to override. We do this by listening to
-  // postMessage ourselves.
-  useEffect(() => {
-    if (!onOpenLink) return
-
-    function handleMessage(event: MessageEvent) {
-      if (
-        event.data &&
-        typeof event.data === "object" &&
-        event.data.type === "visualise:openLink" &&
-        typeof event.data.url === "string"
-      ) {
-        onOpenLink!(event.data.url)
-      }
-    }
-
-    window.addEventListener("message", handleMessage)
-    return () => window.removeEventListener("message", handleMessage)
-  }, [onOpenLink])
 
   if (!html) return null
 
@@ -206,6 +183,7 @@ export function VisualiseEmbed({
       code={html}
       isStreaming={false}
       onSendPrompt={handleSendPrompt}
+      onOpenLink={onOpenLink}
       className={cn("rounded-b-lg border")}
       style={!isFullscreen ? { maxHeight: `${maxHeight}px` } : undefined}
     />
@@ -269,6 +247,7 @@ export function VisualiseEmbed({
                 code={html}
                 isStreaming={false}
                 onSendPrompt={handleSendPrompt}
+                onOpenLink={onOpenLink}
                 className="h-full min-h-[80vh]"
               />
             </VisualiseErrorBoundary>
