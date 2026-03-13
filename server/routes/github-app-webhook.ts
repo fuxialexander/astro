@@ -17,6 +17,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { channelRouter } from '../lib/channel/channel-router.js'
 import { lookupGitHubProject } from '../lib/github-store.js'
 import { resolveGitHubToken } from '../lib/github-client.js'
+import { syncGitHubRepoCacheByProjectId } from '../lib/github-repo-cache.js'
 import { postGitHubComment } from '../plugins/channel-github/github-api.js'
 import type { InboundMessage } from '../lib/channel/channel-types.js'
 
@@ -67,8 +68,28 @@ app.post('/webhook', async (c) => {
 async function processWebhook(eventType: string, payload: Record<string, unknown>): Promise<void> {
   if (eventType === 'issue_comment') {
     await handleIssueComment(payload)
+    await syncRepoCacheForWebhook(payload)
+    return
   }
-  // Other event types can be added here in the future
+
+  if (['issues', 'pull_request', 'pull_request_review', 'check_suite', 'check_run'].includes(eventType)) {
+    await syncRepoCacheForWebhook(payload)
+  }
+}
+
+async function syncRepoCacheForWebhook(payload: Record<string, unknown>): Promise<void> {
+  const repo = payload.repository as Record<string, unknown> | undefined
+  const repoFullName = repo?.full_name as string | undefined
+  if (!repoFullName) return
+
+  const projectId = await lookupGitHubProject(repoFullName)
+  if (!projectId) return
+
+  try {
+    await syncGitHubRepoCacheByProjectId(projectId)
+  } catch (error) {
+    console.error(`[github-app-webhook] Cache sync failed for ${repoFullName}:`, error)
+  }
 }
 
 /**

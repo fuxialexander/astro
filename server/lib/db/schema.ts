@@ -49,6 +49,8 @@ export {
   sharedPlanStars,
   sharedPlanForks,
   sharedPlanComments,
+  githubIssueCache,
+  githubPrCache,
   githubSyncLog,
   userAchievements,
   projectKnowledge,
