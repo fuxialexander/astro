@@ -165,13 +165,19 @@ export function computeBranchSuffix(cronExpression: string, now: Date, timezone:
 }
 
 /**
- * Check max concurrency for a schedule. Returns true if under the limit.
+ * Check max concurrency for a schedule.
+ *
+ * Returns `{ allowed: true }` if under the limit, or
+ * `{ allowed: false, activeRunIds, activeCount }` when blocked.
  *
  * Runs that have been stuck in an active status for longer than
  * STALE_RUN_THRESHOLD_MS are excluded — they are zombie runs from a crashed
  * server or disconnected machine and should not block new executions.
  */
-export async function checkMaxConcurrency(scheduleId: string, maxConcurrency: number): Promise<boolean> {
+export async function checkMaxConcurrency(
+  scheduleId: string,
+  maxConcurrency: number,
+): Promise<{ allowed: true } | { allowed: false; activeRunIds: string[]; activeCount: number }> {
   const staleThreshold = new Date(Date.now() - STALE_RUN_THRESHOLD_MS)
   const activeRuns = await db.select({ id: scheduleRuns.id })
     .from(scheduleRuns)
@@ -181,7 +187,10 @@ export async function checkMaxConcurrency(scheduleId: string, maxConcurrency: nu
       // Exclude zombie runs — created too long ago to be genuinely in-flight
       gt(scheduleRuns.createdAt, staleThreshold),
     ))
-  return activeRuns.length < maxConcurrency
+  if (activeRuns.length < maxConcurrency) {
+    return { allowed: true }
+  }
+  return { allowed: false, activeRunIds: activeRuns.map(r => r.id), activeCount: activeRuns.length }
 }
 
 /**
@@ -325,31 +334,9 @@ async function processSchedule(
 ): Promise<void> {
   const logPrefix = `[cron] schedule=${schedule.id.slice(0, 8)} "${schedule.name}"`
 
-  // Active hours check — record skip in run history for audit trail
-  if (!isWithinActiveHours(schedule.activeHoursStart, schedule.activeHoursEnd, now, schedule.timezone)) {
-    console.log(`${logPrefix}: outside active hours, skipping`)
-    await insertScheduleRun({
-      scheduleId: schedule.id,
-      status: 'missed',
-      scheduledAt: now,
-      completedAt: now,
-      errorMessage: 'Skipped: outside active hours window',
-    })
-    return
-  }
-
-  // Max concurrency check — record skip for audit trail
-  if (!await checkMaxConcurrency(schedule.id, schedule.maxConcurrency)) {
-    console.log(`${logPrefix}: max concurrency (${schedule.maxConcurrency}) reached, skipping`)
-    await insertScheduleRun({
-      scheduleId: schedule.id,
-      status: 'missed',
-      scheduledAt: now,
-      completedAt: now,
-      errorMessage: `Skipped: max concurrency (${schedule.maxConcurrency}) reached`,
-    })
-    return
-  }
+  // NOTE: Active hours and concurrency checks are performed BEFORE claimSchedule()
+  // in runCronTick() so that nextRunAt is not advanced when a run must be skipped.
+  // Only machine-connectivity and dispatch logic remain here.
 
   // Machine connectivity check
   let machineOnline: boolean
@@ -559,8 +546,47 @@ async function runCronTick(): Promise<void> {
     console.log(`[cron] Found ${dueSchedules.length} due schedule(s)`)
 
     for (const schedule of dueSchedules) {
+      const logPrefix = `[cron] schedule=${schedule.id.slice(0, 8)} "${schedule.name}"`
       try {
-        // Atomically claim the schedule before processing
+        // ── Pre-claim checks ──────────────────────────────────────
+        // These run BEFORE claimSchedule() so that nextRunAt is NOT
+        // advanced when the run must be skipped — the schedule stays
+        // due and will be re-evaluated on the next tick.
+
+        // 1. Active hours check
+        if (!isWithinActiveHours(schedule.activeHoursStart, schedule.activeHoursEnd, now, schedule.timezone)) {
+          console.log(`${logPrefix}: outside active hours, skipping without advancing`)
+          await insertScheduleRun({
+            scheduleId: schedule.id,
+            status: 'missed',
+            scheduledAt: now,
+            completedAt: now,
+            errorMessage: 'Skipped: outside active hours window',
+          })
+          continue
+        }
+
+        // 2. Concurrency check
+        const concurrency = await checkMaxConcurrency(schedule.id, schedule.maxConcurrency)
+        if (!concurrency.allowed) {
+          const runIdSnippets = concurrency.activeRunIds.map(id => id.slice(0, 8)).join(', ')
+          console.log(
+            `${logPrefix}: max concurrency (${schedule.maxConcurrency}) reached `
+            + `(${concurrency.activeCount} active run(s): ${runIdSnippets}), skipping without advancing`,
+          )
+          await insertScheduleRun({
+            scheduleId: schedule.id,
+            status: 'missed',
+            scheduledAt: now,
+            completedAt: now,
+            errorMessage: `Skipped: max concurrency (${schedule.maxConcurrency}) reached — ${concurrency.activeCount} active run(s): ${runIdSnippets}`,
+          })
+          continue
+        }
+
+        // ── Claim & process ───────────────────────────────────────
+        // Atomically advance nextRunAt — only proceeds if no other
+        // instance has already claimed this fire time.
         const claimed = await claimSchedule(schedule, now)
         if (!claimed) {
           console.log(`[cron] Schedule ${schedule.id.slice(0, 8)} already claimed by another instance`)
@@ -625,7 +651,8 @@ export async function retryMissedRunsForMachine(machineId: string): Promise<void
     for (const { run, schedule } of retriable) {
       try {
         // Respect max concurrency on retry
-        if (!await checkMaxConcurrency(schedule.id, schedule.maxConcurrency)) {
+        const concurrency = await checkMaxConcurrency(schedule.id, schedule.maxConcurrency)
+        if (!concurrency.allowed) {
           console.log(`[cron] retry: max concurrency (${schedule.maxConcurrency}) reached for schedule ${schedule.id.slice(0, 8)}, skipping`)
           continue
         }
