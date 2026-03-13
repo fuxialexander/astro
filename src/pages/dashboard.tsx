@@ -39,6 +39,7 @@ import { MachineFleetPanel } from "@/components/dashboard/machine-fleet-panel"
 import { TaskTimeline } from "@/components/dashboard/task-timeline"
 import { ProjectHealthCard } from "@/components/dashboard/project-health-card"
 import { WhatsNewSection } from "@/components/dashboard/whats-new-section"
+import { UpcomingScheduledRuns } from "@/components/dashboard/upcoming-scheduled-runs"
 import { formatCompactNumber } from "@astro/core/achievements"
 import { dataClient } from "@/lib/data-client"
 import { cn } from "@/lib/utils"
@@ -159,6 +160,14 @@ export function Dashboard() {
       connected: m.connectionStatus === "connected",
     })),
   [machineList])
+
+  const machinesById = useMemo(
+    () => new Map(machineFleetData.map((machine) => [
+      machine.machineId,
+      { name: machine.name, connected: machine.connected },
+    ])),
+    [machineFleetData],
+  )
 
   type TaskCategory = "generation" | "playground" | "projects"
 
@@ -624,6 +633,12 @@ export function Dashboard() {
           </div>
         </div>
       )}
+
+      <UpcomingScheduledRuns
+        projects={regularProjects}
+        nodes={nodes}
+        machinesById={machinesById}
+      />
 
       {/* ── TIER 4: Project Health — Projects ── */}
       {recentProjects.length > 0 && (

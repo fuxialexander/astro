@@ -28,6 +28,7 @@ import { InlineRenameInput } from "@/components/inline-rename-input"
 import { validateProjectName } from "@/lib/project-validation"
 import { OverviewTab } from "@/pages/project-overview"
 import { KnowledgePanel } from "@/components/knowledge-panel"
+import { RepoExplorer } from "@/components/repo-explorer/repo-explorer"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { PublishDialog } from "@/components/community/publish-dialog"
 import { GitHubSyncSettingsDialog } from "@/components/github-sync-settings-dialog"
@@ -1778,6 +1779,8 @@ export function PlanView() {
       return { viewMode: 'graph' as ViewMode, activeTab: 'overview' as const }
     } else if (lastPart === 'knowledge') {
       return { viewMode: 'graph' as ViewMode, activeTab: 'knowledge' as const }
+    } else if (lastPart === 'repo') {
+      return { viewMode: 'graph' as ViewMode, activeTab: 'repo' as const }
     } else if (VALID_VIEWS.has(lastPart as ViewMode)) {
       return { viewMode: lastPart as ViewMode, activeTab: 'plan' as const }
     }
@@ -1935,6 +1938,19 @@ export function PlanView() {
           >
             {t('tabs.knowledge', 'Knowledge')}
           </button>
+          {isGitHubProject && (
+            <button
+              onClick={() => navigate(`/project/${project.id}/repo`)}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
+                activeTab === "repo"
+                  ? "text-accent-foreground border-b-2 border-accent"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {t('tabs.repo', 'Repo Explorer')}
+            </button>
+          )}
         </div>
 
         <div className="flex-1 min-w-0" />
@@ -2034,6 +2050,11 @@ export function PlanView() {
             <DropdownMenuItem onClick={() => navigate(`/project/${project.id}/overview`)}>
               {t('tabs.description', 'Description')}
             </DropdownMenuItem>
+            {isGitHubProject && (
+              <DropdownMenuItem onClick={() => navigate(`/project/${project.id}/repo`)}>
+                {t('tabs.repo', 'Repo Explorer')}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             {/* Rename */}
             <DropdownMenuItem onClick={() => setIsRenaming(true)}>
@@ -2101,6 +2122,8 @@ export function PlanView() {
               <OverviewTab project={project} />
             ) : activeTab === "knowledge" ? (
               <KnowledgePanel projectId={project.id} />
+            ) : activeTab === "repo" ? (
+              <RepoExplorer project={project} />
             ) : viewMode === "graph" ? (
               <div className="flex-1 relative overflow-hidden">
                 <div className="absolute inset-0 touch-pan-x touch-pan-y">
