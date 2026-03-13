@@ -8,6 +8,7 @@ import { convertToSshUrl } from './git-url-utils.js';
 import { db } from './db/index.js';
 import { githubConnections, teamMembers } from './db/schema.js';
 import { eq } from 'drizzle-orm';
+import { githubStore } from './github-store.js';
 
 // ── Token Resolution Types ──────────────────────────────────────────────────
 
@@ -178,14 +179,9 @@ export async function resolveGitHubToken(
     return { token: envToken, type: 'env', source: 'GITHUB_TOKEN env var' };
   }
 
-  // ── Tier 3: Project owner's OAuth token ───────────────────────────
+  // ── Tier 3: Project owner's OAuth token (with auto-refresh) ──────
   if (userId) {
-    const [ownerConn] = await db
-      .select({ accessToken: githubConnections.accessToken })
-      .from(githubConnections)
-      .where(eq(githubConnections.userId, userId))
-      .limit(1);
-
+    const ownerConn = await githubStore.getConnection(userId);
     if (ownerConn?.accessToken) {
       console.log(`[github-token] tier=owner-oauth repo=${owner}/${repo} userId=${userId}`);
       return {
@@ -196,22 +192,27 @@ export async function resolveGitHubToken(
     }
   }
 
-  // ── Tier 4: Any team member's OAuth token ─────────────────────────
+  // ── Tier 4: Any team member's OAuth token (with auto-refresh) ────
   if (teamId) {
-    const [memberConn] = await db
-      .select({ accessToken: githubConnections.accessToken })
+    // Find a team member who has GitHub connected, then use getConnection()
+    // for auto-refresh support
+    const [memberRow] = await db
+      .select({ userId: githubConnections.userId })
       .from(githubConnections)
       .innerJoin(teamMembers, eq(teamMembers.userId, githubConnections.userId))
       .where(eq(teamMembers.teamId, teamId))
       .limit(1);
 
-    if (memberConn?.accessToken) {
-      console.log(`[github-token] tier=team-oauth repo=${owner}/${repo} teamId=${teamId}`);
-      return {
-        token: memberConn.accessToken,
-        type: 'oauth',
-        source: `team member OAuth (teamId=${teamId})`,
-      };
+    if (memberRow) {
+      const memberConn = await githubStore.getConnection(memberRow.userId);
+      if (memberConn?.accessToken) {
+        console.log(`[github-token] tier=team-oauth repo=${owner}/${repo} teamId=${teamId}`);
+        return {
+          token: memberConn.accessToken,
+          type: 'oauth',
+          source: `team member OAuth (teamId=${teamId})`,
+        };
+      }
     }
   }
 

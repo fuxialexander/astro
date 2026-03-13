@@ -182,20 +182,18 @@ class GitHubStore {
       ? new Date(Date.now() + data.expires_in * 1000)
       : null;
 
-    // Update DB with new tokens
-    await db.update(githubConnections).set({
+    // Update DB with new tokens and return the updated row in one round-trip
+    const [updatedRow] = await db.update(githubConnections).set({
       accessToken: data.access_token,
       refreshToken: data.refresh_token ?? refreshToken, // GitHub rotates refresh tokens
       tokenExpiresAt: newExpiresAt,
       updatedAt: new Date(),
-    }).where(eq(githubConnections.userId, userId));
+    }).where(eq(githubConnections.userId, userId)).returning();
 
     console.log('[github-store] Token refreshed for user', userId);
 
-    // Re-read the updated row
-    const [row] = await db.select().from(githubConnections).where(eq(githubConnections.userId, userId)).limit(1);
-    if (!row) return null;
-    return this.rowToConnection(row);
+    if (!updatedRow) return null;
+    return this.rowToConnection(updatedRow);
   }
 
   /**
