@@ -267,6 +267,37 @@ export class GitHubClient {
   }
 
   /**
+   * Refresh an expired access token using a refresh token.
+   * Returns a new token response with fresh access_token and refresh_token.
+   */
+  async refreshAccessToken(refreshToken: string): Promise<GitHubTokenResponse> {
+    const response = await fetch(`${this.oauthUrl}/access_token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        client_id: this.clientId,
+        client_secret: this.clientSecret,
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`GitHub token refresh error: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    if (data.error) {
+      throw new Error(`GitHub token refresh failed: ${data.error_description || data.error}`);
+    }
+
+    return data;
+  }
+
+  /**
    * Get authenticated user info
    */
   async getUser(accessToken: string): Promise<GitHubUser> {

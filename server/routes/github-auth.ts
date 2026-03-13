@@ -112,9 +112,16 @@ app.get('/callback', async (c) => {
       const tokenResponse = await githubClient.getAccessToken(code);
       const user = await githubClient.getUser(tokenResponse.access_token);
 
+      // Compute token expiry (GitHub App user-to-server tokens expire in ~8h)
+      const tokenExpiresAt = tokenResponse.expires_in
+        ? new Date(Date.now() + tokenResponse.expires_in * 1000).toISOString()
+        : null;
+
       await githubStore.setConnection(userId, {
         userId,
         accessToken: tokenResponse.access_token,
+        refreshToken: tokenResponse.refresh_token ?? null,
+        tokenExpiresAt,
         scope: tokenResponse.scope,
         connectedAt: new Date().toISOString(),
         user,
