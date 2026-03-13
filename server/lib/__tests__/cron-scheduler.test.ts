@@ -82,34 +82,34 @@ describe('cron-scheduler', () => {
   // checkMaxConcurrency
   // ────────────────────────────────────────────────────────────
   describe('checkMaxConcurrency', () => {
-    it('returns true when no active runs exist', async () => {
+    it('returns allowed=true when no active runs exist', async () => {
       mockWhere.mockReturnValueOnce([])
 
       const result = await checkMaxConcurrency('sched-1', 2)
-      expect(result).toBe(true)
+      expect(result).toEqual({ allowed: true })
     })
 
-    it('returns true when active runs are below the limit', async () => {
+    it('returns allowed=true when active runs are below the limit', async () => {
       mockWhere.mockReturnValueOnce([{ id: 'run-1' }])
 
       const result = await checkMaxConcurrency('sched-1', 2)
-      expect(result).toBe(true)
+      expect(result).toEqual({ allowed: true })
     })
 
-    it('returns false when active runs meet the limit', async () => {
+    it('returns allowed=false with run IDs when active runs meet the limit', async () => {
       mockWhere.mockReturnValueOnce([{ id: 'run-1' }, { id: 'run-2' }])
 
       const result = await checkMaxConcurrency('sched-1', 2)
-      expect(result).toBe(false)
+      expect(result).toEqual({ allowed: false, activeRunIds: ['run-1', 'run-2'], activeCount: 2 })
     })
 
-    it('returns false when active runs exceed the limit', async () => {
+    it('returns allowed=false with run IDs when active runs exceed the limit', async () => {
       mockWhere.mockReturnValueOnce([
         { id: 'run-1' }, { id: 'run-2' }, { id: 'run-3' },
       ])
 
       const result = await checkMaxConcurrency('sched-1', 2)
-      expect(result).toBe(false)
+      expect(result).toEqual({ allowed: false, activeRunIds: ['run-1', 'run-2', 'run-3'], activeCount: 3 })
     })
 
     it('calls the DB select chain with correct structure', async () => {
@@ -126,7 +126,7 @@ describe('cron-scheduler', () => {
     it('handles maxConcurrency of 1 (boundary)', async () => {
       // No active runs → under limit
       mockWhere.mockReturnValueOnce([])
-      expect(await checkMaxConcurrency('sched-1', 1)).toBe(true)
+      expect(await checkMaxConcurrency('sched-1', 1)).toEqual({ allowed: true })
 
       // Reset for second call
       mockDb.select.mockReturnValue({ from: mockFrom })
@@ -134,14 +134,14 @@ describe('cron-scheduler', () => {
 
       // 1 active run → at limit
       mockWhere.mockReturnValueOnce([{ id: 'run-1' }])
-      expect(await checkMaxConcurrency('sched-1', 1)).toBe(false)
+      expect(await checkMaxConcurrency('sched-1', 1)).toEqual({ allowed: false, activeRunIds: ['run-1'], activeCount: 1 })
     })
 
     it('handles high concurrency limits', async () => {
       const runs = Array.from({ length: 5 }, (_, i) => ({ id: `run-${i}` }))
       mockWhere.mockReturnValueOnce(runs)
 
-      expect(await checkMaxConcurrency('sched-1', 10)).toBe(true)
+      expect(await checkMaxConcurrency('sched-1', 10)).toEqual({ allowed: true })
     })
 
     it('uses a stale threshold ~24 hours in the past', async () => {

@@ -339,7 +339,8 @@ schedulesRoute.post('/:id/trigger', async (c) => {
   }
 
   // Max concurrency check — manual triggers respect the same limit
-  if (!await checkMaxConcurrency(schedule.id, schedule.maxConcurrency)) {
+  const concurrency = await checkMaxConcurrency(schedule.id, schedule.maxConcurrency)
+  if (!concurrency.allowed) {
     return c.json({ success: false, error: `Max concurrency (${schedule.maxConcurrency}) reached. Wait for active runs to complete.` }, 429)
   }
 
