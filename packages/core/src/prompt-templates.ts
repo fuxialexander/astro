@@ -321,6 +321,8 @@ export interface TaskExecutionContext {
   visionDoc?: string
   dependencyOutputs?: string
   workingDirectory?: string
+  /** Backend-scoped skill injection (e.g. visualise skill instructions) */
+  skillsInjection?: string
 }
 
 export interface TaskChatContext {
@@ -426,6 +428,11 @@ export function buildTaskExecutionPrompt(context: TaskExecutionContext): string 
 
   // Add the main task (SECURITY: wrap user content in delimiters)
   parts.push(`## Current Task\n\n<user_task>\n**${context.taskTitle}**\n\n${context.taskDescription}\n</user_task>`)
+
+  // Add skills/tools if injected
+  if (context.skillsInjection) {
+    parts.push(`## Available Skills & Tools\n\n${context.skillsInjection}`)
+  }
 
   // Add execution instructions
   parts.push(`## Instructions

@@ -6,12 +6,16 @@
  * `memo`-ized component so it never re-renders. Only the last block (the one
  * actively receiving tokens) re-renders on each update.
  *
+ * Visualizer code fences (```visualizer) are rendered as interactive sandboxed
+ * iframes via the VisualWidget component instead of plain code blocks.
+ *
  * Inspired by the Vercel AI SDK memoization pattern.
  */
 
 import { memo, useMemo } from "react"
 import { marked } from "marked"
 import { MarkdownRenderer } from "./markdown-renderer"
+import { VisualWidget } from "./visual-widget"
 import { cn } from "@/lib/utils"
 
 interface StreamingMarkdownProps {
@@ -20,11 +24,22 @@ interface StreamingMarkdownProps {
   className?: string
   /** Custom handler for link clicks. Return true to prevent default navigation. */
   onLinkClick?: (href: string, e: React.MouseEvent) => boolean | void
+  /** Callback when a VisualWidget iframe sends a sendPrompt message. */
+  onSendPrompt?: (text: string) => void
 }
 
-function parseMarkdownIntoBlocks(markdown: string): string[] {
+type ParsedBlock =
+  | { type: "markdown"; content: string }
+  | { type: "visualizer"; code: string }
+
+function parseMarkdownIntoBlocks(markdown: string): ParsedBlock[] {
   const tokens = marked.lexer(markdown)
-  return tokens.map((token) => token.raw)
+  return tokens.map((token) => {
+    if (token.type === "code" && token.lang === "visualizer") {
+      return { type: "visualizer" as const, code: token.text }
+    }
+    return { type: "markdown" as const, content: token.raw }
+  })
 }
 
 const MemoizedBlock = memo(
@@ -39,14 +54,38 @@ const MemoizedBlock = memo(
 )
 MemoizedBlock.displayName = "MemoizedBlock"
 
-export function StreamingMarkdown({ content, isStreaming, className, onLinkClick }: StreamingMarkdownProps) {
+const MemoizedVisualizer = memo(
+  ({ code, isStreaming, onSendPrompt }: {
+    code: string
+    isStreaming?: boolean
+    onSendPrompt?: (text: string) => void
+  }) => (
+    <VisualWidget code={code} isStreaming={isStreaming} onSendPrompt={onSendPrompt} ephemeral />
+  ),
+  (prev, next) =>
+    prev.code === next.code &&
+    prev.isStreaming === next.isStreaming &&
+    prev.onSendPrompt === next.onSendPrompt
+)
+MemoizedVisualizer.displayName = "MemoizedVisualizer"
+
+export function StreamingMarkdown({ content, isStreaming, className, onLinkClick, onSendPrompt }: StreamingMarkdownProps) {
   const blocks = useMemo(() => parseMarkdownIntoBlocks(content), [content])
 
   return (
     <div className={cn("streaming-markdown", className)}>
-      {blocks.map((block, i) => (
-        <MemoizedBlock key={i} content={block} onLinkClick={onLinkClick} />
-      ))}
+      {blocks.map((block, i) =>
+        block.type === "visualizer" ? (
+          <MemoizedVisualizer
+            key={i}
+            code={block.code}
+            isStreaming={isStreaming && i === blocks.length - 1}
+            onSendPrompt={onSendPrompt}
+          />
+        ) : (
+          <MemoizedBlock key={i} content={block.content} onLinkClick={onLinkClick} />
+        )
+      )}
       {isStreaming && <span className="streaming-cursor" />}
     </div>
   )

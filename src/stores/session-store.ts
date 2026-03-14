@@ -701,10 +701,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       session.providerSessionId && session.providerSessionId !== sid
     const resumeId = canResume ? session.providerSessionId : undefined
 
-    // When resuming a provider session, the session already has conversation context.
-    // Sending `messages` again would create duplicate context that can confuse the model.
-    // Only send messages when NOT resuming (fresh conversation or provider changed).
-    const conversationMessages = resumeId ? undefined : messages
+    // Always send messages so the agent runner has conversation context for fallback
+    // if the resume fails (e.g. Codex session expired, different machine).
+    // The agent runner only uses messages when falling back to fresh execution.
 
     // Fire-and-forget — stream runs in background
     projectChatWithAgent(
@@ -718,7 +717,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         providerId,
         planNodes,
         planEdges,
-        messages: conversationMessages,
+        messages,
       },
       {
         // Push streaming events to realtime store for live display.
@@ -913,12 +912,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       session.providerSessionId !== sid
     )
 
-    // When resuming a provider session, the session already has conversation
-    // context — sending `messages` again would create duplicate context that
-    // confuses the model (often producing empty responses on 2nd+ turns).
-    // Only send messages when NOT resuming (i.e., starting a fresh conversation).
+    // Always send messages so the agent runner has conversation context for fallback
+    // if the resume fails (e.g. Codex session expired). The agent runner only uses
+    // messages when falling back to fresh execution, not during the resume itself.
     const resumeSessionId = hasRealProviderSession ? session.providerSessionId : undefined
-    const conversationMessages = resumeSessionId ? undefined : messages
 
     chatWithTask(
       {
@@ -933,7 +930,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         visionDoc,
         model,
         providerId,
-        messages: conversationMessages,
+        messages,
         branchName,
         prUrl,
       },

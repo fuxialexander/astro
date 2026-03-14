@@ -74,6 +74,8 @@ export interface ProviderInfo {
   maxConcurrentTasks: number;
   currentTasks: number;
   capabilities?: string[];
+  /** Default model configured for this provider (e.g. from ~/.codex/config.toml) */
+  defaultModel?: string;
   hpcCapability?: HpcCapability;
 }
 

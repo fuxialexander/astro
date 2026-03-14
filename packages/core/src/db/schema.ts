@@ -203,6 +203,7 @@ export const planEdges = pgTable('plan_edges', {
   deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 }, (table) => ({
+  projectClientUnique: uniqueIndex('uq_plan_edges_project_client').on(table.projectId, table.clientId),
   projectIdIdx: index('idx_plan_edges_project').on(table.projectId),
   sourceClientIdIdx: index('idx_plan_edges_source').on(table.sourceClientId),
   targetClientIdIdx: index('idx_plan_edges_target').on(table.targetClientId),

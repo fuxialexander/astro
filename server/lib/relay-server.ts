@@ -2195,6 +2195,7 @@ export class RelayServer extends EventEmitter {
           capabilities: ['streaming', 'tools', 'multi-turn'].filter((_, i) =>
             [p.capabilities.streaming, p.capabilities.tools, p.capabilities.multiTurn][i]
           ),
+          defaultModel: p.capabilities.defaultModel || undefined,
           hpcCapability: p.hpcCapability || undefined,
         })),
         resources: {
