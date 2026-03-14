@@ -45,6 +45,7 @@ import {
   TextBlock,
   ToolBlock,
   ToolGroupBlock,
+  VisualBlock,
   SteerBlock,
   FileChangeBlock,
   ErrorBlock,
@@ -557,16 +558,32 @@ export function Playground() {
     await respondToDynamicApproval(execution.executionId, requestId, answer)
   }, [execution?.executionId, respondToDynamicApproval])
 
+  // Handle sendPrompt from VisualWidget iframes
+  const handleSendPrompt = useCallback((text: string) => {
+    if (!activeProjectId) return
+    setInput(text)
+    // Auto-send after a tick so the input state updates
+    setTimeout(() => {
+      if (isRunning) {
+        handleSteer(text)
+      } else {
+        handleChat(text)
+      }
+    }, 0)
+  }, [activeProjectId, isRunning, handleSteer, handleChat])
+
   // Render a display block
   const renderBlock = useCallback((block: DisplayBlock, index: number) => {
     const isLastBlock = index === displayBlocks.length - 1
     switch (block.type) {
       case 'text':
-        return <TextBlock key={index} events={block.events} isStreaming={isRunning && isLastBlock} />
+        return <TextBlock key={index} events={block.events} isStreaming={isRunning && isLastBlock} onSendPrompt={handleSendPrompt} />
       case 'tool':
         return <ToolBlock key={index} events={block.events} isRunning={isRunning || isChatStreaming} />
       case 'tool_group':
         return <ToolGroupBlock key={index} events={block.events} isRunning={isRunning || isChatStreaming} />
+      case 'visual':
+        return <VisualBlock key={index} block={block} onSendPrompt={handleSendPrompt} />
       case 'steer':
         return <SteerBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'steer' }>} />
       case 'file_change':
@@ -576,7 +593,7 @@ export function Playground() {
       case 'chat_user':
         return <ChatUserBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_user' }>} onEdit={!isRunning && !isChatStreaming ? (msg) => { setInput(msg); inputRef.current?.focus() } : undefined} />
       case 'chat_assistant':
-        return <ChatAssistantBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_assistant' }>} />
+        return <ChatAssistantBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_assistant' }>} onSendPrompt={handleSendPrompt} />
       case 'approval_request': {
         const event = block.events[0] as Extract<TaskActivityEvent, { type: 'approval_request' }>
         const isAnswered = answeredRequestIds.has(event.requestId)
@@ -602,7 +619,7 @@ export function Playground() {
       default:
         return null
     }
-  }, [displayBlocks.length, isRunning, isChatStreaming, answeredRequestIds, allActivityEvents, handleApprovalResponse])
+  }, [displayBlocks.length, isRunning, isChatStreaming, answeredRequestIds, allActivityEvents, handleApprovalResponse, handleSendPrompt])
 
   // Go back to landing phase — clean slate (no pre-filled prompt)
   const handleBack = useCallback(() => {

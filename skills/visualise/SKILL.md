@@ -13,17 +13,82 @@ This document describes a system for rendering interactive visuals (SVG diagrams
 
 ## Core Workflow
 
-Before creating any visual, read the design system reference below, then the relevant module section based on visual type — diagrams, components, or charts.
+**Default to the simplest visualization that works.** Start with plain SVG — it streams beautifully, needs no libraries, and renders progressively as tokens arrive. Only reach for HTML+JS (Chart.js, D3, Canvas) when the visualization genuinely needs interactivity (sliders, hover states, animation) or complex data rendering that SVG alone can't handle.
 
-## Key Output Rules
+If the user asks for something simple ("show me how X works", "diagram of Y"), use a clean SVG. If they ask for something interactive or data-heavy ("interactive explorer", "dashboard", "let me adjust parameters"), use HTML+JS.
 
-Content streams token-by-token into a sandboxed iframe. This means:
+## CRITICAL: Output Method
 
-- Place `<style>` first (under 15 lines)
-- Follow with visible HTML/SVG content
-- End with `<script>` blocks
-- Avoid gradients, shadows, and `display:none` (they flash during streaming)
-- Use inline styles; prefer flat fills
+**ALWAYS output HTML/SVG inside a ` ```visualizer ` code fence.** The content is rendered as a live sandboxed iframe in the user's UI.
+
+**NEVER do any of these:**
+- NEVER create or write HTML/SVG files to disk (no Write tool for .html/.svg)
+- NEVER open a browser (`open`, `xdg-open`, `python -m http.server`, etc.)
+- NEVER look at existing HTML files in the repo before generating your visualization
+- Only save to a file if the user explicitly says "save to file" or "create a file"
+
+## Theming: Light & Dark Mode
+
+**Background MUST be transparent.** The host app provides the surface color. NEVER set `background`, `background-color`, or `bgcolor` on `html`, `body`, or any root container. No `#fff`, no `white`, no `#000`, no `black` backgrounds.
+
+**All colors must work in both light and dark mode:**
+
+- **Text**: use `var(--color-text-primary)`, `var(--color-text-secondary)`, `var(--color-text-tertiary)` — NEVER `#333`, `black`, `white`, `#000`, `rgb(51,51,51)`, etc.
+- **Surfaces/cards**: use `var(--color-background-secondary)` or `var(--color-background-tertiary)` — NEVER `#fff`, `#f5f5f5`, `white`, etc.
+- **Borders**: use `var(--color-border-primary)` or `var(--color-border-tertiary)` — NEVER `#ddd`, `#ccc`, `lightgray`, etc.
+- **SVG fills/strokes**: use the color ramp hex values from the table below (chosen to work in both modes). For text in SVG, use CSS variables via inline `style` attributes.
+- **SVG backgrounds/regions**: use the lighter ramp stops (50, 100) which have sufficient contrast in both modes.
+
+**Test yourself**: if you wrote any literal color value (`#...`, `rgb(...)`, named color), replace it with a CSS variable or a ramp hex.
+
+## Progressive Rendering & Streaming
+
+Content streams token-by-token. The browser parses and paints the DOM incrementally as tokens arrive — SVG elements appear the moment their closing tag streams in, HTML elements render in document order. No special library is needed; this is native browser behavior made visible by the slow token stream.
+
+**Structure for smooth streaming:**
+
+1. **`<style>` block first** (short, ≤15 lines) — color/font rules arrive before the content they style
+2. **Visible HTML/SVG content next** — renders progressively as it arrives, top-to-bottom
+3. **`<script>` blocks last** — interactive logic runs only after layout is painted
+
+**Rules that make streaming feel smooth:**
+
+- **No `display:none`** — hidden content streams invisibly, wasting time. Everything should be in normal flow so it renders as it arrives.
+- **Inline styles on interactive elements** — form controls look correct mid-stream because styles are on the element, not waiting for a stylesheet.
+- **For SVG**: each `<rect/>`, `<circle/>`, `<path/>`, `<text>` appears the instant its tag closes. Shapes paint top-to-bottom naturally.
+- **For HTML+Canvas/Chart.js**: the HTML structure (containers, labels, controls) paints first. The `<script>` at the bottom executes after streaming completes and fills in dynamic parts (canvas draws, animations).
+
+**Entrance animations** — add a subtle appear + fly-in effect so elements don't just pop in:
+
+```css
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+body > * {
+  animation: fadeSlideIn 0.3s ease-out both;
+}
+/* Stagger children for sequential reveal */
+body > *:nth-child(1) { animation-delay: 0s; }
+body > *:nth-child(2) { animation-delay: 0.05s; }
+body > *:nth-child(3) { animation-delay: 0.1s; }
+body > *:nth-child(4) { animation-delay: 0.15s; }
+body > *:nth-child(5) { animation-delay: 0.2s; }
+body > *:nth-child(6) { animation-delay: 0.25s; }
+```
+
+For SVG, apply to top-level groups (`<g>`) instead:
+
+```css
+svg > g {
+  animation: fadeSlideIn 0.3s ease-out both;
+}
+svg > g:nth-child(2) { animation-delay: 0.05s; }
+svg > g:nth-child(3) { animation-delay: 0.1s; }
+/* etc. */
+```
+
+Keep the fly-in distance short (4–8px) and duration fast (0.2–0.4s). The effect should be barely noticeable — a polish detail, not a distraction.
 
 ## Sandbox Constraints
 
@@ -34,21 +99,23 @@ The iframe is heavily restricted:
 - No external API fetches due to Content Security Policy
 - Only these CDN sources allowed: `cdnjs.cloudflare.com`, `esm.sh`, `cdn.jsdelivr.net`, `unpkg.com`
 - No DOCTYPE or full HTML structure — fragments only
-- Transparent background
+- Transparent background (NEVER set a background color on html/body)
 
 A `sendPrompt(text)` function lets visuals trigger follow-up chat messages.
 
 ## Visual Selection Guide
 
-Route on the user's verb:
+Route on the user's verb. **Default to SVG** — only use HTML+JS when interactivity is required:
 
-| User says | Type | What to draw |
-|-----------|------|-------------|
-| "How does X work?" | Illustrative diagram | Draw the mechanism |
-| "What are the components?" | Structural diagram | Labelled boxes showing containment |
-| "Walk me through steps" | Flowchart | Steps in sequence with decisions |
-| "Compare X vs Y" | Comparison layout | Side-by-side cards |
-| "Show me the data" | Chart | Chart.js or inline SVG chart |
+| User says | Type | Format | Why |
+|-----------|------|--------|-----|
+| "How does X work?" | Illustrative diagram | **SVG** | Static mechanism drawing |
+| "What are the components?" | Structural diagram | **SVG** | Labelled boxes, no interaction needed |
+| "Walk me through steps" | Flowchart | **SVG** | Steps in sequence |
+| "Compare X vs Y" | Comparison layout | **SVG** or HTML | SVG if static, HTML if interactive |
+| "Show me the data" | Chart | **SVG** (simple) or HTML+Chart.js (complex) | Bar/line with <10 points → inline SVG; larger datasets → Chart.js |
+| "Interactive explorer" | Interactive widget | **HTML+JS** | Needs sliders, controls, hover |
+| "Let me adjust parameters" | Interactive widget | **HTML+JS** | Needs real-time updates |
 
 ## Quick Specs
 

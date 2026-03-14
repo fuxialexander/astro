@@ -60,7 +60,7 @@ const MemoizedVisualizer = memo(
     isStreaming?: boolean
     onSendPrompt?: (text: string) => void
   }) => (
-    <VisualWidget code={code} isStreaming={isStreaming} onSendPrompt={onSendPrompt} />
+    <VisualWidget code={code} isStreaming={isStreaming} onSendPrompt={onSendPrompt} ephemeral />
   ),
   (prev, next) =>
     prev.code === next.code &&

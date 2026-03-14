@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { Download } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 /** Maximum iframe height in pixels to prevent layout abuse */
@@ -13,6 +14,11 @@ export interface VisualWidgetProps {
   onSendPrompt?: (text: string) => void
   /** Callback when the iframe sends an openLink message. Defaults to window.open. */
   onOpenLink?: (url: string) => void
+  /**
+   * If true, content is ephemeral (from code fences / MCP tool, not saved to disk).
+   * Shows a "Save" button and an expiry notice.
+   */
+  ephemeral?: boolean
   /** Additional CSS class names */
   className?: string
   /** Additional inline styles */
@@ -85,11 +91,35 @@ function getThemeVariables(): string {
 }
 
 /**
+ * Extract the meaningful parts from a potentially full HTML document.
+ * If the code is a full HTML page (has <html> or <!DOCTYPE>), extract
+ * the head styles/scripts and body content so we can re-wrap it cleanly
+ * without nesting <html> inside <html>.
+ */
+function extractBodyContent(code: string): { headContent: string; bodyContent: string } {
+  const isFullDoc = /<!DOCTYPE|<html[\s>]/i.test(code)
+  if (!isFullDoc) {
+    return { headContent: '', bodyContent: code }
+  }
+
+  // Extract content from <head>...</head>
+  const headMatch = code.match(/<head[^>]*>([\s\S]*?)<\/head>/i)
+  const headContent = headMatch ? headMatch[1] : ''
+
+  // Extract content from <body>...</body>
+  const bodyMatch = code.match(/<body[^>]*>([\s\S]*?)<\/body>/i)
+  const bodyContent = bodyMatch ? bodyMatch[1] : code.replace(/<\/?(?:html|head|body|!doctype)[^>]*>/gi, '')
+
+  return { headContent, bodyContent }
+}
+
+/**
  * Build a full HTML document string that wraps the user's code with
  * theme variables, bridge scripts, and auto-resize logic.
  */
 function buildDocument(code: string): string {
   const themeVars = getThemeVariables()
+  const { headContent, bodyContent } = extractBodyContent(code)
 
   return `<!DOCTYPE html>
 <html>
@@ -104,16 +134,38 @@ function buildDocument(code: string): string {
   html, body {
     margin: 0;
     padding: 0;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     background: transparent;
     color: inherit;
+    max-width: 100%;
   }
   body { padding: 8px; }
+  /* Prevent any child from overflowing */
+  body > * { max-width: 100%; overflow-x: auto; }
+  /* Entrance animation — subtle fly-in for progressive rendering */
+  @keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  body > * { animation: fadeSlideIn 0.3s ease-out both; }
+  body > *:nth-child(2) { animation-delay: 0.05s; }
+  body > *:nth-child(3) { animation-delay: 0.1s; }
+  body > *:nth-child(4) { animation-delay: 0.15s; }
+  body > *:nth-child(5) { animation-delay: 0.2s; }
+  body > *:nth-child(6) { animation-delay: 0.25s; }
+  svg > g { animation: fadeSlideIn 0.3s ease-out both; }
+  svg > g:nth-child(2) { animation-delay: 0.05s; }
+  svg > g:nth-child(3) { animation-delay: 0.1s; }
+  svg > g:nth-child(4) { animation-delay: 0.15s; }
+  svg > g:nth-child(5) { animation-delay: 0.2s; }
+  svg > g:nth-child(6) { animation-delay: 0.25s; }
 </style>
+${headContent}
 </head>
 <body>
-${code}
+${bodyContent}
 <script>
 // Bridge API: sendPrompt and openLink
 window.sendPrompt = function(text) {
@@ -164,6 +216,7 @@ export function VisualWidget({
   isStreaming = false,
   onSendPrompt,
   onOpenLink,
+  ephemeral = false,
   className,
   style,
 }: VisualWidgetProps) {
@@ -262,16 +315,45 @@ export function VisualWidget({
     return () => window.removeEventListener("message", handleMessage)
   }, [handleMessage])
 
+  const handleSave = useCallback(() => {
+    const html = buildDocument(code)
+    const blob = new Blob([html], { type: "text/html" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `visualization-${Date.now()}.html`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }, [code])
+
   if (!blobUrl) return null
 
   return (
-    <iframe
-      ref={iframeRef}
-      src={blobUrl}
-      sandbox="allow-scripts"
-      className={cn("w-full border-0", className)}
-      style={{ height: `${iframeHeight}px`, ...style }}
-      title="Visual widget"
-    />
+    <div className={cn("w-full overflow-hidden rounded-lg border border-border/40", className)} style={style}>
+      <iframe
+        ref={iframeRef}
+        src={blobUrl}
+        sandbox="allow-scripts"
+        className="w-full border-0"
+        style={{ height: `${iframeHeight}px`, maxHeight: `${MAX_IFRAME_HEIGHT}px` }}
+        title="Visual widget"
+      />
+      {ephemeral && !isStreaming && (
+        <div className="flex items-center justify-between px-3 py-1.5 bg-muted/30 border-t border-border/40">
+          <span className="text-[10px] text-muted-foreground/60">
+            This visualization expires after 7 days
+          </span>
+          <button
+            onClick={handleSave}
+            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer px-1.5 py-0.5 rounded hover:bg-muted/50"
+          >
+            <Download className="h-3 w-3" />
+            Save to disk
+          </button>
+        </div>
+      )}
+    </div>
   )
 }

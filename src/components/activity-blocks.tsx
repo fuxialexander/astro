@@ -33,13 +33,69 @@ import { cn } from "@/lib/utils"
 import type { TaskActivityEvent, ExecutionSummary } from "@/types"
 import { planToMermaid, type MermaidNode, type MermaidEdge } from "@/lib/plan-to-mermaid"
 import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
+import { VisualWidget } from "@/components/ui/visual-widget"
 import { useGitHubCommentsStore } from "@/stores/github-comments-store"
+
+// ─── Helpers ────────────────────────────────────────────────────────
+
+/**
+ * Extract embeddable HTML content from Write/Read tool calls on .html/.svg files.
+ * Returns the HTML string if found, null otherwise.
+ */
+function extractHtmlContent(
+  toolUse: Extract<TaskActivityEvent, { type: 'tool_use' }>,
+  _toolResult?: Extract<TaskActivityEvent, { type: 'tool_result' }>
+): string | null {
+  const input = toolUse.toolInput as Record<string, unknown> | undefined
+  if (!input) return null
+
+  const filePath = (input.file_path as string) || (input.path as string) || ''
+  const isHtmlFile = /\.(html?|svg)$/i.test(filePath)
+  if (!isHtmlFile) return null
+
+  // Write tool: content is in the input
+  if (toolUse.toolName === 'Write' && typeof input.content === 'string') {
+    return sanitizeHtmlContent(input.content)
+  }
+
+  // Read tool: content is in the result (the file contents)
+  if (toolUse.toolName === 'Read' && _toolResult?.toolResult != null) {
+    const result = typeof _toolResult.toolResult === 'string'
+      ? _toolResult.toolResult
+      : JSON.stringify(_toolResult.toolResult)
+    // Read tool returns cat -n format (line numbers). Strip them.
+    const stripped = result.replace(/^\s*\d+[→\t]/gm, '')
+    if (stripped.includes('<') && (stripped.includes('</') || stripped.includes('/>'))) {
+      return sanitizeHtmlContent(stripped)
+    }
+  }
+
+  return null
+}
+
+/**
+ * Strip system-reminder tags and other injected content that leaks
+ * from the agent runtime into tool results.
+ */
+function sanitizeHtmlContent(html: string): string {
+  // Remove <system-reminder>...</system-reminder> blocks (may span multiple lines)
+  let cleaned = html.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+  // Remove any remaining standalone <system-reminder> or </system-reminder> tags
+  cleaned = cleaned.replace(/<\/?system-reminder>/g, '')
+  return cleaned.trim()
+}
 
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface DisplayBlock {
-  type: 'text' | 'tool' | 'tool_group' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment' | 'branch_linked' | 'system_message' | 'system_prompt' | 'plan_result'
+  type: 'text' | 'tool' | 'tool_group' | 'visual' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment' | 'branch_linked' | 'system_message' | 'system_prompt' | 'plan_result'
   events: TaskActivityEvent[]
+  /** For 'visual' blocks: the extracted HTML/SVG content to render */
+  visualContent?: string
+  /** For 'visual' blocks: the source file name */
+  visualLabel?: string
+  /** For 'visual' blocks: true if content is not saved to disk (will expire) */
+  visualEphemeral?: boolean
 }
 
 // ─── Grouping ───────────────────────────────────────────────────────
@@ -90,6 +146,40 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
     } else {
       for (const pair of toolPairs) {
         blocks.push({ type: 'tool', events: pair })
+      }
+    }
+
+    // After emitting tool blocks, scan for HTML content and emit visual blocks
+    for (const pair of toolPairs) {
+      const useEv = pair[0] as Extract<TaskActivityEvent, { type: 'tool_use' }>
+      const resEv = pair.find(e => e.type === 'tool_result') as Extract<TaskActivityEvent, { type: 'tool_result' }> | undefined
+
+      // Check for visualize MCP tool (ephemeral — not saved to disk)
+      if (useEv.toolName === 'visualize') {
+        const vizInput = useEv.toolInput as { content?: string; title?: string } | undefined
+        if (vizInput?.content) {
+          blocks.push({
+            type: 'visual',
+            events: pair,
+            visualContent: sanitizeHtmlContent(vizInput.content),
+            visualLabel: vizInput.title,
+            visualEphemeral: true,
+          })
+        }
+        continue
+      }
+
+      // Check for Write/Read of HTML files
+      const html = extractHtmlContent(useEv, resEv)
+      if (html) {
+        const inp = useEv.toolInput as Record<string, unknown> | undefined
+        const fp = (inp?.file_path as string) || (inp?.path as string) || ''
+        blocks.push({
+          type: 'visual',
+          events: pair,
+          visualContent: html,
+          visualLabel: fp.split('/').pop() || 'preview',
+        })
       }
     }
 
@@ -492,6 +582,18 @@ export function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEven
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+export function VisualBlock({ block, onSendPrompt }: { block: DisplayBlock; onSendPrompt?: (text: string) => void }) {
+  if (!block.visualContent) return null
+  return (
+    <div className="mx-4 my-2">
+      {block.visualLabel && (
+        <p className="text-[10px] font-mono text-muted-foreground/60 mb-1">{block.visualLabel}</p>
+      )}
+      <VisualWidget code={block.visualContent} onSendPrompt={onSendPrompt} ephemeral={block.visualEphemeral} />
     </div>
   )
 }
