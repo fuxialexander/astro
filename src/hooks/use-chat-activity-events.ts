@@ -14,6 +14,7 @@
 import { useMemo, useEffect, useRef, useCallback } from "react"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { groupActivityEvents, type DisplayBlock } from "@/components/activity-blocks"
+import { parseYamlSpecFromText } from "@/lib/json-render/parse-yaml-spec"
 import type { TaskActivityEvent, SessionMessage } from "@/types"
 
 interface ChatActivityResult {
@@ -56,6 +57,35 @@ export function useChatActivityEvents(
 
     // If we have streaming events (live or hydrated), use them as the primary source
     if (streamEvents.length > 0) {
+      // Check if hydrated text events contain yaml-spec fences that need extraction.
+      // During live streaming, processChunk() in session-store handles this. But hydrated
+      // events from streaming_events DB contain raw text with embedded fences.
+      const hasSpecFence = !isStreaming && streamEvents.some(
+        (e) => e.type === 'text' && typeof e.content === 'string' && e.content.includes('```yaml-spec')
+      )
+      if (hasSpecFence && !streamEvents.some(e => e.type === 'json_render_spec')) {
+        // Concatenate all text events and re-parse
+        const fullText = streamEvents
+          .filter((e): e is Extract<TaskActivityEvent, { type: 'text' }> => e.type === 'text')
+          .map(e => e.content)
+          .join('')
+        const parsed = parseYamlSpecFromText(fullText)
+        const nonTextEvents = streamEvents.filter(e => e.type !== 'text')
+        const textTimestamp = streamEvents.find(e => e.type === 'text')?.timestamp ?? new Date()
+        const rebuiltEvents: TaskActivityEvent[] = []
+        for (const segment of parsed) {
+          if (segment.type === 'text') {
+            rebuiltEvents.push({ type: 'text', content: segment.content, timestamp: textTimestamp })
+          } else {
+            rebuiltEvents.push({ type: 'json_render_spec', spec: segment.spec, timestamp: textTimestamp })
+          }
+        }
+        // Merge rebuilt text/spec events with non-text events, sort chronologically
+        const merged = [...rebuiltEvents, ...nonTextEvents]
+        merged.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+        return merged
+      }
+
       // Append mutation events from session messages (these aren't in the streaming events)
       const mutationEvents: TaskActivityEvent[] = []
       for (const msg of sessionMessages) {
@@ -94,11 +124,23 @@ export function useChatActivityEvents(
           timestamp: msg.timestamp,
         })
       } else if (msg.role === 'assistant' && msg.content) {
-        events.push({
-          type: 'chat_assistant',
-          content: msg.content,
-          timestamp: msg.timestamp,
-        })
+        // Parse yaml-spec fences from stored message text to restore rendered specs
+        const segments = parseYamlSpecFromText(msg.content)
+        for (const segment of segments) {
+          if (segment.type === 'text') {
+            events.push({
+              type: 'chat_assistant',
+              content: segment.content,
+              timestamp: msg.timestamp,
+            })
+          } else {
+            events.push({
+              type: 'json_render_spec',
+              spec: segment.spec,
+              timestamp: msg.timestamp,
+            })
+          }
+        }
       }
 
       // Include mutation events from messages
@@ -116,7 +158,7 @@ export function useChatActivityEvents(
       }
     }
     return events
-  }, [taskStream?.activityEvents, sessionMessages])
+  }, [taskStream?.activityEvents, sessionMessages, isStreaming])
 
   // Group for display
   const displayBlocks = useMemo(
