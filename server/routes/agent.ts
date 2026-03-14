@@ -1186,38 +1186,68 @@ You can render rich, interactive UI components in your responses using \`\`\`spe
 | Structured data tables (comparisons, results, metrics) | Conversational explanations |
 | Key-value summaries (config, status, metadata) | Step-by-step instructions |
 | Status dashboards with badges and progress bars | Code examples and snippets |
-| Multi-section cards with mixed content | Short answers and clarifications |
-| Alerting the user to important warnings or info | Lists and bullet points |
+| Multi-step decision flows with clickable options | Short answers and clarifications |
+| Timeline views of events or milestones | Simple lists under 5 items |
+| Interactive option cards that continue the conversation | |
 
-**Default to markdown.** Only use spec blocks when the content is genuinely structured and benefits from component rendering. A 3-row table in markdown is fine — a 15-row comparison table is better as a spec.
+**Default to markdown.** Only use spec blocks when the content is genuinely structured and benefits from component rendering.
 
 ### Spec format
 
-Wrap specs in a \`\`\`spec code fence. Each spec has a \`root\` element key and a flat \`elements\` map:
+Wrap specs in a \`\`\`spec code fence. Each line is an RFC 6902 JSON Patch operation:
 
 \`\`\`spec
 {"op":"add","path":"/root","value":"card-1"}
-{"op":"add","path":"/elements/card-1","value":{"type":"Card","props":{"title":"Build Summary"},"children":["kv-1","sep-1","badge-1"]}}
-{"op":"add","path":"/elements/kv-1","value":{"type":"KeyValue","props":{"pairs":[{"key":"Status","value":"Passed"},{"key":"Duration","value":"4.2s"},{"key":"Tests","value":"142/142"}]},"children":[]}}
-{"op":"add","path":"/elements/sep-1","value":{"type":"Separator","props":{},"children":[]}}
+{"op":"add","path":"/elements/card-1","value":{"type":"Card","props":{"title":"Build Summary"},"children":["kv-1","badge-1"]}}
+{"op":"add","path":"/elements/kv-1","value":{"type":"KeyValue","props":{"pairs":[{"key":"Status","value":"Passed"},{"key":"Duration","value":"4.2s"}]},"children":[]}}
 {"op":"add","path":"/elements/badge-1","value":{"type":"Badge","props":{"label":"All tests passing","variant":"success"},"children":[]}}
 \`\`\`
 
-### Another example — data table:
+### Interactive option cards (send_chat_message)
+
+Use OptionCard + send_chat_message to create clickable choices that continue the conversation:
 
 \`\`\`spec
-{"op":"add","path":"/root","value":"table-1"}
-{"op":"add","path":"/elements/table-1","value":{"type":"Table","props":{"headers":["File","Lines Changed","Status"],"rows":[["src/index.ts","+42 / -15","Modified"],["src/utils.ts","+8 / -0","New"],["tests/index.test.ts","+28 / -3","Modified"]]},"children":[]}}
+{"op":"add","path":"/root","value":"options"}
+{"op":"add","path":"/elements/options","value":{"type":"Stack","props":{"direction":"vertical","gap":"sm"},"children":["opt-a","opt-b","opt-c"]}}
+{"op":"add","path":"/elements/opt-a","value":{"type":"OptionCard","props":{"title":"Option A","description":"Description of what this option does"},"on":{"press":{"action":"send_chat_message","params":{"message":"I choose Option A"}}},"children":[]}}
+{"op":"add","path":"/elements/opt-b","value":{"type":"OptionCard","props":{"title":"Option B","description":"Description of this alternative"},"on":{"press":{"action":"send_chat_message","params":{"message":"I choose Option B"}}},"children":[]}}
+{"op":"add","path":"/elements/opt-c","value":{"type":"OptionCard","props":{"title":"Option C","description":"A third possibility"},"on":{"press":{"action":"send_chat_message","params":{"message":"I choose Option C"}}},"children":[]}}
+\`\`\`
+
+When the user clicks a card, the message is sent to chat automatically, continuing the conversation.
+
+### Multi-step flows with state
+
+Use \`state\` + \`visible\` conditions + \`setState\` for multi-step selection flows where the user makes several choices before sending a message:
+
+\`\`\`spec
+{"op":"add","path":"/state","value":{"step":1}}
+{"op":"add","path":"/root","value":"flow"}
+{"op":"add","path":"/elements/flow","value":{"type":"Stack","props":{"direction":"vertical","gap":"md"},"children":["step1","step2"]}}
+{"op":"add","path":"/elements/step1","value":{"type":"Stack","props":{"direction":"horizontal","gap":"sm","wrap":true},"children":["choice-a","choice-b"]}}
+{"op":"add","path":"/elements/choice-a","value":{"type":"OptionCard","props":{"title":"Path A"},"on":{"press":{"action":"setState","params":{"statePath":"/step","value":2}}},"children":[]}}
+{"op":"add","path":"/elements/choice-b","value":{"type":"OptionCard","props":{"title":"Path B"},"on":{"press":{"action":"setState","params":{"statePath":"/step","value":2}}},"children":[]}}
+{"op":"add","path":"/elements/step2","value":{"type":"OptionCard","props":{"title":"Continue with selection"},"visible":{"$state":"/step","gte":2},"on":{"press":{"action":"send_chat_message","params":{"message":"I selected Path A, let's continue"}}},"children":[]}}
+\`\`\`
+
+The \`setState\` action updates local spec state. Elements with \`visible\` conditions only appear when the condition is met. Only the final choice uses \`send_chat_message\`.
+
+### Timeline
+
+\`\`\`spec
+{"op":"add","path":"/root","value":"tl"}
+{"op":"add","path":"/elements/tl","value":{"type":"Timeline","props":{"entries":[{"label":"Phase 1","title":"Foundation","description":"Set up project structure"},{"label":"Phase 2","title":"Core Features","description":"Implement main functionality"},{"label":"Phase 3","title":"Polish","description":"Testing and refinement"}]},"children":[]}}
 \`\`\`
 
 ### Important rules
 
-- Each line in the spec fence is a JSON Patch operation (RFC 6902)
-- Always set \`"children": []\` for leaf elements (no children)
+- Always set \`"children": []\` for leaf elements
 - Reference child elements by their key in the parent's \`children\` array
 - The \`type\` field must match a component from the catalog below
-- Keep specs concise — combine related info into fewer elements
 - You can mix prose markdown and spec blocks in the same response
+- Use \`send_chat_message\` action for any option/button that should continue the conversation
+- Use \`setState\` + \`visible\` for multi-step selection within a single spec
 
 ${catalogPrompt}`
 }

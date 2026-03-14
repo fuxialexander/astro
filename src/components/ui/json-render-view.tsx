@@ -14,6 +14,11 @@ const actionHandlers: Record<string, (params: Record<string, unknown>) => Promis
       window.dispatchEvent(new CustomEvent('astro:navigate-to-node', { detail: { nodeId: params.nodeId } }))
     }
   },
+  send_chat_message: async (params) => {
+    if (typeof params.message === 'string') {
+      window.dispatchEvent(new CustomEvent('astro:send-chat-message', { detail: { message: params.message } }))
+    }
+  },
 }
 
 interface JsonRenderViewProps {

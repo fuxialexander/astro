@@ -455,6 +455,16 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     }
   }, [isBusy, pendingMessage, sendMessage])
 
+  // Listen for send_chat_message events from json-render interactive specs
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const message = (e as CustomEvent<{ message: string }>).detail?.message
+      if (message) sendMessage(message)
+    }
+    window.addEventListener('astro:send-chat-message', handler)
+    return () => window.removeEventListener('astro:send-chat-message', handler)
+  }, [sendMessage])
+
   // Handle initialMessage (from decompose button)
   useEffect(() => {
     if (initialMessage && !initialMessageSent.current && !isBusy) {
