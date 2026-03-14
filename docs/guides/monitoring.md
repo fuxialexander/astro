@@ -167,16 +167,18 @@ The Astro backend has a built-in monitoring module (`server/lib/monitoring.ts`) 
 
 ### Setup
 
-Add two secrets to Fly.io:
+Create a **separate monitoring bot** via @BotFather (keep it distinct from the user notification bot), then add secrets to Fly.io:
 
 ```bash
 fly secrets set \
-  TELEGRAM_BOT_TOKEN="your-bot-token" \
-  TELEGRAM_CHAT_ID="your-chat-id" \
+  MONITOR_TELEGRAM_BOT_TOKEN="your-monitoring-bot-token" \
+  MONITOR_TELEGRAM_CHAT_ID="your-chat-id" \
   --app astro-backend-deploy
 ```
 
-That's it. On next deploy, the server will start sending Telegram notifications.
+This keeps server monitoring alerts (health checks, deploys) separate from user notifications (task completed, approvals). If you only have one bot, set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` instead — monitoring falls back to those.
+
+On next deploy, the server will start sending Telegram notifications.
 
 ### What it sends
 
@@ -189,30 +191,44 @@ That's it. On next deploy, the server will start sending Telegram notifications.
 
 #### Status report example
 
-Every 8 hours, you receive a comprehensive report:
+Every 8 hours, you receive a comprehensive report with visual indicators:
 
 ```
-Astro Status Report
+✅ Astro Status Report
 
-Services
-  Frontend: ok (142ms)
-  Auth (JWKS): ok (89ms)
-  Status: All systems operational
+✅ Backend API — 3ms (2 runners)
+✅ Frontend — 142ms
+✅ Supabase Auth — 89ms (1 key(s))
+✅ Supabase DB — 45ms
 
 Relay
-  Connected runners: 2
-  Active tasks: 1
-  SSE connections: 5
+  Runners: 2 | Tasks: 1 | SSE: 5
 
 Server
-  Process uptime: 1d 6h 32m
-  Memory (heap): 48.2 MB / 64.0 MB
-  Memory (RSS): 112.5 MB
+  Uptime: 1d 6h 32m
+  Heap: 48.2 MB / 64.0 MB
+  RSS: 112.5 MB
   Host: Fly.io (sjc)
 
-Period
-  Checks: 100.0% passed (96/96)
-  Time: 2026-03-14 16:00:00 UTC
+Period (96 checks)
+  Availability: 100.0% (0 failed)
+
+2026-03-14 16:00:00 UTC
+```
+
+When something is down, it's immediately visible:
+
+```
+❌ Astro Health Check Failed
+
+✅ Backend API — 4ms (1 runners)
+❌ Frontend — 10002ms (timeout)
+✅ Supabase Auth — 91ms (1 key(s))
+❌ Supabase DB — 5001ms (connection refused)
+
+Consecutive failures: 1
+
+2026-03-14 16:05:00 UTC
 ```
 
 ### Alert deduplication
@@ -246,10 +262,13 @@ The monitoring module reads these env vars:
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `TELEGRAM_BOT_TOKEN` | Yes | Telegram bot token from @BotFather |
-| `TELEGRAM_CHAT_ID` | Yes | Telegram group chat ID |
+| `MONITOR_TELEGRAM_BOT_TOKEN` | Recommended | Dedicated monitoring bot token (separate from user notifications) |
+| `MONITOR_TELEGRAM_CHAT_ID` | Recommended | Chat ID for monitoring alerts |
+| `TELEGRAM_BOT_TOKEN` | Fallback | Used if `MONITOR_TELEGRAM_BOT_TOKEN` is not set |
+| `TELEGRAM_CHAT_ID` | Fallback | Used if `MONITOR_TELEGRAM_CHAT_ID` is not set |
 | `FRONTEND_URL` or `ASTRO_BASE_URL` | Optional | Frontend URL to health-check (skipped if unset) |
-| `SUPABASE_URL` | Optional | Used to check JWKS endpoint (skipped if unset) |
+| `SUPABASE_URL` | Optional | Used to check JWKS and Auth endpoint (skipped if unset) |
+| `DATABASE_URL` | Optional | Used to check Supabase DB connectivity (skipped if unset) |
 
 ---
 

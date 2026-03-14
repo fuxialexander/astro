@@ -7,14 +7,15 @@
  * - Periodic health summary (optional, configurable)
  *
  * Configuration via environment variables:
- *   TELEGRAM_BOT_TOKEN  — Bot token from @BotFather
- *   TELEGRAM_CHAT_ID    — Group chat ID for alerts
+ *   MONITOR_TELEGRAM_BOT_TOKEN  — Dedicated monitoring bot token (from @BotFather)
+ *   MONITOR_TELEGRAM_CHAT_ID    — Chat ID for monitoring alerts
  *
- * If either variable is unset, all alert functions are silent no-ops.
+ * Falls back to TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID if the MONITOR_ variants
+ * are not set. Use separate bots to keep monitoring alerts out of user notifications.
  */
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ''
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || ''
+const TELEGRAM_BOT_TOKEN = process.env.MONITOR_TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || ''
+const TELEGRAM_CHAT_ID = process.env.MONITOR_TELEGRAM_CHAT_ID || process.env.TELEGRAM_CHAT_ID || ''
 const MONITOR_FRONTEND_URL = process.env.FRONTEND_URL || process.env.ASTRO_BASE_URL || ''
 
 function isConfigured(): boolean {
@@ -84,40 +85,76 @@ export async function notifyAlert(title: string, details: string): Promise<void>
 let healthCheckInterval: ReturnType<typeof setInterval> | null = null
 
 interface CheckResult {
+  name: string
   status: 'ok' | 'down' | 'skipped'
   latencyMs?: number
+  detail?: string
 }
 
 async function checkFrontend(): Promise<CheckResult> {
-  if (!MONITOR_FRONTEND_URL) return { status: 'skipped' }
+  const name = 'Frontend'
+  if (!MONITOR_FRONTEND_URL) return { name, status: 'skipped' }
   const start = Date.now()
   try {
     const res = await fetch(MONITOR_FRONTEND_URL, {
       method: 'HEAD',
       signal: AbortSignal.timeout(10_000),
     })
-    return { status: res.ok ? 'ok' : 'down', latencyMs: Date.now() - start }
-  } catch {
-    return { status: 'down', latencyMs: Date.now() - start }
+    return { name, status: res.ok ? 'ok' : 'down', latencyMs: Date.now() - start, detail: res.ok ? undefined : `HTTP ${res.status}` }
+  } catch (err) {
+    return { name, status: 'down', latencyMs: Date.now() - start, detail: (err as Error).message?.slice(0, 50) }
   }
 }
 
 async function checkJwks(): Promise<CheckResult> {
+  const name = 'Supabase Auth'
   const supabaseUrl = process.env.SUPABASE_URL
-  if (!supabaseUrl) return { status: 'skipped' }
+  if (!supabaseUrl) return { name, status: 'skipped' }
   const start = Date.now()
   try {
     const res = await fetch(`${supabaseUrl}/auth/v1/.well-known/jwks.json`, {
       signal: AbortSignal.timeout(10_000),
     })
-    if (!res.ok) return { status: 'down', latencyMs: Date.now() - start }
+    if (!res.ok) return { name, status: 'down', latencyMs: Date.now() - start, detail: `HTTP ${res.status}` }
     const data = await res.json() as { keys?: unknown[] }
     return {
+      name,
       status: (data.keys && data.keys.length > 0) ? 'ok' : 'down',
       latencyMs: Date.now() - start,
+      detail: (data.keys && data.keys.length > 0) ? `${data.keys.length} key(s)` : 'no keys',
     }
-  } catch {
-    return { status: 'down', latencyMs: Date.now() - start }
+  } catch (err) {
+    return { name, status: 'down', latencyMs: Date.now() - start, detail: (err as Error).message?.slice(0, 50) }
+  }
+}
+
+async function checkSupabaseDb(): Promise<CheckResult> {
+  const name = 'Supabase DB'
+  if (!process.env.DATABASE_URL && !process.env.SUPABASE_URL) return { name, status: 'skipped' }
+  const start = Date.now()
+  try {
+    const { db } = await import('./db/index.js')
+    const { sql } = await import('drizzle-orm')
+    const result = await db.execute(sql`SELECT 1 as ok`)
+    const ok = result && (Array.isArray(result) ? result.length > 0 : true)
+    return { name, status: ok ? 'ok' : 'down', latencyMs: Date.now() - start }
+  } catch (err) {
+    return { name, status: 'down', latencyMs: Date.now() - start, detail: (err as Error).message?.slice(0, 50) }
+  }
+}
+
+async function checkBackendApi(): Promise<CheckResult> {
+  const name = 'Backend API'
+  const start = Date.now()
+  try {
+    const res = await fetch('http://localhost:3001/api/health', {
+      signal: AbortSignal.timeout(5_000),
+    })
+    if (!res.ok) return { name, status: 'down', latencyMs: Date.now() - start, detail: `HTTP ${res.status}` }
+    const data = await res.json() as { status?: string; relay?: { connectedRunners?: number } }
+    return { name, status: 'ok', latencyMs: Date.now() - start, detail: `${data.relay?.connectedRunners ?? 0} runners` }
+  } catch (err) {
+    return { name, status: 'down', latencyMs: Date.now() - start, detail: (err as Error).message?.slice(0, 50) }
   }
 }
 
@@ -143,16 +180,12 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-function statusIcon(status: string): string {
-  if (status === 'ok') return 'ok'
-  if (status === 'skipped') return 'skipped'
-  return 'DOWN'
-}
-
-function latencyStr(result: CheckResult): string {
-  if (result.status === 'skipped') return 'skipped'
-  const label = statusIcon(result.status)
-  return result.latencyMs !== undefined ? `${label} (${result.latencyMs}ms)` : label
+function checkLine(result: CheckResult): string {
+  if (result.status === 'skipped') return `\u2B1C ${result.name} — skipped`
+  const icon = result.status === 'ok' ? '\u2705' : '\u274C'
+  const latency = result.latencyMs !== undefined ? `${result.latencyMs}ms` : ''
+  const detail = result.detail ? ` (${result.detail})` : ''
+  return `${icon} <b>${result.name}</b> — ${latency}${detail}`
 }
 
 async function getRelayStats(): Promise<{ runners: number; activeTasks: number; sseConnections: number }> {
@@ -169,19 +202,26 @@ async function getRelayStats(): Promise<{ runners: number; activeTasks: number; 
 }
 
 async function runHealthCheck(): Promise<void> {
-  const [frontend, jwks] = await Promise.all([
+  const checks = await Promise.all([
+    checkBackendApi(),
     checkFrontend(),
     checkJwks(),
+    checkSupabaseDb(),
   ])
 
   totalChecks++
 
-  const allOk = (frontend.status === 'ok' || frontend.status === 'skipped') &&
-                (jwks.status === 'ok' || jwks.status === 'skipped')
+  const failed = checks.filter(c => c.status === 'down')
+  const allOk = failed.length === 0
 
   if (allOk) {
     if (consecutiveFailures >= 3) {
-      await sendTelegramAlert('<b>Astro Recovered</b>\n\nAll services are back online.')
+      const lines = [
+        `\u2705 <b>Astro Recovered</b>`,
+        ``,
+        ...checks.map(checkLine),
+      ]
+      await sendTelegramAlert(lines.join('\n'))
     }
     consecutiveFailures = 0
   } else {
@@ -189,11 +229,13 @@ async function runHealthCheck(): Promise<void> {
     failedChecks++
 
     if (consecutiveFailures === 1 || consecutiveFailures % 12 === 0) {
-      const lines: string[] = ['<b>Astro Health Check Failed</b>', '']
-      if (frontend.status !== 'ok' && frontend.status !== 'skipped') lines.push(`Frontend: ${latencyStr(frontend)}`)
-      if (jwks.status !== 'ok' && jwks.status !== 'skipped') lines.push(`Auth (JWKS): ${latencyStr(jwks)}`)
-      lines.push(`Consecutive failures: ${consecutiveFailures}`)
-
+      const lines = [
+        `\u274C <b>Astro Health Check Failed</b>`,
+        ``,
+        ...checks.map(checkLine),
+        ``,
+        `Consecutive failures: ${consecutiveFailures}`,
+      ]
       await sendTelegramAlert(lines.join('\n'))
     }
   }
@@ -205,28 +247,24 @@ async function runHealthCheck(): Promise<void> {
 
     const mem = process.memoryUsage()
     const relay = await getRelayStats()
+    const overallIcon = allOk ? '\u2705' : '\u274C'
 
     const lines = [
-      `<b>Astro Status Report</b>`,
+      `${overallIcon} <b>Astro Status Report</b>`,
       ``,
-      `<b>Services</b>`,
-      `  Frontend: ${latencyStr(frontend)}`,
-      `  Auth (JWKS): ${latencyStr(jwks)}`,
-      `  Status: ${consecutiveFailures === 0 ? 'All systems operational' : consecutiveFailures + ' consecutive failures'}`,
+      ...checks.map(checkLine),
       ``,
       `<b>Relay</b>`,
-      `  Connected runners: ${relay.runners}`,
-      `  Active tasks: ${relay.activeTasks}`,
-      `  SSE connections: ${relay.sseConnections}`,
+      `  Runners: ${relay.runners} | Tasks: ${relay.activeTasks} | SSE: ${relay.sseConnections}`,
       ``,
       `<b>Server</b>`,
-      `  Process uptime: ${formatUptime(process.uptime())}`,
-      `  Memory (heap): ${formatBytes(mem.heapUsed)} / ${formatBytes(mem.heapTotal)}`,
-      `  Memory (RSS): ${formatBytes(mem.rss)}`,
+      `  Uptime: ${formatUptime(process.uptime())}`,
+      `  Heap: ${formatBytes(mem.heapUsed)} / ${formatBytes(mem.heapTotal)}`,
+      `  RSS: ${formatBytes(mem.rss)}`,
       `  Host: ${host}`,
       ``,
-      `<b>Period</b>`,
-      `  Checks: ${uptimePct}% passed (${totalChecks - failedChecks}/${totalChecks})`,
+      `<b>Period (${totalChecks} checks)</b>`,
+      `  Availability: ${uptimePct}% (${failedChecks} failed)`,
     ]
     await sendTelegramAlert(lines.join('\n'))
     lastStatusReportAt = Date.now()

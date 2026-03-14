@@ -74,8 +74,9 @@ These are mode-independent. Generate each JWT secret with `openssl rand -hex 32`
 | `FLY_APP` | Optional | Fly.io app name (default: `astro-backend-deploy`). |
 | `CLOUDFLARE_PAGES_PROJECT` | Optional | Cloudflare Pages project name (default: `astro-app`). |
 | `CLOUDFLARED_DOMAIN` | Dev mode | Domain for Cloudflare tunnel (used by `env:init` to generate dev profile). |
-| `TELEGRAM_BOT_TOKEN` | Optional | Telegram bot token for monitoring alerts (see [Monitoring Guide](../guides/monitoring.md)). |
-| `TELEGRAM_CHAT_ID` | Optional | Telegram group chat ID for monitoring alerts. |
+| `TELEGRAM_BOT_TOKEN` | Optional | Telegram bot for user notifications (task completed, approvals). |
+| `MONITOR_TELEGRAM_BOT_TOKEN` | Optional | Separate bot for server monitoring (falls back to `TELEGRAM_BOT_TOKEN`). See [Monitoring Guide](../guides/monitoring.md). |
+| `MONITOR_TELEGRAM_CHAT_ID` | Optional | Chat ID for monitoring alerts (falls back to `TELEGRAM_CHAT_ID`). |
 
 ### Prod Profile (.env.prod)
 

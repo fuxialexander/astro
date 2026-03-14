@@ -494,11 +494,33 @@ class TelegramChannelAdapter {
 
       if (accounts.length === 0) return
 
-      // Format notification as HTML (do NOT pass through formatForChannel — we're writing HTML directly)
-      const typeLabel = notification.type.replace('.', ' ').toUpperCase()
-      // Escape user-provided text for HTML safety
+      // Format notification with visual indicators
       const safeSummary = escapeHtml(notification.summary)
-      const text = `<b>${typeLabel}</b>\n${safeSummary}\n\n<a href="${notification.astroUrl}">View in Astro</a>`
+      const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC'
+      let icon: string
+      let title: string
+      switch (notification.type) {
+        case 'task.completed':
+          icon = '\u2705'
+          title = 'Task Completed'
+          break
+        case 'task.failed':
+          icon = '\u274C'
+          title = 'Task Failed'
+          break
+        case 'approval.requested':
+          icon = '\u270B'
+          title = 'Approval Needed'
+          break
+        case 'branch.pruned':
+          icon = '\u2702\uFE0F'
+          title = 'Branch Pruned'
+          break
+        default:
+          icon = '\u2139\uFE0F'
+          title = notification.type.replace('.', ' ').toUpperCase()
+      }
+      const text = `${icon} <b>${title}</b>\n\n${safeSummary}\n\n<a href="${notification.astroUrl}">View in Astro</a>\n\n<i>${timestamp}</i>`
 
       // Build inline keyboard for approval requests
       let replyMarkup: unknown = undefined
