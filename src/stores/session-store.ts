@@ -156,6 +156,9 @@ function createMessageId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+// Deduplicates concurrent ensureFullSession calls for the same sessionId
+const inFlightSessionFetches = new Map<string, Promise<Session | undefined>>()
+
 export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: new Map(),
   loaded: false,
@@ -185,18 +188,32 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const existing = get().sessions.get(sessionId)
     // If already has messages loaded (either from streaming or from a prior fetch), skip
     if (existing && existing.messages.length > 0) return existing
-    try {
-      const full = await dataClient.getSession(sessionId)
-      if (full) {
-        const sessions = new Map(get().sessions)
-        sessions.set(sessionId, full)
-        set({ sessions })
-        return full
+
+    // Deduplicate concurrent fetches for the same session
+    const inFlight = inFlightSessionFetches.get(sessionId)
+    if (inFlight) return inFlight
+
+    const fetchPromise = (async () => {
+      try {
+        const full = await dataClient.getSession(sessionId)
+        if (full) {
+          const sessions = new Map(get().sessions)
+          sessions.set(sessionId, full)
+          set({ sessions })
+          return full
+        }
+      } catch {
+        // API unavailable — return existing stub
       }
-    } catch {
-      // API unavailable — return existing stub
+      return existing
+    })()
+
+    inFlightSessionFetches.set(sessionId, fetchPromise)
+    try {
+      return await fetchPromise
+    } finally {
+      inFlightSessionFetches.delete(sessionId)
     }
-    return existing
   },
 
   createSession: (params) => {

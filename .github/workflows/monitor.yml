@@ -1,0 +1,103 @@
+name: Service Monitor
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'  # Every 5 minutes
+  workflow_dispatch: {}      # Manual trigger
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check backend health
+        id: backend
+        continue-on-error: true
+        run: |
+          RESPONSE=$(curl -sf --max-time 15 "${{ secrets.MONITOR_BACKEND_URL }}/api/health" 2>&1) || {
+            echo "status=down" >> "$GITHUB_OUTPUT"
+            echo "error=${RESPONSE:0:200}" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          STATUS=$(echo "$RESPONSE" | jq -r '.status // "unknown"')
+          RUNNERS=$(echo "$RESPONSE" | jq -r '.relay.connectedRunners // 0')
+          MODE=$(echo "$RESPONSE" | jq -r '.mode // "unknown"')
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "runners=$RUNNERS" >> "$GITHUB_OUTPUT"
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+
+      - name: Check frontend
+        id: frontend
+        continue-on-error: true
+        run: |
+          HTTP_CODE=$(curl -sf --max-time 15 -o /dev/null -w "%{http_code}" "${{ secrets.MONITOR_FRONTEND_URL }}" 2>/dev/null) || HTTP_CODE="000"
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "304" ]; then
+            echo "status=ok" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=down" >> "$GITHUB_OUTPUT"
+            echo "http_code=$HTTP_CODE" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check Supabase JWKS
+        id: jwks
+        continue-on-error: true
+        run: |
+          RESPONSE=$(curl -sf --max-time 15 "${{ secrets.MONITOR_SUPABASE_URL }}/auth/v1/.well-known/jwks.json" 2>&1) || {
+            echo "status=down" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          KEY_COUNT=$(echo "$RESPONSE" | jq -r '.keys | length // 0')
+          if [ "$KEY_COUNT" -gt 0 ]; then
+            echo "status=ok" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=no_keys" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Send alert on failure
+        if: |
+          steps.backend.outputs.status != 'ok' ||
+          steps.frontend.outputs.status != 'ok' ||
+          steps.jwks.outputs.status != 'ok'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "Telegram secrets not configured, skipping alert"
+            exit 0
+          fi
+
+          # Build alert message
+          BACKEND="${{ steps.backend.outputs.status }}"
+          FRONTEND="${{ steps.frontend.outputs.status }}"
+          JWKS="${{ steps.jwks.outputs.status }}"
+          RUNNERS="${{ steps.backend.outputs.runners }}"
+          TIME=$(date -u '+%Y-%m-%d %H:%M UTC')
+
+          # Use a simple format that works with Telegram
+          MSG="ASTRO ALERT
+
+Backend: ${BACKEND:-unknown}
+Frontend: ${FRONTEND:-unknown}
+Auth (JWKS): ${JWKS:-unknown}
+Runners: ${RUNNERS:-?}
+Time: ${TIME}
+
+Check: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$MSG" '{chat_id: $chat_id, text: $text}')"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Service Health Check" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Service | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Backend | ${{ steps.backend.outputs.status }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Frontend | ${{ steps.frontend.outputs.status }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Auth (JWKS) | ${{ steps.jwks.outputs.status }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Connected Runners | ${{ steps.backend.outputs.runners }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Time: $(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_STEP_SUMMARY"
