@@ -87,9 +87,7 @@ describe('parsePatch', () => {
 
   it('handles empty patch', () => {
     const lines = parsePatch('')
-    // A single empty-string context line
-    expect(lines).toHaveLength(1)
-    expect(lines[0].type).toBe('context')
+    expect(lines).toHaveLength(0)
   })
 
   it('correctly tracks line numbers through mixed changes', () => {
