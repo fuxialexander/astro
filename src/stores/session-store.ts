@@ -735,7 +735,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // json-render YAML: detect ```yaml-spec fences in streamed text,
     // parse YAML progressively, and emit spec activity events.
     let insideYamlSpec = false
-    let yamlBuffer = ''
     let specEventPushed = false
     let specThrottleTimer: ReturnType<typeof setTimeout> | null = null
     const yamlCompiler = createYamlStreamCompiler<Record<string, unknown>>()
@@ -757,7 +756,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             // Prose before fence
             if (fenceIdx > 0) emitText(remaining.slice(0, fenceIdx))
             insideYamlSpec = true
-            yamlBuffer = ''
             remaining = remaining.slice(fenceIdx + fenceOpen.length)
             // Skip optional newline after fence open
             if (remaining.startsWith('\n')) remaining = remaining.slice(1)
@@ -767,14 +765,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           const closeIdx = remaining.indexOf(fenceClose)
           if (closeIdx === -1) {
             // All YAML content — feed to compiler progressively
-            yamlBuffer += remaining
             feedYaml(remaining)
             remaining = ''
           } else {
             // YAML content before close
             const yamlChunk = remaining.slice(0, closeIdx)
             if (yamlChunk) {
-              yamlBuffer += yamlChunk
               feedYaml(yamlChunk)
             }
             insideYamlSpec = false
