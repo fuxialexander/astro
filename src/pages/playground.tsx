@@ -250,13 +250,17 @@ export function Playground() {
 
     prefillConsumedRef.current = true
 
-    if (workdirParam) {
-      setWorkingDir(decodeURIComponent(workdirParam))
-    }
-    if (machineParam) {
-      const machineId = decodeURIComponent(machineParam)
-      const found = allMachines.find((m) => m.machineId === machineId)
-      if (found) setSelectedMachine(found)
+    try {
+      if (workdirParam) {
+        setWorkingDir(decodeURIComponent(workdirParam))
+      }
+      if (machineParam) {
+        const machineId = decodeURIComponent(machineParam)
+        const found = allMachines.find((m) => m.machineId === machineId)
+        if (found) setSelectedMachine(found)
+      }
+    } catch {
+      // Malformed URI component — ignore prefill
     }
 
     // Clear the params from the URL after consuming them

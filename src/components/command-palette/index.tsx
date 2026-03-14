@@ -341,8 +341,8 @@ export function CommandPalette() {
         clearCommandSelection()
         setBreadcrumbs([])
         setSearchQuery("")
-      } else if (item.children && item.children.length > 0) {
-        // Navigate into nested commands
+      } else if (item.children !== undefined) {
+        // Navigate into nested commands (even if empty — e.g. direct-input mode)
         setBreadcrumbs([...breadcrumbs, item])
         setSearchQuery("") // Clear search when entering nested view
       }

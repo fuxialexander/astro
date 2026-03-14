@@ -811,8 +811,11 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
                 )}
                 <RecentWorkdirPopover
                   machineId={resolvedMachineId}
-                  onSelect={({ workingDirectory }) => {
-                    updateProject(projectId, { workingDirectory })
+                  onSelect={({ machineId, workingDirectory }) => {
+                    updateProject(projectId, {
+                      workingDirectory,
+                      ...(machineId !== resolvedMachineId && { defaultMachineId: machineId }),
+                    })
                   }}
                 />
               </div>
