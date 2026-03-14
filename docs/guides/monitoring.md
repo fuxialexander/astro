@@ -185,6 +185,7 @@ That's it. On next deploy, the server will start sending Telegram notifications.
 | Server started | Every deploy/restart | "Astro Server Started - Mode: supabase, Host: Fly.io (sjc)" |
 | Health check failed | Frontend or JWKS down | "Astro Health Check Failed - Auth (JWKS): down" |
 | Recovery | Services back after outage | "Astro Recovered - All services are back online" |
+| Status report | Every 8 hours | "Astro Status Report - All systems operational, Uptime: 100.0%" |
 
 ### Alert deduplication
 
@@ -192,6 +193,7 @@ To avoid flooding the group chat:
 - First failure: alert immediately
 - Consecutive failures: alert once per hour (every 12th check at 5-min interval)
 - Recovery: one notification when all services are back
+- Status report: every 8 hours with uptime percentage, even when everything is healthy
 
 ### Limitations
 
@@ -204,7 +206,7 @@ The built-in monitor **cannot detect its own outage**. If the Fly.io machine is 
 fly logs --app astro-backend-deploy | grep "\[monitor\]"
 
 # Expected:
-# [monitor] Health check monitor started (every 5 min)
+# [monitor] Health check monitor started (every 5 min, status report every 8 hrs)
 
 # If you see this instead, Telegram is not configured:
 # [monitor] Telegram not configured (...) — monitoring disabled
