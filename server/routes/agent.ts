@@ -6,6 +6,7 @@ import { join } from 'path'
 import { mkdirSync } from 'fs'
 import { buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, buildTitleGenerationPrompt, buildRefinementPrompt, buildLabelSuggestionPrompt, buildCompactionPrompt, formatMachineInstruction } from '../lib/prompt-templates.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
+import { astroCatalog } from '../../src/lib/json-render/catalog.js'
 import { relayServer } from '../lib/relay-server.js'
 import { dispatchEngine } from '../lib/dispatch/index.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
@@ -591,6 +592,16 @@ agentRoute.post('/project-chat', async (c) => {
   const chatPlatformSkills = skillManager.getSkillPromptInjection(chatTeamId)
   if (chatPlatformSkills) {
     chatSkills = chatSkills + '\n\n' + chatPlatformSkills
+  }
+
+  // Inject json-render generative UI catalog prompt
+  const catalogPrompt = astroCatalog.prompt()
+  if (catalogPrompt) {
+    chatSkills = (chatSkills || '') + '\n\n## Generative UI\n\n' +
+      'You can render rich, interactive UI components in your responses using spec blocks. ' +
+      'Wrap specs in a ```spec code fence. Use specs for data tables, status summaries, key-value displays, ' +
+      'and structured information. Continue using plain markdown for conversational text.\n\n' +
+      catalogPrompt
   }
 
   const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges, chatSkills)

@@ -14,6 +14,7 @@ import { create } from "zustand"
 import { dataClient } from "@/lib/data-client"
 import { projectChatWithAgent, chatWithTask, generateTitle, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { extractMutations, applyMutationsToStore } from "@/lib/plan-mutations"
+import { createMixedStreamParser, applySpecPatch, type Spec } from "@json-render/core"
 import { usePlanStore } from "./plan-store"
 import { useProjectStore } from "./project-store"
 import { useRealtimeStore } from "./realtime-store"
@@ -731,6 +732,24 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     let rawAssistantText = ""
     let needsPlanRefresh = false
 
+    // json-render: parse mixed text + spec streams
+    let specAccumulator: Spec = { root: '', elements: {} }
+    let hasSpec = false
+    const mixedStreamParser = createMixedStreamParser({
+      onText: (text) => {
+        get().appendToLastAssistantMessage(sid, text)
+        useRealtimeStore.getState().pushActivityEvent(sid, {
+          type: 'text',
+          content: text,
+          timestamp: new Date(),
+        })
+      },
+      onPatch: (patch) => {
+        hasSpec = true
+        specAccumulator = applySpecPatch(specAccumulator, patch)
+      },
+    })
+
     // Push user event to realtime store
     useRealtimeStore.getState().pushActivityEvent(sid, {
       type: 'chat_user',
@@ -775,14 +794,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         // The global SSE suppresses events for tasks with an active direct SSE
         // (activeDispatchStreams), so we must push events here for the UI to
         // show streaming output. Session messages are also updated for persistence.
+        // Text chunks are routed through the MixedStreamParser, which separates
+        // prose (→ appendToLastAssistantMessage + text activity event) from
+        // json-render spec patches (→ accumulated into specAccumulator).
         onText: (chunk) => {
           rawAssistantText += chunk
-          get().appendToLastAssistantMessage(sid, chunk)
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'text',
-            content: chunk,
-            timestamp: new Date(),
-          })
+          mixedStreamParser.push(chunk)
         },
         onToolUse: (data) => {
           if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
@@ -813,6 +830,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           // Refresh plan from server if MCP tools modified the plan
           if (needsPlanRefresh) {
             usePlanStore.getState().load()
+          }
+
+          // Flush any remaining buffered content from the mixed stream parser
+          mixedStreamParser.flush()
+
+          // If a json-render spec was accumulated during streaming, push it as an activity event
+          if (hasSpec && specAccumulator.root) {
+            useRealtimeStore.getState().pushActivityEvent(sid, {
+              type: 'json_render_spec',
+              spec: specAccumulator,
+              timestamp: new Date(),
+            })
           }
 
           // Extract and apply mutations from raw text

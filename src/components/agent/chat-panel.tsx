@@ -36,6 +36,8 @@ import {
   MutationBlock,
   SystemMessageBlock,
 } from "@/components/activity-blocks"
+import { JsonRenderView } from "@/components/ui/json-render-view"
+import type { Spec } from "@json-render/core"
 import { deriveAvailableProviders } from "@/components/execution/provider-utils"
 import type { AppliedMutations } from "@/lib/plan-mutations"
 import type { ProviderStatus, Session, TaskActivityEvent } from "@/types"
@@ -793,6 +795,14 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                   event={block.events[0] as Extract<TaskActivityEvent, { type: 'system_message' }>}
                 />
               )
+            case 'json_render_spec': {
+              const specEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'json_render_spec' }>
+              return (
+                <div key={i} className="px-4 py-2">
+                  <JsonRenderView spec={specEvent.spec as unknown as Spec} />
+                </div>
+              )
+            }
             default:
               return null
           }

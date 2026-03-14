@@ -90,7 +90,7 @@ function sanitizeHtmlContent(html: string): string {
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface DisplayBlock {
-  type: 'text' | 'tool' | 'tool_group' | 'visual' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment' | 'branch_linked' | 'system_message' | 'system_prompt' | 'plan_result'
+  type: 'text' | 'tool' | 'tool_group' | 'visual' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment' | 'branch_linked' | 'system_message' | 'system_prompt' | 'plan_result' | 'json_render_spec'
   events: TaskActivityEvent[]
   /** For 'visual' blocks: the extracted HTML/SVG content to render */
   visualContent?: string
@@ -310,6 +310,11 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
         flushText()
         flushTools()
         blocks.push({ type: 'plan_result', events: [event] })
+        break
+      case 'json_render_spec':
+        flushText()
+        flushTools()
+        blocks.push({ type: 'json_render_spec', events: [event] })
         break
     }
   }
