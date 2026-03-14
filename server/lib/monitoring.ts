@@ -302,3 +302,113 @@ export function stopHealthCheckMonitor(): void {
     healthCheckInterval = null
   }
 }
+
+// ── Operational Error Notifications ─────────────────────────────────
+// CRITICAL: immediate Telegram alert (rate-limited per error type)
+// WARNING: batched into 5-minute digests
+
+// Rate limiting for CRITICAL alerts: max 1 per error type per 30 seconds
+const criticalRateMap = new Map<string, number>()  // errorType → lastSentTimestamp
+const CRITICAL_RATE_LIMIT_MS = 30_000
+
+// WARNING batch: accumulate warnings, flush every 5 minutes
+const warningBatch: Array<{ message: string; timestamp: Date }> = []
+let warningFlushTimer: ReturnType<typeof setInterval> | null = null
+const WARNING_BATCH_INTERVAL_MS = 5 * 60 * 1000
+
+/**
+ * Send a CRITICAL operational alert via Telegram — immediate delivery.
+ * Rate-limited to 1 per errorType per 30 seconds to prevent storms.
+ *
+ * Use for: task failures, machine disconnects, dispatch timeouts, dead jobs.
+ */
+export async function notifyCritical(opts: {
+  title: string
+  project?: string
+  task?: string
+  machine?: string
+  error: string
+  impact?: string
+  action?: string
+  errorType?: string
+}): Promise<void> {
+  if (!isConfigured()) return
+
+  // Rate limit by error type
+  const key = opts.errorType || opts.title
+  const lastSent = criticalRateMap.get(key) || 0
+  if (Date.now() - lastSent < CRITICAL_RATE_LIMIT_MS) return
+  criticalRateMap.set(key, Date.now())
+
+  const lines: string[] = [
+    `\u26A0\uFE0F <b>${escapeHtml(opts.title)}</b>`,
+    ``,
+  ]
+  if (opts.project) lines.push(`<b>Project:</b> ${escapeHtml(opts.project)}`)
+  if (opts.task) lines.push(`<b>Task:</b> ${escapeHtml(opts.task)}`)
+  if (opts.machine) lines.push(`<b>Machine:</b> ${escapeHtml(opts.machine)}`)
+  lines.push(`<b>Error:</b> ${escapeHtml(opts.error)}`)
+  if (opts.impact) lines.push(`<b>Impact:</b> ${escapeHtml(opts.impact)}`)
+  if (opts.action) lines.push(`<b>Action:</b> ${escapeHtml(opts.action)}`)
+
+  await sendTelegramAlert(lines.join('\n'))
+}
+
+/**
+ * Queue a WARNING for the next batch digest (sent every 5 minutes).
+ * Starts the batch timer on first warning if not running.
+ *
+ * Use for: Redis write failures, streaming persistence errors, context degradation.
+ */
+export function notifyWarning(message: string): void {
+  if (!isConfigured()) return
+
+  warningBatch.push({ message, timestamp: new Date() })
+
+  // Start batch timer if not running
+  if (!warningFlushTimer) {
+    warningFlushTimer = setInterval(flushWarningBatch, WARNING_BATCH_INTERVAL_MS)
+  }
+}
+
+async function flushWarningBatch(): Promise<void> {
+  if (warningBatch.length === 0) return
+
+  const items = warningBatch.splice(0) // drain
+  const lines: string[] = [
+    `\u2139\uFE0F <b>Astro Warning Digest</b> (${items.length} event${items.length > 1 ? 's' : ''})`,
+    ``,
+  ]
+
+  // Deduplicate identical messages, show count
+  const counts = new Map<string, number>()
+  for (const item of items) {
+    counts.set(item.message, (counts.get(item.message) || 0) + 1)
+  }
+
+  let idx = 0
+  for (const [msg, count] of counts) {
+    idx++
+    lines.push(`${idx}. ${escapeHtml(msg)}${count > 1 ? ` (x${count})` : ''}`)
+  }
+
+  const first = items[0].timestamp.toISOString().slice(11, 19)
+  const last = items[items.length - 1].timestamp.toISOString().slice(11, 19)
+  lines.push(``)
+  lines.push(`<i>Window: ${first} – ${last} UTC</i>`)
+
+  await sendTelegramAlert(lines.join('\n'))
+
+  // Stop timer if no more warnings
+  if (warningBatch.length === 0 && warningFlushTimer) {
+    clearInterval(warningFlushTimer)
+    warningFlushTimer = null
+  }
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
