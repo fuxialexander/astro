@@ -53,6 +53,7 @@ import { machineRegistry } from './machine-registry.js';
 import { streamingEventLog } from './streaming-event-log.js';
 import { redisPubSub, type StreamingEventMessage } from './redis-pubsub.js';
 import { executionContextStore } from './execution-context-store.js';
+import { notifyWarning } from './monitoring.js';
 
 /** Compute line counts from a unified diff string */
 function computeLineCounts(diff: string): { added: number; removed: number } {
@@ -1488,6 +1489,7 @@ export class RelayServer extends EventEmitter {
     const socket = connection.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       console.error(`[relay] Failed to send dispatch for task ${task.taskId} to machine ${machineId} (socket not open)`);
+      notifyWarning(`WebSocket dispatch send failed for task ${task.taskId} — machine ${machineId} socket not open`);
       return false;
     }
     socket.send(JSON.stringify(agentRunnerMsg));
@@ -1567,6 +1569,7 @@ export class RelayServer extends EventEmitter {
     const socket = connection.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       console.error(`[relay] Failed to send cancel for task ${taskId} to machine ${resolvedMachineId} (socket not open)`);
+      notifyWarning(`WebSocket cancel send failed for task ${taskId} — machine ${resolvedMachineId} socket not open`);
       return false;
     }
     socket.send(JSON.stringify(agentRunnerMsg));
@@ -1971,6 +1974,7 @@ export class RelayServer extends EventEmitter {
     const socket = connection.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       console.error(`[relay] Failed to send approval response for task ${taskId} to machine ${machineId} (socket not open)`);
+      notifyWarning(`WebSocket approval response send failed for task ${taskId} — machine ${machineId} socket not open`);
       return false;
     }
     socket.send(JSON.stringify(responseMsg));
@@ -2025,6 +2029,7 @@ export class RelayServer extends EventEmitter {
     const socket = connection.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       console.error(`[relay] Failed to send safety decision for task ${taskId} to machine ${machineId} (socket not open)`);
+      notifyWarning(`WebSocket safety decision send failed for task ${taskId} — machine ${machineId} socket not open`);
       return false;
     }
     socket.send(JSON.stringify(responseMsg));
@@ -2674,7 +2679,9 @@ export class RelayServer extends EventEmitter {
       } else {
         // Revert claimed steers back to 'pending' so they can be retried
         const seqs = claimed.map((e) => e.seq)
-        streamingEventLog.batchUpdateSteerStatus(seqs, 'pending').catch(() => {})
+        streamingEventLog.batchUpdateSteerStatus(seqs, 'pending').catch((err) => {
+          notifyWarning(`Failed to revert steer status to pending for task ${taskId}: ${err instanceof Error ? err.message : String(err)}`)
+        })
         console.warn(`[relay] Failed to drain pending steers for ${taskId} after ack — reverted to pending`)
       }
     }).catch((err) => {

@@ -35,6 +35,7 @@ import { autoDispatchDownstream, cascadePruneDownstream } from './data.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import { redisPubSub } from '../lib/redis-pubsub.js'
 import { incrementDispatchSSE, decrementDispatchSSE } from '../lib/sse-connection-tracker.js'
+import { notifyCritical, notifyWarning } from '../lib/monitoring.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup).
 // Dual-layer: local Map for zero-latency + Redis write-through for cross-instance.
@@ -823,6 +824,7 @@ async function dispatchViaRelay(
       }
     } catch (err) {
       console.warn('[dispatch] Failed to fetch machine instruction:', err instanceof Error ? err.message : String(err))
+      notifyWarning(`Machine instruction fetch failed for ${machineId}: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
   // Fallback: use built-in default compute guide (loaded from skills/machine_instruction_presets/)
@@ -866,6 +868,7 @@ async function dispatchViaRelay(
       }
     } catch (err) {
       console.warn('[dispatch] Failed to fetch knowledge entries:', err instanceof Error ? err.message : String(err))
+      notifyWarning(`Knowledge fetch failed for project ${projectId}: ${err instanceof Error ? err.message : String(err)}`)
       // Non-fatal — continue without knowledge
     }
 
@@ -1167,6 +1170,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       }
     } catch (err) {
       console.warn('[dispatch] Failed to fetch blobs for image refs:', err)
+      notifyWarning(`Image blob fetch failed for task ${nodeId}: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -1271,7 +1275,9 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
   // Track directory for safety decision caching (local + Redis write-through)
   if (workingDirectory) {
     dispatchedTaskDirs.set(executionId, workingDirectory)
-    redisPubSub.setTaskDir(executionId, workingDirectory).catch(() => {})
+    redisPubSub.setTaskDir(executionId, workingDirectory).catch((err) => {
+      notifyWarning(`Redis setTaskDir failed for ${executionId}: ${err instanceof Error ? err.message : String(err)}`)
+    })
   }
 
   // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)
@@ -1309,7 +1315,9 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       resultSent = true
       executionContextStore.remove(executionId)
       dispatchedTaskDirs.delete(executionId)
-      redisPubSub.removeTaskDir(executionId).catch(() => {})
+      redisPubSub.removeTaskDir(executionId).catch((err) => {
+        notifyWarning(`Redis removeTaskDir failed for ${executionId}: ${err instanceof Error ? err.message : String(err)}`)
+      })
 
       // Map relay metrics to dispatch metrics (adding aliases used by hooks)
       const relayMetrics = msg.result.metrics
@@ -1349,6 +1357,33 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       const finalNodeStatus = isSuccess
         ? ((verification === 'auto' || yoloEnabled) && (deliveryOk || yoloEnabled) ? 'auto_verified' : 'awaiting_judgment')
         : 'awaiting_judgment'
+
+      // Notify on task failure via Telegram
+      if (!isSuccess) {
+        notifyCritical({
+          title: 'Task Execution Failed',
+          project: title || projectId,
+          task: nodeId,
+          machine: machineId || 'unknown',
+          error: msg.result.error || 'Agent returned non-completed status',
+          impact: `Task finished with status "${msg.result.status}" — requires human review`,
+          action: 'Review execution output in the activity feed and re-execute or adjust the task',
+          errorType: 'task_failure',
+        })
+      }
+      // Notify on delivery failure (work done but not shipped)
+      if (isSuccess && msg.result.deliveryStatus === 'failure') {
+        notifyCritical({
+          title: 'Code Delivery Failed',
+          project: title || projectId,
+          task: nodeId,
+          machine: machineId || 'unknown',
+          error: msg.result.deliveryError || 'Delivery step returned failure status',
+          impact: 'Task completed but code was not pushed/PR was not created',
+          action: 'Check git remote access, branch permissions, and GitHub token validity',
+          errorType: 'delivery_failure',
+        })
+      }
 
       const resultData = {
         executionId,
@@ -1695,6 +1730,16 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       if (disconnectedId !== machineId || resultSent) return
       console.log(`[dispatch] Machine ${machineId} disconnected during task ${executionId}`)
       const errorData = { error: 'Remote machine disconnected during task execution', recoverable: false }
+      notifyCritical({
+        title: 'Machine Disconnected During Task',
+        project: title || projectId,
+        task: nodeId,
+        machine: machineId || 'unknown',
+        error: 'Machine went offline while task was running',
+        impact: 'Task execution interrupted — requires re-execution',
+        action: 'Check machine connectivity and agent-runner process',
+        errorType: 'machine_disconnect',
+      })
       const seq = await streamingEventLog.append(executionId, 'error', errorData)
       if (alive) {
         stream.writeSSE({
@@ -1798,6 +1843,16 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       if (data.taskId !== executionId || resultSent) return
       console.log(`[dispatch] Task ${executionId} declared dead by heartbeat cross-ref: ${data.reason}`)
       const errorData = { error: `Dead job detected: ${data.reason}`, recoverable: true }
+      notifyCritical({
+        title: 'Dead Job Detected',
+        project: title || projectId,
+        task: nodeId,
+        machine: data.machineId || machineId || 'unknown',
+        error: data.reason,
+        impact: 'Task was running but agent process is no longer active',
+        action: 'Task status reset to planned — re-execute when ready',
+        errorType: 'dead_job',
+      })
       try {
         const seq = await streamingEventLog.append(executionId, 'error', errorData)
         if (alive) {
@@ -1858,7 +1913,9 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     const isServerSideDispatch = c.req.header('X-Server-Dispatch') === 'true'
     if (!isServerSideDispatch) {
       activeDispatchStreams.add(executionId)
-      redisPubSub.registerActiveDispatchStream(executionId).catch(() => {})
+      redisPubSub.registerActiveDispatchStream(executionId).catch((err) => {
+        notifyWarning(`Redis registerActiveDispatchStream failed for ${executionId}: ${err instanceof Error ? err.message : String(err)}`)
+      })
     }
 
     relayServer.on('task:result', onResult)
@@ -1878,7 +1935,9 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     const cleanupSSE = () => {
       if (!isServerSideDispatch) {
         activeDispatchStreams.delete(executionId)
-        redisPubSub.removeActiveDispatchStream(executionId).catch(() => {})
+        redisPubSub.removeActiveDispatchStream(executionId).catch((err) => {
+          notifyWarning(`Redis removeActiveDispatchStream failed for ${executionId}: ${err instanceof Error ? err.message : String(err)}`)
+        })
       }
       relayServer.off('task:text', onText)
       relayServer.off('task:session_init', onSessionInit)
@@ -1910,6 +1969,16 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     if (!dispatched) {
       cleanup()
       const errorData = { error: `Failed to dispatch to machine: ${machineId}`, recoverable: false }
+      notifyCritical({
+        title: 'Task Dispatch Failed',
+        project: title || projectId,
+        task: nodeId,
+        machine: machineId || 'unknown',
+        error: `Relay could not deliver task to machine ${machineId}`,
+        impact: 'Task never started — machine may be disconnected or unreachable',
+        action: 'Check machine connectivity in the dashboard; re-execute when machine is online',
+        errorType: 'dispatch_failure',
+      })
       const seq = await streamingEventLog.append(executionId, 'error', errorData)
       await stream.writeSSE({
         id: String(seq),
@@ -2055,6 +2124,21 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
             ? 'Activity timeout — agent runner stopped responding after 2 hours of inactivity'
             : `Startup timeout — agent runner did not start after ${MAX_STARTUP_RETRIES + 1} attempts (~${Math.round((MAX_STARTUP_RETRIES * STARTUP_TIMEOUT_MS + FINAL_STARTUP_TIMEOUT_MS) / 60000)} min). The machine may be busy or the agent process failed to launch. Try re-executing the task.`
           const errorData = { error: errorMsg, recoverable: true }
+
+          notifyCritical({
+            title: hasReceivedEvent ? 'Task Activity Timeout' : 'Task Startup Timeout',
+            project: title || projectId,
+            task: nodeId,
+            machine: machineId || 'unknown',
+            error: errorMsg,
+            impact: hasReceivedEvent
+              ? 'Agent went silent mid-execution — task reset to planned'
+              : `Agent never started after ${MAX_STARTUP_RETRIES + 1} dispatch attempts`,
+            action: hasReceivedEvent
+              ? 'Check agent-runner logs for crashes or resource exhaustion'
+              : 'Verify machine is online, agent-runner process is healthy, and not overloaded',
+            errorType: hasReceivedEvent ? 'activity_timeout' : 'startup_timeout',
+          })
 
           // Update plan_nodes so the node doesn't stay in_progress if browser is disconnected
           try {
