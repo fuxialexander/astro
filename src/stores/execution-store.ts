@@ -273,6 +273,7 @@ interface ExecutionState {
       githubRepo?: string
       githubRepoId?: number
       source?: ProjectSource
+      deliveryMode?: string
     }
   ) => Promise<{ projectId: string; nodeId: string }>
   cancelPlanGeneration: (projectId: string) => Promise<void>
@@ -1088,6 +1089,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             remoteType: 'none' as const,
           },
         } : {}),
+      ...(options?.deliveryMode ? { deliveryMode: options.deliveryMode } : {}),
     } as Project)
 
     const nodeId = `plan-${projectId}`

@@ -669,6 +669,7 @@ export function ProjectNewPlan() {
           repository: detection?.remoteUrl || existingProject.repository || undefined,
           ...(github && !existingProject.githubOwner ? { githubOwner: github.owner, githubRepo: github.repo } : {}),
           ...(regenSource ? { source: regenSource } : {}),
+          ...(detection?.suggestedDeliveryMode ? { deliveryMode: detection.suggestedDeliveryMode } : {}),
         }
         updateProject(existingProject.id, regenUpdates) // optimistic local
         await dataClient.updateProject(existingProject.id, regenUpdates) // await backend
@@ -713,6 +714,7 @@ export function ProjectNewPlan() {
             repository: detection?.remoteUrl || undefined,
             ...(github ? { githubOwner: github.owner, githubRepo: github.repo } : {}),
             ...(detectedSource ? { source: detectedSource } : {}),
+            ...(detection?.suggestedDeliveryMode ? { deliveryMode: detection.suggestedDeliveryMode } : {}),
           }
         )
         projectId = result.projectId
