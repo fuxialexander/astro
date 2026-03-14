@@ -58,7 +58,6 @@ import { ShareImport } from "@/pages/share-import"
 import { Examples } from "@/pages/examples"
 import { Community } from "@/pages/community"
 import { CommunityPlanDetail } from "@/pages/community-plan-detail"
-import { FFTPlayground } from "@/pages/fft-playground"
 
 /**
  * ResponsiveLayout switches between desktop (sidebar) and mobile (bottom tab bar) layouts.
@@ -329,7 +328,6 @@ export default function App() {
             <Route path="login" element={<Login />} />
             <Route path="device" element={<DeviceAuth />} />
             <Route path="invite/:token" element={<TeamInvite />} />
-            <Route path="fft" element={<FFTPlayground />} />
             <Route path="*" element={
           <DataLoader>
             <PluginLoader>
