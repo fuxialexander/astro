@@ -324,12 +324,17 @@ app.delete('/projects/:id', async (c) => {
     and(eq(projects.id, projectId), teamScopeFilter(projects, user))
   )
 
-  // Broadcast project cleanup to connected machine (best-effort)
-  if (existing.defaultMachineId) {
-    try {
+  // Broadcast project cleanup to connected machine(s) (best-effort)
+  // If a specific machine is assigned, target it; otherwise broadcast to all
+  // connected machines so auto-provisioned workspaces are cleaned up even when
+  // no defaultMachineId was ever set.
+  try {
+    if (existing.defaultMachineId) {
       relayServer.cleanupProject(projectId, existing.defaultMachineId)
-    } catch { /* best effort */ }
-  }
+    } else {
+      relayServer.cleanupProjectBroadcast(projectId)
+    }
+  } catch { /* best effort */ }
 
   return c.json({ ok: true })
 })

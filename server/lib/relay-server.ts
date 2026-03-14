@@ -1807,6 +1807,32 @@ export class RelayServer extends EventEmitter {
   }
 
   /**
+   * Broadcast project cleanup to ALL connected machines.
+   * Used when a project has no defaultMachineId — any machine may have
+   * auto-provisioned a workspace for it.
+   */
+  cleanupProjectBroadcast(projectId: string): void {
+    const machines = machineRegistry.getAll();
+    const msg = JSON.stringify({
+      type: 'project_cleanup',
+      timestamp: new Date().toISOString(),
+      payload: { projectId },
+    });
+
+    let sent = 0;
+    for (const machine of machines) {
+      if (machine.connectionStatus !== 'connected') continue;
+      const connection = machineRegistry.getConnection(machine.machineId);
+      if (!connection?.socket || connection.socket.readyState !== 1) continue;
+      connection.socket.send(msg);
+      sent++;
+    }
+    if (sent > 0) {
+      console.log(`[relay] Project ${projectId} cleanup broadcast to ${sent} machine(s)`);
+    }
+  }
+
+  /**
    * Send a git pull request to an agent runner (fire-and-forget).
    * Used by git-pull-hook to pull changes on the remote machine after task completion.
    */
