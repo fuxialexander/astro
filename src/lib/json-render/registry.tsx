@@ -317,25 +317,35 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
     CardCarousel: ({ props }) => {
       const [activeIndex, setActiveIndex] = useState(0)
       const containerRef = useRef<HTMLDivElement>(null)
+      const scrollAccum = useRef(0)
+      const scrollTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
       const count = props.cards.length
 
       const goTo = useCallback((index: number) => {
         setActiveIndex(Math.max(0, Math.min(count - 1, index)))
       }, [count])
 
-      // Scroll wheel navigation
+      // Smooth scroll accumulator for touchpad — accumulates small deltas
       useEffect(() => {
         const el = containerRef.current
         if (!el) return
         const handler = (e: WheelEvent) => {
-          if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-            e.preventDefault()
-            if (e.deltaX > 30) goTo(activeIndex + 1)
-            else if (e.deltaX < -30) goTo(activeIndex - 1)
-          } else if (Math.abs(e.deltaY) > 30) {
-            e.preventDefault()
-            if (e.deltaY > 0) goTo(activeIndex + 1)
-            else goTo(activeIndex - 1)
+          e.preventDefault()
+          const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+          scrollAccum.current += delta
+
+          if (scrollTimeout.current) clearTimeout(scrollTimeout.current)
+          scrollTimeout.current = setTimeout(() => {
+            scrollAccum.current = 0
+          }, 200)
+
+          const threshold = 50
+          if (scrollAccum.current > threshold) {
+            scrollAccum.current = 0
+            goTo(activeIndex + 1)
+          } else if (scrollAccum.current < -threshold) {
+            scrollAccum.current = 0
+            goTo(activeIndex - 1)
           }
         }
         el.addEventListener('wheel', handler, { passive: false })
@@ -353,52 +363,53 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
       }, [activeIndex, goTo])
 
       return (
-        <div ref={containerRef} className="relative select-none" style={{ perspective: '1200px' }}>
-          <div className="relative h-[220px] flex items-center justify-center overflow-hidden">
+        <div ref={containerRef} className="relative select-none" style={{ perspective: '1000px' }}>
+          <div className="relative h-[260px] flex items-center justify-center overflow-hidden py-4">
             {props.cards.map((card, i) => {
               const offset = i - activeIndex
               const absOffset = Math.abs(offset)
               const isActive = i === activeIndex
               const zIndex = count - absOffset
-              const translateX = offset * 120
-              const translateZ = isActive ? 0 : -80 - absOffset * 40
-              const rotateY = offset < 0 ? 35 : offset > 0 ? -35 : 0
-              const opacity = absOffset > 2 ? 0 : isActive ? 1 : 0.6 - absOffset * 0.15
-              const scale = isActive ? 1 : 0.85 - absOffset * 0.05
+              const translateX = offset * 140
+              const translateZ = isActive ? 40 : -60 * absOffset
+              const rotateY = offset < 0 ? 40 : offset > 0 ? -40 : 0
+              const opacity = absOffset > 2 ? 0 : isActive ? 1 : 0.35
+              const scale = isActive ? 1.05 : 0.8
 
               return (
                 <div
                   key={i}
                   onClick={() => goTo(i)}
-                  className={cn(
-                    'absolute w-[280px] cursor-pointer transition-all duration-500 ease-out',
-                    isActive && 'z-50',
-                  )}
+                  className="absolute w-[300px] cursor-pointer"
                   style={{
                     transform: `translateX(${translateX}px) translateZ(${translateZ}px) rotateY(${rotateY}deg) scale(${scale})`,
                     opacity,
                     zIndex,
                     transformStyle: 'preserve-3d',
+                    transition: 'transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.4s ease',
+                    filter: isActive ? 'none' : `blur(${Math.min(absOffset * 0.8, 2)}px)`,
                   }}
                 >
                   <Card className={cn(
-                    'overflow-hidden transition-shadow duration-500',
-                    isActive ? 'shadow-xl ring-1 ring-primary/20' : 'shadow-md',
+                    'overflow-hidden h-[220px] flex flex-col',
+                    isActive
+                      ? 'shadow-2xl ring-1 ring-primary/30'
+                      : 'shadow-sm',
                   )}>
-                    <CardHeader className="pb-2">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-sm">{card.title}</CardTitle>
+                    <CardHeader className="pb-2 shrink-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <CardTitle className="text-sm truncate">{card.title}</CardTitle>
                         {card.badge && (
-                          <Badge variant={(card.badgeVariant as 'default') || 'default'}>{card.badge}</Badge>
+                          <Badge variant={(card.badgeVariant as 'default') || 'default'} className="shrink-0">{card.badge}</Badge>
                         )}
                       </div>
                       {card.description && (
-                        <CardDescription className="text-xs">{card.description}</CardDescription>
+                        <CardDescription className="text-xs line-clamp-2">{card.description}</CardDescription>
                       )}
                     </CardHeader>
                     {card.content && (
-                      <CardContent className="pt-0">
-                        <p className="text-xs text-muted-foreground leading-relaxed">{card.content}</p>
+                      <CardContent className="pt-0 flex-1 overflow-hidden">
+                        <p className="text-xs text-muted-foreground leading-relaxed line-clamp-6">{card.content}</p>
                       </CardContent>
                     )}
                   </Card>
@@ -426,7 +437,7 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
           )}
 
           {/* Dot indicators */}
-          <div className="flex justify-center gap-1.5 mt-3">
+          <div className="flex justify-center gap-1.5 mt-2">
             {props.cards.map((_, i) => (
               <button
                 key={i}

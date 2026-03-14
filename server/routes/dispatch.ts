@@ -29,6 +29,7 @@ import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction } from '../lib/prompt-templates.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
+import { astroCatalog } from '../../src/lib/json-render/catalog.js'
 import { extractPlanJsonFromText, BUILTIN_TEMPLATE_IDS } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { autoDispatchDownstream, cascadePruneDownstream, revertMilestonesOnReset } from './data.js'
@@ -892,6 +893,15 @@ async function dispatchViaRelay(
   // Fallback: use built-in default compute guide (loaded from skills/machine_instruction_presets/)
   if (!skillsInjection) {
     skillsInjection = DEFAULT_MACHINE_INSTRUCTION_FORMATTED
+  }
+
+  // Inject json-render generative UI catalog for plan generation and playground
+  const dispatchCatalogPrompt = astroCatalog.prompt()
+  if (dispatchCatalogPrompt) {
+    skillsInjection = (skillsInjection || '') + '\n\n## Generative UI\n\n' +
+      'You can render interactive UI components using ```spec code fences (JSONL RFC 6902 patches). ' +
+      'PREFER ```spec over ```visualizer for structured content (cards, tables, carousels, timelines, dashboards). ' +
+      'Use ```visualizer ONLY for custom SVG/chart diagrams.\n\n' + dispatchCatalogPrompt
   }
 
   if (isInteractivePlan) {

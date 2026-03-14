@@ -786,6 +786,12 @@ agentRoute.post('/task-chat', async (c) => {
     }
   }
 
+  // Inject json-render generative UI catalog prompt
+  const tcCatalogPrompt = astroCatalog.prompt()
+  if (tcCatalogPrompt) {
+    tcSkills = (tcSkills || '') + '\n\n' + buildGenerativeUIPrompt(tcCatalogPrompt)
+  }
+
   const systemPrompt = buildTaskChatSystemPrompt({
     taskTitle,
     taskDescription,
