@@ -9,7 +9,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { useSearchParams, useLocation, useNavigate } from "react-router"
-import { Sparkles, Loader2, Laptop, FolderOpen, GitBranch, Info, Monitor, Bot, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate, AlertTriangle } from "lucide-react"
+import { Sparkles, Loader2, GitBranch, Info, Monitor, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
@@ -25,7 +25,7 @@ import { PlanGeneration } from "@/components/plan-generation/plan-generation"
 import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
 import { ExamplePickerDialog } from "@/components/examples/example-picker-dialog"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
-import { RecentWorkdirPopover } from "@/components/recent-workdir-popover"
+import { MachineWorkdirSelector } from "@/components/machine-workdir-selector"
 import { BranchSelector } from "@/components/branch-selector"
 import { AttachmentList } from "@/components/task-detail/attachment-list"
 import { useDirectoryDetection } from "@/hooks/use-directory-detection"
@@ -39,7 +39,8 @@ import { useToastStore } from "@/stores/toast-store"
 import { OnboardingHint } from "@/components/onboarding-hint"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
-import { deriveAvailableProviders, isProviderAvailable, PROVIDER_NAMES } from "@/components/execution/provider-utils"
+import { deriveAvailableProviders, isProviderAvailable } from "@/components/execution/provider-utils"
+import { ProviderDropdown } from "@/components/execution/provider-dropdown"
 import { InstructionPicker } from "@/components/execution/instruction-picker"
 import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
 import type { TaskAttachment, ProjectSource } from "@/types"
@@ -829,7 +830,7 @@ export function ProjectNewPlan() {
                 }
               }}
               onPaste={handleGoalPaste}
-              placeholder={t('goalPlaceholder', { defaultValue: "What do you want to build or accomplish?\n\ne.g. \"Address issue #42 in my repo\" or \"SSH to the HPC cluster, fine-tune Llama-3 on my dataset, then evaluate on GSM8K locally\"" })}
+              placeholder={t('goalPlaceholder', { defaultValue: "What do you want to build or accomplish?" })}
               rows={5}
               autoFocus
               className="w-full px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent"
@@ -871,124 +872,40 @@ export function ProjectNewPlan() {
             </div>
           </div>
 
-          {/* Machine selector */}
+          {/* Machine + Working directory selector */}
           {(isServerMode() || allMachines.length > 0) && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs text-muted-foreground">Select a machine and an AI agent on it:</span>
-              <div className="flex flex-wrap gap-2">
-              {allMachines.map((m) => {
+            <MachineWorkdirSelector
+              machines={allMachines}
+              selectedMachine={selectedMachine}
+              onMachineChange={setSelectedMachine}
+              workingDir={workingDir}
+              onWorkingDirChange={(path) => {
+                setWorkingDir(path)
+                setSelectedBranch(null)
+              }}
+              onBrowse={() => setShowPathBrowser(true)}
+              machineLabel="Machine"
+              dirLabel="Working directory"
+              dirPlaceholder="/path/to/project (optional)"
+              renderMachineExtra={(m) => {
                 const reg = registeredMachines.find((r) => r.id === m.machineId)
                 return (
-                  <div key={m.machineId} className="flex items-center gap-0.5">
-                    <button
-                      onClick={() => setSelectedMachine(
-                        selectedMachine?.machineId === m.machineId ? null : m
-                      )}
-                      className={cn(
-                        "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
-                        selectedMachine?.machineId === m.machineId
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border hover:bg-muted"
-                      )}
-                    >
-                      <Laptop className="h-3 w-3" />
-                      {m.name}
-                    </button>
-                    <div className="relative">
-                      <InstructionPicker
-                        currentInstructionId={reg?.defaultInstructionId}
-                        onSelect={(id) => miAssign(m.machineId, id)}
-                      />
-                    </div>
+                  <div className="relative">
+                    <InstructionPicker
+                      currentInstructionId={reg?.defaultInstructionId}
+                      onSelect={(id) => miAssign(m.machineId, id)}
+                    />
                   </div>
                 )
-              })}
-              </div>
-              {allMachines.length > 1 && (
-                <p className="text-[11px] text-muted-foreground">
-                  For multi-machine jobs, describe the compute setup in your prompt (e.g. &quot;SSH to the HPC node and submit a Slurm job&quot;).
-                </p>
-              )}
-            </div>
+              }}
+            />
           )}
 
-          {/* Provider selector — always shown when providers available, filtered by machine */}
-          {availableProviders.length > 1 && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs text-muted-foreground">AI Agent:</span>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => { setSelectedProvider(""); setSelectedModel("") }}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
-                    !selectedProvider
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border hover:bg-muted"
-                  )}
-                >
-                  <Bot className="h-3 w-3" />
-                  Auto
-                </button>
-                {availableProviders.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      setSelectedProvider(selectedProvider === p.id ? "" : p.id)
-                      setSelectedModel("")
-                    }}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
-                      selectedProvider === p.id
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border hover:bg-muted"
-                    )}
-                  >
-                    <Bot className="h-3 w-3" />
-                    {PROVIDER_NAMES[p.id] || p.name || p.id}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Working directory — only shown when a machine is selected */}
-          {selectedMachine && (
+          {/* Detection feedback + Branch selector — shown when machine is selected */}
+          {selectedMachine && workingDir.trim() && (
             <div className="animate-reveal flex flex-col gap-2">
-              <span className="text-xs text-muted-foreground">Working directory (optional — required for execution):</span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowPathBrowser(true)}
-                  title="Browse directories"
-                  className="shrink-0 rounded-md border border-border p-1.5 hover:bg-muted transition-colors cursor-pointer text-muted-foreground hover:text-foreground"
-                >
-                  <FolderOpen className="h-4 w-4" />
-                </button>
-                <RecentWorkdirPopover
-                  machineId={selectedMachine?.machineId}
-                  onSelect={({ machineId, workingDirectory }) => {
-                    setWorkingDir(workingDirectory)
-                    setSelectedBranch(null)
-                    const machine = allMachines.find((m) => m.machineId === machineId)
-                    if (machine) setSelectedMachine(machine)
-                  }}
-                />
-                <input
-                  type="text"
-                  value={workingDir}
-                  onChange={(e) => {
-                    setWorkingDir(e.target.value)
-                    setSelectedBranch(null)
-                  }}
-                  placeholder="/path/to/project (optional)"
-                  className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-              </div>
-
-              {/* Detection feedback */}
               <DetectionFeedback detection={detection} isDetecting={isDetecting} onInitGit={detection?.exists && !detection.isGit ? handleInitGit : undefined} />
 
-              {/* Branch selector */}
               {detection?.isGit && (
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground shrink-0">Target branch:</span>
@@ -1002,7 +919,6 @@ export function ProjectNewPlan() {
               )}
             </div>
           )}
-
 
           {/* Add Context — collapsible section */}
           <div className="flex flex-col">
@@ -1073,8 +989,16 @@ export function ProjectNewPlan() {
             )}
           </div>
 
-          {/* Submit button */}
-          <div className="flex items-center justify-end gap-3">
+          {/* Submit row */}
+          <div className="flex items-center justify-end gap-2">
+            {availableProviders.length > 1 && (
+              <ProviderDropdown
+                providers={availableProviders}
+                selectedProvider={selectedProvider}
+                onSelect={(id) => { setSelectedProvider(id); setSelectedModel("") }}
+                compact
+              />
+            )}
             <Button
               onClick={() => handleSubmit()}
               disabled={!description.trim() || isSubmitting || pendingUploads > 0}

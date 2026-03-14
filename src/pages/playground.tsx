@@ -15,9 +15,6 @@ import { useSearchParams, useNavigate } from "react-router"
 import {
   Terminal,
   Loader2,
-  Laptop,
-  FolderOpen,
-  Bot,
   Send,
   ArrowDown,
   Clock,
@@ -27,7 +24,7 @@ import {
   Zap,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { RecentWorkdirPopover } from "@/components/recent-workdir-popover"
+import { MachineWorkdirSelector } from "@/components/machine-workdir-selector"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useMediaQuery } from "@/hooks/use-media-query"
@@ -61,6 +58,7 @@ import { requestNotificationPermission } from "@/lib/notifications"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
 import { deriveAvailableProviders, PROVIDER_NAMES } from "@/components/execution/provider-utils"
+import { ProviderDropdown } from "@/components/execution/provider-dropdown"
 import { InstructionPicker } from "@/components/execution/instruction-picker"
 import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
 import type { TaskActivityEvent } from "@/types"
@@ -1023,132 +1021,45 @@ export function Playground() {
             )}
           </div>
 
-          {/* Machine selector */}
+          {/* Machine + Working directory selector */}
           {(isServerMode() || allMachines.length > 0) && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs text-muted-foreground">
-                Machine <span className="text-destructive">*</span>
-              </span>
-              <div className="flex flex-wrap gap-2">
-                {allMachines.map((m) => {
-                  const reg = registeredMachines.find((r) => r.id === m.machineId)
-                  return (
-                    <div key={m.machineId} className="flex items-center gap-0.5">
-                      <button
-                        onClick={() => setSelectedMachine(
-                          selectedMachine?.machineId === m.machineId ? null : m
-                        )}
-                        className={cn(
-                          "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
-                          selectedMachine?.machineId === m.machineId
-                            ? "border-primary bg-primary/10 text-primary"
-                            : "border-border hover:bg-muted"
-                        )}
-                      >
-                        <Laptop className="h-3 w-3" />
-                        {m.name}
-                      </button>
-                      <div className="relative">
-                        <InstructionPicker
-                          currentInstructionId={reg?.defaultInstructionId}
-                          onSelect={(id) => miAssign(m.machineId, id)}
-                        />
-                      </div>
-                    </div>
-                  )
-                })}
-                {allMachines.length === 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    No machines connected. Start an agent runner first.
-                  </p>
-                )}
-              </div>
-            </div>
+            <MachineWorkdirSelector
+              machines={allMachines}
+              selectedMachine={selectedMachine}
+              onMachineChange={setSelectedMachine}
+              workingDir={workingDir}
+              onWorkingDirChange={setWorkingDir}
+              onBrowse={() => setShowPathBrowser(true)}
+              dirRequired
+              renderMachineExtra={(m) => {
+                const reg = registeredMachines.find((r) => r.id === m.machineId)
+                return (
+                  <div className="relative">
+                    <InstructionPicker
+                      currentInstructionId={reg?.defaultInstructionId}
+                      onSelect={(id) => miAssign(m.machineId, id)}
+                    />
+                  </div>
+                )
+              }}
+            />
           )}
 
-          {/* Provider selector */}
-          {availableProviders.length > 1 && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs text-muted-foreground">AI Agent:</span>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => { setSelectedProvider(""); setSelectedModel("") }}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
-                    !selectedProvider
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border hover:bg-muted"
-                  )}
-                >
-                  <Bot className="h-3 w-3" />
-                  Auto
-                </button>
-                {availableProviders.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      setSelectedProvider(selectedProvider === p.id ? "" : p.id)
-                      setSelectedModel("")
-                    }}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
-                      selectedProvider === p.id
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border hover:bg-muted"
-                    )}
-                  >
-                    <Bot className="h-3 w-3" />
-                    {PROVIDER_NAMES[p.id] || p.name || p.id}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Working directory — required, shown when a machine is selected */}
-          {selectedMachine && (
-            <div className="animate-reveal flex flex-col gap-1.5">
-              <span className="text-xs text-muted-foreground">
-                Working directory <span className="text-destructive">*</span>
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowPathBrowser(true)}
-                  title="Browse directories"
-                  className="shrink-0 rounded-md border border-border p-1.5 hover:bg-muted transition-colors cursor-pointer text-muted-foreground hover:text-foreground"
-                >
-                  <FolderOpen className="h-4 w-4" />
-                </button>
-                <RecentWorkdirPopover
-                  machineId={selectedMachine?.machineId}
-                  onSelect={(selection) => {
-                    setWorkingDir(selection.workingDirectory)
-                    // Switch machine if the selected workdir is from a different machine
-                    if (selection.machineId !== selectedMachine?.machineId) {
-                      const machine = allMachines.find((m) => m.machineId === selection.machineId)
-                      if (machine) setSelectedMachine(machine)
-                    }
-                  }}
-                />
-                <input
-                  type="text"
-                  value={workingDir}
-                  onChange={(e) => setWorkingDir(e.target.value)}
-                  placeholder="/path/to/project"
-                  className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Submit row: YOLO toggle + Start button */}
-          <div className="flex items-center justify-end gap-3">
+          {/* Submit row */}
+          <div className="flex items-center justify-end gap-2">
+            {availableProviders.length > 1 && (
+              <ProviderDropdown
+                providers={availableProviders}
+                selectedProvider={selectedProvider}
+                onSelect={(id) => { setSelectedProvider(id); setSelectedModel("") }}
+                compact
+              />
+            )}
             <button
               type="button"
               onClick={() => useSettingsStore.getState().setPlaygroundYoloMode(!playgroundYolo)}
               className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
+                "flex items-center gap-1.5 h-7 px-2 rounded-md border text-[11px] transition-colors cursor-pointer",
                 playgroundYolo
                   ? "border-warning/50 bg-warning/10 text-warning"
                   : "border-border hover:bg-muted text-muted-foreground"

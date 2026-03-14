@@ -13,7 +13,7 @@ import {
   type Connection,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
-import { LayoutGrid, Trash2, Play, X, CheckSquare, Square, PlayCircle, Plus, Minus, Maximize, ListPlus, Server, FolderOpen, AlertTriangle, Sparkles } from "lucide-react"
+import { LayoutGrid, Trash2, Play, X, CheckSquare, Square, PlayCircle, Plus, Minus, Maximize, ListPlus, Sparkles } from "lucide-react"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -27,7 +27,7 @@ import { TaskNode } from "./task-node"
 import { DeletableEdge } from "./deletable-edge"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
-import { RecentWorkdirPopover } from "@/components/recent-workdir-popover"
+import { MachineWorkdirSelector } from "@/components/machine-workdir-selector"
 import { calculateChildPosition, calculateParentPosition } from "@/lib/graph-utils"
 import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
@@ -781,45 +781,19 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
               )
             )}
             {/* Machine + work directory row — hidden on mobile */}
-            {resolvedMachineId && (
-              <div className="hidden md:flex items-center gap-1.5">
-                {resolvedMachineName && (
-                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground bg-card/85 backdrop-blur-sm border border-border rounded-lg px-2 py-1.5 shadow-sm">
-                    <Server className="h-3 w-3 shrink-0" />
-                    {resolvedMachineName}
-                  </span>
-                )}
-                {project?.workingDirectory ? (
-                  <button
-                    type="button"
-                    onClick={() => setPathBrowserOpen(true)}
-                    title="Change work directory"
-                    className="flex items-center gap-1 rounded-lg bg-card/85 backdrop-blur-sm border border-border px-2 py-1 text-[10px] text-muted-foreground hover:bg-muted/80 transition-colors cursor-pointer shadow-sm max-w-[200px]"
-                  >
-                    <FolderOpen className="h-3 w-3 shrink-0" />
-                    <span className="truncate">{project.workingDirectory}</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setPathBrowserOpen(true)}
-                    className="flex items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-[10px] font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer shadow-sm"
-                  >
-                    <AlertTriangle className="h-3 w-3 shrink-0" />
-                    Set work directory
-                  </button>
-                )}
-                <RecentWorkdirPopover
-                  machineId={resolvedMachineId}
-                  onSelect={({ machineId, workingDirectory }) => {
-                    updateProject(projectId, {
-                      workingDirectory,
-                      ...(machineId !== resolvedMachineId && { defaultMachineId: machineId }),
-                    })
-                  }}
-                />
-              </div>
-            )}
+            <div className="hidden md:flex items-center gap-1.5 bg-card/85 backdrop-blur-sm border border-border rounded-lg px-1.5 py-1 shadow-sm">
+              <MachineWorkdirSelector
+                machines={machines}
+                selectedMachine={machines.find((m) => m.machineId === resolvedMachineId) ?? null}
+                onMachineChange={(m) => {
+                  if (m) updateProject(projectId, { defaultMachineId: m.machineId })
+                }}
+                workingDir={project?.workingDirectory ?? ""}
+                onWorkingDirChange={(path) => updateProject(projectId, { workingDirectory: path })}
+                onBrowse={() => setPathBrowserOpen(true)}
+                compact
+              />
+            </div>
           </div>
         )}
         {/* Remote path browser dialog */}

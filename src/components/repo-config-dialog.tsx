@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from "react"
-import { FolderGit2, FolderOpen, Save, Github, Search, Loader2, AlertCircle, Laptop, CheckCircle2, GitBranch, X, Check } from "lucide-react"
+import { FolderGit2, Save, Github, Search, Loader2, AlertCircle, CheckCircle2, GitBranch, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { useProjectStore } from "@/stores/project-store"
@@ -12,7 +12,8 @@ import { useToastStore } from "@/stores/toast-store"
 import { useRepoSetup } from "@/hooks/use-repo-setup"
 import { useDirectoryDetection } from "@/hooks/use-directory-detection"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
-import { RecentWorkdirPopover } from "@/components/recent-workdir-popover"
+import { MachineWorkdirSelector } from "@/components/machine-workdir-selector"
+import type { MachineInfo } from "@/stores/execution-store"
 import { BranchSelector } from "@/components/branch-selector"
 import { validateAbsolutePath } from "@/lib/path-utils"
 import { validateGitUrl } from "@/lib/git-url-utils"
@@ -106,6 +107,19 @@ export function RepoConfigDialog({
     }
     return result
   }, [isMultiTenant, registeredMachines, relayMachines, realtimeMachines])
+
+  // Convert to MachineInfo shape for MachineWorkdirSelector
+  const machineInfoList = useMemo<MachineInfo[]>(() =>
+    allMachines.map((m) => ({
+      machineId: m.id,
+      name: m.name,
+      hostname: m.hostname,
+      status: m.isConnected ? 'online' as const : 'offline' as const,
+      providers: [],
+    })),
+  [allMachines])
+
+  const selectedMachineInfo = machineInfoList.find((m) => m.machineId === selectedMachineId) ?? null
 
   // Auto-select a machine when none selected: prefer connected, fall back to first
   useEffect(() => {
@@ -243,88 +257,34 @@ export function RepoConfigDialog({
         </div>
 
         <div className="flex flex-col gap-3 p-4">
-          {/* ── Machine selector chips ─────────────────────────── */}
+          {/* ── Machine + Directory selector ──────────────────── */}
           {allMachines.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Machine</span>
-              <div className="flex flex-wrap gap-1.5">
-                {allMachines.map((m) => {
-                  const isSelected = selectedMachineId === m.id
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => setSelectedMachineId(isSelected ? "" : m.id)}
-                      className={cn(
-                        "flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs transition-all cursor-pointer",
-                        isSelected
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border hover:bg-muted text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      <Laptop className="h-3 w-3" />
-                      <span>{m.name}</span>
-                      {m.isConnected && (
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                      )}
-                      {isSelected && <Check className="h-3 w-3" />}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
+            <MachineWorkdirSelector
+              machines={machineInfoList}
+              selectedMachine={selectedMachineInfo}
+              onMachineChange={(m) => setSelectedMachineId(m?.machineId ?? "")}
+              workingDir={workDir}
+              onWorkingDirChange={handleWorkDirChange}
+              onBrowse={() => setShowPathBrowser(true)}
+              compact
+            />
           )}
 
-          {/* ── Path + Git URL (shown after machine selected) ── */}
+          {/* ── Path details + Git URL (shown after machine selected) ── */}
           {showFields && (
             <div className="flex flex-col gap-3">
-              {/* Working directory */}
+              {/* Path validation + detection feedback */}
               <div className="flex flex-col gap-1">
-                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Directory</span>
-                <div className="flex items-center gap-1.5">
-                  <div className="relative flex-1">
-                    <input
-                      type="text"
-                      className={cn(
-                        "w-full h-8 rounded-md border bg-background px-2.5 text-xs font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-                        pathError ? "border-destructive" : "border-input",
-                      )}
-                      placeholder="/path/to/project"
-                      value={workDir}
-                      onChange={(e) => handleWorkDirChange(e.target.value)}
-                    />
-                    {isDetecting && (
-                      <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 animate-spin text-muted-foreground" />
-                    )}
+                {isDetecting && (
+                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Detecting...
                   </div>
-                  {selectedMachineId && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => setShowPathBrowser(true)}
-                        title="Browse directories"
-                        className="flex items-center justify-center h-8 w-8 rounded-md border border-input bg-background hover:bg-muted transition-colors cursor-pointer text-muted-foreground hover:text-foreground shrink-0"
-                      >
-                        <FolderOpen className="h-3.5 w-3.5" />
-                      </button>
-                      <RecentWorkdirPopover
-                        machineId={selectedMachineId}
-                        onSelect={({ machineId, workingDirectory }) => {
-                          setWorkDir(workingDirectory)
-                          setPathError(null)
-                          setRepoAutoFilled(false)
-                          if (repoAutoFilled) setRepoUrl("")
-                          setSelectedMachineId(machineId)
-                        }}
-                      />
-                    </>
-                  )}
-                </div>
+                )}
                 {pathError && (
                   <span className="text-[10px] text-destructive">{pathError}</span>
                 )}
-                {/* Detection feedback */}
-                {detection && !pathError && (
+                {detection && !pathError && !isDetecting && (
                   <div className="flex items-center gap-1.5 text-[10px]">
                     {detection.isGit ? (
                       <>
