@@ -27,7 +27,7 @@ const COMPLETED_STATUSES = ['completed', 'auto_verified']
  * runs and are excluded from the concurrency check / cleaned up automatically.
  * 24 hours is conservative — real executions should complete or fail much sooner.
  */
-const STALE_RUN_THRESHOLD_MS = 24 * 60 * 60 * 1000 // 24 hours
+const STALE_RUN_THRESHOLD_MS = 4 * 60 * 60 * 1000 // 4 hours
 
 /**
  * Insert a schedule run with an atomically computed run number.
@@ -317,6 +317,11 @@ export async function dispatchProjectRootNodes(
         scheduleRunId: run.id,
       }).catch((err) => {
         console.error(`${logPrefix}: dispatch failed for ${node.clientId}:`, err)
+        // Update schedule run so it doesn't stay stuck as 'dispatched'
+        db.update(scheduleRuns)
+          .set({ status: 'failure', completedAt: new Date(), errorMessage: `Dispatch failed for node ${node.clientId}: ${String(err)}` })
+          .where(eq(scheduleRuns.id, run.id))
+          .execute().catch(() => {})
       })
       dispatched++
     }
@@ -505,7 +510,7 @@ export async function cleanupStaleScheduleRuns(): Promise<void> {
       .set({
         status: 'failure',
         completedAt: new Date(),
-        errorMessage: 'Timed out: run was stuck in an active state for over 24 hours (server crash or machine disconnect)',
+        errorMessage: 'Timed out: run was stuck in an active state for over 4 hours (server crash or machine disconnect)',
       })
       .where(and(
         inArray(scheduleRuns.status, ['pending', 'dispatched', 'running']),
