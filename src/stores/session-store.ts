@@ -739,6 +739,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     let specEventPushed = false
     let specThrottleTimer: ReturnType<typeof setTimeout> | null = null
     let textBuffer = ''  // buffers text to handle split fence markers
+    let currentYamlContent = ''  // accumulates YAML for persistence
     const yamlCompiler = createYamlStreamCompiler<Record<string, unknown>>()
     const fenceOpen = YAML_SPEC_FENCE   // ```yaml-spec
     const fenceClose = '\n```'          // closing fence always on its own line
@@ -773,6 +774,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             // Prose before fence
             if (fenceIdx > 0) emitText(textBuffer.slice(0, fenceIdx))
             insideYamlSpec = true
+            currentYamlContent = ''
             textBuffer = textBuffer.slice(fenceIdx + fenceOpen.length)
             // Skip optional newline after fence open
             if (textBuffer.startsWith('\n')) textBuffer = textBuffer.slice(1)
@@ -795,7 +797,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             if (yamlChunk) feedYaml(yamlChunk)
             insideYamlSpec = false
             const { result } = yamlCompiler.flush()
-            if (result.root) pushSpecUpdate(result)
+            if (result.root) {
+              pushSpecUpdate(result)
+              // Persist the yaml-spec fence in the session message so hydration can re-parse it
+              get().appendToLastAssistantMessage(sid, fenceOpen + '\n' + currentYamlContent + fenceClose + '\n')
+            }
             yamlCompiler.reset()
             textBuffer = textBuffer.slice(closeIdx + fenceClose.length)
             // Skip optional newline after fence close
@@ -816,6 +822,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
 
     function feedYaml(chunk: string) {
+      currentYamlContent += chunk
       const { result } = yamlCompiler.push(chunk)
       if (result.root) {
         // Progressive rendering: throttled spec updates
