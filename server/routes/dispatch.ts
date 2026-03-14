@@ -1680,16 +1680,18 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     }
 
     const onMachineDisconnected = async (disconnectedId: string) => {
-      if (!alive || disconnectedId !== machineId || resultSent) return
+      if (disconnectedId !== machineId || resultSent) return
       console.log(`[dispatch] Machine ${machineId} disconnected during task ${executionId}`)
       const errorData = { error: 'Remote machine disconnected during task execution', recoverable: false }
       const seq = await streamingEventLog.append(executionId, 'error', errorData)
-      stream.writeSSE({
-        id: String(seq),
-        event: 'error',
-        data: JSON.stringify(errorData),
-      }).catch(() => {})
-      stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+      if (alive) {
+        stream.writeSSE({
+          id: String(seq),
+          event: 'error',
+          data: JSON.stringify(errorData),
+        }).catch(() => {})
+        stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+      }
 
       // DB-authoritative: update plan node status + notify frontend (all node types)
       const errorTime = new Date()
@@ -1780,16 +1782,22 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 
     // P2: Handle dead job detection — terminate this SSE stream when relay detects task is dead
     const onTaskDead = async (data: { taskId: string; machineId: string; reason: string }) => {
-      if (!alive || data.taskId !== executionId || resultSent) return
+      if (data.taskId !== executionId || resultSent) return
       console.log(`[dispatch] Task ${executionId} declared dead by heartbeat cross-ref: ${data.reason}`)
       const errorData = { error: `Dead job detected: ${data.reason}`, recoverable: true }
       try {
         const seq = await streamingEventLog.append(executionId, 'error', errorData)
-        stream.writeSSE({ id: String(seq), event: 'error', data: JSON.stringify(errorData) }).catch(() => {})
+        if (alive) {
+          stream.writeSSE({ id: String(seq), event: 'error', data: JSON.stringify(errorData) }).catch(() => {})
+        }
       } catch {
-        stream.writeSSE({ event: 'error', data: JSON.stringify(errorData) }).catch(() => {})
+        if (alive) {
+          stream.writeSSE({ event: 'error', data: JSON.stringify(errorData) }).catch(() => {})
+        }
       }
-      stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+      if (alive) {
+        stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+      }
 
       // DB-authoritative: update plan node status + notify frontend (all node types)
       const errorTime = new Date()
