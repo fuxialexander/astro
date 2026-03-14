@@ -10,7 +10,11 @@ export function parsePatch(patch: string): DiffLine[] {
   let oldLine = 0
   let newLine = 0
 
-  for (const raw of patch.split("\n")) {
+  const rawLines = patch.split("\n")
+  for (let i = 0; i < rawLines.length; i++) {
+    const raw = rawLines[i]
+    // Skip empty trailing line (artifact of split on trailing newline)
+    if (raw === "" && i === rawLines.length - 1) break
     if (raw.startsWith("@@")) {
       const match = raw.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
       if (match) {

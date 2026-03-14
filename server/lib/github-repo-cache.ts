@@ -6,6 +6,7 @@ import type {
   GitHubWorkspaceAttentionItem,
   GitHubWorkspaceProjectSummary,
   GitHubWorkspaceSummary,
+  PrChangedFile,
   Project,
 } from '../../packages/core/src/types.js'
 import { db } from './db/index.js'
@@ -61,11 +62,13 @@ function githubHeaders(accessToken: string): Record<string, string> {
   }
 }
 
+const MAX_PAGES = 10
+
 async function fetchPaginated<T>(buildUrl: (page: number) => string, accessToken: string): Promise<T[]> {
   const results: T[] = []
   let page = 1
 
-  while (true) {
+  while (page <= MAX_PAGES) {
     const response = await fetchWithRateLimit(buildUrl(page), {
       headers: githubHeaders(accessToken),
     })
@@ -85,9 +88,10 @@ async function fetchPaginated<T>(buildUrl: (page: number) => string, accessToken
   return results
 }
 
-async function fetchIssues(accessToken: string, owner: string, repo: string): Promise<RawIssue[]> {
+async function fetchIssues(accessToken: string, owner: string, repo: string, since?: string): Promise<RawIssue[]> {
+  const sinceParam = since ? `&since=${since}` : ''
   const items = await fetchPaginated<Record<string, unknown>>(
-    (page) => `${GITHUB_API}/repos/${owner}/${repo}/issues?state=all&sort=updated&direction=desc&per_page=100&page=${page}`,
+    (page) => `${GITHUB_API}/repos/${owner}/${repo}/issues?state=all&sort=updated&direction=desc&per_page=100&page=${page}${sinceParam}`,
     accessToken,
   )
 
@@ -114,9 +118,10 @@ async function fetchIssues(accessToken: string, owner: string, repo: string): Pr
     }))
 }
 
-async function fetchPullRequests(accessToken: string, owner: string, repo: string): Promise<RawPullRequest[]> {
+async function fetchPullRequests(accessToken: string, owner: string, repo: string, since?: string): Promise<RawPullRequest[]> {
+  const sinceParam = since ? `&since=${since}` : ''
   const items = await fetchPaginated<Record<string, unknown>>(
-    (page) => `${GITHUB_API}/repos/${owner}/${repo}/pulls?state=all&sort=updated&direction=desc&per_page=100&page=${page}`,
+    (page) => `${GITHUB_API}/repos/${owner}/${repo}/pulls?state=all&sort=updated&direction=desc&per_page=100&page=${page}${sinceParam}`,
     accessToken,
   )
 
@@ -252,53 +257,77 @@ async function fetchPrCiStatus(accessToken: string, owner: string, repo: string,
   return 'pending'
 }
 
-async function enrichPullRequests(accessToken: string, owner: string, repo: string, pullRequests: RawPullRequest[]): Promise<GitHubCachedPr[]> {
-  return Promise.all(
-    pullRequests.map(async (pr) => {
-      const detail = await fetchJson(`${GITHUB_API}/repos/${owner}/${repo}/pulls/${pr.number}`, accessToken)
-      const mergeable = (detail.mergeable as boolean | null) ?? pr.mergeable
-      const additions = (detail.additions as number) ?? pr.additions
-      const deletions = (detail.deletions as number) ?? pr.deletions
-      const changedFiles = (detail.changed_files as number) ?? pr.changed_files
-      const draft = Boolean(detail.draft ?? pr.draft)
-      const mergedAt = (detail.merged_at as string | null) ?? pr.merged_at
-      const closedAt = (detail.closed_at as string | null) ?? pr.closed_at
-      const commentsCount = (detail.comments as number) ?? pr.comments
-      const headSha = ((detail.head as Record<string, unknown> | null)?.sha as string | undefined) ?? pr.head?.sha
+const ENRICH_CONCURRENCY = 5
 
-      const [reviewDecision, ciStatus] = await Promise.all([
-        fetchPrReviewDecision(accessToken, owner, repo, pr.number),
-        fetchPrCiStatus(accessToken, owner, repo, headSha),
-      ])
+async function enrichPullRequests(accessToken: string, owner: string, repo: string, pullRequests: RawPullRequest[], projectId: string): Promise<GitHubCachedPr[]> {
+  const results: GitHubCachedPr[] = []
+  let running = 0
+  let idx = 0
 
-      return {
-        id: `${pr.number}`,
-        projectId: '',
-        prNumber: pr.number,
-        title: pr.title,
-        body: pr.body,
-        state: normalizePullRequestState({ state: pr.state, merged_at: mergedAt }),
-        url: pr.html_url,
-        authorLogin: pr.user?.login ?? null,
-        headBranch: pr.head?.ref ?? null,
-        baseBranch: pr.base?.ref ?? null,
-        labels: pr.labels,
-        ciStatus,
-        reviewDecision,
-        mergeableState: normalizeMergeableState(mergeable),
-        additions,
-        deletions,
-        changedFiles,
-        commentsCount,
-        draft,
-        createdAt: new Date(pr.created_at),
-        updatedAt: new Date(pr.updated_at),
-        mergedAt: mergedAt ? new Date(mergedAt) : null,
-        closedAt: closedAt ? new Date(closedAt) : null,
-        cachedAt: new Date(),
+  async function enrichOne(pr: RawPullRequest): Promise<GitHubCachedPr> {
+    const detail = await fetchJson(`${GITHUB_API}/repos/${owner}/${repo}/pulls/${pr.number}`, accessToken)
+    const mergeable = (detail.mergeable as boolean | null) ?? pr.mergeable
+    const additions = (detail.additions as number) ?? pr.additions
+    const deletions = (detail.deletions as number) ?? pr.deletions
+    const changedFiles = (detail.changed_files as number) ?? pr.changed_files
+    const draft = Boolean(detail.draft ?? pr.draft)
+    const mergedAt = (detail.merged_at as string | null) ?? pr.merged_at
+    const closedAt = (detail.closed_at as string | null) ?? pr.closed_at
+    const commentsCount = (detail.comments as number) ?? pr.comments
+    const headSha = ((detail.head as Record<string, unknown> | null)?.sha as string | undefined) ?? pr.head?.sha
+
+    const [reviewDecision, ciStatus] = await Promise.all([
+      fetchPrReviewDecision(accessToken, owner, repo, pr.number),
+      fetchPrCiStatus(accessToken, owner, repo, headSha),
+    ])
+
+    return {
+      id: `${pr.number}`,
+      projectId,
+      prNumber: pr.number,
+      title: pr.title,
+      body: pr.body,
+      state: normalizePullRequestState({ state: pr.state, merged_at: mergedAt }),
+      url: pr.html_url,
+      authorLogin: pr.user?.login ?? null,
+      headBranch: pr.head?.ref ?? null,
+      baseBranch: pr.base?.ref ?? null,
+      labels: pr.labels,
+      ciStatus,
+      reviewDecision,
+      mergeableState: normalizeMergeableState(mergeable),
+      additions,
+      deletions,
+      changedFiles,
+      commentsCount,
+      draft,
+      createdAt: new Date(pr.created_at),
+      updatedAt: new Date(pr.updated_at),
+      mergedAt: mergedAt ? new Date(mergedAt) : null,
+      closedAt: closedAt ? new Date(closedAt) : null,
+      cachedAt: new Date(),
+    }
+  }
+
+  // Simple concurrency limiter — at most ENRICH_CONCURRENCY in flight
+  await new Promise<void>((resolve, reject) => {
+    function next() {
+      while (running < ENRICH_CONCURRENCY && idx < pullRequests.length) {
+        const pr = pullRequests[idx++]
+        running++
+        enrichOne(pr).then((result) => {
+          results.push(result)
+          running--
+          if (idx >= pullRequests.length && running === 0) resolve()
+          else next()
+        }).catch(reject)
       }
-    }),
-  )
+      if (pullRequests.length === 0) resolve()
+    }
+    next()
+  })
+
+  return results
 }
 
 function mapIssueToCache(projectId: string, issue: RawIssue): typeof githubIssueCache.$inferInsert {
@@ -349,15 +378,60 @@ function mapPrToCache(projectId: string, pr: GitHubCachedPr): typeof githubPrCac
 }
 
 export async function upsertIssueCacheEntries(projectId: string, issues: RawIssue[]): Promise<void> {
-  await db.delete(githubIssueCache).where(eq(githubIssueCache.projectId, projectId))
   if (issues.length === 0) return
-  await db.insert(githubIssueCache).values(issues.map((issue) => mapIssueToCache(projectId, issue)))
+  for (const issue of issues) {
+    const row = mapIssueToCache(projectId, issue)
+    await db.insert(githubIssueCache).values(row).onConflictDoUpdate({
+      target: [githubIssueCache.projectId, githubIssueCache.issueNumber],
+      set: {
+        title: row.title,
+        body: row.body,
+        state: row.state,
+        url: row.url,
+        authorLogin: row.authorLogin,
+        labels: row.labels,
+        assignees: row.assignees,
+        commentsCount: row.commentsCount,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        closedAt: row.closedAt,
+        cachedAt: row.cachedAt,
+      },
+    })
+  }
 }
 
 export async function upsertPrCacheEntries(projectId: string, prs: GitHubCachedPr[]): Promise<void> {
-  await db.delete(githubPrCache).where(eq(githubPrCache.projectId, projectId))
   if (prs.length === 0) return
-  await db.insert(githubPrCache).values(prs.map((pr) => mapPrToCache(projectId, pr)))
+  for (const pr of prs) {
+    const row = mapPrToCache(projectId, pr)
+    await db.insert(githubPrCache).values(row).onConflictDoUpdate({
+      target: [githubPrCache.projectId, githubPrCache.prNumber],
+      set: {
+        title: row.title,
+        body: row.body,
+        state: row.state,
+        url: row.url,
+        authorLogin: row.authorLogin,
+        headBranch: row.headBranch,
+        baseBranch: row.baseBranch,
+        labels: row.labels,
+        ciStatus: row.ciStatus,
+        reviewDecision: row.reviewDecision,
+        mergeableState: row.mergeableState,
+        additions: row.additions,
+        deletions: row.deletions,
+        changedFiles: row.changedFiles,
+        commentsCount: row.commentsCount,
+        draft: row.draft,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        mergedAt: row.mergedAt,
+        closedAt: row.closedAt,
+        cachedAt: row.cachedAt,
+      },
+    })
+  }
 }
 
 export async function syncGitHubRepoCache(project: RepoProject, userId: string, teamId?: string | null): Promise<{ issueCount: number; prCount: number; syncedAt: string }> {
@@ -372,10 +446,10 @@ export async function syncGitHubRepoCache(project: RepoProject, userId: string, 
     fetchIssues(token.token, project.githubOwner, project.githubRepo),
     fetchPullRequests(token.token, project.githubOwner, project.githubRepo),
   ])
-  const prs = await enrichPullRequests(token.token, project.githubOwner, project.githubRepo, rawPrs)
+  const prs = await enrichPullRequests(token.token, project.githubOwner, project.githubRepo, rawPrs, project.id)
 
   await upsertIssueCacheEntries(project.id, issues)
-  await upsertPrCacheEntries(project.id, prs.map((pr) => ({ ...pr, projectId: project.id })))
+  await upsertPrCacheEntries(project.id, prs)
 
   return {
     issueCount: issues.length,
@@ -472,9 +546,23 @@ export async function getWorkspaceGitHubSummary(projectIds: string[]): Promise<G
   const issues = issueRows.map(toCachedIssue)
   const prs = prRows.map(toCachedPr)
 
+  // Pre-group by projectId to avoid O(n*m) filtering
+  const issuesByProject = new Map<string, GitHubCachedIssue[]>()
+  for (const issue of issues) {
+    const list = issuesByProject.get(issue.projectId) ?? []
+    list.push(issue)
+    issuesByProject.set(issue.projectId, list)
+  }
+  const prsByProject = new Map<string, GitHubCachedPr[]>()
+  for (const pr of prs) {
+    const list = prsByProject.get(pr.projectId) ?? []
+    list.push(pr)
+    prsByProject.set(pr.projectId, list)
+  }
+
   const summaries: GitHubWorkspaceProjectSummary[] = projectRows.map((project) => {
-    const projectIssues = issues.filter((issue) => issue.projectId === project.id)
-    const projectPrs = prs.filter((pr) => pr.projectId === project.id)
+    const projectIssues = issuesByProject.get(project.id) ?? []
+    const projectPrs = prsByProject.get(project.id) ?? []
     const lastSyncedAt = [...projectIssues.map((issue) => issue.cachedAt), ...projectPrs.map((pr) => pr.cachedAt)]
       .sort((a, b) => b.getTime() - a.getTime())[0]
 
@@ -538,16 +626,6 @@ export async function backfillGitHubRepoCacheForProject(project: Project): Promi
 }
 
 // ── PR file diffs ──────────────────────────────────────────────────
-
-export interface PrChangedFile {
-  filename: string
-  status: 'added' | 'removed' | 'modified' | 'renamed' | 'copied' | 'changed' | 'unchanged'
-  additions: number
-  deletions: number
-  changes: number
-  patch?: string
-  previousFilename?: string
-}
 
 export async function getPrFiles(accessToken: string, owner: string, repo: string, prNumber: number): Promise<PrChangedFile[]> {
   const items = await fetchPaginated<Record<string, unknown>>(

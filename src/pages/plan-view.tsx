@@ -1802,7 +1802,7 @@ export function PlanView() {
   // Close detail panel when switching view modes.
   // This effect legitimately syncs UI state (selectedNode) when the derived
   // viewMode changes from URL navigation. The guard avoids no-op renders.
-  useEffect(() => { setSelectedNode(null) }, [viewMode])
+  useEffect(() => { setSelectedNode(null) }, [viewMode, activeTab])
 
   // Handle decompose: open chat with pre-filled message
   const handleDecomposeNode = useCallback((nodeId: string) => {
@@ -2123,7 +2123,13 @@ export function PlanView() {
             ) : activeTab === "knowledge" ? (
               <KnowledgePanel projectId={project.id} />
             ) : activeTab === "repo" ? (
-              <RepoExplorer project={project} />
+              isGitHubProject ? (
+                <RepoExplorer project={project} />
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+                  This project is not linked to a GitHub repository.
+                </div>
+              )
             ) : viewMode === "graph" ? (
               <div className="flex-1 relative overflow-hidden">
                 <div className="absolute inset-0 touch-pan-x touch-pan-y">

@@ -17,7 +17,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { channelRouter } from '../lib/channel/channel-router.js'
 import { lookupGitHubProject } from '../lib/github-store.js'
 import { resolveGitHubToken } from '../lib/github-client.js'
-import { syncGitHubRepoCacheByProjectId } from '../lib/github-repo-cache.js'
+import { syncGitHubRepoCacheByProjectId, upsertIssueCacheEntries } from '../lib/github-repo-cache.js'
 import { postGitHubComment } from '../plugins/channel-github/github-api.js'
 import type { InboundMessage } from '../lib/channel/channel-types.js'
 
@@ -68,16 +68,16 @@ app.post('/webhook', async (c) => {
 async function processWebhook(eventType: string, payload: Record<string, unknown>): Promise<void> {
   if (eventType === 'issue_comment') {
     await handleIssueComment(payload)
-    await syncRepoCacheForWebhook(payload)
+    // issue_comment doesn't change issue/PR state — skip cache sync
     return
   }
 
   if (['issues', 'pull_request', 'pull_request_review', 'check_suite', 'check_run'].includes(eventType)) {
-    await syncRepoCacheForWebhook(payload)
+    await syncRepoCacheForWebhook(eventType, payload)
   }
 }
 
-async function syncRepoCacheForWebhook(payload: Record<string, unknown>): Promise<void> {
+async function syncRepoCacheForWebhook(eventType: string, payload: Record<string, unknown>): Promise<void> {
   const repo = payload.repository as Record<string, unknown> | undefined
   const repoFullName = repo?.full_name as string | undefined
   if (!repoFullName) return
@@ -86,6 +86,43 @@ async function syncRepoCacheForWebhook(payload: Record<string, unknown>): Promis
   if (!projectId) return
 
   try {
+    // For check_suite, check_run, and pull_request_review we need to re-derive
+    // CI status or review decision which requires multiple API calls.
+    // Fall back to full sync for these complex events.
+    if (['check_suite', 'check_run', 'pull_request_review'].includes(eventType)) {
+      await syncGitHubRepoCacheByProjectId(projectId)
+      return
+    }
+
+    // For issues/pull_request events, do a targeted single-entry upsert
+    if (eventType === 'issues') {
+      const issue = payload.issue as Record<string, unknown> | undefined
+      if (issue) {
+        await upsertIssueCacheEntries(projectId, [{
+          number: issue.number as number,
+          title: issue.title as string,
+          body: (issue.body as string | null) ?? null,
+          state: (issue.state as string) === 'closed' ? 'closed' : 'open',
+          html_url: issue.html_url as string,
+          created_at: issue.created_at as string,
+          updated_at: issue.updated_at as string,
+          closed_at: (issue.closed_at as string | null) ?? null,
+          comments: (issue.comments as number) ?? 0,
+          user: issue.user as { login?: string } | null,
+          labels: ((issue.labels as Array<Record<string, unknown>>) ?? []).map((l) => ({
+            name: String(l.name ?? ''),
+            color: typeof l.color === 'string' ? l.color : undefined,
+          })),
+          assignees: ((issue.assignees as Array<Record<string, unknown>>) ?? []).map((a) => ({
+            login: typeof a.login === 'string' ? a.login : undefined,
+          })),
+        }])
+        return
+      }
+    }
+
+    // For pull_request events, fall back to full sync since PR enrichment
+    // requires multiple API calls (CI status, reviews, mergeable state)
     await syncGitHubRepoCacheByProjectId(projectId)
   } catch (error) {
     console.error(`[github-app-webhook] Cache sync failed for ${repoFullName}:`, error)
