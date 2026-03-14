@@ -373,7 +373,6 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
               const translateX = offset * 140
               const translateZ = isActive ? 40 : -60 * absOffset
               const rotateY = offset < 0 ? 40 : offset > 0 ? -40 : 0
-              const opacity = absOffset > 2 ? 0 : isActive ? 1 : 0.35
               const scale = isActive ? 1.05 : 0.8
 
               return (
@@ -383,19 +382,25 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
                   className="absolute w-[300px] cursor-pointer"
                   style={{
                     transform: `translateX(${translateX}px) translateZ(${translateZ}px) rotateY(${rotateY}deg) scale(${scale})`,
-                    opacity,
                     zIndex,
                     transformStyle: 'preserve-3d',
                     transition: 'transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.4s ease',
-                    filter: isActive ? 'none' : `blur(${Math.min(absOffset * 0.8, 2)}px)`,
+                    opacity: absOffset > 2 ? 0 : 1,
                   }}
                 >
                   <Card className={cn(
-                    'overflow-hidden h-[220px] flex flex-col',
+                    'overflow-hidden h-[220px] flex flex-col relative',
                     isActive
                       ? 'shadow-2xl ring-1 ring-primary/30'
                       : 'shadow-sm',
                   )}>
+                    {/* White/black overlay on non-active cards */}
+                    {!isActive && (
+                      <div
+                        className="absolute inset-0 z-10 pointer-events-none bg-background/70"
+                        style={{ transition: 'opacity 0.4s ease' }}
+                      />
+                    )}
                     <CardHeader className="pb-2 shrink-0">
                       <div className="flex items-center justify-between gap-2">
                         <CardTitle className="text-sm truncate">{card.title}</CardTitle>
