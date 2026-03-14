@@ -17,9 +17,13 @@ async function initDb(): Promise<any> {
   if (isLocalMode()) {
     // PGlite: Postgres-in-WASM, no network, data on local disk
     const { PGlite } = await import('@electric-sql/pglite')
+    const { NodeFS } = await import('@electric-sql/pglite/nodefs')
     const { drizzle } = await import('drizzle-orm/pglite')
     const dataDir = process.env.PGLITE_DATA_DIR || join(homedir(), '.astro', 'pglite')
-    const client = new PGlite(dataDir)
+    // Explicit NodeFS ensures PGlite uses real filesystem persistence in Node.js.
+    // Without this, PGlite may default to Emscripten's in-memory FS and data
+    // (especially streaming_events) is lost on process restart.
+    const client = new PGlite({ dataDir, fs: new NodeFS(dataDir) })
     _db = drizzle(client, { schema })
 
     // Periodic CHECKPOINT every 30s so data survives abrupt process kills
