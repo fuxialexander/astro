@@ -249,7 +249,7 @@ export function RepoConfigDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm gap-0 p-0 overflow-hidden">
+      <DialogContent className="max-w-md gap-0 p-0 overflow-hidden">
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
           <FolderGit2 className="h-4 w-4 text-muted-foreground" />
