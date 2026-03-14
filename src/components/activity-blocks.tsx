@@ -34,8 +34,7 @@ import type { TaskActivityEvent, ExecutionSummary } from "@/types"
 import { planToMermaid, type MermaidNode, type MermaidEdge } from "@/lib/plan-to-mermaid"
 import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
 import { VisualWidget } from "@/components/ui/visual-widget"
-import { JsonRenderView } from "@/components/ui/json-render-view"
-import { isJsonRenderSpec } from "@/lib/json-render"
+import { StructuredDataView } from "@/components/ui/structured-data-view"
 import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -496,25 +495,13 @@ export function ToolBlock({ events, isRunning }: { events: TaskActivityEvent[]; 
           {toolUse.toolInput != null && (
             <div>
               <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Input</p>
-              <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 max-h-[150px] overflow-auto">
-                {typeof toolUse.toolInput === "string"
-                  ? toolUse.toolInput
-                  : JSON.stringify(toolUse.toolInput, null, 2)}
-              </pre>
+              <StructuredDataView data={toolUse.toolInput} />
             </div>
           )}
           {toolResult?.toolResult != null && (
             <div>
               <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Result</p>
-              {isJsonRenderSpec(toolResult.toolResult) ? (
-                <JsonRenderView spec={toolResult.toolResult} maxHeight="150px" />
-              ) : (
-                <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 max-h-[150px] overflow-auto">
-                  {typeof toolResult.toolResult === "string"
-                    ? toolResult.toolResult
-                    : JSON.stringify(toolResult.toolResult, null, 2)}
-                </pre>
-              )}
+              <StructuredDataView data={toolResult.toolResult} />
             </div>
           )}
         </div>
@@ -615,25 +602,13 @@ export function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEven
                   {pair.toolUse.toolInput != null && (
                     <div>
                       <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Input</p>
-                      <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 max-h-[150px] overflow-auto">
-                        {typeof pair.toolUse.toolInput === "string"
-                          ? pair.toolUse.toolInput
-                          : JSON.stringify(pair.toolUse.toolInput, null, 2)}
-                      </pre>
+                      <StructuredDataView data={pair.toolUse.toolInput} />
                     </div>
                   )}
                   {pair.toolResult?.toolResult != null && (
                     <div>
                       <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Result</p>
-                      {isJsonRenderSpec(pair.toolResult.toolResult) ? (
-                        <JsonRenderView spec={pair.toolResult.toolResult} maxHeight="150px" />
-                      ) : (
-                        <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 max-h-[150px] overflow-auto">
-                          {typeof pair.toolResult.toolResult === "string"
-                            ? pair.toolResult.toolResult
-                            : JSON.stringify(pair.toolResult.toolResult, null, 2)}
-                        </pre>
-                      )}
+                      <StructuredDataView data={pair.toolResult.toolResult} />
                     </div>
                   )}
                 </div>

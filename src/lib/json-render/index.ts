@@ -2,6 +2,7 @@ import type { Spec } from '@json-render/core'
 
 export { astroCatalog, type AstroCatalog } from './catalog'
 export { registry } from './registry'
+export { dataToSpec } from './auto-spec'
 
 /**
  * Check if an unknown value has the shape of a json-render Spec.

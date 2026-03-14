@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { ChevronDown, ChevronRight, CheckCircle2, XCircle, Clock, Wrench } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { StructuredDataView } from "@/components/ui/structured-data-view"
 
 interface ToolTrace {
   toolName: string
@@ -69,21 +70,13 @@ function TraceItem({ trace }: { trace: ToolTrace; index: number }) {
             {trace.toolInput != null && (
               <div className="rounded-md bg-muted p-3">
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Input</p>
-                <pre className="font-mono text-xs whitespace-pre-wrap break-all text-foreground">
-                  {typeof trace.toolInput === "string"
-                    ? trace.toolInput
-                    : JSON.stringify(trace.toolInput, null, 2)}
-                </pre>
+                <StructuredDataView data={trace.toolInput} maxHeight="200px" />
               </div>
             )}
             {trace.toolResult != null && (
               <div className="rounded-md bg-muted p-3">
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Result</p>
-                <pre className="font-mono text-xs whitespace-pre-wrap break-all text-foreground max-h-[200px] overflow-auto">
-                  {typeof trace.toolResult === "string"
-                    ? trace.toolResult
-                    : JSON.stringify(trace.toolResult, null, 2)}
-                </pre>
+                <StructuredDataView data={trace.toolResult} maxHeight="200px" />
               </div>
             )}
           </div>

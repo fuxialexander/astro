@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { ChevronDown, ChevronRight, Link2, Unlink2, Wrench, FileCode, MessageSquare, AlertCircle, Monitor } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { StructuredDataView } from "@/components/ui/structured-data-view"
 import { formatTime, formatRelativeTime } from "@/lib/date-utils"
 import type { AttachedSession, SessionEventEntry } from "@/stores/realtime-store"
 
@@ -96,9 +97,7 @@ function EventItem({ event }: { event: SessionEventEntry }) {
 
         {expanded && event.data != null && (
           <div className="mt-2 rounded-md bg-muted p-3">
-            <pre className="font-mono text-xs whitespace-pre-wrap break-all text-foreground max-h-[200px] overflow-auto">
-              {JSON.stringify(event.data, null, 2)}
-            </pre>
+            <StructuredDataView data={event.data} maxHeight="200px" />
           </div>
         )}
       </div>

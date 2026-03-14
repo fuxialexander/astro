@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { ChevronDown, ChevronRight, CheckCircle2, XCircle, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { StructuredDataView } from "@/components/ui/structured-data-view"
 import type { ToolCallWithResult } from "@/types/observations"
 
 interface ToolCallItemProps {
@@ -62,11 +63,7 @@ export function ToolCallItem({ tool, isTaskComplete = true }: ToolCallItemProps)
               <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">
                 Input
               </p>
-              <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 max-h-[150px] overflow-auto">
-                {typeof tool.input === "string"
-                  ? tool.input
-                  : JSON.stringify(tool.input, null, 2)}
-              </pre>
+              <StructuredDataView data={tool.input} />
             </div>
           )}
           {tool.output != null && (
@@ -74,11 +71,7 @@ export function ToolCallItem({ tool, isTaskComplete = true }: ToolCallItemProps)
               <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">
                 Output
               </p>
-              <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 max-h-[150px] overflow-auto">
-                {typeof tool.output === "string"
-                  ? tool.output.slice(0, 5000)
-                  : JSON.stringify(tool.output, null, 2).slice(0, 5000)}
-              </pre>
+              <StructuredDataView data={tool.output} maxChars={5000} />
             </div>
           )}
         </div>
