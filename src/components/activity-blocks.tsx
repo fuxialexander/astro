@@ -34,6 +34,8 @@ import type { TaskActivityEvent, ExecutionSummary } from "@/types"
 import { planToMermaid, type MermaidNode, type MermaidEdge } from "@/lib/plan-to-mermaid"
 import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
 import { VisualWidget } from "@/components/ui/visual-widget"
+import { JsonRenderView } from "@/components/ui/json-render-view"
+import { isJsonRenderSpec } from "@/lib/json-render"
 import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -499,11 +501,15 @@ export function ToolBlock({ events, isRunning }: { events: TaskActivityEvent[]; 
           {toolResult?.toolResult != null && (
             <div>
               <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Result</p>
-              <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 max-h-[150px] overflow-auto">
-                {typeof toolResult.toolResult === "string"
-                  ? toolResult.toolResult
-                  : JSON.stringify(toolResult.toolResult, null, 2)}
-              </pre>
+              {isJsonRenderSpec(toolResult.toolResult) ? (
+                <JsonRenderView spec={toolResult.toolResult} maxHeight="150px" />
+              ) : (
+                <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 max-h-[150px] overflow-auto">
+                  {typeof toolResult.toolResult === "string"
+                    ? toolResult.toolResult
+                    : JSON.stringify(toolResult.toolResult, null, 2)}
+                </pre>
+              )}
             </div>
           )}
         </div>
@@ -614,11 +620,15 @@ export function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEven
                   {pair.toolResult?.toolResult != null && (
                     <div>
                       <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Result</p>
-                      <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 max-h-[150px] overflow-auto">
-                        {typeof pair.toolResult.toolResult === "string"
-                          ? pair.toolResult.toolResult
-                          : JSON.stringify(pair.toolResult.toolResult, null, 2)}
-                      </pre>
+                      {isJsonRenderSpec(pair.toolResult.toolResult) ? (
+                        <JsonRenderView spec={pair.toolResult.toolResult} maxHeight="150px" />
+                      ) : (
+                        <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 max-h-[150px] overflow-auto">
+                          {typeof pair.toolResult.toolResult === "string"
+                            ? pair.toolResult.toolResult
+                            : JSON.stringify(pair.toolResult.toolResult, null, 2)}
+                        </pre>
+                      )}
                     </div>
                   )}
                 </div>
