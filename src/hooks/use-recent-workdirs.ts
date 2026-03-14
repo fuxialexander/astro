@@ -11,16 +11,6 @@ export interface RecentWorkdir {
 }
 
 /**
- * Format a machine ID and working directory into canonical `machineName:workdir` format.
- */
-export function formatMachineWorkdir(
-  machineName: string,
-  workdir: string
-): string {
-  return `${machineName}:${workdir}`
-}
-
-/**
  * Parse a `machine:path` string into its components.
  * Splits on the first colon only, so paths containing colons are preserved.
  * Returns null if the input doesn't contain a colon.
