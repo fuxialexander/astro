@@ -94,9 +94,11 @@ function getShortId(id: string): string {
  * and "local git, no remote" (isGit=true). The server cannot distinguish them.
  *
  * For local-git projects, the DB deliveryMode is set to 'branch' during
- * project creation (from the agent's suggestedDeliveryMode), so this fallback
- * never fires for them. It only fires when the DB has no deliveryMode — e.g.,
- * template projects that skip repo detection, or legacy projects.
+ * project creation (from the agent's suggestedDeliveryMode). Additionally,
+ * the self-healing block (search: "Self-heal") derives deliveryMode from
+ * the project's source column for projects that were created without it
+ * (e.g., playground sessions, legacy projects). This fallback only fires
+ * when none of the above provides a deliveryMode.
  *
  * 'direct' is the safe default: it activates the server-side serial execution
  * check (preventing concurrent dispatch) and works for both git and non-git
@@ -114,6 +116,29 @@ function deriveDefaultDeliveryMode(remoteType?: string): 'pr' | 'push' | 'branch
     case 'none':
     default:
       return 'direct'
+  }
+}
+
+/**
+ * Derive delivery mode from a project's source column.
+ * Uses isGit to disambiguate remoteType='none' (local-git vs non-git).
+ * Mirrors the frontend's deriveDeliveryMode() in project-source.ts.
+ */
+function deriveDeliveryModeFromSource(
+  source: { isGit?: boolean; remoteType?: string }
+): 'pr' | 'push' | 'branch' | 'direct' | undefined {
+  if (source.isGit === undefined) return undefined
+  if (!source.isGit) return 'direct'
+  switch (source.remoteType) {
+    case 'github':
+    case 'gitlab':
+    case 'bitbucket':
+      return 'pr'
+    case 'generic':
+      return 'push'
+    case 'none':
+    default:
+      return 'branch'
   }
 }
 
@@ -481,8 +506,23 @@ dispatchRoute.post('/task', async (c) => {
       //   - EARLY check (search: "Early serial execution check"): runs when body provides deliveryMode
       //   - LATE check (search: "Serial execution constraint for 'direct'"): runs when deliveryMode resolved from DB
       deliveryMode ??= (dbProject.deliveryMode as typeof deliveryMode) || undefined
-      const source = dbProject.source as { localPath?: string; remoteType?: string; baseBranch?: string; type?: string; templateId?: string } | null
+      const source = dbProject.source as { localPath?: string; remoteType?: string; baseBranch?: string; isGit?: boolean; type?: string; templateId?: string } | null
       remoteType ??= (source?.remoteType as typeof remoteType) || undefined
+
+      // Self-heal: if deliveryMode is null but source has enough info, derive and backfill.
+      // This catches playground-created projects (startPlaygroundSession skips detection)
+      // and any legacy projects that predate DB storage of deliveryMode.
+      if (!deliveryMode && source) {
+        const derived = deriveDeliveryModeFromSource(source)
+        if (derived) {
+          deliveryMode = derived
+          // Backfill so future dispatches hit the DB path directly
+          db.update(projects)
+            .set({ deliveryMode: derived, updatedAt: new Date() })
+            .where(eq(projects.id, projectId))
+            .catch(err => console.warn(`[dispatch] Failed to backfill deliveryMode for ${projectId}:`, err))
+        }
+      }
       baseBranch = source?.baseBranch || undefined
 
       // Builtin templates skip safety checks — verified against the known registry

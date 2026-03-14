@@ -9,6 +9,7 @@ import { closePr, ensureBranch } from "@/lib/api-client"
 import { getShortId } from "@/lib/utils"
 import { isNodeIsolated } from "@/lib/plan-utils"
 import { getColorForName, getProjectIconForName } from "@/lib/color-icon-utils"
+import { deriveDeliveryMode } from "@/lib/project-source"
 import type { PlanNode, Project, ProjectSource } from "@/types"
 
 /**
@@ -193,7 +194,7 @@ export function useConvertToProject() {
         repository: sourceProject.repository,
         githubOwner: sourceProject.githubOwner,
         githubRepo: sourceProject.githubRepo,
-        deliveryMode: sourceProject.deliveryMode,
+        deliveryMode: sourceProject.deliveryMode || (source ? deriveDeliveryMode(source) : undefined),
         defaultMachineId: sourceProject.defaultMachineId,
         projectType: "plan",
         createdAt: now,
