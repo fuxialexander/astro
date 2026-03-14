@@ -14,7 +14,7 @@ import { create } from "zustand"
 import { dataClient } from "@/lib/data-client"
 import { projectChatWithAgent, chatWithTask, generateTitle, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { extractMutations, applyMutationsToStore } from "@/lib/plan-mutations"
-import { createYamlStreamCompiler, YAML_SPEC_FENCE } from "@json-render/yaml"
+import { parseYamlSpecFromText } from "@/lib/json-render/parse-yaml-spec"
 import { usePlanStore } from "./plan-store"
 import { useProjectStore } from "./project-store"
 import { useRealtimeStore } from "./realtime-store"
@@ -732,122 +732,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     let rawAssistantText = ""
     let needsPlanRefresh = false
 
-    // json-render YAML: detect ```yaml-spec fences in streamed text,
-    // parse YAML progressively, and emit spec activity events.
-    // Uses a text buffer to handle fence markers split across SSE chunks.
-    let insideYamlSpec = false
-    let specEventPushed = false
-    let specThrottleTimer: ReturnType<typeof setTimeout> | null = null
-    let textBuffer = ''  // buffers text to handle split fence markers
-    let currentYamlContent = ''  // accumulates YAML for persistence
-    const yamlCompiler = createYamlStreamCompiler<Record<string, unknown>>()
-    const fenceOpen = YAML_SPEC_FENCE   // ```yaml-spec
-    const fenceClose = '\n```'          // closing fence always on its own line
-
-    function processChunk(chunk: string) {
-      textBuffer += chunk
-      drainBuffer()
-    }
-
-    function drainBuffer() {
-      while (textBuffer.length > 0) {
-        if (!insideYamlSpec) {
-          const fenceIdx = textBuffer.indexOf(fenceOpen)
-          if (fenceIdx === -1) {
-            // No fence found. Check if buffer ends with a partial fence prefix.
-            // Only hold back if the tail could be the start of ```yaml-spec.
-            const lastBacktick = textBuffer.lastIndexOf('`')
-            if (lastBacktick >= 0 && textBuffer.length - lastBacktick < fenceOpen.length &&
-                fenceOpen.startsWith(textBuffer.slice(lastBacktick))) {
-              // Tail is a partial fence match — emit everything before it
-              if (lastBacktick > 0) {
-                emitText(textBuffer.slice(0, lastBacktick))
-                textBuffer = textBuffer.slice(lastBacktick)
-              }
-            } else {
-              // No partial match — emit all
-              emitText(textBuffer)
-              textBuffer = ''
-            }
-            break // wait for more data
-          } else {
-            // Prose before fence
-            if (fenceIdx > 0) emitText(textBuffer.slice(0, fenceIdx))
-            insideYamlSpec = true
-            currentYamlContent = ''
-            textBuffer = textBuffer.slice(fenceIdx + fenceOpen.length)
-            // Skip optional newline after fence open
-            if (textBuffer.startsWith('\n')) textBuffer = textBuffer.slice(1)
-          }
-        } else {
-          // Inside yaml-spec fence — look for closing ``` on its own line
-          const closeIdx = textBuffer.indexOf(fenceClose)
-          if (closeIdx === -1) {
-            // No close yet. Feed complete lines to compiler, keep partial line buffered.
-            const lastNewline = textBuffer.lastIndexOf('\n')
-            if (lastNewline > 0) {
-              const completeLines = textBuffer.slice(0, lastNewline + 1)
-              feedYaml(completeLines)
-              textBuffer = textBuffer.slice(lastNewline + 1)
-            }
-            break // wait for more data
-          } else {
-            // YAML content before close
-            const yamlChunk = textBuffer.slice(0, closeIdx)
-            if (yamlChunk) feedYaml(yamlChunk)
-            insideYamlSpec = false
-            const { result } = yamlCompiler.flush()
-            if (result.root) {
-              pushSpecUpdate(result)
-              // Persist the yaml-spec fence in the session message so hydration can re-parse it
-              get().appendToLastAssistantMessage(sid, fenceOpen + '\n' + currentYamlContent + fenceClose + '\n')
-            }
-            yamlCompiler.reset()
-            textBuffer = textBuffer.slice(closeIdx + fenceClose.length)
-            // Skip optional newline after fence close
-            if (textBuffer.startsWith('\n')) textBuffer = textBuffer.slice(1)
-          }
-        }
-      }
-    }
-
-    function emitText(text: string) {
-      if (!text) return
-      get().appendToLastAssistantMessage(sid, text)
-      useRealtimeStore.getState().pushActivityEvent(sid, {
-        type: 'text',
-        content: text,
-        timestamp: new Date(),
-      })
-    }
-
-    function feedYaml(chunk: string) {
-      currentYamlContent += chunk
-      const { result } = yamlCompiler.push(chunk)
-      if (result.root) {
-        // Progressive rendering: throttled spec updates
-        if (!specThrottleTimer) {
-          specThrottleTimer = setTimeout(() => {
-            specThrottleTimer = null
-            pushSpecUpdate(yamlCompiler.getResult())
-          }, 150)
-        }
-      }
-    }
-
-    function pushSpecUpdate(spec: Record<string, unknown>) {
-      const specCopy = { root: spec.root as string, elements: { ...(spec.elements as Record<string, unknown>) }, state: spec.state ? { ...(spec.state as Record<string, unknown>) } : undefined }
-      if (!specEventPushed) {
-        specEventPushed = true
-        useRealtimeStore.getState().pushActivityEvent(sid, {
-          type: 'json_render_spec',
-          spec: specCopy,
-          timestamp: new Date(),
-        })
-      } else {
-        useRealtimeStore.getState().updateLastSpecEvent(sid, specCopy)
-      }
-    }
+    // json-render: yaml-spec fences are parsed from rawAssistantText in onDone.
+    // During streaming, text passes through normally (including yaml-spec fences
+    // which render as code blocks). On completion, we extract specs and emit
+    // json_render_spec events. This avoids complex chunk-level fence detection.
 
     // Push user event to realtime store
     useRealtimeStore.getState().pushActivityEvent(sid, {
@@ -890,11 +778,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       },
       {
         // Push streaming events to realtime store for live display.
-        // Text chunks are routed through processChunk(), which detects
-        // ```yaml-spec fences and routes prose vs YAML accordingly.
+        // yaml-spec fences stream through as text (rendered as code blocks).
+        // They're extracted and replaced with json_render_spec events in onDone.
         onText: (chunk) => {
           rawAssistantText += chunk
-          processChunk(chunk)
+          get().appendToLastAssistantMessage(sid, chunk)
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'text',
+            content: chunk,
+            timestamp: new Date(),
+          })
         },
         onToolUse: (data) => {
           if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
@@ -927,38 +820,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             usePlanStore.getState().load()
           }
 
-          // Flush any remaining buffered text (partial fence match held back)
-          if (textBuffer.length > 0) {
-            if (insideYamlSpec) {
-              feedYaml(textBuffer)
-            } else {
-              emitText(textBuffer)
-            }
-            textBuffer = ''
-          }
-
-          // If still inside a yaml-spec fence when stream ends, flush the compiler
-          if (insideYamlSpec) {
-            const { result } = yamlCompiler.flush()
-            if (result.root) pushSpecUpdate(result)
-            insideYamlSpec = false
-          }
-
-          // Clear any pending spec throttle timer and do a final update
-          if (specThrottleTimer) {
-            clearTimeout(specThrottleTimer)
-            specThrottleTimer = null
-          }
-          {
-            const finalSpec = yamlCompiler.getResult()
-            if (finalSpec.root) {
-              const specObj = { root: finalSpec.root as string, elements: { ...(finalSpec.elements as Record<string, unknown>) }, state: finalSpec.state ? { ...(finalSpec.state as Record<string, unknown>) } : undefined }
-              if (specEventPushed) {
-                useRealtimeStore.getState().updateLastSpecEvent(sid, specObj)
-              } else {
+          // Parse yaml-spec fences from the complete response and emit spec events.
+          // During streaming, the fences rendered as code blocks. Now we extract
+          // them as proper json_render_spec events for component rendering.
+          if (rawAssistantText.includes('```yaml-spec')) {
+            const segments = parseYamlSpecFromText(rawAssistantText)
+            for (const segment of segments) {
+              if (segment.type === 'spec') {
                 useRealtimeStore.getState().pushActivityEvent(sid, {
                   type: 'json_render_spec',
-                  spec: specObj,
+                  spec: segment.spec,
                   timestamp: new Date(),
                 })
               }
