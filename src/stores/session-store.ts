@@ -83,6 +83,7 @@ interface SessionState {
 
   // Lifecycle
   load: () => Promise<void>
+  ensureFullSession: (sessionId: string) => Promise<Session | undefined>
 
   // CRUD
   createSession: (params: {
@@ -178,6 +179,24 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
 
     set({ loaded: true })
+  },
+
+  ensureFullSession: async (sessionId: string) => {
+    const existing = get().sessions.get(sessionId)
+    // If already has messages loaded (either from streaming or from a prior fetch), skip
+    if (existing && existing.messages.length > 0) return existing
+    try {
+      const full = await dataClient.getSession(sessionId)
+      if (full) {
+        const sessions = new Map(get().sessions)
+        sessions.set(sessionId, full)
+        set({ sessions })
+        return full
+      }
+    } catch {
+      // API unavailable — return existing stub
+    }
+    return existing
   },
 
   createSession: (params) => {
@@ -1151,7 +1170,13 @@ export function getSessionTitle(session: Session): string {
     return session.metadata.title
   }
 
-  // Auto-generate from first user message
+  // Use titlePreview from lightweight list endpoint (avoids needing full messages)
+  if (session.titlePreview) {
+    const preview = session.titlePreview.slice(0, 50)
+    return preview.length < session.titlePreview.length ? `${preview}...` : preview
+  }
+
+  // Auto-generate from first user message (available when full session is loaded)
   const firstUserMsg = session.messages.find((m) => m.role === "user")
   if (firstUserMsg?.content) {
     const preview = firstUserMsg.content.slice(0, 50)

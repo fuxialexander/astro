@@ -509,7 +509,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                 </div>
                 <DropdownMenuSeparator />
                 {[...projectChatSessions].reverse().map((session) => {
-                  const messageCount = session.messages.length
+                  const messageCount = session.messageCount ?? session.messages.length
                   const sessionTitle = getSessionTitle(session)
                   const isActive = currentSession?.id === session.id
                   return (

@@ -84,6 +84,9 @@ export interface Session {
   createdAt: Date;
   updatedAt: Date;
   completedAt?: Date;
+  // Lightweight fields from list endpoint (avoids loading full JSONB blobs)
+  messageCount?: number;
+  titlePreview?: string | null;
 }
 
 export interface Label {

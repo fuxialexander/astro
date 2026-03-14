@@ -1355,16 +1355,36 @@ app.get('/chat', async (c) => {
   const projectIds = userProjects.map(p => p.id)
   if (projectIds.length === 0) return c.json({})
 
+  // Return session metadata with message count — messages loaded on demand
+  // via GET /chat/:nodeId. This eliminates the N+1 query loop and reduces
+  // egress from fetching all messages for all chats on every page load.
   const chatSessions = await db.select().from(taskChatSessions).where(
     and(eq(taskChatSessions.userId, user.id), inArray(taskChatSessions.projectId, projectIds))
   )
-  const result: Record<string, { session: typeof chatSessions[0]; messages: Array<typeof taskChatMessages.$inferSelect> }> = {}
+
+  const result: Record<string, { session: typeof chatSessions[0]; messages: Array<typeof taskChatMessages.$inferSelect>; messageCount: number }> = {}
+
+  // Single query to get message counts for all sessions
+  const sessionIds = chatSessions.map(s => s.id)
+  const messageCounts: Record<string, number> = {}
+  if (sessionIds.length > 0) {
+    const counts = await db.select({
+      sessionId: taskChatMessages.sessionId,
+      count: sql<number>`count(*)::int`,
+    }).from(taskChatMessages)
+      .where(inArray(taskChatMessages.sessionId, sessionIds))
+      .groupBy(taskChatMessages.sessionId)
+    for (const row of counts) {
+      messageCounts[row.sessionId] = row.count
+    }
+  }
 
   for (const session of chatSessions) {
-    const messages = await db.select().from(taskChatMessages).where(
-      eq(taskChatMessages.sessionId, session.id)
-    )
-    result[session.nodeId] = { session, messages }
+    result[session.nodeId] = {
+      session,
+      messages: [],  // Empty — loaded on demand via GET /chat/:nodeId
+      messageCount: messageCounts[session.id] ?? 0,
+    }
   }
   return c.json(result)
 })
@@ -1477,7 +1497,34 @@ app.get('/sessions', async (c) => {
   const projectIds = userProjects.map(p => p.id)
   if (projectIds.length === 0) return c.json([])
 
-  const userSessions = await db.select().from(sessions).where(
+  // Return metadata only — heavy JSONB columns (messages, toolTraces, fileChanges,
+  // streamText, activityEvents, steerMessages) are excluded to reduce egress.
+  // Full session data is loaded on demand via GET /sessions/:sessionId.
+  const userSessions = await db.select({
+    id: sessions.id,
+    type: sessions.type,
+    status: sessions.status,
+    projectId: sessions.projectId,
+    nodeId: sessions.nodeId,
+    providerSessionId: sessions.providerSessionId,
+    providerId: sessions.providerId,
+    model: sessions.model,
+    title: sessions.title,
+    summary: sessions.summary,
+    metrics: sessions.metrics,
+    metadata: sessions.metadata,
+    createdAt: sessions.createdAt,
+    updatedAt: sessions.updatedAt,
+    completedAt: sessions.completedAt,
+    // Computed lightweight fields for list views:
+    messageCount: sql<number>`coalesce(jsonb_array_length(${sessions.messages}), 0)`,
+    titlePreview: sql<string | null>`(
+      SELECT m->>'content'
+      FROM jsonb_array_elements(${sessions.messages}) AS m
+      WHERE m->>'role' = 'user'
+      LIMIT 1
+    )`,
+  }).from(sessions).where(
     and(eq(sessions.userId, user.id), inArray(sessions.projectId, projectIds))
   )
   return c.json(userSessions)
@@ -1586,7 +1633,10 @@ app.get('/executions', async (c) => {
   const ids = [...projectIds]
   const filtered = await db.select().from(taskExecutions).where(inArray(taskExecutions.projectId, ids))
 
-  // Convert to map keyed by nodeClientId
+  // Convert to map keyed by nodeClientId.
+  // Exclude streamText from list response — it can be 10-100 KB per execution
+  // and is only needed when viewing a specific task's output.
+  // Full data is loaded via GET /executions/:nodeId.
   const result: Record<string, unknown> = {}
   for (const exec of filtered) {
     result[exec.nodeClientId] = {
@@ -1594,7 +1644,6 @@ app.get('/executions', async (c) => {
       nodeId: exec.nodeClientId,
       projectId: exec.projectId,
       status: exec.status,
-      streamText: exec.streamText,
       error: exec.error,
       toolTraces: [],
       fileChanges: [],

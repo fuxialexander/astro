@@ -333,7 +333,7 @@ export function ActiveTasks() {
       if (addedNodeIds.has(stableNodeId)) continue
 
       const proj = projects.find((p) => p.id === session.projectId)
-      const firstUserMsg = session.messages.find((m) => m.role === 'user')?.content
+      const firstUserMsg = session.titlePreview ?? session.messages.find((m) => m.role === 'user')?.content
       const title = session.title
         || (firstUserMsg ? firstUserMsg.slice(0, 50) + (firstUserMsg.length > 50 ? '...' : '') : undefined)
         || proj?.name
