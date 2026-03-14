@@ -304,6 +304,49 @@ If auth requests spike (>5,000/hour), it likely means JWKS verification is faili
 
 ---
 
+## Rotating the Bot Token
+
+If your bot token is ever leaked (e.g., shared in a chat log, committed to git), rotate it immediately:
+
+1. Message **@BotFather** on Telegram
+2. Send `/revoke`
+3. Select your bot
+4. BotFather gives you a new token
+
+Then update the Fly.io secret:
+
+```bash
+fly secrets set TELEGRAM_BOT_TOKEN="new-token-here" --app astro-backend-deploy
+```
+
+Fly.io restarts the machine automatically. The new token takes effect immediately.
+
+## Switching from DM to Group Alerts
+
+If you initially set up alerts to your personal DM and later want a group so teammates see alerts too:
+
+1. Create a Telegram group (e.g., "Astro Alerts")
+2. Add the bot to the group
+3. Add all teammates
+4. Disable bot privacy mode: message @BotFather -> `/setprivacy` -> select bot -> `Disable`
+5. Send any message in the group
+6. Get the group chat ID:
+
+   ```bash
+   curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" | python3 -m json.tool
+   # Look for "chat": {"id": -XXXXXXXXXX} — group IDs are negative numbers
+   ```
+
+7. Update the Fly.io secret:
+
+   ```bash
+   fly secrets set TELEGRAM_CHAT_ID="-XXXXXXXXXX" --app astro-backend-deploy
+   ```
+
+Both DM and group alerts work — the only difference is who sees them. You can switch at any time by updating `TELEGRAM_CHAT_ID`.
+
+---
+
 ## Troubleshooting
 
 ### "Telegram not configured" in server logs
