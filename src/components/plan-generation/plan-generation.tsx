@@ -158,9 +158,12 @@ export function PlanGeneration({
 
   // Lazy-load full session data (messages) after page refresh
   const ensureFullSession = useSessionStore((s) => s.ensureFullSession)
+  const ensuredSessionRef = useRef<string | undefined>(undefined)
   useEffect(() => {
-    if (chatSession?.id && chatSession.messages.length === 0 && !isChatStreaming) {
-      ensureFullSession(chatSession.id)
+    const sid = chatSession?.id
+    if (sid && sid !== ensuredSessionRef.current && chatSession.messages.length === 0 && !isChatStreaming) {
+      ensuredSessionRef.current = sid
+      ensureFullSession(sid)
     }
   }, [chatSession?.id, chatSession?.messages.length, isChatStreaming, ensureFullSession])
 

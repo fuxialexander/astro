@@ -156,8 +156,10 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   // Lazy-load full session data (messages) after page refresh
   const ensureFullSession = useSessionStore((s) => s.ensureFullSession)
   const currentSessionId = currentSession?.id
+  const ensuredSessionRef = useRef<string | undefined>(undefined)
   useEffect(() => {
-    if (currentSessionId && currentSession && currentSession.messages.length === 0 && !isStreaming) {
+    if (currentSessionId && currentSessionId !== ensuredSessionRef.current && currentSession && currentSession.messages.length === 0 && !isStreaming) {
+      ensuredSessionRef.current = currentSessionId
       ensureFullSession(currentSessionId)
     }
   }, [currentSessionId, currentSession, isStreaming, ensureFullSession])

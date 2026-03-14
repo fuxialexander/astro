@@ -330,8 +330,10 @@ export function Playground() {
   // Lazy-load full session data (messages) after page refresh — the list
   // endpoint returns stubs without messages to reduce egress
   const ensureFullSession = useSessionStore((s) => s.ensureFullSession)
+  const ensuredSessionRef = useRef<string | undefined>(undefined)
   useEffect(() => {
-    if (chatSessionId && chatSession && chatSession.messages.length === 0 && !isChatStreaming) {
+    if (chatSessionId && chatSessionId !== ensuredSessionRef.current && chatSession && chatSession.messages.length === 0 && !isChatStreaming) {
+      ensuredSessionRef.current = chatSessionId
       ensureFullSession(chatSessionId)
     }
   }, [chatSessionId, chatSession, isChatStreaming, ensureFullSession])
