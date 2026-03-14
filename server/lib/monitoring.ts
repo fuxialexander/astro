@@ -83,31 +83,41 @@ export async function notifyAlert(title: string, details: string): Promise<void>
 
 let healthCheckInterval: ReturnType<typeof setInterval> | null = null
 
-async function checkFrontend(): Promise<'ok' | 'down' | 'skipped'> {
-  if (!MONITOR_FRONTEND_URL) return 'skipped'
+interface CheckResult {
+  status: 'ok' | 'down' | 'skipped'
+  latencyMs?: number
+}
+
+async function checkFrontend(): Promise<CheckResult> {
+  if (!MONITOR_FRONTEND_URL) return { status: 'skipped' }
+  const start = Date.now()
   try {
     const res = await fetch(MONITOR_FRONTEND_URL, {
       method: 'HEAD',
       signal: AbortSignal.timeout(10_000),
     })
-    return res.ok ? 'ok' : 'down'
+    return { status: res.ok ? 'ok' : 'down', latencyMs: Date.now() - start }
   } catch {
-    return 'down'
+    return { status: 'down', latencyMs: Date.now() - start }
   }
 }
 
-async function checkJwks(): Promise<'ok' | 'down' | 'skipped'> {
+async function checkJwks(): Promise<CheckResult> {
   const supabaseUrl = process.env.SUPABASE_URL
-  if (!supabaseUrl) return 'skipped'
+  if (!supabaseUrl) return { status: 'skipped' }
+  const start = Date.now()
   try {
     const res = await fetch(`${supabaseUrl}/auth/v1/.well-known/jwks.json`, {
       signal: AbortSignal.timeout(10_000),
     })
-    if (!res.ok) return 'down'
+    if (!res.ok) return { status: 'down', latencyMs: Date.now() - start }
     const data = await res.json() as { keys?: unknown[] }
-    return (data.keys && data.keys.length > 0) ? 'ok' : 'down'
+    return {
+      status: (data.keys && data.keys.length > 0) ? 'ok' : 'down',
+      latencyMs: Date.now() - start,
+    }
   } catch {
-    return 'down'
+    return { status: 'down', latencyMs: Date.now() - start }
   }
 }
 
@@ -119,6 +129,45 @@ let failedChecks = 0
 let lastStatusReportAt = Date.now()
 const STATUS_REPORT_INTERVAL = 8 * 60 * 60 * 1000 // 8 hours
 
+function formatUptime(seconds: number): string {
+  const d = Math.floor(seconds / 86400)
+  const h = Math.floor((seconds % 86400) / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  if (d > 0) return `${d}d ${h}h ${m}m`
+  if (h > 0) return `${h}h ${m}m`
+  return `${m}m`
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+function statusIcon(status: string): string {
+  if (status === 'ok') return 'ok'
+  if (status === 'skipped') return 'skipped'
+  return 'DOWN'
+}
+
+function latencyStr(result: CheckResult): string {
+  if (result.status === 'skipped') return 'skipped'
+  const label = statusIcon(result.status)
+  return result.latencyMs !== undefined ? `${label} (${result.latencyMs}ms)` : label
+}
+
+async function getRelayStats(): Promise<{ runners: number; activeTasks: number; sseConnections: number }> {
+  try {
+    const { machineRegistry } = await import('./machine-registry.js')
+    const { getSSEConnectionCounts } = await import('./sse-connection-tracker.js')
+    const machines = machineRegistry.getAll()
+    const activeTasks = machines.reduce((sum, m) => sum + m.load.activeTasks, 0)
+    const sse = getSSEConnectionCounts()
+    return { runners: machines.length, activeTasks, sseConnections: sse.total }
+  } catch {
+    return { runners: -1, activeTasks: -1, sseConnections: -1 }
+  }
+}
+
 async function runHealthCheck(): Promise<void> {
   const [frontend, jwks] = await Promise.all([
     checkFrontend(),
@@ -127,11 +176,10 @@ async function runHealthCheck(): Promise<void> {
 
   totalChecks++
 
-  const allOk = (frontend === 'ok' || frontend === 'skipped') &&
-                (jwks === 'ok' || jwks === 'skipped')
+  const allOk = (frontend.status === 'ok' || frontend.status === 'skipped') &&
+                (jwks.status === 'ok' || jwks.status === 'skipped')
 
   if (allOk) {
-    // If we were in a failure state and it recovered, send recovery notification
     if (consecutiveFailures >= 3) {
       await sendTelegramAlert('<b>Astro Recovered</b>\n\nAll services are back online.')
     }
@@ -140,11 +188,10 @@ async function runHealthCheck(): Promise<void> {
     consecutiveFailures++
     failedChecks++
 
-    // Only alert on 1st failure and every 12th failure (once per hour at 5-min interval)
     if (consecutiveFailures === 1 || consecutiveFailures % 12 === 0) {
       const lines: string[] = ['<b>Astro Health Check Failed</b>', '']
-      if (frontend !== 'ok' && frontend !== 'skipped') lines.push(`Frontend: ${frontend}`)
-      if (jwks !== 'ok' && jwks !== 'skipped') lines.push(`Auth (JWKS): ${jwks}`)
+      if (frontend.status !== 'ok' && frontend.status !== 'skipped') lines.push(`Frontend: ${latencyStr(frontend)}`)
+      if (jwks.status !== 'ok' && jwks.status !== 'skipped') lines.push(`Auth (JWKS): ${latencyStr(jwks)}`)
       lines.push(`Consecutive failures: ${consecutiveFailures}`)
 
       await sendTelegramAlert(lines.join('\n'))
@@ -153,22 +200,38 @@ async function runHealthCheck(): Promise<void> {
 
   // Periodic status report every 8 hours
   if (Date.now() - lastStatusReportAt >= STATUS_REPORT_INTERVAL) {
-    const uptime = totalChecks > 0 ? ((totalChecks - failedChecks) / totalChecks * 100).toFixed(1) : '100.0'
+    const uptimePct = totalChecks > 0 ? ((totalChecks - failedChecks) / totalChecks * 100).toFixed(1) : '100.0'
     const time = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC'
     const host = process.env.FLY_ALLOC_ID ? 'Fly.io (' + process.env.FLY_REGION + ')' : 'local'
+
+    const mem = process.memoryUsage()
+    const relay = await getRelayStats()
+
     const lines = [
-      '<b>Astro Status Report</b>',
-      '',
-      `Status: ${consecutiveFailures === 0 ? 'All systems operational' : consecutiveFailures + ' consecutive failures'}`,
-      `Frontend: ${frontend}`,
-      `Auth (JWKS): ${jwks}`,
-      `Uptime: ${uptime}% (${totalChecks - failedChecks}/${totalChecks} checks passed)`,
-      `Host: ${host}`,
-      `Time: ${time}`,
+      `<b>Astro Status Report</b>`,
+      ``,
+      `<b>Services</b>`,
+      `  Frontend: ${latencyStr(frontend)}`,
+      `  Auth (JWKS): ${latencyStr(jwks)}`,
+      `  Status: ${consecutiveFailures === 0 ? 'All systems operational' : consecutiveFailures + ' consecutive failures'}`,
+      ``,
+      `<b>Relay</b>`,
+      `  Connected runners: ${relay.runners}`,
+      `  Active tasks: ${relay.activeTasks}`,
+      `  SSE connections: ${relay.sseConnections}`,
+      ``,
+      `<b>Server</b>`,
+      `  Process uptime: ${formatUptime(process.uptime())}`,
+      `  Memory (heap): ${formatBytes(mem.heapUsed)} / ${formatBytes(mem.heapTotal)}`,
+      `  Memory (RSS): ${formatBytes(mem.rss)}`,
+      `  Host: ${host}`,
+      ``,
+      `<b>Period</b>`,
+      `  Checks: ${uptimePct}% passed (${totalChecks - failedChecks}/${totalChecks})`,
+      `  Time: ${time}`,
     ]
     await sendTelegramAlert(lines.join('\n'))
     lastStatusReportAt = Date.now()
-    // Reset counters for next reporting period
     totalChecks = 0
     failedChecks = 0
   }

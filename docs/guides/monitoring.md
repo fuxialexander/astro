@@ -185,15 +185,43 @@ That's it. On next deploy, the server will start sending Telegram notifications.
 | Server started | Every deploy/restart | "Astro Server Started - Mode: supabase, Host: Fly.io (sjc)" |
 | Health check failed | Frontend or JWKS down | "Astro Health Check Failed - Auth (JWKS): down" |
 | Recovery | Services back after outage | "Astro Recovered - All services are back online" |
-| Status report | Every 8 hours | "Astro Status Report - All systems operational, Uptime: 100.0%" |
+| Status report | Every 8 hours | See example below |
+
+#### Status report example
+
+Every 8 hours, you receive a comprehensive report:
+
+```
+Astro Status Report
+
+Services
+  Frontend: ok (142ms)
+  Auth (JWKS): ok (89ms)
+  Status: All systems operational
+
+Relay
+  Connected runners: 2
+  Active tasks: 1
+  SSE connections: 5
+
+Server
+  Process uptime: 1d 6h 32m
+  Memory (heap): 48.2 MB / 64.0 MB
+  Memory (RSS): 112.5 MB
+  Host: Fly.io (sjc)
+
+Period
+  Checks: 100.0% passed (96/96)
+  Time: 2026-03-14 16:00:00 UTC
+```
 
 ### Alert deduplication
 
 To avoid flooding the group chat:
-- First failure: alert immediately
+- First failure: alert immediately (includes response latency)
 - Consecutive failures: alert once per hour (every 12th check at 5-min interval)
 - Recovery: one notification when all services are back
-- Status report: every 8 hours with uptime percentage, even when everything is healthy
+- Status report: every 8 hours with service latency, relay stats, memory, and uptime
 
 ### Limitations
 
