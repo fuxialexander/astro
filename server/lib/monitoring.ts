@@ -28,6 +28,9 @@ function isConfigured(): boolean {
 export async function sendTelegramAlert(message: string): Promise<void> {
   if (!isConfigured()) return
 
+  const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC'
+  const timestamped = `${message}\n\n<i>${timestamp}</i>`
+
   try {
     const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`
     const res = await fetch(url, {
@@ -35,7 +38,7 @@ export async function sendTelegramAlert(message: string): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: TELEGRAM_CHAT_ID,
-        text: message,
+        text: timestamped,
         parse_mode: 'HTML',
       }),
     })
@@ -56,14 +59,12 @@ export async function notifyServerStartup(info: {
   mode: string
   connectedRunners?: number
 }): Promise<void> {
-  const time = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC'
   const msg = [
     `<b>Astro Server Started</b>`,
     ``,
     `Mode: ${info.mode}`,
     `Port: ${info.port}`,
     info.connectedRunners !== undefined ? `Runners: ${info.connectedRunners}` : null,
-    `Time: ${time}`,
     `Host: ${process.env.FLY_ALLOC_ID ? 'Fly.io (' + process.env.FLY_REGION + ')' : 'local'}`,
   ].filter(Boolean).join('\n')
 
@@ -74,8 +75,7 @@ export async function notifyServerStartup(info: {
  * Send an alert when something is degraded or down.
  */
 export async function notifyAlert(title: string, details: string): Promise<void> {
-  const time = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC'
-  const msg = `<b>${title}</b>\n\n${details}\nTime: ${time}`
+  const msg = `<b>${title}</b>\n\n${details}`
   await sendTelegramAlert(msg)
 }
 
@@ -201,7 +201,6 @@ async function runHealthCheck(): Promise<void> {
   // Periodic status report every 8 hours
   if (Date.now() - lastStatusReportAt >= STATUS_REPORT_INTERVAL) {
     const uptimePct = totalChecks > 0 ? ((totalChecks - failedChecks) / totalChecks * 100).toFixed(1) : '100.0'
-    const time = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC'
     const host = process.env.FLY_ALLOC_ID ? 'Fly.io (' + process.env.FLY_REGION + ')' : 'local'
 
     const mem = process.memoryUsage()
@@ -228,7 +227,6 @@ async function runHealthCheck(): Promise<void> {
       ``,
       `<b>Period</b>`,
       `  Checks: ${uptimePct}% passed (${totalChecks - failedChecks}/${totalChecks})`,
-      `  Time: ${time}`,
     ]
     await sendTelegramAlert(lines.join('\n'))
     lastStatusReportAt = Date.now()
