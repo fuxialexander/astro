@@ -29,6 +29,7 @@ import {
   TextBlock,
   ToolBlock,
   ToolGroupBlock,
+  VisualBlock,
   SteerBlock,
   FileChangeBlock,
   ErrorBlock,
@@ -670,6 +671,15 @@ export function UnifiedActivityView({
     }
   }
 
+  // Handle sendPrompt from VisualWidget iframes
+  function handleSendPrompt(text: string) {
+    if (canSteer) {
+      handleSteer(text)
+    } else {
+      handleChat(text)
+    }
+  }
+
   const isInputDisabled = sending || isChatStreaming
 
   // Derive working directory for file browser from project.
@@ -754,11 +764,13 @@ export function UnifiedActivityView({
         {displayBlocks.map((block, i) => {
           switch (block.type) {
             case 'text':
-              return <TextBlock key={i} events={block.events} />
+              return <TextBlock key={i} events={block.events} onSendPrompt={handleSendPrompt} />
             case 'tool':
               return <ToolBlock key={i} events={block.events} isRunning={isRunning || isChatStreaming} />
             case 'tool_group':
               return <ToolGroupBlock key={i} events={block.events} isRunning={isRunning || isChatStreaming} />
+            case 'visual':
+              return <VisualBlock key={i} block={block} onSendPrompt={handleSendPrompt} />
             case 'steer':
               return <SteerBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'steer' }>} />
             case 'file_change':
@@ -768,7 +780,7 @@ export function UnifiedActivityView({
             case 'chat_user':
               return <ChatUserBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_user' }>} onEdit={!isRunning && !isChatStreaming ? (msg) => setInput(msg) : undefined} />
             case 'chat_assistant':
-              return <ChatAssistantBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_assistant' }>} />
+              return <ChatAssistantBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_assistant' }>} onSendPrompt={handleSendPrompt} />
             case 'approval_request': {
               const event = block.events[0] as Extract<TaskActivityEvent, { type: 'approval_request' }>
               const isAnswered = answeredRequestIds.has(event.requestId)
