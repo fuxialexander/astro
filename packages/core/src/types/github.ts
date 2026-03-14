@@ -54,11 +54,19 @@ export interface GitHubTokenResponse {
   access_token: string;
   token_type: string;
   scope: string;
+  /** Present for GitHub App user-to-server tokens (expires in 8h) */
+  refresh_token?: string;
+  /** Seconds until access_token expires */
+  expires_in?: number;
+  /** Seconds until refresh_token expires */
+  refresh_token_expires_in?: number;
 }
 
 export interface GitHubConnection {
   userId: string;
   accessToken: string;
+  refreshToken?: string | null;
+  tokenExpiresAt?: string | null;
   scope: string;
   connectedAt: string;
   user: GitHubUser;

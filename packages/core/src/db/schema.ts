@@ -695,6 +695,8 @@ export const nodeComments = pgTable('node_comments', {
 export const githubConnections = pgTable('github_connections', {
   userId: uuid('user_id').primaryKey(),
   accessToken: text('access_token').notNull(),
+  refreshToken: text('refresh_token'),
+  tokenExpiresAt: timestamp('token_expires_at', { withTimezone: true }),
   scope: text('scope').notNull().default(''),
   connectedAt: timestamp('connected_at').notNull().defaultNow(),
   ghUserId: integer('gh_user_id'),
