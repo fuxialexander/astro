@@ -179,7 +179,12 @@ export async function checkMaxConcurrency(
   maxConcurrency: number,
 ): Promise<{ allowed: true } | { allowed: false; activeRunIds: string[]; activeCount: number }> {
   const staleThreshold = new Date(Date.now() - STALE_RUN_THRESHOLD_MS)
-  const activeRuns = await db.select({ id: scheduleRuns.id })
+  const activeRuns = await db.select({
+    id: scheduleRuns.id,
+    status: scheduleRuns.status,
+    executionIds: scheduleRuns.executionIds,
+    createdAt: scheduleRuns.createdAt,
+  })
     .from(scheduleRuns)
     .where(and(
       eq(scheduleRuns.scheduleId, scheduleId),
@@ -187,10 +192,39 @@ export async function checkMaxConcurrency(
       // Exclude zombie runs — created too long ago to be genuinely in-flight
       gt(scheduleRuns.createdAt, staleThreshold),
     ))
-  if (activeRuns.length < maxConcurrency) {
+
+  // Self-healing: for 'dispatched' runs with no linked executions,
+  // check if the schedule's target node has moved to a terminal state.
+  // If so, the dispatch completed but the run status update was lost — fix it now.
+  const genuinelyActive: string[] = []
+  for (const run of activeRuns) {
+    if (run.status === 'dispatched' && (!run.executionIds || run.executionIds.length === 0)) {
+      // Get the schedule's node to check its actual status
+      const [schedule] = await db.select({ nodeId: schedules.nodeId })
+        .from(schedules).where(eq(schedules.id, scheduleId)).limit(1)
+      if (schedule?.nodeId) {
+        const [node] = await db.select({ status: planNodes.status })
+          .from(planNodes).where(eq(planNodes.clientId, schedule.nodeId)).limit(1)
+        const nodeStatus = node?.status
+        // If node is in a terminal/planned state, this run is stale
+        if (!nodeStatus || nodeStatus === 'planned' || nodeStatus === 'completed' ||
+            nodeStatus === 'auto_verified' || nodeStatus === 'awaiting_judgment' || nodeStatus === 'pruned') {
+          console.log(`[cron] Self-healed stale run ${run.id.slice(0, 8)}: node=${schedule.nodeId.slice(0, 8)} status=${nodeStatus ?? 'unknown'}, marking run as failure`)
+          db.update(scheduleRuns)
+            .set({ status: 'failure', completedAt: new Date(), errorMessage: `Self-healed: node reverted to ${nodeStatus ?? 'unknown'} but run was never updated` })
+            .where(eq(scheduleRuns.id, run.id))
+            .execute().catch(() => {})
+          continue // Don't count this run
+        }
+      }
+    }
+    genuinelyActive.push(run.id)
+  }
+
+  if (genuinelyActive.length < maxConcurrency) {
     return { allowed: true }
   }
-  return { allowed: false, activeRunIds: activeRuns.map(r => r.id), activeCount: activeRuns.length }
+  return { allowed: false, activeRunIds: genuinelyActive, activeCount: genuinelyActive.length }
 }
 
 /**

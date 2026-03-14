@@ -1576,6 +1576,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
       }
       alive = false
+      // Clean up result/error listeners now that the result has been processed
+      cleanupResult()
     }
 
     const onText = (msg: import('../types/relay.js').TaskTextMessage) => {
@@ -1725,6 +1727,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       }
 
       alive = false
+      cleanupResult()
     }
 
     const onApprovalRequest = async (msg: { taskId: string; requestId: string; question: string; options: string[]; machineId?: string }) => {
@@ -1835,6 +1838,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       }
 
       alive = false
+      cleanupResult()
     }
 
     // Mark this task as having an active dispatch stream so events.ts
@@ -1859,22 +1863,35 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     relayServer.on('task:safety_prompt', onSafetyPrompt)
     relayServer.on('task:dead', onTaskDead)
 
-    const cleanup = () => {
+    // cleanupSSE removes only SSE-forwarding listeners (text, progress, etc.)
+    // and tracking state. Does NOT remove result/error listeners.
+    const cleanupSSE = () => {
       if (!isServerSideDispatch) {
         activeDispatchStreams.delete(executionId)
         redisPubSub.removeActiveDispatchStream(executionId).catch(() => {})
       }
-      relayServer.off('task:result', onResult)
       relayServer.off('task:text', onText)
       relayServer.off('task:session_init', onSessionInit)
       relayServer.off('task:progress', onProgress)
       relayServer.off('task:tool_trace', onToolTrace)
       relayServer.off('task:file_change', onFileChange)
       relayServer.off('task:stdout', onStdout)
-      relayServer.off('machine:disconnected', onMachineDisconnected)
       relayServer.off('task:approval_request', onApprovalRequest)
       relayServer.off('task:safety_prompt', onSafetyPrompt)
+    }
+
+    // cleanupResult removes result/error listeners — called AFTER result is processed
+    // or when the full cleanup is needed (normal completion).
+    const cleanupResult = () => {
+      relayServer.off('task:result', onResult)
+      relayServer.off('machine:disconnected', onMachineDisconnected)
       relayServer.off('task:dead', onTaskDead)
+    }
+
+    // Full cleanup: remove ALL listeners
+    const cleanup = () => {
+      cleanupSSE()
+      cleanupResult()
     }
 
     // Dispatch after listeners registered
@@ -2095,7 +2112,14 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       alive = false
       decrementDispatchSSE()
       clearInterval(heartbeat)
-      cleanup()
+      // For server-side dispatches, keep result/error listeners alive so DB updates
+      // (plan node status, schedule run status) still happen when the task completes.
+      // For browser dispatches, full cleanup is safe — results arrive via global SSE.
+      if (isServerSideDispatch && !resultSent) {
+        cleanupSSE()
+      } else {
+        cleanup()
+      }
       // Flush relay-server's text buffer on disconnect so no text is lost between
       // the last heartbeat and browser close.
       streamingEventLog.flushText(executionId).catch((err) => {
