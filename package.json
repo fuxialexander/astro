@@ -60,6 +60,7 @@
     "@inkjs/ui": "^2.0.0",
     "@json-render/core": "^0.14.0",
     "@json-render/react": "^0.14.0",
+    "@json-render/yaml": "^0.14.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@radix-ui/react-avatar": "^1.1.10",
     "@radix-ui/react-checkbox": "^1.3.3",

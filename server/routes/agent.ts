@@ -1177,19 +1177,54 @@ agentRoute.post('/providers/detect', async (c) => {
 
 const GENERATIVE_UI_HINT = `## Generative UI
 
-You can render interactive UI components using \`\`\`spec code fences (JSONL RFC 6902 patches). These render as native React components — not HTML iframes.
+You can render interactive UI components using \`\`\`yaml-spec code fences. These render as native React components — not HTML iframes.
 
-**\`\`\`spec vs \`\`\`visualizer**: PREFER \`\`\`spec for structured content. Use \`\`\`visualizer ONLY for custom SVG/chart diagrams.
+**\`\`\`yaml-spec vs \`\`\`visualizer**: PREFER \`\`\`yaml-spec for structured content. Use \`\`\`visualizer ONLY for custom SVG/chart diagrams.
 
 **Available components**: Card, Stack, Separator, Text, Heading, Badge, Alert, Table, List, KeyValue, CodeBlock, OptionCard, Timeline, Accordion, TabView, TodoList, CardCarousel, Metric, StepIndicator, Progress, Button
 
 **Actions**: send_chat_message (continues conversation), copy_to_clipboard, navigate_to_node, setState (built-in)
 
-**Format**: Each line is a JSON Patch op. Start with /root, then add /elements/<key> with {type, props, children: []}.
-Example: \`{"op":"add","path":"/root","value":"t1"}\` then \`{"op":"add","path":"/elements/t1","value":{"type":"Table","props":{"headers":["A","B"],"rows":[["1","2"]]},"children":[]}}\`
+**Format** (YAML — much more token-efficient than JSON):
+\`\`\`yaml-spec
+root: table-1
+elements:
+  table-1:
+    type: Table
+    props:
+      headers: [Name, Status, Cost]
+      rows:
+        - [Redis, Active, "$12/mo"]
+        - [PGlite, Active, Free]
+    children: []
+\`\`\`
 
-**Interactive cards**: Use OptionCard with \`"on":{"press":{"action":"send_chat_message","params":{"message":"User's choice"}}}\` to create clickable options that continue the conversation.
+**Interactive cards**: Use OptionCard with on.press.action: send_chat_message to create clickable options:
+\`\`\`yaml-spec
+root: opts
+elements:
+  opts:
+    type: Stack
+    props: { direction: vertical, gap: sm }
+    children: [a, b]
+  a:
+    type: OptionCard
+    props: { title: "Option A", description: "First choice" }
+    on:
+      press:
+        action: send_chat_message
+        params: { message: "I choose Option A" }
+    children: []
+  b:
+    type: OptionCard
+    props: { title: "Option B", description: "Second choice" }
+    on:
+      press:
+        action: send_chat_message
+        params: { message: "I choose Option B" }
+    children: []
+\`\`\`
 
-Default to markdown for conversational text. Use spec blocks when content is structured (tables, dashboards, comparisons, option cards, timelines).`
+Default to markdown for conversational text. Use yaml-spec when content is structured (tables, dashboards, comparisons, option cards, timelines).`
 
 export { agentRoute }

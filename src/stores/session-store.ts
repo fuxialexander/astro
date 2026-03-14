@@ -14,7 +14,7 @@ import { create } from "zustand"
 import { dataClient } from "@/lib/data-client"
 import { projectChatWithAgent, chatWithTask, generateTitle, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { extractMutations, applyMutationsToStore } from "@/lib/plan-mutations"
-import { createMixedStreamParser, applySpecPatch, type Spec } from "@json-render/core"
+import { createYamlStreamCompiler, YAML_SPEC_FENCE, FENCE_CLOSE } from "@json-render/yaml"
 import { usePlanStore } from "./plan-store"
 import { useProjectStore } from "./project-store"
 import { useRealtimeStore } from "./realtime-store"
@@ -732,39 +732,102 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     let rawAssistantText = ""
     let needsPlanRefresh = false
 
-    // json-render: parse mixed text + spec streams with progressive rendering
-    let specAccumulator: Spec = { root: '', elements: {} }
-    let hasSpec = false
+    // json-render YAML: detect ```yaml-spec fences in streamed text,
+    // parse YAML progressively, and emit spec activity events.
+    let insideYamlSpec = false
+    let yamlBuffer = ''
     let specEventPushed = false
     let specThrottleTimer: ReturnType<typeof setTimeout> | null = null
-    const mixedStreamParser = createMixedStreamParser({
-      onText: (text) => {
-        get().appendToLastAssistantMessage(sid, text)
-        useRealtimeStore.getState().pushActivityEvent(sid, {
-          type: 'text',
-          content: text,
-          timestamp: new Date(),
-        })
-      },
-      onPatch: (patch) => {
-        hasSpec = true
-        specAccumulator = applySpecPatch(specAccumulator, patch)
-        // Progressive rendering: push initial spec event, then throttle updates
-        if (!specEventPushed) {
-          specEventPushed = true
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'json_render_spec',
-            spec: { ...specAccumulator },
-            timestamp: new Date(),
-          })
-        } else if (!specThrottleTimer) {
+    const yamlCompiler = createYamlStreamCompiler<Record<string, unknown>>()
+    const fenceOpen = YAML_SPEC_FENCE   // ```yaml-spec
+    const fenceClose = FENCE_CLOSE       // ```
+
+    // Process a text chunk, splitting it between prose and yaml-spec fences
+    function processChunk(chunk: string) {
+      let remaining = chunk
+      while (remaining.length > 0) {
+        if (!insideYamlSpec) {
+          // Look for fence open
+          const fenceIdx = remaining.indexOf(fenceOpen)
+          if (fenceIdx === -1) {
+            // All prose
+            emitText(remaining)
+            remaining = ''
+          } else {
+            // Prose before fence
+            if (fenceIdx > 0) emitText(remaining.slice(0, fenceIdx))
+            insideYamlSpec = true
+            yamlBuffer = ''
+            remaining = remaining.slice(fenceIdx + fenceOpen.length)
+            // Skip optional newline after fence open
+            if (remaining.startsWith('\n')) remaining = remaining.slice(1)
+          }
+        } else {
+          // Inside yaml-spec fence — look for closing ```
+          const closeIdx = remaining.indexOf(fenceClose)
+          if (closeIdx === -1) {
+            // All YAML content — feed to compiler progressively
+            yamlBuffer += remaining
+            feedYaml(remaining)
+            remaining = ''
+          } else {
+            // YAML content before close
+            const yamlChunk = remaining.slice(0, closeIdx)
+            if (yamlChunk) {
+              yamlBuffer += yamlChunk
+              feedYaml(yamlChunk)
+            }
+            insideYamlSpec = false
+            // Flush the compiler to get final spec
+            const { result } = yamlCompiler.flush()
+            if (result.root) {
+              pushSpecUpdate(result)
+            }
+            yamlCompiler.reset()
+            remaining = remaining.slice(closeIdx + fenceClose.length)
+            // Skip optional newline after fence close
+            if (remaining.startsWith('\n')) remaining = remaining.slice(1)
+          }
+        }
+      }
+    }
+
+    function emitText(text: string) {
+      if (!text) return
+      get().appendToLastAssistantMessage(sid, text)
+      useRealtimeStore.getState().pushActivityEvent(sid, {
+        type: 'text',
+        content: text,
+        timestamp: new Date(),
+      })
+    }
+
+    function feedYaml(chunk: string) {
+      const { result } = yamlCompiler.push(chunk)
+      if (result.root) {
+        // Progressive rendering: throttled spec updates
+        if (!specThrottleTimer) {
           specThrottleTimer = setTimeout(() => {
             specThrottleTimer = null
-            useRealtimeStore.getState().updateLastSpecEvent(sid, { ...specAccumulator })
+            pushSpecUpdate(yamlCompiler.getResult())
           }, 150)
         }
-      },
-    })
+      }
+    }
+
+    function pushSpecUpdate(spec: Record<string, unknown>) {
+      const specCopy = { root: spec.root as string, elements: { ...(spec.elements as Record<string, unknown>) }, state: spec.state ? { ...(spec.state as Record<string, unknown>) } : undefined }
+      if (!specEventPushed) {
+        specEventPushed = true
+        useRealtimeStore.getState().pushActivityEvent(sid, {
+          type: 'json_render_spec',
+          spec: specCopy,
+          timestamp: new Date(),
+        })
+      } else {
+        useRealtimeStore.getState().updateLastSpecEvent(sid, specCopy)
+      }
+    }
 
     // Push user event to realtime store
     useRealtimeStore.getState().pushActivityEvent(sid, {
@@ -807,15 +870,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       },
       {
         // Push streaming events to realtime store for live display.
-        // The global SSE suppresses events for tasks with an active direct SSE
-        // (activeDispatchStreams), so we must push events here for the UI to
-        // show streaming output. Session messages are also updated for persistence.
-        // Text chunks are routed through the MixedStreamParser, which separates
-        // prose (→ appendToLastAssistantMessage + text activity event) from
-        // json-render spec patches (→ accumulated into specAccumulator).
+        // Text chunks are routed through processChunk(), which detects
+        // ```yaml-spec fences and routes prose vs YAML accordingly.
         onText: (chunk) => {
           rawAssistantText += chunk
-          mixedStreamParser.push(chunk)
+          processChunk(chunk)
         },
         onToolUse: (data) => {
           if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
@@ -848,25 +907,31 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             usePlanStore.getState().load()
           }
 
-          // Flush any remaining buffered content from the mixed stream parser
-          mixedStreamParser.flush()
+          // If still inside a yaml-spec fence when stream ends, flush the compiler
+          if (insideYamlSpec) {
+            const { result } = yamlCompiler.flush()
+            if (result.root) pushSpecUpdate(result)
+            insideYamlSpec = false
+          }
 
           // Clear any pending spec throttle timer and do a final update
           if (specThrottleTimer) {
             clearTimeout(specThrottleTimer)
             specThrottleTimer = null
           }
-          if (hasSpec && specAccumulator.root) {
-            if (specEventPushed) {
-              // Update the existing progressive event with the final spec
-              useRealtimeStore.getState().updateLastSpecEvent(sid, { ...specAccumulator })
-            } else {
-              // Edge case: spec completed but no progressive event was pushed yet
-              useRealtimeStore.getState().pushActivityEvent(sid, {
-                type: 'json_render_spec',
-                spec: specAccumulator,
-                timestamp: new Date(),
-              })
+          {
+            const finalSpec = yamlCompiler.getResult()
+            if (finalSpec.root) {
+              const specObj = { root: finalSpec.root as string, elements: { ...(finalSpec.elements as Record<string, unknown>) }, state: finalSpec.state ? { ...(finalSpec.state as Record<string, unknown>) } : undefined }
+              if (specEventPushed) {
+                useRealtimeStore.getState().updateLastSpecEvent(sid, specObj)
+              } else {
+                useRealtimeStore.getState().pushActivityEvent(sid, {
+                  type: 'json_render_spec',
+                  spec: specObj,
+                  timestamp: new Date(),
+                })
+              }
             }
           }
 
