@@ -1293,7 +1293,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     const ACTIVITY_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 hours — approval pause mechanism protects human-in-the-loop
 
     const onResult = async (msg: import('../types/relay.js').TaskResultMessage) => {
-      if (!alive || msg.result.taskId !== executionId) return
+      if (msg.result.taskId !== executionId) return
       lastActivity = Date.now()
       hasReceivedEvent = true
       resultSent = true
@@ -1363,7 +1363,9 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         if (planJson) {
           // Regex extraction succeeded — emit plan_result synchronously before result
           const planSeq = await streamingEventLog.append(executionId, 'plan_result', planJson)
-          stream.writeSSE({ id: String(planSeq), event: 'plan_result', data: JSON.stringify(planJson) }).catch(() => { alive = false })
+          if (alive) {
+            stream.writeSSE({ id: String(planSeq), event: 'plan_result', data: JSON.stringify(planJson) }).catch(() => { alive = false })
+          }
 
           // Server-side YOLO auto-dispatch: when plan generation completes in YOLO mode,
           // dispatch all root tasks (planned, with all deps met) server-side. This ensures
@@ -1431,11 +1433,13 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       // Persist result event (also flushes any pending text)
       const seq = await streamingEventLog.append(executionId, 'result', resultData)
 
-      stream.writeSSE({
-        id: String(seq),
-        event: 'result',
-        data: JSON.stringify(resultData),
-      }).catch(() => { alive = false })
+      if (alive) {
+        stream.writeSSE({
+          id: String(seq),
+          event: 'result',
+          data: JSON.stringify(resultData),
+        }).catch(() => { alive = false })
+      }
 
       // Emit task.completed AstroEvent for observability hooks (observation collector, usage metrics)
       const dispatchResult: DispatchTaskResult = {
@@ -1568,7 +1572,9 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       // process the global SSE notification and re-read from DB before execution-store
       // cleans up via this `done` event. This is safe because realtime-store's
       // `alreadyCompleted` guard deduplicates, and mergeNodeFromDB is idempotent.
-      stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+      if (alive) {
+        stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+      }
       alive = false
     }
 
@@ -1705,6 +1711,17 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         console.error('[dispatch] Failed to update plan_node on machine disconnect:', err)
       }
 
+      // Update schedule run status so cron concurrency is unblocked
+      if (scheduleRunId) {
+        db.update(scheduleRuns)
+          .set({ status: 'failure', completedAt: new Date(), errorMessage: 'Machine disconnected during execution' })
+          .where(eq(scheduleRuns.id, scheduleRunId))
+          .execute()
+          .catch((err: unknown) => {
+            console.error('[dispatch] Error updating schedule run on machine disconnect:', err)
+          })
+      }
+
       alive = false
     }
 
@@ -1796,6 +1813,17 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         })
       } catch (err: unknown) {
         console.error('[dispatch] Failed to update plan_node on dead job:', err)
+      }
+
+      // Update schedule run status so cron concurrency is unblocked
+      if (scheduleRunId) {
+        db.update(scheduleRuns)
+          .set({ status: 'failure', completedAt: new Date(), errorMessage: `Dead job: ${data.reason}` })
+          .where(eq(scheduleRuns.id, scheduleRunId))
+          .execute()
+          .catch((err: unknown) => {
+            console.error('[dispatch] Error updating schedule run on dead job:', err)
+          })
       }
 
       alive = false
@@ -2012,6 +2040,17 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
             })
           } catch (err) {
             console.error(`[dispatch] Failed to update plan_node on timeout:`, err)
+          }
+
+          // Update schedule run status so cron concurrency is unblocked
+          if (scheduleRunId) {
+            db.update(scheduleRuns)
+              .set({ status: 'failure', completedAt: new Date(), errorMessage: errorMsg })
+              .where(eq(scheduleRuns.id, scheduleRunId))
+              .execute()
+              .catch((err: unknown) => {
+                console.error('[dispatch] Error updating schedule run on timeout:', err)
+              })
           }
 
           const sendDone = () => {
