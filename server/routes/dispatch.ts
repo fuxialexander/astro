@@ -727,9 +727,8 @@ async function dispatchViaRelay(
     nodeNumber,
     replanContext,
   } = params
-  // Mutable copies: safety decision can override delivery mode to 'direct'
-  let deliveryMode = deliveryModeParam
-  let useWorktree = useWorktreeParam
+  const deliveryMode = deliveryModeParam
+  const useWorktree = useWorktreeParam
 
   // Compute short hex IDs early — needed for prompt building + relay dispatch
   const shortProjectId = getShortId(projectId)
