@@ -43,6 +43,21 @@ function timePrefixedId(): string {
   return `${now}-${randomUUID()}`
 }
 
+/** Truncate large JSONB values to prevent INSERT failures */
+const MAX_JSONB_CHARS = 50_000
+function truncateJsonb(value: unknown): unknown {
+  if (value == null) return value
+  if (typeof value === 'string') return value.length > MAX_JSONB_CHARS ? value.slice(0, MAX_JSONB_CHARS) + '…[truncated]' : value
+  // For objects/arrays, serialize to check size, truncate the string representation if too large
+  try {
+    const json = JSON.stringify(value)
+    if (json.length <= MAX_JSONB_CHARS) return value
+    return { _truncated: true, preview: json.slice(0, MAX_JSONB_CHARS) + '…[truncated]', originalLength: json.length }
+  } catch {
+    return { _truncated: true, error: 'Failed to serialize' }
+  }
+}
+
 /** Max events per trace before auto-flush */
 const BATCH_SIZE = 50
 
@@ -391,7 +406,7 @@ export class ObservationCollector {
       type: 'tool',
       name: `tool:${toolName}`,
       startTime: new Date(),
-      input: toolInput,
+      input: truncateJsonb(toolInput),
       level: 'default',
       projectId: state.projectId,
       nodeId: state.nodeId,
@@ -416,7 +431,7 @@ export class ObservationCollector {
     if (pending) {
       // Complete the pending tool observation
       pending.endTime = new Date()
-      pending.output = result
+      pending.output = truncateJsonb(result)
       pending.level = success ? 'default' : 'error'
       if (!success) {
         pending.statusMessage = typeof result === 'string' ? result.slice(0, 500) : 'Tool execution failed'
@@ -432,7 +447,7 @@ export class ObservationCollector {
         name: `tool:${toolName}`,
         startTime: new Date(),
         endTime: new Date(),
-        output: result,
+        output: truncateJsonb(result),
         level: success ? 'default' : 'error',
         projectId: state.projectId,
         nodeId: state.nodeId,
@@ -623,7 +638,7 @@ export class ObservationCollector {
       input.toolResults = turn.inputToolResults.map((tr) => ({
         toolUseId: tr.toolUseId,
         toolName: tr.toolName,
-        result: typeof tr.result === 'string' ? tr.result.slice(0, 10000) : tr.result,
+        result: truncateJsonb(tr.result),
         success: tr.success,
       }))
     }
@@ -636,7 +651,7 @@ export class ObservationCollector {
       output.toolCalls = turn.toolCalls.map((tc) => ({
         toolUseId: tc.toolUseId,
         toolName: tc.toolName,
-        toolInput: tc.toolInput,
+        toolInput: truncateJsonb(tc.toolInput),
       }))
     }
 
@@ -711,7 +726,8 @@ export class ObservationCollector {
         await db.insert(observationEvents).values(rows)
         console.log(`[observability] Flushed ${rows.length} observations for trace ${tid}`)
       } catch (err) {
-        console.error(`[observability] Failed to flush observations for trace ${tid}:`, err)
+        const cause = (err as { cause?: unknown })?.cause
+        console.error(`[observability] Failed to flush observations for trace ${tid}:`, cause ?? err)
         // Re-add failed events to buffer for retry
         state.buffer.unshift(...events)
       }

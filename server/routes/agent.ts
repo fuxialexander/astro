@@ -546,6 +546,14 @@ agentRoute.post('/project-chat', async (c) => {
     chatSkills = DEFAULT_MACHINE_INSTRUCTION_FORMATTED
   }
 
+  // Inject platform skills (visualise, etc.) from skill manager
+  const { skillManager } = await import('../lib/skill-manager.js')
+  const chatTeamId = chatUser.teamId
+  const chatPlatformSkills = skillManager.getSkillPromptInjection(chatTeamId)
+  if (chatPlatformSkills) {
+    chatSkills = chatSkills + '\n\n' + chatPlatformSkills
+  }
+
   const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges, chatSkills)
 
   // Persist user message for catch-up hydration
@@ -601,10 +609,10 @@ agentRoute.post('/project-chat', async (c) => {
     }
   }
 
-  // When resuming a provider session, the session already has conversation context.
-  // Sending messages again would create duplicate context that confuses the model.
+  // Always forward messages so the agent runner has conversation context for fallback
+  // if resume fails (e.g. Codex session expired). The agent runner only uses messages
+  // when falling back to fresh execution, not during the resume itself.
   const resolvedResumeId = existingSessionId || undefined
-  const resolvedMessages = resolvedResumeId ? undefined : compactedMessages
 
   return streamChatViaRelay(c, {
     taskId,
@@ -613,7 +621,7 @@ agentRoute.post('/project-chat', async (c) => {
     prompt: message,
     systemPrompt,
     type: taskType || 'execution',
-    messages: resolvedMessages,
+    messages: compactedMessages,
     model: model || undefined,
     preferredProvider: providerId || undefined,
     workingDirectory: project?.workingDirectory ?? undefined,
@@ -708,6 +716,16 @@ agentRoute.post('/task-chat', async (c) => {
     tcSkills = DEFAULT_MACHINE_INSTRUCTION_FORMATTED
   }
 
+  // Inject platform skills (visualise, etc.) from skill manager
+  {
+    const { skillManager } = await import('../lib/skill-manager.js')
+    const tcTeamId = (c.get('user') as AuthUser).teamId
+    const tcPlatformSkills = skillManager.getSkillPromptInjection(tcTeamId)
+    if (tcPlatformSkills) {
+      tcSkills = tcSkills + '\n\n' + tcPlatformSkills
+    }
+  }
+
   const systemPrompt = buildTaskChatSystemPrompt({
     taskTitle,
     taskDescription,
@@ -723,9 +741,9 @@ agentRoute.post('/task-chat', async (c) => {
   await streamingEventLog.append(streamId || taskId, 'steer_message', { message })
 
   // When resuming a provider session, the session already has conversation context.
-  // Sending messages again would create duplicate context that confuses the model.
+  // Still forward messages so the agent runner can use them as fallback context
+  // if the resume fails (e.g. Codex session expired) and it falls back to fresh execution.
   const tcResumeId = existingSessionId || undefined
-  const tcMessages = tcResumeId ? undefined : historyMessages
 
   return streamChatViaRelay(c, {
     taskId,
@@ -734,7 +752,7 @@ agentRoute.post('/task-chat', async (c) => {
     prompt: message,
     systemPrompt,
     type: 'chat',
-    messages: tcMessages,
+    messages: historyMessages,
     model: model || undefined,
     preferredProvider: providerId || undefined,
     workingDirectory: project?.workingDirectory ?? undefined,
@@ -795,12 +813,46 @@ agentRoute.post('/dispatch', async (c) => {
 
   const executionId = `exec-${nodeId}-${Date.now()}`
 
+  // Look up the project's default machine for skill/instruction injection
+  let dispatchSkills: string | undefined
+  let targetMachineId: string | undefined
+  try {
+    const [project] = await db.select({ defaultMachineId: projects.defaultMachineId })
+      .from(projects).where(eq(projects.id, projectId)).limit(1)
+    targetMachineId = project?.defaultMachineId ?? undefined
+    if (targetMachineId) {
+      const [machine] = await db.select({ defaultInstructionId: registeredMachines.defaultInstructionId })
+        .from(registeredMachines).where(eq(registeredMachines.id, targetMachineId)).limit(1)
+      if (machine?.defaultInstructionId) {
+        const [instruction] = await db.select({ content: machineInstructions.content, name: machineInstructions.name })
+          .from(machineInstructions).where(eq(machineInstructions.id, machine.defaultInstructionId)).limit(1)
+        if (instruction?.content) {
+          dispatchSkills = formatMachineInstruction(instruction.name, instruction.content)
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[agent/dispatch] Failed to fetch machine instruction:', err instanceof Error ? err.message : String(err))
+  }
+  if (!dispatchSkills) {
+    dispatchSkills = DEFAULT_MACHINE_INSTRUCTION_FORMATTED
+  }
+
+  // Inject platform skills (visualise, etc.) from skill manager
+  const { skillManager } = await import('../lib/skill-manager.js')
+  const teamId = (c.get('user') as AuthUser).teamId
+  const platformSkills = skillManager.getSkillPromptInjection(teamId)
+  if (platformSkills) {
+    dispatchSkills = dispatchSkills + '\n\n' + platformSkills
+  }
+
   const prompt = buildTaskExecutionPrompt({
     taskTitle,
     taskDescription,
     visionDoc,
     dependencyOutputs,
     workingDirectory,
+    skillsInjection: dispatchSkills,
   })
   return streamChatViaRelay(c, {
     taskId: executionId,
@@ -812,6 +864,7 @@ agentRoute.post('/dispatch', async (c) => {
     workingDirectory,
     maxTurns,
     pathwayType: 'execution',
+    targetMachineId,
   })
 })
 
