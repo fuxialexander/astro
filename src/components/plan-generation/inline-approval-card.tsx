@@ -11,6 +11,7 @@ import { Check, MessageCircleQuestion, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import { cn } from "@/lib/utils"
 
 const OTHER_SENTINEL = "__other__"
@@ -73,7 +74,7 @@ export function InlineApprovalCard({
             <Check className="h-4 w-4 mt-0.5 shrink-0 text-success" />
           )}
           <div className="flex-1 min-w-0">
-            <p className="text-xs text-muted-foreground mb-1">{question}</p>
+            <div className="text-xs text-muted-foreground mb-1"><MarkdownRenderer content={question} className="text-xs" /></div>
             <div className="flex items-center gap-2">
               <p className="text-sm font-medium text-foreground">{answer}</p>
               {autoApproved && (
@@ -92,7 +93,7 @@ export function InlineApprovalCard({
     <div className="mx-4 my-2 rounded-lg border border-warning/40 bg-warning/5 p-3">
       <div className="flex items-start gap-2 mb-3">
         <MessageCircleQuestion className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
-        <p className="text-sm font-medium text-foreground">{question}</p>
+        <div className="text-sm font-medium text-foreground"><MarkdownRenderer content={question} className="text-sm" /></div>
       </div>
 
       <RadioGroup

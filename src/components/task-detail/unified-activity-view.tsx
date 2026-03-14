@@ -45,6 +45,8 @@ import {
   PlanGraphBlock,
 } from "@/components/activity-blocks"
 import { useGitHubCommentsStore } from "@/stores/github-comments-store"
+import { JsonRenderView } from "@/components/ui/json-render-view"
+import type { Spec } from "@json-render/core"
 import { InlineApprovalCard } from "@/components/plan-generation/inline-approval-card"
 import { PrStatusCard } from "@/components/pr-status-card"
 import type { PrData, PrCheckRun, PrReview } from "@/components/pr-status-card"
@@ -857,6 +859,14 @@ export function UnifiedActivityView({
               return <SystemPromptBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'system_prompt' }>} />
             case 'plan_result':
               return <PlanGraphBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'plan_result' }>} />
+            case 'json_render_spec': {
+              const specEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'json_render_spec' }>
+              return (
+                <div key={i} className="px-4 py-2">
+                  <JsonRenderView spec={specEvent.spec as unknown as Spec} />
+                </div>
+              )
+            }
             default:
               return null
           }

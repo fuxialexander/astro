@@ -732,9 +732,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     let rawAssistantText = ""
     let needsPlanRefresh = false
 
-    // json-render: parse mixed text + spec streams
+    // json-render: parse mixed text + spec streams with progressive rendering
     let specAccumulator: Spec = { root: '', elements: {} }
     let hasSpec = false
+    let specEventPushed = false
+    let specThrottleTimer: ReturnType<typeof setTimeout> | null = null
     const mixedStreamParser = createMixedStreamParser({
       onText: (text) => {
         get().appendToLastAssistantMessage(sid, text)
@@ -747,6 +749,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       onPatch: (patch) => {
         hasSpec = true
         specAccumulator = applySpecPatch(specAccumulator, patch)
+        // Progressive rendering: push initial spec event, then throttle updates
+        if (!specEventPushed) {
+          specEventPushed = true
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'json_render_spec',
+            spec: { ...specAccumulator },
+            timestamp: new Date(),
+          })
+        } else if (!specThrottleTimer) {
+          specThrottleTimer = setTimeout(() => {
+            specThrottleTimer = null
+            useRealtimeStore.getState().updateLastSpecEvent(sid, { ...specAccumulator })
+          }, 150)
+        }
       },
     })
 
@@ -835,13 +851,23 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           // Flush any remaining buffered content from the mixed stream parser
           mixedStreamParser.flush()
 
-          // If a json-render spec was accumulated during streaming, push it as an activity event
+          // Clear any pending spec throttle timer and do a final update
+          if (specThrottleTimer) {
+            clearTimeout(specThrottleTimer)
+            specThrottleTimer = null
+          }
           if (hasSpec && specAccumulator.root) {
-            useRealtimeStore.getState().pushActivityEvent(sid, {
-              type: 'json_render_spec',
-              spec: specAccumulator,
-              timestamp: new Date(),
-            })
+            if (specEventPushed) {
+              // Update the existing progressive event with the final spec
+              useRealtimeStore.getState().updateLastSpecEvent(sid, { ...specAccumulator })
+            } else {
+              // Edge case: spec completed but no progressive event was pushed yet
+              useRealtimeStore.getState().pushActivityEvent(sid, {
+                type: 'json_render_spec',
+                spec: specAccumulator,
+                timestamp: new Date(),
+              })
+            }
           }
 
           // Extract and apply mutations from raw text
