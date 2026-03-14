@@ -363,42 +363,40 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
       }, [activeIndex, goTo])
 
       return (
-        <div ref={containerRef} className="relative select-none" style={{ perspective: '1000px' }}>
+        <div ref={containerRef} className="relative select-none">
           <div className="relative h-[260px] flex items-center justify-center overflow-hidden py-4">
             {props.cards.map((card, i) => {
               const offset = i - activeIndex
               const absOffset = Math.abs(offset)
               const isActive = i === activeIndex
               const zIndex = count - absOffset
-              const translateX = offset * 140
-              const translateZ = isActive ? 40 : -60 * absOffset
-              const rotateY = offset < 0 ? 40 : offset > 0 ? -40 : 0
-              const scale = isActive ? 1.05 : 0.8
+              // Flat stack: cards slide horizontally and scale down
+              const translateX = offset * 80
+              const scale = isActive ? 1 : Math.max(0.85 - absOffset * 0.03, 0.75)
 
               return (
                 <div
                   key={i}
                   onClick={() => goTo(i)}
-                  className="absolute w-[300px] cursor-pointer"
+                  className="absolute w-[340px] cursor-pointer"
                   style={{
-                    transform: `translateX(${translateX}px) translateZ(${translateZ}px) rotateY(${rotateY}deg) scale(${scale})`,
+                    transform: `translateX(${translateX}px) scale(${scale})`,
                     zIndex,
-                    transformStyle: 'preserve-3d',
-                    transition: 'transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.4s ease',
-                    opacity: absOffset > 2 ? 0 : 1,
+                    transition: 'transform 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.35s ease',
+                    opacity: absOffset > 3 ? 0 : 1,
                   }}
                 >
                   <Card className={cn(
                     'overflow-hidden h-[220px] flex flex-col relative',
                     isActive
                       ? 'shadow-2xl ring-1 ring-primary/30'
-                      : 'shadow-sm',
+                      : 'shadow-md',
                   )}>
-                    {/* White/black overlay on non-active cards */}
+                    {/* Overlay on non-active cards — white in light, dark in dark */}
                     {!isActive && (
                       <div
-                        className="absolute inset-0 z-10 pointer-events-none bg-background/70"
-                        style={{ transition: 'opacity 0.4s ease' }}
+                        className="absolute inset-0 z-10 pointer-events-none bg-background/75"
+                        style={{ transition: 'opacity 0.35s ease' }}
                       />
                     )}
                     <CardHeader className="pb-2 shrink-0">
