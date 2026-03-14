@@ -1362,8 +1362,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       if (!isSuccess) {
         notifyCritical({
           title: 'Task Execution Failed',
-          project: title || projectId,
-          task: nodeId,
+          project: projectRecord?.name || projectId,
+          task: title || nodeId,
           machine: machineId || 'unknown',
           error: msg.result.error || 'Agent returned non-completed status',
           impact: `Task finished with status "${msg.result.status}" — requires human review`,
@@ -1375,8 +1375,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       if (isSuccess && msg.result.deliveryStatus === 'failure') {
         notifyCritical({
           title: 'Code Delivery Failed',
-          project: title || projectId,
-          task: nodeId,
+          project: projectRecord?.name || projectId,
+          task: title || nodeId,
           machine: machineId || 'unknown',
           error: msg.result.deliveryError || 'Delivery step returned failure status',
           impact: 'Task completed but code was not pushed/PR was not created',
@@ -1732,8 +1732,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       const errorData = { error: 'Remote machine disconnected during task execution', recoverable: false }
       notifyCritical({
         title: 'Machine Disconnected During Task',
-        project: title || projectId,
-        task: nodeId,
+        project: projectRecord?.name || projectId,
+        task: title || nodeId,
         machine: machineId || 'unknown',
         error: 'Machine went offline while task was running',
         impact: 'Task execution interrupted — requires re-execution',
@@ -1845,8 +1845,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       const errorData = { error: `Dead job detected: ${data.reason}`, recoverable: true }
       notifyCritical({
         title: 'Dead Job Detected',
-        project: title || projectId,
-        task: nodeId,
+        project: projectRecord?.name || projectId,
+        task: title || nodeId,
         machine: data.machineId || machineId || 'unknown',
         error: data.reason,
         impact: 'Task was running but agent process is no longer active',
@@ -1971,8 +1971,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       const errorData = { error: `Failed to dispatch to machine: ${machineId}`, recoverable: false }
       notifyCritical({
         title: 'Task Dispatch Failed',
-        project: title || projectId,
-        task: nodeId,
+        project: projectRecord?.name || projectId,
+        task: title || nodeId,
         machine: machineId || 'unknown',
         error: `Relay could not deliver task to machine ${machineId}`,
         impact: 'Task never started — machine may be disconnected or unreachable',
@@ -2127,8 +2127,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 
           notifyCritical({
             title: hasReceivedEvent ? 'Task Activity Timeout' : 'Task Startup Timeout',
-            project: title || projectId,
-            task: nodeId,
+            project: projectRecord?.name || projectId,
+            task: title || nodeId,
             machine: machineId || 'unknown',
             error: errorMsg,
             impact: hasReceivedEvent

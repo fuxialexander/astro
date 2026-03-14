@@ -341,15 +341,15 @@ export async function notifyCritical(opts: {
   criticalRateMap.set(key, Date.now())
 
   const lines: string[] = [
-    `\u26A0\uFE0F <b>${opts.title}</b>`,
+    `\u26A0\uFE0F <b>${escapeHtml(opts.title)}</b>`,
     ``,
   ]
   if (opts.project) lines.push(`<b>Project:</b> ${escapeHtml(opts.project)}`)
   if (opts.task) lines.push(`<b>Task:</b> ${escapeHtml(opts.task)}`)
   if (opts.machine) lines.push(`<b>Machine:</b> ${escapeHtml(opts.machine)}`)
   lines.push(`<b>Error:</b> ${escapeHtml(opts.error)}`)
-  if (opts.impact) lines.push(`<b>Impact:</b> ${opts.impact}`)
-  if (opts.action) lines.push(`<b>Action:</b> ${opts.action}`)
+  if (opts.impact) lines.push(`<b>Impact:</b> ${escapeHtml(opts.impact)}`)
+  if (opts.action) lines.push(`<b>Action:</b> ${escapeHtml(opts.action)}`)
 
   await sendTelegramAlert(lines.join('\n'))
 }
