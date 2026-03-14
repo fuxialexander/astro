@@ -597,11 +597,7 @@ agentRoute.post('/project-chat', async (c) => {
   // Inject json-render generative UI catalog prompt
   const catalogPrompt = astroCatalog.prompt()
   if (catalogPrompt) {
-    chatSkills = (chatSkills || '') + '\n\n## Generative UI\n\n' +
-      'You can render rich, interactive UI components in your responses using spec blocks. ' +
-      'Wrap specs in a ```spec code fence. Use specs for data tables, status summaries, key-value displays, ' +
-      'and structured information. Continue using plain markdown for conversational text.\n\n' +
-      catalogPrompt
+    chatSkills = (chatSkills || '') + '\n\n' + buildGenerativeUIPrompt(catalogPrompt)
   }
 
   const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges, chatSkills)
@@ -1175,5 +1171,55 @@ agentRoute.post('/providers/detect', async (c) => {
     connectedRunners: machines.length,
   })
 })
+
+// ── Generative UI prompt builder ─────────────────────────────────────
+
+function buildGenerativeUIPrompt(catalogPrompt: string): string {
+  return `## Generative UI — Rich Component Rendering
+
+You can render rich, interactive UI components in your responses using \`\`\`spec code fences. The spec format uses a flat element map with a root reference.
+
+### When to use specs vs markdown
+
+| Use spec blocks for | Use markdown for |
+|---------------------|------------------|
+| Structured data tables (comparisons, results, metrics) | Conversational explanations |
+| Key-value summaries (config, status, metadata) | Step-by-step instructions |
+| Status dashboards with badges and progress bars | Code examples and snippets |
+| Multi-section cards with mixed content | Short answers and clarifications |
+| Alerting the user to important warnings or info | Lists and bullet points |
+
+**Default to markdown.** Only use spec blocks when the content is genuinely structured and benefits from component rendering. A 3-row table in markdown is fine — a 15-row comparison table is better as a spec.
+
+### Spec format
+
+Wrap specs in a \`\`\`spec code fence. Each spec has a \`root\` element key and a flat \`elements\` map:
+
+\`\`\`spec
+{"op":"add","path":"/root","value":"card-1"}
+{"op":"add","path":"/elements/card-1","value":{"type":"Card","props":{"title":"Build Summary"},"children":["kv-1","sep-1","badge-1"]}}
+{"op":"add","path":"/elements/kv-1","value":{"type":"KeyValue","props":{"pairs":[{"key":"Status","value":"Passed"},{"key":"Duration","value":"4.2s"},{"key":"Tests","value":"142/142"}]},"children":[]}}
+{"op":"add","path":"/elements/sep-1","value":{"type":"Separator","props":{},"children":[]}}
+{"op":"add","path":"/elements/badge-1","value":{"type":"Badge","props":{"label":"All tests passing","variant":"success"},"children":[]}}
+\`\`\`
+
+### Another example — data table:
+
+\`\`\`spec
+{"op":"add","path":"/root","value":"table-1"}
+{"op":"add","path":"/elements/table-1","value":{"type":"Table","props":{"headers":["File","Lines Changed","Status"],"rows":[["src/index.ts","+42 / -15","Modified"],["src/utils.ts","+8 / -0","New"],["tests/index.test.ts","+28 / -3","Modified"]]},"children":[]}}
+\`\`\`
+
+### Important rules
+
+- Each line in the spec fence is a JSON Patch operation (RFC 6902)
+- Always set \`"children": []\` for leaf elements (no children)
+- Reference child elements by their key in the parent's \`children\` array
+- The \`type\` field must match a component from the catalog below
+- Keep specs concise — combine related info into fewer elements
+- You can mix prose markdown and spec blocks in the same response
+
+${catalogPrompt}`
+}
 
 export { agentRoute }
