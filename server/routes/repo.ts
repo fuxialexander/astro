@@ -355,4 +355,4 @@ repoRoute.post('/git-init', async (c) => {
 
 // File tree endpoint removed — file listing always goes through relay via /api/fs/files
 
-export { repoRoute }
+export { repoRoute, requestRemoteRepoDetect }

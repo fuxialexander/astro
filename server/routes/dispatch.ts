@@ -82,12 +82,25 @@ function getShortId(id: string): string {
  * This is a last-resort fallback — only runs when neither the request body
  * nor the project DB provides a deliveryMode (line 462 resolves DB first).
  *
- * Note: the agent-runner's deriveDeliveryMode() also checks `isGit` to
- * distinguish "local git, no remote" (→ 'branch') from "no git at all"
- * (→ 'direct'). The server doesn't have `isGit`, but for local-git projects
- * the DB deliveryMode is set to 'branch' during project creation from the
- * agent's suggestedDeliveryMode, so this fallback only fires for non-git
- * cases (templates, ephemeral directories).
+ * Mapping:
+ *   github/gitlab/bitbucket  → 'pr'     (remote git with hosting platform)
+ *   generic                  → 'push'   (remote git, unknown host)
+ *   none / undefined         → 'direct' (safe default for ambiguous cases)
+ *
+ * Why 'direct' for 'none' and undefined:
+ * The server doesn't have an `isGit` boolean — only `remoteType`. The value
+ * 'none' is sent by the agent-runner for BOTH "non-git directory" (isGit=false)
+ * and "local git, no remote" (isGit=true). The server cannot distinguish them.
+ *
+ * For local-git projects, the DB deliveryMode is set to 'branch' during
+ * project creation (from the agent's suggestedDeliveryMode), so this fallback
+ * never fires for them. It only fires when the DB has no deliveryMode — e.g.,
+ * template projects that skip repo detection, or legacy projects.
+ *
+ * 'direct' is the safe default: it activates the server-side serial execution
+ * check (preventing concurrent dispatch) and works for both git and non-git
+ * directories. If the directory actually has git, the agent-runner's
+ * prepareTaskWorkspace() detects it and uses worktree isolation regardless.
  */
 function deriveDefaultDeliveryMode(remoteType?: string): 'pr' | 'push' | 'branch' | 'direct' {
   switch (remoteType) {
@@ -98,9 +111,8 @@ function deriveDefaultDeliveryMode(remoteType?: string): 'pr' | 'push' | 'branch
     case 'generic':
       return 'push'
     case 'none':
-      return 'direct'
     default:
-      return 'branch'
+      return 'direct'
   }
 }
 
@@ -727,9 +739,8 @@ async function dispatchViaRelay(
     nodeNumber,
     replanContext,
   } = params
-  // Mutable copies: safety decision can override delivery mode to 'direct'
-  let deliveryMode = deliveryModeParam
-  let useWorktree = useWorktreeParam
+  const deliveryMode = deliveryModeParam
+  const useWorktree = useWorktreeParam
 
   // Compute short hex IDs early — needed for prompt building + relay dispatch
   const shortProjectId = getShortId(projectId)
@@ -1210,16 +1221,15 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     console.warn(`[dispatch] Failed to persist projectBranch for project ${projectId}:`, err)
   }
 
-  // Override delivery mode when user chose 'proceed' on safety prompt (= direct mode, no git).
-  // The decision value is stored in approvedSafetyDirs: 'proceed' means the user explicitly
-  // opted for non-git direct execution. Respect that choice for all subsequent tasks.
+  // Look up cached safety decision for this working directory.
+  // Used only for skipSafetyCheck below — does NOT override delivery mode.
+  // Delivery mode is always derived from the normal chain:
+  //   request body → project DB → deriveDefaultDeliveryMode(remoteType)
+  // Previously this block forced deliveryMode='direct' when safetyDecision='proceed',
+  // which caused stale overrides when the user initialized git after the original decision.
   const safetyDecision = workingDirectory
     ? (approvedSafetyDirs.get(workingDirectory) ?? await redisPubSub.getApprovedSafetyDir(workingDirectory))
     : null
-  if (safetyDecision === 'proceed') {
-    deliveryMode = 'direct'
-    useWorktree = false
-  }
 
   // Dispatch via relay
   const taskDispatch = {

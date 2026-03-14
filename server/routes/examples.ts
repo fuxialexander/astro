@@ -12,6 +12,7 @@ import { db } from '../lib/db/index.js'
 import { projects } from '../lib/db/schema.js'
 import { eq } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
+import { requestRemoteRepoDetect } from './repo.js'
 import {
   // Built-in templates
   BUILTIN_TEMPLATES,
@@ -606,7 +607,32 @@ examplesRoute.post('/:id/launch', async (c) => {
     return c.json({ error: 'Failed to create project' }, 500)
   }
 
-  // Fetch the created project
+  // Detect git status and store deliveryMode in the DB so dispatch has a ground truth.
+  // Templates skip the normal project creation detection, so we run it here.
+  if (body.workingDirectory && body.targetMachineId) {
+    try {
+      const detect = await requestRemoteRepoDetect(body.targetMachineId, body.workingDirectory)
+      if (detect.exists && !detect.error) {
+        await db.update(projects).set({
+          deliveryMode: detect.suggestedDeliveryMode,
+          source: {
+            ...projectData.source,
+            localPath: body.workingDirectory,
+            isGit: detect.isGit,
+            remoteType: detect.remoteType,
+            ...(detect.baseBranch ? { baseBranch: detect.baseBranch } : {}),
+            ...(detect.remoteUrl ? { remoteUrl: detect.remoteUrl } : {}),
+          },
+          updatedAt: new Date(),
+        }).where(eq(projects.id, projectId))
+      }
+    } catch (err) {
+      // Non-fatal — dispatch will fall back to deriveDefaultDeliveryMode()
+      console.warn(`[examples] Repo detection failed for ${body.workingDirectory}:`, err)
+    }
+  }
+
+  // Fetch the created project (after potential detection update)
   const [createdProject] = await db.select().from(projects).where(eq(projects.id, projectId))
 
   // Prepare the plan generation request
