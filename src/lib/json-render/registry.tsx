@@ -73,7 +73,11 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
       </Alert>
     ),
 
-    Table: ({ props }) => (
+    Table: ({ props }) => {
+      const headers = props.headers ?? []
+      const rows = props.rows ?? []
+      if (headers.length === 0) return null
+      return (
       <div className="overflow-auto rounded-lg border border-border">
         <table className="w-full text-sm">
           {props.caption && (
@@ -83,7 +87,7 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
           )}
           <thead>
             <tr className="bg-muted/50 border-b border-border">
-              {props.headers.map((h, i) => (
+              {headers.map((h, i) => (
                 <th key={i} className="px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">
                   {h}
                 </th>
@@ -91,7 +95,7 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
             </tr>
           </thead>
           <tbody>
-            {props.rows.map((row, ri) => (
+            {rows.map((row, ri) => (
               <tr key={ri} className="border-b border-border/50 last:border-0">
                 {row.map((cell, ci) => (
                   <td key={ci} className="px-3 py-1.5 text-xs">{cell}</td>
@@ -101,29 +105,36 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
           </tbody>
         </table>
       </div>
-    ),
+      )
+    },
 
     List: ({ props }) => {
+      const items = props.items ?? []
+      if (items.length === 0) return null
       const Tag = props.ordered ? 'ol' : 'ul'
       return (
         <Tag className={cn('text-sm pl-5', props.ordered ? 'list-decimal' : 'list-disc')}>
-          {props.items.map((item, i) => (
+          {items.map((item, i) => (
             <li key={i} className="py-0.5">{item}</li>
           ))}
         </Tag>
       )
     },
 
-    KeyValue: ({ props }) => (
+    KeyValue: ({ props }) => {
+      const pairs = props.pairs ?? []
+      if (pairs.length === 0) return null
+      return (
       <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
-        {props.pairs.map((pair, i) => (
+        {pairs.map((pair, i) => (
           <div key={i} className="contents">
             <dt className="font-medium text-muted-foreground whitespace-nowrap">{pair.key}</dt>
             <dd className="text-foreground break-all">{pair.value}</dd>
           </div>
         ))}
       </div>
-    ),
+      )
+    },
 
     CodeBlock: ({ props }) => (
       <div className="rounded-lg border border-border overflow-hidden">
@@ -161,11 +172,14 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
       </button>
     ),
 
-    Timeline: ({ props }) => (
+    Timeline: ({ props }) => {
+      const entries = props.entries ?? []
+      if (entries.length === 0) return null
+      return (
       <div className="relative pl-6">
         <div className="absolute left-[9px] top-2 bottom-2 w-px bg-border" />
         <div className="flex flex-col gap-4">
-          {props.entries.map((entry, i) => (
+          {entries.map((entry, i) => (
             <div key={i} className="relative flex gap-3">
               <div className="absolute left-[-18px] top-1.5 h-2.5 w-2.5 rounded-full bg-primary border-2 border-background" />
               <div className="flex-1 min-w-0">
@@ -179,11 +193,14 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
           ))}
         </div>
       </div>
-    ),
+      )
+    },
 
     Accordion: ({ props }) => {
+      const items = props.items ?? []
       const [openItems, setOpenItems] = useState<Set<number>>(new Set())
       const isSingle = props.type !== 'multiple'
+      if (items.length === 0) return null
 
       const toggle = (index: number) => {
         setOpenItems(prev => {
@@ -199,7 +216,7 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
 
       return (
         <div className="rounded-lg border border-border divide-y divide-border">
-          {props.items.map((item, i) => {
+          {items.map((item, i) => {
             const isOpen = openItems.has(i)
             return (
               <div key={i}>
@@ -225,27 +242,32 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
       )
     },
 
-    TabView: ({ props, children }) => (
-      <Tabs defaultValue={props.defaultTab || props.tabs[0]?.value}>
+    TabView: ({ props, children }) => {
+      const tabs = props.tabs ?? []
+      if (tabs.length === 0) return null
+      return (
+      <Tabs defaultValue={props.defaultTab || tabs[0]?.value}>
         <TabsList>
-          {props.tabs.map((tab) => (
+          {tabs.map((tab) => (
             <TabsTrigger key={tab.value} value={tab.value}>
               {tab.label}
             </TabsTrigger>
           ))}
         </TabsList>
-        {props.tabs.map((tab) => (
+        {tabs.map((tab) => (
           <TabsContent key={tab.value} value={tab.value}>
             {children}
           </TabsContent>
         ))}
       </Tabs>
-    ),
+      )
+    },
 
     TodoList: ({ props }) => {
+      const todoItems = props.items ?? []
       const [checked, setChecked] = useState<Set<string>>(() => {
         const initial = new Set<string>()
-        for (const item of props.items) {
+        for (const item of todoItems) {
           if (item.status === 'completed') initial.add(item.id)
         }
         return initial
@@ -280,7 +302,7 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
             </div>
           )}
           <div className="divide-y divide-border/50">
-            {props.items.map((item) => {
+            {todoItems.map((item) => {
               const done = checked.has(item.id)
               return (
                 <label
@@ -315,11 +337,12 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
     },
 
     CardCarousel: ({ props }) => {
+      const cards = props.cards ?? []
+      const count = cards.length
       const [activeIndex, setActiveIndex] = useState(0)
       const containerRef = useRef<HTMLDivElement>(null)
       const scrollAccum = useRef(0)
       const scrollTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
-      const count = props.cards.length
 
       const goTo = useCallback((index: number) => {
         setActiveIndex(Math.max(0, Math.min(count - 1, index)))
@@ -362,10 +385,12 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
         return () => window.removeEventListener('keydown', handler)
       }, [activeIndex, goTo])
 
+      if (count === 0) return null
+
       return (
         <div ref={containerRef} className="relative select-none">
           <div className="relative h-[260px] flex items-center justify-center overflow-hidden py-4">
-            {props.cards.map((card, i) => {
+            {cards.map((card, i) => {
               const offset = i - activeIndex
               const absOffset = Math.abs(offset)
               const isActive = i === activeIndex
@@ -441,7 +466,7 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
 
           {/* Dot indicators */}
           <div className="flex justify-center gap-1.5 mt-2">
-            {props.cards.map((_, i) => (
+            {cards.map((_, i) => (
               <button
                 key={i}
                 onClick={() => goTo(i)}
@@ -482,9 +507,12 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
       )
     },
 
-    StepIndicator: ({ props }) => (
+    StepIndicator: ({ props }) => {
+      const steps = props.steps ?? []
+      if (steps.length === 0) return null
+      return (
       <div className="flex items-center gap-0">
-        {props.steps.map((step, i) => {
+        {steps.map((step, i) => {
           const isComplete = i < props.current
           const isCurrent = i === props.current
           return (
@@ -515,7 +543,8 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
           )
         })}
       </div>
-    ),
+      )
+    },
 
     // ── Feedback ────────────────────────────────────────────────────
     Progress: ({ props }) => (
