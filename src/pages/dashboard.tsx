@@ -38,6 +38,7 @@ import { CommandStrip } from "@/components/dashboard/command-strip"
 import { MachineFleetPanel } from "@/components/dashboard/machine-fleet-panel"
 import { TaskTimeline } from "@/components/dashboard/task-timeline"
 import { ProjectHealthCard } from "@/components/dashboard/project-health-card"
+import { WhatsNewSection } from "@/components/dashboard/whats-new-section"
 import { formatCompactNumber } from "@astro/core/achievements"
 import { dataClient } from "@/lib/data-client"
 import { cn } from "@/lib/utils"
@@ -339,6 +340,9 @@ export function Dashboard() {
 
       {/* ── TIER 1.5: Persistent Notifications ── */}
       <NotificationCards />
+
+      {/* ── TIER 1.6: What's New ── */}
+      <WhatsNewSection />
 
       {/* ── TIER 2: Attention cards ── */}
       <div ref={attentionRef}>
