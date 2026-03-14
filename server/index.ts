@@ -656,8 +656,18 @@ async function start() {
       process.exit(1)
     }
   })
-  httpServer.on('listening', () => {
+  httpServer.on('listening', async () => {
     console.log(`[backend] listening on http://localhost:${port}`)
+
+    // Start built-in monitoring (Telegram alerts for health checks + startup notification)
+    if (!isTest()) {
+      const { startHealthCheckMonitor, notifyServerStartup } = await import('./lib/monitoring.js')
+      startHealthCheckMonitor()
+      notifyServerStartup({
+        port,
+        mode: isLocalMode() ? 'local' : 'supabase',
+      })
+    }
   })
 }
 
@@ -675,6 +685,8 @@ async function shutdown(signal: string) {
   if (deviceCodeCleanup) clearInterval(deviceCodeCleanup)
 
   try {
+    const { stopHealthCheckMonitor } = await import('./lib/monitoring.js')
+    stopHealthCheckMonitor()
     stopCleanupScheduler()
     stopCronScheduler()
     stopExecutionWatchdog()
