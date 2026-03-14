@@ -27,6 +27,7 @@ import {
   Zap,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { RecentWorkdirPopover } from "@/components/recent-workdir-popover"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useMediaQuery } from "@/hooks/use-media-query"
@@ -78,6 +79,9 @@ export function Playground() {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const projectIdParam = searchParams.get("projectId")
+  // URL params for pre-filling machine/workdir from command palette "Start Playground In..."
+  const machineParam = searchParams.get("machine")
+  const workdirParam = searchParams.get("workdir")
 
   // Input phase state
   const [description, setDescription] = useState("")
@@ -235,6 +239,39 @@ export function Playground() {
       providers: m.providers.map((p) => ({ type: p.type, status: p.status })),
     })),
   ].filter((m, i, arr) => arr.findIndex((a) => a.machineId === m.machineId) === i), [machines, realtimeMachines])
+
+  // Consume machine/workdir URL params to pre-fill landing phase fields.
+  // Runs once machines are loaded to ensure we can resolve the machine object.
+  const prefillConsumedRef = useRef(false)
+  useEffect(() => {
+    if (prefillConsumedRef.current) return
+    if (!machineParam && !workdirParam) return
+    // Wait until machines have loaded before attempting to resolve
+    if (!machinesLoaded) return
+
+    prefillConsumedRef.current = true
+
+    try {
+      if (workdirParam) {
+        setWorkingDir(decodeURIComponent(workdirParam))
+      }
+      if (machineParam) {
+        const machineId = decodeURIComponent(machineParam)
+        const found = allMachines.find((m) => m.machineId === machineId)
+        if (found) setSelectedMachine(found)
+      }
+    } catch {
+      // Malformed URI component — ignore prefill
+    }
+
+    // Clear the params from the URL after consuming them
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.delete('machine')
+      next.delete('workdir')
+      return next
+    }, { replace: true })
+  }, [machineParam, workdirParam, machinesLoaded, allMachines, setSearchParams])
 
   // Providers for the active session (derived from the execution's machine)
   const activeSessionProviders = useMemo(() => {
@@ -1083,6 +1120,17 @@ export function Playground() {
                 >
                   <FolderOpen className="h-4 w-4" />
                 </button>
+                <RecentWorkdirPopover
+                  machineId={selectedMachine?.machineId}
+                  onSelect={(selection) => {
+                    setWorkingDir(selection.workingDirectory)
+                    // Switch machine if the selected workdir is from a different machine
+                    if (selection.machineId !== selectedMachine?.machineId) {
+                      const machine = allMachines.find((m) => m.machineId === selection.machineId)
+                      if (machine) setSelectedMachine(machine)
+                    }
+                  }}
+                />
                 <input
                   type="text"
                   value={workingDir}
