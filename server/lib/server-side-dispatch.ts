@@ -16,7 +16,7 @@ import { db } from './db/index.js'
 import { projects, planNodes, teamMembers } from './db/schema.js'
 import { eq } from 'drizzle-orm'
 import { isLocalMode } from './app-mode.js'
-import { LOCAL_USER_ID, LOCAL_TEAM_ID } from './db/bootstrap-local.js'
+import { LOCAL_TEAM_ID } from './db/bootstrap-local.js'
 
 const SERVER_PORT = process.env.PORT || 3001
 
