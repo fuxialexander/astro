@@ -1519,7 +1519,7 @@ app.get('/sessions', async (c) => {
     // Computed lightweight fields for list views:
     messageCount: sql<number>`coalesce(jsonb_array_length(${sessions.messages}), 0)`,
     titlePreview: sql<string | null>`(
-      SELECT m->>'content'
+      SELECT LEFT(m->>'content', 200)
       FROM jsonb_array_elements(${sessions.messages}) AS m
       WHERE m->>'role' = 'user'
       LIMIT 1
@@ -1634,8 +1634,9 @@ app.get('/executions', async (c) => {
   const filtered = await db.select().from(taskExecutions).where(inArray(taskExecutions.projectId, ids))
 
   // Convert to map keyed by nodeClientId.
-  // Exclude streamText from list response — it can be 10-100 KB per execution
-  // and is only needed when viewing a specific task's output.
+  // streamText is kept in the list response because the execution-panel, summary
+  // backfill, and multiple display paths depend on it after page refresh.
+  // The main egress savings come from sessions (500x) and chat (300x) endpoints.
   const result: Record<string, unknown> = {}
   for (const exec of filtered) {
     result[exec.nodeClientId] = {
@@ -1643,6 +1644,7 @@ app.get('/executions', async (c) => {
       nodeId: exec.nodeClientId,
       projectId: exec.projectId,
       status: exec.status,
+      streamText: exec.streamText,
       error: exec.error,
       toolTraces: [],
       fileChanges: [],

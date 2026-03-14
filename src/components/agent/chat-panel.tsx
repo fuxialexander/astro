@@ -146,8 +146,16 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   // Combined "busy" state — either chat streaming or plan generation in progress
   const isBusy = isStreaming || isPlanGenerating
 
-  // Register/unregister mounted state for background notification detection
+  // Lazy-load full session data (messages) after page refresh
+  const ensureFullSession = useSessionStore((s) => s.ensureFullSession)
   const currentSessionId = currentSession?.id
+  useEffect(() => {
+    if (currentSessionId && currentSession && currentSession.messages.length === 0 && !isStreaming) {
+      ensureFullSession(currentSessionId)
+    }
+  }, [currentSessionId, currentSession, isStreaming, ensureFullSession])
+
+  // Register/unregister mounted state for background notification detection
   useEffect(() => {
     if (!currentSessionId) return
     registerMounted(currentSessionId)

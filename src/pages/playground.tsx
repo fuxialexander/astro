@@ -324,6 +324,15 @@ export function Playground() {
   // Chat session ID used for streaming, activity merge, and mount tracking
   const chatSessionId = chatSession?.id || ''
 
+  // Lazy-load full session data (messages) after page refresh — the list
+  // endpoint returns stubs without messages to reduce egress
+  const ensureFullSession = useSessionStore((s) => s.ensureFullSession)
+  useEffect(() => {
+    if (chatSessionId && chatSession && chatSession.messages.length === 0 && !isChatStreaming) {
+      ensureFullSession(chatSessionId)
+    }
+  }, [chatSessionId, chatSession, isChatStreaming, ensureFullSession])
+
   // Register/unregister mounted state for background notification detection
   useEffect(() => {
     if (!chatSessionId) return
