@@ -34,13 +34,21 @@ export function JsonRenderView({ spec, className, maxHeight, loading, fallback }
     return <>{fallback}</>
   }
 
+  // Sanitize: ensure every element has props and children (may be undefined from YAML parsing)
+  const rawElements = spec.elements as unknown as Record<string, Record<string, unknown>>
+  const cleanElements: Record<string, unknown> = {}
+  for (const [key, el] of Object.entries(rawElements)) {
+    cleanElements[key] = { ...el, props: el.props ?? {}, children: el.children ?? [] }
+  }
+  const sanitized = { root: spec.root, elements: cleanElements, state: spec.state } as unknown as Spec
+
   return (
-    <JSONUIProvider registry={registry} handlers={actionHandlers} initialState={spec.state ?? {}}>
+    <JSONUIProvider registry={registry} handlers={actionHandlers} initialState={sanitized.state ?? {}}>
       <div
         className={cn('json-render-view', className)}
         style={maxHeight ? { maxHeight, overflow: 'auto' } : undefined}
       >
-        <Renderer spec={spec} registry={registry} loading={loading} />
+        <Renderer spec={sanitized} registry={registry} loading={loading} />
       </div>
     </JSONUIProvider>
   )
