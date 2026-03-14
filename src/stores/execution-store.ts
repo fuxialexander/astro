@@ -54,12 +54,7 @@ async function getAuthHeaders(): Promise<HeadersInit> {
 // Helper: Resolve working directory from project config (delegates to @astro/core)
 export function getProjectWorkingDir(
   project: Project | undefined,
-): {
-  ok: boolean
-  dir?: string
-  source?: 'local' | 'repository' | 'remote-path'
-  message?: string
-} {
+) {
   return resolveWorkingDirectory(project)
 }
 
@@ -318,7 +313,7 @@ interface ExecutionState {
     description: string,
     options: {
       targetMachineId: string
-      workingDirectory: string
+      workingDirectory?: string
       model?: string
       preferredProvider?: string
       resumeSessionId?: string
@@ -420,31 +415,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // Machine selection is handled server-side via project.defaultMachineId fallback
     const effectiveTargetMachineId = options?.targetMachineId
 
-    // Resolve working directory
+    // Resolve working directory (may be undefined for auto-workspace)
     const dirCheck = getProjectWorkingDir(project)
     const resolvedDir = dirCheck.ok ? dirCheck.dir : undefined
-    if (!resolvedDir) {
-      // Fail early: no working directory configured
-      const execution: TaskExecution = {
-        nodeId,
-        projectId,
-        executionId: `exec-${nodeId}-${Date.now()}`,
-        status: "failure",
-        streamText: "",
-        error: dirCheck.message || "No working directory or repository configured.",
-        toolTraces: [],
-        fileChanges: [],
-        activityEvents: [],
-        startedAt: new Date(),
-        completedAt: new Date(),
-      }
-      set((state) => {
-        const newExecutions = new Map(state.executions)
-        newExecutions.set(nodeId, execution)
-        return { executions: newExecutions }
-      })
-      return
-    }
 
     // Build dependency outputs from completed dependencies, truncating oversized outputs
     const rawDependencyOutputs = buildDependencyOutputs(node.dependencies, liveNodes, projectId)
@@ -1634,7 +1607,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       color: getColorForName(displayName),
       icon: getProjectIconForName(displayName),
       visionDoc: "",
-      workingDirectory: options.workingDirectory,
+      workingDirectory: options.workingDirectory || '',
       defaultMachineId: options.targetMachineId,
       projectType: 'playground',
       ...(options.selectedBackends?.length && { computeBackends: options.selectedBackends }),

@@ -17,7 +17,7 @@ import { LayoutGrid, Trash2, Play, X, CheckSquare, Square, PlayCircle, Plus, Min
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useProjectStore } from "@/stores/project-store"
-import { useExecutionStore, canExecuteNode, getProjectWorkingDir } from "@/stores/execution-store"
+import { useExecutionStore, canExecuteNode } from "@/stores/execution-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useContentSaveStore } from "@/stores/content-save-store"
@@ -294,11 +294,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
       })
       return
     }
-    const dirCheck = getProjectWorkingDir(project)
-    if (!dirCheck.ok) {
-      setPathBrowserOpen(true)
-      return
-    }
     const { nodes: allNodes, edges: allEdges } = usePlanStore.getState()
     const nodesToExecute = projectNodes.filter(
       (n) => checkedIds.has(n.id) && canExecuteNode(n, allNodes, allEdges).ready
@@ -322,7 +317,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
       startExecution(node.id, projectId)
     }
     setCheckedIds(new Set())
-  }, [checkedIds, projectNodes, startExecution, projectId, project, resolvedMachineId, flushPendingSaves])
+  }, [checkedIds, projectNodes, startExecution, projectId, resolvedMachineId, flushPendingSaves])
 
   const handleSelectAll = useCallback(() => {
     const allIds = new Set(projectNodes.map((n) => n.id))
@@ -338,12 +333,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
       })
       return
     }
-    const dirCheck = getProjectWorkingDir(project)
-    if (!dirCheck.ok) {
-      setPathBrowserOpen(true)
-      return
-    }
-
     // Flush pending saves for all project nodes before batch execution
     const nodeIds = projectNodes.map((n) => n.id)
     try {
@@ -359,7 +348,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
     }
 
     executeAllProject(projectId)
-  }, [executeAllProject, projectId, project, resolvedMachineId, projectNodes, flushPendingSaves])
+  }, [executeAllProject, projectId, resolvedMachineId, projectNodes, flushPendingSaves])
 
   const handleStopBatch = useCallback(() => {
     stopBatchExecution(projectId)

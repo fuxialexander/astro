@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { db } from '../lib/db/index.js'
+import { relayServer } from '../lib/relay-server.js'
 import {
   projects,
   initiatives,
@@ -322,6 +323,14 @@ app.delete('/projects/:id', async (c) => {
   await db.delete(projects).where(
     and(eq(projects.id, projectId), teamScopeFilter(projects, user))
   )
+
+  // Broadcast project cleanup to connected machine (best-effort)
+  if (existing.defaultMachineId) {
+    try {
+      relayServer.cleanupProject(projectId, existing.defaultMachineId)
+    } catch { /* best effort */ }
+  }
+
   return c.json({ ok: true })
 })
 

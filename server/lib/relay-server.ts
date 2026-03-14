@@ -1780,6 +1780,33 @@ export class RelayServer extends EventEmitter {
   }
 
   /**
+   * Send a project cleanup request to remove auto-provisioned workspace.
+   * Called when a project is deleted — the agent removes the workspace directory.
+   */
+  cleanupProject(projectId: string, machineId: string): boolean {
+    const connection = machineRegistry.getConnection(machineId);
+    if (!connection) {
+      console.warn(`[relay] Machine ${machineId} not connected for project cleanup`);
+      return false;
+    }
+
+    const msg = {
+      type: 'project_cleanup',
+      timestamp: new Date().toISOString(),
+      payload: { projectId },
+    };
+
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== 1 /* WebSocket.OPEN */) {
+      console.warn(`[relay] Socket not open for project cleanup on machine ${machineId}`);
+      return false;
+    }
+    socket.send(JSON.stringify(msg));
+    console.log(`[relay] Project ${projectId} cleanup request sent to machine ${machineId}`);
+    return true;
+  }
+
+  /**
    * Send a git pull request to an agent runner (fire-and-forget).
    * Used by git-pull-hook to pull changes on the remote machine after task completion.
    */

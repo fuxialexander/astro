@@ -530,13 +530,9 @@ dispatchRoute.post('/task', async (c) => {
   }
   description ??= title
 
-  // Validate working directory (interactive plan sessions can brainstorm without one)
-  if (!workingDirectory && !isInteractivePlan) {
-    return c.json(
-      { success: false, error: 'No working directory or repository configured' },
-      400
-    )
-  }
+  // workingDirectory is optional — when missing, the agent-runner auto-provisions
+  // a temporary workspace under its workspace root. Interactive plan sessions
+  // can also brainstorm without one.
 
   // Dry run dependency validation (fail fast before prompt assembly)
   if (dryRun) {
