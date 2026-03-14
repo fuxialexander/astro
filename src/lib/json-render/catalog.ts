@@ -139,6 +139,48 @@ export const astroCatalog = defineCatalog(schema, {
       description: 'A tabbed container. Define tabs here, then use child elements with visible conditions to show content per tab. Wire with state: set state "/activeTab" on tab click, use visible: { "$state": "/activeTab", "eq": "tabValue" } on content elements.',
     },
 
+    TodoList: {
+      props: z.object({
+        items: z.array(z.object({
+          id: z.string(),
+          content: z.string(),
+          status: z.enum(['pending', 'in_progress', 'completed']).optional(),
+          priority: z.enum(['high', 'medium', 'low']).optional(),
+        })),
+        title: z.string().optional(),
+      }),
+      description: 'An interactive checklist. Each item can be checked off by the user. When an item is toggled, sends a chat message like "Completed: <content>". Compatible with task tracking. Use for action items, review checklists, and step-by-step procedures.',
+    },
+    CardCarousel: {
+      props: z.object({
+        cards: z.array(z.object({
+          title: z.string(),
+          description: z.string().optional(),
+          content: z.string().optional(),
+          badge: z.string().optional(),
+          badgeVariant: z.enum(['default', 'secondary', 'success', 'warning', 'error', 'info']).optional(),
+        })),
+      }),
+      description: 'A Cover Flow-style horizontal card carousel. Cards overlap and scroll smoothly with 3D perspective. Use for browsing options, showcasing results, or comparing items visually. Scroll with mouse wheel, touchpad, or arrow keys.',
+    },
+    Metric: {
+      props: z.object({
+        value: z.string(),
+        label: z.string(),
+        description: z.string().optional(),
+        trend: z.enum(['up', 'down', 'stable']).optional(),
+        trendLabel: z.string().optional(),
+      }),
+      description: 'A large metric display with a prominent value, label, and optional trend indicator. Use for KPIs, stats, and dashboard numbers.',
+    },
+    StepIndicator: {
+      props: z.object({
+        steps: z.array(z.string()),
+        current: z.number().min(0),
+      }),
+      description: 'A horizontal step progress indicator showing the current position in a multi-step flow. Steps before current are marked complete, the current step is highlighted.',
+    },
+
     // ── Feedback ────────────────────────────────────────────────────
     Progress: {
       props: z.object({

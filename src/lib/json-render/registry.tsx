@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { defineRegistry } from '@json-render/react'
 import { astroCatalog } from './catalog'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -8,9 +8,10 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Checkbox } from '@/components/ui/checkbox'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
 import { cn } from '@/lib/utils'
-import { ChevronDown, ChevronRight, ArrowRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, ArrowRight, ArrowUpRight, ArrowDownRight, Minus, Check, ChevronLeft } from 'lucide-react'
 
 const gapMap = { sm: 'gap-1', md: 'gap-3', lg: 'gap-5' } as const
 const alignMap = { start: 'items-start', center: 'items-center', end: 'items-end', stretch: 'items-stretch' } as const
@@ -239,6 +240,267 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
           </TabsContent>
         ))}
       </Tabs>
+    ),
+
+    TodoList: ({ props }) => {
+      const [checked, setChecked] = useState<Set<string>>(() => {
+        const initial = new Set<string>()
+        for (const item of props.items) {
+          if (item.status === 'completed') initial.add(item.id)
+        }
+        return initial
+      })
+
+      const toggle = (item: { id: string; content: string }) => {
+        setChecked(prev => {
+          const next = new Set(prev)
+          if (next.has(item.id)) {
+            next.delete(item.id)
+          } else {
+            next.add(item.id)
+            window.dispatchEvent(new CustomEvent('astro:send-chat-message', {
+              detail: { message: `Completed: ${item.content}` }
+            }))
+          }
+          return next
+        })
+      }
+
+      const priorityColors: Record<string, string> = {
+        high: 'text-error',
+        medium: 'text-warning',
+        low: 'text-muted-foreground',
+      }
+
+      return (
+        <div className="rounded-lg border border-border">
+          {props.title && (
+            <div className="px-3 py-2 border-b border-border bg-muted/30">
+              <p className="text-xs font-medium text-muted-foreground">{props.title}</p>
+            </div>
+          )}
+          <div className="divide-y divide-border/50">
+            {props.items.map((item) => {
+              const done = checked.has(item.id)
+              return (
+                <label
+                  key={item.id}
+                  className={cn(
+                    'flex items-start gap-3 px-3 py-2.5 cursor-pointer hover:bg-muted/30 transition-colors',
+                    done && 'opacity-50',
+                  )}
+                >
+                  <Checkbox
+                    checked={done}
+                    onCheckedChange={() => toggle(item)}
+                    className="mt-0.5"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <span className={cn('text-sm', done && 'line-through text-muted-foreground')}>
+                      {item.content}
+                    </span>
+                    {item.priority && (
+                      <span className={cn('ml-2 text-[10px] font-medium', priorityColors[item.priority])}>
+                        {item.priority}
+                      </span>
+                    )}
+                  </div>
+                  {done && <Check className="h-3.5 w-3.5 text-success shrink-0 mt-0.5" />}
+                </label>
+              )
+            })}
+          </div>
+        </div>
+      )
+    },
+
+    CardCarousel: ({ props }) => {
+      const [activeIndex, setActiveIndex] = useState(0)
+      const containerRef = useRef<HTMLDivElement>(null)
+      const count = props.cards.length
+
+      const goTo = useCallback((index: number) => {
+        setActiveIndex(Math.max(0, Math.min(count - 1, index)))
+      }, [count])
+
+      // Scroll wheel navigation
+      useEffect(() => {
+        const el = containerRef.current
+        if (!el) return
+        const handler = (e: WheelEvent) => {
+          if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+            e.preventDefault()
+            if (e.deltaX > 30) goTo(activeIndex + 1)
+            else if (e.deltaX < -30) goTo(activeIndex - 1)
+          } else if (Math.abs(e.deltaY) > 30) {
+            e.preventDefault()
+            if (e.deltaY > 0) goTo(activeIndex + 1)
+            else goTo(activeIndex - 1)
+          }
+        }
+        el.addEventListener('wheel', handler, { passive: false })
+        return () => el.removeEventListener('wheel', handler)
+      }, [activeIndex, goTo])
+
+      // Keyboard navigation
+      useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+          if (e.key === 'ArrowRight') goTo(activeIndex + 1)
+          else if (e.key === 'ArrowLeft') goTo(activeIndex - 1)
+        }
+        window.addEventListener('keydown', handler)
+        return () => window.removeEventListener('keydown', handler)
+      }, [activeIndex, goTo])
+
+      return (
+        <div ref={containerRef} className="relative select-none" style={{ perspective: '1200px' }}>
+          <div className="relative h-[220px] flex items-center justify-center overflow-hidden">
+            {props.cards.map((card, i) => {
+              const offset = i - activeIndex
+              const absOffset = Math.abs(offset)
+              const isActive = i === activeIndex
+              const zIndex = count - absOffset
+              const translateX = offset * 120
+              const translateZ = isActive ? 0 : -80 - absOffset * 40
+              const rotateY = offset < 0 ? 35 : offset > 0 ? -35 : 0
+              const opacity = absOffset > 2 ? 0 : isActive ? 1 : 0.6 - absOffset * 0.15
+              const scale = isActive ? 1 : 0.85 - absOffset * 0.05
+
+              return (
+                <div
+                  key={i}
+                  onClick={() => goTo(i)}
+                  className={cn(
+                    'absolute w-[280px] cursor-pointer transition-all duration-500 ease-out',
+                    isActive && 'z-50',
+                  )}
+                  style={{
+                    transform: `translateX(${translateX}px) translateZ(${translateZ}px) rotateY(${rotateY}deg) scale(${scale})`,
+                    opacity,
+                    zIndex,
+                    transformStyle: 'preserve-3d',
+                  }}
+                >
+                  <Card className={cn(
+                    'overflow-hidden transition-shadow duration-500',
+                    isActive ? 'shadow-xl ring-1 ring-primary/20' : 'shadow-md',
+                  )}>
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-sm">{card.title}</CardTitle>
+                        {card.badge && (
+                          <Badge variant={(card.badgeVariant as 'default') || 'default'}>{card.badge}</Badge>
+                        )}
+                      </div>
+                      {card.description && (
+                        <CardDescription className="text-xs">{card.description}</CardDescription>
+                      )}
+                    </CardHeader>
+                    {card.content && (
+                      <CardContent className="pt-0">
+                        <p className="text-xs text-muted-foreground leading-relaxed">{card.content}</p>
+                      </CardContent>
+                    )}
+                  </Card>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Navigation arrows */}
+          {activeIndex > 0 && (
+            <button
+              onClick={() => goTo(activeIndex - 1)}
+              className="absolute left-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-background/80 backdrop-blur border border-border flex items-center justify-center hover:bg-muted transition-colors z-50"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+          )}
+          {activeIndex < count - 1 && (
+            <button
+              onClick={() => goTo(activeIndex + 1)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-background/80 backdrop-blur border border-border flex items-center justify-center hover:bg-muted transition-colors z-50"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          )}
+
+          {/* Dot indicators */}
+          <div className="flex justify-center gap-1.5 mt-3">
+            {props.cards.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => goTo(i)}
+                className={cn(
+                  'h-1.5 rounded-full transition-all duration-300',
+                  i === activeIndex ? 'w-4 bg-primary' : 'w-1.5 bg-border hover:bg-muted-foreground/50',
+                )}
+              />
+            ))}
+          </div>
+        </div>
+      )
+    },
+
+    Metric: ({ props }) => {
+      const trendIcon = props.trend === 'up'
+        ? <ArrowUpRight className="h-3.5 w-3.5 text-success" />
+        : props.trend === 'down'
+        ? <ArrowDownRight className="h-3.5 w-3.5 text-error" />
+        : props.trend === 'stable'
+        ? <Minus className="h-3.5 w-3.5 text-muted-foreground" />
+        : null
+
+      return (
+        <div className="flex flex-col gap-0.5">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{props.label}</p>
+          <div className="flex items-baseline gap-2">
+            <p className="text-2xl font-bold text-foreground tabular-nums">{props.value}</p>
+            {trendIcon && (
+              <div className="flex items-center gap-0.5">
+                {trendIcon}
+                {props.trendLabel && <span className="text-[10px] text-muted-foreground">{props.trendLabel}</span>}
+              </div>
+            )}
+          </div>
+          {props.description && <p className="text-xs text-muted-foreground">{props.description}</p>}
+        </div>
+      )
+    },
+
+    StepIndicator: ({ props }) => (
+      <div className="flex items-center gap-0">
+        {props.steps.map((step, i) => {
+          const isComplete = i < props.current
+          const isCurrent = i === props.current
+          return (
+            <div key={i} className="flex items-center">
+              {i > 0 && (
+                <div className={cn(
+                  'h-px w-8 mx-1',
+                  isComplete ? 'bg-primary' : 'bg-border',
+                )} />
+              )}
+              <div className="flex items-center gap-1.5">
+                <div className={cn(
+                  'h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-medium transition-colors',
+                  isComplete && 'bg-primary text-primary-foreground',
+                  isCurrent && 'bg-primary/10 text-primary ring-2 ring-primary',
+                  !isComplete && !isCurrent && 'bg-muted text-muted-foreground',
+                )}>
+                  {isComplete ? <Check className="h-3 w-3" /> : i + 1}
+                </div>
+                <span className={cn(
+                  'text-xs whitespace-nowrap',
+                  isCurrent ? 'font-medium text-foreground' : 'text-muted-foreground',
+                )}>
+                  {step}
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     ),
 
     // ── Feedback ────────────────────────────────────────────────────
