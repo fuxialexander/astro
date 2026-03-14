@@ -1210,16 +1210,15 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     console.warn(`[dispatch] Failed to persist projectBranch for project ${projectId}:`, err)
   }
 
-  // Override delivery mode when user chose 'proceed' on safety prompt (= direct mode, no git).
-  // The decision value is stored in approvedSafetyDirs: 'proceed' means the user explicitly
-  // opted for non-git direct execution. Respect that choice for all subsequent tasks.
+  // Look up cached safety decision for this working directory.
+  // Used only for skipSafetyCheck below — does NOT override delivery mode.
+  // Delivery mode is always derived from the normal chain:
+  //   request body → project DB → deriveDefaultDeliveryMode(remoteType)
+  // Previously this block forced deliveryMode='direct' when safetyDecision='proceed',
+  // which caused stale overrides when the user initialized git after the original decision.
   const safetyDecision = workingDirectory
     ? (approvedSafetyDirs.get(workingDirectory) ?? await redisPubSub.getApprovedSafetyDir(workingDirectory))
     : null
-  if (safetyDecision === 'proceed') {
-    deliveryMode = 'direct'
-    useWorktree = false
-  }
 
   // Dispatch via relay
   const taskDispatch = {
