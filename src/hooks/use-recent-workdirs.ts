@@ -56,7 +56,6 @@ export function useRecentWorkdirs(machineId?: string): RecentWorkdir[] {
     >()
 
     for (const project of projects) {
-      if (project.projectType !== 'playground') continue
       if (!project.defaultMachineId || !project.workingDirectory) continue
       if (machineId && project.defaultMachineId !== machineId) continue
 
