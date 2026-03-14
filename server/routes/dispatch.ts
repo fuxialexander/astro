@@ -82,12 +82,23 @@ function getShortId(id: string): string {
  * This is a last-resort fallback — only runs when neither the request body
  * nor the project DB provides a deliveryMode (line 462 resolves DB first).
  *
- * Note: the agent-runner's deriveDeliveryMode() also checks `isGit` to
- * distinguish "local git, no remote" (→ 'branch') from "no git at all"
- * (→ 'direct'). The server doesn't have `isGit`, but for local-git projects
- * the DB deliveryMode is set to 'branch' during project creation from the
- * agent's suggestedDeliveryMode, so this fallback only fires for non-git
- * cases (templates, ephemeral directories).
+ * Mapping:
+ *   github/gitlab/bitbucket  → 'pr'     (remote git with hosting platform)
+ *   generic                  → 'push'   (remote git, unknown host)
+ *   none                     → 'branch' (local git, no remote)
+ *   undefined                → 'direct' (git status unknown / never detected)
+ *
+ * The frontend's deriveDeliveryMode() uses an `isGit` boolean to distinguish
+ * "local git, no remote" (→ 'branch') from "no git at all" (→ 'direct').
+ * The server doesn't have `isGit`, but for local-git projects the DB
+ * deliveryMode is set to 'branch' during project creation from the agent's
+ * suggestedDeliveryMode, so this fallback only fires when remoteType is
+ * unset — e.g., template projects that skip repo detection.
+ *
+ * The safe default for unknown is 'direct': it activates the server-side
+ * serial execution check (preventing concurrent dispatch to non-git dirs).
+ * If the directory actually has git, the agent-runner's prepareTaskWorkspace()
+ * detects it and uses worktree isolation regardless of this hint.
  */
 function deriveDefaultDeliveryMode(remoteType?: string): 'pr' | 'push' | 'branch' | 'direct' {
   switch (remoteType) {
@@ -98,9 +109,9 @@ function deriveDefaultDeliveryMode(remoteType?: string): 'pr' | 'push' | 'branch
     case 'generic':
       return 'push'
     case 'none':
-      return 'direct'
-    default:
       return 'branch'
+    default:
+      return 'direct'
   }
 }
 
