@@ -20,6 +20,7 @@ const HERO_FEATURE = {
 }
 
 const CHANGELOG: ChangelogEntry[] = [
+  { pr: 975, title: "Auto-workspace fallback for zero-config dispatch", type: "feature" },
   { pr: 969, title: "Recent workdir popover in playground", type: "feature" },
   { pr: 972, title: "Unified machine/workdir/provider selectors", type: "refactor" },
   { pr: 961, title: "Auto-refresh expired GitHub OAuth tokens", type: "fix" },
