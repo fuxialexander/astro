@@ -193,6 +193,14 @@ export function UnifiedActivityView({
     }
   }, [sessionsLoaded, chatSession, createSessionAction, node.id, projectId])
 
+  // Lazy-load full session data (messages) after page refresh
+  const ensureFullSession = useSessionStore((s) => s.ensureFullSession)
+  useEffect(() => {
+    if (chatSession?.id && chatSession.messages.length === 0 && !isChatStreaming) {
+      ensureFullSession(chatSession.id)
+    }
+  }, [chatSession?.id, chatSession?.messages.length, isChatStreaming, ensureFullSession])
+
   // Get activity events — live during execution, restored from observations after refresh
   const { activityEvents, isRestoring } = useRestoredExecution(
     executionId,

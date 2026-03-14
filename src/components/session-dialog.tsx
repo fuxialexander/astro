@@ -63,7 +63,7 @@ export function SessionDialog({
 
   if (!session) return null
 
-  const messageCount = session.messages.length
+  const messageCount = session.messageCount ?? session.messages.length
   const createdDate = session.createdAt.toLocaleDateString()
 
   return (
