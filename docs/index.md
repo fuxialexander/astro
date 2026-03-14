@@ -72,6 +72,7 @@ The design docs in `docs/design/` are the authoritative reference for the system
 - [Developer Setup](./setup/developer-setup.md) - Getting started guide
 - [Local Mode](./setup/local-mode.md) - PGlite single-user mode
 - [Server Mode](./setup/server-mode.md) - Supabase multi-user mode
+- [Supabase Production](./setup/supabase-production.md) - Supabase ops: egress, ES256 JWT, billing, incident history
 - [Environment Variables](./setup/environment-variables.md) - Complete env var reference
 - [Fly Deployment](./setup/fly-deployment.md) - Fly.io deployment guide
 - [Deployment & Testing](./setup/deployment-and-testing.md) - Pre-deployment testing
@@ -104,6 +105,8 @@ The design docs in `docs/design/` are the authoritative reference for the system
 
 - [Agent Runner Protocol](./guides/agent-runner-protocol.md) - Client implementation guide
 - [Git Pull Hook](./guides/git-pull-hook.md) - Git hooks for Claude Code
+- [Monitoring & Alerting](./guides/monitoring.md) - Health checks, Telegram alerts, usage monitoring
+- [Feature Flags](./guides/feature-flags.md) - Staged rollouts, internal-only features
 
 ### Testing
 

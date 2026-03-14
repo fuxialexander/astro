@@ -9,6 +9,10 @@
  * (supabase.auth.getUser()) on every request. This eliminates ~11,000+ auth
  * API calls/hour that were the second-largest contributor to Supabase egress.
  *
+ * Supabase uses ES256 (ECDSA P-256) for JWT signing. We fetch the public key
+ * from the JWKS endpoint at startup and verify tokens locally — zero network
+ * calls per request.
+ *
  * Trade-off: local verification doesn't detect token revocation (e.g., after
  * password change). Supabase tokens have a 1-hour expiry by default, so
  * revoked tokens are valid for at most 1 hour — acceptable for this app.
@@ -22,6 +26,7 @@
  */
 
 import type { Context, Next } from 'hono'
+import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
 import { isLocalMode } from '../lib/app-mode.js'
 import { LOCAL_USER_ID, LOCAL_TEAM_ID } from '../lib/db/bootstrap-local.js'
@@ -33,12 +38,6 @@ export interface AuthUser {
   teamIds: string[]   // All user's teams
 }
 
-// Supabase JWT secret for local token verification.
-// Found in Supabase Dashboard → Settings → API → JWT Secret.
-// Falls back to SUPABASE_ANON_KEY for backwards compatibility (will use
-// Supabase API verification if JWT secret is not set).
-const SUPABASE_JWT_SECRET = process.env.SUPABASE_JWT_SECRET || ''
-
 interface SupabaseJwtPayload {
   sub: string       // User UUID
   email?: string
@@ -49,16 +48,73 @@ interface SupabaseJwtPayload {
   exp?: number
 }
 
-/**
- * Verify a Supabase JWT locally using the JWT secret.
- * Returns the decoded payload or null if verification fails.
- */
-function verifySupabaseJwt(token: string): SupabaseJwtPayload | null {
-  if (!SUPABASE_JWT_SECRET) return null
+// --- JWKS-based ES256 verification ---
+
+const SUPABASE_URL = process.env.SUPABASE_URL || ''
+
+// Cached public keys keyed by kid (key ID)
+let cachedKeys: Map<string, crypto.KeyObject> = new Map()
+let jwksFetchedAt = 0
+const JWKS_REFRESH_INTERVAL = 60 * 60 * 1000 // Re-fetch JWKS every hour
+
+async function fetchJwks(): Promise<void> {
+  if (!SUPABASE_URL) return
 
   try {
-    const decoded = jwt.verify(token, SUPABASE_JWT_SECRET, {
-      algorithms: ['HS256'],
+    const url = `${SUPABASE_URL}/auth/v1/.well-known/jwks.json`
+    const res = await fetch(url)
+    if (!res.ok) {
+      console.error(`[auth] JWKS fetch failed: ${res.status} ${res.statusText}`)
+      return
+    }
+    const { keys } = await res.json() as { keys: Array<Record<string, unknown>> }
+    const newKeys = new Map<string, crypto.KeyObject>()
+    for (const jwk of keys) {
+      if (jwk.kty === 'EC' && jwk.alg === 'ES256' && jwk.kid) {
+        const publicKey = crypto.createPublicKey({ key: jwk as crypto.JsonWebKey, format: 'jwk' })
+        newKeys.set(jwk.kid as string, publicKey)
+      }
+    }
+    if (newKeys.size > 0) {
+      cachedKeys = newKeys
+      jwksFetchedAt = Date.now()
+      console.log(`[auth] JWKS loaded: ${newKeys.size} ES256 key(s)`)
+    }
+  } catch (err) {
+    console.error('[auth] JWKS fetch error:', err)
+  }
+}
+
+// Fetch JWKS at module load (non-blocking)
+fetchJwks()
+
+function getPublicKey(kid?: string): crypto.KeyObject | null {
+  if (kid && cachedKeys.has(kid)) return cachedKeys.get(kid)!
+  // If no kid or kid not found, return the first (and usually only) key
+  if (cachedKeys.size > 0) return cachedKeys.values().next().value!
+  return null
+}
+
+/**
+ * Verify a Supabase JWT locally using the JWKS public key (ES256).
+ * Returns the decoded payload or null if verification fails.
+ */
+async function verifySupabaseJwt(token: string): Promise<SupabaseJwtPayload | null> {
+  // Peek at the header to get the kid
+  const header = jwt.decode(token, { complete: true })?.header
+  let publicKey = getPublicKey(header?.kid)
+
+  // If no cached key or key is stale, try refreshing JWKS
+  if (!publicKey || (Date.now() - jwksFetchedAt > JWKS_REFRESH_INTERVAL)) {
+    await fetchJwks()
+    publicKey = getPublicKey(header?.kid)
+  }
+
+  if (!publicKey) return null
+
+  try {
+    const decoded = jwt.verify(token, publicKey, {
+      algorithms: ['ES256'],
       audience: 'authenticated',
     }) as SupabaseJwtPayload
 
@@ -67,6 +123,23 @@ function verifySupabaseJwt(token: string): SupabaseJwtPayload | null {
 
     return decoded
   } catch {
+    // On verification failure, try refreshing JWKS once (key rotation)
+    if (Date.now() - jwksFetchedAt > 5000) {
+      await fetchJwks()
+      const refreshedKey = getPublicKey(header?.kid)
+      if (refreshedKey && refreshedKey !== publicKey) {
+        try {
+          const decoded = jwt.verify(token, refreshedKey, {
+            algorithms: ['ES256'],
+            audience: 'authenticated',
+          }) as SupabaseJwtPayload
+          if (!decoded.sub || decoded.role === 'anon') return null
+          return decoded
+        } catch {
+          return null
+        }
+      }
+    }
     return null
   }
 }
@@ -181,8 +254,8 @@ export async function requireAuth(c: Context, next: Next) {
   }
 
   try {
-    // Try local JWT verification first (zero network calls)
-    const jwtPayload = verifySupabaseJwt(token)
+    // Try local JWT verification first (zero network calls after initial JWKS fetch)
+    const jwtPayload = await verifySupabaseJwt(token)
     if (jwtPayload) {
       const requestedTeamId = c.req.header('X-Team-Id')
       const { teamId, teamIds } = await resolveTeams(jwtPayload.sub, requestedTeamId || undefined)
@@ -206,11 +279,12 @@ export async function requireAuth(c: Context, next: Next) {
       return next()
     }
 
-    // If SUPABASE_JWT_SECRET is not configured, fall back to Supabase API verification
-    if (!SUPABASE_JWT_SECRET) {
+    // Fall back to Supabase API verification if JWKS-based verification failed
+    // (e.g., SUPABASE_URL not configured, JWKS fetch failed, etc.)
+    if (cachedKeys.size === 0) {
       const { createClient } = await import('@supabase/supabase-js')
-      const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import('../lib/supabase.js')
-      const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      const { SUPABASE_URL: sbUrl, SUPABASE_ANON_KEY } = await import('../lib/supabase.js')
+      const supabase = createClient(sbUrl, SUPABASE_ANON_KEY, {
         global: { headers: { Authorization: `Bearer ${token}` } },
         auth: { autoRefreshToken: false, persistSession: false },
       })
@@ -265,8 +339,8 @@ export async function optionalAuth(c: Context, next: Next) {
   const token = authHeader.slice(7)
 
   try {
-    // Try local JWT verification first (zero network calls)
-    const jwtPayload = verifySupabaseJwt(token)
+    // Try local JWT verification first (zero network calls after initial JWKS fetch)
+    const jwtPayload = await verifySupabaseJwt(token)
     if (jwtPayload) {
       const requestedTeamId = c.req.header('X-Team-Id')
       const { teamId, teamIds } = await resolveTeams(jwtPayload.sub, requestedTeamId || undefined)
@@ -290,11 +364,11 @@ export async function optionalAuth(c: Context, next: Next) {
       return next()
     }
 
-    // If SUPABASE_JWT_SECRET is not configured, fall back to Supabase API verification
-    if (!SUPABASE_JWT_SECRET) {
+    // Fall back to Supabase API verification if JWKS keys not loaded
+    if (cachedKeys.size === 0) {
       const { createClient } = await import('@supabase/supabase-js')
-      const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import('../lib/supabase.js')
-      const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      const { SUPABASE_URL: sbUrl, SUPABASE_ANON_KEY } = await import('../lib/supabase.js')
+      const supabase = createClient(sbUrl, SUPABASE_ANON_KEY, {
         global: { headers: { Authorization: `Bearer ${token}` } },
         auth: { autoRefreshToken: false, persistSession: false },
       })

@@ -4,11 +4,13 @@
 
 ### 1. Environment Variables
 - [ ] Set `NODE_ENV=production`
-- [ ] Generate JWT secret: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+- [ ] Generate JWT secrets: `openssl rand -hex 32` (one per secret)
 - [ ] Set `DEVICE_AUTH_JWT_SECRET` (minimum 32 characters)
 - [ ] Set `DEVICE_AUTH_REFRESH_SECRET` (minimum 32 characters)
 - [ ] **DO NOT** set `ALLOW_E2E_BYPASS` in production
-- [ ] Verify Supabase credentials are set (URL, anon key, service role key)
+- [ ] Verify Supabase credentials are set (`SUPABASE_URL`, anon key, service role key)
+- [ ] `SUPABASE_JWT_SECRET` is **not needed** (auth uses ES256 JWKS, not HS256)
+- [ ] Verify JWKS endpoint is accessible: `curl ${SUPABASE_URL}/auth/v1/.well-known/jwks.json`
 
 ### 2. Security Configuration
 - [ ] Verify test token bypass is disabled (no `ALLOW_E2E_BYPASS` env var)

@@ -295,26 +295,22 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 ```typescript
 // server/middleware/auth.ts
-import { requireAuth } from '@/server/lib/auth'
+import { requireAuth } from '@/server/middleware/auth'
 
 // Hono route
 app.get('/api/data/projects', requireAuth, async (c) => {
   const user = c.get('user') // Injected by requireAuth
   // ... query projects for user
 })
-
-// requireAuth middleware
-export const requireAuth = async (c, next) => {
-  const token = c.req.header('Authorization')?.replace('Bearer ', '')
-  if (!token) return c.json({ error: 'Unauthorized' }, 401)
-
-  const { data: { user }, error } = await supabase.auth.getUser(token)
-  if (error || !user) return c.json({ error: 'Invalid token' }, 401)
-
-  c.set('user', user)
-  await next()
-}
 ```
+
+The `requireAuth` middleware verifies JWTs using a three-tier fallback chain:
+
+1. **ES256 JWKS verification** (primary) -- fetches Supabase's public key from the JWKS endpoint at startup, verifies JWT signatures locally with zero network calls per request.
+2. **Device auth JWT** -- for CLI agent runners authenticated via the device code flow.
+3. **Supabase API fallback** -- calls `supabase.auth.getUser(token)` only if JWKS keys failed to load. This is the expensive path (adds egress).
+
+See [Supabase Production Operations](../setup/supabase-production.md) for details on the ES256 JWKS verification, the egress incident, and why we don't call `supabase.auth.getUser()` on every request.
 
 ## iOS Passkey Support
 
