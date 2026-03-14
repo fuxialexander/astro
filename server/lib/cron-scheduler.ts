@@ -317,11 +317,6 @@ export async function dispatchProjectRootNodes(
         scheduleRunId: run.id,
       }).catch((err) => {
         console.error(`${logPrefix}: dispatch failed for ${node.clientId}:`, err)
-        // Update schedule run so it doesn't stay stuck as 'dispatched'
-        db.update(scheduleRuns)
-          .set({ status: 'failure', completedAt: new Date(), errorMessage: `Dispatch failed for node ${node.clientId}: ${String(err)}` })
-          .where(eq(scheduleRuns.id, run.id))
-          .execute().catch(() => {})
       })
       dispatched++
     }

@@ -1680,7 +1680,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     }
 
     const onMachineDisconnected = async (disconnectedId: string) => {
-      if (!alive || disconnectedId !== machineId) return
+      if (!alive || disconnectedId !== machineId || resultSent) return
       console.log(`[dispatch] Machine ${machineId} disconnected during task ${executionId}`)
       const errorData = { error: 'Remote machine disconnected during task execution', recoverable: false }
       const seq = await streamingEventLog.append(executionId, 'error', errorData)
@@ -1780,7 +1780,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 
     // P2: Handle dead job detection — terminate this SSE stream when relay detects task is dead
     const onTaskDead = async (data: { taskId: string; machineId: string; reason: string }) => {
-      if (!alive || data.taskId !== executionId) return
+      if (!alive || data.taskId !== executionId || resultSent) return
       console.log(`[dispatch] Task ${executionId} declared dead by heartbeat cross-ref: ${data.reason}`)
       const errorData = { error: `Dead job detected: ${data.reason}`, recoverable: true }
       try {

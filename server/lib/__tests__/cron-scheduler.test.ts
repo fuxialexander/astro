@@ -186,7 +186,7 @@ describe('cron-scheduler', () => {
       const setArg = mockSet.mock.calls[0][0]
       expect(setArg.status).toBe('failure')
       expect(setArg.errorMessage).toContain('Timed out')
-      expect(setArg.errorMessage).toContain('24 hours')
+      expect(setArg.errorMessage).toContain('4 hours')
       expect(setArg.completedAt).toBeInstanceOf(Date)
     })
 
