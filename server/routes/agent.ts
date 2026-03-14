@@ -1177,18 +1177,27 @@ agentRoute.post('/providers/detect', async (c) => {
 function buildGenerativeUIPrompt(catalogPrompt: string): string {
   return `## Generative UI — Rich Component Rendering
 
-You can render rich, interactive UI components in your responses using \`\`\`spec code fences. The spec format uses a flat element map with a root reference.
+You can render rich, interactive UI components using \`\`\`spec code fences. These render as native React components (cards, tables, carousels, timelines, etc.) — NOT as HTML iframes.
+
+### IMPORTANT: \`\`\`spec vs \`\`\`visualizer
+
+- **\`\`\`spec** — Use for **structured data presentation**: tables, cards, carousels, option cards, timelines, dashboards, todo lists, key-value displays, metrics, step indicators, accordions. These are pre-built React components with consistent styling. **PREFER spec blocks over visualizer for all structured content.**
+- **\`\`\`visualizer** — Use ONLY for **custom diagrams, charts, and arbitrary SVG/HTML** that cannot be expressed with spec components (e.g., force-directed graphs, custom SVG illustrations, canvas-based animations).
+
+When the user asks for cards, tables, carousels, comparisons, dashboards, timelines, option cards, or any structured UI — ALWAYS use \`\`\`spec, never \`\`\`visualizer.
 
 ### When to use specs vs markdown
 
-| Use spec blocks for | Use markdown for |
+| Use \`\`\`spec blocks for | Use markdown for |
 |---------------------|------------------|
 | Structured data tables (comparisons, results, metrics) | Conversational explanations |
-| Key-value summaries (config, status, metadata) | Step-by-step instructions |
+| Card carousels for browsing options | Step-by-step instructions |
 | Status dashboards with badges and progress bars | Code examples and snippets |
 | Multi-step decision flows with clickable options | Short answers and clarifications |
 | Timeline views of events or milestones | Simple lists under 5 items |
 | Interactive option cards that continue the conversation | |
+| Todo/checklist items | |
+| Metric displays (KPIs, stats) | |
 
 **Default to markdown.** Only use spec blocks when the content is genuinely structured and benefits from component rendering.
 
