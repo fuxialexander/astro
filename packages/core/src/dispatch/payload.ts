@@ -100,7 +100,7 @@ export interface DispatchTaskPayload {
  *   1. defaultMachineId + workingDirectory (no repository) → remote-path
  *   2. source.localPath or workingDirectory → local
  *   3. repository (git URL) → repository
- *   4. fail
+ *   4. auto-workspace (agent-runner auto-provisions)
  */
 export function resolveWorkingDirectory(
   project: WorkingDirProject | undefined | null,

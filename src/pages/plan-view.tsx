@@ -37,7 +37,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore, type DisplaySettings, type ViewKey } from "@/stores/display-settings-store"
 import { useActivityStore } from "@/stores/activity-store"
-import { useExecutionStore, getProjectWorkingDir } from "@/stores/execution-store"
+import { useExecutionStore } from "@/stores/execution-store"
 import { useContentSaveStore } from "@/stores/content-save-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
@@ -1009,16 +1009,6 @@ export function PlanListView({
       })
       return
     }
-    const dirCheck = getProjectWorkingDir(project)
-    if (!dirCheck.ok) {
-      useToastStore.getState().add({
-        type: "warning",
-        title: "No working directory",
-        description: "Set a working directory in the project settings before executing tasks.",
-      })
-      return
-    }
-
     // Flush any pending content saves before execution
     try {
       await flushPendingSaves([node.id])
@@ -1057,16 +1047,6 @@ export function PlanListView({
           })
           return
         }
-        const dirCheck = getProjectWorkingDir(project)
-        if (!dirCheck.ok) {
-          useToastStore.getState().add({
-            type: "warning",
-            title: "No working directory",
-            description: "Set a working directory in the project settings before executing tasks.",
-          })
-          return
-        }
-
         // Flush pending saves for all selected tasks before execution
         try {
           await flushPendingSaves(ids)
@@ -1415,16 +1395,6 @@ export function PlanListView({
       })
       return
     }
-    const dirCheck = getProjectWorkingDir(project)
-    if (!dirCheck.ok) {
-      useToastStore.getState().add({
-        type: "warning",
-        title: "No working directory",
-        description: "Set a working directory in the project settings before executing tasks.",
-      })
-      return
-    }
-
     const nodeIds = allProjectNodes.map((n) => n.id)
     try {
       await flushPendingSaves(nodeIds)
