@@ -83,11 +83,6 @@ export async function notifyAlert(title: string, details: string): Promise<void>
 
 let healthCheckInterval: ReturnType<typeof setInterval> | null = null
 
-interface HealthCheckResult {
-  frontend: 'ok' | 'down' | 'skipped'
-  jwks: 'ok' | 'down' | 'skipped'
-}
-
 async function checkFrontend(): Promise<'ok' | 'down' | 'skipped'> {
   if (!MONITOR_FRONTEND_URL) return 'skipped'
   try {
