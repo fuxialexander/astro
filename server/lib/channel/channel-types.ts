@@ -74,6 +74,7 @@ export type NotificationType =
   | 'task.failed'
   | 'approval.requested'
   | 'branch.pruned'
+  | 'project.completed'
 
 export interface ChannelNotification {
   type: NotificationType

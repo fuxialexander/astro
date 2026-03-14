@@ -1500,6 +1500,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         commitAfterSha: msg.result.commitAfterSha,
         deliveryStatus: msg.result.deliveryStatus,
         deliveryError: msg.result.deliveryError,
+        summary: msg.result.summary,
       }
       astroEventTransport.emitEvent({
         type: 'task.completed',
