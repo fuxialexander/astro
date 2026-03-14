@@ -14,7 +14,7 @@ import { create } from "zustand"
 import { dataClient } from "@/lib/data-client"
 import { projectChatWithAgent, chatWithTask, generateTitle, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { extractMutations, applyMutationsToStore } from "@/lib/plan-mutations"
-import { createYamlStreamCompiler, YAML_SPEC_FENCE, FENCE_CLOSE } from "@json-render/yaml"
+import { createYamlStreamCompiler, YAML_SPEC_FENCE } from "@json-render/yaml"
 import { usePlanStore } from "./plan-store"
 import { useProjectStore } from "./project-store"
 import { useRealtimeStore } from "./realtime-store"
@@ -734,55 +734,72 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     // json-render YAML: detect ```yaml-spec fences in streamed text,
     // parse YAML progressively, and emit spec activity events.
+    // Uses a text buffer to handle fence markers split across SSE chunks.
     let insideYamlSpec = false
     let specEventPushed = false
     let specThrottleTimer: ReturnType<typeof setTimeout> | null = null
+    let textBuffer = ''  // buffers text to handle split fence markers
     const yamlCompiler = createYamlStreamCompiler<Record<string, unknown>>()
     const fenceOpen = YAML_SPEC_FENCE   // ```yaml-spec
-    const fenceClose = FENCE_CLOSE       // ```
+    const fenceClose = '\n```'          // closing fence always on its own line
 
-    // Process a text chunk, splitting it between prose and yaml-spec fences
     function processChunk(chunk: string) {
-      let remaining = chunk
-      while (remaining.length > 0) {
+      textBuffer += chunk
+      drainBuffer()
+    }
+
+    function drainBuffer() {
+      while (textBuffer.length > 0) {
         if (!insideYamlSpec) {
-          // Look for fence open
-          const fenceIdx = remaining.indexOf(fenceOpen)
+          const fenceIdx = textBuffer.indexOf(fenceOpen)
           if (fenceIdx === -1) {
-            // All prose
-            emitText(remaining)
-            remaining = ''
+            // No fence found. Check if buffer ends with a partial fence prefix.
+            // Only hold back if the tail could be the start of ```yaml-spec.
+            const lastBacktick = textBuffer.lastIndexOf('`')
+            if (lastBacktick >= 0 && textBuffer.length - lastBacktick < fenceOpen.length &&
+                fenceOpen.startsWith(textBuffer.slice(lastBacktick))) {
+              // Tail is a partial fence match — emit everything before it
+              if (lastBacktick > 0) {
+                emitText(textBuffer.slice(0, lastBacktick))
+                textBuffer = textBuffer.slice(lastBacktick)
+              }
+            } else {
+              // No partial match — emit all
+              emitText(textBuffer)
+              textBuffer = ''
+            }
+            break // wait for more data
           } else {
             // Prose before fence
-            if (fenceIdx > 0) emitText(remaining.slice(0, fenceIdx))
+            if (fenceIdx > 0) emitText(textBuffer.slice(0, fenceIdx))
             insideYamlSpec = true
-            remaining = remaining.slice(fenceIdx + fenceOpen.length)
+            textBuffer = textBuffer.slice(fenceIdx + fenceOpen.length)
             // Skip optional newline after fence open
-            if (remaining.startsWith('\n')) remaining = remaining.slice(1)
+            if (textBuffer.startsWith('\n')) textBuffer = textBuffer.slice(1)
           }
         } else {
-          // Inside yaml-spec fence — look for closing ```
-          const closeIdx = remaining.indexOf(fenceClose)
+          // Inside yaml-spec fence — look for closing ``` on its own line
+          const closeIdx = textBuffer.indexOf(fenceClose)
           if (closeIdx === -1) {
-            // All YAML content — feed to compiler progressively
-            feedYaml(remaining)
-            remaining = ''
+            // No close yet. Feed complete lines to compiler, keep partial line buffered.
+            const lastNewline = textBuffer.lastIndexOf('\n')
+            if (lastNewline > 0) {
+              const completeLines = textBuffer.slice(0, lastNewline + 1)
+              feedYaml(completeLines)
+              textBuffer = textBuffer.slice(lastNewline + 1)
+            }
+            break // wait for more data
           } else {
             // YAML content before close
-            const yamlChunk = remaining.slice(0, closeIdx)
-            if (yamlChunk) {
-              feedYaml(yamlChunk)
-            }
+            const yamlChunk = textBuffer.slice(0, closeIdx)
+            if (yamlChunk) feedYaml(yamlChunk)
             insideYamlSpec = false
-            // Flush the compiler to get final spec
             const { result } = yamlCompiler.flush()
-            if (result.root) {
-              pushSpecUpdate(result)
-            }
+            if (result.root) pushSpecUpdate(result)
             yamlCompiler.reset()
-            remaining = remaining.slice(closeIdx + fenceClose.length)
+            textBuffer = textBuffer.slice(closeIdx + fenceClose.length)
             // Skip optional newline after fence close
-            if (remaining.startsWith('\n')) remaining = remaining.slice(1)
+            if (textBuffer.startsWith('\n')) textBuffer = textBuffer.slice(1)
           }
         }
       }
@@ -901,6 +918,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           // Refresh plan from server if MCP tools modified the plan
           if (needsPlanRefresh) {
             usePlanStore.getState().load()
+          }
+
+          // Flush any remaining buffered text (partial fence match held back)
+          if (textBuffer.length > 0) {
+            if (insideYamlSpec) {
+              feedYaml(textBuffer)
+            } else {
+              emitText(textBuffer)
+            }
+            textBuffer = ''
           }
 
           // If still inside a yaml-spec fence when stream ends, flush the compiler
