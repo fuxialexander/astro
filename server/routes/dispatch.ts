@@ -530,13 +530,9 @@ dispatchRoute.post('/task', async (c) => {
   }
   description ??= title
 
-  // Validate working directory (interactive plan sessions can brainstorm without one)
-  if (!workingDirectory && !isInteractivePlan) {
-    return c.json(
-      { success: false, error: 'No working directory or repository configured' },
-      400
-    )
-  }
+  // workingDirectory is optional — when missing, the agent-runner auto-provisions
+  // a temporary workspace under its workspace root. Interactive plan sessions
+  // can also brainstorm without one.
 
   // Dry run dependency validation (fail fast before prompt assembly)
   if (dryRun) {
@@ -1036,6 +1032,15 @@ The original project is at: ${workingDirectory}
 **IMPORTANT:**
 - Your changes are in a copy — the original is untouched until you finish
 - When done, your changes will be diffed against the original and presented for review`)
+      } else if (!workingDirectory) {
+        promptParts.push(`## Workspace & Delivery
+
+Your workspace will be auto-provisioned by the platform. You do not need to create or navigate to a directory — the runner sets up the working directory for you.
+
+**IMPORTANT:**
+- This is a temporary workspace — there is no pre-existing codebase or git history
+- Work directly in the current directory provided by the runner
+- When done, commit all changes with a descriptive commit message`)
       } else if (effectiveDelivery === 'direct' || !usesWorktree) {
         promptParts.push(`## Workspace & Delivery
 
@@ -1241,7 +1246,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     worktreeStrategy,
     useWorktree,
     images,
-    skipSafetyCheck: isBuiltinTemplate || (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && safetyDecision !== null),
+    skipSafetyCheck: isBuiltinTemplate || (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && safetyDecision !== null) || !workingDirectory,
     ...(isInteractivePlan ? { type: 'plan' as const, useWorktree: false, deliveryMode: 'direct' as const } : {}),
     ...(relaySystemPrompt ? { systemPrompt: relaySystemPrompt } : {}),
     ...(astroBaseUrl && { astroBaseUrl }),

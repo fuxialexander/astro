@@ -295,19 +295,16 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
         </div>
       )}
 
-      {/* Working directory warning */}
-      {!dirCheck.ok && (
+      {/* Temporary workspace indicator */}
+      {dirCheck.source === 'auto-workspace' && (
         <button
           type="button"
           onClick={() => setRepoConfigOpen(true)}
-          className="w-full rounded-lg bg-warning/10 p-3 text-sm text-left cursor-pointer hover:bg-warning/15 transition-colors"
+          className="w-full rounded-lg bg-amber-500/10 border border-amber-500/20 p-2.5 text-sm text-left cursor-pointer hover:bg-amber-500/15 transition-colors"
         >
-          <div className="flex items-start gap-2">
-            <AlertCircle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
-            <div>
-              <p className="font-medium text-warning">Cannot execute</p>
-              <p className="text-muted-foreground mt-1">No working directory or repository configured. <span className="underline">Click to configure.</span></p>
-            </div>
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+            <p className="text-amber-600 text-xs">Temporary workspace — files auto-delete after 30 days. <span className="underline">Set a permanent directory.</span></p>
           </div>
         </button>
       )}

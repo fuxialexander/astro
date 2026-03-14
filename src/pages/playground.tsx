@@ -438,7 +438,7 @@ export function Playground() {
 
   // Submit new playground session
   const handleSubmit = useCallback(async () => {
-    if (!description.trim() || isSubmitting || !selectedMachine || !workingDir.trim()) return
+    if (!description.trim() || isSubmitting || !selectedMachine) return
     setIsSubmitting(true)
 
     try {
@@ -448,7 +448,7 @@ export function Playground() {
         description.trim(),
         {
           targetMachineId: selectedMachine.machineId,
-          workingDirectory: workingDir.trim(),
+          workingDirectory: workingDir.trim() || undefined,
           preferredProvider: selectedProvider || undefined,
           model: effectiveModel,
         }
@@ -1071,7 +1071,7 @@ export function Playground() {
             </button>
             <Button
               onClick={handleSubmit}
-              disabled={!description.trim() || !selectedMachine || !workingDir.trim() || isSubmitting}
+              disabled={!description.trim() || !selectedMachine || isSubmitting}
               className="gap-2"
             >
               {isSubmitting ? (

@@ -47,7 +47,7 @@ export interface DependencyNode {
 
 // ── Output types ────────────────────────────────────────────────────
 
-export type WorkingDirSource = 'local' | 'repository' | 'remote-path'
+export type WorkingDirSource = 'local' | 'repository' | 'remote-path' | 'auto-workspace'
 
 export interface WorkingDirResult {
   ok: boolean
@@ -100,7 +100,7 @@ export interface DispatchTaskPayload {
  *   1. defaultMachineId + workingDirectory (no repository) → remote-path
  *   2. source.localPath or workingDirectory → local
  *   3. repository (git URL) → repository
- *   4. fail
+ *   4. auto-workspace (agent-runner auto-provisions)
  */
 export function resolveWorkingDirectory(
   project: WorkingDirProject | undefined | null,
@@ -125,9 +125,11 @@ export function resolveWorkingDirectory(
     return { ok: true, dir: project.repository, source: 'repository' }
   }
 
+  // No explicit dir — agent-runner will auto-provision a workspace
   return {
-    ok: false,
-    message: 'No working directory or repository configured. Configure one in project settings.',
+    ok: true,
+    dir: undefined,
+    source: 'auto-workspace',
   }
 }
 
@@ -144,7 +146,7 @@ export function buildDispatchPayload(
   options?: DispatchPayloadOptions,
 ): DispatchTaskPayload {
   const dirResult = resolveWorkingDirectory(project)
-  if (!dirResult.ok || !dirResult.dir) {
+  if (!dirResult.ok) {
     throw new Error(dirResult.message || 'Cannot resolve working directory')
   }
 
@@ -156,7 +158,7 @@ export function buildDispatchPayload(
     dependencies: node.dependencies,
     verification: (node.verification as 'auto' | 'human') || undefined,
     visionDoc: project.visionDoc || undefined,
-    workingDirectory: dirResult.dir,
+    workingDirectory: dirResult.dir || '',
     deliveryMode: (project.deliveryMode as DeliveryMode) || undefined,
     remoteType: (project.source?.remoteType as RemoteType) || undefined,
     agentDir: project.agentDir || undefined,
