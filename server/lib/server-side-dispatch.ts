@@ -16,7 +16,7 @@ import { db } from './db/index.js'
 import { projects, planNodes, teamMembers } from './db/schema.js'
 import { eq } from 'drizzle-orm'
 import { isLocalMode } from './app-mode.js'
-import { LOCAL_USER_ID, LOCAL_TEAM_ID } from './db/bootstrap-local.js'
+import { LOCAL_TEAM_ID } from './db/bootstrap-local.js'
 
 const SERVER_PORT = process.env.PORT || 3001
 
@@ -56,12 +56,15 @@ export async function serverSideDispatch(nodeId: string, projectId: string, opti
     return
   }
 
-  // Resolve auth: in local mode use fixed IDs, otherwise use project owner
+  // Resolve auth: always use the project owner's identity so the dispatch
+  // endpoint's authorization check passes (project must be accessible by userId).
   let userId: string
   let teamId: string
 
   if (isLocalMode()) {
-    userId = LOCAL_USER_ID
+    // In local mode, use the project owner (not the bootstrap user) so the
+    // dispatch endpoint's team-scope filter finds the project.
+    userId = project.ownerId
     teamId = LOCAL_TEAM_ID
   } else {
     userId = project.ownerId

@@ -1576,6 +1576,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
       }
       alive = false
+      // Clean up result/error listeners now that the result has been processed
+      cleanupResult()
     }
 
     const onText = (msg: import('../types/relay.js').TaskTextMessage) => {
@@ -1680,16 +1682,18 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     }
 
     const onMachineDisconnected = async (disconnectedId: string) => {
-      if (!alive || disconnectedId !== machineId) return
+      if (disconnectedId !== machineId || resultSent) return
       console.log(`[dispatch] Machine ${machineId} disconnected during task ${executionId}`)
       const errorData = { error: 'Remote machine disconnected during task execution', recoverable: false }
       const seq = await streamingEventLog.append(executionId, 'error', errorData)
-      stream.writeSSE({
-        id: String(seq),
-        event: 'error',
-        data: JSON.stringify(errorData),
-      }).catch(() => {})
-      stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+      if (alive) {
+        stream.writeSSE({
+          id: String(seq),
+          event: 'error',
+          data: JSON.stringify(errorData),
+        }).catch(() => {})
+        stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+      }
 
       // DB-authoritative: update plan node status + notify frontend (all node types)
       const errorTime = new Date()
@@ -1723,6 +1727,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       }
 
       alive = false
+      cleanupResult()
     }
 
     const onApprovalRequest = async (msg: { taskId: string; requestId: string; question: string; options: string[]; machineId?: string }) => {
@@ -1780,16 +1785,22 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
 
     // P2: Handle dead job detection — terminate this SSE stream when relay detects task is dead
     const onTaskDead = async (data: { taskId: string; machineId: string; reason: string }) => {
-      if (!alive || data.taskId !== executionId) return
+      if (data.taskId !== executionId || resultSent) return
       console.log(`[dispatch] Task ${executionId} declared dead by heartbeat cross-ref: ${data.reason}`)
       const errorData = { error: `Dead job detected: ${data.reason}`, recoverable: true }
       try {
         const seq = await streamingEventLog.append(executionId, 'error', errorData)
-        stream.writeSSE({ id: String(seq), event: 'error', data: JSON.stringify(errorData) }).catch(() => {})
+        if (alive) {
+          stream.writeSSE({ id: String(seq), event: 'error', data: JSON.stringify(errorData) }).catch(() => {})
+        }
       } catch {
-        stream.writeSSE({ event: 'error', data: JSON.stringify(errorData) }).catch(() => {})
+        if (alive) {
+          stream.writeSSE({ event: 'error', data: JSON.stringify(errorData) }).catch(() => {})
+        }
       }
-      stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+      if (alive) {
+        stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
+      }
 
       // DB-authoritative: update plan node status + notify frontend (all node types)
       const errorTime = new Date()
@@ -1827,6 +1838,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       }
 
       alive = false
+      cleanupResult()
     }
 
     // Mark this task as having an active dispatch stream so events.ts
@@ -1851,22 +1863,35 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     relayServer.on('task:safety_prompt', onSafetyPrompt)
     relayServer.on('task:dead', onTaskDead)
 
-    const cleanup = () => {
+    // cleanupSSE removes only SSE-forwarding listeners (text, progress, etc.)
+    // and tracking state. Does NOT remove result/error listeners.
+    const cleanupSSE = () => {
       if (!isServerSideDispatch) {
         activeDispatchStreams.delete(executionId)
         redisPubSub.removeActiveDispatchStream(executionId).catch(() => {})
       }
-      relayServer.off('task:result', onResult)
       relayServer.off('task:text', onText)
       relayServer.off('task:session_init', onSessionInit)
       relayServer.off('task:progress', onProgress)
       relayServer.off('task:tool_trace', onToolTrace)
       relayServer.off('task:file_change', onFileChange)
       relayServer.off('task:stdout', onStdout)
-      relayServer.off('machine:disconnected', onMachineDisconnected)
       relayServer.off('task:approval_request', onApprovalRequest)
       relayServer.off('task:safety_prompt', onSafetyPrompt)
+    }
+
+    // cleanupResult removes result/error listeners — called AFTER result is processed
+    // or when the full cleanup is needed (normal completion).
+    const cleanupResult = () => {
+      relayServer.off('task:result', onResult)
+      relayServer.off('machine:disconnected', onMachineDisconnected)
       relayServer.off('task:dead', onTaskDead)
+    }
+
+    // Full cleanup: remove ALL listeners
+    const cleanup = () => {
+      cleanupSSE()
+      cleanupResult()
     }
 
     // Dispatch after listeners registered
@@ -2087,7 +2112,14 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       alive = false
       decrementDispatchSSE()
       clearInterval(heartbeat)
-      cleanup()
+      // For server-side dispatches, keep result/error listeners alive so DB updates
+      // (plan node status, schedule run status) still happen when the task completes.
+      // For browser dispatches, full cleanup is safe — results arrive via global SSE.
+      if (isServerSideDispatch && !resultSent) {
+        cleanupSSE()
+      } else {
+        cleanup()
+      }
       // Flush relay-server's text buffer on disconnect so no text is lost between
       // the last heartbeat and browser close.
       streamingEventLog.flushText(executionId).catch((err) => {
