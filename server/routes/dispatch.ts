@@ -895,13 +895,16 @@ async function dispatchViaRelay(
     skillsInjection = DEFAULT_MACHINE_INSTRUCTION_FORMATTED
   }
 
-  // Inject json-render generative UI catalog for plan generation and playground
-  const dispatchCatalogPrompt = astroCatalog.prompt()
-  if (dispatchCatalogPrompt) {
-    skillsInjection = (skillsInjection || '') + '\n\n## Generative UI\n\n' +
-      'You can render interactive UI components using ```spec code fences (JSONL RFC 6902 patches). ' +
-      'PREFER ```spec over ```visualizer for structured content (cards, tables, carousels, timelines, dashboards). ' +
-      'Use ```visualizer ONLY for custom SVG/chart diagrams.\n\n' + dispatchCatalogPrompt
+  // Inject json-render generative UI catalog for playground tasks only
+  // (plan generation doesn't need 18KB of UI catalog — it generates plan JSON, not UI specs)
+  if (!isInteractivePlan) {
+    const dispatchCatalogPrompt = astroCatalog.prompt()
+    if (dispatchCatalogPrompt) {
+      skillsInjection = (skillsInjection || '') + '\n\n## Generative UI\n\n' +
+        'You can render interactive UI components using ```spec code fences (JSONL RFC 6902 patches). ' +
+        'PREFER ```spec over ```visualizer for structured content (cards, tables, carousels, timelines, dashboards). ' +
+        'Use ```visualizer ONLY for custom SVG/chart diagrams.\n\n' + dispatchCatalogPrompt
+    }
   }
 
   if (isInteractivePlan) {
