@@ -174,8 +174,8 @@ describe('Dispatch route schema validation', { timeout: 30_000 }, () => {
     expect(body.dryRun).toBe(true)
   })
 
-  // Extra: Rejects missing required fields
-  it('rejects missing workingDirectory when not dryRun', async () => {
+  // Auto-workspace: missing workingDirectory is now allowed (agent-runner auto-provisions)
+  it('allows missing workingDirectory when not dryRun (auto-workspace)', async () => {
     const res = await postJson('/api/dispatch/task', {
       nodeId: 'n1',
       projectId: 'p1',
@@ -183,8 +183,8 @@ describe('Dispatch route schema validation', { timeout: 30_000 }, () => {
       description: 'Test desc',
       dryRun: false,
     })
-    // Should get 400 because workingDirectory is required for actual dispatch
-    expect(res.status).toBe(400)
+    // Should NOT get 400 — workingDirectory is optional since auto-workspace fallback
+    expect(res.status).not.toBe(400)
   })
 
   // Extra: Accepts remoteType field
