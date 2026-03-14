@@ -85,20 +85,22 @@ function getShortId(id: string): string {
  * Mapping:
  *   github/gitlab/bitbucket  → 'pr'     (remote git with hosting platform)
  *   generic                  → 'push'   (remote git, unknown host)
- *   none                     → 'branch' (local git, no remote)
- *   undefined                → 'direct' (git status unknown / never detected)
+ *   none / undefined         → 'direct' (safe default for ambiguous cases)
  *
- * The frontend's deriveDeliveryMode() uses an `isGit` boolean to distinguish
- * "local git, no remote" (→ 'branch') from "no git at all" (→ 'direct').
- * The server doesn't have `isGit`, but for local-git projects the DB
- * deliveryMode is set to 'branch' during project creation from the agent's
- * suggestedDeliveryMode, so this fallback only fires when remoteType is
- * unset — e.g., template projects that skip repo detection.
+ * Why 'direct' for 'none' and undefined:
+ * The server doesn't have an `isGit` boolean — only `remoteType`. The value
+ * 'none' is sent by the agent-runner for BOTH "non-git directory" (isGit=false)
+ * and "local git, no remote" (isGit=true). The server cannot distinguish them.
  *
- * The safe default for unknown is 'direct': it activates the server-side
- * serial execution check (preventing concurrent dispatch to non-git dirs).
- * If the directory actually has git, the agent-runner's prepareTaskWorkspace()
- * detects it and uses worktree isolation regardless of this hint.
+ * For local-git projects, the DB deliveryMode is set to 'branch' during
+ * project creation (from the agent's suggestedDeliveryMode), so this fallback
+ * never fires for them. It only fires when the DB has no deliveryMode — e.g.,
+ * template projects that skip repo detection, or legacy projects.
+ *
+ * 'direct' is the safe default: it activates the server-side serial execution
+ * check (preventing concurrent dispatch) and works for both git and non-git
+ * directories. If the directory actually has git, the agent-runner's
+ * prepareTaskWorkspace() detects it and uses worktree isolation regardless.
  */
 function deriveDefaultDeliveryMode(remoteType?: string): 'pr' | 'push' | 'branch' | 'direct' {
   switch (remoteType) {
@@ -109,7 +111,6 @@ function deriveDefaultDeliveryMode(remoteType?: string): 'pr' | 'push' | 'branch
     case 'generic':
       return 'push'
     case 'none':
-      return 'branch'
     default:
       return 'direct'
   }
