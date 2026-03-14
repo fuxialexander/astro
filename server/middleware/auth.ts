@@ -59,6 +59,7 @@ function verifySupabaseJwt(token: string): SupabaseJwtPayload | null {
   try {
     const decoded = jwt.verify(token, SUPABASE_JWT_SECRET, {
       algorithms: ['HS256'],
+      audience: 'authenticated',
     }) as SupabaseJwtPayload
 
     // Ensure it's an authenticated user token (not anon)

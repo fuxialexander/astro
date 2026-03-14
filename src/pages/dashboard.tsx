@@ -460,7 +460,7 @@ export function Dashboard() {
                         </div>
                       ) : executionsLoaded && execution ? (
                         <div className="rounded-lg border border-border/30 p-3">
-                          <p className="text-[11px] text-muted-foreground/60 line-clamp-3">{node.executionOutput || execution?.streamText || execution?.summary?.workCompleted || 'No output captured.'}</p>
+                          <p className="text-[11px] text-muted-foreground/60 line-clamp-3">{node.executionOutput || execution?.summary?.workCompleted || 'No output captured.'}</p>
                         </div>
                       ) : executionsLoaded && !execution ? (
                         <div className="rounded-lg border border-warning/20 bg-warning/[0.03] p-3">

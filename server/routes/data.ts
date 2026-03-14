@@ -1636,7 +1636,6 @@ app.get('/executions', async (c) => {
   // Convert to map keyed by nodeClientId.
   // Exclude streamText from list response — it can be 10-100 KB per execution
   // and is only needed when viewing a specific task's output.
-  // Full data is loaded via GET /executions/:nodeId.
   const result: Record<string, unknown> = {}
   for (const exec of filtered) {
     result[exec.nodeClientId] = {
