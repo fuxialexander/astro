@@ -6,7 +6,6 @@ import { join } from 'path'
 import { mkdirSync } from 'fs'
 import { buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, buildTitleGenerationPrompt, buildRefinementPrompt, buildLabelSuggestionPrompt, buildCompactionPrompt, formatMachineInstruction } from '../lib/prompt-templates.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
-import { astroCatalog } from '../../src/lib/json-render/catalog.js'
 import { relayServer } from '../lib/relay-server.js'
 import { dispatchEngine } from '../lib/dispatch/index.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
@@ -594,11 +593,8 @@ agentRoute.post('/project-chat', async (c) => {
     chatSkills = chatSkills + '\n\n' + chatPlatformSkills
   }
 
-  // Inject json-render generative UI catalog prompt
-  const catalogPrompt = astroCatalog.prompt()
-  if (catalogPrompt) {
-    chatSkills = (chatSkills || '') + '\n\n' + buildGenerativeUIPrompt(catalogPrompt)
-  }
+  // Inject lightweight generative UI hint (full catalog is in render-ui skill, loaded on-demand)
+  chatSkills = (chatSkills || '') + '\n\n' + GENERATIVE_UI_HINT
 
   const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges, chatSkills)
 
@@ -786,11 +782,8 @@ agentRoute.post('/task-chat', async (c) => {
     }
   }
 
-  // Inject json-render generative UI catalog prompt
-  const tcCatalogPrompt = astroCatalog.prompt()
-  if (tcCatalogPrompt) {
-    tcSkills = (tcSkills || '') + '\n\n' + buildGenerativeUIPrompt(tcCatalogPrompt)
-  }
+  // Inject lightweight generative UI hint
+  tcSkills = (tcSkills || '') + '\n\n' + GENERATIVE_UI_HINT
 
   const systemPrompt = buildTaskChatSystemPrompt({
     taskTitle,
@@ -1178,93 +1171,25 @@ agentRoute.post('/providers/detect', async (c) => {
   })
 })
 
-// ── Generative UI prompt builder ─────────────────────────────────────
+// ── Generative UI — lightweight hint injected into every chat prompt ──
+// Full catalog + examples are in skills/render-ui/SKILL.md (loaded on-demand via skill manager).
+// This hint is ~800 chars vs the full catalog's ~18KB.
 
-function buildGenerativeUIPrompt(catalogPrompt: string): string {
-  return `## Generative UI — Rich Component Rendering
+const GENERATIVE_UI_HINT = `## Generative UI
 
-You can render rich, interactive UI components using \`\`\`spec code fences. These render as native React components (cards, tables, carousels, timelines, etc.) — NOT as HTML iframes.
+You can render interactive UI components using \`\`\`spec code fences (JSONL RFC 6902 patches). These render as native React components — not HTML iframes.
 
-### IMPORTANT: \`\`\`spec vs \`\`\`visualizer
+**\`\`\`spec vs \`\`\`visualizer**: PREFER \`\`\`spec for structured content. Use \`\`\`visualizer ONLY for custom SVG/chart diagrams.
 
-- **\`\`\`spec** — Use for **structured data presentation**: tables, cards, carousels, option cards, timelines, dashboards, todo lists, key-value displays, metrics, step indicators, accordions. These are pre-built React components with consistent styling. **PREFER spec blocks over visualizer for all structured content.**
-- **\`\`\`visualizer** — Use ONLY for **custom diagrams, charts, and arbitrary SVG/HTML** that cannot be expressed with spec components (e.g., force-directed graphs, custom SVG illustrations, canvas-based animations).
+**Available components**: Card, Stack, Separator, Text, Heading, Badge, Alert, Table, List, KeyValue, CodeBlock, OptionCard, Timeline, Accordion, TabView, TodoList, CardCarousel, Metric, StepIndicator, Progress, Button
 
-When the user asks for cards, tables, carousels, comparisons, dashboards, timelines, option cards, or any structured UI — ALWAYS use \`\`\`spec, never \`\`\`visualizer.
+**Actions**: send_chat_message (continues conversation), copy_to_clipboard, navigate_to_node, setState (built-in)
 
-### When to use specs vs markdown
+**Format**: Each line is a JSON Patch op. Start with /root, then add /elements/<key> with {type, props, children: []}.
+Example: \`{"op":"add","path":"/root","value":"t1"}\` then \`{"op":"add","path":"/elements/t1","value":{"type":"Table","props":{"headers":["A","B"],"rows":[["1","2"]]},"children":[]}}\`
 
-| Use \`\`\`spec blocks for | Use markdown for |
-|---------------------|------------------|
-| Structured data tables (comparisons, results, metrics) | Conversational explanations |
-| Card carousels for browsing options | Step-by-step instructions |
-| Status dashboards with badges and progress bars | Code examples and snippets |
-| Multi-step decision flows with clickable options | Short answers and clarifications |
-| Timeline views of events or milestones | Simple lists under 5 items |
-| Interactive option cards that continue the conversation | |
-| Todo/checklist items | |
-| Metric displays (KPIs, stats) | |
+**Interactive cards**: Use OptionCard with \`"on":{"press":{"action":"send_chat_message","params":{"message":"User's choice"}}}\` to create clickable options that continue the conversation.
 
-**Default to markdown.** Only use spec blocks when the content is genuinely structured and benefits from component rendering.
-
-### Spec format
-
-Wrap specs in a \`\`\`spec code fence. Each line is an RFC 6902 JSON Patch operation:
-
-\`\`\`spec
-{"op":"add","path":"/root","value":"card-1"}
-{"op":"add","path":"/elements/card-1","value":{"type":"Card","props":{"title":"Build Summary"},"children":["kv-1","badge-1"]}}
-{"op":"add","path":"/elements/kv-1","value":{"type":"KeyValue","props":{"pairs":[{"key":"Status","value":"Passed"},{"key":"Duration","value":"4.2s"}]},"children":[]}}
-{"op":"add","path":"/elements/badge-1","value":{"type":"Badge","props":{"label":"All tests passing","variant":"success"},"children":[]}}
-\`\`\`
-
-### Interactive option cards (send_chat_message)
-
-Use OptionCard + send_chat_message to create clickable choices that continue the conversation:
-
-\`\`\`spec
-{"op":"add","path":"/root","value":"options"}
-{"op":"add","path":"/elements/options","value":{"type":"Stack","props":{"direction":"vertical","gap":"sm"},"children":["opt-a","opt-b","opt-c"]}}
-{"op":"add","path":"/elements/opt-a","value":{"type":"OptionCard","props":{"title":"Option A","description":"Description of what this option does"},"on":{"press":{"action":"send_chat_message","params":{"message":"I choose Option A"}}},"children":[]}}
-{"op":"add","path":"/elements/opt-b","value":{"type":"OptionCard","props":{"title":"Option B","description":"Description of this alternative"},"on":{"press":{"action":"send_chat_message","params":{"message":"I choose Option B"}}},"children":[]}}
-{"op":"add","path":"/elements/opt-c","value":{"type":"OptionCard","props":{"title":"Option C","description":"A third possibility"},"on":{"press":{"action":"send_chat_message","params":{"message":"I choose Option C"}}},"children":[]}}
-\`\`\`
-
-When the user clicks a card, the message is sent to chat automatically, continuing the conversation.
-
-### Multi-step flows with state
-
-Use \`state\` + \`visible\` conditions + \`setState\` for multi-step selection flows where the user makes several choices before sending a message:
-
-\`\`\`spec
-{"op":"add","path":"/state","value":{"step":1}}
-{"op":"add","path":"/root","value":"flow"}
-{"op":"add","path":"/elements/flow","value":{"type":"Stack","props":{"direction":"vertical","gap":"md"},"children":["step1","step2"]}}
-{"op":"add","path":"/elements/step1","value":{"type":"Stack","props":{"direction":"horizontal","gap":"sm","wrap":true},"children":["choice-a","choice-b"]}}
-{"op":"add","path":"/elements/choice-a","value":{"type":"OptionCard","props":{"title":"Path A"},"on":{"press":{"action":"setState","params":{"statePath":"/step","value":2}}},"children":[]}}
-{"op":"add","path":"/elements/choice-b","value":{"type":"OptionCard","props":{"title":"Path B"},"on":{"press":{"action":"setState","params":{"statePath":"/step","value":2}}},"children":[]}}
-{"op":"add","path":"/elements/step2","value":{"type":"OptionCard","props":{"title":"Continue with selection"},"visible":{"$state":"/step","gte":2},"on":{"press":{"action":"send_chat_message","params":{"message":"I selected Path A, let's continue"}}},"children":[]}}
-\`\`\`
-
-The \`setState\` action updates local spec state. Elements with \`visible\` conditions only appear when the condition is met. Only the final choice uses \`send_chat_message\`.
-
-### Timeline
-
-\`\`\`spec
-{"op":"add","path":"/root","value":"tl"}
-{"op":"add","path":"/elements/tl","value":{"type":"Timeline","props":{"entries":[{"label":"Phase 1","title":"Foundation","description":"Set up project structure"},{"label":"Phase 2","title":"Core Features","description":"Implement main functionality"},{"label":"Phase 3","title":"Polish","description":"Testing and refinement"}]},"children":[]}}
-\`\`\`
-
-### Important rules
-
-- Always set \`"children": []\` for leaf elements
-- Reference child elements by their key in the parent's \`children\` array
-- The \`type\` field must match a component from the catalog below
-- You can mix prose markdown and spec blocks in the same response
-- Use \`send_chat_message\` action for any option/button that should continue the conversation
-- Use \`setState\` + \`visible\` for multi-step selection within a single spec
-
-${catalogPrompt}`
-}
+Default to markdown for conversational text. Use spec blocks when content is structured (tables, dashboards, comparisons, option cards, timelines).`
 
 export { agentRoute }

@@ -29,7 +29,6 @@ import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction } from '../lib/prompt-templates.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
-import { astroCatalog } from '../../src/lib/json-render/catalog.js'
 import { extractPlanJsonFromText, BUILTIN_TEMPLATE_IDS } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { autoDispatchDownstream, cascadePruneDownstream, revertMilestonesOnReset } from './data.js'
@@ -895,16 +894,15 @@ async function dispatchViaRelay(
     skillsInjection = DEFAULT_MACHINE_INSTRUCTION_FORMATTED
   }
 
-  // Inject json-render generative UI catalog for playground tasks only
-  // (plan generation doesn't need 18KB of UI catalog — it generates plan JSON, not UI specs)
+  // Lightweight generative UI hint for playground/task execution (not plan generation)
   if (!isInteractivePlan) {
-    const dispatchCatalogPrompt = astroCatalog.prompt()
-    if (dispatchCatalogPrompt) {
-      skillsInjection = (skillsInjection || '') + '\n\n## Generative UI\n\n' +
-        'You can render interactive UI components using ```spec code fences (JSONL RFC 6902 patches). ' +
-        'PREFER ```spec over ```visualizer for structured content (cards, tables, carousels, timelines, dashboards). ' +
-        'Use ```visualizer ONLY for custom SVG/chart diagrams.\n\n' + dispatchCatalogPrompt
-    }
+    skillsInjection = (skillsInjection || '') +
+      '\n\n## Generative UI\n\n' +
+      'You can render interactive UI components using ```spec code fences (JSONL RFC 6902 patches). ' +
+      'PREFER ```spec over ```visualizer for structured content (cards, tables, carousels, timelines, dashboards). ' +
+      'Available components: Card, Stack, Text, Heading, Badge, Alert, Table, List, KeyValue, CodeBlock, ' +
+      'OptionCard, Timeline, Accordion, TabView, TodoList, CardCarousel, Metric, StepIndicator, Progress, Button. ' +
+      'Actions: send_chat_message, copy_to_clipboard, navigate_to_node, setState (built-in).'
   }
 
   if (isInteractivePlan) {
