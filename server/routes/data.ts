@@ -964,6 +964,8 @@ app.patch('/plan/nodes/:id', async (c) => {
 
 /**
  * Find downstream nodes whose dependencies are all completed, emit task:ready SSE events.
+ * Also auto-completes milestone nodes when all their upstream deps are met, and recursively
+ * dispatches tasks downstream of newly-completed milestones.
  */
 export async function autoDispatchDownstream(projectId: string, completedNodeId: string): Promise<void> {
   const allNodes = await db.select().from(planNodes)
@@ -971,13 +973,68 @@ export async function autoDispatchDownstream(projectId: string, completedNodeId:
   const allEdges = await db.select().from(planEdges)
     .where(and(eq(planEdges.projectId, projectId), isNull(planEdges.deletedAt)))
 
-  const downstreamIds = allEdges
-    .filter(e => e.sourceClientId === completedNodeId)
-    .map(e => e.targetClientId)
-
   const COMPLETED_STATUSES = ['completed', 'auto_verified']
-  const readyIds: string[] = []
 
+  // Build a mutable status map so milestone completions cascade within this call
+  const statusMap = new Map(allNodes.map(n => [n.clientId, n.status]))
+
+  // Phase 1: Auto-complete milestones whose deps are all met.
+  // A completed task may satisfy a milestone (via edge or milestoneId), which in turn
+  // may satisfy another milestone, so iterate until stable.
+  const completedMilestoneIds: string[] = []
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const ms of allNodes.filter(n => n.type === 'milestone')) {
+      const currentStatus = statusMap.get(ms.clientId)!
+      if (COMPLETED_STATUSES.includes(currentStatus)) continue
+
+      // Gather upstream deps: edges pointing TO this milestone + tasks with milestoneId
+      const edgeDeps = new Set(
+        allEdges.filter(e => e.targetClientId === ms.clientId).map(e => e.sourceClientId)
+      )
+      for (const t of allNodes) {
+        if (t.type !== 'milestone' && t.milestoneId === ms.clientId) {
+          edgeDeps.add(t.clientId)
+        }
+      }
+      if (edgeDeps.size === 0) continue
+
+      const allDepsMet = [...edgeDeps].every(depId => {
+        const s = statusMap.get(depId)
+        return s && COMPLETED_STATUSES.includes(s)
+      })
+
+      if (allDepsMet) {
+        statusMap.set(ms.clientId, 'auto_verified')
+        completedMilestoneIds.push(ms.clientId)
+        changed = true
+      }
+    }
+  }
+
+  // Persist milestone status changes to DB and notify frontend
+  for (const msId of completedMilestoneIds) {
+    const ms = allNodes.find(n => n.clientId === msId)!
+    console.log(`[data] Auto-completing milestone "${ms.title}" (${msId})`)
+    await db.update(planNodes)
+      .set({ status: 'auto_verified', updatedAt: new Date() })
+      .where(and(eq(planNodes.clientId, msId), eq(planNodes.projectId, projectId)))
+    executionEventBus.emit('node:status_changed', {
+      nodeId: msId, projectId, status: 'auto_verified',
+    })
+  }
+
+  // Phase 2: Find downstream tasks ready to dispatch.
+  // Check downstream of both the originally completed node AND any newly-completed milestones.
+  const triggerIds = [completedNodeId, ...completedMilestoneIds]
+  const downstreamIds = new Set(
+    allEdges
+      .filter(e => triggerIds.includes(e.sourceClientId))
+      .map(e => e.targetClientId)
+  )
+
+  const readyIds: string[] = []
   for (const downId of downstreamIds) {
     const downNode = allNodes.find(n => n.clientId === downId)
     if (!downNode || downNode.type !== 'task') continue
@@ -985,8 +1042,8 @@ export async function autoDispatchDownstream(projectId: string, completedNodeId:
 
     const depEdges = allEdges.filter(e => e.targetClientId === downId)
     const allDepsMet = depEdges.every(depEdge => {
-      const depNode = allNodes.find(n => n.clientId === depEdge.sourceClientId)
-      return depNode && COMPLETED_STATUSES.includes(depNode.status)
+      const s = statusMap.get(depEdge.sourceClientId)
+      return s && COMPLETED_STATUSES.includes(s)
     })
 
     if (allDepsMet) {
