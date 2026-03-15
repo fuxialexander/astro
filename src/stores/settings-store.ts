@@ -127,16 +127,38 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     try {
       const settings = await dataClient.getSettings()
       const updates: Partial<SettingsState> = { loaded: true, loading: false }
+      // Migrate legacy "claude-code" → "claude-sdk" in provider name and model map
+      const migrationPatch: Record<string, string> = {}
       if (settings.defaultProvider) {
-        updates.defaultProvider = settings.defaultProvider
+        const migratedProvider = settings.defaultProvider === "claude-code" ? "claude-sdk" : settings.defaultProvider
+        updates.defaultProvider = migratedProvider
+        if (migratedProvider !== settings.defaultProvider) {
+          migrationPatch.defaultProvider = migratedProvider
+        }
       }
       // Load custom model map
       if (settings.customModelMap) {
         try {
-          updates.customModelMap = JSON.parse(settings.customModelMap) as CustomModelMap
+          const parsed = JSON.parse(settings.customModelMap) as CustomModelMap
+          for (const tier of ["large", "medium", "small"] as ModelTier[]) {
+            if (parsed[tier]?.["claude-code"]) {
+              // Preserve existing claude-sdk value if present
+              if (!parsed[tier]!["claude-sdk"]) {
+                parsed[tier]!["claude-sdk"] = parsed[tier]!["claude-code"]
+              }
+              delete parsed[tier]!["claude-code"]
+              if (Object.keys(parsed[tier]!).length === 0) delete parsed[tier]
+              migrationPatch.customModelMap = JSON.stringify(parsed)
+            }
+          }
+          updates.customModelMap = parsed
         } catch {
           // ignore malformed JSON
         }
+      }
+      // Persist all migrations in a single write to avoid race conditions
+      if (Object.keys(migrationPatch).length > 0) {
+        dataClient.updateSettings(migrationPatch).catch(() => {})
       }
       if (settings.editorType === 'cursor' || settings.editorType === 'vscode') {
         updates.editorType = settings.editorType
@@ -155,7 +177,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       if (settings.modelTier) {
         const tier = settings.modelTier as ModelTier
         updates.modelTier = tier
-        updates.model = resolveModel(tier, settings.defaultProvider || get().defaultProvider || "claude-sdk", updates.customModelMap || get().customModelMap) || ''
+        updates.model = resolveModel(tier, updates.defaultProvider || get().defaultProvider || "claude-sdk", updates.customModelMap || get().customModelMap) || ''
       } else if (settings.model) {
         // Backward compat: derive tier from legacy model string
         updates.model = settings.model

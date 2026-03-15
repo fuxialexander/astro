@@ -13,17 +13,12 @@ import {
   Zap,
   Camera,
   Paintbrush,
-  Plus,
   Trash2,
-  Key,
   AlertTriangle,
   CheckCircle2,
   XCircle,
   Loader2,
   Github,
-  Eye,
-  EyeOff,
-  Lock,
   Users,
   Mail,
   Clock,
@@ -35,10 +30,8 @@ import { LanguageSwitcher } from "@/components/language-switcher"
 import { useTheme } from "@/components/theme-provider"
 import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore } from "@/stores/execution-store"
-import { useMachinesStore } from "@/stores/machines-store"
 import { useGitHubStore } from "@/stores/github-store"
 import { useGitHubAppStore } from "@/stores/github-app-store"
-import { useApiKeysStore } from "@/stores/api-keys-store"
 import { useSettingsStore, defaultModelTierMap, type ModelTier } from "@/stores/settings-store"
 import { useSidebarStore } from "@/stores/sidebar-store"
 import { useToastStore } from "@/stores/toast-store"
@@ -66,7 +59,7 @@ import { SkillSettingsContent } from "@/components/skill-settings"
 import { GitHubProjectLinker } from "@/components/github-project-linker"
 import { TelegramConnectCard } from "@/components/telegram-connect-card"
 import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
-import type { DomainExpertise, ExperienceLevel } from "@/types"
+import type { DomainExpertise } from "@/types"
 import { dataClient } from "@/lib/data-client"
 
 const domainOptions: { value: DomainExpertise; label: string; description: string }[] = [
@@ -82,14 +75,6 @@ const domainOptions: { value: DomainExpertise; label: string; description: strin
   { value: "other", label: "Other", description: "General software development" },
 ]
 
-const experienceLevelOptions: { value: ExperienceLevel; label: string; description: string }[] = [
-  { value: "beginner", label: "Beginner", description: "Learning fundamentals, needs detailed guidance" },
-  { value: "intermediate", label: "Intermediate", description: "Comfortable with basics, growing expertise" },
-  { value: "advanced", label: "Advanced", description: "Strong skills, can work independently" },
-  { value: "expert", label: "Expert", description: "Deep expertise, can lead complex projects" },
-]
-
-// Removed: environmentOptions - replaced with dynamic machine list from useMachinesStore
 
 type SettingsTab =
   | "general"
@@ -417,110 +402,10 @@ function ProfileContent() {
     setEmail,
     setBio,
     toggleDomain,
-    setExperienceLevel,
-    togglePreferredMachine,
   } = useUserProfileStore()
-
-  const {
-    encryptedKeys,
-    loaded: keysLoaded,
-    loading: keysLoading,
-    load: loadKeys,
-    addKey: addEncryptedKey,
-    removeKey: removeEncryptedKey,
-    getDecryptedKey,
-  } = useApiKeysStore()
-
-  const { machines } = useMachinesStore()
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isDeletingAccount, setIsDeletingAccount] = useState(false)
-
-  // Encrypted API keys state
-  const [showAddEncryptedKey, setShowAddEncryptedKey] = useState(false)
-  const [newService, setNewService] = useState("")
-  const [newApiKey, setNewApiKey] = useState("")
-  const [addingKey, setAddingKey] = useState(false)
-  const [removingKey, setRemovingKey] = useState<string | null>(null)
-  const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set())
-  const [decryptedKeyValues, setDecryptedKeyValues] = useState<Map<string, string>>(new Map())
-
-  // Load encrypted keys on mount
-  useEffect(() => {
-    if (isServerMode() && !keysLoaded && !keysLoading) {
-      loadKeys()
-    }
-  }, [keysLoaded, keysLoading, loadKeys])
-
-  const handleAddEncryptedKey = async () => {
-    if (!newService || !newApiKey) return
-
-    setAddingKey(true)
-    try {
-      await addEncryptedKey(newService, newApiKey)
-      setNewService("")
-      setNewApiKey("")
-      setShowAddEncryptedKey(false)
-    } catch (error) {
-      console.error("[settings] Failed to add encrypted key:", error)
-      alert(`Failed to add API key: ${error instanceof Error ? error.message : "Unknown error"}`)
-    } finally {
-      setAddingKey(false)
-    }
-  }
-
-  const handleRemoveEncryptedKey = async (serviceName: string) => {
-    setRemovingKey(serviceName)
-    try {
-      await removeEncryptedKey(serviceName)
-      // Remove from revealed keys
-      setRevealedKeys((prev) => {
-        const next = new Set(prev)
-        next.delete(serviceName)
-        return next
-      })
-      // Remove from decrypted cache
-      setDecryptedKeyValues((prev) => {
-        const next = new Map(prev)
-        next.delete(serviceName)
-        return next
-      })
-    } catch (error) {
-      console.error("[settings] Failed to remove encrypted key:", error)
-      alert(`Failed to remove API key: ${error instanceof Error ? error.message : "Unknown error"}`)
-    } finally {
-      setRemovingKey(null)
-    }
-  }
-
-  const toggleRevealKey = async (serviceName: string) => {
-    const isRevealed = revealedKeys.has(serviceName)
-
-    if (isRevealed) {
-      // Hide key
-      setRevealedKeys((prev) => {
-        const next = new Set(prev)
-        next.delete(serviceName)
-        return next
-      })
-    } else {
-      // Decrypt and reveal key
-      if (!decryptedKeyValues.has(serviceName)) {
-        try {
-          const plainKey = await getDecryptedKey(serviceName)
-          if (plainKey) {
-            setDecryptedKeyValues((prev) => new Map(prev).set(serviceName, plainKey))
-          }
-        } catch (error) {
-          console.error("[settings] Failed to decrypt key:", error)
-          alert("Failed to decrypt API key")
-          return
-        }
-      }
-
-      setRevealedKeys((prev) => new Set(prev).add(serviceName))
-    }
-  }
 
   const handleDeleteAccount = async () => {
     setIsDeletingAccount(true)
@@ -662,257 +547,25 @@ function ProfileContent() {
         </div>
       </section>
 
-      {/* Experience Level */}
-      <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">{t("profile.experienceLevel")}</h2>
-        <p className="text-[13px] text-muted-foreground">
-          {t("profile.experienceLevelDesc")}
-        </p>
-        <div className="rounded-xl border border-border bg-card">
-          {experienceLevelOptions.map((option, idx) => (
-            <label
-              key={option.value}
-              className={cn(
-                "flex cursor-pointer items-center gap-3 px-4 py-3",
-                idx !== experienceLevelOptions.length - 1 && "border-b border-border"
-              )}
-            >
-              <input
-                type="radio"
-                name="experienceLevel"
-                value={option.value}
-                checked={profile.experienceLevel === option.value}
-                onChange={() => setExperienceLevel(option.value)}
-                className="h-4 w-4 accent-primary"
-              />
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm">{option.label}</span>
-                <span className="text-[13px] text-muted-foreground">{option.description}</span>
-              </div>
-            </label>
-          ))}
-        </div>
-      </section>
-
-      {/* Preferred Machines */}
-      <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">{t("profile.preferredMachines")}</h2>
-        <p className="text-[13px] text-muted-foreground">
-          {t("profile.preferredMachinesDesc")}
-        </p>
-        {machines.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card px-4 py-6 text-center">
-            <p className="text-sm text-muted-foreground">{t("profile.noMachines")}</p>
-            <p className="mt-1 text-[13px] text-muted-foreground">
-              Register machines from the{" "}
-              <Link to="/environments" className="text-primary hover:underline">
-                Environments
-              </Link>{" "}
-              page to set preferences.
-            </p>
-          </div>
-        ) : (
-          <div className="rounded-xl border border-border bg-card">
-            {machines.map((machine, idx) => (
-              <label
-                key={machine.id}
-                className={cn(
-                  "flex cursor-pointer items-center gap-3 px-4 py-3",
-                  idx !== machines.length - 1 && "border-b border-border",
-                  machine.isRevoked && "opacity-50"
-                )}
-              >
-                <input
-                  type="checkbox"
-                  checked={profile.preferredMachines.includes(machine.id)}
-                  onChange={() => togglePreferredMachine(machine.id)}
-                  disabled={machine.isRevoked}
-                  className="h-4 w-4 rounded accent-primary disabled:cursor-not-allowed"
-                />
-                <div className="flex flex-1 flex-col gap-0.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm">{machine.name}</span>
-                    {machine.isConnected && (
-                      <Badge variant="outline" className="h-5 text-[10px] uppercase">
-                        Online
-                      </Badge>
-                    )}
-                    {machine.isRevoked && (
-                      <Badge variant="outline" className="h-5 text-[10px] uppercase text-muted-foreground">
-                        Revoked
-                      </Badge>
-                    )}
-                  </div>
-                  <span className="text-[13px] text-muted-foreground">
-                    {machine.hostname} • {machine.platform}
-                  </span>
-                </div>
-              </label>
-            ))}
-          </div>
-        )}
-      </section>
-
-
-      {/* Encrypted API Keys (Server Mode Only) */}
-      {isServerMode() && (
-        <section className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold">{t("apiKeys.title")}</h2>
-              <Badge variant="secondary" className="gap-1 text-[10px]">
-                <Lock className="h-2.5 w-2.5" />
-                {t("apiKeys.encrypted")}
-              </Badge>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowAddEncryptedKey(true)}
-            >
-              <Plus className="mr-1.5 h-3.5 w-3.5" />
-              {t("apiKeys.addKey")}
-            </Button>
-          </div>
-          <p className="text-[13px] text-muted-foreground">
-            {t("apiKeys.addKeyDesc")}
-          </p>
-
-          <div className="rounded-xl border border-border bg-card">
-            {keysLoading ? (
-              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                <Loader2 className="mb-2 h-5 w-5 animate-spin" />
-                <span className="text-sm">{t("apiKeys.loading")}</span>
-              </div>
-            ) : encryptedKeys.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                <Key className="mb-2 h-8 w-8" />
-                <span className="text-sm">{t("apiKeys.noKeys")}</span>
-              </div>
-            ) : (
-              encryptedKeys.map((key, idx) => {
-                const isRevealed = revealedKeys.has(key.serviceName)
-                const decryptedValue = decryptedKeyValues.get(key.serviceName)
-                const displayValue = isRevealed && decryptedValue
-                  ? decryptedValue
-                  : "••••••••••••••••"
-
-                return (
-                  <div
-                    key={key.id}
-                    className={cn(
-                      "flex items-center justify-between px-4 py-3",
-                      idx !== encryptedKeys.length - 1 && "border-b border-border"
-                    )}
-                  >
-                    <div className="flex flex-col gap-1 flex-1 min-w-0">
-                      <span className="text-sm font-medium">{key.serviceName}</span>
-                      <div className="flex items-center gap-2">
-                        <code className="text-[12px] font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">
-                          {displayValue}
-                        </code>
-                        <button
-                          onClick={() => toggleRevealKey(key.serviceName)}
-                          className="text-muted-foreground hover:text-foreground transition-colors"
-                          title={isRevealed ? "Hide key" : "Reveal key"}
-                        >
-                          {isRevealed ? (
-                            <EyeOff className="h-3.5 w-3.5" />
-                          ) : (
-                            <Eye className="h-3.5 w-3.5" />
-                          )}
-                        </button>
-                      </div>
-                      <span className="text-[11px] text-muted-foreground">
-                        Added {key.createdAt.toLocaleDateString()}
-                      </span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleRemoveEncryptedKey(key.serviceName)}
-                      disabled={removingKey === key.serviceName}
-                      className="text-destructive hover:text-destructive"
-                    >
-                      {removingKey === key.serviceName ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                )
-              })
-            )}
-          </div>
-        </section>
-      )}
-
-      {/* Add Encrypted API Key Dialog */}
-      <Dialog open={showAddEncryptedKey} onOpenChange={setShowAddEncryptedKey}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("apiKeys.addDialog.title")}</DialogTitle>
-            <DialogDescription>
-              {t("apiKeys.addDialog.description")}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-4 py-4">
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">{t("apiKeys.addDialog.serviceName")}</label>
-              <Input
-                value={newService}
-                onChange={(e) => setNewService(e.target.value)}
-                placeholder="e.g., openai-whisper, anthropic"
-              />
-              <p className="text-xs text-muted-foreground">
-                Use a unique identifier for the service (e.g., openai-whisper, openai-gpt4)
-              </p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">{t("apiKeys.addDialog.apiKey")}</label>
-              <Input
-                type="password"
-                value={newApiKey}
-                onChange={(e) => setNewApiKey(e.target.value)}
-                placeholder="sk-..."
-              />
-              <p className="text-xs text-muted-foreground">
-                Your key will be encrypted using AES-GCM before storage
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowAddEncryptedKey(false)
-                setNewService("")
-                setNewApiKey("")
-              }}
-              disabled={addingKey}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleAddEncryptedKey}
-              disabled={!newService || !newApiKey || addingKey}
-            >
-              {addingKey ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {t("apiKeys.addDialog.adding")}
-                </>
-              ) : (
-                <>
-                  <Lock className="mr-2 h-4 w-4" />
-                  {t("apiKeys.addDialog.addKey")}
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/*
+       * ── Secrets (disabled) ───────────────────────────────────────────────
+       *
+       * We previously had an "API Keys" section here that let users store
+       * encrypted secrets (AES-GCM via Web Crypto API) in our database.
+       *
+       * Decision: removed for now. We don't want to ask users to send us
+       * their secrets unless we can clearly justify why *we* need to hold
+       * them. For most use cases, users can store secrets locally:
+       *   - .env files in their project directory
+       *   - Agent-runner reads secrets from the machine it runs on
+       *
+       * If we re-enable this in the future (e.g., cloud-hosted agents that
+       * need API keys injected at runtime), the implementation lives in:
+       *   - Store:     src/stores/api-keys-store.ts
+       *   - Backend:   server/routes/api-keys.ts
+       *   - UI was here (ProfileContent) — restore from git history
+       * ────────────────────────────────────────────────────────────────────
+       */}
 
       {/* Account Actions */}
       <section className="flex flex-col gap-3">
