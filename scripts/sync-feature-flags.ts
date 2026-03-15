@@ -1,33 +1,159 @@
 #!/usr/bin/env tsx
 
 /**
+ * ============================================================================
  * Sync Feature Flags for Internal Teams
+ * ============================================================================
  *
- * This script sets feature flags on internal teams so they can see
- * unreleased features. Safe to run repeatedly — it always produces
- * the same result (idempotent).
+ * PURPOSE:
+ *   Astro uses team-level feature flags to hide unreleased features from
+ *   external users while internal developers can see and test them. This
+ *   script writes the flag overrides to the database for internal teams.
  *
- * Usage:
- *   npx tsx scripts/sync-feature-flags.ts           # sync flags
- *   npx tsx scripts/sync-feature-flags.ts --dry-run  # show what would change
- *   npx tsx scripts/sync-feature-flags.ts --status    # show current flags
+ *   External teams have no overrides, so they fall back to GLOBAL_DEFAULTS
+ *   (which default to false for unreleased features). Internal teams get
+ *   explicit overrides set by this script.
  *
- * How it works:
- *   1. Reads the INTERNAL_TEAMS and INTERNAL_FLAGS config below
- *   2. Finds those teams in the database (by name)
- *   3. Sets their feature_flags to exactly INTERNAL_FLAGS
- *   4. Reports what changed
+ *   Safe to run repeatedly — it always produces the same result (idempotent).
  *
- * To add a new feature flag:
- *   1. Add it to GLOBAL_DEFAULTS in server/lib/feature-flags.ts (set to false)
- *   2. Add it to GLOBAL_DEFAULTS in src/hooks/use-feature-flag.ts (set to false)
- *   3. Add it to INTERNAL_FLAGS below (set to true)
- *   4. Run this script
+ * ============================================================================
+ * HOW THE FEATURE FLAG SYSTEM WORKS
+ * ============================================================================
  *
- * To release a feature to everyone:
- *   1. Change its GLOBAL_DEFAULTS value to true (both files)
- *   2. Remove it from INTERNAL_FLAGS below (no longer needed)
- *   3. Run this script to clean up internal team records
+ *   The flag check (both frontend and backend) uses this priority:
+ *
+ *     team.feature_flags[flag]  >  GLOBAL_DEFAULTS[flag]  >  false
+ *
+ *   - team.feature_flags: JSONB column on the `teams` table in the DB.
+ *     Written by this script (or raw SQL). Not editable by users — the
+ *     RLS policy prevents teams from modifying their own flags.
+ *
+ *   - GLOBAL_DEFAULTS: Hardcoded in two files (must stay in sync):
+ *       Frontend:  src/hooks/use-feature-flag.ts
+ *       Backend:   server/lib/feature-flags.ts
+ *     These are the fallback when a team has no override for a flag.
+ *
+ *   - false: If a flag isn't in GLOBAL_DEFAULTS either, it's off.
+ *
+ *   Frontend hook:  useFeatureFlag('my-feature')  → boolean
+ *   Backend check:  hasFeature(teamId, 'my-feature')  → boolean
+ *
+ * ============================================================================
+ * COMMANDS
+ * ============================================================================
+ *
+ *   # Enable all internal flags on internal teams (the normal deploy step):
+ *   npx tsx scripts/sync-feature-flags.ts
+ *
+ *   # Preview what would change without writing to DB:
+ *   npx tsx scripts/sync-feature-flags.ts --dry-run
+ *
+ *   # Show every team and their current flags (read-only):
+ *   npx tsx scripts/sync-feature-flags.ts --status
+ *
+ * ============================================================================
+ * ENVIRONMENT
+ * ============================================================================
+ *
+ *   This script connects to whatever database your current .env points to.
+ *   Make sure you're in the right environment before running:
+ *
+ *   Local mode (PGlite):
+ *     npm run env:local
+ *     npx tsx scripts/sync-feature-flags.ts
+ *
+ *   Production (remote Supabase):
+ *     npm run env:prod
+ *     npx tsx scripts/sync-feature-flags.ts
+ *
+ *   You can verify which env you're targeting:
+ *     npm run env:switch    # prints current mode
+ *
+ *   IMPORTANT: The feature_flags column must exist. If you get
+ *   "feature_flags column does not exist", run migrations first:
+ *     - Local:  start the server once (npm run dev:local)
+ *     - Prod:   supabase db push
+ *
+ * ============================================================================
+ * COOKBOOK: FULL FEATURE LIFECYCLE
+ * ============================================================================
+ *
+ * --- Step 1: Build a new feature behind a flag ---
+ *
+ *   a) Pick a flag name (kebab-case): e.g. 'my-new-feature'
+ *
+ *   b) Register the flag in GLOBAL_DEFAULTS (set to false in both files):
+ *        src/hooks/use-feature-flag.ts:
+ *          const GLOBAL_DEFAULTS = { ..., 'my-new-feature': false }
+ *        server/lib/feature-flags.ts:
+ *          const GLOBAL_DEFAULTS = { ..., 'my-new-feature': false }
+ *
+ *   c) Gate your code:
+ *        Frontend route:   <FeatureFlagRoute flag="my-new-feature">...</FeatureFlagRoute>
+ *        Frontend hook:    if (!useFeatureFlag('my-new-feature')) return null
+ *        Sidebar item:     { ..., featureFlag: 'my-new-feature' }
+ *        API route:        if (!hasFeature(teamId, 'my-new-feature')) return 404
+ *        Dashboard widget: {enabled && <MyWidget />}
+ *
+ *   d) Add the flag to INTERNAL_FLAGS below (set to true):
+ *        const INTERNAL_FLAGS = { ..., 'my-new-feature': true }
+ *
+ *   e) Merge to main and deploy. External users see nothing.
+ *
+ * --- Step 2: Enable for internal testing ---
+ *
+ *   After deploying, run this script against production:
+ *
+ *     npm run env:prod
+ *     npx tsx scripts/sync-feature-flags.ts
+ *
+ *   Your internal teams now see the feature. External teams don't.
+ *   Run --status to verify:
+ *
+ *     npx tsx scripts/sync-feature-flags.ts --status
+ *
+ * --- Step 3: Release to everyone (GA) ---
+ *
+ *   When the feature is ready for all users:
+ *
+ *   a) Flip GLOBAL_DEFAULTS to true (both files):
+ *        'my-new-feature': true
+ *
+ *   b) Remove from INTERNAL_FLAGS below (no longer needed):
+ *        delete the 'my-new-feature': true line
+ *
+ *   c) Run this script to clean up internal team records:
+ *        npx tsx scripts/sync-feature-flags.ts
+ *
+ *   d) Deploy. Everyone sees the feature now.
+ *
+ * --- Step 4: Cleanup (optional, after GA is stable) ---
+ *
+ *   Remove the flag checks from code entirely:
+ *   - Remove useFeatureFlag('my-new-feature') checks
+ *   - Remove FeatureFlagRoute wrappers
+ *   - Remove featureFlag from sidebar items
+ *   - Remove hasFeature() checks from API routes
+ *   - Remove from GLOBAL_DEFAULTS (both files)
+ *
+ * --- Emergency: Kill a feature instantly ---
+ *
+ *   If a released feature is broken:
+ *
+ *   a) Set GLOBAL_DEFAULTS to false (both files)
+ *   b) Deploy. Feature is hidden for everyone immediately.
+ *   No database changes needed — the code default wins when there's
+ *   no team override, and external teams have no overrides.
+ *
+ * ============================================================================
+ * ADDING A NEW INTERNAL TEAM
+ * ============================================================================
+ *
+ *   Add the team name (exact, case-sensitive) to the INTERNAL_TEAMS array
+ *   below, then run this script. The team must already exist in the database.
+ *   You can find team names with: --status
+ *
+ * ============================================================================
  */
 
 import { initDb, db } from '../packages/core/src/db/index.js'
