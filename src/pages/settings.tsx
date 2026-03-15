@@ -1780,9 +1780,9 @@ function EnvironmentsSettingsContent() {
           <p className="text-[11px] text-muted-foreground leading-relaxed">
             <span className="font-semibold text-foreground">Agent types:</span>
             <br />
-            • <span className="font-medium">claude-sdk</span> - Claude Code/API models (Opus, Sonnet, Haiku)
+            • <span className="font-medium">claude-sdk</span> — Claude Agent SDK (Opus, Sonnet, Haiku)
             <br />
-            • <span className="font-medium">codex</span> - OpenAI Codex models for code generation
+            • <span className="font-medium">codex</span> — OpenAI Codex CLI (gpt-5.4, gpt-5.3-codex, etc.)
           </p>
         </div>
       </section>
@@ -1889,9 +1889,13 @@ function EnvironmentsSettingsContent() {
             </table>
           </div>
         </div>
-        <p className="text-[11px] text-muted-foreground">
-          Edit model IDs directly in the table. Custom values override the defaults.
-        </p>
+        <div className="rounded-lg bg-muted/30 border border-border/50 p-3">
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            Set the model name Astro passes to each agent. Use the same names shown by <span className="font-mono">/model</span> in Claude Code or Codex.
+            <br />
+            Reasoning effort is not controlled here — select it inside the agent after Astro launches it.
+          </p>
+        </div>
       </section>
     </div>
   )

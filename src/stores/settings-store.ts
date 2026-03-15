@@ -17,13 +17,15 @@ export type ModelTier = "large" | "medium" | "small"
 export const defaultModelTierMap: Record<ModelTier, Record<string, string>> = {
   large: {
     "claude-sdk": "opus",
-    // codex: omitted — uses model from ~/.codex/config.toml (adapter's configModel)
+    "codex": "gpt-5.4",
   },
   medium: {
     "claude-sdk": "sonnet",
+    "codex": "gpt-5.3-codex",
   },
   small: {
     "claude-sdk": "haiku",
+    "codex": "gpt-5.3-codex-spark-preview",
   },
 }
 
