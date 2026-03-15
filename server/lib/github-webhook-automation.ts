@@ -86,7 +86,7 @@ export async function handleCheckRunAutomation(ctx: WebhookContext, payload: Rec
 
   for (const pr of pullRequests) {
     const prNumber = pr.number as number
-    const prUrl = (pr.url as string)?.replace('api.github.com/repos', 'github.com') ?? ''
+    const prUrl = (pr.url as string)?.replace('api.github.com/repos', 'github.com').replace('/pulls/', '/pull/') ?? ''
     const headBranch = ((pr.head as Record<string, unknown>)?.ref as string) ?? 'unknown'
     const baseBranch = ((pr.base as Record<string, unknown>)?.ref as string) ?? 'unknown'
     const checkName = (checkRun.name as string) ?? 'CI'
