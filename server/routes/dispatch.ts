@@ -1046,11 +1046,11 @@ You are working in a git worktree (isolated branch) created from the project at:
 Your branch: ${branchName}
 The worktree is located under \`${effectiveAgentDir}/worktrees/\` in the git root.
 
-**IMPORTANT:**
+**IMPORTANT — read every bullet:**
 - All your changes are on this isolated branch — commit freely
 - NEVER cd to or modify files in the original project directory (${workingDirectory})
-- When you are done, commit all changes with a descriptive commit message
-- After you finish, your branch will be automatically pushed and a PR will be created on GitHub
+- **Before finishing, you MUST \`git add\` and \`git commit\` ALL changed files.** If you skip this step, your work will be lost. Run \`git status\` to verify nothing is left uncommitted.
+- After you finish, the platform will automatically push your branch and create a PR on GitHub
 - Do NOT run \`git push\` or \`gh pr create\` yourself — the platform handles this`)
       } else if (effectiveDelivery === 'push' && usesWorktree) {
         promptParts.push(`## Workspace & Delivery
@@ -1059,10 +1059,10 @@ You are working in a git worktree (isolated branch) created from the project at:
 Your branch: ${branchName}
 The worktree is located under \`${effectiveAgentDir}/worktrees/\` in the git root.
 
-**IMPORTANT:**
+**IMPORTANT — read every bullet:**
 - All changes are on this isolated branch — commit freely
 - NEVER modify files in the original project directory (${workingDirectory})
-- When done, commit all changes with a descriptive commit message
+- **Before finishing, you MUST \`git add\` and \`git commit\` ALL changed files.** If you skip this step, your work will be lost. Run \`git status\` to verify nothing is left uncommitted.
 - Your branch will be automatically pushed to the remote (user will create a PR manually)
 - Do NOT run \`git push\` yourself — the platform handles this`)
       } else if (effectiveDelivery === 'branch' && usesWorktree) {
@@ -1072,10 +1072,10 @@ You are working in a git worktree (isolated branch) created from the project at:
 Your branch: ${branchName}
 The worktree is located under \`${effectiveAgentDir}/worktrees/\` in the git root.
 
-**IMPORTANT:**
+**IMPORTANT — read every bullet:**
 - All changes are on this isolated branch — commit freely
 - NEVER modify files in the original project directory (${workingDirectory})
-- When done, commit all changes with a descriptive commit message
+- **Before finishing, you MUST \`git add\` and \`git commit\` ALL changed files.** If you skip this step, your work will be lost. Run \`git status\` to verify nothing is left uncommitted.
 - Your branch will stay local — the user will merge it manually`)
       } else if (effectiveDelivery === 'copy' && usesWorktree) {
         promptParts.push(`## Workspace & Delivery
