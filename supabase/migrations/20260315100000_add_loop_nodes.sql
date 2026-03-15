@@ -24,3 +24,42 @@ CREATE TABLE IF NOT EXISTS loop_iterations (
 
 CREATE INDEX IF NOT EXISTS idx_loop_iterations_node_project ON loop_iterations(node_id, project_id);
 CREATE INDEX IF NOT EXISTS idx_loop_iterations_iteration ON loop_iterations(node_id, iteration);
+
+-- RLS policies for loop_iterations (team-scoped via project membership)
+ALTER TABLE loop_iterations ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY loop_iterations_select_policy ON loop_iterations
+  FOR SELECT
+  USING (
+    project_id IN (
+      SELECT id FROM projects WHERE owner_id = auth.uid()
+      OR team_id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
+    )
+  );
+
+CREATE POLICY loop_iterations_insert_policy ON loop_iterations
+  FOR INSERT
+  WITH CHECK (
+    project_id IN (
+      SELECT id FROM projects WHERE owner_id = auth.uid()
+      OR team_id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
+    )
+  );
+
+CREATE POLICY loop_iterations_update_policy ON loop_iterations
+  FOR UPDATE
+  USING (
+    project_id IN (
+      SELECT id FROM projects WHERE owner_id = auth.uid()
+      OR team_id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
+    )
+  );
+
+CREATE POLICY loop_iterations_delete_policy ON loop_iterations
+  FOR DELETE
+  USING (
+    project_id IN (
+      SELECT id FROM projects WHERE owner_id = auth.uid()
+      OR team_id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
+    )
+  );

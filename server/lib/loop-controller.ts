@@ -119,19 +119,44 @@ export async function advanceLoop(
   // Extract description from output (look for a summary line)
   const description = extractDescription(iterationResult.output ?? '', currentIteration)
 
-  // Record this iteration
-  await db.insert(loopIterations).values({
-    nodeId,
-    projectId,
-    iteration: currentIteration,
-    executionId: iterationResult.executionId,
-    metricValue,
-    metricName: loopConfig.stopCondition?.metric,
-    status: iterationStatus,
-    description,
-    diff: iterationResult.diff,
-    completedAt: new Date(),
-  })
+  // Update the existing 'running' iteration record (created by dispatchNextIteration)
+  const [runningRecord] = await db.select({ id: loopIterations.id })
+    .from(loopIterations)
+    .where(and(
+      eq(loopIterations.nodeId, nodeId),
+      eq(loopIterations.projectId, projectId),
+      eq(loopIterations.iteration, currentIteration),
+      eq(loopIterations.status, 'running'),
+    ))
+    .limit(1)
+
+  if (runningRecord) {
+    await db.update(loopIterations)
+      .set({
+        executionId: iterationResult.executionId,
+        metricValue,
+        metricName: loopConfig.stopCondition?.metric,
+        status: iterationStatus,
+        description,
+        diff: iterationResult.diff,
+        completedAt: new Date(),
+      })
+      .where(eq(loopIterations.id, runningRecord.id))
+  } else {
+    // Fallback: insert if no running record found (shouldn't happen in normal flow)
+    await db.insert(loopIterations).values({
+      nodeId,
+      projectId,
+      iteration: currentIteration,
+      executionId: iterationResult.executionId,
+      metricValue,
+      metricName: loopConfig.stopCondition?.metric,
+      status: iterationStatus,
+      description,
+      diff: iterationResult.diff,
+      completedAt: new Date(),
+    })
+  }
 
   // Update best if improved
   const newBestValue = iterationStatus === 'keep' && metricValue != null
@@ -316,7 +341,15 @@ async function completeLoop(nodeId: string, projectId: string, reason: string): 
 
   const bestKeep = keeps.filter(i => i.metricValue != null)
   if (bestKeep.length > 0) {
-    const best = bestKeep.reduce((a, b) => (a.metricValue! < b.metricValue!) ? a : b)
+    // Read loopConfig to determine direction
+    const [loopNode] = await db.select({ loopConfig: planNodes.loopConfig })
+      .from(planNodes)
+      .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+      .limit(1)
+    const direction = (loopNode?.loopConfig as LoopConfig | null)?.stopCondition?.direction ?? 'minimize'
+    const best = direction === 'minimize'
+      ? bestKeep.reduce((a, b) => (a.metricValue! < b.metricValue!) ? a : b)
+      : bestKeep.reduce((a, b) => (a.metricValue! > b.metricValue!) ? a : b)
     summary.push(`Best metric: ${best.metricValue} (iteration ${best.iteration})`)
   }
 
