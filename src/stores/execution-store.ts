@@ -2412,6 +2412,15 @@ function flushTextBatch(
     const newExecutions = new Map(state.executions)
     const exec = newExecutions.get(nodeId)
     if (exec) {
+      // Deduplicate: skip if this batch is identical to the last text activity event.
+      // This catches live SSE duplicates from agent SDK retries or reconnect overlaps.
+      const trimmed = text.trim()
+      if (trimmed.length > 50) {
+        const lastTextEvent = [...exec.activityEvents].reverse().find(e => e.type === 'text')
+        if (lastTextEvent && 'content' in lastTextEvent && (lastTextEvent.content as string).trim() === trimmed) {
+          return state // skip duplicate
+        }
+      }
       // Spread to create a new object reference so Zustand selectors detect the change
       newExecutions.set(nodeId, {
         ...exec,
