@@ -18,6 +18,7 @@ import { channelRouter } from '../lib/channel/channel-router.js'
 import { lookupGitHubProject } from '../lib/github-store.js'
 import { resolveGitHubToken } from '../lib/github-client.js'
 import { syncGitHubRepoCacheByProjectId, upsertIssueCacheEntries } from '../lib/github-repo-cache.js'
+import { handleCheckRunAutomation, handleReviewAutomation } from '../lib/github-webhook-automation.js'
 import { postGitHubComment } from '../plugins/channel-github/github-api.js'
 import type { InboundMessage } from '../lib/channel/channel-types.js'
 
@@ -74,6 +75,25 @@ async function processWebhook(eventType: string, payload: Record<string, unknown
 
   if (['issues', 'pull_request', 'pull_request_review', 'check_suite', 'check_run'].includes(eventType)) {
     await syncRepoCacheForWebhook(eventType, payload)
+  }
+
+  // Agent automation — dispatch agents in response to GitHub events
+  const repo = payload.repository as Record<string, unknown> | undefined
+  const repoFullName = repo?.full_name as string | undefined
+  if (repoFullName) {
+    const projectId = await lookupGitHubProject(repoFullName)
+    if (projectId) {
+      const ctx = { projectId, repoFullName }
+      if (eventType === 'check_run') {
+        handleCheckRunAutomation(ctx, payload).catch((err) => {
+          console.error(`[github-app-webhook] Automation error (check_run):`, err)
+        })
+      } else if (eventType === 'pull_request_review') {
+        handleReviewAutomation(ctx, payload).catch((err) => {
+          console.error(`[github-app-webhook] Automation error (pull_request_review):`, err)
+        })
+      }
+    }
   }
 }
 
