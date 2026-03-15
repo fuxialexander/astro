@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from "react"
-import { FolderGit2, Save, Github, Search, Loader2, AlertCircle, CheckCircle2, GitBranch, X } from "lucide-react"
+import { FolderGit2, Save, Github, Search, Loader2, AlertCircle, CheckCircle2, GitBranch, X, TriangleAlert } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { useProjectStore } from "@/stores/project-store"
@@ -17,6 +17,7 @@ import type { MachineInfo } from "@/stores/execution-store"
 import { BranchSelector } from "@/components/branch-selector"
 import { validateAbsolutePath } from "@/lib/path-utils"
 import { validateGitUrl } from "@/lib/git-url-utils"
+import { deriveDeliveryMode } from "@/lib/project-source"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
 import type { Project } from "@/types"
@@ -54,6 +55,8 @@ export function RepoConfigDialog({
   const [searchQuery, setSearchQuery] = useState("")
   const [repoAutoFilled, setRepoAutoFilled] = useState(false)
   const [baseBranch, setBaseBranch] = useState(project.source?.baseBranch ?? "")
+  const [directMode, setDirectMode] = useState(project.deliveryMode === 'direct')
+  const [directConfirmed, setDirectConfirmed] = useState(project.deliveryMode === 'direct')
 
   // Directory detection — auto-detects git info as user types
   const { detection, isDetecting } = useDirectoryDetection(workDir, selectedMachineId)
@@ -168,10 +171,15 @@ export function RepoConfigDialog({
       const userWorkDir = workDir.trim() || undefined
       const userRepo = finalRepoUrl || undefined
       const effectiveBranch = baseBranch || detection?.baseBranch || undefined
+      // Compute the delivery mode: explicit 'direct' override, or auto-derived from source
+      const resolvedDeliveryMode = directMode && directConfirmed
+        ? 'direct' as const
+        : (project.source ? deriveDeliveryMode(project.source) : undefined)
       updateProject(project.id, {
         repository: userRepo,
         workingDirectory: userWorkDir,
         defaultMachineId: selectedMachineId || undefined,
+        deliveryMode: resolvedDeliveryMode,
         ...(effectiveBranch && project.source ? {
           source: { ...project.source, baseBranch: effectiveBranch },
         } : {}),
@@ -218,7 +226,7 @@ export function RepoConfigDialog({
     } finally {
       setIsSaving(false)
     }
-  }, [setupRepo, updateProject, addActivity, project.id, project.name, project.description, project.source, repoUrl, workDir, selectedMachineId, baseBranch, detection, onOpenChange, addToast])
+  }, [setupRepo, updateProject, addActivity, project.id, project.name, project.description, project.source, repoUrl, workDir, selectedMachineId, baseBranch, detection, onOpenChange, addToast, directMode, directConfirmed])
 
   const handleWorkDirChange = (value: string) => {
     setWorkDir(value)
@@ -242,7 +250,8 @@ export function RepoConfigDialog({
     repoUrl !== (project.repository ?? "") ||
     workDir !== (project.workingDirectory ?? "") ||
     selectedMachineId !== (project.defaultMachineId ?? "") ||
-    (baseBranch && baseBranch !== (project.source?.baseBranch ?? ""))
+    (baseBranch && baseBranch !== (project.source?.baseBranch ?? "")) ||
+    directMode !== (project.deliveryMode === 'direct')
 
   const selectedMachineName = allMachines.find((m) => m.id === selectedMachineId)?.name
   const showFields = allMachines.length === 0 || !!selectedMachineId
@@ -314,6 +323,70 @@ export function RepoConfigDialog({
                     path={workDir.trim()}
                     machineId={selectedMachineId || undefined}
                   />
+                </div>
+              )}
+
+              {/* Execution mode selector — shown when git is detected */}
+              {detection?.isGit && (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Execution mode</span>
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => { setDirectMode(false); setDirectConfirmed(false) }}
+                      className={cn(
+                        "flex-1 px-2.5 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
+                        !directMode
+                          ? "border-primary bg-primary/10 text-primary font-medium"
+                          : "border-input bg-background text-muted-foreground hover:bg-muted/50",
+                      )}
+                    >
+                      {detection.remoteUrl ? 'Git workflow (PR)' : 'Git workflow (branch)'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDirectMode(true)}
+                      className={cn(
+                        "flex-1 px-2.5 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
+                        directMode
+                          ? "border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium"
+                          : "border-input bg-background text-muted-foreground hover:bg-muted/50",
+                      )}
+                    >
+                      Direct (in-place)
+                    </button>
+                  </div>
+                  {directMode && !directConfirmed && (
+                    <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2.5">
+                      <div className="flex items-start gap-2">
+                        <TriangleAlert className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+                        <div className="flex flex-col gap-1 text-[11px] text-amber-700 dark:text-amber-400">
+                          <span className="font-medium">Direct mode skips all git automation</span>
+                          <span className="text-muted-foreground">
+                            No worktree isolation, no automatic branches or PRs.
+                            Tasks run directly in the working directory. Only one task can run at a time.
+                            If you want git workflow, include git instructions in your task prompts
+                            (e.g. which branch to commit to, whether to create a PR, etc.).
+                          </span>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[11px] self-end border-amber-500/40 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
+                        onClick={() => setDirectConfirmed(true)}
+                      >
+                        I understand, use direct mode
+                      </Button>
+                    </div>
+                  )}
+                  {directMode && directConfirmed && (
+                    <div className="flex items-center gap-1.5 text-[10px] text-amber-600 dark:text-amber-400">
+                      <TriangleAlert className="h-3 w-3" />
+                      Direct mode — if you want git workflow, include instructions in task prompts
+                    </div>
+                  )}
                 </div>
               )}
               </div>
@@ -437,7 +510,7 @@ export function RepoConfigDialog({
             size="sm"
             className="h-7 text-xs gap-1.5"
             onClick={handleSave}
-            disabled={!hasChanges || isSaving || !!pathError || !!repoUrlError}
+            disabled={!hasChanges || isSaving || !!pathError || !!repoUrlError || (directMode && !directConfirmed)}
           >
             {isSaving ? (
               <Loader2 className="h-3 w-3 animate-spin" />
