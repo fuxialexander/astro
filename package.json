@@ -41,6 +41,9 @@
     "clear-data": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/clear-user-data.ts",
     "clear-data:force": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/clear-user-data.ts --force",
     "cleanup-duplicates": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/cleanup-duplicate-machines.ts",
+    "flags": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/sync-feature-flags.ts",
+    "flags:status": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/sync-feature-flags.ts --status",
+    "flags:dry-run": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/sync-feature-flags.ts --dry-run",
     "postinstall": "[ -d packages/agent-runner ] && cd packages/agent-runner && npm install --ignore-scripts || true",
     "prepare": "husky"
   },
