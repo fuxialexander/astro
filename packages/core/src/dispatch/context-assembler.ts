@@ -373,6 +373,11 @@ export class ContextAssembler {
       parts.push(`## Additional Resource Folders\n\nThe following additional folders are available on this machine:\n${pathList}`)
     }
 
+    // Loop iteration context (injected before current task so the agent sees history first)
+    if (context.iterationContext) {
+      parts.push(context.iterationContext)
+    }
+
     // Current task
     parts.push(`## Current Task\n\n**${context.node.title}**\n\n${context.node.description}`)
 

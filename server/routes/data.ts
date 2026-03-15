@@ -23,6 +23,7 @@ import {
   environmentConfigs,
   streamingEvents,
   projectKnowledge,
+  loopIterations,
 } from '../lib/db/schema.js'
 import { eq, and, or, sql, desc, isNull, inArray, notInArray } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
@@ -31,6 +32,7 @@ import { isServerMode } from '../lib/app-mode.js'
 import { getServiceClient } from '../lib/supabase.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
+import { startLoop } from '../lib/loop-controller.js'
 import { extractRepoInfo } from '../lib/git-url-utils.js'
 
 // Fallback icon/color pools for projects created without explicit icon/color
@@ -1047,7 +1049,7 @@ export async function autoDispatchDownstream(projectId: string, completedNodeId:
   const readyIds: string[] = []
   for (const downId of downstreamIds) {
     const downNode = allNodes.find(n => n.clientId === downId)
-    if (!downNode || downNode.type !== 'task') continue
+    if (!downNode || (downNode.type !== 'task' && downNode.type !== 'loop')) continue
     if (downNode.status !== 'planned') continue
 
     const depEdges = allEdges.filter(e => e.targetClientId === downId)
@@ -1065,11 +1067,19 @@ export async function autoDispatchDownstream(projectId: string, completedNodeId:
   // overwhelming the system when many downstream tasks become ready at once
   const STAGGER_DELAY_MS = 5_000
   readyIds.forEach((downId, index) => {
+    const downNode = allNodes.find(n => n.clientId === downId)
     const dispatch = () => {
-      // Server-side dispatch (works even if browser disconnected)
-      serverSideDispatch(downId, projectId).catch((err) => {
-        console.error('[data] Server-side dispatch failed for', downId, ':', err)
-      })
+      if (downNode?.type === 'loop' && downNode.loopConfig) {
+        // Loop nodes use the loop controller instead of direct dispatch
+        startLoop(downId, projectId).catch((err) => {
+          console.error('[data] Loop start failed for', downId, ':', err)
+        })
+      } else {
+        // Server-side dispatch (works even if browser disconnected)
+        serverSideDispatch(downId, projectId).catch((err) => {
+          console.error('[data] Server-side dispatch failed for', downId, ':', err)
+        })
+      }
       // Still emit for UI notification
       executionEventBus.emit('task:ready', { nodeId: downId, projectId })
     }
@@ -2687,6 +2697,44 @@ app.delete('/knowledge/:id', async (c) => {
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
   await db.delete(projectKnowledge).where(eq(projectKnowledge.id, id))
+  return c.json({ ok: true })
+})
+
+// ── Loop Iterations ──────────────────────────────────────────────────
+
+app.get('/loop-iterations', async (c) => {
+  const user = c.get('user') as AuthUser
+  const nodeId = c.req.query('nodeId')
+  const projectId = c.req.query('projectId')
+  if (!nodeId || !projectId) return c.json({ error: 'nodeId and projectId required' }, 400)
+
+  // Verify project access
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+  )
+  if (!project) return c.json({ error: 'Not authorized' }, 403)
+
+  const rows = await db.select().from(loopIterations)
+    .where(and(eq(loopIterations.nodeId, nodeId), eq(loopIterations.projectId, projectId)))
+    .orderBy(loopIterations.iteration)
+
+  return c.json(rows)
+})
+
+app.post('/loop/stop', async (c) => {
+  const user = c.get('user') as AuthUser
+  const body = await c.req.json<{ nodeId: string; projectId: string }>()
+  const { nodeId, projectId } = body
+  if (!nodeId || !projectId) return c.json({ error: 'nodeId and projectId required' }, 400)
+
+  // Verify project access
+  const [project] = await db.select().from(projects).where(
+    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+  )
+  if (!project) return c.json({ error: 'Not authorized' }, 403)
+
+  const { stopLoop } = await import('../lib/loop-controller.js')
+  await stopLoop(nodeId, projectId)
   return c.json({ ok: true })
 })
 

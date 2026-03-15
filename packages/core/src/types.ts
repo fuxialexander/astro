@@ -243,11 +243,40 @@ export interface AcceptanceCriterion {
   autoVerifiable: boolean
 }
 
+export interface LoopConfig {
+  maxIterations: number
+  stopCondition?: {
+    metric: string
+    direction: 'minimize' | 'maximize'
+    threshold?: number
+    plateauWindow?: number
+  }
+  taskTemplate: string
+  evaluationCommand?: string
+  iterationTimeoutMinutes?: number
+  autonomousMode: boolean
+}
+
+export interface LoopIteration {
+  id: string
+  nodeId: string
+  projectId: string
+  iteration: number
+  executionId?: string
+  metricValue?: number
+  metricName?: string
+  status: 'keep' | 'discard' | 'crash' | 'running' | 'aborted'
+  description?: string
+  diff?: string
+  createdAt: Date
+  completedAt?: Date
+}
+
 export interface PlanNode {
   id: string;
   number?: number;
   projectId: string;
-  type: 'milestone' | 'task' | 'branch' | 'decision';
+  type: 'milestone' | 'task' | 'branch' | 'decision' | 'loop';
   title: string;
   description: string;
   status: 'planned' | 'dispatched' | 'in_progress' | 'auto_verified' | 'awaiting_judgment' | 'awaiting_approval' | 'completed' | 'pruned';
@@ -293,6 +322,12 @@ export interface PlanNode {
   attachments?: TaskAttachment[];
   links?: TaskLink[];
   acceptanceCriteria?: AcceptanceCriterion[];
+  // Loop node fields
+  loopConfig?: LoopConfig;
+  loopCurrentIteration?: number;
+  loopBestMetricValue?: number;
+  loopBestIteration?: number;
+  loopStatus?: 'iterating' | 'stopped' | null;
 }
 
 // Comment on a plan node
