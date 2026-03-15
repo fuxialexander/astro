@@ -38,16 +38,16 @@ export function GitHubIntegrationGuide({
         className={cn(
           'group flex items-center gap-4 rounded-xl border px-5 py-5 text-left transition-all',
           oauthConnected
-            ? 'border-emerald-500/30 bg-emerald-500/5 cursor-default'
+            ? 'border-success/30 bg-success/5 cursor-default'
             : 'border-primary/40 bg-primary/[0.03] hover:border-primary/60 hover:bg-primary/[0.06] cursor-pointer'
         )}
       >
         <div className={cn(
           'flex h-11 w-11 items-center justify-center rounded-xl shrink-0',
-          oauthConnected ? 'bg-emerald-500/10' : 'bg-primary/10'
+          oauthConnected ? 'bg-success/10' : 'bg-primary/10'
         )}>
           {oauthConnected
-            ? <Check className="h-5 w-5 text-emerald-500" />
+            ? <Check className="h-5 w-5 text-success" />
             : <Github className="h-5 w-5 text-primary" />
           }
         </div>
@@ -55,7 +55,7 @@ export function GitHubIntegrationGuide({
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold">Connect your GitHub account</span>
             {oauthConnected && (
-              <span className="text-[11px] font-medium text-emerald-500">Connected</span>
+              <span className="text-[11px] font-medium text-success">Connected</span>
             )}
           </div>
           <p className="text-[12px] text-muted-foreground mt-0.5">
@@ -78,10 +78,10 @@ export function GitHubIntegrationGuide({
           </p>
         </div>
       ) : (
-        <div className="flex items-center gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-4 py-3">
-          <Users className="h-4 w-4 shrink-0 text-emerald-500" />
+        <div className="flex items-center gap-3 rounded-lg border border-success/30 bg-success/5 px-4 py-3">
+          <Users className="h-4 w-4 shrink-0 text-success" />
           <p className="flex-1 text-[12px] text-muted-foreground">
-            <span className="font-medium text-emerald-500">GitHub App installed</span>{' '}
+            <span className="font-medium text-success">GitHub App installed</span>{' '}
             — webhook automation and team-wide access are active.
           </p>
         </div>
