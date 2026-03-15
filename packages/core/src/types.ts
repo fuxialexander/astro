@@ -140,6 +140,13 @@ export interface GitHubSyncSettings {
   autoCreateDirection: 'astro_to_github' | 'github_to_astro' | 'bidirectional' | 'none'
   /** Custom priority→label name mapping (overrides defaults) */
   labelMapping: Record<string, string>
+  /** Auto-dispatch agents on GitHub events */
+  automation?: {
+    /** Auto-fix failing CI on PRs */
+    fixCi?: boolean
+    /** Auto-address review comments on PRs */
+    addressReviews?: boolean
+  }
 }
 
 export const DEFAULT_GITHUB_SYNC_SETTINGS: GitHubSyncSettings = {
