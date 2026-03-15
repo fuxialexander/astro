@@ -270,7 +270,7 @@ describe('dispatch prompt content', () => {
     // PR mode should have workspace/delivery section with worktree instructions
     expect(body.prompt).toContain('Workspace & Delivery')
     expect(body.prompt).toContain('worktree')
-    expect(body.prompt).toContain('automatically pushed and a PR will be created')
+    expect(body.prompt).toContain('platform will automatically push your branch and create a PR')
     // astro-metadata block was removed (dead code — never parsed)
     expect(body.prompt).not.toContain('<!-- astro-metadata')
   })
