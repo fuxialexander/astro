@@ -17,20 +17,20 @@ import {
 
 describe("resolveModel", () => {
   describe("default mappings (no custom overrides)", () => {
-    it("resolves large tier for claude-code", () => {
+    it("resolves large tier for claude-sdk", () => {
       expect(resolveModel("large", "claude-sdk")).toBe("opus")
     })
 
-    it("resolves medium tier for claude-code", () => {
+    it("resolves medium tier for claude-sdk", () => {
       expect(resolveModel("medium", "claude-sdk")).toBe("sonnet")
     })
 
-    it("resolves small tier for claude-code", () => {
+    it("resolves small tier for claude-sdk", () => {
       expect(resolveModel("small", "claude-sdk")).toBe("haiku")
     })
 
     it("resolves large tier for codex", () => {
-      expect(resolveModel("large", "codex")).toBe("gpt-5.3-codex")
+      expect(resolveModel("large", "codex")).toBe("gpt-5.4")
     })
 
     it("resolves medium tier for codex", () => {
@@ -38,16 +38,16 @@ describe("resolveModel", () => {
     })
 
     it("resolves small tier for codex", () => {
-      expect(resolveModel("small", "codex")).toBe("gpt-5.3-codex")
+      expect(resolveModel("small", "codex")).toBe("gpt-5.3-codex-spark-preview")
     })
   })
 
   describe("fallback behavior", () => {
-    it("defaults to claude-code when no provider specified", () => {
+    it("defaults to claude-sdk when no provider specified", () => {
       expect(resolveModel("medium")).toBe("sonnet")
     })
 
-    it("defaults to claude-code when provider is undefined", () => {
+    it("defaults to claude-sdk when provider is undefined", () => {
       expect(resolveModel("large", undefined)).toBe("opus")
     })
 
@@ -97,10 +97,10 @@ describe("resolveModel", () => {
       const custom: CustomModelMap = {
         large: { bedrock: "bedrock-opus" },
       }
-      // claude-code should still use default
+      // claude-sdk should still use default
       expect(resolveModel("large", "claude-sdk", custom)).toBe("opus")
       // codex should still use default
-      expect(resolveModel("large", "codex", custom)).toBe("gpt-5.3-codex")
+      expect(resolveModel("large", "codex", custom)).toBe("gpt-5.4")
     })
 
     it("custom map does not affect other tiers", () => {
@@ -144,7 +144,7 @@ describe("getEffectiveModelTierMap", () => {
     const result = getEffectiveModelTierMap(custom)
     expect(result.large["claude-sdk"]).toBe("custom-opus")
     // Other entries should be unchanged
-    expect(result.large.codex).toBe("gpt-5.3-codex")
+    expect(result.large.codex).toBe("gpt-5.4")
     expect(result.medium["claude-sdk"]).toBe("sonnet")
   })
 
@@ -184,7 +184,7 @@ describe("defaultModelTierMap", () => {
     expect(defaultModelTierMap).toHaveProperty("small")
   })
 
-  it("has claude-code entries for all tiers", () => {
+  it("has claude-sdk entries for all tiers", () => {
     expect(defaultModelTierMap.large["claude-sdk"]).toBeTruthy()
     expect(defaultModelTierMap.medium["claude-sdk"]).toBeTruthy()
     expect(defaultModelTierMap.small["claude-sdk"]).toBeTruthy()
@@ -196,15 +196,15 @@ describe("defaultModelTierMap", () => {
     expect(defaultModelTierMap.small.codex).toBeTruthy()
   })
 
-  it("claude-code large is opus", () => {
+  it("claude-sdk large is opus", () => {
     expect(defaultModelTierMap.large["claude-sdk"]).toContain("opus")
   })
 
-  it("claude-code medium is sonnet", () => {
+  it("claude-sdk medium is sonnet", () => {
     expect(defaultModelTierMap.medium["claude-sdk"]).toContain("sonnet")
   })
 
-  it("claude-code small is haiku", () => {
+  it("claude-sdk small is haiku", () => {
     expect(defaultModelTierMap.small["claude-sdk"]).toContain("haiku")
   })
 })
@@ -257,7 +257,7 @@ describe("useSettingsStore", () => {
     store.setDefaultProvider("codex")
     store.setModelTier("large")
     const state = useSettingsStore.getState()
-    expect(state.model).toBe("gpt-5.3-codex")
+    expect(state.model).toBe("gpt-5.4")
   })
 
   it("setDefaultProvider re-resolves model", () => {
@@ -265,7 +265,7 @@ describe("useSettingsStore", () => {
     store.setModelTier("large")
     expect(useSettingsStore.getState().model).toBe("opus")
     store.setDefaultProvider("codex")
-    expect(useSettingsStore.getState().model).toBe("gpt-5.3-codex")
+    expect(useSettingsStore.getState().model).toBe("gpt-5.4")
   })
 
   it("getModelForProvider resolves for given provider", () => {
@@ -280,7 +280,7 @@ describe("useSettingsStore", () => {
     store.setDefaultProvider("codex")
     store.setModelTier("small")
     // No provider arg → uses default (codex)
-    expect(useSettingsStore.getState().getModelForProvider()).toBe("gpt-5.3-codex")
+    expect(useSettingsStore.getState().getModelForProvider()).toBe("gpt-5.3-codex-spark-preview")
   })
 
   describe("custom model map", () => {
@@ -344,7 +344,7 @@ describe("useSettingsStore", () => {
       const map = useSettingsStore.getState().getEffectiveTierMap()
       expect(map.large["claude-sdk"]).toBe("custom-claude-large")
       expect(map.large.bedrock).toBe("bedrock-opus")
-      expect(map.large.codex).toBe("gpt-5.3-codex") // unchanged
+      expect(map.large.codex).toBe("gpt-5.4") // unchanged
       expect(map.medium["claude-sdk"]).toBe("sonnet") // unchanged
     })
   })

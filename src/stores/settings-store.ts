@@ -128,12 +128,30 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const settings = await dataClient.getSettings()
       const updates: Partial<SettingsState> = { loaded: true, loading: false }
       if (settings.defaultProvider) {
-        updates.defaultProvider = settings.defaultProvider
+        // Migrate legacy provider name
+        updates.defaultProvider = settings.defaultProvider === "claude-code" ? "claude-sdk" : settings.defaultProvider
       }
       // Load custom model map
       if (settings.customModelMap) {
         try {
-          updates.customModelMap = JSON.parse(settings.customModelMap) as CustomModelMap
+          const parsed = JSON.parse(settings.customModelMap) as CustomModelMap
+          // Migrate legacy "claude-code" keys → "claude-sdk"
+          let migrated = false
+          for (const tier of ["large", "medium", "small"] as ModelTier[]) {
+            if (parsed[tier]?.["claude-code"]) {
+              if (!parsed[tier]!["claude-sdk"]) {
+                parsed[tier]!["claude-sdk"] = parsed[tier]!["claude-code"]
+              }
+              delete parsed[tier]!["claude-code"]
+              if (Object.keys(parsed[tier]!).length === 0) delete parsed[tier]
+              migrated = true
+            }
+          }
+          updates.customModelMap = parsed
+          // Persist migrated map so stale keys don't reappear
+          if (migrated) {
+            dataClient.updateSettings({ customModelMap: JSON.stringify(parsed) }).catch(() => {})
+          }
         } catch {
           // ignore malformed JSON
         }
