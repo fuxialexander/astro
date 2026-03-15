@@ -478,7 +478,20 @@ export function TaskDetail() {
               </>
             )}
           </div>
-          {/* Delivery status — soft info for no-remote repos, warning for real failures */}
+          {/* Delivery status — success confirmation, soft info for no-remote repos, warning for real failures */}
+          {execution?.deliveryStatus === "success" && (node.prUrl || execution?.prUrl) && (
+            <div className="flex items-center gap-2.5 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-4 py-2.5 text-sm text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              <span className="font-medium">PR created and merged</span>
+              <span className="text-xs opacity-70">&middot;</span>
+              <a
+                href={node.prUrl || execution?.prUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs hover:underline truncate"
+              >#{node.prNumber || execution?.prNumber}</a>
+            </div>
+          )}
           {execution?.deliveryStatus === "failed" && execution?.deliveryError && (() => {
             const isNoRemote = /no remote origin|not a git/i.test(execution.deliveryError)
             return isNoRemote ? (
