@@ -30,6 +30,10 @@ class StreamingEventLog {
     const chunks = this.textBuffers.get(executionId)
     if (!chunks || chunks.length === 0) return null
 
+    // Delete buffer SYNCHRONOUSLY before the async DB insert to prevent
+    // concurrent flushText() calls (heartbeat vs structural event) from
+    // reading the same buffer and inserting duplicate text rows.
+    this.textBuffers.delete(executionId)
     const text = chunks.join('')
 
     try {
@@ -38,12 +42,13 @@ class StreamingEventLog {
         eventType: 'text',
         data: { text },
       }).returning({ seq: streamingEvents.seq })
-      // Only delete buffer after successful DB write
-      this.textBuffers.delete(executionId)
       return row.seq
     } catch (err) {
       console.error('[streaming-event-log] Failed to flush text for', executionId, ':', (err as Error).message)
-      // Buffer remains intact for retry on next structural event or disconnect
+      // On failure, re-insert chunks so they aren't lost.
+      // Prepend to any new chunks that accumulated during the failed insert.
+      const currentChunks = this.textBuffers.get(executionId) || []
+      this.textBuffers.set(executionId, [...chunks, ...currentChunks])
       return null
     }
   }
