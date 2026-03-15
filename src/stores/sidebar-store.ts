@@ -44,6 +44,7 @@ interface SidebarStore {
 
 const defaultItems: SidebarItem[] = [
   { id: "dashboard", to: "/dashboard", icon: "Radio", label: "Dashboard", visible: true, protected: true },
+  { id: "github", to: "/github", icon: "Github", label: "GitHub", visible: true, protected: false, featureFlag: "github-integration" },
   { id: "plan", to: "/plan", icon: "Sparkles", label: "Plan", visible: true, protected: true },
   { id: "playground", to: "/playground", icon: "FlaskConical", label: "Playground", visible: true, protected: false },
   { id: "projects", to: "/projects", icon: "GitBranch", label: "Projects", visible: true, protected: false },
@@ -62,7 +63,7 @@ function mergeWithDefaults(stored: SidebarItem[]): SidebarItem[] {
     if (storedItem) {
       // Always take icon/to/label/protected from defaults (code is source of truth)
       // Keep user preferences: visible, autoRevealed, userDismissed, ordering
-      const merged = { ...storedItem, icon: defaultItem.icon, to: defaultItem.to, label: defaultItem.label, protected: defaultItem.protected }
+      const merged = { ...storedItem, icon: defaultItem.icon, to: defaultItem.to, label: defaultItem.label, protected: defaultItem.protected, featureFlag: defaultItem.featureFlag }
       if (defaultItem.protected) {
         return { ...merged, visible: true }
       }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { NavLink, useNavigate, useParams, useLocation } from "react-router"
-import { GitBranch, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X, FlaskConical, PanelLeftClose, PanelLeft, AlertCircle, LayoutTemplate, ChevronRight, ChevronDown, MessageSquare } from "lucide-react"
+import { GitBranch, Github, Terminal, Settings, LogOut, Sun, Moon, CheckSquare, Search, Radio, Target, Cpu, Plus, Minus, GripVertical, BookOpen, Palette, Zap, Globe, FileText, Layers, Box, Wrench, Code, Loader2, Sparkles, X, FlaskConical, PanelLeftClose, PanelLeft, AlertCircle, LayoutTemplate, ChevronRight, ChevronDown, MessageSquare } from "lucide-react"
 import { getFaIcon } from "@/lib/color-icon-utils"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
@@ -12,6 +12,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useUIStore } from "@/stores/ui-store"
 import { useSidebarStore } from "@/stores/sidebar-store"
+import { useTeamStore } from "@/stores/team-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
@@ -28,6 +29,7 @@ import { InlineRenameInput } from "@/components/inline-rename-input"
 const iconMap: Record<string, typeof CheckSquare> = {
   CheckSquare,
   GitBranch,
+  Github,
   Terminal,
   Radio,
   Target,
@@ -78,6 +80,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const setCommandPaletteOpen = useUIStore((s) => s.setCommandPaletteOpen)
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
   const sidebarItems = useSidebarStore((s) => s.items)
+  const teamFeatureFlags = useTeamStore((s) => s.teams[0]?.featureFlags ?? {})
   const isEditing = useSidebarStore((s) => s.isEditing)
   const setEditing = useSidebarStore((s) => s.setEditing)
   const toggleItemVisibility = useSidebarStore((s) => s.toggleItemVisibility)
@@ -266,6 +269,8 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const visibleItems = sidebarItems.filter((item) => {
     // Hide Community nav item in local mode
     if (item.id === 'community' && !showAuth) return false
+    // Hide items gated behind a feature flag the team doesn't have
+    if (item.featureFlag && !teamFeatureFlags[item.featureFlag]) return false
     return item.visible
   })
 

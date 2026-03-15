@@ -41,6 +41,7 @@ import { PluginRoutes } from "@/components/plugin-routes"
 import { getBrowserHostname } from "@/lib/path-utils"
 import { refreshAllFileTrees } from "@/hooks/use-file-tree-refresh"
 import { useGitHubStore } from "@/stores/github-store"
+import { useFeatureFlag } from "@/hooks/use-feature-flag"
 import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
 import { useApiKeysStore } from "@/stores/api-keys-store"
 import { Settings } from "@/pages/settings"
@@ -51,6 +52,7 @@ import { Environments } from "@/pages/environments"
 import { MyTasks } from "@/pages/my-tasks"
 import { Workflows } from "@/pages/workflows"
 import { ActiveTasks } from "@/pages/active-tasks"
+import { Workspace } from "@/pages/workspace"
 import { TeamInvite } from "@/pages/team-invite"
 import { ProjectNewPlan } from "@/pages/project-new-plan"
 import { Playground } from "@/pages/playground"
@@ -58,6 +60,12 @@ import { ShareImport } from "@/pages/share-import"
 import { Examples } from "@/pages/examples"
 import { Community } from "@/pages/community"
 import { CommunityPlanDetail } from "@/pages/community-plan-detail"
+
+function FeatureFlagRoute({ flag, children }: { flag: string; children: React.ReactNode }) {
+  const enabled = useFeatureFlag(flag)
+  if (!enabled) return <Navigate to="/dashboard" replace />
+  return <>{children}</>
+}
 
 /**
  * ResponsiveLayout switches between desktop (sidebar) and mobile (bottom tab bar) layouts.
@@ -137,6 +145,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const fetchGitHubStatus = useGitHubStore((s) => s.fetchStatus)
   const gitHubConnected = useGitHubStore((s) => s.connected)
   const fetchGitHubRepos = useGitHubStore((s) => s.fetchRepos)
+  const gitHubEnabled = useFeatureFlag('github-integration')
   const teamsLoaded = useTeamStore((s) => s.loaded)
   const projectsLoaded = useProjectStore((s) => s.loaded)
   const planLoaded = usePlanStore((s) => s.loaded)
@@ -243,15 +252,15 @@ function DataLoader({ children }: { children: React.ReactNode }) {
 
   // Auto-sync GitHub: check connection status on load, fetch repos if connected
   useEffect(() => {
-    if (!shouldLoadData || !teamsLoaded) return
+    if (!shouldLoadData || !teamsLoaded || !gitHubEnabled) return
     fetchGitHubStatus().catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shouldLoadData, teamsLoaded])
+  }, [shouldLoadData, teamsLoaded, gitHubEnabled])
 
   useEffect(() => {
-    if (gitHubConnected) fetchGitHubRepos().catch(() => {})
+    if (gitHubConnected && gitHubEnabled) fetchGitHubRepos().catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gitHubConnected])
+  }, [gitHubConnected, gitHubEnabled])
 
   // Critical stores: must load before rendering (navigation + core data)
   const criticalLoaded = teamsLoaded && projectsLoaded && planLoaded && userProfileLoaded && sidebarLoaded
@@ -340,6 +349,8 @@ export default function App() {
               <Route element={<AuthGuard><ResponsiveLayout /></AuthGuard>}>
                 <Route path="welcome" element={<ProjectNewPlan />} />
                 <Route path="dashboard" element={<Dashboard />} />
+                <Route path="github" element={<FeatureFlagRoute flag="github-integration"><Workspace /></FeatureFlagRoute>} />
+                <Route path="workspace" element={<Navigate to="/github" replace />} />
                 <Route path="projects" element={<Projects />} />
                 <Route path="plan" element={<ProjectNewPlan />} />
                 <Route path="projects/new" element={<Navigate to="/projects" replace />} />
@@ -351,6 +362,7 @@ export default function App() {
                 <Route path="project/:id/board" element={<PlanView />} />
                 <Route path="project/:id/overview" element={<PlanView />} />
                 <Route path="project/:id/knowledge" element={<PlanView />} />
+                <Route path="project/:id/repo" element={<PlanView />} />
                 <Route path="project/:id/task/:nodeId" element={<TaskDetail />} />
                 <Route path="initiatives" element={<Initiatives />} />
                 <Route path="tasks" element={<MyTasks />} />

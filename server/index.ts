@@ -48,6 +48,7 @@ import { updateMachineConnectionStatus, ensureMachineRegistered, resetAllConnect
 import { validateEnvironment, getRelayConfig, getRedisConfig, isProduction, isTest, isLocalMode as isLocalModeEnv } from './lib/environment.js'
 import { startCleanupScheduler, stopCleanupScheduler } from './lib/cleanup-scheduler.js'
 import { startCronScheduler, stopCronScheduler, retryMissedRunsForMachine } from './lib/cron-scheduler.js'
+import { startGitHubRepoCacheScheduler, stopGitHubRepoCacheScheduler } from './lib/github-repo-cache-scheduler.js'
 import { startExecutionWatchdog, stopExecutionWatchdog } from './lib/execution-watchdog.js'
 import { db } from './lib/db/index.js'
 import { planNodes } from './lib/db/schema.js'
@@ -577,6 +578,14 @@ async function start() {
     console.log('[cron] Cron scheduler started')
   }
 
+  if (!isTest()) {
+    startGitHubRepoCacheScheduler({
+      enabled: true,
+      intervalMs: 5 * 60 * 1000,
+    })
+    console.log('[github-cache] Repo cache scheduler started')
+  }
+
   // Start execution watchdog (P7: server-side in_progress safety net)
   if (!isTest()) {
     startExecutionWatchdog({
@@ -689,6 +698,7 @@ async function shutdown(signal: string) {
     stopHealthCheckMonitor()
     stopCleanupScheduler()
     stopCronScheduler()
+    stopGitHubRepoCacheScheduler()
     stopExecutionWatchdog()
     await observationCollector.stop()
     await streamingEventLog.flushAll()

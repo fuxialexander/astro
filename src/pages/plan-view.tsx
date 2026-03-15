@@ -28,6 +28,7 @@ import { InlineRenameInput } from "@/components/inline-rename-input"
 import { validateProjectName } from "@/lib/project-validation"
 import { OverviewTab } from "@/pages/project-overview"
 import { KnowledgePanel } from "@/components/knowledge-panel"
+import { RepoExplorer } from "@/components/repo-explorer/repo-explorer"
 import { RepoConfigDialog } from "@/components/repo-config-dialog"
 import { PublishDialog } from "@/components/community/publish-dialog"
 import { GitHubSyncSettingsDialog } from "@/components/github-sync-settings-dialog"
@@ -48,6 +49,7 @@ import { formatDueDateShort, formatDuration } from "@/lib/date-utils"
 import { assignDefaultDates } from "@/lib/timeline-utils"
 import { remoteTypeLabel } from "@/lib/project-source"
 import { isServerMode } from "@/lib/app-mode"
+import { useFeatureFlag } from "@/hooks/use-feature-flag"
 import { cn } from "@/lib/utils"
 import { splitTitleDescription } from "@/lib/text-utils"
 import { topologicalSortNodes } from "@/lib/graph-sort-utils"
@@ -1778,6 +1780,8 @@ export function PlanView() {
       return { viewMode: 'graph' as ViewMode, activeTab: 'overview' as const }
     } else if (lastPart === 'knowledge') {
       return { viewMode: 'graph' as ViewMode, activeTab: 'knowledge' as const }
+    } else if (lastPart === 'repo') {
+      return { viewMode: 'graph' as ViewMode, activeTab: 'repo' as const }
     } else if (VALID_VIEWS.has(lastPart as ViewMode)) {
       return { viewMode: lastPart as ViewMode, activeTab: 'plan' as const }
     }
@@ -1799,7 +1803,7 @@ export function PlanView() {
   // Close detail panel when switching view modes.
   // This effect legitimately syncs UI state (selectedNode) when the derived
   // viewMode changes from URL navigation. The guard avoids no-op renders.
-  useEffect(() => { setSelectedNode(null) }, [viewMode])
+  useEffect(() => { setSelectedNode(null) }, [viewMode, activeTab])
 
   // Handle decompose: open chat with pre-filled message
   const handleDecomposeNode = useCallback((nodeId: string) => {
@@ -1815,7 +1819,8 @@ export function PlanView() {
 
   // Replan gate logic — only treat as GitHub project if projectType is 'github'
   // (projects converted from GitHub tasks keep githubOwner/githubRepo but have projectType 'plan')
-  const isGitHubProject = project?.projectType === 'github' && !!(project?.githubOwner && project?.githubRepo)
+  const gitHubEnabled = useFeatureFlag('github-integration')
+  const isGitHubProject = gitHubEnabled && project?.projectType === 'github' && !!(project?.githubOwner && project?.githubRepo)
   const liveNodes = useMemo(() => planNodes.filter(n => n.projectId === id), [planNodes, id])
   const canReplan = liveNodes.length > 0 && !isGitHubProject
   const canSyncGitHub = isGitHubProject
@@ -1935,6 +1940,19 @@ export function PlanView() {
           >
             {t('tabs.knowledge', 'Knowledge')}
           </button>
+          {isGitHubProject && (
+            <button
+              onClick={() => navigate(`/project/${project.id}/repo`)}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
+                activeTab === "repo"
+                  ? "text-accent-foreground border-b-2 border-accent"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {t('tabs.repo', 'Repo Explorer')}
+            </button>
+          )}
         </div>
 
         <div className="flex-1 min-w-0" />
@@ -2034,6 +2052,11 @@ export function PlanView() {
             <DropdownMenuItem onClick={() => navigate(`/project/${project.id}/overview`)}>
               {t('tabs.description', 'Description')}
             </DropdownMenuItem>
+            {isGitHubProject && (
+              <DropdownMenuItem onClick={() => navigate(`/project/${project.id}/repo`)}>
+                {t('tabs.repo', 'Repo Explorer')}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             {/* Rename */}
             <DropdownMenuItem onClick={() => setIsRenaming(true)}>
@@ -2101,6 +2124,14 @@ export function PlanView() {
               <OverviewTab project={project} />
             ) : activeTab === "knowledge" ? (
               <KnowledgePanel projectId={project.id} />
+            ) : activeTab === "repo" ? (
+              isGitHubProject ? (
+                <RepoExplorer project={project} />
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+                  This project is not linked to a GitHub repository.
+                </div>
+              )
             ) : viewMode === "graph" ? (
               <div className="flex-1 relative overflow-hidden">
                 <div className="absolute inset-0 touch-pan-x touch-pan-y">

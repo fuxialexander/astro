@@ -140,6 +140,13 @@ export interface GitHubSyncSettings {
   autoCreateDirection: 'astro_to_github' | 'github_to_astro' | 'bidirectional' | 'none'
   /** Custom priority→label name mapping (overrides defaults) */
   labelMapping: Record<string, string>
+  /** Auto-dispatch agents on GitHub events */
+  automation?: {
+    /** Auto-fix failing CI on PRs */
+    fixCi?: boolean
+    /** Auto-address review comments on PRs */
+    addressReviews?: boolean
+  }
 }
 
 export const DEFAULT_GITHUB_SYNC_SETTINGS: GitHubSyncSettings = {
@@ -569,6 +576,96 @@ export interface Schedule {
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface GitHubCachedIssue {
+  id: string;
+  projectId: string;
+  issueNumber: number;
+  title: string;
+  body?: string | null;
+  state: 'open' | 'closed';
+  url: string;
+  authorLogin?: string | null;
+  labels: Array<{ name: string; color?: string }>;
+  assignees: Array<{ login: string }>;
+  commentsCount: number;
+  createdAt?: Date | null;
+  updatedAt?: Date | null;
+  closedAt?: Date | null;
+  cachedAt: Date;
+}
+
+export interface GitHubCachedPr {
+  id: string;
+  projectId: string;
+  prNumber: number;
+  title: string;
+  body?: string | null;
+  state: 'open' | 'closed' | 'merged';
+  url: string;
+  authorLogin?: string | null;
+  headBranch?: string | null;
+  baseBranch?: string | null;
+  labels: Array<{ name: string; color?: string }>;
+  ciStatus?: 'success' | 'failure' | 'pending' | 'none' | null;
+  reviewDecision?: 'approved' | 'changes_requested' | 'reviewed' | 'pending' | 'none' | null;
+  mergeableState?: 'mergeable' | 'conflicting' | 'unknown' | null;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  commentsCount: number;
+  draft: boolean;
+  createdAt?: Date | null;
+  updatedAt?: Date | null;
+  mergedAt?: Date | null;
+  closedAt?: Date | null;
+  cachedAt: Date;
+}
+
+export interface GitHubRepoCacheSnapshot {
+  projectId: string;
+  lastSyncedAt: string | null;
+  issues: GitHubCachedIssue[];
+  pullRequests: GitHubCachedPr[];
+}
+
+export interface GitHubWorkspaceAttentionItem {
+  type: 'ci_failing' | 'changes_requested' | 'ready_to_merge' | 'new_issue';
+  projectId: string;
+  projectName: string;
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  updatedAt?: string | null;
+}
+
+export interface GitHubWorkspaceProjectSummary {
+  projectId: string;
+  projectName: string;
+  repo: string;
+  openIssues: number;
+  openPullRequests: number;
+  failingPrs: number;
+  changesRequestedPrs: number;
+  readyToMergePrs: number;
+  lastSyncedAt: string | null;
+}
+
+export interface GitHubWorkspaceSummary {
+  projects: GitHubWorkspaceProjectSummary[];
+  attention: GitHubWorkspaceAttentionItem[];
+}
+
+export interface PrChangedFile {
+  filename: string;
+  status: 'added' | 'removed' | 'modified' | 'renamed' | 'copied' | 'changed' | 'unchanged';
+  additions: number;
+  deletions: number;
+  changes: number;
+  patch?: string;
+  previousFilename?: string;
 }
 
 // Execution history entry for a schedule run

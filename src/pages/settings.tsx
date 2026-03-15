@@ -45,6 +45,7 @@ import { useToastStore } from "@/stores/toast-store"
 import { getSupabase } from "@/lib/supabase-client"
 import { apiUrl } from "@/lib/api-url"
 import { isServerMode } from "@/lib/app-mode"
+import { useFeatureFlag } from "@/hooks/use-feature-flag"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -992,6 +993,7 @@ function ProfileContent() {
 
 function ConnectedAccountsContent() {
   const { t } = useTranslation("settings")
+  const gitHubEnabled = useFeatureFlag('github-integration')
   const { connected, user, repos, selectedRepoIds, fetchStatus, disconnect, connect } = useGitHubStore()
   const { installations, install: installApp } = useGitHubAppStore()
   const { load: loadAccounts, loaded: accountsLoaded } = useConnectedAccountsStore()
@@ -1056,8 +1058,8 @@ function ConnectedAccountsContent() {
   }, [searchParams, addToast, setSearchParams])
 
   useEffect(() => {
-    fetchStatus()
-  }, [fetchStatus])
+    if (gitHubEnabled) fetchStatus()
+  }, [fetchStatus, gitHubEnabled])
 
   useEffect(() => {
     if (!accountsLoaded) {
@@ -1069,83 +1071,87 @@ function ConnectedAccountsContent() {
     <div className="flex flex-col gap-8">
       <h1 className="text-xl font-primary font-semibold">{t("connectedAccounts.title")}</h1>
 
-      {/* GitHub Integration Guide — shown only until both integrations are set up */}
-      {(!connected || installations.length === 0) && (
-        <section className="flex flex-col gap-3">
-          <h2 className="text-sm font-semibold">GitHub</h2>
-          <p className="text-[13px] text-muted-foreground">
-            Astro integrates with GitHub in two ways. Choose the option that best fits your workflow—you can use both simultaneously.
-          </p>
+      {gitHubEnabled && (
+        <>
+          {/* GitHub Integration Guide — shown only until both integrations are set up */}
+          {(!connected || installations.length === 0) && (
+            <section className="flex flex-col gap-3">
+              <h2 className="text-sm font-semibold">GitHub</h2>
+              <p className="text-[13px] text-muted-foreground">
+                Astro integrates with GitHub in two ways. Choose the option that best fits your workflow—you can use both simultaneously.
+              </p>
 
-          <GitHubIntegrationGuide
-            onOAuthClick={connect}
-            onAppClick={installApp}
-            oauthConnected={connected}
-            appInstalled={installations.length > 0}
-          />
-        </section>
+              <GitHubIntegrationGuide
+                onOAuthClick={connect}
+                onAppClick={installApp}
+                oauthConnected={connected}
+                appInstalled={installations.length > 0}
+              />
+            </section>
+          )}
+
+          {/* Personal Account Connection Status */}
+          {connected && (
+            <section className="flex flex-col gap-3">
+              <h3 className="text-sm font-semibold">Personal Account Status</h3>
+
+              <div className="rounded-xl border border-border bg-card">
+                <div className="flex items-center justify-between px-4 py-4 border-b border-border">
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      "flex h-10 w-10 items-center justify-center rounded-lg",
+                      "bg-primary/10"
+                    )}>
+                      <Github className={cn("h-5 w-5", "text-primary")} />
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-sm font-medium">@{user?.login}</span>
+                      <span className="text-[13px] text-muted-foreground">
+                        Personal account
+                      </span>
+                    </div>
+                  </div>
+                  <Badge variant="success" className="gap-1">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Connected
+                  </Badge>
+                </div>
+
+                <div className="px-4 py-3.5 border-b border-border">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-sm">Repositories</span>
+                      <span className="text-[13px] text-muted-foreground">
+                        {repos.length} repositories • {selectedRepoIds.length} selected
+                      </span>
+                    </div>
+                    <GitHubSyncButton />
+                  </div>
+                </div>
+                <div className="px-4 py-3.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-sm">Disconnect</span>
+                      <span className="text-[13px] text-muted-foreground">
+                        Remove personal account integration
+                      </span>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={disconnect}>
+                      Disconnect
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* GitHub App Installations */}
+          <GitHubAppInstallationManager />
+
+          {/* GitHub Projects */}
+          <GitHubProjectLinker />
+        </>
       )}
-
-      {/* Personal Account Connection Status */}
-      {connected && (
-        <section className="flex flex-col gap-3">
-          <h3 className="text-sm font-semibold">Personal Account Status</h3>
-
-          <div className="rounded-xl border border-border bg-card">
-            <div className="flex items-center justify-between px-4 py-4 border-b border-border">
-              <div className="flex items-center gap-3">
-                <div className={cn(
-                  "flex h-10 w-10 items-center justify-center rounded-lg",
-                  "bg-primary/10"
-                )}>
-                  <Github className={cn("h-5 w-5", "text-primary")} />
-                </div>
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-sm font-medium">@{user?.login}</span>
-                  <span className="text-[13px] text-muted-foreground">
-                    Personal account
-                  </span>
-                </div>
-              </div>
-              <Badge variant="success" className="gap-1">
-                <CheckCircle2 className="h-3 w-3" />
-                Connected
-              </Badge>
-            </div>
-
-            <div className="px-4 py-3.5 border-b border-border">
-              <div className="flex items-center justify-between">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-sm">Repositories</span>
-                  <span className="text-[13px] text-muted-foreground">
-                    {repos.length} repositories • {selectedRepoIds.length} selected
-                  </span>
-                </div>
-                <GitHubSyncButton />
-              </div>
-            </div>
-            <div className="px-4 py-3.5">
-              <div className="flex items-center justify-between">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-sm">Disconnect</span>
-                  <span className="text-[13px] text-muted-foreground">
-                    Remove personal account integration
-                  </span>
-                </div>
-                <Button variant="outline" size="sm" onClick={disconnect}>
-                  Disconnect
-                </Button>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* GitHub App Installations */}
-      <GitHubAppInstallationManager />
-
-      {/* GitHub Projects */}
-      <GitHubProjectLinker />
 
       {/* Telegram */}
       <TelegramConnectCard />
