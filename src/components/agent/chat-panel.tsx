@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { stripHtml } from "@/lib/html-utils"
-import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2, Clock } from "lucide-react"
+import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2, Clock, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -16,6 +16,7 @@ import { TypingIndicator } from "@/components/ui/typing-indicator"
 import { fetchSlashCommands, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { useSettingsStore, resolveModel } from "@/stores/settings-store"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
+import { useRealtimeStore } from "@/stores/realtime-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore, getSessionTitle } from "@/stores/session-store"
@@ -23,6 +24,7 @@ import { InlineRenameInput } from "@/components/inline-rename-input"
 import { useProjectMachineId } from "@/hooks/use-project-machine"
 import { useChatActivityEvents } from "@/hooks/use-chat-activity-events"
 import {
+  groupActivityEvents,
   TextBlock,
   ToolBlock,
   ToolGroupBlock,
@@ -217,11 +219,41 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
   // Activity view: hydrate events from streaming_events or session messages
   const sessionMessages = useMemo(() => currentSession?.messages || [], [currentSession?.messages])
-  const { displayBlocks, isRestoring } = useChatActivityEvents(
+  const { displayBlocks: sessionDisplayBlocks, isRestoring } = useChatActivityEvents(
     currentSession?.id,
     sessionMessages,
     isStreaming,
   )
+
+  // Plan gen execution events — when viewing a plan gen session, also load
+  // the plan generation execution events so the planning conversation is visible
+  const isPlanSession = currentSession?.nodeId?.startsWith("plan-")
+  const planExecutionId = isPlanSession ? planExecution?.executionId : undefined
+
+  const hydrateFromCatchUp = useRealtimeStore((s) => s.hydrateFromCatchUp)
+  const planHydratedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!planExecutionId) return
+    if (planHydratedRef.current === planExecutionId) return
+    planHydratedRef.current = planExecutionId
+    hydrateFromCatchUp([planExecutionId], 0)
+  }, [planExecutionId, hydrateFromCatchUp])
+
+  const planStream = useRealtimeStore(
+    useCallback((s) => planExecutionId ? s.taskStreams.get(planExecutionId) : undefined, [planExecutionId])
+  )
+  const planGenEvents = useMemo(() => planStream?.activityEvents ?? [], [planStream?.activityEvents])
+
+  // Combine plan gen execution events + session chat events
+  const displayBlocks = useMemo(() => {
+    if (planGenEvents.length === 0) return sessionDisplayBlocks
+    const planBlocks = groupActivityEvents(planGenEvents)
+    // If session also has events, merge them after plan gen events
+    if (sessionDisplayBlocks.length > 0) {
+      return [...planBlocks, ...sessionDisplayBlocks]
+    }
+    return planBlocks
+  }, [planGenEvents, sessionDisplayBlocks])
 
   // Plan store — read nodes/edges for context
   const rawPlanNodes = usePlanStore((s) => s.nodes)
@@ -518,7 +550,8 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                 <DropdownMenuSeparator />
                 {[...projectChatSessions].reverse().map((session) => {
                   const messageCount = session.messageCount ?? session.messages.length
-                  const sessionTitle = getSessionTitle(session)
+                  const isPlanGen = session.nodeId?.startsWith("plan-")
+                  const sessionTitle = isPlanGen ? "Planning" : getSessionTitle(session)
                   const isActive = currentSession?.id === session.id
                   return (
                     <div
@@ -527,7 +560,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                       className="flex flex-col items-start gap-0.5 py-2 px-2 rounded-sm cursor-pointer hover:bg-accent transition-colors"
                     >
                       <div className="flex items-center gap-2 w-full">
-                        <MessageSquare className="h-3 w-3 shrink-0" />
+                        {isPlanGen ? <Sparkles className="h-3 w-3 shrink-0 text-primary" /> : <MessageSquare className="h-3 w-3 shrink-0" />}
                         {renamingSessionId === session.id ? (
                           <div className="flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
                             <InlineRenameInput

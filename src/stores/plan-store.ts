@@ -693,7 +693,24 @@ export const usePlanStore = create<PlanState>((set, get) => ({
             }
           : n,
       )
-      set({ nodes: nextNodes })
+
+      // Also revert milestones that depended on this task
+      const milestoneUpdates = computeMilestoneUpdates(nodeId, nextNodes, get().edges)
+      const finalNodes = milestoneUpdates.length > 0
+        ? nextNodes.map((n) => {
+            const update = milestoneUpdates.find((u) => u.id === n.id)
+            return update ? { ...n, status: update.status, updatedAt: new Date() } : n
+          })
+        : nextNodes
+
+      set({ nodes: finalNodes })
+
+      // Persist milestone reverts to API
+      for (const { id, status } of milestoneUpdates) {
+        dataClient.updateNode(id, { status }).catch((err) => {
+          console.error('[plan-store] Failed to revert milestone in API:', err)
+        })
+      }
     }
     return result
   },

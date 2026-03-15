@@ -959,6 +959,16 @@ app.patch('/plan/nodes/:id', async (c) => {
     })
   }
 
+  // Revert milestones when a node transitions from completed to non-completed
+  const COMPLETED_STATUSES_CHECK = ['completed', 'auto_verified']
+  if (body.status !== undefined &&
+      !COMPLETED_STATUSES_CHECK.includes(body.status) &&
+      COMPLETED_STATUSES_CHECK.includes(node.status as string)) {
+    revertMilestonesOnReset(node.projectId, [id]).catch((err) => {
+      console.warn('[data] Milestone revert failed:', err)
+    })
+  }
+
   return c.json({ ok: true })
 })
 
@@ -1107,6 +1117,72 @@ export async function cascadePruneDownstream(projectId: string, prunedNodeId: st
       }
       queue.push(childId)
     }
+  }
+}
+
+/**
+ * Revert auto-completed milestones when a task is reset.
+ * When a task goes back to 'planned', milestones that were auto_verified
+ * because of that task may no longer have all deps completed.
+ * Mirrors the frontend's computeMilestoneUpdates reversion logic.
+ */
+export async function revertMilestonesOnReset(projectId: string, resetNodeIds: string[]): Promise<void> {
+  const allNodes = await db.select().from(planNodes)
+    .where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
+  const allEdges = await db.select().from(planEdges)
+    .where(and(eq(planEdges.projectId, projectId), isNull(planEdges.deletedAt)))
+
+  const COMPLETED_STATUSES = ['completed', 'auto_verified']
+
+  // Build a mutable status map, overriding reset nodes to 'planned'
+  const statusMap = new Map(allNodes.map(n => [n.clientId, n.status]))
+  for (const nid of resetNodeIds) {
+    statusMap.set(nid, 'planned')
+  }
+
+  // Iterate until stable: reverting a milestone may cascade to other milestones
+  const revertedMilestoneIds: string[] = []
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const ms of allNodes.filter(n => n.type === 'milestone')) {
+      const currentStatus = statusMap.get(ms.clientId)!
+      if (currentStatus !== 'auto_verified') continue
+
+      // Gather upstream deps: edges pointing TO this milestone + tasks with milestoneId
+      const deps = new Set(
+        allEdges.filter(e => e.targetClientId === ms.clientId).map(e => e.sourceClientId)
+      )
+      for (const t of allNodes) {
+        if (t.type !== 'milestone' && t.milestoneId === ms.clientId) {
+          deps.add(t.clientId)
+        }
+      }
+      if (deps.size === 0) continue
+
+      const allDepsMet = [...deps].every(depId => {
+        const s = statusMap.get(depId)
+        return s && COMPLETED_STATUSES.includes(s)
+      })
+
+      if (!allDepsMet) {
+        statusMap.set(ms.clientId, 'planned')
+        revertedMilestoneIds.push(ms.clientId)
+        changed = true
+      }
+    }
+  }
+
+  // Persist milestone reverts to DB and notify frontend
+  for (const msId of revertedMilestoneIds) {
+    const ms = allNodes.find(n => n.clientId === msId)!
+    console.log(`[data] Reverting milestone "${ms.title}" (${msId}) to planned`)
+    await db.update(planNodes)
+      .set({ status: 'planned', updatedAt: new Date() })
+      .where(and(eq(planNodes.clientId, msId), eq(planNodes.projectId, projectId)))
+    executionEventBus.emit('node:status_changed', {
+      nodeId: msId, projectId, status: 'planned',
+    })
   }
 }
 

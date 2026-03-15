@@ -31,7 +31,7 @@ import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch, form
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
 import { extractPlanJsonFromText, BUILTIN_TEMPLATE_IDS } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
-import { autoDispatchDownstream, cascadePruneDownstream } from './data.js'
+import { autoDispatchDownstream, cascadePruneDownstream, revertMilestonesOnReset } from './data.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import { redisPubSub } from '../lib/redis-pubsub.js'
 import { incrementDispatchSSE, decrementDispatchSSE } from '../lib/sse-connection-tracker.js'
@@ -3102,6 +3102,11 @@ dispatchRoute.post('/reset', async (c) => {
     executionEventBus.emit('node:status_changed', {
       nodeId, projectId, status: 'planned',
     })
+
+    // 4b. Revert milestones that were auto-completed based on this task
+    revertMilestonesOnReset(projectId, [nodeId]).catch((err) => {
+      console.warn('[dispatch/reset] Milestone revert failed:', err)
+    })
   } catch (dbErr) {
     const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
     console.error(`[dispatch/reset] Failed to reset node in DB: ${msg}`)
@@ -3323,6 +3328,11 @@ dispatchRoute.post('/bulk-reset', async (c) => {
         nodeId: nid, projectId, status: 'planned',
       })
     }
+
+    // 6b. Revert milestones that were auto-completed based on the reset tasks
+    revertMilestonesOnReset(projectId, nodeIds).catch((err) => {
+      console.warn('[dispatch/bulk-reset] Milestone revert failed:', err)
+    })
   } catch (dbErr) {
     const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
     console.error(`[dispatch/bulk-reset] Failed to reset nodes in DB: ${msg}`)
