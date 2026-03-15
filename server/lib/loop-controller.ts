@@ -92,7 +92,9 @@ export async function advanceLoop(
   }
 
   const loopConfig = node.loopConfig as LoopConfig
-  const currentIteration = (node.loopCurrentIteration ?? 0) + 1
+  // loopCurrentIteration is already set to the dispatched iteration number
+  // by dispatchNextIteration, so use it directly (no +1 needed)
+  const currentIteration = node.loopCurrentIteration ?? 1
 
   // Extract metric from execution output
   const metricValue = extractMetric(iterationResult.output ?? '', loopConfig)
@@ -388,16 +390,16 @@ function extractMetric(output: string, loopConfig: LoopConfig): number | null {
     if (!isNaN(parsed)) return parsed
   }
 
-  // Try JSON parsing as fallback
-  try {
-    const jsonMatches = output.match(/\{[^{}]*\}/g)
-    if (jsonMatches) {
-      for (const jsonStr of jsonMatches) {
+  // Try JSON parsing as fallback (try each match independently)
+  const jsonMatches = output.match(/\{[^{}]*\}/g)
+  if (jsonMatches) {
+    for (const jsonStr of jsonMatches) {
+      try {
         const parsed = JSON.parse(jsonStr)
         if (typeof parsed[metricName] === 'number') return parsed[metricName]
-      }
+      } catch { /* not valid JSON, try next match */ }
     }
-  } catch { /* not JSON */ }
+  }
 
   return null
 }
