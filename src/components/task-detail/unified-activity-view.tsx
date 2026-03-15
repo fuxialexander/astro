@@ -254,30 +254,36 @@ export function UnifiedActivityView({
   }, [activityEvents, chatEventsVersion])
 
   // Group events for display.
-  // When a SummaryCard is visible (execution.summary exists), the raw "## Executive Summary"
-  // in the agent's text output is redundant — the structured follow-up turn already produced
-  // it. Drop the trailing text block that contains the executive summary heading to avoid
-  // showing the same content twice (styled card + raw markdown). This is more robust than
-  // regex stripping because the prompt guarantees the summary is the last text output.
+  // When a SummaryCard is visible (execution.summary exists), remove ALL "## Executive Summary"
+  // text blocks — the structured SummaryCard already shows this content.
+  // Also deduplicate executive summary blocks even without SummaryCard — catch-up hydration
+  // can deliver the same summary text multiple times for old sessions.
   const displayBlocks = useMemo(() => {
     const blocks = groupActivityEvents(allActivityEvents)
-    if (!execution?.summary || blocks.length === 0) return blocks
+    if (blocks.length === 0) return blocks
 
-    // Find the last text block and check if it contains the executive summary
-    for (let i = blocks.length - 1; i >= 0; i--) {
+    // Find all text blocks that contain the executive summary
+    const summaryIndices: number[] = []
+    for (let i = 0; i < blocks.length; i++) {
       if (blocks[i].type === 'text') {
         const text = blocks[i].events
           .filter((e): e is Extract<TaskActivityEvent, { type: 'text' }> => e.type === 'text')
           .map(e => e.content)
           .join('')
         if (text.includes('## Executive Summary') || text.includes('## executive summary')) {
-          // Remove this block — its content is already in the SummaryCard
-          return [...blocks.slice(0, i), ...blocks.slice(i + 1)]
+          summaryIndices.push(i)
         }
-        break // only check the last text block
       }
     }
-    return blocks
+    if (summaryIndices.length === 0) return blocks
+
+    // If SummaryCard is shown, remove ALL summary text blocks (card replaces them)
+    // Otherwise, keep only the last occurrence (dedup duplicates from hydration)
+    const toRemove = new Set(
+      execution?.summary ? summaryIndices : summaryIndices.slice(0, -1)
+    )
+    if (toRemove.size === 0) return blocks
+    return blocks.filter((_, i) => !toRemove.has(i))
   }, [allActivityEvents, execution?.summary])
 
   // Pre-build approval response lookup (answered set + response map) to avoid O(n) scans in render
