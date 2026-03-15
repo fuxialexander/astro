@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils"
 import type { PlanNode, TaskExecution, TaskActivityEvent } from "@/types"
 import {
   groupActivityEvents,
+  findSummaryBlockIndices,
   TextBlock,
   ToolBlock,
   ToolGroupBlock,
@@ -260,25 +261,11 @@ export function UnifiedActivityView({
   // can deliver the same summary text multiple times for old sessions.
   const displayBlocks = useMemo(() => {
     const blocks = groupActivityEvents(allActivityEvents)
-    if (blocks.length === 0) return blocks
-
-    // Find all text blocks that contain the executive summary
-    const summaryIndices: number[] = []
-    for (let i = 0; i < blocks.length; i++) {
-      if (blocks[i].type === 'text') {
-        const text = blocks[i].events
-          .filter((e): e is Extract<TaskActivityEvent, { type: 'text' }> => e.type === 'text')
-          .map(e => e.content)
-          .join('')
-        if (text.includes('## Executive Summary') || text.includes('## executive summary')) {
-          summaryIndices.push(i)
-        }
-      }
-    }
+    // Deduplicate executive summary text blocks from catch-up hydration.
+    // If SummaryCard is shown (execution.summary exists), remove ALL summary blocks.
+    // Otherwise, keep only the last occurrence (dedup duplicates from hydration).
+    const summaryIndices = findSummaryBlockIndices(blocks)
     if (summaryIndices.length === 0) return blocks
-
-    // If SummaryCard is shown, remove ALL summary text blocks (card replaces them)
-    // Otherwise, keep only the last occurrence (dedup duplicates from hydration)
     const toRemove = new Set(
       execution?.summary ? summaryIndices : summaryIndices.slice(0, -1)
     )

@@ -40,6 +40,7 @@ import { FileBrowser } from "@/components/file-browser"
 import { InlineApprovalCard } from "@/components/plan-generation/inline-approval-card"
 import {
   groupActivityEvents,
+  findSummaryBlockIndices,
   TextBlock,
   ToolBlock,
   ToolGroupBlock,
@@ -407,20 +408,8 @@ export function Playground() {
     // Deduplicate executive summary text blocks — catch-up hydration can deliver
     // the same "## Executive Summary" text multiple times for old sessions.
     // Keep only the last occurrence; remove earlier duplicates.
-    const summaryIndices: number[] = []
-    for (let i = 0; i < blocks.length; i++) {
-      if (blocks[i].type === 'text') {
-        const text = blocks[i].events
-          .filter((e): e is Extract<TaskActivityEvent, { type: 'text' }> => e.type === 'text')
-          .map(e => e.content)
-          .join('')
-        if (text.includes('## Executive Summary') || text.includes('## executive summary')) {
-          summaryIndices.push(i)
-        }
-      }
-    }
+    const summaryIndices = findSummaryBlockIndices(blocks)
     if (summaryIndices.length <= 1) return blocks
-    // Remove all but the last
     const toRemove = new Set(summaryIndices.slice(0, -1))
     return blocks.filter((_, i) => !toRemove.has(i))
   }, [allActivityEvents])
