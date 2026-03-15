@@ -72,7 +72,7 @@ describe('GLOBAL_DEFAULTS', () => {
   })
 
   it('all initial flags default to false (gated, not released)', () => {
-    for (const [flag, value] of Object.entries(GLOBAL_DEFAULTS)) {
+    for (const [, value] of Object.entries(GLOBAL_DEFAULTS)) {
       expect(value).toBe(false)
     }
   })
