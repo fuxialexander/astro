@@ -354,7 +354,9 @@ app.post('/projects', async (c) => {
     return c.json({ error: 'GitHub not connected' }, 401);
   }
 
-  // Check for duplicate (global — matches the DB unique index on github_owner, github_repo)
+  // Only one projectType='github' project per repo — this is the GitHub Command Center
+  // that tracks PRs, issues, and webhooks. Regular plan projects can freely share the
+  // same repo (they use git worktrees for isolation).
   const [existing] = await db.select({ id: projects.id })
     .from(projects)
     .where(and(

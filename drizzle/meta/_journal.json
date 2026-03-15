@@ -183,6 +183,13 @@
       "when": 1773475200000,
       "tag": "0025_add_team_feature_flags",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1773561600000,
+      "tag": "0026_drop_github_unique_constraint",
+      "breakpoints": true
     }
   ]
 }
