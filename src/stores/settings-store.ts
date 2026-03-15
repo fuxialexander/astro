@@ -129,7 +129,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const updates: Partial<SettingsState> = { loaded: true, loading: false }
       if (settings.defaultProvider) {
         // Migrate legacy provider name
-        updates.defaultProvider = settings.defaultProvider === "claude-code" ? "claude-sdk" : settings.defaultProvider
+        const migratedProvider = settings.defaultProvider === "claude-code" ? "claude-sdk" : settings.defaultProvider
+        updates.defaultProvider = migratedProvider
+        if (migratedProvider !== settings.defaultProvider) {
+          dataClient.updateSettings({ defaultProvider: migratedProvider }).catch(() => {})
+        }
       }
       // Load custom model map
       if (settings.customModelMap) {
@@ -173,7 +177,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       if (settings.modelTier) {
         const tier = settings.modelTier as ModelTier
         updates.modelTier = tier
-        updates.model = resolveModel(tier, settings.defaultProvider || get().defaultProvider || "claude-sdk", updates.customModelMap || get().customModelMap) || ''
+        updates.model = resolveModel(tier, updates.defaultProvider || get().defaultProvider || "claude-sdk", updates.customModelMap || get().customModelMap) || ''
       } else if (settings.model) {
         // Backward compat: derive tier from legacy model string
         updates.model = settings.model
