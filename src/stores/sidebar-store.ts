@@ -10,6 +10,7 @@ export interface SidebarItem {
   protected: boolean // Cannot be removed
   autoRevealed?: boolean   // system auto-showed this item
   userDismissed?: boolean  // user explicitly dismissed after auto-reveal
+  featureFlag?: string     // if set, item hidden when flag is off for the team
 }
 
 export interface AutoRevealCounts {

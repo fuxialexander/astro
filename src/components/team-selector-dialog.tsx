@@ -54,6 +54,7 @@ export function TeamSelectorDialog({
       id: teamId,
       name: newTeamName.trim(),
       description: newTeamDescription.trim(),
+      featureFlags: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
