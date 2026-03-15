@@ -739,7 +739,7 @@ When ready, output a single JSON object with this structure:
     {
       "id": "n1",
       "type": "task",
-      "title": "Task title",
+      "title": "Setup infrastructure",
       "description": "Concrete developer brief: what to build, which files to modify, constraints to follow, and what done looks like. This is the prompt sent to the AI agent.",
       "status": "planned",
       "parentId": null,
@@ -748,28 +748,75 @@ When ready, output a single JSON object with this structure:
       "position": {"x": 40, "y": 40},
       "priority": "medium",
       "estimate": "M",
-      "milestoneId": "n5",
+      "milestoneId": "m1",
       "labelIds": ["l2"]
     },
     {
-      "id": "n5",
-      "type": "milestone",
-      "title": "MVP Complete",
-      "description": "First milestone",
+      "id": "n2",
+      "type": "task",
+      "title": "Create data models",
+      "description": "...",
       "status": "planned",
       "parentId": null,
-      "dependencies": ["n1"],
+      "dependencies": [],
+      "verification": "auto",
+      "position": {"x": 300, "y": 40},
+      "priority": "medium",
+      "estimate": "M",
+      "milestoneId": "m1",
+      "labelIds": ["l2"]
+    },
+    {
+      "id": "m1",
+      "type": "milestone",
+      "title": "Foundation Complete",
+      "description": "Infrastructure and data models ready",
+      "status": "planned",
+      "parentId": null,
+      "dependencies": ["n1", "n2"],
       "verification": "human",
-      "position": {"x": 40, "y": 440},
+      "position": {"x": 40, "y": 240},
       "startDate": "2026-03-01",
       "endDate": "2026-03-01"
+    },
+    {
+      "id": "n3",
+      "type": "task",
+      "title": "Build API endpoints",
+      "description": "...",
+      "status": "planned",
+      "parentId": null,
+      "dependencies": ["m1"],
+      "verification": "auto",
+      "position": {"x": 40, "y": 340},
+      "priority": "medium",
+      "estimate": "L",
+      "milestoneId": "m2",
+      "labelIds": ["l2"]
+    },
+    {
+      "id": "m2",
+      "type": "milestone",
+      "title": "MVP Complete",
+      "description": "All API endpoints working",
+      "status": "planned",
+      "parentId": null,
+      "dependencies": ["n3"],
+      "verification": "human",
+      "position": {"x": 40, "y": 440},
+      "startDate": "2026-03-05",
+      "endDate": "2026-03-05"
     }
   ],
   "edges": [
-    {"id": "e1", "source": "n1", "target": "n5", "type": "dependency"}
+    {"id": "e1", "source": "n1", "target": "m1", "type": "dependency"},
+    {"id": "e2", "source": "n2", "target": "m1", "type": "dependency"},
+    {"id": "e3", "source": "m1", "target": "n3", "type": "dependency"},
+    {"id": "e4", "source": "n3", "target": "m2", "type": "dependency"}
   ]
 }
 \`\`\`
+Note the pattern: n1,n2 have milestoneId "m1" and edges flow INTO m1. n3 depends ON m1 (edge from m1) but belongs to m2 (milestoneId "m2"). A task must NEVER depend on the same milestone it belongs to.
 
 ## Task Description Quality
 
@@ -791,7 +838,7 @@ Parallel tasks (no dependency edge between them) run as separate agents in isola
 - Tasks do NOT have startDate/endDate. Milestones MUST have both (equal, YYYY-MM-DD)
 - priority: "urgent" | "high" | "medium" | "low" | "none"
 - estimate: "XS" | "S" | "M" | "L" | "XL". Target each task at ~20 min of expert work or <1000 lines changed
-- milestoneId: REQUIRED for tasks — every task must reference a milestone
+- milestoneId: REQUIRED for tasks — every task must reference a milestone. milestoneId means "this task contributes to the milestone's completion" (the milestone auto-completes when all its member tasks finish). A task's milestoneId must NEVER be a milestone it depends on via edges — that creates a deadlock cycle
 - labelIds: from {l1: Frontend/UI, l2: Backend/API, l3: Testing/QA, l4: Infrastructure/DevOps, l5: Research}
 - acceptanceCriteria: optional array of verification checks with {id, description, type, command?, autoVerifiable}
 - Aim for 6–15 nodes, but this is flexible — use more for complex projects, fewer for simple ones. Valid DAG (no cycles)
@@ -801,6 +848,7 @@ Parallel tasks (no dependency edge between them) run as separate agents in isola
 - type: "dependency" for sequential, "branch" for parallel paths
 - Milestones are gate nodes: tasks flow IN to a milestone, and downstream tasks depend ON the milestone. Never create a milestone that only has incoming edges — it must also have outgoing edges to the tasks it gates. Example: tasks A,B,C → milestone M → task D (NOT A,B,C → M with D separately depending on A,B,C)
 - Every milestone must be on the critical path — no orphan milestones with zero outgoing edges
+- CRITICAL — no milestone deadlocks: a task that belongs to milestone M (milestoneId: "M") must NEVER have an edge from M → task. milestoneId means "I feed INTO M's completion", while an edge M → task means "I wait FOR M to complete" — combining both on the same milestone creates an unresolvable cycle. Tasks that depend on M must belong to a DIFFERENT downstream milestone. Correct: n1(milestoneId:m1) → m1 → n2(milestoneId:m2) → m2. Wrong: m1 → n1(milestoneId:m1) — deadlock!
 
 ${importantSection}
 
