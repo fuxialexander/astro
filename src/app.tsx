@@ -61,6 +61,12 @@ import { Examples } from "@/pages/examples"
 import { Community } from "@/pages/community"
 import { CommunityPlanDetail } from "@/pages/community-plan-detail"
 
+function FeatureFlagRoute({ flag, children }: { flag: string; children: React.ReactNode }) {
+  const enabled = useFeatureFlag(flag)
+  if (!enabled) return <Navigate to="/dashboard" replace />
+  return <>{children}</>
+}
+
 /**
  * ResponsiveLayout switches between desktop (sidebar) and mobile (bottom tab bar) layouts.
  * Uses CSS media queries at the md breakpoint (768px) to show/hide appropriate chrome.
@@ -343,7 +349,7 @@ export default function App() {
               <Route element={<AuthGuard><ResponsiveLayout /></AuthGuard>}>
                 <Route path="welcome" element={<ProjectNewPlan />} />
                 <Route path="dashboard" element={<Dashboard />} />
-                <Route path="github" element={<Workspace />} />
+                <Route path="github" element={<FeatureFlagRoute flag="github-integration"><Workspace /></FeatureFlagRoute>} />
                 <Route path="workspace" element={<Navigate to="/github" replace />} />
                 <Route path="projects" element={<Projects />} />
                 <Route path="plan" element={<ProjectNewPlan />} />

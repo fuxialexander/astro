@@ -63,7 +63,7 @@ function mergeWithDefaults(stored: SidebarItem[]): SidebarItem[] {
     if (storedItem) {
       // Always take icon/to/label/protected from defaults (code is source of truth)
       // Keep user preferences: visible, autoRevealed, userDismissed, ordering
-      const merged = { ...storedItem, icon: defaultItem.icon, to: defaultItem.to, label: defaultItem.label, protected: defaultItem.protected }
+      const merged = { ...storedItem, icon: defaultItem.icon, to: defaultItem.to, label: defaultItem.label, protected: defaultItem.protected, featureFlag: defaultItem.featureFlag }
       if (defaultItem.protected) {
         return { ...merged, visible: true }
       }
