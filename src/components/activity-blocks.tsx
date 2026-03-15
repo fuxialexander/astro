@@ -314,7 +314,31 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
 
   flushText()
   flushTools()
-  return blocks
+
+  // ── Deduplicate text blocks ──────────────────────────────────────────
+  // Text duplication (4-14x repetitions) can occur from various pipeline
+  // sources. Remove text blocks whose joined content was already seen
+  // earlier. Only dedup substantial blocks (>50 chars) to avoid false
+  // positives on short repeated tokens like newlines or bullet prefixes.
+  const seenTextContent = new Set<string>()
+  const dedupedBlocks: DisplayBlock[] = []
+  for (const block of blocks) {
+    if (block.type === 'text') {
+      const text = block.events
+        .filter((e): e is Extract<TaskActivityEvent, { type: 'text' }> => e.type === 'text')
+        .map(e => e.content)
+        .join('')
+        .trim()
+      if (text.length > 50 && seenTextContent.has(text)) {
+        continue // skip duplicate
+      }
+      if (text.length > 50) {
+        seenTextContent.add(text)
+      }
+    }
+    dedupedBlocks.push(block)
+  }
+  return dedupedBlocks
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────

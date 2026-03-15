@@ -84,7 +84,6 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
   // Track safety prompts and which have been responded to
   const safetyPromptRequests = new Map<string, PendingSafetyPrompt>()
   const answeredSafetyPrompts = new Set<string>()
-  let stdout = ''
   let machineId: string | undefined
   let status: string | undefined
   let output: string | undefined
@@ -124,7 +123,6 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
       }
       case 'text': {
         const text = (data.text as string) || ''
-        stdout += text
         activityEvents.push({ type: 'text', content: text, timestamp, seq: event.seq })
         break
       }
@@ -357,5 +355,88 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
   const pendingSafetyPrompts = Array.from(safetyPromptRequests.values())
     .filter(s => !answeredSafetyPrompts.has(s.executionId))
 
-  return { stdout, activityEvents, toolTraces, fileChanges, pendingApprovals, pendingSafetyPrompts, machineId, status, output, error, sessionId, model, progress, progressMessage, branchName, prUrl, prNumber, deliveryStatus, finalStatus, summary, planResult }
+  // ── Deduplicate text blocks ──────────────────────────────────────────
+  // Text duplication can occur from concurrent flushText() races (before the
+  // synchronous-delete fix), SSE reconnect overlaps, or agent SDK retries.
+  // Group consecutive text events into "text blocks" (separated by non-text
+  // events), hash each block's joined content, and remove blocks whose content
+  // was already seen. This preserves legitimate repeated short tokens while
+  // eliminating full-paragraph duplication (4-14x repetitions).
+  const dedupedActivityEvents = deduplicateTextBlocks(activityEvents)
+
+  // Also rebuild stdout from deduplicated text to stay consistent
+  const dedupedStdout = dedupedActivityEvents
+    .filter((e): e is typeof e & { type: 'text'; content: string } => e.type === 'text')
+    .map(e => e.content)
+    .join('')
+
+  return { stdout: dedupedStdout, activityEvents: dedupedActivityEvents, toolTraces, fileChanges, pendingApprovals, pendingSafetyPrompts, machineId, status, output, error, sessionId, model, progress, progressMessage, branchName, prUrl, prNumber, deliveryStatus, finalStatus, summary, planResult }
+}
+
+/**
+ * Deduplicate text blocks in activity events.
+ *
+ * Groups consecutive text events into "blocks" (separated by non-text events),
+ * joins each block's content, and removes blocks whose joined content was
+ * already seen earlier in the stream. Only removes blocks with substantial
+ * content (>50 chars) to avoid false positives on short repeated tokens.
+ */
+function deduplicateTextBlocks(events: TaskActivityEvent[]): TaskActivityEvent[] {
+  // 1. Identify text block boundaries
+  type Segment =
+    | { kind: 'text'; events: TaskActivityEvent[]; content: string }
+    | { kind: 'other'; events: TaskActivityEvent[] }
+
+  const segments: Segment[] = []
+  let currentTextEvents: TaskActivityEvent[] = []
+
+  function flushText() {
+    if (currentTextEvents.length === 0) return
+    const content = currentTextEvents
+      .filter((e): e is typeof e & { type: 'text'; content: string } => e.type === 'text')
+      .map(e => e.content)
+      .join('')
+    segments.push({ kind: 'text', events: [...currentTextEvents], content })
+    currentTextEvents = []
+  }
+
+  for (const event of events) {
+    if (event.type === 'text') {
+      currentTextEvents.push(event)
+    } else {
+      flushText()
+      // Merge consecutive non-text events into one segment for efficiency
+      const last = segments[segments.length - 1]
+      if (last?.kind === 'other') {
+        last.events.push(event)
+      } else {
+        segments.push({ kind: 'other', events: [event] })
+      }
+    }
+  }
+  flushText()
+
+  // 2. Remove duplicate text blocks (keep first occurrence)
+  const seenTextContent = new Set<string>()
+  const result: TaskActivityEvent[] = []
+
+  for (const seg of segments) {
+    if (seg.kind === 'other') {
+      result.push(...seg.events)
+    } else {
+      const trimmed = seg.content.trim()
+      // Only deduplicate substantial text blocks — short text like newlines,
+      // bullets, or single-word tokens can legitimately repeat.
+      if (trimmed.length > 50 && seenTextContent.has(trimmed)) {
+        // Skip this duplicate text block
+        continue
+      }
+      if (trimmed.length > 50) {
+        seenTextContent.add(trimmed)
+      }
+      result.push(...seg.events)
+    }
+  }
+
+  return result
 }
