@@ -49,6 +49,7 @@ import { formatDueDateShort, formatDuration } from "@/lib/date-utils"
 import { assignDefaultDates } from "@/lib/timeline-utils"
 import { remoteTypeLabel } from "@/lib/project-source"
 import { isServerMode } from "@/lib/app-mode"
+import { useFeatureFlag } from "@/hooks/use-feature-flag"
 import { cn } from "@/lib/utils"
 import { splitTitleDescription } from "@/lib/text-utils"
 import { topologicalSortNodes } from "@/lib/graph-sort-utils"
@@ -1818,7 +1819,8 @@ export function PlanView() {
 
   // Replan gate logic — only treat as GitHub project if projectType is 'github'
   // (projects converted from GitHub tasks keep githubOwner/githubRepo but have projectType 'plan')
-  const isGitHubProject = project?.projectType === 'github' && !!(project?.githubOwner && project?.githubRepo)
+  const gitHubEnabled = useFeatureFlag('github-integration')
+  const isGitHubProject = gitHubEnabled && project?.projectType === 'github' && !!(project?.githubOwner && project?.githubRepo)
   const liveNodes = useMemo(() => planNodes.filter(n => n.projectId === id), [planNodes, id])
   const canReplan = liveNodes.length > 0 && !isGitHubProject
   const canSyncGitHub = isGitHubProject

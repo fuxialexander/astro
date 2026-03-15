@@ -40,6 +40,7 @@ import { TaskTimeline } from "@/components/dashboard/task-timeline"
 import { ProjectHealthCard } from "@/components/dashboard/project-health-card"
 import { WhatsNewSection } from "@/components/dashboard/whats-new-section"
 import { UpcomingScheduledRuns } from "@/components/dashboard/upcoming-scheduled-runs"
+import { useFeatureFlag } from "@/hooks/use-feature-flag"
 import { formatCompactNumber } from "@astro/core/achievements"
 import { dataClient } from "@/lib/data-client"
 import { cn } from "@/lib/utils"
@@ -87,6 +88,7 @@ export function Dashboard() {
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
   const yoloMode = useSettingsStore((s) => s.yoloMode)
+  const gitHubEnabled = useFeatureFlag('github-integration')
 
   // Auto-dismiss any approval cards that leaked through in YOLO mode
   useEffect(() => {
@@ -634,11 +636,13 @@ export function Dashboard() {
         </div>
       )}
 
-      <UpcomingScheduledRuns
-        projects={regularProjects}
-        nodes={nodes}
-        machinesById={machinesById}
-      />
+      {gitHubEnabled && (
+        <UpcomingScheduledRuns
+          projects={regularProjects}
+          nodes={nodes}
+          machinesById={machinesById}
+        />
+      )}
 
       {/* ── TIER 4: Project Health — Projects ── */}
       {recentProjects.length > 0 && (
