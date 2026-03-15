@@ -42,10 +42,9 @@ import { eq, inArray, sql } from 'drizzle-orm'
  * These are matched by team name (case-sensitive).
  */
 const INTERNAL_TEAMS: string[] = [
-  'Local',           // local-mode default team
-  // Add your production team names here, e.g.:
-  // 'Astro Core',
-  // 'Alex Lab',
+  'Local',                // local-mode default team
+  "Xi Fu's workspace",    // co-founder (production)
+  "Zhuoran's workspace",  // co-founder (production)
 ]
 
 /**
