@@ -41,6 +41,7 @@ import { PluginRoutes } from "@/components/plugin-routes"
 import { getBrowserHostname } from "@/lib/path-utils"
 import { refreshAllFileTrees } from "@/hooks/use-file-tree-refresh"
 import { useGitHubStore } from "@/stores/github-store"
+import { useFeatureFlag } from "@/hooks/use-feature-flag"
 import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
 import { useApiKeysStore } from "@/stores/api-keys-store"
 import { Settings } from "@/pages/settings"
@@ -137,6 +138,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const fetchGitHubStatus = useGitHubStore((s) => s.fetchStatus)
   const gitHubConnected = useGitHubStore((s) => s.connected)
   const fetchGitHubRepos = useGitHubStore((s) => s.fetchRepos)
+  const gitHubEnabled = useFeatureFlag('github-integration')
   const teamsLoaded = useTeamStore((s) => s.loaded)
   const projectsLoaded = useProjectStore((s) => s.loaded)
   const planLoaded = usePlanStore((s) => s.loaded)
@@ -243,15 +245,15 @@ function DataLoader({ children }: { children: React.ReactNode }) {
 
   // Auto-sync GitHub: check connection status on load, fetch repos if connected
   useEffect(() => {
-    if (!shouldLoadData || !teamsLoaded) return
+    if (!shouldLoadData || !teamsLoaded || !gitHubEnabled) return
     fetchGitHubStatus().catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shouldLoadData, teamsLoaded])
+  }, [shouldLoadData, teamsLoaded, gitHubEnabled])
 
   useEffect(() => {
-    if (gitHubConnected) fetchGitHubRepos().catch(() => {})
+    if (gitHubConnected && gitHubEnabled) fetchGitHubRepos().catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gitHubConnected])
+  }, [gitHubConnected, gitHubEnabled])
 
   // Critical stores: must load before rendering (navigation + core data)
   const criticalLoaded = teamsLoaded && projectsLoaded && planLoaded && userProfileLoaded && sidebarLoaded
