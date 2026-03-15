@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, notInArray } from 'drizzle-orm'
 import type {
   GitHubCachedIssue,
   GitHubCachedPr,
@@ -450,6 +450,22 @@ export async function syncGitHubRepoCache(project: RepoProject, userId: string, 
 
   await upsertIssueCacheEntries(project.id, issues)
   await upsertPrCacheEntries(project.id, prs)
+
+  // Remove stale cache entries for issues/PRs that no longer exist on GitHub
+  const fetchedIssueNumbers = issues.map((i) => i.number)
+  const fetchedPrNumbers = rawPrs.map((p) => p.number)
+  if (fetchedIssueNumbers.length > 0) {
+    await db.delete(githubIssueCache).where(and(
+      eq(githubIssueCache.projectId, project.id),
+      notInArray(githubIssueCache.issueNumber, fetchedIssueNumbers),
+    ))
+  }
+  if (fetchedPrNumbers.length > 0) {
+    await db.delete(githubPrCache).where(and(
+      eq(githubPrCache.projectId, project.id),
+      notInArray(githubPrCache.prNumber, fetchedPrNumbers),
+    ))
+  }
 
   return {
     issueCount: issues.length,
