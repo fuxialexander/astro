@@ -156,6 +156,24 @@
  * ============================================================================
  */
 
+import { readFileSync, realpathSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+// Load environment variables from .env.local (symlinked to .env.prod or .env.local.dev).
+// We do this before any imports that depend on env vars (like initDb/isLocalMode).
+const envFile = resolve(import.meta.dirname ?? '.', '..', '.env.local')
+try {
+  const resolved = realpathSync(envFile)
+  const envName = resolved.endsWith('.env.prod') ? 'prod' : resolved.endsWith('.env.local.dev') ? 'dev' : 'local'
+  for (const line of readFileSync(envFile, 'utf-8').split('\n')) {
+    const match = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/)
+    if (match && !process.env[match[1]]) process.env[match[1]] = match[2]
+  }
+  console.log(`Environment: ${envName} (from ${resolved})`)
+} catch {
+  console.log('Environment: local (no .env.local found — using PGlite)')
+}
+
 import { initDb, db } from '../packages/core/src/db/index.js'
 import { teams } from '../packages/core/src/db/schema.js'
 import { eq, inArray, sql } from 'drizzle-orm'
