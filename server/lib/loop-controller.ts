@@ -16,7 +16,6 @@ import { db } from './db/index.js'
 import { planNodes, loopIterations } from './db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import { serverSideDispatch } from './server-side-dispatch.js'
-import { autoDispatchDownstream } from '../routes/data.js'
 import type { LoopConfig, LoopIteration } from '../../packages/core/src/types.js'
 
 // ── Public API ───────────────────────────────────────────────────────
@@ -366,7 +365,8 @@ async function completeLoop(nodeId: string, projectId: string, reason: string): 
 
   console.log(`[loop] Loop ${nodeId} completed. ${summary.join(', ')}`)
 
-  // Trigger downstream task dispatch
+  // Trigger downstream task dispatch (dynamic import to avoid circular dependency with data.ts)
+  const { autoDispatchDownstream } = await import('../routes/data.js')
   autoDispatchDownstream(projectId, nodeId).catch(err => {
     console.error(`[loop] Auto-dispatch downstream failed after loop completion:`, err)
   })

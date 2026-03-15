@@ -33,7 +33,7 @@ import { extractPlanJsonFromText, BUILTIN_TEMPLATE_IDS } from '@astro/core'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { autoDispatchDownstream, cascadePruneDownstream, revertMilestonesOnReset } from './data.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
-import { advanceLoop } from '../lib/loop-controller.js'
+// loop-controller is dynamically imported to avoid circular dependency with data.ts
 import { redisPubSub } from '../lib/redis-pubsub.js'
 import { incrementDispatchSSE, decrementDispatchSSE } from '../lib/sse-connection-tracker.js'
 import { notifyCritical, notifyWarning } from '../lib/monitoring.js'
@@ -1623,32 +1623,32 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           nodeId, projectId, status: finalNodeStatus, executionId,
         })
 
-        // Auto-dispatch downstream tasks server-side (works even if browser disconnected).
-        // Triggers for both auto_verified (YOLO mode) and completed (human-verified),
-        // so downstream tasks cascade regardless of verification mode.
-        if (finalNodeStatus === 'auto_verified' || finalNodeStatus === 'completed') {
-          // Check if this is a loop node iteration — advance loop instead of normal downstream dispatch
-          const [loopCheck] = await db.select({
-            type: planNodes.type,
-            loopStatus: planNodes.loopStatus,
-          }).from(planNodes)
-            .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
-            .limit(1)
+        // Check if this is a loop node iteration — loops must always advance,
+        // regardless of finalNodeStatus (the loop controller handles failures internally)
+        const [loopCheck] = await db.select({
+          type: planNodes.type,
+          loopStatus: planNodes.loopStatus,
+        }).from(planNodes)
+          .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+          .limit(1)
 
-          if (loopCheck?.type === 'loop' && loopCheck.loopStatus === 'iterating') {
-            advanceLoop(nodeId, projectId, {
-              executionId,
-              output: msg.result.output ?? msg.result.summary?.workCompleted,
-              status: msg.result.status === 'completed' ? 'success' : 'failure',
-              branchName: msg.result.branchName,
-            }).catch((err) => {
-              console.error('[dispatch] Loop advance failed:', err)
-            })
-          } else {
-            autoDispatchDownstream(projectId, nodeId).catch((err) => {
-              console.error('[dispatch] Auto-dispatch downstream failed:', err)
-            })
-          }
+        if (loopCheck?.type === 'loop' && loopCheck.loopStatus === 'iterating') {
+          const { advanceLoop } = await import('../lib/loop-controller.js')
+          advanceLoop(nodeId, projectId, {
+            executionId,
+            output: msg.result.output ?? msg.result.summary?.workCompleted,
+            status: msg.result.status === 'completed' ? 'success' : 'failure',
+            branchName: msg.result.branchName,
+          }).catch((err) => {
+            console.error('[dispatch] Loop advance failed:', err)
+          })
+        } else if (finalNodeStatus === 'auto_verified' || finalNodeStatus === 'completed') {
+          // Auto-dispatch downstream tasks server-side (works even if browser disconnected).
+          // Triggers for both auto_verified (YOLO mode) and completed (human-verified),
+          // so downstream tasks cascade regardless of verification mode.
+          autoDispatchDownstream(projectId, nodeId).catch((err) => {
+            console.error('[dispatch] Auto-dispatch downstream failed:', err)
+          })
         }
       } catch (err: unknown) {
         console.error('[dispatch] Error persisting execution result to plan node:', err)

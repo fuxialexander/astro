@@ -517,6 +517,11 @@ app.get('/plan', async (c) => {
       attachments: n.attachments,
       links: n.links,
       acceptanceCriteria: n.acceptanceCriteria,
+      loopConfig: n.loopConfig,
+      loopCurrentIteration: n.loopCurrentIteration,
+      loopBestMetricValue: n.loopBestMetricValue,
+      loopBestIteration: n.loopBestIteration,
+      loopStatus: n.loopStatus,
       createdAt: n.createdAt,
       updatedAt: n.updatedAt,
     }))
@@ -578,6 +583,11 @@ app.get('/plan/:projectId', async (c) => {
     attachments: n.attachments,
     links: n.links,
     acceptanceCriteria: n.acceptanceCriteria,
+    loopConfig: n.loopConfig,
+    loopCurrentIteration: n.loopCurrentIteration,
+    loopBestMetricValue: n.loopBestMetricValue,
+    loopBestIteration: n.loopBestIteration,
+    loopStatus: n.loopStatus,
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
   }))
@@ -739,6 +749,7 @@ app.put('/plan/:projectId', async (c) => {
         attachments: (n.attachments as unknown[]) ?? [],
         links: (n.links as unknown[]) ?? [],
         acceptanceCriteria: (n.acceptanceCriteria as unknown[]) ?? [],
+        loopConfig: (n.loopConfig as Record<string, unknown>) ?? null,
         createdAt: (typeof n.createdAt === 'string' || typeof n.createdAt === 'number') ? new Date(n.createdAt as string | number) : new Date(),
         updatedAt: (typeof n.updatedAt === 'string' || typeof n.updatedAt === 'number') ? new Date(n.updatedAt as string | number) : new Date(),
       }
@@ -775,6 +786,7 @@ app.put('/plan/:projectId', async (c) => {
           attachments: row.attachments,
           links: row.links,
           acceptanceCriteria: row.acceptanceCriteria,
+          loopConfig: row.loopConfig,
           updatedAt: row.updatedAt,
         },
       })
@@ -858,6 +870,7 @@ app.post('/plan/nodes', async (c) => {
       attachments: body.attachments ?? [],
       links: body.links ?? [],
       acceptanceCriteria: body.acceptanceCriteria ?? [],
+      loopConfig: body.loopConfig ?? null,
       createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
       updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
     })
@@ -918,6 +931,7 @@ app.patch('/plan/nodes/:id', async (c) => {
   if (body.links !== undefined) patch.links = body.links ?? []
   if (body.acceptanceCriteria !== undefined) patch.acceptanceCriteria = body.acceptanceCriteria ?? []
   if (body.type !== undefined) patch.type = body.type
+  if (body.loopConfig !== undefined) patch.loopConfig = body.loopConfig || null
   if (body.deletedAt !== undefined) patch.deletedAt = body.deletedAt ? new Date(body.deletedAt) : null
   if (body.deletionActionId !== undefined) patch.deletionActionId = body.deletionActionId || null
 
@@ -2707,6 +2721,7 @@ app.get('/loop-iterations', async (c) => {
   const nodeId = c.req.query('nodeId')
   const projectId = c.req.query('projectId')
   if (!nodeId || !projectId) return c.json({ error: 'nodeId and projectId required' }, 400)
+  if (!UUID_RE.test(projectId)) return c.json({ error: 'Invalid project ID' }, 400)
 
   // Verify project access
   const [project] = await db.select().from(projects).where(
@@ -2726,6 +2741,7 @@ app.post('/loop/stop', async (c) => {
   const body = await c.req.json<{ nodeId: string; projectId: string }>()
   const { nodeId, projectId } = body
   if (!nodeId || !projectId) return c.json({ error: 'nodeId and projectId required' }, 400)
+  if (!UUID_RE.test(projectId)) return c.json({ error: 'Invalid project ID' }, 400)
 
   // Verify project access
   const [project] = await db.select().from(projects).where(
