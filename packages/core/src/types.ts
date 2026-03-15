@@ -114,6 +114,7 @@ export interface Team {
   id: string;
   name: string;
   description: string;
+  featureFlags: Record<string, boolean>;
   createdAt: Date;
   updatedAt: Date;
 }
