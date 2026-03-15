@@ -64,8 +64,10 @@ function githubHeaders(accessToken: string): Record<string, string> {
 
 const MAX_PAGES = 10
 
-async function fetchPaginated<T>(buildUrl: (page: number) => string, accessToken: string): Promise<T[]> {
-  const results: T[] = []
+interface PaginatedResult<T> { items: T[]; truncated: boolean }
+
+async function fetchPaginated<T>(buildUrl: (page: number) => string, accessToken: string): Promise<PaginatedResult<T>> {
+  const items: T[] = []
   let page = 1
 
   while (page <= MAX_PAGES) {
@@ -80,22 +82,24 @@ async function fetchPaginated<T>(buildUrl: (page: number) => string, accessToken
 
     const pageItems = await response.json() as T[]
     if (pageItems.length === 0) break
-    results.push(...pageItems)
+    items.push(...pageItems)
     if (pageItems.length < 100) break
     page += 1
   }
 
-  return results
+  // Truncated if we hit the page cap and the last page was full
+  const truncated = page > MAX_PAGES
+  return { items, truncated }
 }
 
-async function fetchIssues(accessToken: string, owner: string, repo: string, since?: string): Promise<RawIssue[]> {
+async function fetchIssues(accessToken: string, owner: string, repo: string, since?: string): Promise<{ issues: RawIssue[]; truncated: boolean }> {
   const sinceParam = since ? `&since=${since}` : ''
-  const items = await fetchPaginated<Record<string, unknown>>(
+  const { items, truncated } = await fetchPaginated<Record<string, unknown>>(
     (page) => `${GITHUB_API}/repos/${owner}/${repo}/issues?state=all&sort=updated&direction=desc&per_page=100&page=${page}${sinceParam}`,
     accessToken,
   )
 
-  return items
+  const issues = items
     .filter((item) => !item.pull_request)
     .map((item) => ({
       number: item.number as number,
@@ -116,16 +120,17 @@ async function fetchIssues(accessToken: string, owner: string, repo: string, sin
         login: typeof assignee.login === 'string' ? assignee.login : undefined,
       })),
     }))
+  return { issues, truncated }
 }
 
-async function fetchPullRequests(accessToken: string, owner: string, repo: string, since?: string): Promise<RawPullRequest[]> {
+async function fetchPullRequests(accessToken: string, owner: string, repo: string, since?: string): Promise<{ prs: RawPullRequest[]; truncated: boolean }> {
   const sinceParam = since ? `&since=${since}` : ''
-  const items = await fetchPaginated<Record<string, unknown>>(
+  const { items, truncated } = await fetchPaginated<Record<string, unknown>>(
     (page) => `${GITHUB_API}/repos/${owner}/${repo}/pulls?state=all&sort=updated&direction=desc&per_page=100&page=${page}${sinceParam}`,
     accessToken,
   )
 
-  return items.map((item) => ({
+  const prs = items.map((item) => ({
     number: item.number as number,
     title: item.title as string,
     body: (item.body as string | null) ?? null,
@@ -149,6 +154,7 @@ async function fetchPullRequests(accessToken: string, owner: string, repo: strin
     head: item.head as RawPullRequest['head'],
     base: item.base as RawPullRequest['base'],
   }))
+  return { prs, truncated }
 }
 
 async function fetchJson(url: string, accessToken: string): Promise<Record<string, unknown>> {
@@ -223,7 +229,7 @@ export function deriveAttentionItems(
 }
 
 async function fetchPrReviewDecision(accessToken: string, owner: string, repo: string, prNumber: number): Promise<GitHubCachedPr['reviewDecision']> {
-  const reviews = await fetchPaginated<Record<string, unknown>>(
+  const { items: reviews } = await fetchPaginated<Record<string, unknown>>(
     (page) => `${GITHUB_API}/repos/${owner}/${repo}/pulls/${prNumber}/reviews?per_page=100&page=${page}`,
     accessToken,
   )
@@ -442,34 +448,40 @@ export async function syncGitHubRepoCache(project: RepoProject, userId: string, 
   const token = await resolveGitHubToken(project.githubOwner, project.githubRepo, userId, teamId ?? null)
   if (!token) throw new Error(`No GitHub token available for ${project.githubOwner}/${project.githubRepo}`)
 
-  const [issues, rawPrs] = await Promise.all([
+  const [issueResult, prResult] = await Promise.all([
     fetchIssues(token.token, project.githubOwner, project.githubRepo),
     fetchPullRequests(token.token, project.githubOwner, project.githubRepo),
   ])
-  const prs = await enrichPullRequests(token.token, project.githubOwner, project.githubRepo, rawPrs, project.id)
+  const prs = await enrichPullRequests(token.token, project.githubOwner, project.githubRepo, prResult.prs, project.id)
 
-  await upsertIssueCacheEntries(project.id, issues)
+  await upsertIssueCacheEntries(project.id, issueResult.issues)
   await upsertPrCacheEntries(project.id, prs)
 
-  // Remove stale cache entries for issues/PRs that no longer exist on GitHub
-  const fetchedIssueNumbers = issues.map((i) => i.number)
-  const fetchedPrNumbers = rawPrs.map((p) => p.number)
-  if (fetchedIssueNumbers.length > 0) {
-    await db.delete(githubIssueCache).where(and(
-      eq(githubIssueCache.projectId, project.id),
-      notInArray(githubIssueCache.issueNumber, fetchedIssueNumbers),
-    ))
+  // Remove stale cache entries for issues/PRs that no longer exist on GitHub.
+  // Skip stale cleanup if pagination was truncated — the fetched set is incomplete
+  // and deleting entries not in it would cause data loss for large repos.
+  if (!issueResult.truncated) {
+    const fetchedIssueNumbers = issueResult.issues.map((i) => i.number)
+    if (fetchedIssueNumbers.length > 0) {
+      await db.delete(githubIssueCache).where(and(
+        eq(githubIssueCache.projectId, project.id),
+        notInArray(githubIssueCache.issueNumber, fetchedIssueNumbers),
+      ))
+    }
   }
-  if (fetchedPrNumbers.length > 0) {
-    await db.delete(githubPrCache).where(and(
-      eq(githubPrCache.projectId, project.id),
-      notInArray(githubPrCache.prNumber, fetchedPrNumbers),
-    ))
+  if (!prResult.truncated) {
+    const fetchedPrNumbers = prResult.prs.map((p) => p.number)
+    if (fetchedPrNumbers.length > 0) {
+      await db.delete(githubPrCache).where(and(
+        eq(githubPrCache.projectId, project.id),
+        notInArray(githubPrCache.prNumber, fetchedPrNumbers),
+      ))
+    }
   }
 
   return {
-    issueCount: issues.length,
-    prCount: prs.length,
+    issueCount: issueResult.issues.length,
+    prCount: prResult.prs.length,
     syncedAt: new Date().toISOString(),
   }
 }
@@ -644,7 +656,7 @@ export async function backfillGitHubRepoCacheForProject(project: Project): Promi
 // ── PR file diffs ──────────────────────────────────────────────────
 
 export async function getPrFiles(accessToken: string, owner: string, repo: string, prNumber: number): Promise<PrChangedFile[]> {
-  const items = await fetchPaginated<Record<string, unknown>>(
+  const { items } = await fetchPaginated<Record<string, unknown>>(
     (page) => `${GITHUB_API}/repos/${owner}/${repo}/pulls/${prNumber}/files?per_page=100&page=${page}`,
     accessToken,
   )

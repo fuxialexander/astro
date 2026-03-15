@@ -281,19 +281,22 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
                               <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground/30" />
                             </div>
                             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                              {issue.labels.slice(0, 3).map((label) => (
+                              {issue.labels.slice(0, 3).map((label) => {
+                                const hex = /^[0-9a-fA-F]{6}$/.test(label.color ?? '') ? label.color : undefined
+                                return (
                                 <span
                                   key={label.name}
                                   className="rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                                  style={label.color ? {
-                                    background: `#${label.color}18`,
-                                    color: `#${label.color}`,
-                                    border: `1px solid #${label.color}30`,
+                                  style={hex ? {
+                                    background: `#${hex}18`,
+                                    color: `#${hex}`,
+                                    border: `1px solid #${hex}30`,
                                   } : undefined}
                                 >
                                   {label.name}
                                 </span>
-                              ))}
+                                )
+                              })}
                               {issue.updatedAt && (
                                 <span className="text-[10px] text-muted-foreground/50">{formatRelativeTime(issue.updatedAt)}</span>
                               )}

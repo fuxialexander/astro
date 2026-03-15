@@ -41,18 +41,7 @@ async function getAutomationSettings(projectId: string): Promise<GitHubSyncSetti
  * Prevents duplicate tasks when multiple webhooks fire for the same event.
  */
 async function hasPendingTask(projectId: string, prNumber: number, titlePrefix: string): Promise<boolean> {
-  const [existing] = await db.select({ id: planNodes.id, status: planNodes.status })
-    .from(planNodes)
-    .where(and(
-      eq(planNodes.projectId, projectId),
-      eq(planNodes.prNumber, prNumber),
-    ))
-    .limit(10)
-
-  if (!existing) return false
-
-  // Check all matching nodes for the specific action prefix
-  const rows = await db.select({ clientId: planNodes.clientId, title: planNodes.title, status: planNodes.status })
+  const rows = await db.select({ title: planNodes.title, status: planNodes.status })
     .from(planNodes)
     .where(and(
       eq(planNodes.projectId, projectId),
@@ -63,6 +52,20 @@ async function hasPendingTask(projectId: string, prNumber: number, titlePrefix: 
     r.title.startsWith(titlePrefix) &&
     !['completed', 'pruned'].includes(r.status)
   )
+}
+
+/**
+ * Per-project rate limiter for automated dispatches.
+ * Prevents unbounded agent spawning from rapid webhook events.
+ */
+const automationCooldowns = new Map<string, number>()
+const AUTOMATION_COOLDOWN_MS = 60_000 // 1 minute between automated dispatches per project
+
+function isRateLimited(projectId: string): boolean {
+  const lastDispatch = automationCooldowns.get(projectId) ?? 0
+  if (Date.now() - lastDispatch < AUTOMATION_COOLDOWN_MS) return true
+  automationCooldowns.set(projectId, Date.now())
+  return false
 }
 
 /**
@@ -79,6 +82,11 @@ export async function handleCheckRunAutomation(ctx: WebhookContext, payload: Rec
 
   const automation = await getAutomationSettings(ctx.projectId)
   if (!automation?.fixCi) return
+
+  if (isRateLimited(ctx.projectId)) {
+    console.log(`[webhook-automation] Rate-limited Fix CI dispatch for ${ctx.repoFullName}`)
+    return
+  }
 
   // Extract PR info from check run
   const pullRequests = checkRun.pull_requests as Array<Record<string, unknown>> | undefined
@@ -153,6 +161,11 @@ export async function handleReviewAutomation(ctx: WebhookContext, payload: Recor
 
   const automation = await getAutomationSettings(ctx.projectId)
   if (!automation?.addressReviews) return
+
+  if (isRateLimited(ctx.projectId)) {
+    console.log(`[webhook-automation] Rate-limited Address Review dispatch for ${ctx.repoFullName}`)
+    return
+  }
 
   const pr = payload.pull_request as Record<string, unknown> | undefined
   if (!pr) return
