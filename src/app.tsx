@@ -341,7 +341,8 @@ export default function App() {
               <Route element={<AuthGuard><ResponsiveLayout /></AuthGuard>}>
                 <Route path="welcome" element={<ProjectNewPlan />} />
                 <Route path="dashboard" element={<Dashboard />} />
-                <Route path="workspace" element={<Workspace />} />
+                <Route path="github" element={<Workspace />} />
+                <Route path="workspace" element={<Navigate to="/github" replace />} />
                 <Route path="projects" element={<Projects />} />
                 <Route path="plan" element={<ProjectNewPlan />} />
                 <Route path="projects/new" element={<Navigate to="/projects" replace />} />

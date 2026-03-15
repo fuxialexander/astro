@@ -373,7 +373,7 @@ app.post('/projects', async (c) => {
   const [project] = await db.insert(projects).values({
     id: projectId,
     ownerId: user.id,
-    name: `${owner}/${repo} (GitHub)`,
+    name: `${owner}/${repo} [GitHub Repo]`,
     projectType: 'github',
     githubOwner: owner,
     githubRepo: repo,
