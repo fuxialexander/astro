@@ -8,8 +8,6 @@
 
 import { useMemo, useEffect, useRef, useState } from "react"
 import type { TaskExecution, TaskActivityEvent, ToolTrace, FileChange } from "@/types"
-/** Execution-level terminal statuses (distinct from plan-node-level TERMINAL_NODE_STATUSES) */
-const TERMINAL_EXECUTION_STATUSES: Set<string> = new Set(['success', 'failure', 'cancelled'])
 import type { TaskStream } from "@/stores/realtime-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 
@@ -101,20 +99,21 @@ export function useRestoredExecution(
     if (!executionId || hasLiveEvents) return
     if (catchUpAttempted.current === executionId) return
 
-    // Skip catch-up for terminal-status executions.
-    // Results are already in execution store (task_executions table).
-    // streaming_events are transport-only and get purged after 7 days.
-    if (execution?.status && TERMINAL_EXECUTION_STATUSES.has(execution.status)) {
-      catchUpAttempted.current = executionId
-      // Defer to avoid synchronous setState in effect body (lint: set-state-in-effect)
-      Promise.resolve().then(() => setCatchUpCompletedId(executionId))
-      return
-    }
+    // For terminal executions, task_executions has streamText (raw text) but
+    // NOT structured activity events (tool calls, file changes). Those are only
+    // in streaming_events. So we still need catch-up to display activity on revisit.
 
     catchUpAttempted.current = executionId
     console.log('[use-restored] trying streaming events catch-up for', executionId)
-    hydrateFromCatchUp([executionId], 0).then(() => setCatchUpCompletedId(executionId))
-  }, [executionId, hasLiveEvents, hydrateFromCatchUp, execution?.status])
+    hydrateFromCatchUp([executionId], 0)
+      .then(() => setCatchUpCompletedId(executionId))
+      .catch((err) => {
+        // On failure, still mark complete so isRestoring doesn't spin forever.
+        // Activity will be empty but the UI won't be stuck on a loading spinner.
+        console.warn('[use-restored] catch-up failed for', executionId, err)
+        setCatchUpCompletedId(executionId)
+      })
+  }, [executionId, hasLiveEvents, hydrateFromCatchUp])
 
   const catchUpDone = catchUpCompletedId === executionId
 

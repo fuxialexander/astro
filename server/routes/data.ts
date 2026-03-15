@@ -1629,9 +1629,25 @@ app.get('/executions', async (c) => {
     return c.json({})
   }
 
-  // Get executions for user's projects (scoped query instead of full table scan)
+  // Get executions for user's projects — project only the columns we return
+  // to avoid transferring large streamText blobs from DB when unused.
   const ids = [...projectIds]
-  const filtered = await db.select().from(taskExecutions).where(inArray(taskExecutions.projectId, ids))
+  const filtered = await db.select({
+    executionId: taskExecutions.executionId,
+    nodeClientId: taskExecutions.nodeClientId,
+    projectId: taskExecutions.projectId,
+    status: taskExecutions.status,
+    streamText: taskExecutions.streamText,
+    error: taskExecutions.error,
+    machineId: taskExecutions.machineId,
+    sessionId: taskExecutions.sessionId,
+    providerId: taskExecutions.providerId,
+    providerName: taskExecutions.providerName,
+    startedAt: taskExecutions.startedAt,
+    completedAt: taskExecutions.completedAt,
+    durationMs: taskExecutions.durationMs,
+    summary: taskExecutions.summary,
+  }).from(taskExecutions).where(inArray(taskExecutions.projectId, ids))
 
   // Convert to map keyed by nodeClientId.
   // streamText is kept in the list response because the execution-panel, summary
