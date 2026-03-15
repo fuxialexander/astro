@@ -208,8 +208,8 @@ export function Workspace() {
   }, [])
 
   useEffect(() => {
-    void load()
-  }, [load])
+    if (connected) void load()
+  }, [connected, load])
 
   const attentionByType = useMemo(() => ({
     ci_failing: summary?.attention.filter((a) => a.type === "ci_failing") ?? [],
@@ -245,7 +245,7 @@ export function Workspace() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading || !connected}>
             <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", loading && "animate-spin")} />
             Refresh
           </Button>
