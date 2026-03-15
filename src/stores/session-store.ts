@@ -546,9 +546,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     sessions.set(sessionId, updated)
     set({ sessions })
-
-    // Fire-and-forget API call
-    dataClient.updateSession(sessionId, { activityEvents: updated.activityEvents, updatedAt: updated.updatedAt }).catch(() => {})
+    // No DB write — activity events are persisted via streaming_events table.
+    // Sending the full accumulated JSONB array on every event caused O(n²) egress.
   },
 
   addToolTrace: (sessionId, trace) => {
@@ -564,9 +563,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     sessions.set(sessionId, updated)
     set({ sessions })
-
-    // Fire-and-forget API call
-    dataClient.updateSession(sessionId, { toolTraces: updated.toolTraces, updatedAt: updated.updatedAt }).catch(() => {})
+    // No DB write — tool traces are persisted via streaming_events table.
   },
 
   addFileChange: (sessionId, change) => {
@@ -582,9 +579,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     sessions.set(sessionId, updated)
     set({ sessions })
-
-    // Fire-and-forget API call
-    dataClient.updateSession(sessionId, { fileChanges: updated.fileChanges, updatedAt: updated.updatedAt }).catch(() => {})
+    // No DB write — file changes are persisted via streaming_events table.
   },
 
   setStreamText: (sessionId, text) => {
@@ -645,13 +640,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     sessions.set(sessionId, updated)
     set({ sessions })
-
-    // Fire-and-forget API call
-    dataClient.updateSession(sessionId, {
-      steerMessages: updated.steerMessages,
-      activityEvents: updated.activityEvents,
-      updatedAt: updated.updatedAt
-    }).catch(() => {})
+    // No DB write — steer messages are persisted via streaming_events / realtime-store.
   },
 
   updateSteerMessage: (sessionId, index, update) => {
@@ -684,13 +673,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     sessions.set(sessionId, updated)
     set({ sessions })
-
-    // Fire-and-forget API call
-    dataClient.updateSession(sessionId, {
-      steerMessages: updated.steerMessages,
-      activityEvents: updated.activityEvents,
-      updatedAt: updated.updatedAt
-    }).catch(() => {})
+    // No DB write — steer messages are persisted via streaming_events / realtime-store.
   },
 
   // ─── Store-owned chat streaming ──────────────────────────────────
