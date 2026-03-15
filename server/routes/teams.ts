@@ -593,6 +593,7 @@ teamsRoute.post('/', async (c) => {
       id: teamId,
       name: body.name.trim(),
       description: body.description?.trim() ?? null,
+      feature_flags: {},
       createdAt: now,
       updatedAt: now,
       memberRole: 'owner',

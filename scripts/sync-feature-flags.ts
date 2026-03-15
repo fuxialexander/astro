@@ -165,7 +165,11 @@ async function syncFlags() {
 
   for (const team of matchedTeams) {
     const currentFlags = team.featureFlags ?? {}
-    const needsUpdate = JSON.stringify(currentFlags) !== JSON.stringify(INTERNAL_FLAGS)
+    const currentKeys = Object.keys(currentFlags).sort()
+    const targetKeys = Object.keys(INTERNAL_FLAGS).sort()
+    const needsUpdate = currentKeys.length !== targetKeys.length
+      || currentKeys.some((k, i) => k !== targetKeys[i])
+      || targetKeys.some(k => currentFlags[k] !== INTERNAL_FLAGS[k])
 
     if (!needsUpdate) {
       console.log(`  [skip] "${team.name}" — already up to date`)
