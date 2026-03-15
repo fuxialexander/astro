@@ -1924,8 +1924,12 @@ const tabTitles: Record<SettingsTab, string> = {
 
 export function Settings() {
   const { t: ts } = useTranslation("settings")
-  const [activeTab, setActiveTab] = useState<SettingsTab>("general")
-  const [showContent, setShowContent] = useState(false)
+  const [searchParams] = useSearchParams()
+  const initialTab = (searchParams.get("tab") as SettingsTab) || "general"
+  const [activeTab, setActiveTab] = useState<SettingsTab>(
+    initialTab in tabTitles ? initialTab : "general"
+  )
+  const [showContent, setShowContent] = useState(initialTab !== "general")
 
   const handleTabClick = (tab: SettingsTab) => {
     setActiveTab(tab)

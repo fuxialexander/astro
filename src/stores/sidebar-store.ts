@@ -44,10 +44,10 @@ interface SidebarStore {
 
 const defaultItems: SidebarItem[] = [
   { id: "dashboard", to: "/dashboard", icon: "Radio", label: "Dashboard", visible: true, protected: true },
-  { id: "github", to: "/github", icon: "Github", label: "GitHub", visible: true, protected: false, featureFlag: "github-integration" },
   { id: "plan", to: "/plan", icon: "Sparkles", label: "Plan", visible: true, protected: true },
   { id: "playground", to: "/playground", icon: "FlaskConical", label: "Playground", visible: true, protected: false },
   { id: "projects", to: "/projects", icon: "GitBranch", label: "Projects", visible: true, protected: false },
+  { id: "github", to: "/github", icon: "Github", label: "GitHub", visible: true, protected: false, featureFlag: "github-integration" },
   { id: "examples", to: "/examples", icon: "BookOpen", label: "Examples", visible: true, protected: false },
   { id: "community", to: "/community", icon: "Globe", label: "Community", visible: true, protected: false },
   { id: "environments", to: "/environments", icon: "Terminal", label: "Environments", visible: true, protected: true },

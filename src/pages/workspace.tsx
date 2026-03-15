@@ -277,7 +277,7 @@ export function Workspace() {
           </div>
           <button
             className="gh-action-btn rounded-lg px-4 py-2 text-[12px] font-semibold"
-            onClick={() => navigate("/settings")}
+            onClick={() => navigate("/settings?tab=connected-accounts")}
           >
             Connect
           </button>
