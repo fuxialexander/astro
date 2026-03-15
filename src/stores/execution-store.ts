@@ -2416,9 +2416,14 @@ function flushTextBatch(
       // This catches live SSE duplicates from agent SDK retries or reconnect overlaps.
       const trimmed = text.trim()
       if (trimmed.length > 50) {
-        const lastTextEvent = [...exec.activityEvents].reverse().find(e => e.type === 'text')
-        if (lastTextEvent && 'content' in lastTextEvent && (lastTextEvent.content as string).trim() === trimmed) {
-          return state // skip duplicate
+        for (let i = exec.activityEvents.length - 1; i >= 0; i--) {
+          const ev = exec.activityEvents[i]
+          if (ev.type === 'text') {
+            if ('content' in ev && (ev.content as string).trim() === trimmed) {
+              return state // skip duplicate
+            }
+            break // found most-recent text event but content differs — not a dup
+          }
         }
       }
       // Spread to create a new object reference so Zustand selectors detect the change
