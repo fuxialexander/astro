@@ -1109,9 +1109,19 @@ app.post('/issues/sync-fields', async (c) => {
  * Returns aggregated sync health stats for a project.
  */
 app.get('/sync-health', async (c) => {
+  const user = c.get('user') as AuthUser;
   const projectId = c.req.query('projectId');
   if (!projectId) {
     return c.json({ error: 'projectId is required' }, 400);
+  }
+
+  // Verify project belongs to user's team
+  const [project] = await db.select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId)))
+    .limit(1);
+  if (!project) {
+    return c.json({ error: 'Project not found' }, 404);
   }
 
   const now = new Date();
