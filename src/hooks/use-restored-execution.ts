@@ -107,10 +107,10 @@ export function useRestoredExecution(
     console.log('[use-restored] trying streaming events catch-up for', executionId)
     hydrateFromCatchUp([executionId], 0)
       .then(() => setCatchUpCompletedId(executionId))
-      .catch(() => {
+      .catch((err) => {
         // On failure, still mark complete so isRestoring doesn't spin forever.
         // Activity will be empty but the UI won't be stuck on a loading spinner.
-        console.warn('[use-restored] catch-up failed for', executionId)
+        console.warn('[use-restored] catch-up failed for', executionId, err)
         setCatchUpCompletedId(executionId)
       })
   }, [executionId, hasLiveEvents, hydrateFromCatchUp])
