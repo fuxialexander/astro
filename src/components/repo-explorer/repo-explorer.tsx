@@ -10,9 +10,11 @@ import { formatRelativeTime } from "@/lib/date-utils"
 import { addIssueToPlan, launchPrAction, quickFixIssue } from "@/lib/github-repo-actions"
 import { cn } from "@/lib/utils"
 import { useExecutionStore } from "@/stores/execution-store"
+import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useToastStore } from "@/stores/toast-store"
 import { PrDiffViewer } from "./pr-diff-viewer"
+import { WorkspaceConfigDialog } from "./workspace-config-dialog"
 import type { GitHubRepoCacheSnapshot, Project } from "@/types"
 
 interface RepoExplorerProps {
@@ -41,6 +43,8 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
   const [query, setQuery] = useState("")
   const [runningAction, setRunningAction] = useState<string | null>(null)
   const [expandedPr, setExpandedPr] = useState<number | null>(null)
+  const [workspaceConfigOpen, setWorkspaceConfigOpen] = useState(false)
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
   const nodes = usePlanStore((s) => s.nodes.filter(isLive))
   const executions = useExecutionStore((s) => s.executions)
   const addToast = useToastStore((s) => s.add)
@@ -108,6 +112,17 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
       .slice(0, 6)
   }, [executions, nodes, project.id])
 
+  // Gate agent actions behind workspace config — if no workingDirectory, show config dialog
+  const requireWorkspace = useCallback((action: () => void) => {
+    const currentProject = useProjectStore.getState().projects.find((p) => p.id === project.id)
+    if (currentProject?.workingDirectory) {
+      action()
+    } else {
+      setPendingAction(() => action)
+      setWorkspaceConfigOpen(true)
+    }
+  }, [project.id])
+
   const handleIssueAction = useCallback(async (key: string, run: () => Promise<string> | string, successTitle: string) => {
     setRunningAction(key)
     try {
@@ -139,8 +154,18 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
     )
   }
 
+  const hasWorkspace = !!project.workingDirectory
+
   return (
     <div className="flex h-full flex-col gap-4 overflow-hidden p-4 md:p-6">
+      {!hasWorkspace && (
+        <div className="flex items-center justify-between rounded-xl border border-amber-500/20 bg-amber-500/[0.03] px-4 py-2.5 text-xs text-amber-700 dark:text-amber-400">
+          <span>No working directory configured — browsing only. Set one to enable agent actions (Fix CI, Quick Fix).</span>
+          <Button variant="outline" size="sm" className="h-6 text-[11px] shrink-0 ml-3" onClick={() => setWorkspaceConfigOpen(true)}>
+            Configure
+          </Button>
+        </div>
+      )}
       <div className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-card/70 p-4">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
@@ -219,7 +244,7 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
                             </Button>
                             <Button
                               size="sm"
-                              onClick={() => void handleIssueAction(actionKey, () => quickFixIssue(project, issue), "Quick fix launched")}
+                              onClick={() => requireWorkspace(() => void handleIssueAction(actionKey, () => quickFixIssue(project, issue), "Quick fix launched"))}
                               disabled={runningAction === actionKey}
                             >
                               {runningAction === actionKey ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Quick Fix"}
@@ -288,14 +313,14 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => void handleIssueAction(actionKey, () => launchPrAction(project, pr, "address_review"), "Review task launched")}
+                              onClick={() => requireWorkspace(() => void handleIssueAction(actionKey, () => launchPrAction(project, pr, "address_review"), "Review task launched"))}
                               disabled={runningAction === actionKey}
                             >
                               Address Review
                             </Button>
                             <Button
                               size="sm"
-                              onClick={() => void handleIssueAction(actionKey, () => launchPrAction(project, pr, "fix_ci"), "CI fix launched")}
+                              onClick={() => requireWorkspace(() => void handleIssueAction(actionKey, () => launchPrAction(project, pr, "fix_ci"), "CI fix launched"))}
                               disabled={runningAction === actionKey}
                             >
                               {runningAction === actionKey ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Fix CI"}
@@ -340,6 +365,21 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
           </section>
         </div>
       </div>
+
+      <WorkspaceConfigDialog
+        open={workspaceConfigOpen}
+        onOpenChange={(open) => {
+          setWorkspaceConfigOpen(open)
+          if (!open) setPendingAction(null)
+        }}
+        project={project}
+        onConfigured={() => {
+          if (pendingAction) {
+            pendingAction()
+            setPendingAction(null)
+          }
+        }}
+      />
     </div>
   )
 }
