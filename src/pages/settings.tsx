@@ -1058,8 +1058,8 @@ function ConnectedAccountsContent() {
   }, [searchParams, addToast, setSearchParams])
 
   useEffect(() => {
-    fetchStatus()
-  }, [fetchStatus])
+    if (gitHubEnabled) fetchStatus()
+  }, [fetchStatus, gitHubEnabled])
 
   useEffect(() => {
     if (!accountsLoaded) {
