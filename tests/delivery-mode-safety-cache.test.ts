@@ -146,26 +146,50 @@ describe('deriveDeliveryMode (frontend, has isGit)', () => {
 // ============================================================================
 
 /**
+ * Derive delivery mode from project source (mirrors dispatch.ts deriveDeliveryModeFromSource).
+ * Uses isGit to disambiguate remoteType='none' (local-git vs non-git).
+ */
+function deriveDeliveryModeFromSource(
+  source: { isGit?: boolean; remoteType?: string }
+): DeliveryMode | undefined {
+  if (source.isGit === undefined) return undefined
+  if (!source.isGit) return 'direct'
+  switch (source.remoteType) {
+    case 'github': case 'gitlab': case 'bitbucket': return 'pr'
+    case 'generic': return 'push'
+    case 'none': default: return 'branch'
+  }
+}
+
+/**
  * Simulates the delivery mode resolution chain in dispatch.ts.
  * This is the core of the fix: DB is the ground truth, fallback is last resort.
+ * Self-heal derives from source when DB deliveryMode is null.
  */
 function resolveDeliveryMode(opts: {
   bodyDeliveryMode?: DeliveryMode
   dbDeliveryMode?: DeliveryMode | null
   remoteType?: string
+  isGit?: boolean
   isPushToGithub?: boolean
 }): DeliveryMode {
-  const { bodyDeliveryMode, dbDeliveryMode, remoteType, isPushToGithub } = opts
+  const { bodyDeliveryMode, dbDeliveryMode, remoteType, isGit, isPushToGithub } = opts
 
   // Step 1: body takes precedence
   let deliveryMode: DeliveryMode | undefined = bodyDeliveryMode
 
-  // Step 2: DB fallback (dispatch.ts:482)
+  // Step 2: DB fallback (dispatch.ts:508)
   if (!deliveryMode && dbDeliveryMode) {
     deliveryMode = dbDeliveryMode
   }
 
-  // Step 3: Final resolution (dispatch.ts:1251)
+  // Step 2.5: Self-heal from source (dispatch.ts:512-525)
+  if (!deliveryMode && isGit !== undefined) {
+    const derived = deriveDeliveryModeFromSource({ isGit, remoteType })
+    if (derived) deliveryMode = derived
+  }
+
+  // Step 3: Final resolution (dispatch.ts:1271)
   if (isPushToGithub) return 'push'
   return deliveryMode ?? deriveDefaultDeliveryMode(remoteType)
 }
@@ -195,7 +219,17 @@ describe('delivery mode resolution chain', () => {
     })).toBe('branch')
   })
 
-  it('fallback fires when both body and DB are absent (legacy project)', () => {
+  it('source.isGit resolves to branch for legacy local-git projects', () => {
+    // Legacy project: no deliveryMode in body or DB, but source.isGit=true
+    // Before this fix, this fell through to deriveDefaultDeliveryMode('none') → 'direct'
+    // Now the isGit check catches it and returns 'branch'
+    expect(resolveDeliveryMode({
+      remoteType: 'none',
+      isGit: true,
+    })).toBe('branch')
+  })
+
+  it('fallback fires when both body and DB are absent and no isGit (non-git dir)', () => {
     expect(resolveDeliveryMode({
       remoteType: 'none',
     })).toBe('direct')
@@ -807,8 +841,46 @@ describe('dryRun dispatch: DB deliveryMode as ground truth', () => {
 
     expect(res2.status).toBe(200)
     const body = await res2.json()
-    // No deliveryMode in DB, no remoteType → deriveDefaultDeliveryMode(undefined) → 'direct'
+    // No deliveryMode in DB, no remoteType, no isGit → deriveDefaultDeliveryMode(undefined) → 'direct'
     expect(body.taskMeta.deliveryMode).toBe('direct')
+  })
+
+  it('legacy local-git project with isGit in source: resolves to branch', async () => {
+    await db.delete(planNodes)
+    await db.delete(projects)
+
+    // Create project WITHOUT deliveryMode but WITH isGit=true in source (legacy local-git)
+    const res1 = await postJson('/api/data/projects', {
+      name: 'Legacy Git Project',
+      source: { localPath: '/tmp/legacy-git', isGit: true, remoteType: 'none' },
+      // no deliveryMode — simulating a project created before deliveryMode was stored
+    })
+    const proj = await res1.json()
+    const legacyGitNodeId = 'legacy-git-test-node'
+
+    await postJson('/api/data/plan/nodes', {
+      id: legacyGitNodeId,
+      projectId: proj.id,
+      type: 'task',
+      title: 'Legacy Git Task',
+      description: 'Test legacy local-git fallback',
+      status: 'planned',
+      position: { x: 0, y: 0 },
+    })
+
+    const res2 = await postJson('/api/dispatch/task', {
+      nodeId: legacyGitNodeId,
+      projectId: proj.id,
+      title: 'Legacy Git Task',
+      description: 'Test legacy local-git fallback',
+      workingDirectory: '/tmp/legacy-git',
+      dryRun: true,
+    })
+
+    expect(res2.status).toBe(200)
+    const body = await res2.json()
+    // source.isGit=true + remoteType='none' → resolved to 'branch' (not 'direct')
+    expect(body.taskMeta.deliveryMode).toBe('branch')
   })
 
   it('delivery mode from DB persists correctly after update', async () => {

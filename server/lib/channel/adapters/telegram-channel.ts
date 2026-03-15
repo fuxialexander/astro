@@ -15,6 +15,7 @@ import { connectedAccounts, projects, teamMembers, webauthnChallenges } from '..
 import { eq, and, inArray, gt } from 'drizzle-orm'
 import { channelRouter } from '../channel-router.js'
 import { channelConfigManager } from '../channel-config-manager.js'
+import { formatForChannel } from '../channel-formatter.js'
 import type { ChannelNotification } from '../channel-types.js'
 
 // ---------------------------------------------------------------------------
@@ -80,14 +81,6 @@ async function answerCallbackQuery(
     callback_query_id: callbackQueryId,
     text,
   })
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 // ---------------------------------------------------------------------------
@@ -495,7 +488,7 @@ class TelegramChannelAdapter {
       if (accounts.length === 0) return
 
       // Format notification with visual indicators
-      const safeSummary = escapeHtml(notification.summary)
+      const formattedSummary = formatForChannel(notification.summary, 'telegram_html')
       const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC'
       let icon: string
       let title: string
@@ -516,11 +509,15 @@ class TelegramChannelAdapter {
           icon = '\u2702\uFE0F'
           title = 'Branch Pruned'
           break
+        case 'project.completed':
+          icon = '\uD83C\uDF89'
+          title = 'Project Completed'
+          break
         default:
           icon = '\u2139\uFE0F'
           title = notification.type.replace('.', ' ').toUpperCase()
       }
-      const text = `${icon} <b>${title}</b>\n\n${safeSummary}\n\n<a href="${notification.astroUrl}">View in Astro</a>\n\n<i>${timestamp}</i>`
+      const text = `${icon} <b>${title}</b>\n\n${formattedSummary}\n\n<a href="${notification.astroUrl}">View in Astro</a>\n\n<i>${timestamp}</i>`
 
       // Build inline keyboard for approval requests
       let replyMarkup: unknown = undefined
