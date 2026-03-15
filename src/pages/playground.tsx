@@ -40,6 +40,7 @@ import { FileBrowser } from "@/components/file-browser"
 import { InlineApprovalCard } from "@/components/plan-generation/inline-approval-card"
 import {
   groupActivityEvents,
+  findSummaryBlockIndices,
   TextBlock,
   ToolBlock,
   ToolGroupBlock,
@@ -402,7 +403,16 @@ export function Playground() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- chatEventsRef is a stable ref
   }, [activityEvents, chatEventsVersion, liveChatEvents, hydratedChatEvents])
 
-  const displayBlocks = useMemo(() => groupActivityEvents(allActivityEvents), [allActivityEvents])
+  const displayBlocks = useMemo(() => {
+    const blocks = groupActivityEvents(allActivityEvents)
+    // Deduplicate executive summary text blocks — catch-up hydration can deliver
+    // the same "## Executive Summary" text multiple times for old sessions.
+    // Keep only the last occurrence; remove earlier duplicates.
+    const summaryIndices = findSummaryBlockIndices(blocks)
+    if (summaryIndices.length <= 1) return blocks
+    const toRemove = new Set(summaryIndices.slice(0, -1))
+    return blocks.filter((_, i) => !toRemove.has(i))
+  }, [allActivityEvents])
 
   const pendingApprovals = useMemo(() => {
     if (!execution?.executionId) return []
