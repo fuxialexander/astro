@@ -57,18 +57,17 @@ export function useChatActivityEvents(
 
     // If we have streaming events (live or hydrated), use them as the primary source
     if (streamEvents.length > 0) {
-      // Check if hydrated text events contain yaml-spec fences that need extraction.
-      // During live streaming, processChunk() in session-store handles this. But hydrated
-      // events from streaming_events DB contain raw text with embedded fences.
-      const hasSpecFence = !isStreaming && streamEvents.some(
-        (e) => e.type === 'text' && typeof e.content === 'string' && e.content.includes('```yaml-spec')
-      )
-      if (hasSpecFence && !streamEvents.some(e => e.type === 'json_render_spec')) {
-        // Concatenate all text events and re-parse
-        const fullText = streamEvents
-          .filter((e): e is Extract<TaskActivityEvent, { type: 'text' }> => e.type === 'text')
-          .map(e => e.content)
-          .join('')
+      // Check if text events contain yaml-spec fences that need extraction.
+      // Text chunks are small during streaming — the fence marker is split across
+      // multiple events, so we must concatenate first, then check.
+      const alreadyHasSpec = streamEvents.some(e => e.type === 'json_render_spec')
+      const fullText = !alreadyHasSpec && !isStreaming
+        ? streamEvents
+            .filter((e): e is Extract<TaskActivityEvent, { type: 'text' }> => e.type === 'text')
+            .map(e => e.content)
+            .join('')
+        : ''
+      if (fullText.includes('```yaml-spec')) {
         const parsed = parseYamlSpecFromText(fullText)
         const nonTextEvents = streamEvents.filter(e => e.type !== 'text')
         const textTimestamp = streamEvents.find(e => e.type === 'text')?.timestamp ?? new Date()
