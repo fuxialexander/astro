@@ -123,10 +123,9 @@ async function fetchIssues(accessToken: string, owner: string, repo: string, sin
   return { issues, truncated }
 }
 
-async function fetchPullRequests(accessToken: string, owner: string, repo: string, since?: string): Promise<{ prs: RawPullRequest[]; truncated: boolean }> {
-  const sinceParam = since ? `&since=${since}` : ''
+async function fetchPullRequests(accessToken: string, owner: string, repo: string): Promise<{ prs: RawPullRequest[]; truncated: boolean }> {
   const { items, truncated } = await fetchPaginated<Record<string, unknown>>(
-    (page) => `${GITHUB_API}/repos/${owner}/${repo}/pulls?state=all&sort=updated&direction=desc&per_page=100&page=${page}${sinceParam}`,
+    (page) => `${GITHUB_API}/repos/${owner}/${repo}/pulls?state=all&sort=updated&direction=desc&per_page=100&page=${page}`,
     accessToken,
   )
 
