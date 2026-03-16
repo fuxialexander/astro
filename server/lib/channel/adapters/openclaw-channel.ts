@@ -147,8 +147,19 @@ export class OpenClawChannelAdapter extends EventEmitter {
         }
       }
 
-      // All other notifications: send as one-way notification
-      await this.sendNotification(notification)
+      // All other notifications: send as one-way notification (best-effort).
+      // If the agent runner has no recipient configured, this will fail —
+      // that's expected and not an error worth logging at warn/error level.
+      try {
+        await this.sendNotification(notification)
+      } catch (err) {
+        const msg = (err as Error).message ?? ''
+        if (msg.includes('No recipient configured') || msg.includes('No OpenClaw machine')) {
+          console.debug(`[openclaw] Notification not delivered: ${msg}`)
+        } else {
+          console.warn(`[openclaw] Failed to send notification: ${msg}`)
+        }
+      }
     })
 
     console.log('[openclaw] Relay-routed adapter started')
