@@ -64,6 +64,12 @@ function truncateJsonb(value: unknown): unknown {
 /** Max events per trace before auto-flush */
 const BATCH_SIZE = 50
 
+/** Max buffered events per trace — prevents unbounded growth from transient DB errors */
+const MAX_BUFFER_SIZE = 500
+
+/** Max rows per single INSERT — prevents enormous batch inserts that are likely to timeout */
+const MAX_FLUSH_BATCH = 200
+
 /** Flush interval in milliseconds */
 const FLUSH_INTERVAL_MS = 5_000
 
@@ -615,6 +621,15 @@ export class ObservationCollector {
       return
     }
 
+    // Cap buffer size to prevent unbounded growth from transient DB errors.
+    // Without this cap, transient timeouts cause re-buffered events to snowball:
+    // larger buffers → longer INSERT → more timeouts → even larger buffers → event loop starvation.
+    if (state.buffer.length >= MAX_BUFFER_SIZE) {
+      const dropped = state.buffer.length - MAX_BUFFER_SIZE + 1
+      state.buffer.splice(0, dropped)
+      console.warn(`[observability] Buffer overflow for trace ${traceId}: dropped ${dropped} oldest events`)
+    }
+
     state.buffer.push(obs)
 
     // Auto-flush when buffer reaches threshold
@@ -698,6 +713,7 @@ export class ObservationCollector {
 
   /**
    * Batch-write buffered observations to the database.
+   * Splits large buffers into bounded batches to prevent timeout from oversized INSERTs.
    */
   async flush(traceId?: string): Promise<void> {
     const traceIds = traceId ? [traceId] : Array.from(this.traces.keys())
@@ -707,44 +723,50 @@ export class ObservationCollector {
       if (!state || state.buffer.length === 0) continue
 
       const events = state.buffer.splice(0)
-      const rows = events.map((obs) => ({
-        id: obs.id,
-        traceId: obs.traceId,
-        parentObservationId: obs.parentObservationId ?? null,
-        type: obs.type,
-        name: obs.name.length > MAX_NAME_CHARS ? obs.name.slice(0, MAX_NAME_CHARS) : obs.name,
-        startTime: obs.startTime,
-        endTime: obs.endTime ?? null,
-        input: obs.input ?? null,
-        output: obs.output ?? null,
-        model: obs.model ?? null,
-        inputTokens: obs.inputTokens ?? null,
-        outputTokens: obs.outputTokens ?? null,
-        estimatedCostUsd: obs.estimatedCostUsd ?? null,
-        level: obs.level,
-        metadata: obs.metadata ?? null,
-        projectId: obs.projectId,
-        nodeId: obs.nodeId ?? null,
-        statusMessage: obs.statusMessage ?? null,
-      }))
 
-      try {
-        await db.insert(observationEvents).values(rows)
-        console.log(`[observability] Flushed ${rows.length} observations for trace ${tid}`)
-      } catch (err) {
-        const errObj = err as { code?: string; cause?: unknown }
-        const cause = errObj?.cause
-        const pgCode = (cause as { code?: string })?.code ?? errObj?.code
-        // Don't retry on persistent DB errors (e.g., index size exceeded, constraint violations)
-        // Code 54000 = program_limit_exceeded (btree index row too large)
-        // Code 23505 = unique_violation
-        const nonRetryable = pgCode === '54000' || pgCode === '23505'
-        if (nonRetryable) {
-          console.warn(`[observability] Dropping ${events.length} observations for trace ${tid} (non-retryable DB error: ${pgCode})`)
-        } else {
-          console.error(`[observability] Failed to flush observations for trace ${tid}:`, cause ?? err)
-          // Re-add failed events to buffer for retry (only for transient errors)
-          state.buffer.unshift(...events)
+      // Split into bounded batches to prevent timeout from large inserts
+      for (let i = 0; i < events.length; i += MAX_FLUSH_BATCH) {
+        const batch = events.slice(i, i + MAX_FLUSH_BATCH)
+        const rows = batch.map((obs) => ({
+          id: obs.id,
+          traceId: obs.traceId,
+          parentObservationId: obs.parentObservationId ?? null,
+          type: obs.type,
+          name: obs.name.length > MAX_NAME_CHARS ? obs.name.slice(0, MAX_NAME_CHARS) : obs.name,
+          startTime: obs.startTime,
+          endTime: obs.endTime ?? null,
+          input: obs.input ?? null,
+          output: obs.output ?? null,
+          model: obs.model ?? null,
+          inputTokens: obs.inputTokens ?? null,
+          outputTokens: obs.outputTokens ?? null,
+          estimatedCostUsd: obs.estimatedCostUsd ?? null,
+          level: obs.level,
+          metadata: obs.metadata ?? null,
+          projectId: obs.projectId,
+          nodeId: obs.nodeId ?? null,
+          statusMessage: obs.statusMessage ?? null,
+        }))
+
+        try {
+          await db.insert(observationEvents).values(rows)
+          console.log(`[observability] Flushed ${rows.length} observations for trace ${tid}`)
+        } catch (err) {
+          const errObj = err as { code?: string; cause?: unknown }
+          const cause = errObj?.cause
+          const pgCode = (cause as { code?: string })?.code ?? errObj?.code
+          // Don't retry on persistent DB errors (e.g., index size exceeded, constraint violations)
+          // Code 54000 = program_limit_exceeded (btree index row too large)
+          // Code 23505 = unique_violation
+          const nonRetryable = pgCode === '54000' || pgCode === '23505'
+          if (nonRetryable) {
+            console.warn(`[observability] Dropping ${batch.length} observations for trace ${tid} (non-retryable DB error: ${pgCode})`)
+          } else {
+            console.error(`[observability] Failed to flush observations for trace ${tid}:`, cause ?? err)
+            // Re-add only this failed batch (not remaining batches) for retry
+            state.buffer.unshift(...batch)
+            break // Don't attempt remaining batches — they'll be retried on next flush
+          }
         }
       }
     }

@@ -3,6 +3,7 @@ import type { PlanNode, PlanEdge } from "@/types"
 import { layoutGraph } from "@/lib/graph-utils"
 import { dataClient } from "@/lib/data-client"
 import { apiUrl } from "@/lib/api-url"
+import { useToastStore } from "@/stores/toast-store"
 
 const BULK_DELETE_THRESHOLD = 80
 
@@ -152,6 +153,13 @@ async function retryAsync(
     } catch (err) {
       if (attempt === maxRetries) {
         console.error(`[plan-store] ${label} failed after ${maxRetries + 1} attempts:`, err)
+        if (label.startsWith('Save project plan')) {
+          useToastStore.getState().add({
+            type: 'error',
+            title: 'Plan save failed',
+            description: 'Your plan could not be saved to the server. Do not refresh the page — your data is still in memory. Try again or check your connection.',
+          })
+        }
         return
       }
       const delay = baseDelayMs * Math.pow(2, attempt)
@@ -573,6 +581,8 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         }
       },
       `Save project plan ${projectId}`,
+      7,    // maxRetries — aggressive: plan save is the critical persistence path
+      2000, // baseDelayMs — 2s, 4s, 8s, 16s, 32s, 64s, 128s (~4 min total)
     ).then(() => {
       for (const id of newNodeIds) pendingSaveNodeIds.delete(id)
     })
