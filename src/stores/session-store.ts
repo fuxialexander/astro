@@ -14,7 +14,6 @@ import { create } from "zustand"
 import { dataClient } from "@/lib/data-client"
 import { projectChatWithAgent, chatWithTask, generateTitle, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { extractMutations, applyMutationsToStore } from "@/lib/plan-mutations"
-import { parseYamlSpecFromText } from "@/lib/json-render/parse-yaml-spec"
 import { usePlanStore } from "./plan-store"
 import { useProjectStore } from "./project-store"
 import { useRealtimeStore } from "./realtime-store"
@@ -820,21 +819,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             usePlanStore.getState().load()
           }
 
-          // Parse yaml-spec fences from the complete response and emit spec events.
-          // During streaming, the fences rendered as code blocks. Now we extract
-          // them as proper json_render_spec events for component rendering.
-          if (rawAssistantText.includes('```yaml-spec')) {
-            const segments = parseYamlSpecFromText(rawAssistantText)
-            for (const segment of segments) {
-              if (segment.type === 'spec') {
-                useRealtimeStore.getState().pushActivityEvent(sid, {
-                  type: 'json_render_spec',
-                  spec: segment.spec,
-                  timestamp: new Date(),
-                })
-              }
-            }
-          }
+          // yaml-spec parsing is handled by use-chat-activity-events.ts which
+          // concatenates text events and extracts specs when isStreaming becomes false.
 
           // Extract and apply mutations from raw text
           const { cleanContent, mutations } = extractMutations(rawAssistantText)
