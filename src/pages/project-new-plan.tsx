@@ -631,7 +631,7 @@ export function ProjectNewPlan() {
   }, [templateLaunchFromExamples, handleTemplateLaunch])
 
   async function handleSubmit(skipAutoExecute = false) {
-    if (!description.trim() || isSubmitting || pendingUploads > 0) return
+    if (!description.trim() || isSubmitting || pendingUploads > 0 || (directMode && !directConfirmed)) return
 
     // Warn if YOLO mode is on but no working directory — auto-execute will silently fail
     if (autoExecute && !workingDir.trim() && !skipAutoExecute) {
