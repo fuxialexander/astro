@@ -805,6 +805,10 @@ async function dispatchViaRelay(
     } catch { /* fail closed — default non-YOLO */ }
   }
 
+  // Load the plan node for loop-related features (iteration context, configurable timeout)
+  const [relayNode] = await db.select().from(planNodes)
+    .where(eq(planNodes.clientId, nodeId)).limit(1)
+
   // Find target machine (skip for dry runs — prompt assembly doesn't need a machine)
   let machineId = targetMachineId
   if (!dryRun) {
@@ -1109,11 +1113,11 @@ There is no branch isolation — changes are made in-place.
     }
 
     // Loop iteration context injection
-    if (dbNode?.type === 'loop' && dbNode.loopConfig && dbNode.loopStatus === 'iterating') {
+    if (relayNode?.type === 'loop' && relayNode.loopConfig && relayNode.loopStatus === 'iterating') {
       const { buildIterationContext, getLoopIterations } = await import('../lib/loop-controller.js')
-      const loopConfig = dbNode.loopConfig as import('../../packages/core/src/types.js').LoopConfig
+      const loopConfig = relayNode.loopConfig as import('../../packages/core/src/types.js').LoopConfig
       const iterations = await getLoopIterations(nodeId, projectId)
-      const currentIter = dbNode.loopCurrentIteration ?? 1
+      const currentIter = relayNode.loopCurrentIteration ?? 1
       // Filter out the 'running' iteration (the one we're about to dispatch)
       const completedIters = iterations.filter(i => i.status !== 'running')
       const iterationContext = buildIterationContext(loopConfig, completedIters, currentIter)
@@ -1359,7 +1363,13 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     const MAX_STARTUP_RETRIES = 10 // Retry dispatch up to 10 times before failing
     const FINAL_STARTUP_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes — last attempt covers slow machine cold starts
     let startupRetries = 0
-    const ACTIVITY_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 hours — approval pause mechanism protects human-in-the-loop
+    // Activity timeout: default 2 hours, but loop nodes can override via iterationTimeoutMinutes
+    const loopTimeoutMinutes = (relayNode?.type === 'loop' && relayNode.loopConfig)
+      ? (relayNode.loopConfig as import('../../packages/core/src/types.js').LoopConfig).iterationTimeoutMinutes
+      : undefined
+    const ACTIVITY_TIMEOUT_MS = loopTimeoutMinutes
+      ? loopTimeoutMinutes * 60 * 1000
+      : 2 * 60 * 60 * 1000 // 2 hours default
 
     const onResult = async (msg: import('../types/relay.js').TaskResultMessage) => {
       if (msg.result.taskId !== executionId) return
