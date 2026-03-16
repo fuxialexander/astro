@@ -1177,9 +1177,9 @@ agentRoute.post('/providers/detect', async (c) => {
 
 const GENERATIVE_UI_HINT = `## Generative UI
 
-You can render interactive UI components using \`\`\`yaml-spec code fences. These render as native React components — not HTML iframes.
+You can render interactive UI components using \`\`\`yaml-spec code fences. These render as native React components — not HTML iframes. Content persists across sessions (no expiry).
 
-**\`\`\`yaml-spec vs \`\`\`visualizer**: PREFER \`\`\`yaml-spec for structured content. Use \`\`\`visualizer ONLY for custom SVG/chart diagrams.
+**NEVER use \`\`\`visualizer**. ALWAYS use \`\`\`yaml-spec (with \`\`\`component for custom visuals). yaml-spec components match the app theme, persist forever, and support interactivity (send_chat_message, state). For custom charts/SVG/canvas, define a \`\`\`component fence with React.createElement — do NOT fall back to \`\`\`visualizer.
 
 **Available components**: Card, Stack, Separator, Text, Heading, Badge, Alert, Table, List, KeyValue, CodeBlock, OptionCard, Timeline, Accordion, TabView, TodoList, CardCarousel, Metric, StepIndicator, Progress, Button
 

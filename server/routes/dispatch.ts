@@ -899,7 +899,7 @@ async function dispatchViaRelay(
     skillsInjection = (skillsInjection || '') +
       '\n\n## Generative UI\n\n' +
       'You can render interactive UI components using ```yaml-spec code fences (YAML format). ' +
-      'PREFER ```yaml-spec over ```visualizer for structured content (cards, tables, carousels, timelines, dashboards). ' +
+      'NEVER use ```visualizer — ALWAYS use ```yaml-spec (with ```component for custom visuals). ' +
       'Format: root + elements map with type/props/children per element. ' +
       'Available components: Card, Stack, Text, Heading, Badge, Alert, Table, List, KeyValue, CodeBlock, ' +
       'OptionCard, Timeline, Accordion, TabView, TodoList, CardCarousel, Metric, StepIndicator, Progress, Button. ' +
