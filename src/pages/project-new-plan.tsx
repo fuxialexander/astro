@@ -105,6 +105,9 @@ export function ProjectNewPlan() {
   const { detection, isDetecting } = useDirectoryDetection(workingDir, selectedMachine?.machineId)
   const effectiveBranch = selectedBranch || (detection?.isGit ? detection.baseBranch : null)
 
+  // Reset direct mode when working directory changes (avoids stale state from previous path)
+  useEffect(() => { setDirectMode(false); setDirectConfirmed(false) }, [workingDir])
+
   // Git init handler for non-git directories
   const toastAdd = useToastStore((s) => s.add)
   const handleInitGit = useCallback(async () => {
@@ -1071,7 +1074,7 @@ export function ProjectNewPlan() {
             )}
             <Button
               onClick={() => handleSubmit()}
-              disabled={!description.trim() || isSubmitting || pendingUploads > 0}
+              disabled={!description.trim() || isSubmitting || pendingUploads > 0 || (directMode && !directConfirmed)}
               className="gap-2"
             >
               {isSubmitting ? (
