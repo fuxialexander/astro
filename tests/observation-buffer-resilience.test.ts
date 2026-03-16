@@ -15,7 +15,7 @@
  * Run with: npx vitest run tests/observation-buffer-resilience.test.ts
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 
 // ─── Constants (mirrored from observation-collector.ts) ──────────────
 // These MUST match the production values. If they drift, the test
@@ -23,8 +23,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const MAX_BUFFER_SIZE = 500
 const MAX_FLUSH_BATCH = 200
-const BATCH_SIZE = 50
-
 // ─── Minimal types (avoid importing server code with DB deps) ────────
 
 interface ObservationEvent {
@@ -198,7 +196,7 @@ describe('Flush Batching', () => {
     }
 
     const batchCalls: number[] = []
-    const result = simulateFlush(state, (batch, idx) => {
+    const result = simulateFlush(state, (batch) => {
       batchCalls.push(batch.length)
       return { ok: true, count: batch.length }
     })
