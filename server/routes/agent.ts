@@ -497,9 +497,9 @@ async function executeViaRelay(opts: {
 
 // (imported above) to ensure consistent behavior between server and client.
 
-/** Fetch image blobs by ID with ownership verification. */
-async function fetchImageBlobs(imageRefs: string[], user: AuthUser): Promise<ImageAttachment[]> {
-  if (!imageRefs.length) return []
+/** Fetch image blobs by ID with ownership verification. Returns { images, warnings }. */
+async function fetchImageBlobs(imageRefs: string[], user: AuthUser): Promise<{ images: ImageAttachment[]; warning?: string }> {
+  if (!imageRefs.length) return { images: [] }
   try {
     const blobRows = await db.select({
       id: blobs.id,
@@ -513,15 +513,21 @@ async function fetchImageBlobs(imageRefs: string[], user: AuthUser): Promise<Ima
         and(isNull(blobs.teamId), eq(blobs.ownerId, user.id))
       )
     ))
-    return blobRows.map(row => ({
+    const images = blobRows.map(row => ({
       blobId: row.id,
       mimeType: row.mimeType,
       data: row.data,
       filename: row.filename,
     }))
+    if (images.length < imageRefs.length) {
+      const missing = imageRefs.length - images.length
+      console.warn(`[agent] ${missing} of ${imageRefs.length} image blobs not found or not accessible`)
+      return { images, warning: `${missing} image(s) could not be loaded (deleted or inaccessible)` }
+    }
+    return { images }
   } catch (err) {
     console.warn('[agent] Failed to fetch image blobs:', err)
-    return []
+    return { images: [], warning: 'Failed to load attached images' }
   }
 }
 
@@ -648,7 +654,14 @@ agentRoute.post('/project-chat', async (c) => {
   const resolvedResumeId = existingSessionId || undefined
 
   // Fetch image blobs if attached
-  const images = imageRefs?.length ? await fetchImageBlobs(imageRefs, chatUser) : undefined
+  let chatImages: ImageAttachment[] | undefined
+  if (imageRefs?.length) {
+    const result = await fetchImageBlobs(imageRefs, chatUser)
+    chatImages = result.images.length > 0 ? result.images : undefined
+    if (result.warning) {
+      preStreamEvents.push({ event: 'text', data: `> ⚠️ ${result.warning}\n\n` })
+    }
+  }
 
   return streamChatViaRelay(c, {
     taskId,
@@ -666,7 +679,7 @@ agentRoute.post('/project-chat', async (c) => {
     streamId,
     pathwayType: taskType === 'plan' ? 'plan-chat' : 'project-chat',
     preStreamEvents,
-    images,
+    images: chatImages,
   })
 })
 
@@ -786,7 +799,15 @@ agentRoute.post('/task-chat', async (c) => {
   const tcResumeId = existingSessionId || undefined
 
   // Fetch image blobs if attached
-  const tcImages = taskImageRefs?.length ? await fetchImageBlobs(taskImageRefs, taskChatUser) : undefined
+  let tcImages: ImageAttachment[] | undefined
+  const tcPreStreamEvents: Array<{ event: string; data: string }> = []
+  if (taskImageRefs?.length) {
+    const result = await fetchImageBlobs(taskImageRefs, taskChatUser)
+    tcImages = result.images.length > 0 ? result.images : undefined
+    if (result.warning) {
+      tcPreStreamEvents.push({ event: 'text', data: `> ⚠️ ${result.warning}\n\n` })
+    }
+  }
 
   return streamChatViaRelay(c, {
     taskId,
@@ -803,6 +824,7 @@ agentRoute.post('/task-chat', async (c) => {
     resumeSessionId: tcResumeId,
     streamId,
     pathwayType: 'task-chat',
+    preStreamEvents: tcPreStreamEvents.length > 0 ? tcPreStreamEvents : undefined,
     images: tcImages,
   })
 })

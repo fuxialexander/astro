@@ -71,6 +71,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   const [input, setInput] = useState("")
   const [autoScroll, setAutoScroll] = useState(true)
   const [pendingMessage, setPendingMessage] = useState<string | null>(null)
+  const pendingImagesRef = useRef<ChatImageAttachment[]>([])
   const [chatImages, setChatImages] = useState<ChatImageAttachment[]>([])
   const filePickerRef = useRef<(() => void) | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -371,7 +372,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     setAutoScroll(scrollHeight - scrollTop - clientHeight < 50)
   }, [])
 
-  const sendMessage = useCallback(async (text: string) => {
+  const sendMessage = useCallback(async (text: string, imageOverrides?: ChatImageAttachment[]) => {
     // Read session fresh from store — never use stale ref
     const store = useSessionStore.getState()
     const activeId = store.activeSessionIds.get(`${projectId}:project-chat`)
@@ -385,12 +386,18 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
         return !!pe && !['success', 'failure', 'cancelled'].includes(pe.status)
       })()
 
+    // Use explicit overrides (from pending queue) or current UI state
+    const currentImages = imageOverrides ?? chatImages
+
     if (busy) {
       // Only queue if no message is already pending (avoid silent overwrite).
       // Use functional update to read current state without adding pendingMessage to deps.
       setPendingMessage((prev) => {
         if (prev) return prev // keep existing queued message
         setInput("")
+        // Capture images alongside the pending message
+        pendingImagesRef.current = currentImages
+        setChatImages([])
         return text
       })
       return
@@ -398,8 +405,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
     setPendingMessage(null)
     setInput("")
-    // Capture and clear images before async operations
-    const currentImages = chatImages
     setChatImages([])
     const sid = session.id
     addMessage(sid, { role: "user", content: text })
@@ -439,8 +444,10 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     if (!isBusy && pendingMessage) {
       const timer = setTimeout(() => {
         const msg = pendingMessage
+        const imgs = pendingImagesRef.current
         setPendingMessage(null)
-        sendMessage(msg)
+        pendingImagesRef.current = []
+        sendMessage(msg, imgs)
       }, 300) // Brief delay to ensure session state is settled
       return () => clearTimeout(timer)
     }

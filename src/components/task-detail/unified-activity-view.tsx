@@ -670,11 +670,11 @@ export function UnifiedActivityView({
 
   function handleSend(interrupt = false) {
     const text = input.trim()
-    if (!text && taskImages.length === 0) return
+    if (!text && (canSteer || taskImages.length === 0)) return
     setInput("")
 
     if (canSteer) {
-      handleSteer(text || "(See attached images)", interrupt)
+      handleSteer(text, interrupt)
     } else {
       handleChat(text)
     }
@@ -995,25 +995,29 @@ export function UnifiedActivityView({
           }
           rows={2}
           className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-          images={taskImages}
-          onImagesChange={setTaskImages}
-          filePickerRef={taskFilePickerRef}
+          {...(!canSteer ? {
+            images: taskImages,
+            onImagesChange: setTaskImages,
+            filePickerRef: taskFilePickerRef,
+          } : {})}
         />
         <div className="flex flex-col gap-1 shrink-0">
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-8 w-8"
-            onClick={() => taskFilePickerRef.current?.()}
-            title="Attach image (or paste/drag-drop)"
-          >
-            <Paperclip className="h-4 w-4" />
-          </Button>
+          {!canSteer && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              onClick={() => taskFilePickerRef.current?.()}
+              title="Attach image (or paste/drag-drop)"
+            >
+              <Paperclip className="h-4 w-4" />
+            </Button>
+          )}
           <Button
             size="icon"
             className="h-9 w-9"
             onClick={(e) => handleSend(e.shiftKey)}
-            disabled={(!input.trim() && taskImages.length === 0) || isInputDisabled}
+            disabled={(!input.trim() && (canSteer || taskImages.length === 0)) || isInputDisabled}
             title="Send (⌘+Enter)"
           >
             {sending || isChatStreaming ? (
