@@ -414,10 +414,10 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
                   }}
                 >
                   <Card className={cn(
-                    'h-[220px] flex flex-col relative',
+                    'h-[220px] flex flex-col relative overflow-hidden',
                     isActive
-                      ? 'shadow-2xl ring-1 ring-primary/30 overflow-y-auto'
-                      : 'shadow-md overflow-hidden',
+                      ? 'shadow-2xl ring-1 ring-primary/30'
+                      : 'shadow-md',
                   )}>
                     {/* Overlay on non-active cards — white in light, dark in dark */}
                     {!isActive && (
@@ -438,8 +438,8 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
                       )}
                     </CardHeader>
                     {card.content && (
-                      <CardContent className="pt-0 flex-1 overflow-hidden">
-                        <p className="text-xs text-muted-foreground leading-relaxed line-clamp-6">{card.content}</p>
+                      <CardContent className={cn('pt-0 flex-1', isActive ? 'overflow-y-auto' : 'overflow-hidden')}>
+                        <p className={cn('text-xs text-muted-foreground leading-relaxed', !isActive && 'line-clamp-6')}>{card.content}</p>
                       </CardContent>
                     )}
                   </Card>
