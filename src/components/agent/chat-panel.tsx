@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { stripHtml } from "@/lib/html-utils"
-import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2, Clock, Sparkles } from "lucide-react"
+import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2, Clock, Sparkles, Paperclip } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { FileCompletionTextarea, type MentionItem, type SlashCommand } from "@/components/ui/file-completion-textarea"
+import { FileCompletionTextarea, type MentionItem, type SlashCommand, type ChatImageAttachment } from "@/components/ui/file-completion-textarea"
 import { TypingIndicator } from "@/components/ui/typing-indicator"
 import { fetchSlashCommands, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { useSettingsStore, resolveModel } from "@/stores/settings-store"
@@ -71,6 +71,8 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   const [input, setInput] = useState("")
   const [autoScroll, setAutoScroll] = useState(true)
   const [pendingMessage, setPendingMessage] = useState<string | null>(null)
+  const [chatImages, setChatImages] = useState<ChatImageAttachment[]>([])
+  const filePickerRef = useRef<(() => void) | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const initialMessageSent = useRef(false)
   // Session store for persistent chat
@@ -396,6 +398,9 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
     setPendingMessage(null)
     setInput("")
+    // Capture and clear images before async operations
+    const currentImages = chatImages
+    setChatImages([])
     const sid = session.id
     addMessage(sid, { role: "user", content: text })
     addMessage(sid, { role: "assistant", content: "" })
@@ -419,13 +424,14 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       planNodes: planNodeContext,
       planEdges: planEdgeContext,
       messages: historyMessages,
+      imageRefs: currentImages.length > 0 ? currentImages.map((img) => img.id) : undefined,
     })
-  }, [projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, addMessage, sendChatMessage])
+  }, [projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, addMessage, sendChatMessage, chatImages])
 
   function handleSend() {
     const text = input.trim()
-    if (!text) return
-    sendMessage(text)
+    if (!text && chatImages.length === 0) return
+    sendMessage(text || "(See attached images)")
   }
 
   // Auto-send pending message when busy state clears
@@ -833,38 +839,54 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       )}
 
       {/* Input */}
-      <div className="flex items-end gap-2 border-t border-border/60 p-3">
-        <FileCompletionTextarea
-          projectId={projectId}
-          machineId={resolvedMachineId}
-          workingDirectory={project?.workingDirectory}
-          fileTree={project?.fileTree}
-          slashCommands={slashCmds}
-          mentionItems={mentionItems}
-          value={input}
-          onChange={setInput}
-          placeholder={isBusy ? "Type a message — it will be sent when the current response finishes..." : "Ask about the project, modify tasks, or explore ideas..."}
-          rows={2}
-          onSubmit={handleSend}
-          className="flex-1 rounded-lg border border-border/20 bg-muted/30 px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/50 focus:bg-muted/40 transition-colors"
-        />
-        <Button
-          size="icon"
-          className="h-9 w-9 shrink-0"
-          onClick={handleSend}
-          disabled={!input.trim() || !!pendingMessage}
-          title={isBusy ? "Queue message (⌘+Enter)" : "Send (⌘+Enter)"}
-        >
-          {isBusy ? (
-            pendingMessage ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Clock className="h-4 w-4" />
-            )
-          ) : (
-            <Send className="h-4 w-4" />
-          )}
-        </Button>
+      <div className="border-t border-border/60 p-3">
+        <div className="flex items-end gap-2">
+          <FileCompletionTextarea
+            projectId={projectId}
+            machineId={resolvedMachineId}
+            workingDirectory={project?.workingDirectory}
+            fileTree={project?.fileTree}
+            slashCommands={slashCmds}
+            mentionItems={mentionItems}
+            value={input}
+            onChange={setInput}
+            placeholder={isBusy ? "Type a message — it will be sent when the current response finishes..." : "Ask about the project, modify tasks, or explore ideas..."}
+            rows={2}
+            onSubmit={handleSend}
+            className="flex-1 rounded-lg border border-border/20 bg-muted/30 px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/50 focus:bg-muted/40 transition-colors"
+            images={chatImages}
+            onImagesChange={setChatImages}
+            filePickerRef={filePickerRef}
+          />
+          <div className="flex flex-col gap-1 shrink-0">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              onClick={() => filePickerRef.current?.()}
+              title="Attach image (or paste/drag-drop)"
+            >
+              <Paperclip className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              className="h-9 w-9"
+              onClick={handleSend}
+              disabled={(!input.trim() && chatImages.length === 0) || !!pendingMessage}
+              title={isBusy ? "Queue message (⌘+Enter)" : "Send (⌘+Enter)"}
+            >
+              {isBusy ? (
+                pendingMessage ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Clock className="h-4 w-4" />
+                )
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        </div>
       </div>
 
       {/* Session Edit/Delete Dialog */}

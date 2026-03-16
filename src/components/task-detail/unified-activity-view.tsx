@@ -8,11 +8,12 @@ import {
   ArrowDown,
   Info,
   FolderOpen,
+  Paperclip,
 } from "lucide-react"
 import { apiUrl } from "@/lib/api-url"
 import { authHeaders } from "@/lib/auth-headers"
 import { Button } from "@/components/ui/button"
-import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
+import { FileCompletionTextarea, type ChatImageAttachment } from "@/components/ui/file-completion-textarea"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { useRealtimeStore, type TaskStream } from "@/stores/realtime-store"
 import { useProjectStore } from "@/stores/project-store"
@@ -78,6 +79,8 @@ export function UnifiedActivityView({
 }: UnifiedActivityViewProps) {
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
+  const [taskImages, setTaskImages] = useState<ChatImageAttachment[]>([])
+  const taskFilePickerRef = useRef<(() => void) | null>(null)
   const [isChatStreaming, setIsChatStreaming] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false)
@@ -502,7 +505,11 @@ export function UnifiedActivityView({
 
   // Chat message handler (when completed/idle)
   async function handleChat(text: string) {
-    if (!text || isChatStreaming || !chatSession) return
+    if ((!text && taskImages.length === 0) || isChatStreaming || !chatSession) return
+
+    // Capture and clear images before async
+    const currentImages = taskImages
+    setTaskImages([])
 
     const sid = chatSession.id
 
@@ -566,7 +573,7 @@ export function UnifiedActivityView({
 
       await chatWithTask(
         {
-          message: text,
+          message: text || "(See attached images)",
           sessionId: resumeId,
           streamId: turnStreamId,
           nodeId: node.id,
@@ -580,6 +587,7 @@ export function UnifiedActivityView({
           messages: historyMessages,
           branchName: execution?.branchName,
           prUrl: execution?.prUrl,
+          imageRefs: currentImages.length > 0 ? currentImages.map((img) => img.id) : undefined,
         },
         {
           onText: (chunk) => {
@@ -662,11 +670,11 @@ export function UnifiedActivityView({
 
   function handleSend(interrupt = false) {
     const text = input.trim()
-    if (!text) return
+    if (!text && taskImages.length === 0) return
     setInput("")
 
     if (canSteer) {
-      handleSteer(text, interrupt)
+      handleSteer(text || "(See attached images)", interrupt)
     } else {
       handleChat(text)
     }
@@ -987,20 +995,34 @@ export function UnifiedActivityView({
           }
           rows={2}
           className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          images={taskImages}
+          onImagesChange={setTaskImages}
+          filePickerRef={taskFilePickerRef}
         />
-        <Button
-          size="icon"
-          className="h-9 w-9 shrink-0"
-          onClick={(e) => handleSend(e.shiftKey)}
-          disabled={!input.trim() || isInputDisabled}
-          title="Send (⌘+Enter)"
-        >
-          {sending || isChatStreaming ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Send className="h-4 w-4" />
-          )}
-        </Button>
+        <div className="flex flex-col gap-1 shrink-0">
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8"
+            onClick={() => taskFilePickerRef.current?.()}
+            title="Attach image (or paste/drag-drop)"
+          >
+            <Paperclip className="h-4 w-4" />
+          </Button>
+          <Button
+            size="icon"
+            className="h-9 w-9"
+            onClick={(e) => handleSend(e.shiftKey)}
+            disabled={(!input.trim() && taskImages.length === 0) || isInputDisabled}
+            title="Send (⌘+Enter)"
+          >
+            {sending || isChatStreaming ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
       </div>
       </div>
     </div>

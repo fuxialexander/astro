@@ -15,10 +15,10 @@ import { activeDispatchStreams } from '../lib/execution-context-store.js'
 import { incrementChatSSE, decrementChatSSE } from '../lib/sse-connection-tracker.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
-import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, ProviderType } from '../types/relay.js'
+import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, ProviderType, ImageAttachment } from '../types/relay.js'
 import { db } from '../lib/db/index.js'
-import { projects, taskExecutions, registeredMachines, machineInstructions } from '../lib/db/schema.js'
-import { eq, isNull, and, or } from 'drizzle-orm'
+import { projects, taskExecutions, registeredMachines, machineInstructions, blobs } from '../lib/db/schema.js'
+import { eq, isNull, and, or, inArray } from 'drizzle-orm'
 
 /** Verify the user has access to the given project (team-scoped). */
 async function verifyProjectAccess(projectId: string, user: AuthUser): Promise<boolean> {
@@ -64,6 +64,8 @@ const chatSchema = z.object({
   })).max(100).nullish(),
   /** When 'plan', the agent-runner restricts to read-only tools (Read, Glob, Grep, WebSearch, WebFetch). */
   taskType: z.enum(['plan', 'execution']).nullish(),
+  /** Blob IDs for attached images (multimodal chat) */
+  imageRefs: z.array(z.string().uuid()).max(20).nullish(),
 })
 
 /**
@@ -91,6 +93,8 @@ async function streamChatViaRelay(
     pathwayType?: string
     /** SSE events to emit before dispatching the relay task (e.g. compaction notice) */
     preStreamEvents?: Array<{ event: string; data: string }>
+    /** Pre-fetched image attachments for multimodal chat */
+    images?: ImageAttachment[]
   }
 ) {
   // persistId: where streaming events are stored. Defaults to taskId (relay routing key),
@@ -114,6 +118,7 @@ async function streamChatViaRelay(
     workingDirectory: opts.workingDirectory,
     useWorktree: false,
     ...(opts.resumeSessionId && { resumeSessionId: opts.resumeSessionId }),
+    ...(opts.images?.length && { images: opts.images }),
   }
 
   // Persist init event for observability (system prompt, pathway type, project context)
@@ -492,6 +497,34 @@ async function executeViaRelay(opts: {
 
 // (imported above) to ensure consistent behavior between server and client.
 
+/** Fetch image blobs by ID with ownership verification. */
+async function fetchImageBlobs(imageRefs: string[], user: AuthUser): Promise<ImageAttachment[]> {
+  if (!imageRefs.length) return []
+  try {
+    const blobRows = await db.select({
+      id: blobs.id,
+      data: blobs.data,
+      mimeType: blobs.mimeType,
+      filename: blobs.filename,
+    }).from(blobs).where(and(
+      inArray(blobs.id, imageRefs),
+      or(
+        eq(blobs.teamId, user.teamId),
+        and(isNull(blobs.teamId), eq(blobs.ownerId, user.id))
+      )
+    ))
+    return blobRows.map(row => ({
+      blobId: row.id,
+      mimeType: row.mimeType,
+      data: row.data,
+      filename: row.filename,
+    }))
+  } catch (err) {
+    console.warn('[agent] Failed to fetch image blobs:', err)
+    return []
+  }
+}
+
 const agentRoute = new Hono()
 
 // All agent routes require authentication
@@ -509,7 +542,7 @@ agentRoute.post('/project-chat', async (c) => {
     return c.json({ error: 'Invalid JSON' }, 400)
   }
 
-  const { message, sessionId: existingSessionId, streamId, projectId, model, providerId, visionDoc, planNodes, planEdges, messages: historyMessages, taskType } = body
+  const { message, sessionId: existingSessionId, streamId, projectId, model, providerId, visionDoc, planNodes, planEdges, messages: historyMessages, taskType, imageRefs } = body
   const chatUser = c.get('user') as AuthUser
   // Use streamId as stable taskId across turns (streamId = frontend session.id, stable per conversation).
   // Don't use existingSessionId — that's a provider session ID and changes the relay routing key.
@@ -614,6 +647,9 @@ agentRoute.post('/project-chat', async (c) => {
   // when falling back to fresh execution, not during the resume itself.
   const resolvedResumeId = existingSessionId || undefined
 
+  // Fetch image blobs if attached
+  const images = imageRefs?.length ? await fetchImageBlobs(imageRefs, chatUser) : undefined
+
   return streamChatViaRelay(c, {
     taskId,
     projectId,
@@ -630,6 +666,7 @@ agentRoute.post('/project-chat', async (c) => {
     streamId,
     pathwayType: taskType === 'plan' ? 'plan-chat' : 'project-chat',
     preStreamEvents,
+    images,
   })
 })
 
@@ -652,6 +689,8 @@ const taskChatSchema = z.object({
   // Execution context for resumed sessions
   branchName: z.string().max(500).nullable().optional(),
   prUrl: z.string().max(2000).nullable().optional(),
+  /** Blob IDs for attached images (multimodal chat) */
+  imageRefs: z.array(z.string().uuid()).max(20).optional(),
 })
 
 agentRoute.post('/task-chat', async (c) => {
@@ -677,6 +716,7 @@ agentRoute.post('/task-chat', async (c) => {
     messages: historyMessages,
     branchName,
     prUrl,
+    imageRefs: taskImageRefs,
   } = body
 
   const isResumedSession = !!existingSessionId
@@ -745,6 +785,9 @@ agentRoute.post('/task-chat', async (c) => {
   // if the resume fails (e.g. Codex session expired) and it falls back to fresh execution.
   const tcResumeId = existingSessionId || undefined
 
+  // Fetch image blobs if attached
+  const tcImages = taskImageRefs?.length ? await fetchImageBlobs(taskImageRefs, taskChatUser) : undefined
+
   return streamChatViaRelay(c, {
     taskId,
     projectId,
@@ -760,6 +803,7 @@ agentRoute.post('/task-chat', async (c) => {
     resumeSessionId: tcResumeId,
     streamId,
     pathwayType: 'task-chat',
+    images: tcImages,
   })
 })
 

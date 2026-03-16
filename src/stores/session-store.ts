@@ -52,6 +52,8 @@ export interface SendChatMessageParams {
   planNodes?: ChatPlanNodeContext[]
   planEdges?: ChatPlanEdgeContext[]
   messages?: Array<{ role: 'user' | 'assistant'; content: string }>
+  /** Blob IDs for attached images (multimodal chat) */
+  imageRefs?: string[]
 }
 
 /** Parameters for sendPlaygroundChat (playground post-completion chat) */
@@ -69,6 +71,8 @@ export interface SendPlaygroundChatParams {
   messages?: Array<{ role: 'user' | 'assistant'; content: string }>
   branchName?: string
   prUrl?: string
+  /** Blob IDs for attached images (multimodal chat) */
+  imageRefs?: string[]
 }
 
 interface SessionState {
@@ -679,7 +683,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   // ─── Store-owned chat streaming ──────────────────────────────────
 
   sendChatMessage: (params) => {
-    const { sessionId: sid, projectId, message, visionDoc, model, providerId, planNodes, planEdges, messages } = params
+    const { sessionId: sid, projectId, message, visionDoc, model, providerId, planNodes, planEdges, messages, imageRefs } = params
     const session = get().sessions.get(sid)
     if (!session) return
 
@@ -737,6 +741,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         planNodes,
         planEdges,
         messages,
+        imageRefs,
       },
       {
         // Push streaming events to realtime store for live display.
@@ -889,7 +894,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   sendPlaygroundChat: (params) => {
-    const { sessionId: sid, projectId, nodeId, message, taskTitle, taskDescription, taskOutput, visionDoc, model, providerId, messages, branchName, prUrl } = params
+    const { sessionId: sid, projectId, nodeId, message, taskTitle, taskDescription, taskOutput, visionDoc, model, providerId, messages, branchName, prUrl, imageRefs } = params
     const session = get().sessions.get(sid)
     if (!session) return
 
@@ -952,6 +957,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         messages,
         branchName,
         prUrl,
+        imageRefs,
       },
       {
         // Push streaming events to realtime store for live display.
