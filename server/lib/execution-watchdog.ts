@@ -195,6 +195,86 @@ async function runWatchdogCheckIfLeader(): Promise<void> {
 }
 
 /**
+ * Fast reconciliation on server startup.
+ *
+ * Tasks orphaned by a deploy have a distinctive signature:
+ * - `dispatched` with no executionId → dispatch never reached agent
+ * - `in_progress` with no recent streaming events → SSE connection died
+ *
+ * Uses a much shorter threshold (5 min) since these tasks were orphaned
+ * by the server restart, not by a long-running execution.
+ */
+export async function reconcileOnStartup(): Promise<void> {
+  const STARTUP_THRESHOLD_MS = 5 * 60 * 1000 // 5 minutes
+  const cutoffTime = new Date(Date.now() - STARTUP_THRESHOLD_MS)
+  const startTime = Date.now()
+
+  console.log('[watchdog/startup] Running fast startup reconciliation...')
+
+  try {
+    const stuckNodes = await db.select({
+      id: planNodes.id,
+      clientId: planNodes.clientId,
+      projectId: planNodes.projectId,
+      title: planNodes.title,
+      status: planNodes.status,
+      executionId: planNodes.executionId,
+      updatedAt: planNodes.updatedAt,
+    })
+      .from(planNodes)
+      .where(
+        and(
+          inArray(planNodes.status, ['in_progress', 'dispatched']),
+          lt(planNodes.updatedAt, cutoffTime),
+          isNull(planNodes.deletedAt),
+        )
+      )
+
+    if (stuckNodes.length === 0) {
+      console.log(`[watchdog/startup] No orphaned tasks found (${Date.now() - startTime}ms)`)
+      return
+    }
+
+    console.log(`[watchdog/startup] Found ${stuckNodes.length} potentially orphaned task(s)`)
+
+    let resetCount = 0
+    for (const node of stuckNodes) {
+      try {
+        const isStale = await isTaskTrulyStale(node.executionId, cutoffTime)
+        if (!isStale) continue
+
+        await db.update(planNodes)
+          .set({
+            status: 'planned',
+            executionId: null,
+            executionError: `Server restart: task was stuck in '${node.status}' with no activity. Reset for re-execution.`,
+            updatedAt: new Date(),
+          })
+          .where(eq(planNodes.id, node.id))
+
+        executionEventBus.emit('node:status_changed', {
+          nodeId: node.clientId,
+          projectId: node.projectId,
+          status: 'planned',
+          executionId: node.executionId ?? undefined,
+        })
+
+        console.warn(
+          `[watchdog/startup] Reset orphaned task: "${node.title}" (${node.clientId}) from ${node.status}`
+        )
+        resetCount++
+      } catch (err) {
+        console.error(`[watchdog/startup] Failed to reset ${node.clientId}:`, (err as Error).message)
+      }
+    }
+
+    console.log(`[watchdog/startup] Reconciliation complete in ${Date.now() - startTime}ms — reset ${resetCount} task(s)`)
+  } catch (err) {
+    console.error('[watchdog/startup] Startup reconciliation failed:', err)
+  }
+}
+
+/**
  * Start the execution watchdog.
  */
 export function startExecutionWatchdog(customConfig?: Partial<WatchdogConfig>): void {

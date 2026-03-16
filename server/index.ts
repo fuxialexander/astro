@@ -586,6 +586,12 @@ async function start() {
     console.log('[github-cache] Repo cache scheduler started')
   }
 
+  // Fast startup reconciliation: reset tasks orphaned by server restart (5-min threshold)
+  if (!isTest()) {
+    const { reconcileOnStartup } = await import('./lib/execution-watchdog.js')
+    await reconcileOnStartup()
+  }
+
   // Start execution watchdog (P7: server-side in_progress safety net)
   if (!isTest()) {
     startExecutionWatchdog({
