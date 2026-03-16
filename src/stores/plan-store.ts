@@ -158,9 +158,10 @@ async function retryAsync(
             type: 'error',
             title: 'Plan save failed',
             description: 'Your plan could not be saved to the server. Do not refresh the page — your data is still in memory. Try again or check your connection.',
+            duration: 30000, // 30s — critical warning must not auto-dismiss quickly
           })
         }
-        return
+        throw err
       }
       const delay = baseDelayMs * Math.pow(2, attempt)
       console.warn(`[plan-store] ${label} failed (attempt ${attempt + 1}), retrying in ${delay}ms...`)
@@ -585,6 +586,9 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       2000, // baseDelayMs — 2s, 4s, 8s, 16s, 32s, 64s, 128s (~4 min total)
     ).then(() => {
       for (const id of newNodeIds) pendingSaveNodeIds.delete(id)
+    }).catch(() => {
+      // Keep node IDs in pendingSaveNodeIds so position updates remain deferred
+      // until a future save succeeds. The toast already warned the user.
     })
   },
 
