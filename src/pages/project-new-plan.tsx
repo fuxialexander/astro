@@ -79,6 +79,8 @@ export function ProjectNewPlan() {
   const [visionDoc, setVisionDoc] = useState("")
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
   const [pendingUploads, setPendingUploads] = useState(0)
+  const [directMode, setDirectMode] = useState(false)
+  const [directConfirmed, setDirectConfirmed] = useState(false)
   const autoExecute = useSettingsStore((s) => s.yoloMode)
   const [showYoloWarning, setShowYoloWarning] = useState(false)
   const modelTier: ModelTier = "large"
@@ -95,6 +97,8 @@ export function ProjectNewPlan() {
     setAttachments([])
     setPendingUploads(0)
     setContextOpen(false)
+    setDirectMode(false)
+    setDirectConfirmed(false)
   }, [])
 
   // Git detection (debounced)
@@ -669,7 +673,7 @@ export function ProjectNewPlan() {
           repository: detection?.remoteUrl || existingProject.repository || undefined,
           ...(github && !existingProject.githubOwner ? { githubOwner: github.owner, githubRepo: github.repo } : {}),
           ...(regenSource ? { source: regenSource } : {}),
-          ...(detection?.suggestedDeliveryMode ? { deliveryMode: detection.suggestedDeliveryMode } : {}),
+          deliveryMode: directMode && directConfirmed ? 'direct' as const : detection?.suggestedDeliveryMode || undefined,
         }
         updateProject(existingProject.id, regenUpdates) // optimistic local
         await dataClient.updateProject(existingProject.id, regenUpdates) // await backend
@@ -714,15 +718,20 @@ export function ProjectNewPlan() {
             repository: detection?.remoteUrl || undefined,
             ...(github ? { githubOwner: github.owner, githubRepo: github.repo } : {}),
             ...(detectedSource ? { source: detectedSource } : {}),
-            ...(detection?.suggestedDeliveryMode ? { deliveryMode: detection.suggestedDeliveryMode } : {}),
+            deliveryMode: directMode && directConfirmed ? 'direct' as const : detection?.suggestedDeliveryMode || undefined,
           }
         )
         projectId = result.projectId
       }
 
       // Register auto-execute if YOLO mode is on (unless user chose plan-only or no workDir)
+      // Pass the selected provider so subsequent task executions use the same provider
       if (autoExecute && !skipAutoExecute && workingDir.trim()) {
-        setStoreAutoExecute(projectId, true)
+        setStoreAutoExecute(projectId, true, {
+          preferredProvider: selectedProvider || undefined,
+          targetMachineId: selectedMachine?.machineId,
+          model: effectiveModel,
+        })
       }
 
       setActiveProjectId(projectId)
@@ -740,7 +749,10 @@ export function ProjectNewPlan() {
   // produced nothing — show the input form so the user can re-generate.
   // Once the user submits, execution status resets to "pending" and we enter chat phase normally.
   const executionIsTerminal = execution?.status === 'cancelled' || execution?.status === 'failure' || execution?.status === 'success'
-  const showInputForRegeneration = existingProjectHasNoNodes && (!execution || executionIsTerminal) && !fromPlaygroundId
+  // Show input form for re-generation only when: project has no nodes AND there's no
+  // execution or the execution ended cleanly (no error). When the execution has an error,
+  // stay in chat phase so PlanGeneration can display the error UI (e.g., "No machine available").
+  const showInputForRegeneration = existingProjectHasNoNodes && (!execution || (executionIsTerminal && !execution.error)) && !fromPlaygroundId
   if (activeProjectId && (execution || project) && !showInputForRegeneration) {
     return (
       <div className="h-full">
@@ -917,6 +929,62 @@ export function ProjectNewPlan() {
                     path={workingDir.trim()}
                     machineId={selectedMachine.machineId}
                   />
+                </div>
+              )}
+
+              {/* Execution mode selector — allow switching to direct mode for git repos */}
+              {detection?.isGit && (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Execution mode</span>
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => { setDirectMode(false); setDirectConfirmed(false) }}
+                      className={cn(
+                        "flex-1 px-2 py-1 rounded-md border text-xs transition-colors cursor-pointer",
+                        !directMode
+                          ? "border-primary bg-primary/10 text-primary font-medium"
+                          : "border-input bg-background text-muted-foreground hover:bg-muted/50",
+                      )}
+                    >
+                      {detection.remoteUrl ? 'Git workflow (PR)' : 'Git workflow (branch)'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDirectMode(true)}
+                      className={cn(
+                        "flex-1 px-2 py-1 rounded-md border text-xs transition-colors cursor-pointer",
+                        directMode
+                          ? "border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium"
+                          : "border-input bg-background text-muted-foreground hover:bg-muted/50",
+                      )}
+                    >
+                      Direct (in-place)
+                    </button>
+                  </div>
+                  {directMode && !directConfirmed && (
+                    <div className="flex flex-col gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 p-2">
+                      <div className="flex items-start gap-1.5">
+                        <AlertTriangle className="h-3 w-3 text-amber-500 mt-0.5 shrink-0" />
+                        <div className="flex flex-col gap-0.5 text-[10px] text-amber-700 dark:text-amber-400">
+                          <span className="font-medium">Direct mode skips all git automation</span>
+                          <span className="text-muted-foreground">
+                            No worktree isolation, no automatic branches or PRs.
+                            Only one task can run at a time.
+                          </span>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-5 text-[10px] self-end border-amber-500/40 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
+                        onClick={() => setDirectConfirmed(true)}
+                      >
+                        I understand, use direct mode
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

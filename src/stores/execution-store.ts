@@ -197,8 +197,8 @@ interface ExecutionState {
   // Batch execution state per project
   batchExecutions: Map<string, BatchExecution>
 
-  // Projects that should auto-execute after plan generation completes
-  autoExecuteProjectIds: Set<string>
+  // Projects that should auto-execute after plan generation completes (with provider options)
+  autoExecuteProjectIds: Map<string, ExecutionOptions>
 
   // Projects that already showed the "all tasks complete" toast (avoid duplicates)
   completedProjectIds: Set<string>
@@ -243,7 +243,7 @@ interface ExecutionState {
   selectExecution: (nodeId: string | null) => void
 
   // Auto-execute actions
-  setAutoExecute: (projectId: string, enabled: boolean) => void
+  setAutoExecute: (projectId: string, enabled: boolean, options?: ExecutionOptions) => void
 
   // Approval actions
   addPendingApproval: (approval: ApprovalRequest) => void
@@ -343,7 +343,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   localBackendsLoaded: false,
   selectedExecutionId: null,
   batchExecutions: new Map(),
-  autoExecuteProjectIds: new Set(),
+  autoExecuteProjectIds: new Map(),
   completedProjectIds: new Set(),
   pendingApprovals: new Map(),
   loaded: false,
@@ -885,10 +885,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     set({ selectedExecutionId: nodeId })
   },
 
-  setAutoExecute: (projectId: string, enabled: boolean) => {
+  setAutoExecute: (projectId: string, enabled: boolean, options?: ExecutionOptions) => {
     set((state) => {
-      const next = new Set(state.autoExecuteProjectIds)
-      if (enabled) next.add(projectId)
+      const next = new Map(state.autoExecuteProjectIds)
+      if (enabled) next.set(projectId, options ?? {})
       else next.delete(projectId)
       return { autoExecuteProjectIds: next }
     })
@@ -2799,11 +2799,12 @@ function handleSSEEvent(
 
             // Auto-execute all tasks if YOLO mode was enabled for this project
             if (isSuccess && planProjectId && get().autoExecuteProjectIds.has(planProjectId)) {
+              const autoExecOptions = get().autoExecuteProjectIds.get(planProjectId)
               get().setAutoExecute(planProjectId, false) // consume the flag
               // Small delay to let plan nodes settle in the store
               setTimeout(() => {
                 console.log(`[execution] YOLO mode: auto-executing all tasks for project ${planProjectId}`)
-                get().executeAllProject(planProjectId)
+                get().executeAllProject(planProjectId, autoExecOptions)
               }, 1000)
             }
           }
