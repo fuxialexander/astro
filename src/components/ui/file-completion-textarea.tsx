@@ -118,6 +118,9 @@ export function FileCompletionTextarea({
   // Image upload state
   const [pendingUploads, setPendingUploads] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Ref to read latest images inside async callbacks (avoids stale closure race)
+  const imagesRef = useRef(images)
+  imagesRef.current = images
 
   // Expose file picker trigger to parent
   useEffect(() => {
@@ -163,7 +166,7 @@ export function FileCompletionTextarea({
             mimeType: file.type || 'image/png',
             size: file.size,
           }
-          onImagesChange([...(images || []), attachment])
+          onImagesChange([...(imagesRef.current || []), attachment])
         } catch (err) {
           console.error('[file-completion] Failed to upload image:', err)
           useToastStore.getState().add({
@@ -185,7 +188,7 @@ export function FileCompletionTextarea({
       }
       reader.readAsDataURL(file)
     }
-  }, [images, onImagesChange])
+  }, [onImagesChange])
 
   const handlePaste = useCallback((e: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = e.clipboardData?.files
