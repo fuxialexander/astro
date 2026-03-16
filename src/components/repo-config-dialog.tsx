@@ -363,10 +363,9 @@ export function RepoConfigDialog({
                         <div className="flex flex-col gap-1 text-[11px] text-amber-700 dark:text-amber-400">
                           <span className="font-medium">Direct mode skips all git automation</span>
                           <span className="text-muted-foreground">
-                            No worktree isolation, no automatic branches or PRs.
-                            Tasks run directly in the working directory. Only one task can run at a time.
-                            If you want git workflow, include git instructions in your task prompts
-                            (e.g. which branch to commit to, whether to create a PR, etc.).
+                            {detection?.remoteUrl
+                              ? 'No worktree isolation, no automatic branches or PRs. Tasks run directly in the working directory. Only one task can run at a time. If you want git workflow, include git instructions in your task prompts (e.g. which branch to commit to, whether to create a PR, etc.).'
+                              : 'No worktree isolation. Tasks run directly in the working directory. Only one task can run at a time. To run tasks in parallel or use worktree isolation, switch to Git workflow.'}
                           </span>
                         </div>
                       </div>
@@ -384,7 +383,9 @@ export function RepoConfigDialog({
                   {directMode && directConfirmed && (
                     <div className="flex items-center gap-1.5 text-[10px] text-amber-600 dark:text-amber-400">
                       <TriangleAlert className="h-3 w-3" />
-                      Direct mode — if you want git workflow, include instructions in task prompts
+                      {detection?.remoteUrl
+                        ? 'Direct mode — if you want git workflow, include instructions in task prompts'
+                        : 'Direct mode — to run tasks in parallel, switch to Git workflow'}
                     </div>
                   )}
                 </div>
