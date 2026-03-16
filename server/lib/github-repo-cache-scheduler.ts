@@ -1,5 +1,6 @@
 import { redisPubSub } from './redis-pubsub.js'
 import { syncAllGitHubRepoCaches } from './github-repo-cache.js'
+import { isRateLimitLow } from './github-rate-limit.js'
 
 export interface GitHubRepoCacheSchedulerConfig {
   enabled: boolean
@@ -16,6 +17,9 @@ const LEADER_TTL_SECONDS = 10 * 60
 
 let timer: ReturnType<typeof setInterval> | null = null
 let config: GitHubRepoCacheSchedulerConfig = DEFAULT_CONFIG
+let consecutiveFailures = 0
+let skipCounter = 0
+const MAX_BACKOFF_CYCLES = 6 // max skip cycles (5min * 6 = 30min effective max)
 
 async function runOnce(): Promise<void> {
   const acquired = await redisPubSub.tryAcquireLeader(LEADER_NAME, LEADER_TTL_SECONDS)
@@ -25,10 +29,32 @@ async function runOnce(): Promise<void> {
     return
   }
 
+  // Skip this cycle if rate limit is known to be low
+  if (isRateLimitLow()) {
+    console.log('[github-cache] Skipping sync cycle — GitHub API rate limit is low')
+    return
+  }
+
+  // Progressive backoff: after rate limit failures, skip N cycles before retrying
+  if (skipCounter > 0) {
+    console.log(`[github-cache] Backing off after ${consecutiveFailures} failure(s) — ${skipCounter} cycle(s) remaining`)
+    skipCounter--
+    return
+  }
+
   try {
     await syncAllGitHubRepoCaches()
+    consecutiveFailures = 0
+    skipCounter = 0
   } catch (error) {
-    console.error('[github-cache] Scheduled sync failed:', error)
+    const errMsg = (error as Error).message ?? ''
+    if (errMsg.includes('rate limit')) {
+      consecutiveFailures++
+      skipCounter = Math.min(consecutiveFailures, MAX_BACKOFF_CYCLES)
+      console.error(`[github-cache] Rate limit hit (failure #${consecutiveFailures}). Skipping next ${skipCounter} cycle(s).`)
+    } else {
+      console.error('[github-cache] Scheduled sync failed:', error)
+    }
   }
 }
 
