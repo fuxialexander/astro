@@ -763,8 +763,11 @@ export class ObservationCollector {
             console.warn(`[observability] Dropping ${batch.length} observations for trace ${tid} (non-retryable DB error: ${pgCode})`)
           } else {
             console.error(`[observability] Failed to flush observations for trace ${tid}:`, cause ?? err)
-            // Re-add only this failed batch (not remaining batches) for retry
-            state.buffer.unshift(...batch)
+            // Re-add failed batch + all remaining un-attempted events for retry.
+            // events.slice(i) includes this batch + subsequent batches that were
+            // already spliced out of state.buffer on line above.
+            const remaining = events.slice(i)
+            state.buffer.unshift(...remaining)
             break // Don't attempt remaining batches — they'll be retried on next flush
           }
         }
