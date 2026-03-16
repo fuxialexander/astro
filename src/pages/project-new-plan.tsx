@@ -972,7 +972,7 @@ export function ProjectNewPlan() {
                       <span className="flex-1 text-[10px] text-amber-700 dark:text-amber-400">
                         {detection.remoteUrl
                           ? 'No worktrees, no branches, no PRs. One task at a time.'
-                          : 'No worktrees. One task at a time. Use Git workflow for parallel execution.'}
+                          : 'No worktrees, no branches. One task at a time, working directly inside the working directory.'}
                       </span>
                       <Button
                         type="button"
