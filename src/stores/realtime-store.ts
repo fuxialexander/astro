@@ -1141,6 +1141,33 @@ function handleRealtimeEvent(
       const execId = data.taskId as string
       const status = data.status as string
       const isSuccess = status === 'success' || status === 'completed'
+
+      // Parse yaml-spec fences from accumulated text and emit spec events
+      {
+        const storeState = useRealtimeStore.getState()
+        const stream = storeState.taskStreams.get(execId)
+        if (stream) {
+          const fullText = stream.activityEvents
+            .filter((e: TaskActivityEvent) => e.type === 'text')
+            .map((e: TaskActivityEvent) => (e as Extract<TaskActivityEvent, { type: 'text' }>).content)
+            .join('')
+          if (fullText.includes('```yaml-spec')) {
+            import('@/lib/json-render/parse-yaml-spec').then(({ parseYamlSpecFromText }) => {
+              const segments = parseYamlSpecFromText(fullText)
+              for (const segment of segments) {
+                if (segment.type === 'spec') {
+                  useRealtimeStore.getState().pushActivityEvent(execId, {
+                    type: 'json_render_spec',
+                    spec: segment.spec,
+                    timestamp: new Date(),
+                  })
+                }
+              }
+            }).catch(() => {})
+          }
+        }
+      }
+
       set((state) => {
         const streams = new Map(state.taskStreams)
         const existing = streams.get(execId) || createEmptyTaskStream(execId)
