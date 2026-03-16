@@ -357,13 +357,15 @@ export function RepoConfigDialog({
                     </button>
                   </div>
                   {directMode && !directConfirmed && (
-                    <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2.5">
-                      <TriangleAlert className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                      <span className="flex-1 text-[11px] text-amber-700 dark:text-amber-400">
-                        {detection?.remoteUrl
-                          ? 'No worktrees, no branches, no PRs. One task at a time.'
-                          : 'No worktrees, no branches. One task at a time, working directly inside the working directory.'}
-                      </span>
+                    <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2.5">
+                      <TriangleAlert className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-px" />
+                      <div className="flex-1 text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+                        <span className="font-medium">
+                          {detection?.remoteUrl ? 'No worktrees · No branches · No PRs' : 'No worktrees · No branches'}
+                        </span>
+                        <br />
+                        <span className="text-muted-foreground">One task at a time, working directly inside the working directory.</span>
+                      </div>
                       <Button
                         type="button"
                         size="sm"
