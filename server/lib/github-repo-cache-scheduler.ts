@@ -18,7 +18,8 @@ const LEADER_TTL_SECONDS = 10 * 60
 let timer: ReturnType<typeof setInterval> | null = null
 let config: GitHubRepoCacheSchedulerConfig = DEFAULT_CONFIG
 let consecutiveFailures = 0
-const MAX_BACKOFF_MULTIPLIER = 6 // 5min * 6 = 30min max
+let skipCounter = 0
+const MAX_BACKOFF_CYCLES = 6 // max skip cycles (5min * 6 = 30min effective max)
 
 async function runOnce(): Promise<void> {
   const acquired = await redisPubSub.tryAcquireLeader(LEADER_NAME, LEADER_TTL_SECONDS)
@@ -34,27 +35,23 @@ async function runOnce(): Promise<void> {
     return
   }
 
-  // Exponential backoff: skip cycles after consecutive rate limit failures
-  if (consecutiveFailures > 0) {
-    const skipCycles = Math.min(consecutiveFailures, MAX_BACKOFF_MULTIPLIER) - 1
-    // Use a simple counter — every N cycles we attempt a sync
-    // This is tracked per-call; the interval stays the same but we skip N-1 out of N cycles
-    if (skipCycles > 0) {
-      const backoffMs = skipCycles * config.intervalMs
-      console.log(`[github-cache] Backing off after ${consecutiveFailures} failures — skipping this cycle (effective interval: ${Math.round(backoffMs / 60000)}min)`)
-      consecutiveFailures-- // decrement so we eventually retry
-      return
-    }
+  // Progressive backoff: after rate limit failures, skip N cycles before retrying
+  if (skipCounter > 0) {
+    console.log(`[github-cache] Backing off after ${consecutiveFailures} failure(s) — ${skipCounter} cycle(s) remaining`)
+    skipCounter--
+    return
   }
 
   try {
     await syncAllGitHubRepoCaches()
-    consecutiveFailures = 0 // Reset on success
+    consecutiveFailures = 0
+    skipCounter = 0
   } catch (error) {
     const errMsg = (error as Error).message ?? ''
     if (errMsg.includes('rate limit')) {
       consecutiveFailures++
-      console.error(`[github-cache] Rate limit hit (failure #${consecutiveFailures}). Next sync will back off.`)
+      skipCounter = Math.min(consecutiveFailures, MAX_BACKOFF_CYCLES)
+      console.error(`[github-cache] Rate limit hit (failure #${consecutiveFailures}). Skipping next ${skipCounter} cycle(s).`)
     } else {
       console.error('[github-cache] Scheduled sync failed:', error)
     }

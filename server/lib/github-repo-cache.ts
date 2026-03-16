@@ -475,17 +475,15 @@ export async function syncGitHubRepoCache(project: RepoProject, userId: string, 
   const token = await resolveGitHubToken(project.githubOwner, project.githubRepo, userId, teamId ?? null)
   if (!token) throw new Error(`No GitHub token available for ${project.githubOwner}/${project.githubRepo}`)
 
-  // Incremental sync: only fetch items updated since last cache time
+  // Incremental sync: only fetch items updated since last cache time.
+  // Note: only the Issues API supports `since`; the Pulls API does not.
   const [lastIssueSync] = await db.select({ latest: max(githubIssueCache.cachedAt) })
     .from(githubIssueCache).where(eq(githubIssueCache.projectId, project.id))
-  const [lastPrSync] = await db.select({ latest: max(githubPrCache.cachedAt) })
-    .from(githubPrCache).where(eq(githubPrCache.projectId, project.id))
   const issueSince = lastIssueSync?.latest?.toISOString()
-  const prSince = lastPrSync?.latest?.toISOString()
 
   const [issueResult, prResult] = await Promise.all([
     fetchIssues(token.token, project.githubOwner, project.githubRepo, issueSince),
-    fetchPullRequests(token.token, project.githubOwner, project.githubRepo, prSince),
+    fetchPullRequests(token.token, project.githubOwner, project.githubRepo),
   ])
   const prs = await enrichPullRequests(token.token, project.githubOwner, project.githubRepo, prResult.prs, project.id)
 
@@ -496,7 +494,7 @@ export async function syncGitHubRepoCache(project: RepoProject, userId: string, 
   // Skip stale cleanup if: pagination was truncated (incomplete set), or
   // incremental sync was used (only fetched recently-updated items).
   const isFullIssueSync = !issueSince && !issueResult.truncated
-  const isFullPrSync = !prSince && !prResult.truncated
+  const isFullPrSync = !prResult.truncated
   if (isFullIssueSync) {
     const fetchedIssueNumbers = issueResult.issues.map((i) => i.number)
     if (fetchedIssueNumbers.length > 0) {
