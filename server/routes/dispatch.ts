@@ -689,6 +689,10 @@ dispatchRoute.post('/task', async (c) => {
     dryRun,
     nodeNumber,
     replanContext,
+    nodeType: dbNode?.type,
+    loopConfig: dbNode?.loopConfig as import('../../packages/core/src/types.js').LoopConfig | undefined,
+    loopStatus: dbNode?.loopStatus,
+    loopCurrentIteration: dbNode?.loopCurrentIteration,
   })
 })
 
@@ -736,6 +740,10 @@ async function dispatchViaRelay(
     dryRun?: boolean
     nodeNumber?: number | null
     replanContext?: z.infer<typeof dispatchTaskSchema>['replanContext']
+    nodeType?: string | null
+    loopConfig?: import('../../packages/core/src/types.js').LoopConfig
+    loopStatus?: string | null
+    loopCurrentIteration?: number | null
   }
 ) {
   // Derive Astro base URL: env var > request Origin header
@@ -780,6 +788,10 @@ async function dispatchViaRelay(
     dryRun,
     nodeNumber,
     replanContext,
+    nodeType,
+    loopConfig,
+    loopStatus,
+    loopCurrentIteration,
   } = params
   const deliveryMode = deliveryModeParam
   const useWorktree = useWorktreeParam
@@ -804,10 +816,6 @@ async function dispatchViaRelay(
         : settings?.yoloMode !== 'false'  // Default ON when unset (matches frontend default)
     } catch { /* fail closed — default non-YOLO */ }
   }
-
-  // Load the plan node for loop-related features (iteration context, configurable timeout)
-  const [relayNode] = await db.select().from(planNodes)
-    .where(eq(planNodes.clientId, nodeId)).limit(1)
 
   // Find target machine (skip for dry runs — prompt assembly doesn't need a machine)
   let machineId = targetMachineId
@@ -1113,11 +1121,10 @@ There is no branch isolation — changes are made in-place.
     }
 
     // Loop iteration context injection
-    if (relayNode?.type === 'loop' && relayNode.loopConfig && relayNode.loopStatus === 'iterating') {
+    if (nodeType === 'loop' && loopConfig && loopStatus === 'iterating') {
       const { buildIterationContext, getLoopIterations } = await import('../lib/loop-controller.js')
-      const loopConfig = relayNode.loopConfig as import('../../packages/core/src/types.js').LoopConfig
       const iterations = await getLoopIterations(nodeId, projectId)
-      const currentIter = relayNode.loopCurrentIteration ?? 1
+      const currentIter = loopCurrentIteration ?? 1
       // Filter out the 'running' iteration (the one we're about to dispatch)
       const completedIters = iterations.filter(i => i.status !== 'running')
       const iterationContext = buildIterationContext(loopConfig, completedIters, currentIter)
@@ -1364,8 +1371,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     const FINAL_STARTUP_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes — last attempt covers slow machine cold starts
     let startupRetries = 0
     // Activity timeout: default 2 hours, but loop nodes can override via iterationTimeoutMinutes
-    const loopTimeoutMinutes = (relayNode?.type === 'loop' && relayNode.loopConfig)
-      ? (relayNode.loopConfig as import('../../packages/core/src/types.js').LoopConfig).iterationTimeoutMinutes
+    const loopTimeoutMinutes = (nodeType === 'loop' && loopConfig)
+      ? loopConfig.iterationTimeoutMinutes
       : undefined
     const ACTIVITY_TIMEOUT_MS = loopTimeoutMinutes
       ? loopTimeoutMinutes * 60 * 1000
