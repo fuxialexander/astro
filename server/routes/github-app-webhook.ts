@@ -97,6 +97,11 @@ async function processWebhook(eventType: string, payload: Record<string, unknown
   }
 }
 
+// Dedup map: projectId → last sync timestamp. Prevents webhook cascades
+// (e.g., 5 check_run events from one PR) from triggering 5 full syncs.
+const webhookSyncCooldowns = new Map<string, number>()
+const WEBHOOK_SYNC_COOLDOWN_MS = 30_000 // 30 seconds
+
 async function syncRepoCacheForWebhook(eventType: string, payload: Record<string, unknown>): Promise<void> {
   const repo = payload.repository as Record<string, unknown> | undefined
   const repoFullName = repo?.full_name as string | undefined
@@ -108,8 +113,14 @@ async function syncRepoCacheForWebhook(eventType: string, payload: Record<string
   try {
     // For check_suite, check_run, and pull_request_review we need to re-derive
     // CI status or review decision which requires multiple API calls.
-    // Fall back to full sync for these complex events.
+    // Fall back to full sync for these complex events — but deduplicate within cooldown window.
     if (['check_suite', 'check_run', 'pull_request_review'].includes(eventType)) {
+      const lastSync = webhookSyncCooldowns.get(projectId) ?? 0
+      if (Date.now() - lastSync < WEBHOOK_SYNC_COOLDOWN_MS) {
+        console.log(`[github-app-webhook] Skipping duplicate ${eventType} sync for ${repoFullName} (within ${WEBHOOK_SYNC_COOLDOWN_MS / 1000}s cooldown)`)
+        return
+      }
+      webhookSyncCooldowns.set(projectId, Date.now())
       await syncGitHubRepoCacheByProjectId(projectId)
       return
     }

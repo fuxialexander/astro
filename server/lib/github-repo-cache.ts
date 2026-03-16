@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, notInArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, max, notInArray } from 'drizzle-orm'
 import type {
   GitHubCachedIssue,
   GitHubCachedPr,
@@ -266,6 +266,33 @@ async function fetchPrCiStatus(accessToken: string, owner: string, repo: string,
 const ENRICH_CONCURRENCY = 5
 
 async function enrichPullRequests(accessToken: string, owner: string, repo: string, pullRequests: RawPullRequest[], projectId: string): Promise<GitHubCachedPr[]> {
+  // Skip enrichment for PRs that haven't changed since last enrichment.
+  // Look up cached PR timestamps and only enrich PRs whose updated_at is newer.
+  const cachedPrRows = pullRequests.length > 0
+    ? await db.select({ prNumber: githubPrCache.prNumber, cachedAt: githubPrCache.cachedAt })
+        .from(githubPrCache)
+        .where(and(
+          eq(githubPrCache.projectId, projectId),
+          inArray(githubPrCache.prNumber, pullRequests.map((pr) => pr.number)),
+        ))
+    : []
+  const cachedTimes = new Map(cachedPrRows.map((r) => [r.prNumber, r.cachedAt]))
+
+  const toEnrich: RawPullRequest[] = []
+  const skipped: number[] = []
+  for (const pr of pullRequests) {
+    const lastCached = cachedTimes.get(pr.number)
+    // Enrich if: never cached, or PR updated after last cache
+    if (!lastCached || new Date(pr.updated_at) > lastCached) {
+      toEnrich.push(pr)
+    } else {
+      skipped.push(pr.number)
+    }
+  }
+  if (skipped.length > 0) {
+    console.log(`[github-cache] Skipping enrichment for ${skipped.length} unchanged PR(s) in ${owner}/${repo}`)
+  }
+
   const results: GitHubCachedPr[] = []
   let running = 0
   let idx = 0
@@ -318,17 +345,17 @@ async function enrichPullRequests(accessToken: string, owner: string, repo: stri
   // Simple concurrency limiter — at most ENRICH_CONCURRENCY in flight
   await new Promise<void>((resolve, reject) => {
     function next() {
-      while (running < ENRICH_CONCURRENCY && idx < pullRequests.length) {
-        const pr = pullRequests[idx++]
+      while (running < ENRICH_CONCURRENCY && idx < toEnrich.length) {
+        const pr = toEnrich[idx++]
         running++
         enrichOne(pr).then((result) => {
           results.push(result)
           running--
-          if (idx >= pullRequests.length && running === 0) resolve()
+          if (idx >= toEnrich.length && running === 0) resolve()
           else next()
         }).catch(reject)
       }
-      if (pullRequests.length === 0) resolve()
+      if (toEnrich.length === 0) resolve()
     }
     next()
   })
@@ -448,9 +475,17 @@ export async function syncGitHubRepoCache(project: RepoProject, userId: string, 
   const token = await resolveGitHubToken(project.githubOwner, project.githubRepo, userId, teamId ?? null)
   if (!token) throw new Error(`No GitHub token available for ${project.githubOwner}/${project.githubRepo}`)
 
+  // Incremental sync: only fetch items updated since last cache time
+  const [lastIssueSync] = await db.select({ latest: max(githubIssueCache.cachedAt) })
+    .from(githubIssueCache).where(eq(githubIssueCache.projectId, project.id))
+  const [lastPrSync] = await db.select({ latest: max(githubPrCache.cachedAt) })
+    .from(githubPrCache).where(eq(githubPrCache.projectId, project.id))
+  const issueSince = lastIssueSync?.latest?.toISOString()
+  const prSince = lastPrSync?.latest?.toISOString()
+
   const [issueResult, prResult] = await Promise.all([
-    fetchIssues(token.token, project.githubOwner, project.githubRepo),
-    fetchPullRequests(token.token, project.githubOwner, project.githubRepo),
+    fetchIssues(token.token, project.githubOwner, project.githubRepo, issueSince),
+    fetchPullRequests(token.token, project.githubOwner, project.githubRepo, prSince),
   ])
   const prs = await enrichPullRequests(token.token, project.githubOwner, project.githubRepo, prResult.prs, project.id)
 
@@ -458,9 +493,11 @@ export async function syncGitHubRepoCache(project: RepoProject, userId: string, 
   await upsertPrCacheEntries(project.id, prs)
 
   // Remove stale cache entries for issues/PRs that no longer exist on GitHub.
-  // Skip stale cleanup if pagination was truncated — the fetched set is incomplete
-  // and deleting entries not in it would cause data loss for large repos.
-  if (!issueResult.truncated) {
+  // Skip stale cleanup if: pagination was truncated (incomplete set), or
+  // incremental sync was used (only fetched recently-updated items).
+  const isFullIssueSync = !issueSince && !issueResult.truncated
+  const isFullPrSync = !prSince && !prResult.truncated
+  if (isFullIssueSync) {
     const fetchedIssueNumbers = issueResult.issues.map((i) => i.number)
     if (fetchedIssueNumbers.length > 0) {
       await db.delete(githubIssueCache).where(and(
@@ -469,7 +506,7 @@ export async function syncGitHubRepoCache(project: RepoProject, userId: string, 
       ))
     }
   }
-  if (!prResult.truncated) {
+  if (isFullPrSync) {
     const fetchedPrNumbers = prResult.prs.map((p) => p.number)
     if (fetchedPrNumbers.length > 0) {
       await db.delete(githubPrCache).where(and(
@@ -638,13 +675,23 @@ export async function getLinkedNodeIdsForProject(projectId: string): Promise<{
 
 export async function syncAllGitHubRepoCaches(): Promise<void> {
   const githubProjects = await db.select().from(projects).where(eq(projects.projectType, 'github'))
+  const startTime = Date.now()
+  let synced = 0
   for (const project of githubProjects) {
     try {
-      await syncGitHubRepoCache(project, project.ownerId, project.teamId)
+      const result = await syncGitHubRepoCache(project, project.ownerId, project.teamId)
+      synced++
+      console.log(`[github-cache] Synced ${project.githubOwner}/${project.githubRepo}: ${result.issueCount} issues, ${result.prCount} PRs`)
     } catch (error) {
+      const errMsg = (error as Error).message ?? ''
+      if (errMsg.includes('rate limit')) {
+        console.error(`[github-cache] Rate limit hit during sync of ${project.githubOwner}/${project.githubRepo} — aborting remaining repos`)
+        throw error // Propagate to scheduler for backoff
+      }
       console.error(`[github-cache] Failed syncing ${project.githubOwner}/${project.githubRepo}:`, error)
     }
   }
+  console.log(`[github-cache] Sync complete: ${synced}/${githubProjects.length} repos in ${Date.now() - startTime}ms`)
 }
 
 export async function backfillGitHubRepoCacheForProject(project: Project): Promise<void> {

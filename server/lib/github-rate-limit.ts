@@ -38,8 +38,46 @@ export function parseRateLimitHeaders(headers: Headers): RateLimitInfo | null {
  * Wraps `fetch()` to inspect 403/429 responses for rate limiting
  * and throw a descriptive error with retry-after information.
  */
+// Proactive rate limit tracking: abort batch before hitting hard limit.
+// Shared across all calls in this process — resets when limit resets.
+let rateLimitRemaining: number | null = null
+let rateLimitResetAt: number = 0
+
+const RATE_LIMIT_LOW_WATERMARK = 50
+
+/** Check if we're approaching the rate limit and should abort. */
+export function isRateLimitLow(): boolean {
+  if (rateLimitRemaining === null) return false
+  if (Date.now() > rateLimitResetAt) {
+    // Reset window has passed — clear stale tracking
+    rateLimitRemaining = null
+    return false
+  }
+  return rateLimitRemaining < RATE_LIMIT_LOW_WATERMARK
+}
+
 export async function fetchWithRateLimit(url: string, init?: RequestInit): Promise<Response> {
+  // Proactive check: abort early if we know the rate limit is nearly exhausted
+  if (isRateLimitLow()) {
+    const resetDate = new Date(rateLimitResetAt)
+    const retrySeconds = Math.ceil(Math.max(0, rateLimitResetAt - Date.now()) / 1000)
+    throw new Error(
+      `GitHub API rate limit low (${rateLimitRemaining} remaining). ` +
+      `Resets at ${resetDate.toISOString()} (retry after ${retrySeconds}s)`
+    )
+  }
+
   const response = await fetch(url, init)
+
+  // Track rate limit from every successful response
+  const remainingHeader = response.headers.get('x-ratelimit-remaining')
+  const resetHeader = response.headers.get('x-ratelimit-reset')
+  if (remainingHeader !== null) {
+    rateLimitRemaining = parseInt(remainingHeader, 10)
+  }
+  if (resetHeader !== null) {
+    rateLimitResetAt = parseInt(resetHeader, 10) * 1000
+  }
 
   // Detect revoked/expired tokens — surface a clear reconnection message
   if (response.status === 401) {
