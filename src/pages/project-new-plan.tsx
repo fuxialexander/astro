@@ -967,35 +967,22 @@ export function ProjectNewPlan() {
                     </button>
                   </div>
                   {directMode && !directConfirmed && (
-                    <div className="flex flex-col gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 p-2">
-                      <div className="flex items-start gap-1.5">
-                        <AlertTriangle className="h-3 w-3 text-amber-500 mt-0.5 shrink-0" />
-                        <div className="flex flex-col gap-0.5 text-[10px] text-amber-700 dark:text-amber-400">
-                          <span className="font-medium">Direct mode skips all git automation</span>
-                          <span className="text-muted-foreground">
-                            {detection.remoteUrl
-                              ? 'No worktree isolation, no automatic branches or PRs. Tasks run directly in the working directory. Only one task can run at a time. If you want git workflow, include git instructions in your task prompts (e.g. which branch to commit to, whether to create a PR, etc.).'
-                              : 'No worktree isolation. Tasks run directly in the working directory. Only one task can run at a time. To run tasks in parallel or use worktree isolation, switch to Git workflow.'}
-                          </span>
-                        </div>
-                      </div>
+                    <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2">
+                      <AlertTriangle className="h-3 w-3 text-amber-500 shrink-0" />
+                      <span className="flex-1 text-[10px] text-amber-700 dark:text-amber-400">
+                        {detection.remoteUrl
+                          ? 'No worktrees, no branches, no PRs. One task at a time.'
+                          : 'No worktrees. One task at a time. Use Git workflow for parallel execution.'}
+                      </span>
                       <Button
                         type="button"
                         size="sm"
                         variant="outline"
-                        className="h-5 text-[10px] self-end border-amber-500/40 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
+                        className="h-5 text-[10px] shrink-0 border-amber-500/40 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
                         onClick={() => setDirectConfirmed(true)}
                       >
-                        I understand, use direct mode
+                        OK
                       </Button>
-                    </div>
-                  )}
-                  {directMode && directConfirmed && (
-                    <div className="flex items-center gap-1.5 text-[10px] text-amber-600 dark:text-amber-400">
-                      <AlertTriangle className="h-3 w-3" />
-                      {detection.remoteUrl
-                        ? 'Direct mode — if you want git workflow, include instructions in task prompts'
-                        : 'Direct mode — to run tasks in parallel, switch to Git workflow'}
                     </div>
                   )}
                 </div>
