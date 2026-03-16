@@ -28,6 +28,7 @@
 export const GLOBAL_DEFAULTS: Record<string, boolean> = {
   'github-integration': false,
   'webhook-automation': false,
+  'loop-nodes': false,
 }
 
 /**

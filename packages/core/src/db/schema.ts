@@ -169,6 +169,24 @@ export const planNodes = pgTable('plan_nodes', {
   githubSyncedAt: timestamp('github_synced_at', { withTimezone: true }),
   githubSyncVersion: integer('github_sync_version').default(0),
   syncSource: text('sync_source'),  // 'user' | 'github' | 'sync' — prevents infinite sync loops
+  // Loop node fields
+  loopConfig: jsonb('loop_config').$type<{
+    maxIterations: number
+    stopCondition?: {
+      metric: string
+      direction: 'minimize' | 'maximize'
+      threshold?: number
+      plateauWindow?: number
+    }
+    taskTemplate: string
+    evaluationCommand?: string
+    iterationTimeoutMinutes?: number
+    autonomousMode: boolean
+  }>(),
+  loopCurrentIteration: integer('loop_current_iteration'),
+  loopBestMetricValue: real('loop_best_metric_value'),
+  loopBestIteration: integer('loop_best_iteration'),
+  loopStatus: text('loop_status'), // 'iterating' | 'stopped' | null
   deletedAt: timestamp('deleted_at'),
   deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -209,6 +227,25 @@ export const planEdges = pgTable('plan_edges', {
   sourceClientIdIdx: index('idx_plan_edges_source').on(table.sourceClientId),
   targetClientIdIdx: index('idx_plan_edges_target').on(table.targetClientId),
   deletedAtIdx: index('idx_plan_edges_deleted_at').on(table.deletedAt),
+}))
+
+// ── Loop Iterations ──────────────────────────────────────────────────
+export const loopIterations = pgTable('loop_iterations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  nodeId: text('node_id').notNull(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  iteration: integer('iteration').notNull(),
+  executionId: text('execution_id'),
+  metricValue: real('metric_value'),
+  metricName: text('metric_name'),
+  status: text('status').notNull(), // 'keep' | 'discard' | 'crash' | 'running' | 'aborted'
+  description: text('description'),
+  diff: text('diff'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  completedAt: timestamp('completed_at'),
+}, (table) => ({
+  nodeProjectIdx: index('idx_loop_iterations_node_project').on(table.nodeId, table.projectId),
+  iterationIdx: index('idx_loop_iterations_iteration').on(table.nodeId, table.iteration),
 }))
 
 // ── User Profiles ─────────────────────────────────────────────────────

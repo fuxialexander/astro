@@ -170,6 +170,8 @@ export interface AssembledContext {
   environmentVariables?: Record<string, string>
   /** Project knowledge entries to inject into prompt */
   knowledgeEntries?: KnowledgeEntry[]
+  /** Loop iteration context (injected for loop node iterations) */
+  iterationContext?: string
 }
 
 /**

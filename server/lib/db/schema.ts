@@ -56,4 +56,5 @@ export {
   projectKnowledge,
   schedules,
   scheduleRuns,
+  loopIterations,
 } from '../../../packages/core/src/db/schema.js'

@@ -1,6 +1,6 @@
 import { memo, useState, useCallback, useEffect, useRef } from "react"
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
-import { Plus, GitPullRequest, GitPullRequestCreateArrow, Sparkles, Check, GitMerge, Loader2, CheckCircle2, XCircle, Diamond } from "lucide-react"
+import { Plus, GitPullRequest, GitPullRequestCreateArrow, Sparkles, Check, GitMerge, Loader2, CheckCircle2, XCircle, Diamond, RotateCw } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
@@ -47,6 +47,10 @@ type TaskNodeData = Node<{
   onToggleSelect?: (nodeId: string) => void
   governedCount?: number
   readOnly?: boolean
+  loopCurrentIteration?: number | null
+  loopMaxIterations?: number
+  loopBestMetricValue?: number | null
+  loopStatus?: string | null
 }>
 
 export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeData>) {
@@ -216,6 +220,94 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
                 hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
               )}
             />
+            {hovered && (
+              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+                <Plus className="h-3 w-3 text-primary-foreground" />
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    )
+  }
+
+  // ── Loop node ─────────────────────────────────────────────────
+  if (data.nodeType === "loop") {
+    const iterLabel = data.loopCurrentIteration != null && data.loopMaxIterations
+      ? `${data.loopCurrentIteration}/${data.loopMaxIterations}`
+      : ""
+    const bestLabel = data.loopBestMetricValue != null ? data.loopBestMetricValue.toFixed(4) : ""
+    const isLoopRunning = data.loopStatus === "iterating"
+
+    return (
+      <div
+        className={cn(
+          "relative flex items-center gap-2 border-2 px-3 shadow-sm transition-all duration-200",
+          "h-[48px] w-[200px] rounded-xl",
+          isLoopRunning ? "border-violet-400 bg-violet-50 dark:bg-violet-950/30 dark:border-violet-500/60" : highlight.border,
+          !isLoopRunning && highlight.bg,
+          data.status === "pruned" && "opacity-50",
+          isChecked && "ring-2 ring-primary ring-offset-1 ring-offset-background",
+          isFocused && "shadow-[0_0_0_3px_rgba(var(--primary),0.4)] scale-[1.05] z-50",
+          isRecentlyUpdated && "ring-2 ring-info/50 animate-pulse",
+          isLoopRunning && "shadow-lg shadow-violet-300/30 dark:shadow-violet-500/20"
+        )}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        {!data.readOnly && (
+          <>
+            <Handle type="target" position={Position.Top}
+              className={cn("!border-none !rounded-full transition-all duration-150",
+                hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
+              )} />
+            {hovered && (
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+                <Plus className="h-3 w-3 text-primary-foreground" />
+              </div>
+            )}
+          </>
+        )}
+
+        {showTooltip && (
+          <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-[280px] z-30 pointer-events-none bg-popover border shadow-lg rounded-lg p-3">
+            <p className="text-xs font-semibold text-foreground leading-snug">{data.title}</p>
+            {iterLabel && <p className="text-[11px] text-muted-foreground mt-1">Iteration {iterLabel}</p>}
+            {bestLabel && <p className="text-[11px] text-muted-foreground">Best: {bestLabel}</p>}
+            {data.description && (
+              <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed line-clamp-4">
+                {data.description.slice(0, 200)}{data.description.length > 200 ? "..." : ""}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Loop icon */}
+        <RotateCw className={cn(
+          "h-3.5 w-3.5 shrink-0 relative z-10",
+          isLoopRunning ? "text-violet-500 animate-spin" : "text-violet-400"
+        )} style={isLoopRunning ? { animationDuration: "3s" } : undefined} />
+
+        <div className="flex flex-col min-w-0 relative z-10">
+          <span className={cn(
+            "truncate text-xs font-medium",
+            data.status === "pruned" ? "text-muted-foreground line-through" : "text-foreground"
+          )}>
+            {data.number != null && <span className="text-muted-foreground mr-1">#{data.number}</span>}
+            {data.title}
+          </span>
+          <div className="flex gap-2 text-[10px] text-muted-foreground">
+            {iterLabel && <span>iter {iterLabel}</span>}
+            {bestLabel && <span>best: {bestLabel}</span>}
+          </div>
+        </div>
+
+        {!data.readOnly && (
+          <>
+            <Handle type="source" position={Position.Bottom}
+              className={cn("!border-none !rounded-full transition-all duration-150",
+                hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
+              )} />
             {hovered && (
               <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
                 <Plus className="h-3 w-3 text-primary-foreground" />
