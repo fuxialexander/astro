@@ -923,22 +923,23 @@ export function ProjectNewPlan() {
             <div className="animate-reveal flex flex-col gap-2">
               <DetectionFeedback detection={detection} isDetecting={isDetecting} onInitGit={detection?.exists && !detection.isGit ? handleInitGit : undefined} />
 
-              {detection?.isGit && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground shrink-0">Target branch:</span>
-                  <BranchSelector
-                    value={effectiveBranch || 'main'}
-                    onChange={setSelectedBranch}
-                    path={workingDir.trim()}
-                    machineId={selectedMachine.machineId}
-                  />
-                </div>
-              )}
-
-              {/* Execution mode selector — allow switching to direct mode for git repos */}
+              {/* Git workflow controls: branch selector + execution mode toggle */}
               {detection?.isGit && (
                 <div className="flex flex-col gap-1.5">
-                  <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Execution mode</span>
+                  {/* Branch selector — hidden when direct mode is confirmed (branch is irrelevant) */}
+                  {!(directMode && directConfirmed) && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground shrink-0">Target branch:</span>
+                      <BranchSelector
+                        value={effectiveBranch || 'main'}
+                        onChange={setSelectedBranch}
+                        path={workingDir.trim()}
+                        machineId={selectedMachine.machineId}
+                      />
+                    </div>
+                  )}
+
+                  {/* Execution mode selector */}
                   <div className="flex gap-1.5">
                     <button
                       type="button"
@@ -973,7 +974,9 @@ export function ProjectNewPlan() {
                           <span className="font-medium">Direct mode skips all git automation</span>
                           <span className="text-muted-foreground">
                             No worktree isolation, no automatic branches or PRs.
-                            Only one task can run at a time.
+                            Tasks run directly in the working directory. Only one task can run at a time.
+                            If you want git workflow, include git instructions in your task prompts
+                            (e.g. which branch to commit to, whether to create a PR, etc.).
                           </span>
                         </div>
                       </div>
@@ -986,6 +989,12 @@ export function ProjectNewPlan() {
                       >
                         I understand, use direct mode
                       </Button>
+                    </div>
+                  )}
+                  {directMode && directConfirmed && (
+                    <div className="flex items-center gap-1.5 text-[10px] text-amber-600 dark:text-amber-400">
+                      <AlertTriangle className="h-3 w-3" />
+                      Direct mode — if you want git workflow, include instructions in task prompts
                     </div>
                   )}
                 </div>
