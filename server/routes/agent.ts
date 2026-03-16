@@ -1225,6 +1225,38 @@ elements:
     children: []
 \`\`\`
 
+**IMPORTANT — data-prop components** (data goes in props, NOT as children):
+- **CardCarousel**: \`props.cards\` is an array — \`cards: [{title, description, content, badge, badgeVariant}]\`
+- **Timeline**: \`props.entries\` array — \`entries: [{label, title, description}]\`
+- **Accordion**: \`props.items\` array — \`items: [{title, content}]\`
+- **TodoList**: \`props.items\` array — \`items: [{id, content, status, priority}]\`
+- **Table**: \`props.headers\` + \`props.rows\` arrays
+These components do NOT use children for their data. Set \`children: []\`.
+
+**CardCarousel example** (all data in the cards prop):
+\`\`\`yaml-spec
+root: carousel
+elements:
+  carousel:
+    type: CardCarousel
+    props:
+      cards:
+        - title: Option A
+          description: First approach
+          content: Detailed explanation of option A with pros and cons.
+          badge: Recommended
+          badgeVariant: success
+        - title: Option B
+          description: Second approach
+          content: Detailed explanation of option B.
+        - title: Option C
+          description: Third approach
+          content: Detailed explanation of option C.
+          badge: New
+          badgeVariant: info
+    children: []
+\`\`\`
+
 Default to markdown for conversational text. Use yaml-spec when content is structured (tables, dashboards, comparisons, option cards, timelines).`
 
 export { agentRoute }
