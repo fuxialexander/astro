@@ -31,6 +31,7 @@ import { MachineWorkdirSelector } from "@/components/machine-workdir-selector"
 import { calculateChildPosition, calculateParentPosition } from "@/lib/graph-utils"
 import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
+import { useFeatureFlag } from "@/hooks/use-feature-flag"
 
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -79,6 +80,7 @@ interface AddChildState {
 
 function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }: PlanCanvasProps) {
   const navigate = useNavigate()
+  const loopNodesEnabled = useFeatureFlag('loop-nodes')
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const rawPlanEdges = usePlanStore((s) => s.edges)
@@ -367,7 +369,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
           number: n.number,
           description: n.content ? stripHtml(n.content) : (n.description ?? ''),
           status: n.status,
-          nodeType: n.type,
+          nodeType: (!loopNodesEnabled && n.type === 'loop') ? 'task' : n.type,
           priority: n.priority,
           dueDate: n.dueDate,
           executionId: n.executionId,
@@ -376,10 +378,12 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
           autoPr: n.autoPr,
           githubIssueNumber: n.githubIssueNumber,
           githubIssueUrl: n.githubIssueUrl,
-          loopCurrentIteration: n.loopCurrentIteration,
-          loopMaxIterations: n.loopConfig?.maxIterations,
-          loopBestMetricValue: n.loopBestMetricValue,
-          loopStatus: n.loopStatus,
+          ...(loopNodesEnabled ? {
+            loopCurrentIteration: n.loopCurrentIteration,
+            loopMaxIterations: n.loopConfig?.maxIterations,
+            loopBestMetricValue: n.loopBestMetricValue,
+            loopStatus: n.loopStatus,
+          } : {}),
           highlightBy,
           checked: checkedIds.has(n.id),
           selectionActive: selectionActive,
@@ -389,7 +393,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
         },
         selected: n.id === selectedId,
       })),
-    [projectNodes, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy, readOnly]
+    [projectNodes, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy, readOnly, loopNodesEnabled]
   )
 
   const rfEdges: Edge[] = useMemo(
