@@ -43,6 +43,9 @@ function timePrefixedId(): string {
   return `${now}-${randomUUID()}`
 }
 
+/** Max length for the `name` column (btree index limit is ~2704 bytes) */
+const MAX_NAME_CHARS = 500
+
 /** Truncate large JSONB values to prevent INSERT failures */
 const MAX_JSONB_CHARS = 50_000
 function truncateJsonb(value: unknown): unknown {
@@ -377,9 +380,11 @@ export class ObservationCollector {
     state.model = model
   }
 
-  private handleToolUse(traceId: string, toolName: string, toolInput: unknown, toolUseId?: string): void {
+  private handleToolUse(traceId: string, rawToolName: string, toolInput: unknown, toolUseId?: string): void {
     const state = this.traces.get(traceId)
     if (!state) return
+    // Truncate tool names that exceed index limits (e.g., malformed agent events)
+    const toolName = rawToolName.length > 200 ? rawToolName.slice(0, 200) : rawToolName
 
     // Check tool allowlist
     safetyRails.isToolAllowed(state.projectId, toolName)
@@ -420,9 +425,10 @@ export class ObservationCollector {
     state.pendingTools.set(correlationKey, obs)
   }
 
-  private handleToolResult(traceId: string, toolName: string, result: unknown, success: boolean, toolUseId?: string): void {
+  private handleToolResult(traceId: string, rawToolName: string, result: unknown, success: boolean, toolUseId?: string): void {
     const state = this.traces.get(traceId)
     if (!state) return
+    const toolName = rawToolName.length > 200 ? rawToolName.slice(0, 200) : rawToolName
 
     // Find pending tool by toolUseId first, then fall back to toolName
     const correlationKey = toolUseId ?? toolName
@@ -706,7 +712,7 @@ export class ObservationCollector {
         traceId: obs.traceId,
         parentObservationId: obs.parentObservationId ?? null,
         type: obs.type,
-        name: obs.name,
+        name: obs.name.length > MAX_NAME_CHARS ? obs.name.slice(0, MAX_NAME_CHARS) : obs.name,
         startTime: obs.startTime,
         endTime: obs.endTime ?? null,
         input: obs.input ?? null,
@@ -726,10 +732,20 @@ export class ObservationCollector {
         await db.insert(observationEvents).values(rows)
         console.log(`[observability] Flushed ${rows.length} observations for trace ${tid}`)
       } catch (err) {
-        const cause = (err as { cause?: unknown })?.cause
-        console.error(`[observability] Failed to flush observations for trace ${tid}:`, cause ?? err)
-        // Re-add failed events to buffer for retry
-        state.buffer.unshift(...events)
+        const errObj = err as { code?: string; cause?: unknown }
+        const cause = errObj?.cause
+        const pgCode = (cause as { code?: string })?.code ?? errObj?.code
+        // Don't retry on persistent DB errors (e.g., index size exceeded, constraint violations)
+        // Code 54000 = program_limit_exceeded (btree index row too large)
+        // Code 23505 = unique_violation
+        const nonRetryable = pgCode === '54000' || pgCode === '23505'
+        if (nonRetryable) {
+          console.warn(`[observability] Dropping ${events.length} observations for trace ${tid} (non-retryable DB error: ${pgCode})`)
+        } else {
+          console.error(`[observability] Failed to flush observations for trace ${tid}:`, cause ?? err)
+          // Re-add failed events to buffer for retry (only for transient errors)
+          state.buffer.unshift(...events)
+        }
       }
     }
   }
