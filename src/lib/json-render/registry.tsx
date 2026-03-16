@@ -348,14 +348,16 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
         setActiveIndex(Math.max(0, Math.min(count - 1, index)))
       }, [count])
 
-      // Smooth scroll accumulator for touchpad — accumulates small deltas
+      // Horizontal scroll → card navigation. Vertical scroll passes through.
       useEffect(() => {
         const el = containerRef.current
         if (!el) return
         const handler = (e: WheelEvent) => {
+          // Only capture horizontal swipes — let vertical scroll pass through
+          if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return
+
           e.preventDefault()
-          const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
-          scrollAccum.current += delta
+          scrollAccum.current += e.deltaX
 
           if (scrollTimeout.current) clearTimeout(scrollTimeout.current)
           scrollTimeout.current = setTimeout(() => {
@@ -412,10 +414,10 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
                   }}
                 >
                   <Card className={cn(
-                    'overflow-hidden h-[220px] flex flex-col relative',
+                    'h-[220px] flex flex-col relative',
                     isActive
-                      ? 'shadow-2xl ring-1 ring-primary/30'
-                      : 'shadow-md',
+                      ? 'shadow-2xl ring-1 ring-primary/30 overflow-y-auto'
+                      : 'shadow-md overflow-hidden',
                   )}>
                     {/* Overlay on non-active cards — white in light, dark in dark */}
                     {!isActive && (
