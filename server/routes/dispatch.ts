@@ -421,6 +421,11 @@ dispatchRoute.post('/task', async (c) => {
   // (githubIssueUrl, githubIssueNumber) are resolved even when the
   // frontend sends all primary fields (title, description, etc.).
   const user = c.get('user') as AuthUser | undefined
+  // Loop/type fields extracted from dbNode inside the try block (same pattern as nodeNumber, title, etc.)
+  let nodeType: string | null | undefined
+  let loopConfig: import('../../packages/core/src/types.js').LoopConfig | undefined
+  let loopStatus: string | null | undefined
+  let loopCurrentIteration: number | null | undefined
   try {
     // Fetch plan node
     const [dbNode] = await db.select().from(planNodes)
@@ -446,6 +451,10 @@ dispatchRoute.post('/task', async (c) => {
       acceptanceCriteria ??= dbNode.acceptanceCriteria as typeof acceptanceCriteria
       githubIssueUrl ??= (dbNode as Record<string, unknown>).githubIssueUrl as string | undefined
       githubIssueNumber ??= (dbNode as Record<string, unknown>).githubIssueNumber as number | undefined
+      nodeType = dbNode.type
+      loopConfig = dbNode.loopConfig as typeof loopConfig
+      loopStatus = dbNode.loopStatus
+      loopCurrentIteration = dbNode.loopCurrentIteration
 
       // Resolve dependencies from DB if not provided
       if (dependencies.length === 0) {
@@ -689,10 +698,10 @@ dispatchRoute.post('/task', async (c) => {
     dryRun,
     nodeNumber,
     replanContext,
-    nodeType: dbNode?.type,
-    loopConfig: dbNode?.loopConfig as import('../../packages/core/src/types.js').LoopConfig | undefined,
-    loopStatus: dbNode?.loopStatus,
-    loopCurrentIteration: dbNode?.loopCurrentIteration,
+    nodeType,
+    loopConfig,
+    loopStatus,
+    loopCurrentIteration,
   })
 })
 
