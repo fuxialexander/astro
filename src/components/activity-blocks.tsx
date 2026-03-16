@@ -35,6 +35,7 @@ import { planToMermaid, type MermaidNode, type MermaidEdge } from "@/lib/plan-to
 import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
 import { VisualWidget } from "@/components/ui/visual-widget"
 import { StructuredDataView } from "@/components/ui/structured-data-view"
+import { parseYamlSpecFromText } from "@/lib/json-render/parse-yaml-spec"
 import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -129,10 +130,29 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
   let currentToolEvents: TaskActivityEvent[] = []
 
   function flushText() {
-    if (currentTextEvents.length > 0) {
+    if (currentTextEvents.length === 0) return
+
+    // Check if the concatenated text contains yaml-spec fences.
+    // If so, parse them into text + spec blocks. This handles ALL pathways
+    // (chat, playground, plan gen, task detail, hydration) in one place.
+    const fullText = currentTextEvents
+      .map(e => (e as Extract<TaskActivityEvent, { type: 'text' }>).content ?? '')
+      .join('')
+
+    if (fullText.includes('```yaml-spec')) {
+      const timestamp = currentTextEvents[0].timestamp
+      const segments = parseYamlSpecFromText(fullText)
+      for (const segment of segments) {
+        if (segment.type === 'text') {
+          blocks.push({ type: 'text', events: [{ type: 'text', content: segment.content, timestamp }] })
+        } else {
+          blocks.push({ type: 'json_render_spec', events: [{ type: 'json_render_spec', spec: segment.spec, timestamp }] })
+        }
+      }
+    } else {
       blocks.push({ type: 'text', events: [...currentTextEvents] })
-      currentTextEvents = []
     }
+    currentTextEvents = []
   }
 
   function flushTools() {
