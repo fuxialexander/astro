@@ -306,6 +306,7 @@ export const sessions = pgTable('sessions', {
   providerSessionId: text('provider_session_id'),
   providerId: text('provider_id'),
   model: text('model'),
+  title: text('title'),
   messages: jsonb('messages').$type<Array<{
     id: string
     role: 'user' | 'assistant' | 'system'
