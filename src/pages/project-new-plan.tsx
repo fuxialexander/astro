@@ -79,6 +79,8 @@ export function ProjectNewPlan() {
   const [visionDoc, setVisionDoc] = useState("")
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
   const [pendingUploads, setPendingUploads] = useState(0)
+  const [directMode, setDirectMode] = useState(false)
+  const [directConfirmed, setDirectConfirmed] = useState(false)
   const autoExecute = useSettingsStore((s) => s.yoloMode)
   const [showYoloWarning, setShowYoloWarning] = useState(false)
   const modelTier: ModelTier = "large"
@@ -95,11 +97,16 @@ export function ProjectNewPlan() {
     setAttachments([])
     setPendingUploads(0)
     setContextOpen(false)
+    setDirectMode(false)
+    setDirectConfirmed(false)
   }, [])
 
   // Git detection (debounced)
   const { detection, isDetecting } = useDirectoryDetection(workingDir, selectedMachine?.machineId)
   const effectiveBranch = selectedBranch || (detection?.isGit ? detection.baseBranch : null)
+
+  // Reset direct mode when working directory changes (avoids stale state from previous path)
+  useEffect(() => { setDirectMode(false); setDirectConfirmed(false) }, [workingDir])
 
   // Git init handler for non-git directories
   const toastAdd = useToastStore((s) => s.add)
@@ -624,7 +631,7 @@ export function ProjectNewPlan() {
   }, [templateLaunchFromExamples, handleTemplateLaunch])
 
   async function handleSubmit(skipAutoExecute = false) {
-    if (!description.trim() || isSubmitting || pendingUploads > 0) return
+    if (!description.trim() || isSubmitting || pendingUploads > 0 || (directMode && !directConfirmed)) return
 
     // Warn if YOLO mode is on but no working directory — auto-execute will silently fail
     if (autoExecute && !workingDir.trim() && !skipAutoExecute) {
@@ -669,7 +676,7 @@ export function ProjectNewPlan() {
           repository: detection?.remoteUrl || existingProject.repository || undefined,
           ...(github && !existingProject.githubOwner ? { githubOwner: github.owner, githubRepo: github.repo } : {}),
           ...(regenSource ? { source: regenSource } : {}),
-          ...(detection?.suggestedDeliveryMode ? { deliveryMode: detection.suggestedDeliveryMode } : {}),
+          deliveryMode: directMode && directConfirmed ? 'direct' as const : detection?.suggestedDeliveryMode || undefined,
         }
         updateProject(existingProject.id, regenUpdates) // optimistic local
         await dataClient.updateProject(existingProject.id, regenUpdates) // await backend
@@ -714,15 +721,20 @@ export function ProjectNewPlan() {
             repository: detection?.remoteUrl || undefined,
             ...(github ? { githubOwner: github.owner, githubRepo: github.repo } : {}),
             ...(detectedSource ? { source: detectedSource } : {}),
-            ...(detection?.suggestedDeliveryMode ? { deliveryMode: detection.suggestedDeliveryMode } : {}),
+            deliveryMode: directMode && directConfirmed ? 'direct' as const : detection?.suggestedDeliveryMode || undefined,
           }
         )
         projectId = result.projectId
       }
 
       // Register auto-execute if YOLO mode is on (unless user chose plan-only or no workDir)
+      // Pass the selected provider so subsequent task executions use the same provider
       if (autoExecute && !skipAutoExecute && workingDir.trim()) {
-        setStoreAutoExecute(projectId, true)
+        setStoreAutoExecute(projectId, true, {
+          preferredProvider: selectedProvider || undefined,
+          targetMachineId: selectedMachine?.machineId,
+          model: effectiveModel,
+        })
       }
 
       setActiveProjectId(projectId)
@@ -740,7 +752,10 @@ export function ProjectNewPlan() {
   // produced nothing — show the input form so the user can re-generate.
   // Once the user submits, execution status resets to "pending" and we enter chat phase normally.
   const executionIsTerminal = execution?.status === 'cancelled' || execution?.status === 'failure' || execution?.status === 'success'
-  const showInputForRegeneration = existingProjectHasNoNodes && (!execution || executionIsTerminal) && !fromPlaygroundId
+  // Show input form for re-generation only when: project has no nodes AND there's no
+  // execution or the execution ended cleanly (no error). When the execution has an error,
+  // stay in chat phase so PlanGeneration can display the error UI (e.g., "No machine available").
+  const showInputForRegeneration = existingProjectHasNoNodes && (!execution || (executionIsTerminal && !execution.error)) && !fromPlaygroundId
   if (activeProjectId && (execution || project) && !showInputForRegeneration) {
     return (
       <div className="h-full">
@@ -908,15 +923,70 @@ export function ProjectNewPlan() {
             <div className="animate-reveal flex flex-col gap-2">
               <DetectionFeedback detection={detection} isDetecting={isDetecting} onInitGit={detection?.exists && !detection.isGit ? handleInitGit : undefined} />
 
+              {/* Git workflow controls: branch selector + execution mode toggle */}
               {detection?.isGit && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground shrink-0">Target branch:</span>
-                  <BranchSelector
-                    value={effectiveBranch || 'main'}
-                    onChange={setSelectedBranch}
-                    path={workingDir.trim()}
-                    machineId={selectedMachine.machineId}
-                  />
+                <div className="flex flex-col gap-1.5">
+                  {/* Branch selector — hidden when direct mode is confirmed (branch is irrelevant) */}
+                  {!(directMode && directConfirmed) && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground shrink-0">Target branch:</span>
+                      <BranchSelector
+                        value={effectiveBranch || 'main'}
+                        onChange={setSelectedBranch}
+                        path={workingDir.trim()}
+                        machineId={selectedMachine.machineId}
+                      />
+                    </div>
+                  )}
+
+                  {/* Execution mode selector */}
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => { setDirectMode(false); setDirectConfirmed(false) }}
+                      className={cn(
+                        "flex-1 px-2 py-1 rounded-md border text-xs transition-colors cursor-pointer",
+                        !directMode
+                          ? "border-primary bg-primary/10 text-primary font-medium"
+                          : "border-input bg-background text-muted-foreground hover:bg-muted/50",
+                      )}
+                    >
+                      {detection.remoteUrl ? 'Git workflow (PR)' : 'Git workflow (branch)'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDirectMode(true)}
+                      className={cn(
+                        "flex-1 px-2 py-1 rounded-md border text-xs transition-colors cursor-pointer",
+                        directMode
+                          ? "border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium"
+                          : "border-input bg-background text-muted-foreground hover:bg-muted/50",
+                      )}
+                    >
+                      Direct (in-place)
+                    </button>
+                  </div>
+                  {directMode && !directConfirmed && (
+                    <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-px" />
+                      <div className="flex-1 text-[10px] text-amber-700 dark:text-amber-400 leading-relaxed">
+                        <span className="font-medium">
+                          {detection.remoteUrl ? 'No worktrees · No branches · No PRs' : 'No worktrees · No branches'}
+                        </span>
+                        <br />
+                        <span className="text-muted-foreground">One task at a time, working directly inside the working directory.</span>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-5 text-[10px] shrink-0 border-amber-500/40 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
+                        onClick={() => setDirectConfirmed(true)}
+                      >
+                        OK
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1003,7 +1073,7 @@ export function ProjectNewPlan() {
             )}
             <Button
               onClick={() => handleSubmit()}
-              disabled={!description.trim() || isSubmitting || pendingUploads > 0}
+              disabled={!description.trim() || isSubmitting || pendingUploads > 0 || (directMode && !directConfirmed)}
               className="gap-2"
             >
               {isSubmitting ? (

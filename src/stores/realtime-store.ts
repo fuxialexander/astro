@@ -1872,10 +1872,11 @@ function handleRealtimeEvent(
               if (planProjectId) {
                 const execStore = useExecutionStore.getState()
                 if (execStore.autoExecuteProjectIds.has(planProjectId)) {
+                  const autoExecOptions = execStore.autoExecuteProjectIds.get(planProjectId)
                   execStore.setAutoExecute(planProjectId, false)
                   setTimeout(() => {
                     console.log(`[realtime] YOLO mode: auto-executing all tasks for project ${planProjectId}`)
-                    execStore.executeAllProject(planProjectId)
+                    execStore.executeAllProject(planProjectId, autoExecOptions)
                   }, 1000)
                 }
               }
