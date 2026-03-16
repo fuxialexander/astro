@@ -272,6 +272,115 @@ elements:
 })
 
 // ============================================================================
+// 1b. Custom component parsing
+// ============================================================================
+
+describe('parseYamlSpecFromText — custom components', () => {
+  it('extracts component def and attaches to following spec', () => {
+    const text = `\`\`\`component HeatCell
+({ props }) => {
+  const v = Number(props.value) || 0
+  return React.createElement('div', { className: 'text-center' }, v + '%')
+}
+\`\`\`
+
+\`\`\`yaml-spec
+root: cell
+elements:
+  cell:
+    type: HeatCell
+    props:
+      value: 85
+    children: []
+\`\`\``
+
+    const segments = parseYamlSpecFromText(text)
+    const specs = segments.filter(s => s.type === 'spec')
+    expect(specs.length).toBe(1)
+
+    if (specs[0].type === 'spec') {
+      expect(specs[0].componentDefs).toBeDefined()
+      expect(specs[0].componentDefs!['HeatCell']).toContain('React.createElement')
+      expect(specs[0].spec.root).toBe('cell')
+      const cell = specs[0].spec.elements.cell as Record<string, unknown>
+      expect(cell.type).toBe('HeatCell')
+    }
+  })
+
+  it('attaches multiple component defs to one spec', () => {
+    const text = `\`\`\`component Dot
+({ props }) => React.createElement('div', { className: props.color }, '')
+\`\`\`
+
+\`\`\`component Ring
+({ props }) => React.createElement('div', { style: { borderRadius: '50%' } })
+\`\`\`
+
+\`\`\`yaml-spec
+root: viz
+elements:
+  viz:
+    type: Dot
+    props: { color: red }
+    children: []
+\`\`\``
+
+    const segments = parseYamlSpecFromText(text)
+    const specs = segments.filter(s => s.type === 'spec')
+    expect(specs.length).toBe(1)
+
+    if (specs[0].type === 'spec') {
+      expect(Object.keys(specs[0].componentDefs!)).toEqual(['Dot', 'Ring'])
+    }
+  })
+
+  it('component defs without following spec are not lost', () => {
+    const text = `\`\`\`component Orphan
+({ props }) => React.createElement('span', null, 'orphan')
+\`\`\`
+
+No spec follows — just text.`
+
+    const segments = parseYamlSpecFromText(text)
+    // The component def has no spec to attach to — should still parse without error
+    expect(segments.length).toBeGreaterThanOrEqual(1)
+    // No spec segments
+    expect(segments.filter(s => s.type === 'spec').length).toBe(0)
+  })
+
+  it('text between component and spec is preserved', () => {
+    const text = `Here is a custom component:
+
+\`\`\`component Gauge
+({ props }) => React.createElement('div', null, props.value)
+\`\`\`
+
+And here it is in action:
+
+\`\`\`yaml-spec
+root: g
+elements:
+  g:
+    type: Gauge
+    props: { value: 42 }
+    children: []
+\`\`\`
+
+Done!`
+
+    const segments = parseYamlSpecFromText(text)
+    const texts = segments.filter(s => s.type === 'text')
+    const specs = segments.filter(s => s.type === 'spec')
+
+    expect(texts.length).toBeGreaterThanOrEqual(2)
+    expect(specs.length).toBe(1)
+    if (specs[0].type === 'spec') {
+      expect(specs[0].componentDefs!['Gauge']).toBeDefined()
+    }
+  })
+})
+
+// ============================================================================
 // 2. isJsonRenderSpec type guard
 // ============================================================================
 

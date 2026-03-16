@@ -98,6 +98,8 @@ export interface DisplayBlock {
   visualLabel?: string
   /** For 'visual' blocks: true if content is not saved to disk (will expire) */
   visualEphemeral?: boolean
+  /** For 'json_render_spec' blocks: custom component definitions (code strings) to eval at render time */
+  componentDefs?: Record<string, string>
 }
 
 // ─── Grouping ───────────────────────────────────────────────────────
@@ -139,14 +141,18 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
       .map(e => (e as Extract<TaskActivityEvent, { type: 'text' }>).content ?? '')
       .join('')
 
-    if (fullText.includes('```yaml-spec')) {
+    if (fullText.includes('```yaml-spec') || fullText.includes('```component')) {
       const timestamp = currentTextEvents[0].timestamp
       const segments = parseYamlSpecFromText(fullText)
       for (const segment of segments) {
         if (segment.type === 'text') {
           blocks.push({ type: 'text', events: [{ type: 'text', content: segment.content, timestamp }] })
         } else {
-          blocks.push({ type: 'json_render_spec', events: [{ type: 'json_render_spec', spec: segment.spec, timestamp }] })
+          blocks.push({
+            type: 'json_render_spec',
+            events: [{ type: 'json_render_spec', spec: segment.spec, timestamp }],
+            componentDefs: segment.componentDefs,
+          })
         }
       }
     } else {

@@ -866,7 +866,7 @@ export function UnifiedActivityView({
               const specEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'json_render_spec' }>
               return (
                 <div key={i} className="px-4 py-2">
-                  <JsonRenderView spec={specEvent.spec as unknown as Spec} />
+                  <JsonRenderView spec={specEvent.spec as unknown as Spec} componentDefs={block.componentDefs} />
                 </div>
               )
             }

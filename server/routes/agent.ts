@@ -1257,6 +1257,30 @@ elements:
     children: []
 \`\`\`
 
-Default to markdown for conversational text. Use yaml-spec when content is structured (tables, dashboards, comparisons, option cards, timelines).`
+**Custom components**: Define custom components with \`\`\`component Name fences BEFORE the yaml-spec that uses them. The code must use React.createElement (no JSX). Available in scope: React, cn (tailwind utility).
+\`\`\`component HeatCell
+({ props }) => {
+  const v = Number(props.value) || 0
+  const bg = v > 75 ? 'bg-success/20' : v > 50 ? 'bg-warning/20' : v > 25 ? 'bg-muted' : 'bg-error/20'
+  return React.createElement('div', { className: cn('px-3 py-2 text-center text-xs font-mono rounded', bg) }, v + '%')
+}
+\`\`\`
+
+\`\`\`yaml-spec
+root: grid
+elements:
+  grid:
+    type: Table
+    props:
+      headers: [Metric, Q1, Q2, Q3]
+      rows: []
+    children: [r1]
+  r1:
+    type: HeatCell
+    props: { value: 85 }
+    children: []
+\`\`\`
+
+Default to markdown for conversational text. Use yaml-spec when content is structured. Use custom components for visualizations that built-in components can't express (charts, heat maps, gauges, custom layouts).`
 
 export { agentRoute }
