@@ -74,7 +74,7 @@ export interface ChatPlanEdgeContext {
 }
 
 export async function projectChatWithAgent(
-  params: { message: string; sessionId?: string; streamId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; selectedBackends?: string[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }>; taskType?: 'plan' | 'execution' },
+  params: { message: string; sessionId?: string; streamId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; selectedBackends?: string[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }>; taskType?: 'plan' | 'execution'; imageRefs?: string[] },
   callbacks: {
     onText: (text: string) => void
     onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
@@ -144,6 +144,8 @@ export interface TaskChatParams {
   branchName?: string
   /** PR URL from the execution (for resumed session context) */
   prUrl?: string
+  /** Blob IDs for attached images (multimodal chat) */
+  imageRefs?: string[]
 }
 
 export async function chatWithTask(

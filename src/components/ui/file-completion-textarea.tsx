@@ -6,11 +6,15 @@ import {
   useMemo,
   type KeyboardEvent,
   type ChangeEvent,
+  type ClipboardEvent,
+  type DragEvent,
 } from "react"
 import { createPortal } from "react-dom"
-import { FileCode2, Hash } from "lucide-react"
+import { FileCode2, Hash, X, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { apiUrl } from "@/lib/api-url"
+import { dataClient } from "@/lib/data-client"
+import { useToastStore } from "@/stores/toast-store"
 
 export interface SlashCommand {
   name: string
@@ -24,6 +28,15 @@ export interface MentionItem {
   detail?: string
   /** Icon category for styling */
   kind: "task" | "milestone" | "special"
+}
+
+/** Image attachment tracked by blob ID */
+export interface ChatImageAttachment {
+  id: string // blob ID
+  name: string
+  url: string
+  mimeType: string
+  size: number
 }
 
 interface FileCompletionTextareaProps {
@@ -41,6 +54,12 @@ interface FileCompletionTextareaProps {
   disabled?: boolean
   onKeyDown?: (e: KeyboardEvent<HTMLTextAreaElement>) => void
   onSubmit?: (opts?: { interrupt?: boolean }) => void
+  /** Attached images (controlled) */
+  images?: ChatImageAttachment[]
+  /** Called when images change (add/remove) */
+  onImagesChange?: (images: ChatImageAttachment[]) => void
+  /** Ref to imperatively trigger the file picker */
+  filePickerRef?: React.MutableRefObject<(() => void) | null>
 }
 
 interface DropdownPosition {
@@ -51,6 +70,7 @@ interface DropdownPosition {
 }
 
 const DEBOUNCE_MS = 150
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024 // 10MB
 
 /**
  * A textarea with @-triggered file path autocomplete.
@@ -71,6 +91,9 @@ export function FileCompletionTextarea({
   disabled,
   onKeyDown,
   onSubmit,
+  images,
+  onImagesChange,
+  filePickerRef,
 }: FileCompletionTextareaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -91,6 +114,109 @@ export function FileCompletionTextarea({
   const [slashFilter, setSlashFilter] = useState("")
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const [slashDropdownPos, setSlashDropdownPos] = useState<DropdownPosition | null>(null)
+
+  // Image upload state
+  const [pendingUploads, setPendingUploads] = useState(0)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  // Ref to read latest images inside async callbacks (avoids stale closure race)
+  const imagesRef = useRef(images)
+  imagesRef.current = images
+
+  // Expose file picker trigger to parent
+  useEffect(() => {
+    if (filePickerRef) {
+      filePickerRef.current = () => fileInputRef.current?.click()
+    }
+    return () => { if (filePickerRef) filePickerRef.current = null }
+  }, [filePickerRef])
+
+  const uploadImageFiles = useCallback((fileList: File[]) => {
+    if (!onImagesChange) return
+    const imageFiles = fileList.filter((f) => f.type.startsWith('image/'))
+    if (imageFiles.length === 0) return
+
+    for (const file of imageFiles) {
+      if (file.size > MAX_IMAGE_SIZE) {
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(1)
+        useToastStore.getState().add({
+          type: 'error',
+          title: 'Image too large',
+          description: `${file.name || 'Image'} is ${sizeMB}MB (max 10MB)`,
+        })
+        continue
+      }
+
+      setPendingUploads((prev) => prev + 1)
+      const reader = new FileReader()
+      const filename = file.name || `pasted-image-${crypto.randomUUID()}.png`
+      reader.onload = async () => {
+        try {
+          const base64 = (reader.result as string).split(',')[1]
+          const blobId = await dataClient.uploadBlob(
+            base64,
+            file.type || 'image/png',
+            file.size,
+            filename,
+          )
+          const url = dataClient.getBlobUrl(blobId)
+          const attachment: ChatImageAttachment = {
+            id: blobId,
+            name: filename,
+            url,
+            mimeType: file.type || 'image/png',
+            size: file.size,
+          }
+          onImagesChange([...(imagesRef.current || []), attachment])
+        } catch (err) {
+          console.error('[file-completion] Failed to upload image:', err)
+          useToastStore.getState().add({
+            type: 'error',
+            title: 'Upload failed',
+            description: 'Could not upload image. Check your connection.',
+          })
+        } finally {
+          setPendingUploads((prev) => Math.max(0, prev - 1))
+        }
+      }
+      reader.onerror = () => {
+        setPendingUploads((prev) => Math.max(0, prev - 1))
+        useToastStore.getState().add({
+          type: 'error',
+          title: 'Read failed',
+          description: `Could not read file: ${filename}`,
+        })
+      }
+      reader.readAsDataURL(file)
+    }
+  }, [onImagesChange])
+
+  const handlePaste = useCallback((e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = e.clipboardData?.files
+    if (!files || files.length === 0 || !onImagesChange) return
+    const imageFiles = Array.from(files).filter((f) => f.type.startsWith('image/'))
+    if (imageFiles.length === 0) return
+    e.preventDefault()
+    uploadImageFiles(imageFiles)
+  }, [onImagesChange, uploadImageFiles])
+
+  const handleDragOver = useCallback((e: DragEvent<HTMLTextAreaElement>) => {
+    if (!onImagesChange) return
+    e.preventDefault()
+    e.stopPropagation()
+  }, [onImagesChange])
+
+  const handleDrop = useCallback((e: DragEvent<HTMLTextAreaElement>) => {
+    if (!onImagesChange) return
+    e.preventDefault()
+    e.stopPropagation()
+    const files = Array.from(e.dataTransfer?.files || [])
+    uploadImageFiles(files)
+  }, [onImagesChange, uploadImageFiles])
+
+  const handleRemoveImage = useCallback((imageId: string) => {
+    if (!onImagesChange || !images) return
+    onImagesChange(images.filter((img) => img.id !== imageId))
+  }, [images, onImagesChange])
 
   const filteredSlashCommands = useMemo(() => {
     if (!slashCommands || !slashActive) return []
@@ -520,6 +646,8 @@ export function FileCompletionTextarea({
   )
   const showSlashDropdown = slashActive && slashDropdownPos && filteredSlashCommands.length > 0
 
+  const hasImages = (images?.length ?? 0) > 0 || pendingUploads > 0
+
   return (
     <>
       {/* Hidden div for measuring content height */}
@@ -535,12 +663,59 @@ export function FileCompletionTextarea({
         }}
         aria-hidden="true"
       />
+      {/* Image thumbnails strip */}
+      {hasImages && (
+        <div className="flex flex-wrap gap-1.5 px-2 pt-1.5 pb-0.5">
+          {images?.map((img) => (
+            <div
+              key={img.id}
+              className="group relative h-14 w-14 rounded-md border border-border overflow-hidden bg-muted shrink-0"
+            >
+              <img
+                src={img.url}
+                alt={img.name}
+                className="h-full w-full object-cover"
+              />
+              <button
+                type="button"
+                onClick={() => handleRemoveImage(img.id)}
+                className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </div>
+          ))}
+          {pendingUploads > 0 && (
+            <div className="h-14 w-14 rounded-md border border-dashed border-border flex items-center justify-center bg-muted shrink-0">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          )}
+        </div>
+      )}
+      {/* Hidden file input for paperclip button */}
+      {onImagesChange && (
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            const files = Array.from(e.target.files || [])
+            if (files.length) uploadImageFiles(files)
+            e.target.value = '' // Reset so same file can be re-selected
+          }}
+        />
+      )}
       <textarea
         ref={textareaRef}
         value={value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}
+        onPaste={handlePaste}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
         placeholder={placeholder}
         rows={rows}
         disabled={disabled}
