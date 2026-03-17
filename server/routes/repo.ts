@@ -4,6 +4,9 @@
  * HTTP API endpoints for project repository setup, detection, and git init.
  * All filesystem operations are routed through the relay to connected agent runners.
  * The server never touches the filesystem directly.
+ *
+ * Repo detection results are cached in-memory (60s TTL) since git status
+ * doesn't change frequently enough to justify a relay round-trip on every keystroke.
  */
 
 import { Hono } from 'hono'
@@ -11,6 +14,58 @@ import { relayServer, type RepoSetupRelayResult, type RepoDetectRelayResult, typ
 import { machineRegistry } from '../lib/machine-registry.js'
 import { errorMessage } from '../lib/error-utils.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
+
+// --- In-memory cache for repo detection (per-instance, best-effort) ---
+// Read-through cache: misses fall through to the relay. ~50% hit rate
+// with 2 Fly.io instances. No correctness depends on the cache.
+// Invalidated on git-init to reflect changed repo state.
+const DETECT_CACHE_TTL_MS = 60_000 // 60 seconds
+const DETECT_CACHE_MAX_ENTRIES = 100
+
+interface DetectCacheEntry {
+  data: RepoDetectRelayResult
+  expiresAt: number
+}
+
+const detectCache = new Map<string, DetectCacheEntry>()
+
+function detectCacheKey(machineId: string, path: string): string {
+  return `${machineId}:${path}`
+}
+
+function getCachedDetect(machineId: string, path: string): RepoDetectRelayResult | null {
+  const key = detectCacheKey(machineId, path)
+  const entry = detectCache.get(key)
+  if (!entry) return null
+  if (Date.now() > entry.expiresAt) {
+    detectCache.delete(key)
+    return null
+  }
+  return entry.data
+}
+
+function setCachedDetect(machineId: string, path: string, data: RepoDetectRelayResult): void {
+  if (detectCache.size >= DETECT_CACHE_MAX_ENTRIES) {
+    // Evict expired entries first, then oldest by insertion if still over limit
+    const now = Date.now()
+    for (const [k, v] of detectCache) {
+      if (v.expiresAt < now) detectCache.delete(k)
+    }
+    if (detectCache.size >= DETECT_CACHE_MAX_ENTRIES) {
+      const oldest = detectCache.keys().next().value
+      if (oldest) detectCache.delete(oldest)
+    }
+  }
+  detectCache.set(detectCacheKey(machineId, path), {
+    data,
+    expiresAt: Date.now() + DETECT_CACHE_TTL_MS,
+  })
+}
+
+/** Invalidate detect cache for a path (called after git-init changes the repo state) */
+export function invalidateDetectCache(machineId: string, path: string): void {
+  detectCache.delete(detectCacheKey(machineId, path))
+}
 
 const repoRoute = new Hono()
 
@@ -192,6 +247,12 @@ repoRoute.get('/detect', async (c) => {
     return c.json({ error: 'machineId query parameter is required. Connect a machine to detect directories.' }, 400)
   }
 
+  // Check in-memory cache first (skip relay round-trip for repeated detections)
+  const cached = getCachedDetect(machineId, dirPath)
+  if (cached) {
+    return c.json(cached)
+  }
+
   // Fast-fail for ghost machines
   const reachable = await relayServer.isMachineReachable(machineId)
   if (!reachable) {
@@ -203,6 +264,8 @@ repoRoute.get('/detect', async (c) => {
     if (result.error) {
       return c.json({ error: result.error }, 500)
     }
+    // Cache successful detection results
+    setCachedDetect(machineId, dirPath, result)
     return c.json(result)
   } catch (error) {
     const message = errorMessage(error)
@@ -350,6 +413,9 @@ repoRoute.post('/git-init', async (c) => {
     if (!result.success) {
       return c.json({ error: result.error || 'Remote git init failed' }, 500)
     }
+
+    // Invalidate detect cache — git status changed (was non-git, now is git)
+    invalidateDetectCache(machineId, workingDirectory)
 
     return c.json(result)
   } catch (error) {

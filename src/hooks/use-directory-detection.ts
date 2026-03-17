@@ -28,7 +28,7 @@ export interface DetectionResult {
  * Requires machineId — detection runs on the connected machine via relay.
  * Returns null/empty when no machineId is provided.
  */
-export function useDirectoryDetection(path: string, machineId?: string, delay = 500) {
+export function useDirectoryDetection(path: string, machineId?: string, delay = 300) {
   const [detection, setDetection] = useState<DetectionResult | null>(null)
   const [isDetecting, setIsDetecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -54,10 +54,8 @@ export function useDirectoryDetection(path: string, machineId?: string, delay = 
       const controller = new AbortController()
       abortRef.current = controller
 
-      const MAX_RETRIES = 2
-      const RETRY_DELAY_MS = 1500
-
-      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      // Single immediate retry (no delay) for transient errors
+      for (let attempt = 0; attempt <= 1; attempt++) {
         if (controller.signal.aborted) return
 
         try {
@@ -76,13 +74,10 @@ export function useDirectoryDetection(path: string, machineId?: string, delay = 
 
           const data = await res.json()
 
-          // Retry on transient errors (machine not connected, timeout)
-          if (data.error && attempt < MAX_RETRIES) {
+          // Retry once on transient errors (no delay)
+          if (data.error && attempt === 0) {
             const transient = /not connected|timed? ?out|unavailable/i.test(data.error)
-            if (transient) {
-              await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
-              continue
-            }
+            if (transient) continue
           }
 
           if (!controller.signal.aborted) {
@@ -92,10 +87,7 @@ export function useDirectoryDetection(path: string, machineId?: string, delay = 
           return
         } catch (err) {
           if (err instanceof DOMException && err.name === 'AbortError') return
-          if (attempt < MAX_RETRIES) {
-            await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
-            continue
-          }
+          if (attempt === 0) continue
           if (!controller.signal.aborted) {
             setError(err instanceof Error ? err.message : 'Detection failed')
             setDetection(null)
