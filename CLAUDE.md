@@ -28,6 +28,9 @@ npm run build            # TypeScript check + Vite production build
 npm run lint             # ESLint
 npm test                 # Vitest (29 test files, integration tests auto-skip without server/API key)
 npm run deploy           # Build + deploy to Fly.io + Cloudflare Pages
+npm run db:push          # Push pending Supabase migrations to production
+npm run db:push:dry-run  # Preview pending migrations (safe, read-only)
+npm run db:status        # Show local vs remote migration history
 ```
 
 ### Operating Modes
@@ -296,9 +299,8 @@ npm run flags:dry-run   # Preview changes without writing to DB
 ## Guidelines
 
 ### Database
-**When implementing database-backed features, always include the Supabase schema migration as part of the initial implementation. Do not wait for the user to ask about database schema changes.**
 
-**Drizzle schema and Supabase migrations must always be kept in sync. When adding or modifying a table in the Drizzle schema (`packages/core/src/db/schema.ts`), always create the corresponding Supabase migration in `supabase/migrations/`. Conversely, when writing a new migration, ensure the Drizzle schema reflects the same change. Never leave one without the other.**
+**Production Supabase is the source of truth.** The remote Supabase database is the authoritative production schema. Drizzle schema and Supabase migrations must always be kept in sync. When adding or modifying a table, always include the Supabase migration as part of the same commit. Never leave one without the other.
 
 **Four-step schema checklist (all in the same commit):**
 1. Edit `packages/core/src/db/schema.ts` — the Drizzle ORM source of truth
@@ -306,12 +308,24 @@ npm run flags:dry-run   # Preview changes without writing to DB
 3. Run `npx drizzle-kit generate` — generates PGlite migration in `drizzle/` folder
 4. Write Supabase migration in `supabase/migrations/YYYYMMDDHHMMSS_description.sql`
 
+**Fifth step — push to production:** After merging to main, push migrations to Supabase:
+```bash
+npm run db:push            # Push pending migrations to production
+npm run db:push:dry-run    # Preview what would be pushed (safe, read-only)
+npm run db:status          # Show local vs remote migration history
+```
+
+The `db:push` script reads `DATABASE_URL` from `.env.prod`, auto-converts to a direct connection (not the pooler), and runs `supabase db push`. Credentials live in `.env.prod` — never write them to docs, wiki, or commit them to git.
+
 | Common Mistake | What breaks |
 |---------------|------------|
 | Forgot Supabase migration | Local mode works, production crashes at startup |
+| Forgot `db:push` after merge | Code deployed but DB schema is stale — queries fail |
 | Forgot re-export shim | `import { myTable } from '../db/schema.js'` returns `undefined` |
 | Forgot `drizzle-kit generate` | PGlite (local mode) missing the new table |
 | Forgot `IF NOT EXISTS` in migration | Migration fails if run twice (e.g., after rollback + redeploy) |
+| Duplicate migration timestamps | `supabase db push` gets confused — use unique YYYYMMDDHHMMSS |
+| Applied SQL via Supabase dashboard | Creates orphan migration history — use `npm run db:status` to detect |
 
 **Supabase migration template:**
 ```sql
@@ -325,16 +339,19 @@ CREATE TABLE IF NOT EXISTS my_table (
 
 ALTER TABLE my_table ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "team members can read" ON my_table
-  FOR SELECT USING (
-    team_id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
-  );
-
-CREATE POLICY "team members can write" ON my_table
-  FOR ALL USING (
-    team_id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
-  );
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'my_table_select') THEN
+    CREATE POLICY my_table_select ON my_table
+      FOR SELECT USING (team_id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid()));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'my_table_write') THEN
+    CREATE POLICY my_table_write ON my_table
+      FOR ALL USING (team_id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid()));
+  END IF;
+END $$;
 ```
+
+See [[Database Schema]] wiki page for the full Supabase protocol and troubleshooting guide.
 
 ### Debugging
 **When debugging issues, investigate the root cause before attempting fixes. Check if setup scripts, cached tokens, or stale state could be the source. Do not iterate through surface-level fixes.**
