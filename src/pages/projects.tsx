@@ -104,7 +104,6 @@ function getProjectColumns(
   handleRename: (id: string, name: string) => void,
   validateName: (name: string) => string | null,
   progressMap: Record<string, number>,
-  visibleProperties: string[],
   teams?: { id: string; name: string }[],
   onTeamChange?: (projectId: string, teamId: string) => void,
 ): ListColumn<Project>[] {
@@ -121,9 +120,6 @@ function getProjectColumns(
             icon={p.icon}
             type="project"
           />
-          {p.projectType === "github" && (
-            <Github className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          )}
           {renamingProjectId === p.id ? (
             <InlineRenameInput
               value={p.name}
@@ -147,13 +143,21 @@ function getProjectColumns(
               <Pencil className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/name:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setRenamingProjectId(p.id); }} />
             </Link>
           )}
-          {visibleProperties.includes("workingDirectory") && p.workingDirectory && (
-            <span className="text-xs text-muted-foreground/60 truncate ml-3 shrink min-w-0" title={p.workingDirectory}>
-              {shortenPath(p.workingDirectory)}
-            </span>
+          {(p.projectType === "github" || p.repository) && (
+            <Github className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
           )}
         </div>
       ),
+    },
+    {
+      id: "workingDirectory",
+      label: "Working directory",
+      width: "w-[200px]",
+      render: (p) => p.workingDirectory ? (
+        <span className="text-xs text-muted-foreground/60 truncate block" title={p.workingDirectory}>
+          {shortenPath(p.workingDirectory)}
+        </span>
+      ) : null,
     },
     {
       id: "status",
@@ -714,8 +718,8 @@ export function Projects() {
   }, [updateProject])
 
   const projectColumns = useMemo(
-    () => getProjectColumns(renamingProjectId, setRenamingProjectId, handleProjectRename, validateProjectName, progressMap, displaySettings.visibleProperties, teams, handleTeamChange),
-    [renamingProjectId, validateProjectName, handleProjectRename, setRenamingProjectId, progressMap, displaySettings.visibleProperties, teams, handleTeamChange]
+    () => getProjectColumns(renamingProjectId, setRenamingProjectId, handleProjectRename, validateProjectName, progressMap, teams, handleTeamChange),
+    [renamingProjectId, validateProjectName, handleProjectRename, setRenamingProjectId, progressMap, teams, handleTeamChange]
   )
 
   return (
@@ -934,8 +938,8 @@ export function Projects() {
                     <div className="flex-1 min-w-0 flex flex-col gap-1.5">
                       <div className="flex items-center gap-2">
                         <h3 className="font-semibold text-base truncate">{p.name}</h3>
-                        {p.projectType === "github" && (
-                          <Github className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        {(p.projectType === "github" || p.repository) && (
+                          <Github className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
                         )}
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
