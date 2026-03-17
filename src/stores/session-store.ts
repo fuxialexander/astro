@@ -14,7 +14,9 @@ import { create } from "zustand"
 import { dataClient } from "@/lib/data-client"
 import { projectChatWithAgent, chatWithTask, generateTitle, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { extractMutations, applyMutationsToStore } from "@/lib/plan-mutations"
+import { applyPlanFromText } from "@/lib/plan-extraction"
 import { usePlanStore } from "./plan-store"
+import { useExecutionStore } from "./execution-store"
 import { useProjectStore } from "./project-store"
 import { useRealtimeStore } from "./realtime-store"
 import { useUsageStore } from "./usage-store"
@@ -704,6 +706,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     let rawAssistantText = ""
     let needsPlanRefresh = false
 
+    // Suppress YOLO batch cascading while chat mutations are in flight.
+    // Set unconditionally — a batch may start while the chat is still streaming.
+    // The guard in triggerBatchWave checks the flag; this just ensures it's set.
+    useExecutionStore.getState().setChatMutationActive(projectId, true)
+
     // json-render: yaml-spec fences are parsed from rawAssistantText in onDone.
     // During streaming, text passes through normally (including yaml-spec fences
     // which render as code blocks). On completion, we extract specs and emit
@@ -790,42 +797,71 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           // Refresh plan from server if MCP tools modified the plan
           if (needsPlanRefresh) {
             usePlanStore.getState().load()
+            // Warn user if YOLO batch is active — tasks created via MCP won't auto-dispatch
+            if (useExecutionStore.getState().isBatchActive(projectId)) {
+              useToastStore.getState().add({
+                type: 'info',
+                title: 'Plan updated from chat',
+                description: 'New tasks were created while auto-execution is active. They will not be auto-dispatched — review and dispatch manually if needed.',
+                duration: 8000,
+              })
+            }
           }
 
           // yaml-spec parsing is handled by use-chat-activity-events.ts which
           // concatenates text events and extracts specs when isStreaming becomes false.
 
-          // Extract and apply mutations from raw text
-          const { cleanContent, mutations } = extractMutations(rawAssistantText)
-          const hasMutations = mutations.nodeUpdates.length > 0 || mutations.edgeOps.length > 0 || mutations.newNodes.length > 0
-
-          if (hasMutations) {
-            const { affectedNodeIds, resolvedMutations } = applyMutationsToStore(projectId, mutations)
-            if (affectedNodeIds.length > 0) {
-              usePlanStore.getState().markNodesAsUpdating(affectedNodeIds)
-            }
+          // Try full plan JSON extraction first (matches plan-generation page behavior).
+          // This handles the case where the AI outputs a complete plan object instead of mutations.
+          const planResult = applyPlanFromText(projectId, rawAssistantText)
+          if (planResult.applied) {
+            console.log(`[session-store] Full plan extracted from chat: ${planResult.nodeCount} nodes`)
             useRealtimeStore.getState().pushActivityEvent(sid, {
               type: 'mutation',
-              nodeUpdates: resolvedMutations.nodeUpdates,
-              edgeOps: resolvedMutations.edgeOps,
-              newNodes: resolvedMutations.newNodes,
+              nodeUpdates: [],
+              edgeOps: [],
+              newNodes: [],
               timestamp: new Date(),
             })
-            get().updateLastAssistantMessage(sid, cleanContent, resolvedMutations)
-          } else {
-            const looksLikeMutations = /\[\s*\{[^}]*"(?:nodeId|nodeTitle|action|title)"/.test(rawAssistantText)
-            if (looksLikeMutations && rawAssistantText.length > 100) {
-              console.warn("[session-store] Response contains JSON-like mutation data but no mutations were extracted")
-              useToastStore.getState().add({
-                type: "warning",
-                title: "Plan changes not applied",
-                description: "The AI described changes but they weren't in the expected format. Try asking again.",
-              })
-            }
             get().updateLastAssistantMessage(sid, rawAssistantText)
+          } else {
+            // Fall back to incremental mutation extraction
+            const { cleanContent, mutations } = extractMutations(rawAssistantText)
+            const hasMutations = mutations.nodeUpdates.length > 0 || mutations.edgeOps.length > 0 || mutations.newNodes.length > 0
+
+            if (hasMutations) {
+              const { affectedNodeIds, resolvedMutations } = applyMutationsToStore(projectId, mutations)
+              if (affectedNodeIds.length > 0) {
+                usePlanStore.getState().markNodesAsUpdating(affectedNodeIds)
+              }
+              useRealtimeStore.getState().pushActivityEvent(sid, {
+                type: 'mutation',
+                nodeUpdates: resolvedMutations.nodeUpdates,
+                edgeOps: resolvedMutations.edgeOps,
+                newNodes: resolvedMutations.newNodes,
+                timestamp: new Date(),
+              })
+              get().updateLastAssistantMessage(sid, cleanContent, resolvedMutations)
+            } else {
+              // Detect both mutation-like arrays AND full plan JSON objects that weren't extracted
+              const looksLikeMutations = /\[\s*\{[^}]*"(?:nodeId|nodeTitle|action|title)"/.test(rawAssistantText)
+              const looksLikeFullPlan = /"nodes"\s*:\s*\[/.test(rawAssistantText) && /"edges"\s*:\s*\[/.test(rawAssistantText)
+              if ((looksLikeMutations || looksLikeFullPlan) && rawAssistantText.length > 100) {
+                console.warn("[session-store] Response contains plan/mutation JSON but extraction failed")
+                useToastStore.getState().add({
+                  type: "warning",
+                  title: "Plan changes not applied",
+                  description: looksLikeFullPlan
+                    ? "The AI output a full plan instead of incremental changes. Try asking: \"Apply those changes using the mutation format.\""
+                    : "The AI described changes but they weren't in the expected format. Try asking again with more specific instructions.",
+                })
+              }
+              get().updateLastAssistantMessage(sid, rawAssistantText)
+            }
           }
 
-          // Clear streaming state
+          // Clear chat mutation flag and streaming state
+          useExecutionStore.getState().setChatMutationActive(projectId, false)
           chatAbortControllers.delete(sid)
           set((state) => {
             const ss = new Set(state.streamingSessions)
@@ -863,6 +899,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         },
         onError: (error) => {
           get().appendToLastAssistantMessage(sid, `\nError: ${error}`)
+          useExecutionStore.getState().setChatMutationActive(projectId, false)
           chatAbortControllers.delete(sid)
           set((state) => {
             const ss = new Set(state.streamingSessions)
@@ -891,6 +928,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       abortController.signal,
     ).catch(() => {
       // Stream errored at fetch level — clean up
+      useExecutionStore.getState().setChatMutationActive(projectId, false)
       chatAbortControllers.delete(sid)
       set((state) => {
         const ss = new Set(state.streamingSessions)
@@ -1103,6 +1141,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     if (controller) {
       controller.abort()
       chatAbortControllers.delete(sessionId)
+    }
+    // Clear chat mutation flag for the session's project (if any)
+    const session = get().sessions.get(sessionId)
+    if (session?.projectId) {
+      useExecutionStore.getState().setChatMutationActive(session.projectId, false)
     }
     set((state) => {
       const ss = new Set(state.streamingSessions)

@@ -312,7 +312,13 @@ When breaking down a task into sub-tasks:
 - Do NOT include the JSON block if no changes are needed (e.g. the user is just asking a question).
 - Do NOT output any other \`\`\`json code blocks in your response — the only JSON block should be the mutation.
 - **CRITICAL:** When the user asks to change, update, add, remove, or modify ANYTHING in the plan, you MUST include the JSON block. This is the ONLY way changes are applied to the graph — without it, nothing happens. Never just describe what to do; always emit the block.
-- Do NOT output a full plan JSON object (with "projectName", "nodes", "edges" top-level keys). Only use the mutation format above ("updateNodes", "addNodes", "updateEdges").`
+- **NEVER** output a full plan JSON object. The mutation format ("updateNodes", "addNodes", "updateEdges") is the ONLY format that applies changes in chat.
+
+### WRONG format (full plan — will be silently dropped):
+\`\`\`
+{ "projectName": "...", "nodes": [...], "edges": [...] }
+\`\`\`
+The above format is ONLY used during initial plan generation, never in chat. Always use the mutation format instead.`
 }
 
 export interface TaskExecutionContext {

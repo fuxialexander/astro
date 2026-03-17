@@ -203,6 +203,10 @@ interface ExecutionState {
   // Projects that already showed the "all tasks complete" toast (avoid duplicates)
   completedProjectIds: Set<string>
 
+  // Projects with active chat mutations — prevents triggerBatchWave from auto-dispatching
+  // tasks created/modified via plan chat (avoids YOLO cascading from chat context)
+  chatMutationProjectIds: Set<string>
+
   // Pending approval requests
   pendingApprovals: Map<string, ApprovalRequest>
 
@@ -225,6 +229,8 @@ interface ExecutionState {
   getBatchExecution: (projectId: string) => BatchExecution | undefined
   /** Trigger next batch wave dispatch (called from node:status_changed handler) */
   triggerBatchWave: (projectId: string) => void
+  /** Mark a project as having active chat mutations (suppresses batch wave cascading) */
+  setChatMutationActive: (projectId: string, active: boolean) => void
 
   // Provider actions
   loadProviders: () => Promise<void>
@@ -347,6 +353,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   batchExecutions: new Map(),
   autoExecuteProjectIds: new Map(),
   completedProjectIds: new Set(),
+  chatMutationProjectIds: new Set(),
   pendingApprovals: new Map(),
   loaded: false,
 
@@ -772,8 +779,27 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   triggerBatchWave: (projectId: string) => {
     const batch = get().batchExecutions.get(projectId)
     if (batch?.active) {
+      // Skip auto-dispatch if a chat mutation is in progress for this project.
+      // This prevents tasks created/modified via plan chat from being auto-dispatched
+      // while YOLO batch execution is active.
+      if (get().chatMutationProjectIds.has(projectId)) {
+        console.log(`[execution] Skipping batch wave for ${projectId}: chat mutation in progress`)
+        return
+      }
       dispatchNextBatchWave(projectId)
     }
+  },
+
+  setChatMutationActive: (projectId: string, active: boolean) => {
+    set((state) => {
+      const next = new Set(state.chatMutationProjectIds)
+      if (active) {
+        next.add(projectId)
+      } else {
+        next.delete(projectId)
+      }
+      return { chatMutationProjectIds: next }
+    })
   },
 
   loadProviders: async () => {

@@ -25,8 +25,8 @@
     "description": "描述需要调整的内容或变更原因",
     "placeholder": "需要做哪些调整？",
     "submit": "重新规划",
-    "regenerateTitle": "重新生成计划",
-    "regenerateDescription": "当前任务将被归档，系统将结合执行历史重新生成计划。",
+    "regenerateTitle": "归档并重新生成计划",
+    "regenerateDescription": "当前计划将被归档，并生成新计划。如有需要，可从计划历史中恢复已归档的计划。",
     "totalTasks": "个任务",
     "completed": "已完成",
     "withOpenPrs": "有待合并的 PR",
@@ -34,6 +34,7 @@
     "changePlaceholder": "描述新计划与当前计划的区别（选填）",
     "runningWarning": "部分任务正在执行中，将被终止。",
     "regenerate": "重新生成",
+    "archiveAndRegenerate": "归档并重新生成",
     "regenerating": "生成中…"
   },
   "welcome": {

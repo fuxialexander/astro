@@ -9,6 +9,7 @@
 
 import type { PlanNode } from '@/types'
 import { usePlanStore } from '@/stores/plan-store'
+import { useToastStore } from '@/stores/toast-store'
 import { escapeHtml } from '@/lib/html-utils'
 
 // ---- Types ----
@@ -239,14 +240,29 @@ export function applyMutationsToStore(
 
     if (!resolvedNodeId && u.nodeTitle) {
       const normalizedTitle = (u.nodeTitle as string).trim().toLowerCase()
+      // Exact case-insensitive match first
       let candidates = planNodes.filter((n) => n.title.trim().toLowerCase() === normalizedTitle)
+
+      // Fuzzy fallback: substring includes match (handles truncation, abbreviation)
+      if (candidates.length === 0) {
+        candidates = planNodes.filter((n) => {
+          const nodeTitle = n.title.trim().toLowerCase()
+          return nodeTitle.includes(normalizedTitle) || normalizedTitle.includes(nodeTitle)
+        })
+      }
 
       if (u.type && candidates.length > 1) {
         candidates = candidates.filter((n) => n.type === u.type)
       }
 
       if (candidates.length === 0) {
-        console.warn(`[plan-mutations] Node update failed: no node found with title "${u.nodeTitle}"${u.type ? ` and type "${u.type}"` : ''}`)
+        const availableTitles = planNodes.slice(0, 5).map((n) => `"${n.title}"`).join(', ')
+        console.warn(`[plan-mutations] Node update failed: no node found with title "${u.nodeTitle}". Available: ${availableTitles}`)
+        useToastStore.getState().add({
+          type: 'warning',
+          title: 'Plan change skipped',
+          description: `No task found matching "${u.nodeTitle}". The AI may have paraphrased the title.`,
+        })
         continue
       } else if (candidates.length > 1) {
         console.warn(`[plan-mutations] Node update ambiguous: multiple nodes found with title "${u.nodeTitle}"${u.type ? ` and type "${u.type}"` : ''}. Specify type to disambiguate.`)
