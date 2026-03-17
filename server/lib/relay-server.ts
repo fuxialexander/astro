@@ -2088,6 +2088,25 @@ export class RelayServer extends EventEmitter {
           console.error('[relay] Failed to refresh machine instance TTLs:', err);
         });
       }
+
+      // Prune ghost remote machines: check MACHINE_INSTANCE for hydrated entries
+      // that no longer have a live instance owning their WebSocket.
+      // This catches machines whose owning instance crashed without publishing
+      // a disconnect event (e.g., during rolling deploys).
+      if (redisPubSub.isConnected()) {
+        const remoteMachineIds = machines
+          .filter(m => !machineRegistry.isLocal(m.machineId))
+          .map(m => m.machineId);
+        for (const rmId of remoteMachineIds) {
+          redisPubSub.getMachineInstance(rmId).then(instanceId => {
+            if (!instanceId) {
+              console.log(`[relay] Pruning ghost remote machine ${rmId} (MACHINE_INSTANCE expired)`);
+              machineRegistry.removeRemote(rmId);
+              redisPubSub.unregisterMachine(rmId).catch(() => {});
+            }
+          }).catch(() => {});
+        }
+      }
     }, this.config.heartbeatIntervalMs);
   }
 
