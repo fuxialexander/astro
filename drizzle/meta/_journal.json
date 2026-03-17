@@ -197,6 +197,13 @@
       "when": 1773648000000,
       "tag": "0027_add_session_title",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1773734400000,
+      "tag": "0028_add_loop_columns",
+      "breakpoints": true
     }
   ]
 }
