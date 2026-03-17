@@ -124,6 +124,7 @@ export interface TeamMember {
   userId: string;
   role: 'owner' | 'admin' | 'member';
   joinedAt: Date;
+  user?: { name: string | null; email: string | null; avatarUrl: string | null };
 }
 
 // GitHub sync settings stored per-project
@@ -182,7 +183,7 @@ export interface Project {
   lead?: string;
   health?: 'on_track' | 'at_risk' | 'off_track';
   initiativeId?: string;
-  teamId?: string;
+  teamId: string;
   progress?: number;
   labels?: Label[];
   color?: string;

@@ -47,15 +47,19 @@ function pickByNameHash(name: string, arr: readonly string[]): string {
 }
 
 /**
- * Build a team-scoped filter with legacy fallback.
- * Matches rows where teamId equals the user's active team,
- * OR where teamId is null and ownerId matches (for legacy data).
+ * Build a strict team-scoped filter.
+ * After the backfill migration, all projects/blobs have a non-null teamId.
  */
-function teamScopeFilter(table: { teamId: typeof projects.teamId; ownerId: typeof projects.ownerId }, user: AuthUser) {
-  return or(
-    eq(table.teamId, user.teamId),
-    and(isNull(table.teamId), eq(table.ownerId, user.id))
-  )!
+function teamScopeFilter(table: { teamId: typeof projects.teamId }, user: AuthUser) {
+  return eq(table.teamId, user.teamId)
+}
+
+/**
+ * Cross-team scope filter: matches all teams the user belongs to.
+ * Used when ?allTeams=1 query param is present.
+ */
+function allTeamsScopeFilter(table: { teamId: typeof projects.teamId }, user: AuthUser) {
+  return inArray(table.teamId, user.teamIds)
 }
 
 
@@ -68,7 +72,9 @@ app.use('/*', requireAuth)
 
 app.get('/projects', async (c) => {
   const user = c.get('user')! as AuthUser
-  const rows = await db.select().from(projects).where(teamScopeFilter(projects, user))
+  const allTeams = c.req.query('allTeams') === '1'
+  const filter = allTeams ? allTeamsScopeFilter(projects, user) : teamScopeFilter(projects, user)
+  const rows = await db.select().from(projects).where(filter)
   return c.json(rows)
 })
 
@@ -105,7 +111,7 @@ app.post('/projects', async (c) => {
 
   // Generate UUID if not provided
   const projectId = body.id || crypto.randomUUID()
-  const teamId = user.teamId || body.teamId || null
+  const teamId = user.teamId
 
   // Server-authoritative number assignment in a transaction
   let assignedNumber: number | null = null
@@ -215,7 +221,7 @@ app.patch('/projects/:id', async (c) => {
   if (body.lead !== undefined) patch.lead = body.lead || null
   if (body.health !== undefined) patch.health = body.health || null
   if (body.initiativeId !== undefined) patch.initiativeId = body.initiativeId || null
-  if (body.teamId !== undefined) patch.teamId = body.teamId || null
+  if (body.teamId !== undefined && body.teamId && user.teamIds.includes(body.teamId)) patch.teamId = body.teamId
   if (body.progress !== undefined) patch.progress = body.progress
   if (body.labels !== undefined) patch.labels = body.labels
   if (body.color !== undefined) patch.color = body.color
@@ -345,10 +351,7 @@ app.delete('/projects/:id', async (c) => {
 app.get('/initiatives', async (c) => {
   const user = c.get('user')! as AuthUser
   const rows = await db.select().from(initiatives).where(
-    or(
-      eq(initiatives.teamId, user.teamId),
-      and(isNull(initiatives.teamId), eq(initiatives.ownerId, user.id))
-    )
+    eq(initiatives.teamId, user.teamId)
   )
   return c.json(rows)
 })
@@ -363,7 +366,7 @@ app.post('/initiatives', async (c) => {
   const row = {
     id: initiativeId,
     ownerId: user.id,
-    teamId: user.teamId || null,
+    teamId: user.teamId,
     name: body.name,
     description: body.description || '',
     goal: body.goal || null,
@@ -388,10 +391,7 @@ app.get('/initiatives/:id', async (c) => {
   const user = c.get('user')! as AuthUser
   const initiativeId = c.req.param('id')
   const [row] = await db.select().from(initiatives).where(
-    and(eq(initiatives.id, initiativeId), or(
-      eq(initiatives.teamId, user.teamId),
-      and(isNull(initiatives.teamId), eq(initiatives.ownerId, user.id))
-    ))
+    and(eq(initiatives.id, initiativeId), eq(initiatives.teamId, user.teamId))
   )
   if (!row) return c.json({ error: 'Not found' }, 404)
   return c.json(row)
@@ -402,10 +402,7 @@ app.patch('/initiatives/:id', async (c) => {
   const id = c.req.param('id')
 
   try {
-    const teamFilter = or(
-      eq(initiatives.teamId, user.teamId),
-      and(isNull(initiatives.teamId), eq(initiatives.ownerId, user.id))
-    )
+    const teamFilter = eq(initiatives.teamId, user.teamId)
 
     const [existing] = await db.select().from(initiatives).where(
       and(eq(initiatives.id, id), teamFilter)
@@ -442,10 +439,7 @@ app.delete('/initiatives/:id', async (c) => {
   const initiativeId = c.req.param('id')
 
   try {
-    const teamFilter = or(
-      eq(initiatives.teamId, user.teamId),
-      and(isNull(initiatives.teamId), eq(initiatives.ownerId, user.id))
-    )
+    const teamFilter = eq(initiatives.teamId, user.teamId)
 
     const [existing] = await db.select().from(initiatives).where(
       and(eq(initiatives.id, initiativeId), teamFilter)
@@ -472,9 +466,11 @@ app.delete('/initiatives/:id', async (c) => {
 app.get('/plan', async (c) => {
   const user = c.get('user')! as AuthUser
   const slim = c.req.query('slim') === '1'
+  const allTeams = c.req.query('allTeams') === '1'
 
-  // Get team's projects
-  const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
+  // Get team's projects (or all teams' projects)
+  const projectFilter = allTeams ? allTeamsScopeFilter(projects, user) : teamScopeFilter(projects, user)
+  const userProjects = await db.select().from(projects).where(projectFilter)
   const projectIds = new Set(userProjects.map(p => p.id))
 
   // Get nodes for user's projects (scoped query instead of full table scan)
@@ -1791,9 +1787,11 @@ app.get('/executions', async (c) => {
   const user = c.get('user')! as AuthUser
   const slim = c.req.query('slim') === '1'
   const filterProjectId = c.req.query('projectId')
+  const allTeams = c.req.query('allTeams') === '1'
 
-  // Get team's projects
-  const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
+  // Get team's projects (or all teams' projects)
+  const projectFilter = allTeams ? allTeamsScopeFilter(projects, user) : teamScopeFilter(projects, user)
+  const userProjects = await db.select().from(projects).where(projectFilter)
   const projectIds = new Set(userProjects.map(p => p.id))
 
   if (projectIds.size === 0) {
@@ -2258,7 +2256,7 @@ app.post('/blobs', async (c) => {
 
   const [row] = await db.insert(blobs).values({
     ownerId: user.id,
-    teamId: user.teamId || null,
+    teamId: user.teamId,
     mimeType: body.mimeType,
     size,
     data: body.data,

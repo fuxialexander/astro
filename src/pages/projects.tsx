@@ -1,7 +1,7 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { Link, useNavigate } from "react-router"
-import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil, Github, ChevronRight, Braces, Archive, ArchiveRestore } from "lucide-react"
+import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil, Github, ChevronRight, Braces, Archive, ArchiveRestore, Building2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -52,6 +52,7 @@ const projectsDisplayConfig: DisplayPopoverConfig = {
     { value: "initiative", label: "Grand Plan" },
     { value: "status", label: "Status" },
     { value: "health", label: "Health" },
+    { value: "team", label: "Team" },
   ],
   orderByOptions: [
     { value: "name", label: "Name" },
@@ -75,6 +76,7 @@ const projectsTimelineDisplayConfig: DisplayPopoverConfig = {
     { value: "initiative", label: "Grand Plan" },
     { value: "status", label: "Status" },
     { value: "health", label: "Health" },
+    { value: "team", label: "Team" },
   ],
   orderByOptions: [
     { value: "name", label: "Name" },
@@ -103,6 +105,8 @@ function getProjectColumns(
   validateName: (name: string) => string | null,
   progressMap: Record<string, number>,
   visibleProperties: string[],
+  teams?: { id: string; name: string }[],
+  onTeamChange?: (projectId: string, teamId: string) => void,
 ): ListColumn<Project>[] {
   return [
     {
@@ -199,6 +203,26 @@ function getProjectColumns(
         )
       },
     },
+    ...((teams && teams.length > 1) ? [{
+      id: "team",
+      label: "Team",
+      width: "w-[120px]",
+      render: (p: Project) => (
+          <select
+            className="text-xs bg-transparent border-none outline-none cursor-pointer text-muted-foreground hover:text-foreground truncate max-w-[110px]"
+            value={p.teamId}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              e.stopPropagation()
+              onTeamChange?.(p.id, e.target.value)
+            }}
+          >
+            {teams.map(t => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+      ),
+    }] as ListColumn<Project>[] : []),
     {
       id: "targetDate",
       label: "Target date",
@@ -244,6 +268,8 @@ export function Projects() {
     () => allProjectsRaw.filter((p) => p.projectType !== 'playground' && !executions.has(`playground-${p.id}`)),
     [allProjectsRaw, executions]
   )
+  const loadAllTeams = useProjectStore((s) => s.loadAllTeams)
+  const loadAllTeamsPlans = usePlanStore((s) => s.loadAllTeams)
   const addProject = useProjectStore((s) => s.addProject)
   const updateProject = useProjectStore((s) => s.updateProject)
   const deleteProject = useProjectStore((s) => s.deleteProject)
@@ -251,6 +277,7 @@ export function Projects() {
   const allNodes = useMemo(() => rawAllNodes.filter(isLive), [rawAllNodes])
   const initiatives = useInitiativeStore((s) => s.initiatives)
   const teams = useTeamStore((s) => s.teams)
+  const activeTeamId = useTeamStore((s) => s.activeTeamId)
   const addToast = useToastStore((s) => s.add)
   const navigate = useNavigate()
   const displaySettings = useDisplaySettingsStore((s) => s.get("projects"))
@@ -259,7 +286,8 @@ export function Projects() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [healthFilter, setHealthFilter] = useState("all")
   const [initiativeFilter, setInitiativeFilter] = useState("all")
-  const [teamFilter, setTeamFilter] = useState("all")
+  // Default to the active team when in a multi-team workspace; "all" for solo users
+  const [teamFilter, setTeamFilter] = useState(() => teams.length > 1 && activeTeamId ? activeTeamId : "all")
   const [importBundle, setImportBundle] = useState<import("@/lib/sharing/types").AstroExportBundle | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null)
@@ -270,6 +298,13 @@ export function Projects() {
   // GitHub App integration
   const githubInstallations = useGitHubAppStore((s) => s.installations)
   const githubConnected = githubInstallations.length > 0
+
+  // Load projects from all teams on mount for cross-team view
+  useEffect(() => {
+    loadAllTeams()
+    loadAllTeamsPlans()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Focus input when inline creation row appears
   useEffect(() => {
@@ -324,7 +359,10 @@ export function Projects() {
     return initiatives.find(i => i.id === initiativeId)?.name
   }, [initiatives])
 
-  // Helper to get team name from ID
+  const getTeamName = useCallback((teamId?: string) => {
+    if (!teamId) return undefined
+    return teams.find(t => t.id === teamId)?.name
+  }, [teams])
 
   const getProjectBatchActions = useCallback((selectedIds: string[]): BatchAction[] => {
     const selectedProjects = selectedIds.map(id => projects.find(p => p.id === id)).filter(Boolean)
@@ -413,11 +451,7 @@ export function Projects() {
       filtered = filtered.filter((p) => p.initiativeId === initiativeFilter)
     }
     if (teamFilter !== "all") {
-      if (teamFilter === "personal") {
-        filtered = filtered.filter((p) => !p.teamId)
-      } else {
-        filtered = filtered.filter((p) => p.teamId === teamFilter)
-      }
+      filtered = filtered.filter((p) => p.teamId === teamFilter)
     }
     const sorted = [...filtered]
     const dir = displaySettings.orderDirection === "asc" ? 1 : -1
@@ -464,6 +498,9 @@ export function Projects() {
         case "health":
           group = healthConfig[p.health ?? "on_track"]?.label ?? "On track"
           break
+        case "team":
+          group = getTeamName(p.teamId) ?? "Unknown"
+          break
         default:
           group = "All Projects"
       }
@@ -471,7 +508,9 @@ export function Projects() {
       return acc
     }, seed)
     const groups = Object.entries(grouped).map(([label, items]) => {
-      const Icon = displaySettings.groupBy === "initiative" ? (initiativeIcons[label] ?? Users) : Folder
+      const Icon = displaySettings.groupBy === "initiative" ? (initiativeIcons[label] ?? Users)
+        : displaySettings.groupBy === "team" ? Building2
+        : Folder
       const iconColor = displaySettings.groupBy === "initiative" ? (initiativeIconColors[label] ?? "text-success") : "text-muted-foreground"
       return {
         key: label,
@@ -487,7 +526,7 @@ export function Projects() {
       groups.sort((a, b) => (statusOrder[a.label] ?? 99) - (statusOrder[b.label] ?? 99))
     }
     return groups
-  }, [sortedProjects, displaySettings.groupBy, getInitiativeName])
+  }, [sortedProjects, displaySettings.groupBy, getInitiativeName, getTeamName])
 
   // Timeline-specific settings
   const timelineDisplaySettings = useDisplaySettingsStore((s) => s.get("projects-timeline"))
@@ -587,6 +626,9 @@ export function Projects() {
         case "health":
           group = healthConfig[p.health ?? "on_track"]?.label ?? "On track"
           break
+        case "team":
+          group = getTeamName(p.teamId) ?? "Unknown"
+          break
         default:
           group = "All Projects"
       }
@@ -601,7 +643,7 @@ export function Projects() {
       }
     }
     return result
-  }, [timelineSortedProjects, projectDateRanges, timelineDisplaySettings.groupBy, getInitiativeName, progressMap])
+  }, [timelineSortedProjects, projectDateRanges, timelineDisplaySettings.groupBy, getInitiativeName, getTeamName, progressMap])
 
   const handleSort = useCallback((sortKey: string) => {
     if (displaySettings.orderBy === sortKey) {
@@ -667,9 +709,13 @@ export function Projects() {
     { value: "board", label: "Board" },
   ]
 
+  const handleTeamChange = useCallback((projectId: string, teamId: string) => {
+    updateProject(projectId, { teamId })
+  }, [updateProject])
+
   const projectColumns = useMemo(
-    () => getProjectColumns(renamingProjectId, setRenamingProjectId, handleProjectRename, validateProjectName, progressMap, displaySettings.visibleProperties),
-    [renamingProjectId, validateProjectName, handleProjectRename, setRenamingProjectId, progressMap, displaySettings.visibleProperties]
+    () => getProjectColumns(renamingProjectId, setRenamingProjectId, handleProjectRename, validateProjectName, progressMap, displaySettings.visibleProperties, teams, handleTeamChange),
+    [renamingProjectId, validateProjectName, handleProjectRename, setRenamingProjectId, progressMap, displaySettings.visibleProperties, teams, handleTeamChange]
   )
 
   return (
@@ -780,8 +826,7 @@ export function Projects() {
               label="Team"
               value={teamFilter}
               options={[
-                { value: "all", label: "All projects" },
-                { value: "personal", label: "Personal" },
+                { value: "all", label: "All Teams" },
                 ...teams.map((t) => ({ value: t.id, label: t.name })),
               ]}
               onChange={setTeamFilter}
