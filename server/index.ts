@@ -456,9 +456,11 @@ async function start() {
           if (!redisPubSub.isConnected()) return
           // Skip events that arrived via proxy — prevents infinite Redis echo loop
           if ((data as { _fromProxy?: boolean })._fromProxy) return
+          const correlationId = (data as { correlationId?: string }).correlationId
+          if (!correlationId) return // no correlationId — skip to avoid needless broadcast
           redisPubSub.publishWsProxyResponse({
             targetInstanceId: '', // broadcast — the instance with the matching correlationId picks it up
-            correlationId: (data as { correlationId?: string }).correlationId || '',
+            correlationId,
             responseType: eventType,
             payload: data,
           }).catch(() => {})

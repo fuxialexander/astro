@@ -1869,6 +1869,9 @@ export class RelayServer extends EventEmitter {
     }
 
     // Remote or unknown machine — route via Redis proxy.
+    // Note: git_pull is fire-and-forget with no response handler in the agent runner
+    // or proxyResponseTypes bridge. The proxy wraps payload differently (nested vs flat),
+    // but since the agent runner currently has no git_pull.request handler, this is harmless.
     if (redisPubSub.isConnected()) {
       redisPubSub.publishWsProxyRequest({
         machineId,
