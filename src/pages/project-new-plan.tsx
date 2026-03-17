@@ -46,10 +46,8 @@ import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
 import type { TaskAttachment, ProjectSource } from "@/types"
 import type { LaunchExampleResult } from "@/lib/api-client"
 import type { ExamplePrefillData } from "@/components/examples/example-picker-dialog"
-import { useGlobalProjectData } from "@/hooks/use-global-project-data"
 
 export function ProjectNewPlan() {
-  useGlobalProjectData()
   const { t } = useTranslation('plan')
   const [searchParams, setSearchParams] = useSearchParams()
   const projectIdParam = searchParams.get("projectId")

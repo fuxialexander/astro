@@ -28,7 +28,6 @@ import { useUserProfileStore } from "@/stores/user-profile-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useStatsStore } from "@/stores/stats-store"
 import { useSettingsStore } from "@/stores/settings-store"
-import { useGlobalProjectData } from "@/hooks/use-global-project-data"
 import { ApprovalCard } from "@/components/approval-card"
 import { InlineApprovalCard } from "@/components/plan-generation/inline-approval-card"
 import { NotificationCards } from "@/components/dashboard/notification-card"
@@ -68,7 +67,6 @@ function ActivityItem({ event }: { event: ActivityEvent }) {
 }
 
 export function Dashboard() {
-  useGlobalProjectData()
   const { t } = useTranslation('dashboard')
   const { t: tc } = useTranslation('common')
   const projects = useProjectStore((s) => s.projects)
