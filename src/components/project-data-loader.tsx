@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react"
-import { useParams } from "react-router"
+import { useParams, Outlet } from "react-router"
 import { usePlanStore } from "@/stores/plan-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useSessionStore } from "@/stores/session-store"
@@ -17,7 +17,7 @@ import { useRealtimeStore } from "@/stores/realtime-store"
  *
  * Renders nothing — purely a side-effect component.
  */
-export function ProjectDataLoader() {
+function ProjectDataLoader() {
   const { id: projectId } = useParams<{ id: string }>()
   const lastProjectIdRef = useRef<string | null>(null)
 
@@ -42,8 +42,6 @@ export function ProjectDataLoader() {
       loadChatForProject(projectId),
       loadActivitiesForProject(projectId),
     ]).then(() => {
-      // After plan + executions are loaded, reconcile running tasks
-      // so the dashboard and active-tasks page show them correctly
       reconcileRunningTasks()
     }).catch((err) => {
       console.error('[ProjectDataLoader] Failed to load project data:', err)
@@ -51,4 +49,18 @@ export function ProjectDataLoader() {
   }, [projectId, loadPlanForProject, loadExecutionsForProject, loadSessionsForProject, loadChatForProject, loadActivitiesForProject, reconcileRunningTasks])
 
   return null
+}
+
+/**
+ * ProjectLayout: layout route for /project/:id/* that persists the
+ * ProjectDataLoader across sub-route changes (graph/list/timeline/etc).
+ * This prevents re-fetching data when switching views within a project.
+ */
+export function ProjectLayout() {
+  return (
+    <>
+      <ProjectDataLoader />
+      <Outlet />
+    </>
+  )
 }

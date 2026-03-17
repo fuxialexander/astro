@@ -40,7 +40,7 @@ import { PluginLoader } from "@/components/plugin-loader"
 import { PluginRoutes } from "@/components/plugin-routes"
 import { getBrowserHostname } from "@/lib/path-utils"
 import { refreshAllFileTrees } from "@/hooks/use-file-tree-refresh"
-import { ProjectDataLoader } from "@/components/project-data-loader"
+import { ProjectLayout } from "@/components/project-data-loader"
 import { useGitHubStore } from "@/stores/github-store"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
 import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
@@ -339,15 +339,17 @@ export default function App() {
                 <Route path="plan" element={<ProjectNewPlan />} />
                 <Route path="projects/new" element={<Navigate to="/projects" replace />} />
                 <Route path="projects/new/plan" element={<Navigate to="/plan" replace />} />
-                <Route path="project/:id" element={<><ProjectDataLoader /><PlanView /></>} />
-                <Route path="project/:id/graph" element={<><ProjectDataLoader /><PlanView /></>} />
-                <Route path="project/:id/list" element={<><ProjectDataLoader /><PlanView /></>} />
-                <Route path="project/:id/timeline" element={<><ProjectDataLoader /><PlanView /></>} />
-                <Route path="project/:id/board" element={<><ProjectDataLoader /><PlanView /></>} />
-                <Route path="project/:id/overview" element={<><ProjectDataLoader /><PlanView /></>} />
-                <Route path="project/:id/knowledge" element={<><ProjectDataLoader /><PlanView /></>} />
-                <Route path="project/:id/repo" element={<><ProjectDataLoader /><PlanView /></>} />
-                <Route path="project/:id/task/:nodeId" element={<><ProjectDataLoader /><TaskDetail /></>} />
+                <Route path="project/:id" element={<ProjectLayout />}>
+                  <Route index element={<PlanView />} />
+                  <Route path="graph" element={<PlanView />} />
+                  <Route path="list" element={<PlanView />} />
+                  <Route path="timeline" element={<PlanView />} />
+                  <Route path="board" element={<PlanView />} />
+                  <Route path="overview" element={<PlanView />} />
+                  <Route path="knowledge" element={<PlanView />} />
+                  <Route path="repo" element={<PlanView />} />
+                  <Route path="task/:nodeId" element={<TaskDetail />} />
+                </Route>
                 <Route path="initiatives" element={<Initiatives />} />
                 <Route path="tasks" element={<MyTasks />} />
                 <Route path="active" element={<ActiveTasks />} />
