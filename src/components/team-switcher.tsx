@@ -7,10 +7,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
 import { useActivityStore } from "@/stores/activity-store"
-import { useSessionStore } from "@/stores/session-store"
 import { useUsageStore } from "@/stores/usage-store"
-import { useExecutionStore } from "@/stores/execution-store"
-import { useTaskChatStore } from "@/stores/task-chat-store"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
@@ -75,15 +72,14 @@ export function TeamSwitcher({ collapsed = false }: { collapsed?: boolean }) {
     setActiveTeam(teamId)
     setOpen(false)
 
-    // Reset dependent stores so they reload with new team context
+    // Reset dependent stores so they reload with new team context.
+    // Execution/session/chat stores are NOT reset — running tasks survive team switches.
+    // Their data is keyed by globally-unique UUIDs and views filter by projectIds.
     useProjectStore.setState({ loaded: false })
     usePlanStore.setState({ loaded: false })
     useInitiativeStore.setState({ loaded: false })
     useActivityStore.setState({ loaded: false })
-    useSessionStore.setState({ loaded: false })
     useUsageStore.setState({ loaded: false })
-    useExecutionStore.setState({ loaded: false })
-    useTaskChatStore.setState({ loaded: false })
 
     // Trigger reloads
     Promise.all([
@@ -91,10 +87,7 @@ export function TeamSwitcher({ collapsed = false }: { collapsed?: boolean }) {
       usePlanStore.getState().load(),
       useInitiativeStore.getState().load(),
       useActivityStore.getState().loadActivities(),
-      useSessionStore.getState().load(),
       useUsageStore.getState().load(),
-      useExecutionStore.getState().load(),
-      useTaskChatStore.getState().load(),
     ]).finally(() => setSwitching(false))
   }, [activeTeamId, setActiveTeam])
 

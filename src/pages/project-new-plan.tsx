@@ -21,6 +21,7 @@ import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSettingsStore, resolveModel, type ModelTier } from "@/stores/settings-store"
 import { useClaudeSessionsStore } from "@/stores/claude-sessions-store"
 import { useExampleStore } from "@/stores/example-store"
+import { useTeamStore } from "@/stores/team-store"
 import { PlanGeneration } from "@/components/plan-generation/plan-generation"
 import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
 import { ExamplePickerDialog } from "@/components/examples/example-picker-dialog"
@@ -577,6 +578,7 @@ export function ProjectNewPlan() {
         name: project.name,
         description: project.description as string || "",
         visionDoc: planGenerationRequest.visionDoc || "",
+        teamId: useTeamStore.getState().activeTeamId ?? '',
         status: "active",
         projectType: "plan",
         color: getColorForName(project.name),

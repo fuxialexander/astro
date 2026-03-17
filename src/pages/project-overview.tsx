@@ -32,6 +32,7 @@ import { ActivityDialog } from "@/components/activity-dialog"
 import { LabelManagerDialog } from "@/components/label-manager-dialog"
 import { RichTextEditor, type RichTextEditorRef } from "@/components/ui/rich-text-editor"
 import { useProjectStore } from "@/stores/project-store"
+import { useTeamStore } from "@/stores/team-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
 import { useActivityStore } from "@/stores/activity-store"
@@ -84,6 +85,10 @@ export function OverviewTab({
   const liveMachines = useExecutionStore((s) => s.machines)
   const defaultProvider = useSettingsStore((s) => s.defaultProvider)
   const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider)
+  const activeTeamId = useTeamStore((s) => s.activeTeamId)
+  const teamMemberCount = useTeamStore((s) => (activeTeamId ? (s.teamMembers[activeTeamId]?.length ?? 0) : 0))
+  const isSoloWorkspace = teamMemberCount <= 1
+  const teamMembers = useTeamStore((s) => activeTeamId ? s.teamMembers[activeTeamId] ?? [] : [])
   const miAssign = useMachineInstructionStore((s) => s.assignToMachine)
   const recentActivities = useMemo(
     () => activities.filter((a) => a.projectId === project.id).slice(0, 3),
@@ -693,15 +698,26 @@ export function OverviewTab({
             <span className="text-[13px]">{formatDate(project.targetDate)}</span>
           </div>
 
-          <div className="flex items-center justify-between">
-            <span className="text-[13px] text-muted-foreground">Lead</span>
-            <div className="flex items-center gap-1.5">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
-                {(project.lead ?? "U").charAt(0)}
-              </span>
-              <span className="text-[13px]">{project.lead ?? "—"}</span>
+          {!isSoloWorkspace && (
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] text-muted-foreground">Lead</span>
+              <select
+                className="text-[13px] rounded-md border border-input bg-background px-2 py-1 max-w-[160px]"
+                value={project.lead ?? ""}
+                onChange={(e) => updateProject(project.id, { lead: e.target.value || undefined })}
+              >
+                <option value="">Unassigned</option>
+                {teamMembers.map((m) => {
+                  const label = m.user?.name || m.user?.email || m.userId
+                  return (
+                    <option key={m.userId} value={m.userId}>
+                      {label}
+                    </option>
+                  )
+                })}
+              </select>
             </div>
-          </div>
+          )}
 
           <div className="flex items-center justify-between">
             <span className="text-[13px] text-muted-foreground">Start Date</span>

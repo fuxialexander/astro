@@ -238,8 +238,9 @@ function mapSkillRow(row: Record<string, unknown>): SkillRow {
 
 export const dataClient = {
   // ── Projects ────────────────────────────────────────────────────────
-  async listProjects(): Promise<Project[]> {
-    const rows = await json<Record<string, unknown>[]>(`${BASE}/projects`)
+  async listProjects(opts?: { allTeams?: boolean }): Promise<Project[]> {
+    const params = opts?.allTeams ? '?allTeams=1' : ''
+    const rows = await json<Record<string, unknown>[]>(`${BASE}/projects${params}`)
     return rows.map(mapProject)
   },
 
@@ -288,8 +289,11 @@ export const dataClient = {
   },
 
   // ── Plan ────────────────────────────────────────────────────────────
-  async getAllPlans(opts?: { slim?: boolean }): Promise<{ nodes: PlanNode[]; edges: PlanEdge[] }> {
-    const params = opts?.slim ? '?slim=1' : ''
+  async getAllPlans(opts?: { slim?: boolean; allTeams?: boolean }): Promise<{ nodes: PlanNode[]; edges: PlanEdge[] }> {
+    const qp = new URLSearchParams()
+    if (opts?.slim) qp.set('slim', '1')
+    if (opts?.allTeams) qp.set('allTeams', '1')
+    const params = qp.toString() ? `?${qp.toString()}` : ''
     const data = await json<{ nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] }>(`${BASE}/plan${params}`)
     return { nodes: data.nodes.map(mapNode), edges: data.edges.map(mapEdge) }
   },

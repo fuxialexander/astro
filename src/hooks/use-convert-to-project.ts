@@ -187,6 +187,7 @@ export function useConvertToProject() {
         name: projectName,
         description: enrichedDescription,
         visionDoc: sourceProject.visionDoc || "",
+        teamId: sourceProject.teamId,
         status: "active",
         color: getColorForName(projectName),
         icon: getProjectIconForName(projectName),

@@ -7,6 +7,7 @@ const project: Project = {
   name: 'GitHub Project',
   description: '',
   visionDoc: '',
+  teamId: 'team-1',
   status: 'active',
   projectType: 'github',
   githubOwner: 'org',

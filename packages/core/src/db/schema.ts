@@ -16,7 +16,7 @@ export const projects = pgTable('projects', {
   lead: text('lead'),
   health: text('health'), // 'on_track' | 'at_risk' | 'off_track'
   initiativeId: uuid('initiative_id'),
-  teamId: uuid('team_id'),
+  teamId: uuid('team_id').notNull(),
   progress: integer('progress').default(0),
   labels: jsonb('labels').$type<{ id: string; name: string; color: string }[]>().notNull().default([]),
   color: text('color').default('#3b82f6'),
@@ -61,7 +61,7 @@ export const initiatives = pgTable('initiatives', {
   lead: text('lead'),
   color: text('color').default('#3b82f6'),
   icon: text('icon').default('🎯'),
-  teamId: uuid('team_id'),
+  teamId: uuid('team_id').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (table) => ({
@@ -699,7 +699,7 @@ export const machineUsageLogs = pgTable('machine_usage_logs', {
 export const blobs = pgTable('blobs', {
   id: uuid('id').primaryKey().defaultRandom(),
   ownerId: uuid('owner_id').notNull(),
-  teamId: uuid('team_id'),
+  teamId: uuid('team_id').notNull(),
   mimeType: text('mime_type').notNull(),
   size: integer('size').notNull(),
   data: text('data').notNull(), // base64-encoded

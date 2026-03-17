@@ -21,6 +21,7 @@ import { PlanListView, PlanTimelineView, PlanBoardView } from "@/pages/plan-view
 import { NodeInspectorSheet, NodeInspectorSidebar } from "@/components/node-inspector"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
+import { useTeamStore } from "@/stores/team-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { PRIORITY_CONFIG } from "@/lib/constants"
@@ -118,9 +119,21 @@ type MyTasksViewMode = "list" | "timeline" | "board"
 export function MyTasks() {
   const { t } = useTranslation('tasks')
   const allProjects = useProjectStore((s) => s.projects)
+  const loadAllTeams = useProjectStore((s) => s.loadAllTeams)
+  const loadAllTeamsPlans = usePlanStore((s) => s.loadAllTeams)
+  const teams = useTeamStore((s) => s.teams)
+  const activeTeamId = useTeamStore((s) => s.activeTeamId)
+
+  // Load all teams' data on mount for cross-team task view
+  useEffect(() => {
+    loadAllTeams()
+    loadAllTeamsPlans()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Filter out playground sessions — they have no plan nodes and shouldn't appear in task views
   const projects = useMemo(
-    () => allProjects.filter((p) => p.projectType !== 'playground'),
+    () => allProjects.filter((p) => p.projectType != null && p.projectType !== 'playground'),
     [allProjects]
   )
   const projectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects])
@@ -142,6 +155,8 @@ export function MyTasks() {
   })
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all")
   const [projectFilter, setProjectFilter] = useState<string>("all")
+  // Default to active team in multi-team workspaces; "all" for solo users
+  const [teamFilter, setTeamFilter] = useState<string>(() => teams.length > 1 && activeTeamId ? activeTeamId : "all")
   const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
 
@@ -156,6 +171,13 @@ export function MyTasks() {
   const projectMap = useMemo(() => {
     const m = new Map<string, string>()
     for (const p of projects) m.set(p.id, p.name)
+    return m
+  }, [projects])
+
+  // Map: projectId -> teamId (for team-based filtering)
+  const projectTeamMap = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const p of projects) if (p.teamId) m.set(p.id, p.teamId)
     return m
   }, [projects])
 
@@ -187,8 +209,9 @@ export function MyTasks() {
     if (statusFilter !== "all") tasks = tasks.filter((n) => n.status === statusFilter)
     if (priorityFilter !== "all") tasks = tasks.filter((n) => (n.priority ?? "none") === priorityFilter)
     if (projectFilter !== "all") tasks = tasks.filter((n) => n.projectId === projectFilter)
+    if (teamFilter !== "all") tasks = tasks.filter((n) => projectTeamMap.get(n.projectId) === teamFilter)
     return tasks
-  }, [nodes, displaySettings.showCompleted, statusFilter, priorityFilter, projectFilter])
+  }, [nodes, displaySettings.showCompleted, statusFilter, priorityFilter, projectFilter, teamFilter, projectTeamMap])
 
   // Sort
   const sortedTasks = useMemo(() => {
@@ -319,12 +342,13 @@ export function MyTasks() {
   // Stats
   const activeCount = nodes.filter((n) => n.type !== "milestone" && (n.status === "in_progress" || n.status === "dispatched")).length
   const needsReviewCount = nodes.filter((n) => n.type !== "milestone" && n.status === "awaiting_judgment").length
-  const hasActiveFilters = statusFilter !== "all" || priorityFilter !== "all" || projectFilter !== "all"
+  const hasActiveFilters = statusFilter !== "all" || priorityFilter !== "all" || projectFilter !== "all" || teamFilter !== "all"
 
   const clearFilters = () => {
     setStatusFilter("all")
     setPriorityFilter("all")
     setProjectFilter("all")
+    setTeamFilter("all")
   }
 
   const getProjectName = useCallback((node: PlanNode) => projectMap.get(node.projectId), [projectMap])
@@ -434,6 +458,17 @@ export function MyTasks() {
             ]}
             onChange={setProjectFilter}
           />
+          {teams.length > 1 && (
+            <FilterSelect
+              label="Team"
+              value={teamFilter}
+              options={[
+                { value: "all", label: "All Teams" },
+                ...teams.map((t) => ({ value: t.id, label: t.name })),
+              ]}
+              onChange={setTeamFilter}
+            />
+          )}
         </div>
 
         {hasActiveFilters && (

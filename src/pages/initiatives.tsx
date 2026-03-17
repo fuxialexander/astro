@@ -52,6 +52,7 @@ import { getRandomColor, getRandomInitiativeIcon } from "@/lib/color-icon-utils"
 import { OnboardingHint } from "@/components/onboarding-hint"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import { useTeamStore } from "@/stores/team-store"
 import type { Initiative, Project } from "@/types"
 
 const statusConfig: Record<
@@ -424,6 +425,10 @@ export default function InitiativesPage() {
   const navigate = useNavigate()
   const { initiatives, addInitiative, updateInitiative, deleteInitiative } = useInitiativeStore()
   const { projects, updateProject, deleteProject } = useProjectStore()
+  const activeTeamId = useTeamStore((s) => s.activeTeamId)
+  const teamMemberCount = useTeamStore((s) => (activeTeamId ? (s.teamMembers[activeTeamId]?.length ?? 0) : 0))
+  const isSoloWorkspace = teamMemberCount <= 1
+  const teamMembers = useTeamStore((s) => activeTeamId ? s.teamMembers[activeTeamId] ?? [] : [])
   const [showDialog, setShowDialog] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -1040,15 +1045,27 @@ export default function InitiativesPage() {
               </div>
             </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="lead">Lead</Label>
-              <Input
-                id="lead"
-                value={formData.lead || ""}
-                onChange={(e) => setFormData({ ...formData, lead: e.target.value })}
-                placeholder="Person or team leading this plan"
-              />
-            </div>
+            {!isSoloWorkspace && (
+              <div className="grid gap-2">
+                <Label htmlFor="lead">Lead</Label>
+                <select
+                  id="lead"
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={formData.lead || ""}
+                  onChange={(e) => setFormData({ ...formData, lead: e.target.value })}
+                >
+                  <option value="">Unassigned</option>
+                  {teamMembers.map((m) => {
+                    const label = m.user?.name || m.user?.email || m.userId
+                    return (
+                      <option key={m.userId} value={m.userId}>
+                        {label}
+                      </option>
+                    )
+                  })}
+                </select>
+              </div>
+            )}
           </div>
 
           <DialogFooter>

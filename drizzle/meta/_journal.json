@@ -211,6 +211,13 @@
       "when": 1773820800000,
       "tag": "0029_add_execution_user_verification",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1773907200000,
+      "tag": "0030_backfill_team_id_not_null",
+      "breakpoints": true
     }
   ]
 }

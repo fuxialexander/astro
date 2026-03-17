@@ -10,6 +10,8 @@ interface ProjectState {
   loading: boolean
   error: string | null
   load: () => Promise<void>
+  /** Load projects from ALL user's teams (for cross-team views). */
+  loadAllTeams: () => Promise<void>
   addProject: (project: Project) => Promise<void>
   updateProject: (id: string, updates: Partial<Project>) => void
   updateFileTree: (id: string, files: string[], machineId?: string) => void
@@ -29,6 +31,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ loading: true, error: null })
     try {
       const projects = await dataClient.listProjects()
+      set({ projects, loaded: true, loading: false })
+    } catch (err) {
+      set({ projects: SEED_PROJECTS, loaded: true, loading: false, error: err instanceof Error ? err.message : 'Failed to load projects' })
+    }
+  },
+
+  loadAllTeams: async () => {
+    set({ loading: true, error: null })
+    try {
+      const projects = await dataClient.listProjects({ allTeams: true })
       set({ projects, loaded: true, loading: false })
     } catch (err) {
       set({ projects: SEED_PROJECTS, loaded: true, loading: false, error: err instanceof Error ? err.message : 'Failed to load projects' })

@@ -186,6 +186,8 @@ interface PlanState {
   /** Node IDs recently updated via chat mutations — briefly highlighted in graph */
   recentlyUpdatedNodeIds: Set<string>
   load: () => Promise<void>
+  /** Load slim plan data from ALL user's teams (for cross-team views). */
+  loadAllTeams: () => Promise<void>
   /** Load full data for a single project (includes content + executionOutput). Merges into existing state. */
   loadForProject: (projectId: string) => Promise<void>
   addNode: (node: PlanNode) => void
@@ -307,6 +309,60 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       set({ nodes, edges, loaded: true })
     } catch {
       // API unavailable — start with empty data
+      set({ nodes: SEED_NODES, edges: SEED_EDGES, loaded: true })
+    }
+  },
+
+  loadAllTeams: async () => {
+    try {
+      const { nodes: apiNodes, edges: rawApiEdges } = await dataClient.getAllPlans({ slim: true, allTeams: true })
+      const seen = new Set<string>()
+      const edges = rawApiEdges.filter((e) => {
+        const key = `${e.source}->${e.target}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+
+      const seenIds = new Set<string>()
+      const contentMap = new Map<string, PlanNode>()
+      const keepIds = new Set<string>()
+      for (const n of apiNodes) {
+        if (seenIds.has(n.id)) continue
+        seenIds.add(n.id)
+        const contentKey = `${n.projectId}::${n.type}::${n.title ?? ''}::${(n.description ?? '').slice(0, 500)}`
+        const existing = contentMap.get(contentKey)
+        if (existing) {
+          const existingNum = existing.number ?? Infinity
+          const currentNum = n.number ?? Infinity
+          if (currentNum < existingNum) {
+            keepIds.delete(existing.id)
+            keepIds.add(n.id)
+            contentMap.set(contentKey, n)
+          }
+        } else {
+          contentMap.set(contentKey, n)
+          keepIds.add(n.id)
+        }
+      }
+      const nodes = apiNodes.filter((n) => keepIds.has(n.id))
+
+      const nodeIdSet = new Set(nodes.map((n) => n.id))
+      const depsMap = new Map<string, string[]>()
+      for (const e of edges) {
+        if (!nodeIdSet.has(e.source) || !nodeIdSet.has(e.target)) continue
+        let deps = depsMap.get(e.target)
+        if (!deps) { deps = []; depsMap.set(e.target, deps) }
+        deps.push(e.source)
+      }
+      for (const node of nodes) {
+        node.dependencies = depsMap.get(node.id) ?? []
+      }
+
+      ensurePositions(nodes, edges)
+      reconcileMilestones(nodes, edges)
+      set({ nodes, edges, loaded: true })
+    } catch {
       set({ nodes: SEED_NODES, edges: SEED_EDGES, loaded: true })
     }
   },
