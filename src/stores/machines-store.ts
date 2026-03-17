@@ -30,19 +30,24 @@ export interface RegisteredMachine {
   lastSeenAt: string
   isConnected: boolean
   isRevoked: boolean
+  teamId?: string | null
+  userId?: string
 }
 
 interface MachinesState {
   machines: RegisteredMachine[]
+  teamMachines: RegisteredMachine[]
   loading: boolean
   error: string | null
 
   // Actions
   fetchMachines: () => Promise<void>
+  fetchTeamMachines: () => Promise<void>
   revokeMachine: (machineId: string) => Promise<boolean>
   renameMachine: (machineId: string, name: string) => Promise<boolean>
   updateMachineProviderConfigs: (machineId: string, configs: ProviderConfig[]) => Promise<boolean>
   updateMachineStatus: (machineId: string, isConnected: boolean) => void
+  shareMachine: (machineId: string, shared: boolean) => Promise<boolean>
 }
 
 /**
@@ -61,6 +66,7 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
 
 export const useMachinesStore = create<MachinesState>((set) => ({
   machines: [],
+  teamMachines: [],
   loading: false,
   error: null,
 
@@ -78,6 +84,41 @@ export const useMachinesStore = create<MachinesState>((set) => ({
       set({ machines, loading: false })
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Unknown error', loading: false })
+    }
+  },
+
+  fetchTeamMachines: async () => {
+    try {
+      const headers = await getAuthHeaders()
+      const response = await fetch(apiUrl('/api/device/team-machines'), { headers })
+      if (!response.ok) throw new Error('Failed to fetch team machines')
+      const data = await response.json()
+      set({ teamMachines: data.machines || [] })
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : 'Unknown error' })
+    }
+  },
+
+  shareMachine: async (machineId: string, shared: boolean): Promise<boolean> => {
+    try {
+      const headers = await getAuthHeaders()
+      headers['Content-Type'] = 'application/json'
+      const response = await fetch(apiUrl(`/api/device/machines/${machineId}/share`), {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ shared }),
+      })
+      if (!response.ok) throw new Error('Failed to update machine sharing')
+      // Update local state — reflect new teamId
+      set((state) => ({
+        machines: state.machines.map((m) =>
+          m.id === machineId ? { ...m, teamId: shared ? 'team' : null } : m
+        ),
+      }))
+      return true
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : 'Unknown error' })
+      return false
     }
   },
 

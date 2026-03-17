@@ -201,6 +201,7 @@ const INTERNAL_FLAGS: Record<string, boolean> = {
   'github-integration': true,
   'webhook-automation': true,
   'loop-nodes': true,
+  'team-machines': true,
 }
 
 // ─── Script logic ────────────────────────────────────────────────────
