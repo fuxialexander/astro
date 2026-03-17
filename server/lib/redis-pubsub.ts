@@ -26,6 +26,8 @@ const CHANNELS = {
   APPROVAL_RESPONSE: 'relay:approval:response',
   TASK_STEER: 'relay:task:steer',
   SAFETY_DECISION: 'relay:safety:decision',
+  WS_PROXY_REQUEST: 'relay:ws:proxy:request',
+  WS_PROXY_RESPONSE: 'relay:ws:proxy:response',
 } as const;
 
 /** Redis keys for shared state */
@@ -91,6 +93,23 @@ export interface SafetyDecisionEvent {
   decision: 'proceed' | 'init-git' | 'sandbox' | 'cancel';
 }
 
+/** Message published for cross-instance WebSocket proxy request */
+export interface WsProxyRequestEvent {
+  instanceId: string;
+  machineId: string;
+  correlationId: string;
+  messageType: string;
+  payload: Record<string, unknown>;
+}
+
+/** Message published for cross-instance WebSocket proxy response */
+export interface WsProxyResponseEvent {
+  targetInstanceId: string;
+  correlationId: string;
+  responseType: string;
+  payload: Record<string, unknown>;
+}
+
 /** Execution context stored in Redis for cross-instance user isolation */
 export interface RedisExecutionContext {
   executionId: string;
@@ -126,6 +145,8 @@ export interface RedisPubSubEvents {
   'approval:response': (event: ApprovalResponseEvent) => void;
   'task:steer': (event: TaskSteerEvent) => void;
   'safety:decision': (event: SafetyDecisionEvent) => void;
+  'ws:proxy:request': (event: WsProxyRequestEvent) => void;
+  'ws:proxy:response': (event: WsProxyResponseEvent) => void;
   'error': (error: Error) => void;
   'connected': () => void;
   'disconnected': () => void;
@@ -193,7 +214,9 @@ export class RedisPubSub extends EventEmitter {
         CHANNELS.TASK_STREAMING,
         CHANNELS.APPROVAL_RESPONSE,
         CHANNELS.TASK_STEER,
-        CHANNELS.SAFETY_DECISION
+        CHANNELS.SAFETY_DECISION,
+        CHANNELS.WS_PROXY_REQUEST,
+        CHANNELS.WS_PROXY_RESPONSE
       );
 
       // Handle incoming messages
@@ -356,6 +379,30 @@ export class RedisPubSub extends EventEmitter {
       ...event,
       instanceId: this.instanceId,
     });
+  }
+
+  // =========================================================================
+  // WebSocket Proxy (cross-instance filesystem / session requests)
+  // =========================================================================
+
+  /**
+   * Publish a WebSocket proxy request. Used when a filesystem or session
+   * request arrives on an instance that doesn't own the machine's WebSocket.
+   * The instance that owns the WebSocket picks it up and forwards it.
+   */
+  async publishWsProxyRequest(event: Omit<WsProxyRequestEvent, 'instanceId'>): Promise<void> {
+    if (!this.publisher) return;
+    const msg: WsProxyRequestEvent = { ...event, instanceId: this.instanceId };
+    await this.publisher.publish(CHANNELS.WS_PROXY_REQUEST, JSON.stringify(msg));
+  }
+
+  /**
+   * Publish a WebSocket proxy response. Sent by the instance that owns
+   * the machine's WebSocket after receiving the agent-runner's response.
+   */
+  async publishWsProxyResponse(event: WsProxyResponseEvent): Promise<void> {
+    if (!this.publisher) return;
+    await this.publisher.publish(CHANNELS.WS_PROXY_RESPONSE, JSON.stringify(event));
   }
 
   // =========================================================================
@@ -809,6 +856,14 @@ export class RedisPubSub extends EventEmitter {
 
       case CHANNELS.SAFETY_DECISION:
         this.emit('safety:decision', data as SafetyDecisionEvent);
+        break;
+
+      case CHANNELS.WS_PROXY_REQUEST:
+        this.emit('ws:proxy:request', data as WsProxyRequestEvent);
+        break;
+
+      case CHANNELS.WS_PROXY_RESPONSE:
+        this.emit('ws:proxy:response', data as WsProxyResponseEvent);
         break;
     }
   }

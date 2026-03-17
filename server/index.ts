@@ -412,6 +412,53 @@ async function start() {
           relayServer.cancelTask(event.taskId, event.machineId, event.reason)
         }
       })
+
+      // WebSocket proxy: forward requests to locally-connected machines
+      redisPubSub.on('ws:proxy:request', (event) => {
+        // Only handle if this instance owns the machine's WebSocket
+        if (!machineRegistry.isLocal(event.machineId)) return
+        const sent = relayServer.handleWsProxyRequest(event.machineId, event.messageType, event.payload)
+        if (!sent) {
+          console.warn(`[relay] WS proxy: failed to forward ${event.messageType} to machine ${event.machineId}`)
+        }
+      })
+
+      // WebSocket proxy: relay responses back to the requesting instance.
+      // When this instance receives a response from a locally-connected machine
+      // for a request that originated on another instance, publish it via Redis.
+      // The response events use the same correlationId, so the requesting instance
+      // resolves its Promise when the WS proxy response arrives.
+      redisPubSub.on('ws:proxy:response', (event) => {
+        // All instances receive this — the one waiting for this correlationId
+        // will have a listener on the relay server's EventEmitter that picks it up.
+        relayServer.emit(event.responseType, event.payload)
+      })
+
+      // Bridge relay responses → Redis for cross-instance proxy.
+      // When this instance gets a response from a machine (file_list, directory_list, etc.)
+      // for a proxied request, re-publish the response so the originating instance resolves.
+      const proxyResponseTypes = [
+        'file_list:response',
+        'directory_list:response',
+        'file_content:response',
+        'file_upload:response',
+        'create_directory:response',
+        'sessions_list:response',
+        'repo_setup:response',
+        'repo_detect:response',
+        'slash_commands:response',
+      ]
+      for (const eventType of proxyResponseTypes) {
+        relayServer.on(eventType, (data: Record<string, unknown>) => {
+          if (!redisPubSub.isConnected()) return
+          redisPubSub.publishWsProxyResponse({
+            targetInstanceId: '', // broadcast — the instance with the matching correlationId picks it up
+            correlationId: (data as { correlationId?: string }).correlationId || '',
+            responseType: eventType,
+            payload: data,
+          }).catch(() => {})
+        })
+      }
     }
 
     // Bridge executionEventBus → Redis for cross-instance delivery.
