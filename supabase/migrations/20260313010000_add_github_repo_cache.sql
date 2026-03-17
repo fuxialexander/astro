@@ -62,30 +62,50 @@ CREATE INDEX IF NOT EXISTS github_pr_cache_project_review_idx
 ALTER TABLE github_issue_cache ENABLE ROW LEVEL SECURITY;
 ALTER TABLE github_pr_cache ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY github_issue_cache_select_policy ON github_issue_cache
-  FOR SELECT
-  USING (
-    project_id IN (
-      SELECT id FROM projects WHERE owner_id = auth.uid()
-      OR team_id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
-    )
-  );
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'github_issue_cache' AND policyname = 'github_issue_cache_select_policy'
+  ) THEN
+    CREATE POLICY github_issue_cache_select_policy ON github_issue_cache
+      FOR SELECT
+      USING (
+        project_id IN (
+          SELECT id FROM projects WHERE owner_id = auth.uid()
+          OR team_id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
+        )
+      );
+  END IF;
 
-CREATE POLICY github_issue_cache_service_role_policy ON github_issue_cache
-  FOR ALL
-  USING (auth.role() = 'service_role')
-  WITH CHECK (auth.role() = 'service_role');
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'github_issue_cache' AND policyname = 'github_issue_cache_service_role_policy'
+  ) THEN
+    CREATE POLICY github_issue_cache_service_role_policy ON github_issue_cache
+      FOR ALL
+      USING (auth.role() = 'service_role')
+      WITH CHECK (auth.role() = 'service_role');
+  END IF;
 
-CREATE POLICY github_pr_cache_select_policy ON github_pr_cache
-  FOR SELECT
-  USING (
-    project_id IN (
-      SELECT id FROM projects WHERE owner_id = auth.uid()
-      OR team_id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
-    )
-  );
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'github_pr_cache' AND policyname = 'github_pr_cache_select_policy'
+  ) THEN
+    CREATE POLICY github_pr_cache_select_policy ON github_pr_cache
+      FOR SELECT
+      USING (
+        project_id IN (
+          SELECT id FROM projects WHERE owner_id = auth.uid()
+          OR team_id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
+        )
+      );
+  END IF;
 
-CREATE POLICY github_pr_cache_service_role_policy ON github_pr_cache
-  FOR ALL
-  USING (auth.role() = 'service_role')
-  WITH CHECK (auth.role() = 'service_role');
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'github_pr_cache' AND policyname = 'github_pr_cache_service_role_policy'
+  ) THEN
+    CREATE POLICY github_pr_cache_service_role_policy ON github_pr_cache
+      FOR ALL
+      USING (auth.role() = 'service_role')
+      WITH CHECK (auth.role() = 'service_role');
+  END IF;
+END
+$$;
