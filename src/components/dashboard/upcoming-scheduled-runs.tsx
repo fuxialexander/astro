@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link } from "react-router"
 import { ArrowUpRight, Clock3, Cpu, RefreshCw } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -56,8 +56,12 @@ export function UpcomingScheduledRuns({
     [projects],
   )
 
+  const projectsRef = useRef(projects)
+  projectsRef.current = projects
+
   const loadSchedules = useCallback(async () => {
-    if (projects.length === 0) {
+    const currentProjects = projectsRef.current
+    if (currentProjects.length === 0) {
       setItems([])
       setError(null)
       return
@@ -69,7 +73,7 @@ export function UpcomingScheduledRuns({
     try {
       const headers = await authHeaders()
       const results = await Promise.all(
-        projects.map(async (project) => {
+        currentProjects.map(async (project) => {
           const res = await fetch(apiUrl(`/api/schedules?projectId=${project.id}`), { headers })
           if (!res.ok) throw new Error(`Failed to load schedules for ${project.name}`)
           const payload = await res.json() as ScheduleListResponse
@@ -92,7 +96,7 @@ export function UpcomingScheduledRuns({
     } finally {
       setLoading(false)
     }
-  }, [projects])
+  }, [])
 
   useEffect(() => {
     void loadSchedules()

@@ -124,7 +124,7 @@ export function Dashboard() {
   ).length + dynamicApprovals.size
 
   const pendingNodes = nodes.filter((n) => n.status === "awaiting_judgment" || n.status === "awaiting_approval")
-  const activeProjects = projects.filter((p) => p.status === "active")
+  const activeProjects = useMemo(() => projects.filter((p) => p.status === "active"), [projects])
   const regularProjects = useMemo(() => activeProjects.filter((p) => p.projectType !== "playground"), [activeProjects])
   const playgroundProjects = useMemo(() => activeProjects.filter((p) => p.projectType === "playground"), [activeProjects])
 
