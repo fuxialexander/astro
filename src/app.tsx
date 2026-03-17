@@ -40,6 +40,7 @@ import { PluginLoader } from "@/components/plugin-loader"
 import { PluginRoutes } from "@/components/plugin-routes"
 import { getBrowserHostname } from "@/lib/path-utils"
 import { refreshAllFileTrees } from "@/hooks/use-file-tree-refresh"
+import { AppErrorBoundary } from "@/components/app-error-boundary"
 import { useGitHubStore } from "@/stores/github-store"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
 import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
@@ -328,6 +329,7 @@ export default function App() {
   useIOSKeyboardFix()
 
   return (
+    <AppErrorBoundary>
     <Suspense fallback={null}>
     <ThemeProvider defaultTheme="system">
       <TooltipProvider>
@@ -388,5 +390,6 @@ export default function App() {
       </TooltipProvider>
     </ThemeProvider>
     </Suspense>
+    </AppErrorBoundary>
   )
 }
