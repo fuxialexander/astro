@@ -1,8 +1,8 @@
 # Astro — Architecture
 
-> **Last updated:** 2026-02-27
+> **Last updated:** 2026-03-17
 > **Consolidates:** Previous `ARCHITECTURE.md` (operational) + `SERVER_ARCHITECTURE_V2.md` (strategic)
-> **Status:** PGlite + team-scoped data refactor **complete**. IndexedDB fully removed. Phase 3 (stateless backend) **complete** — all persistent in-memory Maps moved to Postgres. Monorepo extraction (`@astro/core`, `@astroanywhere/cli`) **complete**.
+> **Status:** PGlite + team-scoped data refactor **complete**. IndexedDB fully removed. Phase 5 (stateless backend) **complete** — all persistent in-memory Maps moved to Postgres. Phase 6 (Redis cross-instance relay) **complete** — 10 pub/sub channels, 12 key patterns, WebSocket proxy. Phase 8 (lazy data loading) **complete** — slim global load + per-project full load. Monorepo extraction (`@astro/core`, `@astroanywhere/cli`) **complete**.
 
 ---
 
@@ -356,7 +356,9 @@ export const useProjectStore = create<ProjectStore>((set) => ({
 }))
 ```
 
-**DataLoader** (`src/app.tsx`): Loads all stores on app mount, shows "Loading..." until all are ready. After projects load, background-refreshes file trees for `@` autocomplete.
+**DataLoader** (`src/app.tsx`): Two-phase loading — teams load first (sets `X-Team-Id` header for all subsequent API calls), then all other stores in parallel. **Critical stores** (`teams`, `projects`, `plan`, `userProfile`, `sidebar`) must load before page renders; **non-critical stores** (`settings`, `displaySettings`, `taskChat`, `usage`, `sessions`, `initiatives`, `executions`, `agent`, `activities`, `plugins`, `skills`, `templates`) load in background while the app is already interactive.
+
+Plan and execution stores use **slim mode** on initial load (`?slim=1`) — excludes `content`, `executionOutput`, and `streamText` fields to reduce initial transfer from ~10-50 MB to ~1-5 MB. Per-project full data is fetched on navigation via the `useProjectData` hook (see §4.6).
 
 ### 4.4 Ephemeral Data (Not in Database)
 
@@ -380,6 +382,33 @@ These are auto-fetched in the background on page load via `useFileTreeRefresh` h
 | Machine registry | In-memory + Postgres | In-memory + Postgres |
 | Agent runner config | `~/.config/astro-agent/` | `~/.config/astro-agent/` |
 | Git worktrees | `{projectDir}/.astro/worktrees/` | `{projectDir}/.astro/worktrees/` |
+| Cross-instance state | N/A | Redis pub/sub + write-through keys (Upstash) |
+
+### 4.6 Two-Tier Lazy Data Loading
+
+To prevent multi-megabyte initial page loads, plan and execution data uses a slim/full two-tier strategy:
+
+```
+STARTUP (DataLoader)
+  GET /api/data/plan?slim=1          → All projects: titles, status, dates (no content/executionOutput)
+  GET /api/data/executions?slim=1    → All executions: metadata only (no streamText)
+                                       ≈ 1-5 MB for 200 tasks
+
+NAVIGATION (useProjectData hook — triggered on /project/:id/*)
+  GET /api/data/plan/:projectId      → Full nodes with content, executionOutput
+  GET /api/data/executions?projectId=X → Full executions with streamText
+                                       ≈ 0.5-5 MB per project
+```
+
+**Pages using slim data only** (no per-project load): Dashboard, Projects list, My Tasks, Active Tasks, Initiatives, Environments, Playground, Workflows, Examples
+
+**Pages triggering full per-project load**: Plan View (`/project/:id/*`), Task Detail (`/project/:id/task/:nodeId`)
+
+**Merge behavior:**
+- **Plan store**: replaces all nodes/edges for the target project, preserves other projects' data
+- **Execution store**: replaces completed executions, **preserves running executions** (they have live SSE streaming buffers that would be lost on replacement)
+
+See `LAZY_DATA_LOADING.md` for the complete design including content sync patterns and test coverage.
 
 ---
 
@@ -774,21 +803,22 @@ if (isServerMode()) {
 
 ## 13. Scaling Strategy
 
-### 13.1 The Stack: Fly.io + Postgres
+### 13.1 The Stack: Fly.io + Redis + Postgres
 
-1. **Compute (Fly.io)** — Hono backend + relay. Scales horizontally.
-2. **Database (Postgres)** — All persistent state. Scales vertically.
+1. **Compute (Fly.io)** — 2× Hono backend + relay instances, shared-cpu-2x, 2 GB RAM each. Load-balanced HTTP, sticky WebSocket.
+2. **Cross-instance state (Upstash Redis)** — Pub/sub for real-time event bridging. Write-through keys for machine ownership, execution context, leader election.
+3. **Database (Supabase Postgres)** — All persistent state. Source of truth for recovery.
 
 ### 13.2 Scaling Tiers
 
-| Tier | Users | Infra | Cost | Prerequisites |
-|------|-------|-------|------|---------------|
-| Alpha (current) | 10-50 | 1 Fly.io machine, Supabase Pro | ~$55/mo | None |
-| Beta | 100-500 | 2-3 Fly.io machines, Postgres LISTEN/NOTIFY | ~$85-145/mo | Phase 3 (stateless backend) |
-| Production | 1K-10K | 3-10 machines, Supabase Enterprise | ~$200-500/mo | Read replicas, multi-region |
-| Scale | 10K+ | Add Redis for relay pub/sub, database partitioning | Custom | Separate relay app, CDN caching |
+| Tier | Users | Infra | Cost | Status |
+|------|-------|-------|------|--------|
+| Local | 1 | PGlite, no auth, localhost | Free | Available |
+| **Beta (current)** | **50-500** | **2 Fly.io machines (shared-cpu-2x, 2GB), Upstash Redis (pay-per-use), Supabase Pro** | **~$40-50/mo** | **ACTIVE** |
+| Production | 1K-10K | 3-10 machines, Redis replicas, Supabase Enterprise, multi-region | ~$200-500/mo | Future |
+| Scale | 10K+ | Dedicated relay app, read replicas, CDN caching, database partitioning | Custom | Future |
 
-### 13.3 Horizontal Scaling (Phase 3 — DONE)
+### 13.3 Stateless Backend (Phase 5 — DONE)
 
 All blockers to horizontal scaling have been resolved. In-memory Maps that held persistent state have been moved to Postgres:
 
@@ -800,11 +830,50 @@ All blockers to horizontal scaling have been resolved. In-memory Maps that held 
 | Shared bundles | `Map` in `share.ts` | `shared_bundles` table | DONE |
 | Dispatch queue | 3 `Map`s in `dispatch-queue.ts` | `dispatch_queue_entries` table | DONE |
 | Machine registry | DB-authoritative | Already uses `registered_machines` table | N/A |
-| Cross-instance relay | N/A | Postgres `LISTEN/NOTIFY` (future, not yet needed) | Deferred |
 
-**Running 2+ Fly.io machines is now safe.** The production WebAuthn auth bug (challenge on Machine A invisible to Machine B) is fixed.
+### 13.4 Redis Cross-Instance Relay (Phase 6 — DONE)
 
-**Note on real-time transport and scaling:** The remaining instance-local state (`ExecutionEventBus`, relay EventEmitter subscriptions, `activeDispatchStreams`, `executionContextStore`) affects both SSE and WebSocket equally. Switching to WebSocket does not change the horizontal scaling story — both transports require the same cross-instance event broadcast solution (Redis pub/sub or Postgres LISTEN/NOTIFY). The persistence layer (`streaming_events` table, catch-up endpoint, hydration) is already transport-agnostic.
+All cross-instance communication flows through **Upstash Redis** (pay-as-you-go, sjc region, co-located with Fly.io).
+
+**10 Pub/Sub Channels:**
+
+| Channel | Direction | Purpose |
+|---------|-----------|---------|
+| `relay:machine:state` | Instance → All | Machine lifecycle (connect/disconnect/update) — syncs machine registry |
+| `relay:task:state` | Instance → All | Task state changes |
+| `relay:task:dispatch` | Instance → Target | Route task dispatch to instance owning machine's WebSocket |
+| `relay:task:cancel` | Instance → Target | Route task cancellation |
+| `relay:task:streaming` | Instance → All | Streaming events (text, tool_use, tool_result, file_change, etc.) for cross-instance SSE |
+| `relay:approval:response` | Instance → Target | Route approval answer to machine's instance |
+| `relay:task:steer` | Instance → Target | Route steer message (guidance, redirect, pause, resume) |
+| `relay:safety:decision` | Instance → Target | Route safety decision (proceed, init-git, sandbox, cancel) |
+| `relay:ws:proxy:request` | Instance → Target | Cross-instance WebSocket proxy (filesystem, sessions, repo operations) |
+| `relay:ws:proxy:response` | Target → Requester | Proxy responses (broadcast, matched by correlationId) |
+
+**12 Write-Through Key Patterns:**
+
+| Key Pattern | TTL | Purpose |
+|-------------|-----|---------|
+| `relay:machines` | No expiry | HSET of all registered machines (machineId → entry JSON) |
+| `relay:machine:instance:<machineId>` | 5 min | Maps machine to owning instance (refreshed by heartbeat) |
+| `relay:instance:<instanceId>` | 60s | Instance health heartbeat (every 30s) |
+| `relay:task:machine:<taskId>` | 24h | Task-to-machine mapping for cancel/steer routing |
+| `relay:exec:context:<executionId>` | 4h | Execution context (userId, projectId) for ownership checks |
+| `relay:dispatch:active:<executionId>` | 1h | Tracks which instance owns the dispatch SSE bridge |
+| `relay:exec:cost:<executionId>` | 4h | Atomic cumulative cost (INCRBYFLOAT across instances) |
+| `relay:leader:<operationName>` | 90s | Leader election via SETNX (dead-job-checker singleton) |
+| `relay:task:dir:<taskId>` | 4h | Task working directory for safety decision lookup |
+| `relay:safety:dir:<workingDirectory>` | 24h | Approved safety decision cache per directory |
+| `relay:notified:approval:<requestId>` | 5 min | Dedup approval notifications across instances |
+| `relay:pending:approval:<executionId>` | 4h | Watchdog: execution waiting for user approval |
+
+**Key mechanisms:**
+- **Machine registry**: Hybrid in-memory (local WebSocket connections) + Redis (remote machines). Each instance tracks its own WebSocket connections and syncs to Redis. Other instances register remote machines with `socket: null`.
+- **WebSocket proxy**: When a filesystem/session request lands on an instance without the machine's WebSocket, it publishes via `relay:ws:proxy:request`. The owning instance forwards to the machine, gets the response, and publishes via `relay:ws:proxy:response`. Matched by `correlationId`.
+- **Leader election**: Dead job checker uses `SETNX` + 90s TTL so exactly one instance runs the timer. If the leader dies, TTL expires and another instance takes over.
+- **Graceful degradation**: Without Redis (`REDIS_URL` unset), all pub/sub methods are no-ops and the system runs as a single instance. `redisPubSub.isConnected()` gates all cross-instance logic.
+
+See `docs/setup/multi-instance-deployment.md` for deployment configuration and verification steps.
 
 ---
 
@@ -817,8 +886,9 @@ All blockers to horizontal scaling have been resolved. In-memory Maps that held 
 | 3. Team-scoped data | All queries filter by `teamId`, bootstrap local team | **DONE** |
 | 4. Agent runner integration | settingSources, session preservation, relay prompt parity | **DONE** |
 | 5. Stateless backend | Move in-memory Maps to Postgres tables | **DONE** |
-| 6. Cross-instance relay | Postgres LISTEN/NOTIFY | Deferred (not needed at current scale) |
-| 7. Beta launch | 2-3 machines, autoscaling, monitoring | Pending |
+| 6. Cross-instance relay | Redis pub/sub (10 channels, 12 key patterns, WS proxy) | **DONE** |
+| 7. Beta launch | 2 machines, Redis, Telegram monitoring, health checks | **DONE** |
+| 8. Lazy data loading | Slim global load + per-project full load (10x faster page loads) | **DONE** |
 
 ---
 
@@ -855,7 +925,7 @@ See `WORKSPACE_V2.md` for the complete design, including data model changes, API
 | IndexedDB | Removed entirely | Frontend is a thin client. Backend + Postgres only |
 | Data scoping | Team-based (`WHERE team_id = ?`) | Same SQL in both modes. Teams are billing unit |
 | Frontend mode branching | None | 100% identical code in both modes |
-| Cross-instance pub/sub | Postgres LISTEN/NOTIFY (no Redis) | Built into Postgres, no extra infra |
+| Cross-instance pub/sub | Redis pub/sub (Upstash, pay-per-use) | Postgres LISTEN/NOTIFY was considered but Redis provides better pub/sub semantics, atomic operations (INCRBYFLOAT for cost tracking, SETNX for leader election), TTL-based key expiry, and write-through caching — all needed for production multi-instance |
 | Cache layer | HTTP cache headers only | Browser-native caching |
 | Ephemeral data (file trees, skills) | Zustand memory + background API fetch | Lightweight, no persistence needed |
 | Open source distribution | npm package with PGlite bundled | `npm start` works out of the box |
@@ -892,6 +962,8 @@ See `WORKSPACE_V2.md` for the complete design, including data model changes, API
 | `CLI_PACKAGE.md` | CLI package design: TUI (Ink), commands, Zustand stores |
 | `WORKSPACE_V2.md` | Workspace model: `.astro/` agent dir, worktrees, delivery modes, directory detection |
 | `REFRESH_ROBUSTNESS.md` | Two-layer recovery architecture: SSE → streaming_events DB. Persistence contract, invariants, known gaps |
+| `LAZY_DATA_LOADING.md` | Two-tier data loading: slim global load + per-project full load. Store merge, content sync, 31 tests |
+| `../setup/multi-instance-deployment.md` | Production deployment: 2 Fly.io instances, Upstash Redis, all channels/keys, verification steps |
 
 ---
 
