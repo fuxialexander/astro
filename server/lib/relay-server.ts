@@ -2065,9 +2065,11 @@ export class RelayServer extends EventEmitter {
   private startHeartbeatInterval(): void {
     this.heartbeatInterval = setInterval(() => {
       const machines = machineRegistry.getAll();
+      const localMachineIds: string[] = [];
       for (const machine of machines) {
         const connection = machineRegistry.getConnection(machine.machineId);
-        if (connection) {
+        if (connection?.socket) {
+          localMachineIds.push(machine.machineId);
           const ping: HeartbeatPingMessage = {
             type: 'heartbeat.ping',
             timestamp: new Date(),
@@ -2078,6 +2080,13 @@ export class RelayServer extends EventEmitter {
             console.error(`[relay] Error sending ping to ${machine.machineId}:`, err);
           }
         }
+      }
+      // Refresh MACHINE_INSTANCE TTLs for locally-connected machines so they
+      // don't expire (5-min TTL) on long-running connections.
+      if (localMachineIds.length > 0 && redisPubSub.isConnected()) {
+        redisPubSub.refreshMachineInstanceTTLs(localMachineIds).catch((err) => {
+          console.error('[relay] Failed to refresh machine instance TTLs:', err);
+        });
       }
     }, this.config.heartbeatIntervalMs);
   }
@@ -3807,8 +3816,13 @@ export class RelayServer extends EventEmitter {
       return true;
     }
     if (redisPubSub.isConnected()) {
-      const instanceId = await redisPubSub.getMachineInstance(machineId);
-      return !!instanceId;
+      try {
+        const instanceId = await redisPubSub.getMachineInstance(machineId);
+        return !!instanceId;
+      } catch {
+        // Redis error — fall through to proxy attempt rather than blocking
+        return true;
+      }
     }
     return false;
   }

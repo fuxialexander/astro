@@ -476,6 +476,21 @@ export class RedisPubSub extends EventEmitter {
   }
 
   /**
+   * Refresh MACHINE_INSTANCE TTL for locally-connected machines.
+   * Must be called periodically (e.g., every 30s from the instance heartbeat)
+   * to prevent the 5-minute TTL from expiring on long-running connections.
+   */
+  async refreshMachineInstanceTTLs(machineIds: string[]): Promise<void> {
+    if (!this.publisher || machineIds.length === 0) return;
+
+    const pipeline = this.publisher.pipeline();
+    for (const machineId of machineIds) {
+      pipeline.expire(`${KEYS.MACHINE_INSTANCE}${machineId}`, 300);
+    }
+    await pipeline.exec();
+  }
+
+  /**
    * Get all machines from the shared registry
    */
   async getAllMachines(): Promise<MachineRegistryEntry[]> {
