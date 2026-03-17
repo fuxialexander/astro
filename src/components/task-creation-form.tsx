@@ -4,10 +4,11 @@ import { Button } from "@/components/ui/button"
 import { FileCompletionTextarea } from "@/components/ui/file-completion-textarea"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
+import { useFeatureFlag } from "@/hooks/use-feature-flag"
 import { cn } from "@/lib/utils"
 import { extractTitle } from "@/lib/text-utils"
 import { generateTitle, suggestLabels } from "@/lib/api-client"
-import type { PlanNode, PlanEdge, Priority, Estimate, EdgeType } from "@/types"
+import type { PlanNode, PlanEdge, Priority, Estimate, EdgeType, LoopConfig } from "@/types"
 
 interface TaskCreationFormProps {
   projectId: string
@@ -49,17 +50,27 @@ export function TaskCreationForm({
   const updateNode = usePlanStore((s) => s.updateNode)
   const nodes = usePlanStore((s) => s.nodes)
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
+  const loopNodesEnabled = useFeatureFlag('loop-nodes')
 
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [showDescription, setShowDescription] = useState(defaultShowDescription)
-  const [nodeType, setNodeType] = useState<"task" | "milestone">("task")
+  const [nodeType, setNodeType] = useState<"task" | "milestone" | "loop">("task")
   const [priority, setPriority] = useState<Priority>("none")
   const [estimate, setEstimate] = useState<Estimate | "">("")
   const [dueDate, setDueDate] = useState("")
   const [edgeType, setEdgeType] = useState<EdgeType>("dependency")
   const [milestoneId, setMilestoneId] = useState(defaultMilestoneId ?? "")
   const [createMore, setCreateMore] = useState(false)
+
+  // Loop config state
+  const [loopMaxIterations, setLoopMaxIterations] = useState(10)
+  const [loopTaskTemplate, setLoopTaskTemplate] = useState("")
+  const [loopAutonomousMode, setLoopAutonomousMode] = useState(true)
+  const [loopMetric, setLoopMetric] = useState("")
+  const [loopDirection, setLoopDirection] = useState<"minimize" | "maximize">("minimize")
+  const [loopThreshold, setLoopThreshold] = useState("")
+  const [loopPlateauWindow, setLoopPlateauWindow] = useState("")
 
   const titleRef = useRef<HTMLInputElement>(null)
 
@@ -85,10 +96,18 @@ export function TaskCreationForm({
     setDueDate("")
     setEdgeType("dependency")
     setMilestoneId(defaultMilestoneId ?? "")
+    setLoopMaxIterations(10)
+    setLoopTaskTemplate("")
+    setLoopAutonomousMode(true)
+    setLoopMetric("")
+    setLoopDirection("minimize")
+    setLoopThreshold("")
+    setLoopPlateauWindow("")
   }, [defaultMilestoneId])
 
   const handleCreate = useCallback(() => {
     if (!title.trim() && !description.trim()) return
+    if (nodeType === 'loop' && !loopTaskTemplate.trim()) return
 
     const nodeId = crypto.randomUUID()
     const now = new Date()
@@ -96,6 +115,18 @@ export function TaskCreationForm({
     // If title is empty but description exists, derive title from description
     const effectiveTitle = title.trim() || extractTitle(description.trim())
     const effectiveDescription = description.trim()
+
+    const loopConfig: LoopConfig | undefined = nodeType === 'loop' ? {
+      maxIterations: loopMaxIterations,
+      taskTemplate: loopTaskTemplate,
+      autonomousMode: loopAutonomousMode,
+      stopCondition: loopMetric ? {
+        metric: loopMetric,
+        direction: loopDirection,
+        threshold: loopThreshold ? parseFloat(loopThreshold) : undefined,
+        plateauWindow: loopPlateauWindow ? parseInt(loopPlateauWindow) : undefined,
+      } : undefined,
+    } : undefined
 
     // In predecessor mode (childNodeId), the new node has no dependencies from this relation
     // In successor mode (parentNodeId), the new node depends on the parent
@@ -114,6 +145,7 @@ export function TaskCreationForm({
       estimate: nodeType === "task" && estimate ? (estimate as Estimate) : undefined,
       dueDate: dueDate || undefined,
       milestoneId: milestoneId || undefined,
+      loopConfig,
       createdAt: now,
       updatedAt: now,
     }
@@ -178,6 +210,7 @@ export function TaskCreationForm({
   }, [
     title, description, nodeType, priority, estimate, dueDate, milestoneId, edgeType,
     projectId, parentNodeId, childNodeId, position, createMore, nodes,
+    loopMaxIterations, loopTaskTemplate, loopAutonomousMode, loopMetric, loopDirection, loopThreshold, loopPlateauWindow,
     addNode, addEdge, updateNode, onCreated, onCancel, resetForm,
   ])
 
@@ -269,11 +302,12 @@ export function TaskCreationForm({
       <div className="flex flex-wrap items-center gap-1.5">
         <select
           value={nodeType}
-          onChange={(e) => setNodeType(e.target.value as "task" | "milestone")}
+          onChange={(e) => setNodeType(e.target.value as "task" | "milestone" | "loop")}
           className="h-7 rounded-md border border-border bg-background px-2 text-xs cursor-pointer"
         >
           <option value="task">{t('taskCreation.typeTask', { ns: 'dialogs' })}</option>
           <option value="milestone">{t('milestone.new', { ns: 'plan' })}</option>
+          {loopNodesEnabled && <option value="loop">Loop</option>}
         </select>
 
         {(parentNodeId || childNodeId) && (
@@ -301,6 +335,79 @@ export function TaskCreationForm({
         )}
       </div>
 
+      {/* Loop config panel */}
+      {nodeType === 'loop' && (
+        <div className="flex flex-col gap-2 rounded-lg border border-violet-200 bg-violet-50/50 dark:bg-violet-950/20 dark:border-violet-800 p-3">
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-muted-foreground w-28 shrink-0">Max iterations</label>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={loopMaxIterations}
+              onChange={(e) => setLoopMaxIterations(parseInt(e.target.value) || 1)}
+              className="h-7 w-20 rounded border border-border bg-background px-2 text-xs"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">Task template</label>
+            <textarea
+              value={loopTaskTemplate}
+              onChange={(e) => setLoopTaskTemplate(e.target.value)}
+              placeholder="Describe what the agent should do each iteration..."
+              rows={3}
+              className="w-full rounded border border-border bg-background px-2 py-1.5 text-xs resize-none"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs text-muted-foreground">Stop condition (optional)</label>
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                value={loopMetric}
+                onChange={(e) => setLoopMetric(e.target.value)}
+                placeholder="metric name"
+                className="h-7 flex-1 min-w-[100px] rounded border border-border bg-background px-2 text-xs"
+              />
+              <select
+                value={loopDirection}
+                onChange={(e) => setLoopDirection(e.target.value as "minimize" | "maximize")}
+                className="h-7 rounded border border-border bg-background px-2 text-xs"
+              >
+                <option value="minimize">minimize</option>
+                <option value="maximize">maximize</option>
+              </select>
+              <input
+                value={loopThreshold}
+                onChange={(e) => setLoopThreshold(e.target.value)}
+                placeholder="threshold"
+                type="number"
+                step="any"
+                className="h-7 w-24 rounded border border-border bg-background px-2 text-xs"
+              />
+              <input
+                value={loopPlateauWindow}
+                onChange={(e) => setLoopPlateauWindow(e.target.value)}
+                placeholder="plateau N"
+                type="number"
+                className="h-7 w-20 rounded border border-border bg-background px-2 text-xs"
+              />
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+            <input
+              type="checkbox"
+              checked={loopAutonomousMode}
+              onChange={(e) => setLoopAutonomousMode(e.target.checked)}
+              className="h-3.5 w-3.5"
+            />
+            Autonomous mode
+          </label>
+        </div>
+      )}
+
       {/* Action row */}
       <div className="flex items-center justify-end gap-2 pt-1">
         <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none mr-auto">
@@ -315,7 +422,15 @@ export function TaskCreationForm({
         <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onCancel}>
           {t('cancel', { ns: 'common' })}
         </Button>
-        <Button size="sm" className="h-7 text-xs" onClick={handleCreate} disabled={!title.trim() && !description.trim()}>
+        <Button
+          size="sm"
+          className="h-7 text-xs"
+          onClick={handleCreate}
+          disabled={
+            (!title.trim() && !description.trim()) ||
+            (nodeType === 'loop' && !loopTaskTemplate.trim())
+          }
+        >
           {t('create', { ns: 'common' })}
         </Button>
       </div>
