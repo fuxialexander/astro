@@ -97,7 +97,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const showAuth = isServerMode()
 
   const activeProjectId = params.id
-  const hasMultipleTeams = useTeamStore((s) => s.teams.length > 1)
+  const hasTeams = useTeamStore((s) => s.teams.length > 0)
   const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0
   const [settingsExpanded, setSettingsExpanded] = useState(() => {
     try { return localStorage.getItem("astro-sidebar-settings") !== "collapsed" } catch { return true /* localStorage unavailable */ }
@@ -493,8 +493,8 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
         </div>
       )}
 
-      {/* Team Switcher — shown when user has multiple teams */}
-      {hasMultipleTeams && (
+      {/* Team Switcher — shown when user has at least one team */}
+      {hasTeams && (
         <TeamSwitcher collapsed={collapsed} />
       )}
 

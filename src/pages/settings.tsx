@@ -836,7 +836,7 @@ function TeamsContent() {
         setTeams(loaded.map((team) => ({
           id: team.id,
           name: team.name,
-          role: (t as unknown as Record<string, unknown>).memberRole as string ?? 'member',
+          role: (team as unknown as Record<string, unknown>).memberRole as string ?? 'member',
         })))
         // Auto-select first team
         if (loaded.length > 0 && !selectedTeamId) {
