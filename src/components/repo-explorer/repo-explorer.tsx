@@ -88,7 +88,8 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
   const [expandedPr, setExpandedPr] = useState<number | null>(null)
   const [workspaceConfigOpen, setWorkspaceConfigOpen] = useState(false)
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
-  const nodes = usePlanStore((s) => s.nodes.filter(isLive))
+  const rawNodes = usePlanStore((s) => s.nodes)
+  const nodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
   const executions = useExecutionStore((s) => s.executions)
   const addToast = useToastStore((s) => s.add)
 
