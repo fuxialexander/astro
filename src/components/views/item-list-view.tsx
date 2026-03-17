@@ -430,7 +430,7 @@ export function ItemListView<T>({
         {/* Checkbox */}
         {selectable && (
           <div
-            className={cn("w-8 shrink-0 flex items-center", indentGroupedRows && hasMultipleGroups && showGroupHeaders && !withDnd && "-ml-6")}
+            className={cn("w-10 shrink-0 flex items-center justify-center self-stretch", indentGroupedRows && hasMultipleGroups && showGroupHeaders && !withDnd && "-ml-6")}
             onClick={(e) => {
               e.stopPropagation()
               toggleItem(itemId, e.shiftKey)
@@ -440,7 +440,7 @@ export function ItemListView<T>({
               checked={isSelected}
               aria-label={`Select item`}
               tabIndex={-1}
-              className="pointer-events-none"
+              className="pointer-events-none h-[18px] w-[18px]"
             />
           </div>
         )}

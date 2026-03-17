@@ -22,7 +22,7 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     orderBy: "name",
     orderDirection: "asc",
     showCompleted: true,
-    visibleProperties: ["progress", "targetDate"],
+    visibleProperties: ["workingDirectory", "progress", "targetDate"],
   },
   "projects-timeline": {
     groupBy: "none",
