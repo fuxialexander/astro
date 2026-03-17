@@ -1,6 +1,9 @@
 /**
  * File system routes - provides file listing for @-completion via relay
  * All file operations go through connected machines — backend never touches filesystem directly.
+ *
+ * Directory listings are cached in-memory (30s TTL) to avoid relay round-trips
+ * for repeated navigations (parent dirs, re-opening the browser dialog).
  */
 
 import { Hono } from 'hono'
@@ -8,6 +11,44 @@ import { relayServer } from '../lib/relay-server.js'
 import { requireAuth } from '../middleware/auth.js'
 
 const MAX_RESULTS = 50
+
+// --- In-memory cache for directory listings (per-instance) ---
+const DIR_CACHE_TTL_MS = 30_000 // 30 seconds
+const DIR_CACHE_MAX_ENTRIES = 200
+
+interface CacheEntry<T> {
+  data: T
+  expiresAt: number
+}
+
+const dirCache = new Map<string, CacheEntry<DirectoryListResult>>()
+
+function dirCacheKey(machineId: string, path: string): string {
+  return `${machineId}:${path}`
+}
+
+function getCachedDirList(machineId: string, path: string): DirectoryListResult | null {
+  const key = dirCacheKey(machineId, path)
+  const entry = dirCache.get(key)
+  if (!entry) return null
+  if (Date.now() > entry.expiresAt) {
+    dirCache.delete(key)
+    return null
+  }
+  return entry.data
+}
+
+function setCachedDirList(machineId: string, path: string, data: DirectoryListResult): void {
+  // Evict oldest entries if cache is full
+  if (dirCache.size >= DIR_CACHE_MAX_ENTRIES) {
+    const oldest = dirCache.keys().next().value
+    if (oldest) dirCache.delete(oldest)
+  }
+  dirCache.set(dirCacheKey(machineId, path), {
+    data,
+    expiresAt: Date.now() + DIR_CACHE_TTL_MS,
+  })
+}
 
 export const fsRoute = new Hono()
 
@@ -72,12 +113,19 @@ interface DirectoryListResult {
 fsRoute.get('/directories', async (c) => {
   const machineId = c.req.query('machineId')
   const path = c.req.query('path') || '~'
+  const noCache = c.req.query('noCache') === '1'
 
   if (!machineId) {
     return c.json({ error: 'machineId is required' }, 400)
   }
 
-  console.log(`[fs] GET /directories machineId=${machineId} path=${path}`)
+  // Check in-memory cache first (skip relay round-trip for repeated navigations)
+  if (!noCache) {
+    const cached = getCachedDirList(machineId, path)
+    if (cached) {
+      return c.json(cached)
+    }
+  }
 
   // Fast-fail for ghost machines — check if any instance actually owns the WebSocket
   const reachable = await relayServer.isMachineReachable(machineId)
@@ -88,7 +136,10 @@ fsRoute.get('/directories', async (c) => {
 
   try {
     const result = await requestDirectoryList(machineId, path)
-    console.log(`[fs] /directories result: entries=${result.entries?.length ?? 0} error=${result.error ?? 'none'}`)
+    // Cache successful results (no error, has entries or is a valid empty dir)
+    if (!result.error) {
+      setCachedDirList(machineId, path, result)
+    }
     return c.json(result)
   } catch (error) {
     console.error('[fs] Error listing directories:', error)

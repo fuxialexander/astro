@@ -63,10 +63,11 @@ interface RemotePathBrowserProps {
   onSelect: (path: string) => void
 }
 
-/** Fetch directory listing from the API with auto-retry for transient failures */
+/** Fetch directory listing from the API with a single immediate retry */
 async function fetchDirectoryList(
   machineId: string,
-  path: string
+  path: string,
+  noCache = false,
 ): Promise<{ path: string; entries: DirectoryEntry[]; error?: string; homeDirectory?: string }> {
   const token = await getAccessToken()
   const headers: HeadersInit = {
@@ -76,12 +77,11 @@ async function fetchDirectoryList(
     headers["Authorization"] = `Bearer ${token}`
   }
 
-  const MAX_RETRIES = 2
-  const RETRY_DELAY_MS = 1500
-
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  // Single immediate retry for transient errors (no delay)
+  for (let attempt = 0; attempt <= 1; attempt++) {
     try {
       const params = new URLSearchParams({ machineId, path })
+      if (noCache) params.set("noCache", "1")
       const response = await fetch(apiUrl(`/api/fs/directories?${params}`), { headers })
 
       if (!response.ok) {
@@ -90,27 +90,20 @@ async function fetchDirectoryList(
 
       const result = await response.json()
 
-      // Retry on transient errors (machine not connected, timeout) unless last attempt
-      if (result.error && attempt < MAX_RETRIES) {
+      // Retry once on transient errors (no delay)
+      if (result.error && attempt === 0) {
         const transient = /not connected|timed? ?out|unavailable/i.test(result.error)
-        if (transient) {
-          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
-          continue
-        }
+        if (transient) continue
       }
 
       return result
     } catch (err) {
-      if (attempt < MAX_RETRIES) {
-        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
-        continue
-      }
+      if (attempt === 0) continue
       throw err
     }
   }
 
-  // Unreachable, but TypeScript needs it
-  throw new Error("Failed to fetch directory listing after retries")
+  throw new Error("Failed to fetch directory listing after retry")
 }
 
 /** Create a directory on a remote machine */
@@ -136,6 +129,16 @@ async function createRemoteDirectory(
   return response.json()
 }
 
+/** Client-side navigation cache — avoids network for previously visited dirs */
+const CLIENT_CACHE_TTL_MS = 60_000 // 60 seconds
+
+interface ClientCacheEntry {
+  path: string
+  entries: DirectoryEntry[]
+  homeDirectory?: string
+  expiresAt: number
+}
+
 export function RemotePathBrowser({
   open,
   onOpenChange,
@@ -159,23 +162,40 @@ export function RemotePathBrowser({
   const [createError, setCreateError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
 
+  // Client-side navigation cache (persists across navigations within the dialog)
+  const navCacheRef = useRef<Map<string, ClientCacheEntry>>(new Map())
+
   // Refs
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const newFolderInputRef = useRef<HTMLInputElement>(null)
   const breadcrumbRef = useRef<HTMLDivElement>(null)
 
-  // Load directory contents
+  // Load directory contents with client-side cache
   const loadDirectory = useCallback(
-    async (targetPath: string) => {
+    async (targetPath: string, forceRefresh = false) => {
       if (!machineId) return
+
+      // Check client-side cache first (instant, no network)
+      if (!forceRefresh) {
+        const cached = navCacheRef.current.get(targetPath)
+        if (cached && Date.now() < cached.expiresAt) {
+          setPath(cached.path)
+          setInputPath(cached.path)
+          setEntries(cached.entries)
+          if (cached.homeDirectory) setHomeDirectory(cached.homeDirectory)
+          setError(null)
+          setSelectedIndex(-1)
+          return
+        }
+      }
 
       setLoading(true)
       setError(null)
       setSelectedIndex(-1)
 
       try {
-        const result = await fetchDirectoryList(machineId, targetPath)
+        const result = await fetchDirectoryList(machineId, targetPath, forceRefresh)
 
         if (result.error) {
           setError(result.error)
@@ -187,6 +207,23 @@ export function RemotePathBrowser({
 
           if (result.homeDirectory) {
             setHomeDirectory(result.homeDirectory)
+          }
+
+          // Store in client-side cache
+          navCacheRef.current.set(targetPath, {
+            path: result.path,
+            entries: result.entries,
+            homeDirectory: result.homeDirectory,
+            expiresAt: Date.now() + CLIENT_CACHE_TTL_MS,
+          })
+          // Also cache by resolved path (e.g., "~" → "/Users/foo")
+          if (result.path !== targetPath) {
+            navCacheRef.current.set(result.path, {
+              path: result.path,
+              entries: result.entries,
+              homeDirectory: result.homeDirectory,
+              expiresAt: Date.now() + CLIENT_CACHE_TTL_MS,
+            })
           }
         }
       } catch (err) {
@@ -293,9 +330,11 @@ export function RemotePathBrowser({
       if (result.success) {
         setIsCreatingFolder(false)
         setNewFolderName("")
+        // Invalidate parent cache since a new folder was created
+        navCacheRef.current.delete(path)
         // Navigate into the newly created folder so users can create nested folders
         const newPath = result.path || `${path.replace(/\/$/, '')}/${trimmed}`
-        loadDirectory(newPath)
+        loadDirectory(newPath, true)
       } else {
         setCreateError(result.error || "Failed to create folder")
       }
@@ -453,7 +492,7 @@ export function RemotePathBrowser({
               variant="ghost"
               size="sm"
               className="h-7 px-2"
-              onClick={() => loadDirectory(path)}
+              onClick={() => loadDirectory(path, true)}
               disabled={loading}
             >
               <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
@@ -476,7 +515,7 @@ export function RemotePathBrowser({
             <div className="flex flex-col items-center justify-center h-full gap-2 p-4">
               <AlertCircle className="h-8 w-8 text-destructive" />
               <p className="text-sm text-destructive text-center">{error}</p>
-              <Button variant="outline" size="sm" onClick={() => loadDirectory(path)}>
+              <Button variant="outline" size="sm" onClick={() => loadDirectory(path, true)}>
                 Retry
               </Button>
             </div>
