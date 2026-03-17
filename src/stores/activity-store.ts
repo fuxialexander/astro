@@ -35,6 +35,8 @@ export type Activity = {
 type ActivityStore = {
   activities: Activity[]
   loaded: boolean
+  /** True only after a full global loadActivities() — not set by loadForProject */
+  globallyLoaded: boolean
   loading: boolean
   error: string | null
   loadActivities: () => Promise<void>
@@ -50,6 +52,7 @@ const MAX_ACTIVITIES = 1000 // Keep last 1000 activities
 export const useActivityStore = create<ActivityStore>((set, get) => ({
   activities: [],
   loaded: false,
+  globallyLoaded: false,
   loading: false,
   error: null,
 
@@ -57,13 +60,15 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
     set({ loading: true, error: null })
     try {
       const activities = await dataClient.listActivities()
-      set({ activities, loaded: true, loading: false })
+      set({ activities, loaded: true, globallyLoaded: true, loading: false })
     } catch (err) {
-      set({ loaded: true, loading: false, error: err instanceof Error ? err.message : 'Failed to load activities' })
+      set({ loaded: true, globallyLoaded: true, loading: false, error: err instanceof Error ? err.message : 'Failed to load activities' })
     }
   },
 
   loadForProject: async (projectId: string) => {
+    // Skip if we already loaded all data globally
+    if (get().globallyLoaded) return
     try {
       const activities = await dataClient.listActivities(projectId)
       set((state) => {
@@ -71,8 +76,9 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
         const others = state.activities.filter((a) => a.projectId !== projectId)
         return { activities: [...activities, ...others].slice(0, 1000), loaded: true }
       })
-    } catch {
-      // API unavailable
+    } catch (err) {
+      console.error('[activity-store] loadForProject failed:', err)
+      set({ loaded: true })
     }
   },
 

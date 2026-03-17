@@ -208,6 +208,8 @@ interface ExecutionState {
 
   // Load state
   loaded: boolean
+  /** True only after a full global load() — not set by loadForProject */
+  globallyLoaded: boolean
   /** Set of project IDs already loaded via loadForProject */
   loadedProjectIds: Set<string>
 
@@ -351,11 +353,12 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   completedProjectIds: new Set(),
   pendingApprovals: new Map(),
   loaded: false,
+  globallyLoaded: false,
   loadedProjectIds: new Set(),
 
   loadForProject: async (projectId: string) => {
-    // Skip if already loaded for this project
-    if (get().loadedProjectIds.has(projectId)) return
+    // Skip if we already loaded all data globally or this specific project
+    if (get().globallyLoaded || get().loadedProjectIds.has(projectId)) return
     try {
       const executionsRecord = await dataClient.getExecutions(projectId)
       const newExecs = new Map<string, TaskExecution>(Object.entries(executionsRecord))
@@ -1843,11 +1846,11 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         }
       }
 
-      set({ executions, loaded: true })
+      set({ executions, loaded: true, globallyLoaded: true })
       console.log('[execution-store] Loaded executions from API:', executions.size)
     } catch (error) {
       console.error('[execution-store] Failed to load executions:', error)
-      set({ loaded: true })
+      set({ loaded: true, globallyLoaded: true })
     }
   },
 

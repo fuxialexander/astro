@@ -20,6 +20,8 @@ export interface TaskChatSession {
 interface TaskChatState {
   sessions: Map<string, TaskChatSession>
   loaded: boolean
+  /** True only after a full global load() — not set by loadForProject */
+  globallyLoaded: boolean
 
   // Lifecycle
   load: () => Promise<void>
@@ -48,6 +50,7 @@ function createMessageId(): string {
 export const useTaskChatStore = create<TaskChatState>((set, get) => ({
   sessions: new Map(),
   loaded: false,
+  globallyLoaded: false,
 
   load: async () => {
     try {
@@ -60,17 +63,19 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
             messages: entry.messages,
           })
         }
-        set({ sessions, loaded: true })
+        set({ sessions, loaded: true, globallyLoaded: true })
         return
       }
     } catch {
       // API unavailable
     }
 
-    set({ loaded: true })
+    set({ loaded: true, globallyLoaded: true })
   },
 
   loadForProject: async (projectId: string) => {
+    // Skip if we already loaded all data globally
+    if (get().globallyLoaded) return
     try {
       const chats = await dataClient.getAllChats(projectId)
       if (chats && Object.keys(chats).length > 0) {
@@ -82,9 +87,12 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
           })
         }
         set({ sessions, loaded: true })
+      } else {
+        set({ loaded: true })
       }
-    } catch {
-      // API unavailable
+    } catch (err) {
+      console.error('[task-chat-store] loadForProject failed:', err)
+      set({ loaded: true })
     }
   },
 

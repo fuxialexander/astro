@@ -188,6 +188,8 @@ interface PlanState {
   load: () => Promise<void>
   /** Load plan data for a single project (merges into global store) */
   loadForProject: (projectId: string) => Promise<void>
+  /** True only after a full global load() — not set by loadForProject */
+  globallyLoaded: boolean
   addNode: (node: PlanNode) => void
   updateNode: (id: string, updates: Partial<PlanNode>) => void
   /** Merge a DB-fetched node into the store. DB wins — no write-back to API. */
@@ -235,6 +237,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   nodes: [],
   edges: [],
   loaded: false,
+  globallyLoaded: false,
   recentlyUpdatedNodeIds: new Set<string>(),
 
   load: async () => {
@@ -298,14 +301,16 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       ensurePositions(nodes, edges)
       // Reconcile milestone statuses on load (handles stale data)
       reconcileMilestones(nodes, edges)
-      set({ nodes, edges, loaded: true })
+      set({ nodes, edges, loaded: true, globallyLoaded: true })
     } catch {
       // API unavailable — start with empty data
-      set({ nodes: SEED_NODES, edges: SEED_EDGES, loaded: true })
+      set({ nodes: SEED_NODES, edges: SEED_EDGES, loaded: true, globallyLoaded: true })
     }
   },
 
   loadForProject: async (projectId: string) => {
+    // Skip if we already loaded all data globally or this specific project
+    if (get().globallyLoaded) return
     try {
       const { nodes: apiNodes, edges: rawApiEdges } = await dataClient.getAllPlans(projectId)
 
