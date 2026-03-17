@@ -290,8 +290,9 @@ export const dataClient = {
   },
 
   // ── Plan ────────────────────────────────────────────────────────────
-  async getAllPlans(): Promise<{ nodes: PlanNode[]; edges: PlanEdge[] }> {
-    const data = await json<{ nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] }>(`${BASE}/plan`)
+  async getAllPlans(opts?: { slim?: boolean }): Promise<{ nodes: PlanNode[]; edges: PlanEdge[] }> {
+    const params = opts?.slim ? '?slim=1' : ''
+    const data = await json<{ nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] }>(`${BASE}/plan${params}`)
     return { nodes: data.nodes.map(mapNode), edges: data.edges.map(mapEdge) }
   },
 
@@ -547,8 +548,12 @@ export const dataClient = {
   },
 
   // ── Executions ──────────────────────────────────────────────────────
-  async getExecutions(): Promise<Record<string, TaskExecution>> {
-    const rows = await json<Record<string, Record<string, unknown>>>(`${BASE}/executions`)
+  async getExecutions(opts?: { slim?: boolean; projectId?: string }): Promise<Record<string, TaskExecution>> {
+    const params = new URLSearchParams()
+    if (opts?.slim) params.set('slim', '1')
+    if (opts?.projectId) params.set('projectId', opts.projectId)
+    const qs = params.toString() ? `?${params.toString()}` : ''
+    const rows = await json<Record<string, Record<string, unknown>>>(`${BASE}/executions${qs}`)
     const result: Record<string, TaskExecution> = {}
     for (const [nodeId, row] of Object.entries(rows)) {
       const r = snakeToCamel(row)

@@ -47,6 +47,17 @@ export function TaskContentTab({ node, projectId, panelSize, fileTree }: TaskCon
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const savingRef = useRef<Promise<void> | null>(null)
 
+  // Sync draft content when node.content arrives async (slim → full load transition).
+  // React-recommended pattern: adjust state during render instead of useEffect.
+  // Only sync if user hasn't diverged from the last-synced content.
+  const [prevInitialContent, setPrevInitialContent] = useState(initialContent)
+  if (initialContent !== prevInitialContent) {
+    setPrevInitialContent(initialContent)
+    if (draftContent === prevInitialContent) {
+      setDraftContent(initialContent)
+    }
+  }
+
   // Build mention items from sibling plan nodes + file tree
   const mentionItems = useMemo<MentionSuggestionItem[]>(() => {
     const taskItems: MentionSuggestionItem[] = nodes

@@ -92,18 +92,22 @@ Zustand store update
 
 ### 3.2 Page Load Hydration
 
-When the browser loads (or refreshes), `DataLoader` (`src/components/data-loader.tsx`) triggers a cascade of REST calls:
+When the browser loads (or refreshes), `DataLoader` (`src/components/data-loader.tsx`) triggers a cascade of REST calls. Plan and execution stores use **slim mode** to exclude large text fields, deferring full loads to per-project navigation.
 
 ```
 DataLoader mounts
   ├─ 1. GET /api/data/teams          → team-store (sets X-Team-Id for all subsequent calls)
   ├─ 2. GET /api/data/profile        → settings-store
   ├─ 3. GET /api/data/projects       → project-store
-  ├─ 4. GET /api/data/plan           → plan-store (nodes + edges)
-  ├─ 5. GET /api/data/executions     → execution-store (indexed by nodeId)
+  ├─ 4. GET /api/data/plan?slim=1    → plan-store (nodes + edges, no content/executionOutput)
+  ├─ 5. GET /api/data/executions?slim=1 → execution-store (no streamText)
   ├─ 6. GET /api/data/chat           → chat-store (keyed by nodeId)
   ├─ 7. GET /api/data/initiatives    → initiative-store
   └─ 8. GET /api/data/machines       → machine-store
+
+Per-project load (triggered by useProjectData hook on navigation):
+  ├─ GET /api/data/plan/:projectId   → plan-store.loadForProject (merges full data)
+  └─ GET /api/data/executions?projectId=X → execution-store.loadForProject (merges full data)
 ```
 
 **All queries are team-scoped**: the backend applies `teamScopeFilter()` which generates:

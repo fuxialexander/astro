@@ -190,6 +190,48 @@ DataLoader checks: are we in local mode, or is the user authenticated?
 
 This two-phase approach ensures the team context is correct before loading team-scoped data. Loading non-critical stores in the background means the user sees the app faster -- critical stores block the loading spinner, but settings, usage metrics, and similar secondary data arrive in the background.
 
+### 2.2 Lazy Data Loading -- Slim Global + Full Per-Project
+
+The global load in Phase 2 uses **slim mode** (`?slim=1`) for plan and execution stores. This excludes large text fields (`content`, `executionOutput`, `streamText`) from the initial load, reducing transfer size dramatically for users with many projects.
+
+When the user navigates to a specific project (plan view or task detail), the `useProjectData(projectId)` hook triggers a **per-project full load** that fetches the complete data for just that project and merges it into the store.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  STARTUP (slim mode)                                          │
+│                                                               │
+│  GET /api/data/plan?slim=1                                    │
+│    → All nodes: title, status, position, dates (no content)   │
+│    → All edges                                                │
+│                                                               │
+│  GET /api/data/executions?slim=1                              │
+│    → All executions: status, cost, timestamps (no streamText) │
+└──────────────────────────┬───────────────────────────────────┘
+                           │
+                           │  User navigates to project "p1"
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│  PER-PROJECT LOAD (full mode)                                 │
+│                                                               │
+│  GET /api/data/plan/p1                                        │
+│    → p1 nodes: all fields including content, executionOutput  │
+│    → p1 edges                                                 │
+│                                                               │
+│  GET /api/data/executions?projectId=p1                        │
+│    → p1 executions: all fields including streamText           │
+│                                                               │
+│  Merge: replace p1's slim data with full data, keep others    │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Key design decisions:**
+
+- **Additive, not breaking**: The `?slim=1` param is optional. Without it, endpoints return full data as before. This ensures backward compatibility.
+- **Merge, don't replace**: `loadForProject()` replaces only the target project's nodes/edges/executions. Other projects' data is preserved. Edge filtering checks both `source` and `target` node IDs.
+- **Running execution protection**: The execution store merge skips replacement of `running` or `pending` executions to avoid clobbering in-flight streaming data.
+- **Content sync**: Components using `useState(initialContent)` need to handle the slim → full transition. The `task-content-tab.tsx` uses a render-time state adjustment pattern (React-recommended) that preserves user edits while syncing new content from the full load.
+- **Dedup via refs**: `useProjectData` uses `loadedRef` / `loadingRef` to prevent redundant fetches when navigating back to an already-loaded project. Failed loads allow retry.
+
 ### Store Dependencies
 
 The stores are not completely independent -- some depend on or trigger actions in others. Understanding these relationships helps trace how a change in one area ripples through the system:

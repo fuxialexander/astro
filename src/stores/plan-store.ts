@@ -186,6 +186,8 @@ interface PlanState {
   /** Node IDs recently updated via chat mutations — briefly highlighted in graph */
   recentlyUpdatedNodeIds: Set<string>
   load: () => Promise<void>
+  /** Load full data for a single project (includes content + executionOutput). Merges into existing state. */
+  loadForProject: (projectId: string) => Promise<void>
   addNode: (node: PlanNode) => void
   updateNode: (id: string, updates: Partial<PlanNode>) => void
   /** Merge a DB-fetched node into the store. DB wins — no write-back to API. */
@@ -237,7 +239,9 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
   load: async () => {
     try {
-      const { nodes: apiNodes, edges: rawApiEdges } = await dataClient.getAllPlans()
+      // Slim mode: exclude content + executionOutput to reduce transfer size.
+      // Full data is loaded per-project via loadForProject() when needed.
+      const { nodes: apiNodes, edges: rawApiEdges } = await dataClient.getAllPlans({ slim: true })
       // Deduplicate edges by source→target on load
       const seen = new Set<string>()
       const edges = rawApiEdges.filter((e) => {
@@ -300,6 +304,38 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     } catch {
       // API unavailable — start with empty data
       set({ nodes: SEED_NODES, edges: SEED_EDGES, loaded: true })
+    }
+  },
+
+  loadForProject: async (projectId: string) => {
+    try {
+      const { nodes: fullNodes, edges: fullEdges } = await dataClient.getProjectPlan(projectId)
+
+      // Rebuild dependencies for the fetched nodes
+      const nodeIdSet = new Set(fullNodes.map((n) => n.id))
+      const depsMap = new Map<string, string[]>()
+      for (const e of fullEdges) {
+        if (!nodeIdSet.has(e.source) || !nodeIdSet.has(e.target)) continue
+        let deps = depsMap.get(e.target)
+        if (!deps) { deps = []; depsMap.set(e.target, deps) }
+        deps.push(e.source)
+      }
+      for (const node of fullNodes) {
+        node.dependencies = depsMap.get(node.id) ?? []
+      }
+      ensurePositions(fullNodes, fullEdges)
+
+      // Merge: replace nodes/edges for this project, keep others
+      const { nodes: existingNodes, edges: existingEdges } = get()
+      const otherNodes = existingNodes.filter((n) => n.projectId !== projectId)
+      const projectNodeIds = new Set(existingNodes.filter((n) => n.projectId === projectId).map((n) => n.id))
+      const otherEdges = existingEdges.filter((e) => !projectNodeIds.has(e.source) && !projectNodeIds.has(e.target))
+      const mergedNodes = [...otherNodes, ...fullNodes]
+      const mergedEdges = [...otherEdges, ...fullEdges]
+      reconcileMilestones(mergedNodes, mergedEdges)
+      set({ nodes: mergedNodes, edges: mergedEdges })
+    } catch (err) {
+      console.error('[plan-store] loadForProject failed:', err)
     }
   },
 

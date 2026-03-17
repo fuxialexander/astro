@@ -327,6 +327,8 @@ interface ExecutionState {
 
   // Persistence
   load: () => Promise<void>
+  /** Load full executions for a single project (includes streamText). Merges into existing state. */
+  loadForProject: (projectId: string) => Promise<void>
   persist: () => Promise<void>
 }
 
@@ -1792,11 +1794,15 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
   load: async () => {
     try {
-      const executionsRecord = await dataClient.getExecutions()
+      // Slim mode: exclude streamText to reduce transfer size.
+      // Full data is loaded per-project via loadForProject() when needed.
+      const executionsRecord = await dataClient.getExecutions({ slim: true })
       // dataClient already deserializes dates, just convert Record to Map
       const executions = new Map<string, TaskExecution>(Object.entries(executionsRecord))
 
-      // Backfill summaries for completed executions that have streamText but no summary
+      // Backfill summaries for completed executions that have streamText but no summary.
+      // Note: In slim mode, streamText is empty so this loop is effectively a no-op.
+      // It remains for correctness if slim mode is ever disabled.
       for (const [nodeId, exec] of executions) {
         if (!exec.summary && exec.streamText && (exec.status === 'success' || exec.status === 'failure')) {
           const parsed = parseExecutiveSummary(exec.streamText)
@@ -1820,6 +1826,54 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     } catch (error) {
       console.error('[execution-store] Failed to load executions:', error)
       set({ loaded: true })
+    }
+  },
+
+  loadForProject: async (projectId: string) => {
+    try {
+      // Full load for one project (includes streamText for execution panel + summary backfill)
+      const executionsRecord = await dataClient.getExecutions({ projectId })
+      const fullExecs = new Map<string, TaskExecution>(Object.entries(executionsRecord))
+
+      // Backfill summaries for completed executions in this project
+      for (const [nodeId, exec] of fullExecs) {
+        if (!exec.summary && exec.streamText && (exec.status === 'success' || exec.status === 'failure')) {
+          const parsed = parseExecutiveSummary(exec.streamText)
+          if (parsed?.status && parsed?.workCompleted) {
+            fullExecs.set(nodeId, {
+              ...exec,
+              summary: {
+                workCompleted: parsed.workCompleted,
+                keyFindings: parsed.keyFindings || [],
+                filesChanged: exec.fileChanges?.map((f) => f.path) ?? [],
+                status: parsed.status,
+                followUps: parsed.followUps || [],
+              },
+            })
+          }
+        }
+      }
+
+      // Merge: replace executions for this project, keep others.
+      // Preserve in-flight executions (running/pending) whose live streaming
+      // buffer would be lost if replaced by the stale DB snapshot.
+      const { executions: existing } = get()
+      const merged = new Map(existing)
+      // Remove old entries for this project (except actively running ones)
+      for (const [nodeId, exec] of existing) {
+        if (exec.projectId === projectId && exec.status !== 'running' && exec.status !== 'pending') {
+          merged.delete(nodeId)
+        }
+      }
+      // Add fresh full data (skip if we preserved a running entry)
+      for (const [nodeId, exec] of fullExecs) {
+        if (!merged.has(nodeId) || merged.get(nodeId)?.status !== 'running') {
+          merged.set(nodeId, exec)
+        }
+      }
+      set({ executions: merged })
+    } catch (err) {
+      console.error('[execution-store] loadForProject failed:', err)
     }
   },
 
