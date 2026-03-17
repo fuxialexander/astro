@@ -26,7 +26,6 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { Switch } from "@/components/ui/switch"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { TeamSwitcher } from "@/components/team-switcher"
-import { useTeamStore } from "@/stores/team-store"
 
 const iconMap: Record<string, typeof CheckSquare> = {
   CheckSquare,

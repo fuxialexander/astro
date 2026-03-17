@@ -106,6 +106,7 @@ export function TeamSwitcher({ collapsed = false }: { collapsed?: boolean }) {
         id: crypto.randomUUID(),
         name: newTeamName.trim(),
         description: newTeamDescription.trim(),
+        featureFlags: {},
         createdAt: new Date(),
         updatedAt: new Date(),
       }
