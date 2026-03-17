@@ -15,7 +15,10 @@ import { machineRegistry } from '../lib/machine-registry.js'
 import { errorMessage } from '../lib/error-utils.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 
-// --- In-memory cache for repo detection (per-instance) ---
+// --- In-memory cache for repo detection (per-instance, best-effort) ---
+// Read-through cache: misses fall through to the relay. ~50% hit rate
+// with 2 Fly.io instances. No correctness depends on the cache.
+// Invalidated on git-init to reflect changed repo state.
 const DETECT_CACHE_TTL_MS = 60_000 // 60 seconds
 const DETECT_CACHE_MAX_ENTRIES = 100
 
@@ -43,13 +46,25 @@ function getCachedDetect(machineId: string, path: string): RepoDetectRelayResult
 
 function setCachedDetect(machineId: string, path: string, data: RepoDetectRelayResult): void {
   if (detectCache.size >= DETECT_CACHE_MAX_ENTRIES) {
-    const oldest = detectCache.keys().next().value
-    if (oldest) detectCache.delete(oldest)
+    // Evict expired entries first, then oldest by insertion if still over limit
+    const now = Date.now()
+    for (const [k, v] of detectCache) {
+      if (v.expiresAt < now) detectCache.delete(k)
+    }
+    if (detectCache.size >= DETECT_CACHE_MAX_ENTRIES) {
+      const oldest = detectCache.keys().next().value
+      if (oldest) detectCache.delete(oldest)
+    }
   }
   detectCache.set(detectCacheKey(machineId, path), {
     data,
     expiresAt: Date.now() + DETECT_CACHE_TTL_MS,
   })
+}
+
+/** Invalidate detect cache for a path (called after git-init changes the repo state) */
+export function invalidateDetectCache(machineId: string, path: string): void {
+  detectCache.delete(detectCacheKey(machineId, path))
 }
 
 const repoRoute = new Hono()
@@ -398,6 +413,9 @@ repoRoute.post('/git-init', async (c) => {
     if (!result.success) {
       return c.json({ error: result.error || 'Remote git init failed' }, 500)
     }
+
+    // Invalidate detect cache — git status changed (was non-git, now is git)
+    invalidateDetectCache(machineId, workingDirectory)
 
     return c.json(result)
   } catch (error) {

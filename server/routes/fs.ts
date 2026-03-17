@@ -12,7 +12,11 @@ import { requireAuth } from '../middleware/auth.js'
 
 const MAX_RESULTS = 50
 
-// --- In-memory cache for directory listings (per-instance) ---
+// --- In-memory cache for directory listings (per-instance, best-effort) ---
+// This is a read-through cache: misses always fall through to the relay.
+// With 2 Fly.io instances (round-robin), hit rate is ~50% per instance.
+// No correctness depends on the cache — it only reduces relay latency.
+// Same pattern as machineRegistry (in-memory WebSocket handles).
 const DIR_CACHE_TTL_MS = 30_000 // 30 seconds
 const DIR_CACHE_MAX_ENTRIES = 200
 
@@ -39,10 +43,16 @@ function getCachedDirList(machineId: string, path: string): DirectoryListResult 
 }
 
 function setCachedDirList(machineId: string, path: string, data: DirectoryListResult): void {
-  // Evict oldest entries if cache is full
   if (dirCache.size >= DIR_CACHE_MAX_ENTRIES) {
-    const oldest = dirCache.keys().next().value
-    if (oldest) dirCache.delete(oldest)
+    // Evict expired entries first, then oldest by insertion if still over limit
+    const now = Date.now()
+    for (const [k, v] of dirCache) {
+      if (v.expiresAt < now) dirCache.delete(k)
+    }
+    if (dirCache.size >= DIR_CACHE_MAX_ENTRIES) {
+      const oldest = dirCache.keys().next().value
+      if (oldest) dirCache.delete(oldest)
+    }
   }
   dirCache.set(dirCacheKey(machineId, path), {
     data,
