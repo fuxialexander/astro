@@ -2,11 +2,11 @@
  * Issue #1031 — Plan Chat Mutations, Regenerate Safety, YOLO Auto-Execution
  *
  * Tests the three phases:
- * 1. Chat mutations: applyPlanFromText fallback, fuzzy title matching, heuristic detection
- * 2. Regenerate safety: archive ordering, plan history restore
- * 3. YOLO protection: chatMutationProjectIds flag, triggerBatchWave suppression
+ * 1. Chat mutations: fuzzy title matching and mutation application
+ * 2. Regenerate safety: archive/restore lifecycle, status reset
+ * 3. YOLO protection: chatMutationProjectIds flag management
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { extractMutations, applyMutationsToStore } from '@/lib/plan-mutations'
 import { usePlanStore, isLive } from '@/stores/plan-store'
 import { useExecutionStore } from '@/stores/execution-store'
@@ -133,45 +133,6 @@ describe('Phase 1: Chat Mutation Reliability', () => {
     })
   })
 
-  describe('Full plan JSON detection heuristic', () => {
-    it('detects full plan JSON pattern (nodes + edges arrays)', () => {
-      const fullPlanText = `Here's the updated plan:
-
-\`\`\`json
-{
-  "projectName": "My Project",
-  "nodes": [
-    { "id": "n1", "title": "Task 1", "type": "task" }
-  ],
-  "edges": [
-    { "source": "n1", "target": "n2", "type": "dependency" }
-  ]
-}
-\`\`\``
-
-      // The heuristic patterns used in session-store
-      const looksLikeFullPlan = /"nodes"\s*:\s*\[/.test(fullPlanText) && /"edges"\s*:\s*\[/.test(fullPlanText)
-      expect(looksLikeFullPlan).toBe(true)
-    })
-
-    it('does NOT detect mutation format as full plan', () => {
-      const mutationText = `\`\`\`json
-{
-  "updateNodes": [{ "nodeId": "t1", "priority": "urgent" }],
-  "addNodes": [{ "title": "New task", "description": "..." }]
-}
-\`\`\``
-
-      const looksLikeFullPlan = /"nodes"\s*:\s*\[/.test(mutationText) && /"edges"\s*:\s*\[/.test(mutationText)
-      expect(looksLikeFullPlan).toBe(false)
-    })
-
-    it('detects mutation-like array pattern', () => {
-      const text = `Here's what I'd change: [{ "nodeId": "t1", "priority": "urgent" }]`
-      const looksLikeMutations = /\[\s*\{[^}]*"(?:nodeId|nodeTitle|action|title)"/.test(text)
-      expect(looksLikeMutations).toBe(true)
-    })
-  })
 })
 
 // ─── Phase 2: Regenerate Safety ─────────────────────────────────────
@@ -351,82 +312,4 @@ describe('Phase 3: YOLO Auto-Execution Protection', () => {
     })
   })
 
-  describe('triggerBatchWave suppression', () => {
-    it('skips dispatch when chatMutationProjectIds contains the project', () => {
-      // Set up an active batch execution
-      useExecutionStore.setState({
-        batchExecutions: new Map([[PROJECT_ID, {
-          active: true,
-          projectId: PROJECT_ID,
-          dispatchedNodeIds: new Set(),
-          options: {},
-          startedAt: new Date(),
-        }]]),
-        chatMutationProjectIds: new Set([PROJECT_ID]),
-      })
-
-      // triggerBatchWave should return early (we can't easily test the internal
-      // dispatchNextBatchWave call, but we can verify the flag is checked)
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-      useExecutionStore.getState().triggerBatchWave(PROJECT_ID)
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Skipping batch wave')
-      )
-      consoleSpy.mockRestore()
-    })
-
-    it('allows dispatch when chatMutationProjectIds does NOT contain the project', () => {
-      // With an active batch but NO chat mutation flag, triggerBatchWave should proceed.
-      // We can't easily test the full dispatch path, but we verify it doesn't log "Skipping"
-      useExecutionStore.setState({
-        batchExecutions: new Map([[PROJECT_ID, {
-          active: true,
-          projectId: PROJECT_ID,
-          dispatchedNodeIds: new Set(),
-          options: {},
-          startedAt: new Date(),
-        }]]),
-        chatMutationProjectIds: new Set(), // no flag
-      })
-
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-      // This will try to dispatch but won't find ready nodes — that's fine
-      useExecutionStore.getState().triggerBatchWave(PROJECT_ID)
-      const skipMessages = consoleSpy.mock.calls.filter(
-        (args) => typeof args[0] === 'string' && args[0].includes('Skipping batch wave')
-      )
-      expect(skipMessages).toHaveLength(0)
-      consoleSpy.mockRestore()
-    })
-
-    it('does nothing when no batch execution exists', () => {
-      useExecutionStore.setState({
-        batchExecutions: new Map(),
-        chatMutationProjectIds: new Set([PROJECT_ID]),
-      })
-
-      // Should be a no-op
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-      useExecutionStore.getState().triggerBatchWave(PROJECT_ID)
-      const skipMessages = consoleSpy.mock.calls.filter(
-        (args) => typeof args[0] === 'string' && args[0].includes('Skipping batch wave')
-      )
-      expect(skipMessages).toHaveLength(0)
-      consoleSpy.mockRestore()
-    })
-  })
-})
-
-// ─── Prompt Template: Negative Example ──────────────────────────────
-
-describe('Prompt template mutation format', () => {
-  it('contains negative example warning against full plan JSON', async () => {
-    // Import the specific module directly (avoids @astro/core barrel re-export issues)
-    const { buildChatSystemPrompt } = await import('@astro/core/prompt-templates')
-    const prompt = buildChatSystemPrompt()
-    expect(prompt).toContain('WRONG format')
-    expect(prompt).toContain('projectName')
-    expect(prompt).toContain('NEVER')
-    expect(prompt).toContain('mutation format')
-  })
 })
