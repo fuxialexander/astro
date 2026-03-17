@@ -1235,7 +1235,19 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       abortControllers.delete(nodeId)
     }
 
-    // Cancel on server/relay (same as cancelExecution)
+    // Set local status IMMEDIATELY so UI updates (don't wait for server)
+    set((state) => {
+      const newExecutions = new Map(state.executions)
+      const exec = newExecutions.get(nodeId)
+      if (exec) {
+        newExecutions.set(nodeId, { ...exec, status: "cancelled", completedAt: new Date() })
+      }
+      return { executions: newExecutions }
+    })
+
+    get().persist()
+
+    // Cancel on server/relay (fire-and-forget, same as cancelExecution)
     const execution = get().executions.get(nodeId)
     if (execution?.executionId) {
       try {
@@ -1252,17 +1264,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         // Ignore cancel errors
       }
     }
-
-    set((state) => {
-      const newExecutions = new Map(state.executions)
-      const exec = newExecutions.get(nodeId)
-      if (exec) {
-        newExecutions.set(nodeId, { ...exec, status: "cancelled", completedAt: new Date() })
-      }
-      return { executions: newExecutions }
-    })
-
-    get().persist()
   },
 
   /** Remove execution entry and delete the project created by startPlanGeneration. */
@@ -1793,40 +1794,50 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   },
 
   load: async () => {
-    try {
-      // Slim mode: exclude streamText to reduce transfer size.
-      // Full data is loaded per-project via loadForProject() when needed.
-      const executionsRecord = await dataClient.getExecutions({ slim: true })
-      // dataClient already deserializes dates, just convert Record to Map
-      const executions = new Map<string, TaskExecution>(Object.entries(executionsRecord))
+    // Retry up to 2 times — first attempt can fail with AbortError
+    // on page refresh if network/auth state is still settling.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        // Slim mode: exclude streamText to reduce transfer size.
+        // Full data is loaded per-project via loadForProject() when needed.
+        const executionsRecord = await dataClient.getExecutions({ slim: true })
+        // dataClient already deserializes dates, just convert Record to Map
+        const executions = new Map<string, TaskExecution>(Object.entries(executionsRecord))
 
-      // Backfill summaries for completed executions that have streamText but no summary.
-      // Note: In slim mode, streamText is empty so this loop is effectively a no-op.
-      // It remains for correctness if slim mode is ever disabled.
-      for (const [nodeId, exec] of executions) {
-        if (!exec.summary && exec.streamText && (exec.status === 'success' || exec.status === 'failure')) {
-          const parsed = parseExecutiveSummary(exec.streamText)
-          if (parsed?.status && parsed?.workCompleted) {
-            executions.set(nodeId, {
-              ...exec,
-              summary: {
-                workCompleted: parsed.workCompleted,
-                keyFindings: parsed.keyFindings || [],
-                filesChanged: exec.fileChanges?.map((f) => f.path) ?? [],
-                status: parsed.status,
-                followUps: parsed.followUps || [],
-              },
-            })
+        // Backfill summaries for completed executions that have streamText but no summary.
+        // Note: In slim mode, streamText is empty so this loop is effectively a no-op.
+        // It remains for correctness if slim mode is ever disabled.
+        for (const [nodeId, exec] of executions) {
+          if (!exec.summary && exec.streamText && (exec.status === 'success' || exec.status === 'failure')) {
+            const parsed = parseExecutiveSummary(exec.streamText)
+            if (parsed?.status && parsed?.workCompleted) {
+              executions.set(nodeId, {
+                ...exec,
+                summary: {
+                  workCompleted: parsed.workCompleted,
+                  keyFindings: parsed.keyFindings || [],
+                  filesChanged: exec.fileChanges?.map((f) => f.path) ?? [],
+                  status: parsed.status,
+                  followUps: parsed.followUps || [],
+                },
+              })
+            }
           }
         }
-      }
 
-      set({ executions, loaded: true })
-      console.log('[execution-store] Loaded executions from API:', executions.size)
-    } catch (error) {
-      console.error('[execution-store] Failed to load executions:', error)
-      set({ loaded: true })
+        set({ executions, loaded: true })
+        console.log('[execution-store] Loaded executions from API:', executions.size)
+        return
+      } catch (error) {
+        console.warn(`[execution-store] Load attempt ${attempt + 1} failed:`, (error as Error).message)
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, 500 * (attempt + 1)))
+        }
+      }
     }
+
+    console.error('[execution-store] All load attempts failed')
+    set({ loaded: true })
   },
 
   loadForProject: async (projectId: string) => {
@@ -2306,7 +2317,10 @@ async function processSSEStreamWithReconnect(
   console.log(`[sse-reconnect] Switching to polling mode for ${nodeId}`)
   setConnectionState(nodeId, 'polling', set)
 
-  // Poll until terminal event or execution is removed/cancelled
+  // Poll until terminal event or execution is removed/cancelled.
+  // Use incremental fetch (from lastSeq) to avoid re-downloading all events
+  // every poll cycle. Process new events individually via handleSSEEvent.
+  // Fall back to full hydration only if we detect a terminal event.
   const pollLoop = async () => {
     while (true) {
       // Check if aborted
@@ -2323,21 +2337,38 @@ async function processSSEStreamWithReconnect(
       }
 
       try {
-        // Fetch all events from seq 0 for full hydrate-and-replace
+        // Incremental fetch: only get events after lastSeq
         const { events, lastSeq: newLastSeq } = await fetchStreamingEventsCatchUp(
           [executionId],
-          0,
+          lastSeq,
         )
 
         if (events.length > 0 && newLastSeq > lastSeq) {
-          processCatchUpEvents(events, nodeId, set, get, planStore, onEventCallback)
-          lastSeq = newLastSeq
-
+          // Check for terminal event first
           if (hasTerminalEvent(events)) {
+            // Terminal event found — do full hydration for final state consistency
+            const { events: allEvents, lastSeq: finalSeq } = await fetchStreamingEventsCatchUp(
+              [executionId],
+              0,
+            )
+            processCatchUpEvents(allEvents, nodeId, set, get, planStore, onEventCallback)
+            lastSeq = finalSeq
             console.log(`[sse-reconnect] Task completed via polling for ${nodeId}`)
             setConnectionState(nodeId, undefined, set)
             return
           }
+
+          // Non-terminal events — process incrementally
+          for (const row of events) {
+            try {
+              const data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+              handleSSEEvent(row.eventType, data, nodeId, set, get, planStore)
+              onEventCallback?.(row.eventType, data)
+            } catch (eventErr) {
+              console.warn(`[sse-reconnect] Failed to process polled event ${row.eventType}:`, eventErr)
+            }
+          }
+          lastSeq = newLastSeq
         }
       } catch (pollError) {
         console.warn(`[sse-reconnect] Polling fetch failed for ${nodeId}:`, pollError)

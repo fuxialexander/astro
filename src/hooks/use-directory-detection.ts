@@ -54,31 +54,53 @@ export function useDirectoryDetection(path: string, machineId?: string, delay = 
       const controller = new AbortController()
       abortRef.current = controller
 
-      try {
-        const headers: Record<string, string> = {}
-        const token = await getAccessToken()
-        if (token) headers['Authorization'] = `Bearer ${token}`
-        const res = await fetch(
-          apiUrl(`/api/repo/detect?path=${encodeURIComponent(trimmed)}&machineId=${encodeURIComponent(machineId)}`),
-          { signal: controller.signal, headers },
-        )
+      const MAX_RETRIES = 2
+      const RETRY_DELAY_MS = 1500
 
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}))
-          throw new Error(data.error || 'Detection failed')
-        }
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (controller.signal.aborted) return
 
-        const data = await res.json()
-        if (!controller.signal.aborted) {
-          setDetection({ path: trimmed, ...data })
-          setIsDetecting(false)
-        }
-      } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') return
-        if (!controller.signal.aborted) {
-          setError(err instanceof Error ? err.message : 'Detection failed')
-          setDetection(null)
-          setIsDetecting(false)
+        try {
+          const headers: Record<string, string> = {}
+          const token = await getAccessToken()
+          if (token) headers['Authorization'] = `Bearer ${token}`
+          const res = await fetch(
+            apiUrl(`/api/repo/detect?path=${encodeURIComponent(trimmed)}&machineId=${encodeURIComponent(machineId)}`),
+            { signal: controller.signal, headers },
+          )
+
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}))
+            throw new Error(data.error || 'Detection failed')
+          }
+
+          const data = await res.json()
+
+          // Retry on transient errors (machine not connected, timeout)
+          if (data.error && attempt < MAX_RETRIES) {
+            const transient = /not connected|timed? ?out|unavailable/i.test(data.error)
+            if (transient) {
+              await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
+              continue
+            }
+          }
+
+          if (!controller.signal.aborted) {
+            setDetection({ path: trimmed, ...data })
+            setIsDetecting(false)
+          }
+          return
+        } catch (err) {
+          if (err instanceof DOMException && err.name === 'AbortError') return
+          if (attempt < MAX_RETRIES) {
+            await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
+            continue
+          }
+          if (!controller.signal.aborted) {
+            setError(err instanceof Error ? err.message : 'Detection failed')
+            setDetection(null)
+            setIsDetecting(false)
+          }
         }
       }
     }, delay)
