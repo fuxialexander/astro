@@ -47,6 +47,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useActivityStore } from "@/stores/activity-store"
+import { useGlobalProjectData } from "@/hooks/use-global-project-data"
 import { formatShortDate, isOverdue } from "@/lib/date-utils"
 import { getRandomColor, getRandomInitiativeIcon } from "@/lib/color-icon-utils"
 import { OnboardingHint } from "@/components/onboarding-hint"
@@ -420,6 +421,7 @@ function getProjectColumns(
 }
 
 export default function InitiativesPage() {
+  useGlobalProjectData()
   const { t } = useTranslation('initiatives')
   const navigate = useNavigate()
   const { initiatives, addInitiative, updateInitiative, deleteInitiative } = useInitiativeStore()

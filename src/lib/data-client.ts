@@ -290,8 +290,9 @@ export const dataClient = {
   },
 
   // ── Plan ────────────────────────────────────────────────────────────
-  async getAllPlans(): Promise<{ nodes: PlanNode[]; edges: PlanEdge[] }> {
-    const data = await json<{ nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] }>(`${BASE}/plan`)
+  async getAllPlans(projectId?: string): Promise<{ nodes: PlanNode[]; edges: PlanEdge[] }> {
+    const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''
+    const data = await json<{ nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] }>(`${BASE}/plan${qs}`)
     return { nodes: data.nodes.map(mapNode), edges: data.edges.map(mapEdge) }
   },
 
@@ -403,9 +404,10 @@ export const dataClient = {
   },
 
   // ── Chat ────────────────────────────────────────────────────────────
-  async getAllChats(): Promise<Record<string, { session: TaskChatSession; messages: TaskChatMessage[] }>> {
+  async getAllChats(projectId?: string): Promise<Record<string, { session: TaskChatSession; messages: TaskChatMessage[] }>> {
     type RawEntry = { session: Record<string, unknown>; messages: Record<string, unknown>[] }
-    const data = await json<Record<string, RawEntry>>(`${BASE}/chat`)
+    const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''
+    const data = await json<Record<string, RawEntry>>(`${BASE}/chat${qs}`)
 
     const result: Record<string, { session: TaskChatSession; messages: TaskChatMessage[] }> = {}
     for (const [nodeId, entry] of Object.entries(data)) {
@@ -438,8 +440,9 @@ export const dataClient = {
   },
 
   // ── Sessions ────────────────────────────────────────────────────────
-  async getAllSessions(): Promise<import("@/types").Session[]> {
-    const rows = await json<Record<string, unknown>[]>(`${BASE}/sessions`)
+  async getAllSessions(projectId?: string): Promise<import("@/types").Session[]> {
+    const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''
+    const rows = await json<Record<string, unknown>[]>(`${BASE}/sessions${qs}`)
     return rows.map(row => {
       const r = snakeToCamel(row)
       return {
@@ -547,8 +550,9 @@ export const dataClient = {
   },
 
   // ── Executions ──────────────────────────────────────────────────────
-  async getExecutions(): Promise<Record<string, TaskExecution>> {
-    const rows = await json<Record<string, Record<string, unknown>>>(`${BASE}/executions`)
+  async getExecutions(projectId?: string): Promise<Record<string, TaskExecution>> {
+    const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''
+    const rows = await json<Record<string, Record<string, unknown>>>(`${BASE}/executions${qs}`)
     const result: Record<string, TaskExecution> = {}
     for (const [nodeId, row] of Object.entries(rows)) {
       const r = snakeToCamel(row)

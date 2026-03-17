@@ -28,6 +28,7 @@ import { MachineWorkdirSelector } from "@/components/machine-workdir-selector"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useMediaQuery } from "@/hooks/use-media-query"
+import { useGlobalProjectData } from "@/hooks/use-global-project-data"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
@@ -73,6 +74,7 @@ function isPlaygroundProject(project: { projectType?: string; id: string }, exec
 }
 
 export function Playground() {
+  useGlobalProjectData()
   const { t } = useTranslation('nav')
   const isMobile = useMediaQuery("(max-width: 767px)")
   const [searchParams, setSearchParams] = useSearchParams()

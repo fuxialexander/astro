@@ -35,9 +35,13 @@ export type Activity = {
 type ActivityStore = {
   activities: Activity[]
   loaded: boolean
+  /** True only after a full global loadActivities() — not set by loadForProject */
+  globallyLoaded: boolean
   loading: boolean
   error: string | null
   loadActivities: () => Promise<void>
+  /** Load activities for a single project (merges into global store) */
+  loadForProject: (projectId: string) => Promise<void>
   addActivity: (activity: Omit<Activity, "id" | "timestamp">) => void
   getProjectActivities: (projectId: string, limit?: number) => Activity[]
   clearProjectActivities: (projectId: string) => void
@@ -48,6 +52,7 @@ const MAX_ACTIVITIES = 1000 // Keep last 1000 activities
 export const useActivityStore = create<ActivityStore>((set, get) => ({
   activities: [],
   loaded: false,
+  globallyLoaded: false,
   loading: false,
   error: null,
 
@@ -55,9 +60,27 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
     set({ loading: true, error: null })
     try {
       const activities = await dataClient.listActivities()
-      set({ activities, loaded: true, loading: false })
+      set({ activities, loaded: true, globallyLoaded: true, loading: false })
     } catch (err) {
-      set({ loaded: true, loading: false, error: err instanceof Error ? err.message : 'Failed to load activities' })
+      set({ loaded: true, globallyLoaded: true, loading: false, error: err instanceof Error ? err.message : 'Failed to load activities' })
+    }
+  },
+
+  loadForProject: async (projectId: string) => {
+    // Skip if we already loaded all data globally
+    if (get().globallyLoaded) return
+    try {
+      const activities = await dataClient.listActivities(projectId)
+      // Re-check after await: a concurrent global load() may have completed
+      if (get().globallyLoaded) return
+      set((state) => {
+        // Merge: remove existing for this project, add fresh
+        const others = state.activities.filter((a) => a.projectId !== projectId)
+        return { activities: [...activities, ...others].slice(0, 1000), loaded: true }
+      })
+    } catch (err) {
+      console.error('[activity-store] loadForProject failed:', err)
+      set({ loaded: true })
     }
   },
 

@@ -9,6 +9,7 @@ import { useRealtimeStore } from "@/stores/realtime-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useSessionStore } from "@/stores/session-store"
 import { statusBadgeVariants, TERMINAL_NODE_STATUSES } from "@/lib/status-config"
+import { useGlobalProjectData } from "@/hooks/use-global-project-data"
 
 interface ActiveTask {
   nodeId: string
@@ -229,6 +230,7 @@ function ProjectGroup({
 }
 
 export function ActiveTasks() {
+  useGlobalProjectData()
   const { t } = useTranslation('tasks')
   const executions = useExecutionStore((s) => s.executions)
   const projects = useProjectStore((s) => s.projects)
