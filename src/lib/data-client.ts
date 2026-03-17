@@ -69,14 +69,15 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
   }
 }
 
+// Note: json() already calls getAuthHeaders() internally, so callers
+// must NOT call it separately — that would double the token lookups.
+
 async function post(url: string, body: unknown) {
-  const headers = await getAuthHeaders()
-  return json(url, { method: "POST", headers, body: JSON.stringify(body) })
+  return json(url, { method: "POST", body: JSON.stringify(body) })
 }
 
 async function patch(url: string, body: unknown) {
-  const headers = await getAuthHeaders()
-  return json(url, { method: "PATCH", headers, body: JSON.stringify(body) })
+  return json(url, { method: "PATCH", body: JSON.stringify(body) })
 }
 
 /**
@@ -86,19 +87,16 @@ async function patch(url: string, body: unknown) {
  * Use this only when the body explicitly contains undefined values that mean "clear".
  */
 async function patchWithNulls(url: string, body: unknown) {
-  const headers = await getAuthHeaders()
   const serialized = JSON.stringify(body, (_key, value) => value === undefined ? null : value)
-  return json(url, { method: "PATCH", headers, body: serialized })
+  return json(url, { method: "PATCH", body: serialized })
 }
 
 async function put(url: string, body: unknown) {
-  const headers = await getAuthHeaders()
-  return json(url, { method: "PUT", headers, body: JSON.stringify(body) })
+  return json(url, { method: "PUT", body: JSON.stringify(body) })
 }
 
 async function del(url: string) {
-  const headers = await getAuthHeaders()
-  return json(url, { method: "DELETE", headers })
+  return json(url, { method: "DELETE" })
 }
 
 // Drizzle returns timestamps as strings or numbers — normalize to Date

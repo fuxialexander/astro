@@ -202,7 +202,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     if (!initiativesLoaded) loadInitiatives()
     if (!executionsLoaded) loadExecutions()
     if (!activitiesLoaded) loadActivities()
-    if (!sidebarLoaded) loadSidebar()
+    // Sidebar is loaded in a separate effect after user profile (it reads sidebarConfig from profile)
     if (!pluginsLoaded) loadPlugins()
     if (!skillsLoaded) loadSkills()
     if (!templatesLoaded) loadTemplates()
@@ -223,6 +223,14 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     return () => disconnectRealtime()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Re-run when teams loaded or auth changes
   }, [shouldLoadData, teamsLoaded])
+
+  // Phase 2b: Load sidebar after user profile — sidebar reads sidebarConfig from the profile,
+  // so waiting avoids a duplicate /api/data/profile fetch.
+  useEffect(() => {
+    if (!shouldLoadData || !teamsLoaded || !userProfileLoaded) return
+    if (!sidebarLoaded) loadSidebar()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldLoadData, teamsLoaded, userProfileLoaded])
 
   // Background-refresh file trees after projects load.
   // In local mode (no relay), fire immediately when projects load.

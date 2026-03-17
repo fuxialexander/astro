@@ -1,6 +1,6 @@
 import { create } from "zustand"
 import type { Session, User } from "@supabase/supabase-js"
-import { getSupabase } from "@/lib/supabase-client"
+import { getSupabase, setCachedSession } from "@/lib/supabase-client"
 import { isLocalMode } from "@/lib/app-mode"
 import { teardownRealtimeSync } from "@/lib/realtime-sync"
 import { apiUrl } from "@/lib/api-url"
@@ -56,8 +56,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return
     }
 
-    // Get initial session
+    // Get initial session and populate the token cache so that
+    // subsequent getAccessToken() calls skip the Supabase lock.
     const { data: { session } } = await supabase.auth.getSession()
+    setCachedSession(session)
 
     set({
       session,
@@ -71,6 +73,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     // Listen for auth changes (single listener, cleaned up on re-initialize)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Keep the token cache in sync so getAccessToken() never stales
+      setCachedSession(session)
+
       set({
         session,
         user: session?.user ?? null,
