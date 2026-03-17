@@ -337,8 +337,8 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       // Merge into existing store: replace data for this project, keep others
       const { nodes: existingNodes, edges: existingEdges } = get()
       const otherNodes = existingNodes.filter((n) => n.projectId !== projectId)
+      const nodeProjects = new Map(existingNodes.map((n) => [n.id, n.projectId]))
       const otherEdges = existingEdges.filter((e) => {
-        const nodeProjects = new Map(existingNodes.map((n) => [n.id, n.projectId]))
         return nodeProjects.get(e.source) !== projectId && nodeProjects.get(e.target) !== projectId
       })
 
