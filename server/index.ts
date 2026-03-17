@@ -431,7 +431,8 @@ async function start() {
       redisPubSub.on('ws:proxy:response', (event) => {
         // All instances receive this — the one waiting for this correlationId
         // will have a listener on the relay server's EventEmitter that picks it up.
-        relayServer.emit(event.responseType, event.payload)
+        // Mark as proxied so the bridge below doesn't re-publish it (preventing infinite loop).
+        relayServer.emit(event.responseType, { ...event.payload, _fromProxy: true })
       })
 
       // Bridge relay responses → Redis for cross-instance proxy.
@@ -447,13 +448,19 @@ async function start() {
         'repo_setup:response',
         'repo_detect:response',
         'slash_commands:response',
+        'git_init:response',
+        'branch_list:response',
       ]
       for (const eventType of proxyResponseTypes) {
         relayServer.on(eventType, (data: Record<string, unknown>) => {
           if (!redisPubSub.isConnected()) return
+          // Skip events that arrived via proxy — prevents infinite Redis echo loop
+          if ((data as { _fromProxy?: boolean })._fromProxy) return
+          const correlationId = (data as { correlationId?: string }).correlationId
+          if (!correlationId) return // no correlationId — skip to avoid needless broadcast
           redisPubSub.publishWsProxyResponse({
             targetInstanceId: '', // broadcast — the instance with the matching correlationId picks it up
-            correlationId: (data as { correlationId?: string }).correlationId || '',
+            correlationId,
             responseType: eventType,
             payload: data,
           }).catch(() => {})
