@@ -109,26 +109,37 @@ sequenceDiagram
 
 All cross-instance communication flows through these Redis primitives:
 
-### Pub/Sub Channels
+### Pub/Sub Channels (10)
 
 | Channel | Direction | Purpose |
 |---------|-----------|---------|
-| `relay:task:streaming` | Instance -> All | Streaming events (text, tool_use, tool_result, file_change, session_init, progress, result, node_status_changed) |
-| `relay:approval:response` | Instance -> Target | Route approval response to machine's instance |
-| `relay:task:steer` | Instance -> Target | Route steer message to machine's instance |
-| `relay:safety:decision` | Instance -> Target | Route safety decision to machine's instance |
-| `relay:task:cancel` | Instance -> Target | Route task cancellation |
-| `relay:task:dispatch` | Instance -> Target | Route task dispatch to specific machine |
-| `relay:machine:state` | Instance -> All | Machine registry changes (connect/disconnect) |
+| `relay:machine:state` | Instance → All | Machine lifecycle (connect/disconnect/update) — syncs machine registry |
+| `relay:task:state` | Instance → All | Task state changes |
+| `relay:task:dispatch` | Instance → Target | Route task dispatch to instance owning machine's WebSocket |
+| `relay:task:cancel` | Instance → Target | Route task cancellation |
+| `relay:task:streaming` | Instance → All | Streaming events (text, tool_use, tool_result, file_change, session_init, progress, result, node_status_changed, task_init, task_ready) |
+| `relay:approval:response` | Instance → Target | Route approval answer to machine's instance |
+| `relay:task:steer` | Instance → Target | Route steer message (guidance, redirect, pause, resume) |
+| `relay:safety:decision` | Instance → Target | Route safety decision (proceed, init-git, sandbox, cancel) |
+| `relay:ws:proxy:request` | Instance → Target | Cross-instance WebSocket proxy requests (filesystem, sessions, repo operations) |
+| `relay:ws:proxy:response` | Target → Requester | WebSocket proxy responses (broadcast, matched by correlationId) |
 
-### Write-Through Keys
+### Write-Through Keys (12 patterns)
 
 | Key Pattern | TTL | Purpose |
 |-------------|-----|---------|
-| `relay:task:machine:<taskId>` | 24h | Maps task to machine for cross-instance cancel/steer |
+| `relay:machines` | No expiry | HSET of all registered machines (machineId → entry JSON) |
+| `relay:machine:instance:<machineId>` | 5 min | Maps machine to owning instance (refreshed by heartbeat) |
+| `relay:instance:<instanceId>` | 60s | Instance health heartbeat (every 30s) |
+| `relay:task:machine:<taskId>` | 24h | Task-to-machine mapping for cancel/steer routing |
 | `relay:exec:context:<executionId>` | 4h | Execution context (userId, projectId) for ownership checks |
 | `relay:dispatch:active:<executionId>` | 1h | Tracks which instance owns the dispatch SSE bridge |
-| `relay:instance:<instanceId>` | 60s | Instance heartbeat for health monitoring |
+| `relay:exec:cost:<executionId>` | 4h | Atomic cumulative cost tracking (INCRBYFLOAT) |
+| `relay:leader:<operationName>` | 90s | Leader election via SETNX (dead-job-checker singleton) |
+| `relay:task:dir:<taskId>` | 4h | Task working directory for safety decision lookup |
+| `relay:safety:dir:<workingDirectory>` | 24h | Approved safety decision cache per directory |
+| `relay:notified:approval:<requestId>` | 5 min | Dedup approval notifications across instances |
+| `relay:pending:approval:<executionId>` | 4h | Watchdog awareness: execution waiting for user approval |
 
 ### Self-Instance Deduplication
 
@@ -138,6 +149,52 @@ Every Redis message includes an `instanceId`. The originating instance skips its
 // In events.ts — Redis streaming handler
 if (msg.instanceId === redisPubSub.getInstanceId()) return  // skip own
 ```
+
+### WebSocket Proxy (Filesystem & Session Requests)
+
+When an HTTP request for directory listing, file content, repo detection, or session listing lands on an instance that doesn't own the machine's WebSocket, the request is proxied via Redis:
+
+```
+Instance A (HTTP)                    Redis                    Instance B (WebSocket)
+     │                                 │                            │
+     │  Browser: GET /api/fs/dirs      │                            │
+     │  machineId=M (remote)           │                            │
+     │                                 │                            │
+     ├─── publishWsProxyRequest ──────►│                            │
+     │    {machineId, correlationId,   │                            │
+     │     messageType, payload}       │                            │
+     │                                 ├─── ws:proxy:request ──────►│
+     │                                 │                            │
+     │                                 │    machineRegistry.isLocal(M)? yes
+     │                                 │    → forward via WebSocket to machine
+     │                                 │    ← machine responds
+     │                                 │                            │
+     │                                 │◄── publishWsProxyResponse ─┤
+     │                                 │    {correlationId,         │
+     │◄── ws:proxy:response ───────────┤     responseType, payload} │
+     │                                 │                            │
+     │  relayServer.emit(responseType) │                            │
+     │  → Promise resolves             │                            │
+     │  → HTTP response to browser     │                            │
+```
+
+**Proxied request types** (11): `file_list_request`, `directory_list_request`, `file_content_request`, `file_upload_request`, `file_upload_chunk`, `create_directory_request`, `sessions_list_request`, `repo_setup_request`, `repo_detect_request`, `slash_commands_request`
+
+### Leader Election (Singleton Timers)
+
+The **dead job checker** runs on exactly one instance using Redis SETNX-based leader election:
+
+```typescript
+// Try to acquire leadership (90s TTL)
+SET relay:leader:dead-job-checker <instanceId> NX EX 90
+// → 'OK' if won, null if another instance holds it
+
+// Renew (every 60s within the checker interval)
+GET relay:leader:dead-job-checker
+// → if value === thisInstanceId, EXPIRE 90
+```
+
+If the leader instance crashes, the TTL expires in ≤90 seconds and another instance takes over. All guarded operations are idempotent, so brief overlap is harmless.
 
 ---
 
@@ -162,13 +219,14 @@ The production config sets `min_machines_running = 2` for both services:
 
 [vm]
   cpu_kind = "shared"
-  cpus = 1
-  memory_mb = 1024
+  cpus = 2
+  memory_mb = 2048
 ```
 
 Key settings:
 - `auto_stop_machines = false` — instances must stay running for WebSocket connections
-- `min_machines_running = 2` — ensures load balancer has two targets
+- `min_machines_running = 2` — ensures load balancer has two targets for zero-downtime rolling deploys
+- `cpus = 2`, `memory_mb = 2048` — shared-cpu-2x with 2 GB RAM per instance
 - Health check: `GET /api/health` every 15s with 30s grace period
 
 ### Secrets
@@ -309,15 +367,17 @@ Scaling up requires no code changes — new instances auto-connect to Redis and 
 
 | File | Role |
 |------|------|
-| `fly.toml` | Fly.io deployment config (2 machines, health checks, ports) |
+| `fly.toml` | Fly.io deployment config (2 machines, health checks, ports, VM size) |
 | `docker/Dockerfile` | Multi-stage build for production image |
-| `server/lib/redis-pubsub.ts` | Redis channels, keys, pub/sub methods, write-through |
-| `server/lib/relay-server.ts` | Cross-instance routing for cancel/approval/steer/safety |
+| `server/lib/redis-pubsub.ts` | 10 channels, 12 key patterns, pub/sub methods, write-through, leader election |
+| `server/lib/relay-server.ts` | Cross-instance routing for cancel/approval/steer/safety + WebSocket proxy for filesystem/session requests |
+| `server/lib/machine-registry.ts` | Hybrid in-memory (local WebSocket) + Redis (remote machines) registry |
 | `server/lib/execution-context-store.ts` | Dual-layer store: local Map + Redis fallback |
-| `server/lib/redis-event-bridge.ts` | Centralized executionEventBus -> Redis bridge |
+| `server/lib/redis-event-bridge.ts` | Centralized executionEventBus → Redis bridge (node:status_changed, task:init, task:ready) |
 | `server/routes/events.ts` | SSE handler with Redis cross-instance streaming |
 | `server/routes/dispatch.ts` | Active dispatch stream Redis tracking |
-| `server/index.ts` | Redis init on startup, event handler wiring |
+| `server/routes/fs.ts` | Filesystem routes (directory listing, file content, upload) — uses WS proxy for remote machines |
+| `server/index.ts` | Redis init on startup, event handler wiring, WS proxy bridge |
 
 ---
 

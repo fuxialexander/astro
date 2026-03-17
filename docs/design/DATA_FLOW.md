@@ -117,7 +117,33 @@ WHERE (team_id = $1) OR (team_id IS NULL AND owner_id = $2)
 
 This ensures User A never sees User B's data, even if they share a database.
 
-### 3.3 Key REST Endpoints
+### 3.3 Two-Tier Lazy Loading
+
+To reduce initial page load from ~10-50 MB to ~1-5 MB, plan and execution data uses slim/full tiers:
+
+**Tier 1 — Slim Global Load (startup):**
+- `GET /api/data/plan?slim=1` — All nodes/edges across all projects, but `content` and `executionOutput` are null
+- `GET /api/data/executions?slim=1` — All execution metadata, but `streamText` is empty string
+
+**Tier 2 — Full Per-Project Load (on navigation):**
+- `GET /api/data/plan/:projectId` — Full node data including content and executionOutput for one project
+- `GET /api/data/executions?projectId=X` — Full executions including streamText for one project
+
+**What triggers the full load:** The `useProjectData` hook (`src/hooks/use-project-data.ts`) fires when the user navigates to `/project/:id/*` or `/project/:id/task/:nodeId`. It calls `planStore.loadForProject(projectId)` and `executionStore.loadForProject(projectId)` in parallel.
+
+**Merge behavior:**
+- **Plan store**: replaces all nodes/edges for the target project, preserves other projects' data. Rebuilds dependency map from edges.
+- **Execution store**: replaces completed executions, but **preserves running executions** (they have live SSE streaming buffers that would be lost on replacement).
+
+**Pages using slim data only** (no per-project load):
+Dashboard, Projects list, My Tasks, Active Tasks, Initiatives, Environments, Playground, Workflows, Examples
+
+**Pages triggering full per-project load:**
+Plan View (`/project/:id/*`), Task Detail (`/project/:id/task/:nodeId`)
+
+See `LAZY_DATA_LOADING.md` for the complete design including content sync patterns, slim-to-full transition handling, and 31 unit tests.
+
+### 3.4 Key REST Endpoints
 
 | Endpoint | Method | Source | Database Table |
 |----------|--------|--------|----------------|
@@ -384,24 +410,28 @@ If queued tasks exist for this machine:
 
 ### 6.5 Multi-Instance Production Recovery
 
-In production with multiple backend instances (Fly.io):
+In production with 2 Fly.io instances + Upstash Redis:
 
 ```
 Instance A: handles task dispatch, receives machine results
 Instance B: handles user's SSE connection
     ↓
 Instance A persists events to DB (streaming_events)
-Instance A publishes events to Redis Pub/Sub
+Instance A publishes events to Redis Pub/Sub (relay:task:streaming)
     ↓
 Instance B subscribes to Redis, forwards to SSE client
     ↓
 If Instance B restarts:
     ├─ Client detects SSE drop
-    ├─ Client reconnects (may hit Instance C)
+    ├─ Client reconnects (may hit Instance A — round-robin)
     ├─ Client sends GET /api/events/catch-up?afterSeq=lastSeq
     ├─ Any instance can serve catch-up (reads from shared DB)
     └─ No data loss — DB is the shared source of truth
 ```
+
+**Filesystem requests** (directory listing, file content, repo detection) may also cross instances. If a browser's HTTP request hits Instance A but the machine's WebSocket is on Instance B, the request is proxied via Redis (`relay:ws:proxy:request` → `relay:ws:proxy:response`). This is transparent to the frontend.
+
+**Machine registry** is synchronized: each instance maintains a hybrid in-memory registry — local WebSocket connections + remote machines synced via Redis `relay:machine:state` events. On startup, instances hydrate from `relay:machines` HSET.
 
 ---
 
