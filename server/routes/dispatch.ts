@@ -1730,6 +1730,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
             status: isSuccess ? 'success' : 'failure',
             error: msg.result.error || null,
             completedAt: completionTime,
+            sessionId: capturedSessionId,
             durationMs: dispatchMetrics?.durationMs ?? null,
             inputTokens: dispatchMetrics?.inputTokens ?? null,
             outputTokens: dispatchMetrics?.outputTokens ?? null,
@@ -1935,6 +1936,15 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         console.error('[dispatch] Failed to update plan_node on machine disconnect:', err)
       }
 
+      // Update taskExecutions so the record doesn't stay 'running' forever
+      db.update(taskExecutions)
+        .set({ status: 'failure', error: 'Remote machine disconnected during task execution', completedAt: errorTime })
+        .where(eq(taskExecutions.executionId, executionId))
+        .execute()
+        .catch((err: unknown) => {
+          console.error('[dispatch] Error updating taskExecution on machine disconnect:', err)
+        })
+
       // Update schedule run status so cron concurrency is unblocked
       if (scheduleRunId) {
         db.update(scheduleRuns)
@@ -2055,6 +2065,15 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       } catch (err: unknown) {
         console.error('[dispatch] Failed to update plan_node on dead job:', err)
       }
+
+      // Update taskExecutions so the record doesn't stay 'running' forever
+      db.update(taskExecutions)
+        .set({ status: 'failure', error: `Dead job detected: ${data.reason}`, completedAt: new Date() })
+        .where(eq(taskExecutions.executionId, executionId))
+        .execute()
+        .catch((err: unknown) => {
+          console.error('[dispatch] Error updating taskExecution on dead job:', err)
+        })
 
       // Update schedule run status so cron concurrency is unblocked
       if (scheduleRunId) {
@@ -2344,6 +2363,15 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           } catch (err) {
             console.error(`[dispatch] Failed to update plan_node on timeout:`, err)
           }
+
+          // Update taskExecutions so the record doesn't stay 'running' forever
+          db.update(taskExecutions)
+            .set({ status: 'failure', error: errorMsg, completedAt: new Date() })
+            .where(eq(taskExecutions.executionId, executionId))
+            .execute()
+            .catch((err: unknown) => {
+              console.error('[dispatch] Error updating taskExecution on timeout:', err)
+            })
 
           // Update schedule run status so cron concurrency is unblocked
           if (scheduleRunId) {
