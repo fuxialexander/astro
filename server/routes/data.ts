@@ -76,9 +76,9 @@ app.use('/*', async (c, next) => {
 app.use('/*', requireAuth)
 
 /**
- * Cached project-ID lookup: returns the set of project IDs accessible to this user.
- * Eliminates the duplicate SELECT * FROM projects WHERE team_scope queries
- * that every endpoint was making independently.
+ * Lightweight project-ID lookup: returns the set of project IDs accessible to this user.
+ * Uses SELECT id (not SELECT *) to minimize overhead. Called per-request by filtered
+ * endpoints (/plan, /executions, /sessions, /chat, /activities).
  */
 async function getUserProjectIds(user: AuthUser): Promise<string[]> {
   const userProjects = await db.select({ id: projects.id }).from(projects).where(teamScopeFilter(projects, user))
