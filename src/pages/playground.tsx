@@ -139,6 +139,13 @@ export function Playground() {
     [selectedMachine?.providers, globalProviders]
   )
 
+  // Auto-select the first available provider when none is selected
+  useEffect(() => {
+    if (!selectedProvider && availableProviders.length > 0) {
+      setSelectedProvider(availableProviders[0].id)
+    }
+  }, [selectedProvider, availableProviders])
+
   // Settings — use configured model tier when user hasn't explicitly picked one
   const getModelForProvider = useSettingsStore((s) => s.getModelForProvider)
 

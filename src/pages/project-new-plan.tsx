@@ -274,6 +274,15 @@ export function ProjectNewPlan() {
     }
   }, [selectedMachine?.machineId]) // eslint-disable-line react-hooks/exhaustive-deps -- intentionally only on machine change
 
+  // Auto-select the first available provider when none is selected.
+  // Without this, dispatch sends no preferredProvider and the agent-runner may not
+  // know which adapter to use, causing plan generation to fail silently.
+  useEffect(() => {
+    if (!selectedProvider && availableProviders.length > 0) {
+      setSelectedProvider(availableProviders[0].id)
+    }
+  }, [selectedProvider, availableProviders])
+
   // Sync URL → state: if URL gains a projectId we don't have, adopt it.
   // But ignore when URL still has the stale param during back navigation.
   const backingRef = useRef(false)
