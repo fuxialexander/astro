@@ -116,6 +116,13 @@ export function ExecutionPanel({ node, projectId, viewMode }: ExecutionPanelProp
   // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally only on machine change
   }, [resolvedMachineId])
 
+  // Auto-select the first available provider when none is selected
+  useEffect(() => {
+    if (!selectedProvider && availableProviders.length > 0) {
+      setSelectedProvider(availableProviders[0].id)
+    }
+  }, [selectedProvider, availableProviders])
+
   // Resolve working directory
   const dirCheck = getProjectWorkingDir(project)
   const workingDir = dirCheck.dir || ''
