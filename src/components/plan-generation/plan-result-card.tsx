@@ -15,6 +15,7 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { planNodesToExportJson } from "@/lib/plan-extraction"
 import { importProject } from "@/lib/sharing/import-project"
+import { StructuredDataView } from "@/components/ui/structured-data-view"
 
 interface PlanResultCardProps {
   projectId: string
@@ -212,9 +213,9 @@ export function PlanResultCard({
                     </div>
                   )}
                 </div>
-                <pre className="text-[11px] leading-relaxed bg-muted/50 rounded-md p-3 overflow-auto max-h-80 border border-border/30">
-                  {jsonString}
-                </pre>
+                <div className="bg-muted/50 rounded-md p-3 border border-border/30">
+                  <StructuredDataView data={exportJson} maxHeight="320px" />
+                </div>
               </div>
             )}
           </div>

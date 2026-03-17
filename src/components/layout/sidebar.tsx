@@ -60,6 +60,8 @@ const projectColors = [
   "#A08B7B", // Warm taupe
 ]
 
+const EMPTY_FLAGS: Record<string, boolean> = {}
+
 export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const { t, i18n } = useTranslation("nav")
   const { theme, setTheme } = useTheme()
@@ -80,7 +82,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const setCommandPaletteOpen = useUIStore((s) => s.setCommandPaletteOpen)
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
   const sidebarItems = useSidebarStore((s) => s.items)
-  const teamFeatureFlags = useTeamStore((s) => s.teams[0]?.featureFlags ?? {})
+  const teamFeatureFlags = useTeamStore((s) => s.teams[0]?.featureFlags) ?? EMPTY_FLAGS
   const isEditing = useSidebarStore((s) => s.isEditing)
   const setEditing = useSidebarStore((s) => s.setEditing)
   const toggleItemVisibility = useSidebarStore((s) => s.toggleItemVisibility)

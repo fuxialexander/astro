@@ -56,6 +56,8 @@ export function useChatActivityEvents(
 
     // If we have streaming events (live or hydrated), use them as the primary source
     if (streamEvents.length > 0) {
+      // yaml-spec fence parsing is handled inside groupActivityEvents() — no need here.
+
       // Append mutation events from session messages (these aren't in the streaming events)
       const mutationEvents: TaskActivityEvent[] = []
       for (const msg of sessionMessages) {
@@ -94,8 +96,9 @@ export function useChatActivityEvents(
           timestamp: msg.timestamp,
         })
       } else if (msg.role === 'assistant' && msg.content) {
+        // Use 'text' type so groupActivityEvents.flushText() can parse yaml-spec fences
         events.push({
-          type: 'chat_assistant',
+          type: 'text',
           content: msg.content,
           timestamp: msg.timestamp,
         })

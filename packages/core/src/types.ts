@@ -388,6 +388,7 @@ export type TaskActivityEvent =
   | { type: 'system_message'; message: string; timestamp: Date; seq?: number }
   | { type: 'system_prompt'; content: string; pathwayType?: string; timestamp: Date; seq?: number }
   | { type: 'plan_result'; nodes: Array<{ id: string; title: string; type: string; status?: string }>; edges: Array<{ source: string; target: string }>; projectName?: string; timestamp: Date; seq?: number }
+  | { type: 'json_render_spec'; spec: { root: string; elements: Record<string, unknown>; state?: Record<string, unknown> }; timestamp: Date; seq?: number }
 
 // Usage metrics from provider execution
 export interface UsageMetrics {

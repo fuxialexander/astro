@@ -894,6 +894,18 @@ async function dispatchViaRelay(
     skillsInjection = DEFAULT_MACHINE_INSTRUCTION_FORMATTED
   }
 
+  // Lightweight generative UI hint for playground/task execution (not plan generation)
+  if (!isInteractivePlan) {
+    skillsInjection = (skillsInjection || '') +
+      '\n\n## Generative UI\n\n' +
+      'You can render interactive UI components using ```yaml-spec code fences (YAML format). ' +
+      'NEVER use ```visualizer — ALWAYS use ```yaml-spec (with ```component for custom visuals). ' +
+      'Format: root + elements map with type/props/children per element. ' +
+      'Available components: Card, Stack, Text, Heading, Badge, Alert, Table, List, KeyValue, CodeBlock, ' +
+      'OptionCard, Timeline, Accordion, TabView, TodoList, CardCarousel, Metric, StepIndicator, Progress, Button. ' +
+      'Actions: send_chat_message, copy_to_clipboard, navigate_to_node, setState (built-in).'
+  }
+
   if (isInteractivePlan) {
     // Use the dedicated interactive plan prompt as a system prompt.
     // It includes vision doc, skills, GitHub context, and planning instructions.

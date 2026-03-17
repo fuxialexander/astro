@@ -6,7 +6,7 @@ import resourcesToBackend from 'i18next-resources-to-backend'
 i18n
   .use(LanguageDetector)
   .use(resourcesToBackend((language: string, namespace: string) =>
-    import(`../../public/locales/${language}/${namespace}.json`)
+    fetch(`/locales/${language}/${namespace}.json`).then((res) => res.json())
   ))
   .use(initReactI18next)
   .init({

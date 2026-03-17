@@ -704,6 +704,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     let rawAssistantText = ""
     let needsPlanRefresh = false
 
+    // json-render: yaml-spec fences are parsed from rawAssistantText in onDone.
+    // During streaming, text passes through normally (including yaml-spec fences
+    // which render as code blocks). On completion, we extract specs and emit
+    // json_render_spec events. This avoids complex chunk-level fence detection.
+
     // Push user event to realtime store
     useRealtimeStore.getState().pushActivityEvent(sid, {
       type: 'chat_user',
@@ -745,9 +750,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       },
       {
         // Push streaming events to realtime store for live display.
-        // The global SSE suppresses events for tasks with an active direct SSE
-        // (activeDispatchStreams), so we must push events here for the UI to
-        // show streaming output. Session messages are also updated for persistence.
+        // yaml-spec fences stream through as text (rendered as code blocks).
+        // They're extracted and replaced with json_render_spec events in onDone.
         onText: (chunk) => {
           rawAssistantText += chunk
           get().appendToLastAssistantMessage(sid, chunk)
@@ -787,6 +791,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           if (needsPlanRefresh) {
             usePlanStore.getState().load()
           }
+
+          // yaml-spec parsing is handled by use-chat-activity-events.ts which
+          // concatenates text events and extracts specs when isStreaming becomes false.
 
           // Extract and apply mutations from raw text
           const { cleanContent, mutations } = extractMutations(rawAssistantText)

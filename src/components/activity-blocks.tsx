@@ -34,6 +34,8 @@ import type { TaskActivityEvent, ExecutionSummary } from "@/types"
 import { planToMermaid, type MermaidNode, type MermaidEdge } from "@/lib/plan-to-mermaid"
 import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
 import { VisualWidget } from "@/components/ui/visual-widget"
+import { StructuredDataView } from "@/components/ui/structured-data-view"
+import { parseYamlSpecFromText } from "@/lib/json-render/parse-yaml-spec"
 import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -88,7 +90,7 @@ function sanitizeHtmlContent(html: string): string {
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface DisplayBlock {
-  type: 'text' | 'tool' | 'tool_group' | 'visual' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment' | 'branch_linked' | 'system_message' | 'system_prompt' | 'plan_result'
+  type: 'text' | 'tool' | 'tool_group' | 'visual' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment' | 'branch_linked' | 'system_message' | 'system_prompt' | 'plan_result' | 'json_render_spec'
   events: TaskActivityEvent[]
   /** For 'visual' blocks: the extracted HTML/SVG content to render */
   visualContent?: string
@@ -96,6 +98,8 @@ export interface DisplayBlock {
   visualLabel?: string
   /** For 'visual' blocks: true if content is not saved to disk (will expire) */
   visualEphemeral?: boolean
+  /** For 'json_render_spec' blocks: custom component definitions (code strings) to eval at render time */
+  componentDefs?: Record<string, string>
 }
 
 // ─── Grouping ───────────────────────────────────────────────────────
@@ -128,10 +132,33 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
   let currentToolEvents: TaskActivityEvent[] = []
 
   function flushText() {
-    if (currentTextEvents.length > 0) {
+    if (currentTextEvents.length === 0) return
+
+    // Check if the concatenated text contains yaml-spec fences.
+    // If so, parse them into text + spec blocks. This handles ALL pathways
+    // (chat, playground, plan gen, task detail, hydration) in one place.
+    const fullText = currentTextEvents
+      .map(e => (e as Extract<TaskActivityEvent, { type: 'text' }>).content ?? '')
+      .join('')
+
+    if (fullText.includes('```yaml-spec') || fullText.includes('```component')) {
+      const timestamp = currentTextEvents[0].timestamp
+      const segments = parseYamlSpecFromText(fullText)
+      for (const segment of segments) {
+        if (segment.type === 'text') {
+          blocks.push({ type: 'text', events: [{ type: 'text', content: segment.content, timestamp }] })
+        } else {
+          blocks.push({
+            type: 'json_render_spec',
+            events: [{ type: 'json_render_spec', spec: segment.spec, timestamp }],
+            componentDefs: segment.componentDefs,
+          })
+        }
+      }
+    } else {
       blocks.push({ type: 'text', events: [...currentTextEvents] })
-      currentTextEvents = []
     }
+    currentTextEvents = []
   }
 
   function flushTools() {
@@ -308,6 +335,11 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
         flushText()
         flushTools()
         blocks.push({ type: 'plan_result', events: [event] })
+        break
+      case 'json_render_spec':
+        flushText()
+        flushTools()
+        blocks.push({ type: 'json_render_spec', events: [event] })
         break
     }
   }
@@ -489,21 +521,13 @@ export function ToolBlock({ events, isRunning }: { events: TaskActivityEvent[]; 
           {toolUse.toolInput != null && (
             <div>
               <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Input</p>
-              <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 max-h-[150px] overflow-auto">
-                {typeof toolUse.toolInput === "string"
-                  ? toolUse.toolInput
-                  : JSON.stringify(toolUse.toolInput, null, 2)}
-              </pre>
+              <StructuredDataView data={toolUse.toolInput} />
             </div>
           )}
           {toolResult?.toolResult != null && (
             <div>
               <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Result</p>
-              <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 max-h-[150px] overflow-auto">
-                {typeof toolResult.toolResult === "string"
-                  ? toolResult.toolResult
-                  : JSON.stringify(toolResult.toolResult, null, 2)}
-              </pre>
+              <StructuredDataView data={toolResult.toolResult} />
             </div>
           )}
         </div>
@@ -604,21 +628,13 @@ export function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEven
                   {pair.toolUse.toolInput != null && (
                     <div>
                       <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Input</p>
-                      <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 max-h-[150px] overflow-auto">
-                        {typeof pair.toolUse.toolInput === "string"
-                          ? pair.toolUse.toolInput
-                          : JSON.stringify(pair.toolUse.toolInput, null, 2)}
-                      </pre>
+                      <StructuredDataView data={pair.toolUse.toolInput} />
                     </div>
                   )}
                   {pair.toolResult?.toolResult != null && (
                     <div>
                       <p className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Result</p>
-                      <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 max-h-[150px] overflow-auto">
-                        {typeof pair.toolResult.toolResult === "string"
-                          ? pair.toolResult.toolResult
-                          : JSON.stringify(pair.toolResult.toolResult, null, 2)}
-                      </pre>
+                      <StructuredDataView data={pair.toolResult.toolResult} />
                     </div>
                   )}
                 </div>

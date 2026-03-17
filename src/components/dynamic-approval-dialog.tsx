@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dialog'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Label } from '@/components/ui/label'
+import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
 import { useRealtimeStore } from '@/stores/realtime-store'
 
 export function DynamicApprovalDialog() {
@@ -95,8 +96,8 @@ export function DynamicApprovalDialog() {
             </div>
             <DialogTitle className="text-xl">{t('approval.agentQuestion', { ns: 'dialogs' })}</DialogTitle>
           </div>
-          <DialogDescription className="text-base">
-            {pendingApproval?.question}
+          <DialogDescription asChild className="text-base">
+            <div>{pendingApproval?.question && <MarkdownRenderer content={pendingApproval.question} className="text-sm" />}</div>
           </DialogDescription>
         </DialogHeader>
 

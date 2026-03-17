@@ -45,6 +45,8 @@ import {
   PlanGraphBlock,
 } from "@/components/activity-blocks"
 import { useGitHubCommentsStore } from "@/stores/github-comments-store"
+import { JsonRenderView } from "@/components/ui/json-render-view"
+import type { Spec } from "@json-render/core"
 import { InlineApprovalCard } from "@/components/plan-generation/inline-approval-card"
 import { PrStatusCard } from "@/components/pr-status-card"
 import type { PrData, PrCheckRun, PrReview } from "@/components/pr-status-card"
@@ -199,9 +201,12 @@ export function UnifiedActivityView({
 
   // Lazy-load full session data (messages) after page refresh
   const ensureFullSession = useSessionStore((s) => s.ensureFullSession)
+  const ensuredSessionRef = useRef<string | undefined>(undefined)
   useEffect(() => {
-    if (chatSession?.id && chatSession.messages.length === 0 && !isChatStreaming) {
-      ensureFullSession(chatSession.id)
+    const sid = chatSession?.id
+    if (sid && sid !== ensuredSessionRef.current && chatSession.messages.length === 0 && !isChatStreaming) {
+      ensuredSessionRef.current = sid
+      ensureFullSession(sid)
     }
   }, [chatSession?.id, chatSession?.messages.length, isChatStreaming, ensureFullSession])
 
@@ -857,6 +862,14 @@ export function UnifiedActivityView({
               return <SystemPromptBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'system_prompt' }>} />
             case 'plan_result':
               return <PlanGraphBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'plan_result' }>} />
+            case 'json_render_spec': {
+              const specEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'json_render_spec' }>
+              return (
+                <div key={i} className="px-4 py-2">
+                  <JsonRenderView spec={specEvent.spec as unknown as Spec} componentDefs={block.componentDefs} />
+                </div>
+              )
+            }
             default:
               return null
           }

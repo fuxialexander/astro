@@ -206,6 +206,8 @@ interface RealtimeState {
   respondToSafetyPrompt: (taskId: string, decision: string) => Promise<void>
   hydrateFromCatchUp: (executionIds: string[], afterSeq?: number) => Promise<void>
   pushActivityEvent: (executionId: string, event: TaskActivityEvent) => void
+  /** Update the last json_render_spec activity event in-place for progressive rendering */
+  updateLastSpecEvent: (executionId: string, spec: { root: string; elements: Record<string, unknown>; state?: Record<string, unknown> }) => void
   /** Reconcile running tasks after page refresh: bootstrap execution store + task streams
    *  for plan nodes that are in_progress but have no execution store entries. */
   reconcileRunningTasks: () => void
@@ -751,6 +753,24 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
     }
   })(),
 
+  updateLastSpecEvent: (executionId, spec) => {
+    set((state) => {
+      const streams = new Map(state.taskStreams)
+      const existing = streams.get(executionId)
+      if (!existing) return state
+      const events = [...existing.activityEvents]
+      // Find the last json_render_spec event and update its spec in-place
+      for (let i = events.length - 1; i >= 0; i--) {
+        if (events[i].type === 'json_render_spec') {
+          events[i] = { ...events[i], spec } as TaskActivityEvent
+          streams.set(executionId, { ...existing, activityEvents: events })
+          return { taskStreams: streams }
+        }
+      }
+      return state
+    })
+  },
+
   reconcileRunningTasks: () => {
     const planStore = usePlanStore.getState()
     const execStore = useExecutionStore.getState()
@@ -1121,6 +1141,10 @@ function handleRealtimeEvent(
       const execId = data.taskId as string
       const status = data.status as string
       const isSuccess = status === 'success' || status === 'completed'
+
+      // yaml-spec parsing is handled by use-chat-activity-events.ts which
+      // concatenates text events and extracts specs when isStreaming becomes false.
+
       set((state) => {
         const streams = new Map(state.taskStreams)
         const existing = streams.get(execId) || createEmptyTaskStream(execId)

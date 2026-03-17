@@ -593,6 +593,9 @@ agentRoute.post('/project-chat', async (c) => {
     chatSkills = chatSkills + '\n\n' + chatPlatformSkills
   }
 
+  // Inject lightweight generative UI hint (full catalog is in render-ui skill, loaded on-demand)
+  chatSkills = (chatSkills || '') + '\n\n' + GENERATIVE_UI_HINT
+
   const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges, chatSkills)
 
   // Persist user message for catch-up hydration
@@ -778,6 +781,9 @@ agentRoute.post('/task-chat', async (c) => {
       tcSkills = tcSkills + '\n\n' + tcPlatformSkills
     }
   }
+
+  // Inject lightweight generative UI hint
+  tcSkills = (tcSkills || '') + '\n\n' + GENERATIVE_UI_HINT
 
   const systemPrompt = buildTaskChatSystemPrompt({
     taskTitle,
@@ -1164,5 +1170,117 @@ agentRoute.post('/providers/detect', async (c) => {
     connectedRunners: machines.length,
   })
 })
+
+// ── Generative UI — lightweight hint injected into every chat prompt ──
+// Full catalog + examples are in skills/render-ui/SKILL.md (loaded on-demand via skill manager).
+// This hint is ~800 chars vs the full catalog's ~18KB.
+
+const GENERATIVE_UI_HINT = `## Generative UI
+
+You can render interactive UI components using \`\`\`yaml-spec code fences. These render as native React components — not HTML iframes. Content persists across sessions (no expiry).
+
+**NEVER use \`\`\`visualizer**. ALWAYS use \`\`\`yaml-spec (with \`\`\`component for custom visuals). yaml-spec components match the app theme, persist forever, and support interactivity (send_chat_message, state). For custom charts/SVG/canvas, define a \`\`\`component fence with React.createElement — do NOT fall back to \`\`\`visualizer.
+
+**Available components**: Card, Stack, Separator, Text, Heading, Badge, Alert, Table, List, KeyValue, CodeBlock, OptionCard, Timeline, Accordion, TabView, TodoList, CardCarousel, Metric, StepIndicator, Progress, Button
+
+**Actions**: send_chat_message (continues conversation), copy_to_clipboard, navigate_to_node, setState (built-in)
+
+**Format** (YAML — much more token-efficient than JSON):
+\`\`\`yaml-spec
+root: table-1
+elements:
+  table-1:
+    type: Table
+    props:
+      headers: [Name, Status, Cost]
+      rows:
+        - [Redis, Active, "$12/mo"]
+        - [PGlite, Active, Free]
+    children: []
+\`\`\`
+
+**Interactive cards**: Use OptionCard with on.press.action: send_chat_message to create clickable options:
+\`\`\`yaml-spec
+root: opts
+elements:
+  opts:
+    type: Stack
+    props: { direction: vertical, gap: sm }
+    children: [a, b]
+  a:
+    type: OptionCard
+    props: { title: "Option A", description: "First choice" }
+    on:
+      press:
+        action: send_chat_message
+        params: { message: "I choose Option A" }
+    children: []
+  b:
+    type: OptionCard
+    props: { title: "Option B", description: "Second choice" }
+    on:
+      press:
+        action: send_chat_message
+        params: { message: "I choose Option B" }
+    children: []
+\`\`\`
+
+**IMPORTANT — data-prop components** (data goes in props, NOT as children):
+- **CardCarousel**: \`props.cards\` is an array — \`cards: [{title, description, content, badge, badgeVariant}]\`
+- **Timeline**: \`props.entries\` array — \`entries: [{label, title, description}]\`
+- **Accordion**: \`props.items\` array — \`items: [{title, content}]\`
+- **TodoList**: \`props.items\` array — \`items: [{id, content, status, priority}]\`
+- **Table**: \`props.headers\` + \`props.rows\` arrays
+These components do NOT use children for their data. Set \`children: []\`.
+
+**CardCarousel example** (all data in the cards prop):
+\`\`\`yaml-spec
+root: carousel
+elements:
+  carousel:
+    type: CardCarousel
+    props:
+      cards:
+        - title: Option A
+          description: First approach
+          content: Detailed explanation of option A with pros and cons.
+          badge: Recommended
+          badgeVariant: success
+        - title: Option B
+          description: Second approach
+          content: Detailed explanation of option B.
+        - title: Option C
+          description: Third approach
+          content: Detailed explanation of option C.
+          badge: New
+          badgeVariant: info
+    children: []
+\`\`\`
+
+**Custom components**: Define custom components with \`\`\`component Name fences BEFORE the yaml-spec that uses them. The code must use React.createElement (no JSX). Available in scope: React, cn (tailwind utility).
+\`\`\`component HeatCell
+({ props }) => {
+  const v = Number(props.value) || 0
+  const bg = v > 75 ? 'bg-success/20' : v > 50 ? 'bg-warning/20' : v > 25 ? 'bg-muted' : 'bg-error/20'
+  return React.createElement('div', { className: cn('px-3 py-2 text-center text-xs font-mono rounded', bg) }, v + '%')
+}
+\`\`\`
+
+\`\`\`yaml-spec
+root: grid
+elements:
+  grid:
+    type: Table
+    props:
+      headers: [Metric, Q1, Q2, Q3]
+      rows: []
+    children: [r1]
+  r1:
+    type: HeatCell
+    props: { value: 85 }
+    children: []
+\`\`\`
+
+Default to markdown for conversational text. Use yaml-spec when content is structured. Use custom components for visualizations that built-in components can't express (charts, heat maps, gauges, custom layouts).`
 
 export { agentRoute }

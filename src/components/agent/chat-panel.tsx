@@ -36,6 +36,8 @@ import {
   MutationBlock,
   SystemMessageBlock,
 } from "@/components/activity-blocks"
+import { JsonRenderView } from "@/components/ui/json-render-view"
+import type { Spec } from "@json-render/core"
 import { deriveAvailableProviders } from "@/components/execution/provider-utils"
 import type { AppliedMutations } from "@/lib/plan-mutations"
 import type { ProviderStatus, Session, TaskActivityEvent } from "@/types"
@@ -154,8 +156,10 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   // Lazy-load full session data (messages) after page refresh
   const ensureFullSession = useSessionStore((s) => s.ensureFullSession)
   const currentSessionId = currentSession?.id
+  const ensuredSessionRef = useRef<string | undefined>(undefined)
   useEffect(() => {
-    if (currentSessionId && currentSession && currentSession.messages.length === 0 && !isStreaming) {
+    if (currentSessionId && currentSessionId !== ensuredSessionRef.current && currentSession && currentSession.messages.length === 0 && !isStreaming) {
+      ensuredSessionRef.current = currentSessionId
       ensureFullSession(currentSessionId)
     }
   }, [currentSessionId, currentSession, isStreaming, ensureFullSession])
@@ -452,6 +456,16 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       return () => clearTimeout(timer)
     }
   }, [isBusy, pendingMessage, sendMessage])
+
+  // Listen for send_chat_message events from json-render interactive specs
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const message = (e as CustomEvent<{ message: string }>).detail?.message
+      if (message) sendMessage(message)
+    }
+    window.addEventListener('astro:send-chat-message', handler)
+    return () => window.removeEventListener('astro:send-chat-message', handler)
+  }, [sendMessage])
 
   // Handle initialMessage (from decompose button)
   useEffect(() => {
@@ -793,6 +807,14 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                   event={block.events[0] as Extract<TaskActivityEvent, { type: 'system_message' }>}
                 />
               )
+            case 'json_render_spec': {
+              const specEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'json_render_spec' }>
+              return (
+                <div key={i} className="px-4 py-2">
+                  <JsonRenderView spec={specEvent.spec as unknown as Spec} componentDefs={block.componentDefs} />
+                </div>
+              )
+            }
             default:
               return null
           }
