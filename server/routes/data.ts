@@ -1786,15 +1786,14 @@ app.get('/executions', async (c) => {
     return c.json({})
   }
 
-  // Get executions for user's projects — project only the columns we return
-  // to avoid transferring large streamText blobs from DB when unused.
+  // Get executions for user's projects — exclude heavy streamText column.
+  // streamText is loaded on demand via GET /executions/:executionId.
   const ids = [...projectIds]
   const filtered = await db.select({
     executionId: taskExecutions.executionId,
     nodeClientId: taskExecutions.nodeClientId,
     projectId: taskExecutions.projectId,
     status: taskExecutions.status,
-    streamText: taskExecutions.streamText,
     error: taskExecutions.error,
     machineId: taskExecutions.machineId,
     sessionId: taskExecutions.sessionId,
@@ -1806,10 +1805,6 @@ app.get('/executions', async (c) => {
     summary: taskExecutions.summary,
   }).from(taskExecutions).where(inArray(taskExecutions.projectId, ids))
 
-  // Convert to map keyed by nodeClientId.
-  // streamText is kept in the list response because the execution-panel, summary
-  // backfill, and multiple display paths depend on it after page refresh.
-  // The main egress savings come from sessions (500x) and chat (300x) endpoints.
   const result: Record<string, unknown> = {}
   for (const exec of filtered) {
     result[exec.nodeClientId] = {
@@ -1817,7 +1812,7 @@ app.get('/executions', async (c) => {
       nodeId: exec.nodeClientId,
       projectId: exec.projectId,
       status: exec.status,
-      streamText: exec.streamText,
+      streamText: '',
       error: exec.error,
       toolTraces: [],
       fileChanges: [],
@@ -1897,7 +1892,9 @@ app.get('/executions/:nodeId', async (c) => {
   const nodeId = c.req.param('nodeId')
 
   // Single indexed lookup: WHERE node_client_id = ? (idx_executions_node)
-  const [exec] = await db.select({
+  // ?full=true includes streamText (heavy — only for on-demand detail view)
+  const wantFull = c.req.query('full') === 'true'
+  const selectCols = {
     executionId: taskExecutions.executionId,
     nodeId: taskExecutions.nodeClientId,
     projectId: taskExecutions.projectId,
@@ -1907,7 +1904,9 @@ app.get('/executions/:nodeId', async (c) => {
     sessionId: taskExecutions.sessionId,
     startedAt: taskExecutions.startedAt,
     completedAt: taskExecutions.completedAt,
-  }).from(taskExecutions)
+    ...(wantFull ? { streamText: taskExecutions.streamText, summary: taskExecutions.summary } : {}),
+  }
+  const [exec] = await db.select(selectCols).from(taskExecutions)
     .where(eq(taskExecutions.nodeClientId, nodeId))
     .orderBy(desc(taskExecutions.createdAt))
     .limit(1)
