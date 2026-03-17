@@ -2858,12 +2858,14 @@ export class RelayServer extends EventEmitter {
         payload: { path, correlationId },
       };
       socket.send(JSON.stringify(msg));
+      console.log(`[relay] directory_list_request sent via LOCAL socket machineId=${machineId} cid=${correlationId}`);
       return true;
     }
 
     // Remote or unknown machine — route via Redis proxy.
     // The machine may be on another instance even if not yet synced to this registry.
     if (redisPubSub.isConnected()) {
+      console.log(`[relay] directory_list_request routing via REDIS proxy machineId=${machineId} cid=${correlationId} connection=${connection ? 'remote' : 'unknown'}`);
       redisPubSub.publishWsProxyRequest({
         machineId,
         correlationId,
@@ -2881,6 +2883,7 @@ export class RelayServer extends EventEmitter {
    * Handle directory_list.response (dot notation)
    */
   private handleDirectoryListResponse(message: { correlationId: string; path: string; entries: DirectoryEntry[]; error?: string; homeDirectory?: string }): void {
+    console.log(`[relay] directory_list.response (dot) cid=${message.correlationId} entries=${message.entries?.length ?? 0} error=${message.error ?? 'none'}`);
     this.emit('directory_list:response', {
       correlationId: message.correlationId,
       path: message.path,
@@ -2894,6 +2897,7 @@ export class RelayServer extends EventEmitter {
    * Handle agent runner's directory_list_response format
    */
   private handleAgentRunnerDirectoryListResponse(message: AgentRunnerDirectoryListResponseMessage): void {
+    console.log(`[relay] directory_list_response (underscore) cid=${message.payload.correlationId} entries=${message.payload.entries?.length ?? 0} error=${message.payload.error ?? 'none'}`);
     this.emit('directory_list:response', {
       correlationId: message.payload.correlationId,
       path: message.payload.path,
@@ -3777,6 +3781,7 @@ export class RelayServer extends EventEmitter {
   handleWsProxyRequest(machineId: string, messageType: string, payload: Record<string, unknown>): boolean {
     const connection = machineRegistry.getConnection(machineId);
     if (!connection?.socket || connection.socket.readyState !== WebSocket.OPEN) {
+      console.warn(`[relay] WS proxy: machine ${machineId} not locally connected for ${messageType}`);
       return false;
     }
 
@@ -3786,6 +3791,7 @@ export class RelayServer extends EventEmitter {
       payload,
     };
 
+    console.log(`[relay] WS proxy: forwarding ${messageType} to local machine ${machineId} cid=${(payload as { correlationId?: string }).correlationId ?? 'none'}`);
     connection.socket.send(JSON.stringify(msg));
     return true;
   }

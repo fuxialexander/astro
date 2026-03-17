@@ -762,7 +762,7 @@ async function start() {
       startHealthCheckMonitor()
       notifyServerStartup({
         port,
-        mode: isLocalMode() ? 'local' : 'supabase',
+        mode: isLocalModeEnv() ? 'local' : 'supabase',
       })
     }
   })
