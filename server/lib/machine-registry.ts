@@ -165,6 +165,50 @@ export class MachineRegistry extends EventEmitter {
   }
 
   /**
+   * Register a remote machine (connected to another server instance).
+   * No WebSocket — task dispatch is routed via Redis pub/sub.
+   * Only adds if the machine isn't already locally connected (local wins).
+   */
+  registerRemote(machineId: string, entry: MachineRegistryEntry): void {
+    const existing = this.machines.get(machineId);
+    // Don't overwrite a local WebSocket connection — local instance owns it
+    if (existing?.socket) return;
+
+    const connection: MachineConnection = {
+      socket: null,
+      entry: { ...entry, connectionStatus: 'connected', lastHeartbeat: new Date() },
+    };
+    this.machines.set(machineId, connection);
+    if (entry.sessionId) {
+      this.sessionToMachine.set(entry.sessionId, machineId);
+    }
+    console.log(`[registry] Remote machine ${machineId} (${entry.name}) synced from another instance`);
+  }
+
+  /**
+   * Remove a remote machine (disconnected on another instance).
+   * Only removes if the machine isn't locally connected.
+   */
+  removeRemote(machineId: string): void {
+    const existing = this.machines.get(machineId);
+    // Don't remove a locally-owned WebSocket connection
+    if (existing?.socket) return;
+    if (!existing) return;
+
+    this.sessionToMachine.delete(existing.entry.sessionId);
+    this.machines.delete(machineId);
+    console.log(`[registry] Remote machine ${machineId} removed (disconnected on another instance)`);
+  }
+
+  /**
+   * Check if a machine is locally connected (has a WebSocket).
+   */
+  isLocal(machineId: string): boolean {
+    const connection = this.machines.get(machineId);
+    return !!connection?.socket;
+  }
+
+  /**
    * Detach the socket from a machine without removing it from the registry.
    * Used during the disconnect grace period — the machine entry stays so it
    * can be seamlessly replaced when the agent runner reconnects.
