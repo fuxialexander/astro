@@ -580,6 +580,25 @@ export const dataClient = {
     return { executionId: row.executionId, status: row.status || 'pending' }
   },
 
+  async getExecutionFull(nodeId: string): Promise<TaskExecution | null> {
+    const row = await json<Record<string, unknown> | null>(`${BASE}/executions/${encodeURIComponent(nodeId)}?full=true`)
+    if (!row) return null
+    const r = snakeToCamel(row)
+    return {
+      executionId: (r.executionId || '') as string,
+      nodeId: (r.nodeId || nodeId) as string,
+      projectId: (r.projectId || '') as string,
+      status: (r.status || 'pending') as string,
+      streamText: (r.streamText || '') as string,
+      error: r.error as string | undefined,
+      machineId: r.machineId as string | undefined,
+      sessionId: r.sessionId as string | undefined,
+      summary: r.summary as TaskExecution['summary'],
+      startedAt: r.startedAt ? new Date(r.startedAt as string) : undefined,
+      completedAt: r.completedAt ? new Date(r.completedAt as string) : undefined,
+    } as TaskExecution
+  },
+
   async saveExecution(execution: TaskExecution): Promise<void> {
     await post(`${BASE}/executions`, execution)
   },
