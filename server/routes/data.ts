@@ -477,14 +477,54 @@ app.get('/plan', async (c) => {
   const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
   const projectIds = new Set(userProjects.map(p => p.id))
 
-  // Get nodes for user's projects (scoped query instead of full table scan)
+  // Get nodes for user's projects — column-selective to exclude heavy text blobs
+  // (executionOutput can be 10-100KB per node; loaded on demand per-task instead)
   const ids = [...projectIds]
   const rawNodes = ids.length > 0
-    ? await db.select().from(planNodes).where(and(inArray(planNodes.projectId, ids), isNull(planNodes.deletedAt)))
+    ? await db.select({
+        clientId: planNodes.clientId,
+        projectId: planNodes.projectId,
+        number: planNodes.number,
+        type: planNodes.type,
+        title: planNodes.title,
+        description: planNodes.description,
+        status: planNodes.status,
+        parentId: planNodes.parentId,
+        environment: planNodes.environment,
+        verification: planNodes.verification,
+        positionX: planNodes.positionX,
+        positionY: planNodes.positionY,
+        startDate: planNodes.startDate,
+        endDate: planNodes.endDate,
+        priority: planNodes.priority,
+        estimate: planNodes.estimate,
+        dueDate: planNodes.dueDate,
+        milestoneId: planNodes.milestoneId,
+        labelIds: planNodes.labelIds,
+        executionId: planNodes.executionId,
+        executionError: planNodes.executionError,
+        executionStartedAt: planNodes.executionStartedAt,
+        executionCompletedAt: planNodes.executionCompletedAt,
+        actualStartDate: planNodes.actualStartDate,
+        actualEndDate: planNodes.actualEndDate,
+        branchName: planNodes.branchName,
+        prUrl: planNodes.prUrl,
+        prNumber: planNodes.prNumber,
+        attachments: planNodes.attachments,
+        links: planNodes.links,
+        acceptanceCriteria: planNodes.acceptanceCriteria,
+        loopConfig: planNodes.loopConfig,
+        loopCurrentIteration: planNodes.loopCurrentIteration,
+        loopBestMetricValue: planNodes.loopBestMetricValue,
+        loopBestIteration: planNodes.loopBestIteration,
+        loopStatus: planNodes.loopStatus,
+        createdAt: planNodes.createdAt,
+        updatedAt: planNodes.updatedAt,
+      }).from(planNodes).where(and(inArray(planNodes.projectId, ids), isNull(planNodes.deletedAt)))
     : []
   const nodes = rawNodes
     .map(n => ({
-      id: n.clientId, // Use clientId as frontend ID
+      id: n.clientId,
       projectId: n.projectId,
       number: n.number,
       type: n.type,
@@ -492,7 +532,7 @@ app.get('/plan', async (c) => {
       description: n.description,
       status: n.status,
       parentId: n.parentId,
-      dependencies: [], // Will be populated below
+      dependencies: [],
       environment: n.environment,
       verification: n.verification,
       position: { x: n.positionX, y: n.positionY },
@@ -504,7 +544,7 @@ app.get('/plan', async (c) => {
       milestoneId: n.milestoneId,
       labelIds: n.labelIds,
       executionId: n.executionId,
-      executionOutput: n.executionOutput,
+      executionOutput: '',
       executionError: n.executionError,
       executionStartedAt: n.executionStartedAt,
       executionCompletedAt: n.executionCompletedAt,
@@ -513,7 +553,7 @@ app.get('/plan', async (c) => {
       branchName: n.branchName,
       prUrl: n.prUrl,
       prNumber: n.prNumber,
-      content: n.content,
+      content: '',
       attachments: n.attachments,
       links: n.links,
       acceptanceCriteria: n.acceptanceCriteria,
@@ -1673,14 +1713,9 @@ app.get('/sessions', async (c) => {
     createdAt: sessions.createdAt,
     updatedAt: sessions.updatedAt,
     completedAt: sessions.completedAt,
-    // Computed lightweight fields for list views:
+    // Lightweight computed fields — avoid jsonb_array_elements (expensive correlated subquery)
     messageCount: sql<number>`coalesce(jsonb_array_length(${sessions.messages}), 0)`,
-    titlePreview: sql<string | null>`(
-      SELECT LEFT(m->>'content', 200)
-      FROM jsonb_array_elements(${sessions.messages}) AS m
-      WHERE m->>'role' = 'user'
-      LIMIT 1
-    )`,
+    titlePreview: sql<string | null>`LEFT(${sessions.messages}->0->>'content', 200)`,
   }).from(sessions).where(
     and(eq(sessions.userId, user.id), inArray(sessions.projectId, projectIds))
   )
