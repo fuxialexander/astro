@@ -568,6 +568,8 @@ app.get('/plan/:projectId', async (c) => {
     position: { x: n.positionX, y: n.positionY },
     startDate: n.startDate,
     endDate: n.endDate,
+    actualStartDate: n.actualStartDate,
+    actualEndDate: n.actualEndDate,
     priority: n.priority,
     estimate: n.estimate,
     dueDate: n.dueDate,

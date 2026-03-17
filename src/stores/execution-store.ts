@@ -1854,16 +1854,22 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         }
       }
 
-      // Merge: replace executions for this project, keep others
+      // Merge: replace executions for this project, keep others.
+      // Preserve in-flight executions (running/pending) whose live streaming
+      // buffer would be lost if replaced by the stale DB snapshot.
       const { executions: existing } = get()
       const merged = new Map(existing)
-      // Remove old entries for this project
+      // Remove old entries for this project (except actively running ones)
       for (const [nodeId, exec] of existing) {
-        if (exec.projectId === projectId) merged.delete(nodeId)
+        if (exec.projectId === projectId && exec.status !== 'running' && exec.status !== 'pending') {
+          merged.delete(nodeId)
+        }
       }
-      // Add fresh full data
+      // Add fresh full data (skip if we preserved a running entry)
       for (const [nodeId, exec] of fullExecs) {
-        merged.set(nodeId, exec)
+        if (!merged.has(nodeId) || merged.get(nodeId)?.status !== 'running') {
+          merged.set(nodeId, exec)
+        }
       }
       set({ executions: merged })
     } catch (err) {
