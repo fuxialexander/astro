@@ -848,14 +848,14 @@ body.timeline-dragging {
 }
 
 /* ── CJK font override for zh-CN mode ── */
-/* Source Han Serif SC (思源宋体) loaded via <link> in index.html (Adobe Fonts Typekit) */
+/* Noto Serif SC (思源宋体) loaded via Google Fonts <link> in index.html */
 html[lang="zh-CN"] {
-  font-family: "source-han-serif-sc", "PingFang SC", "Noto Sans SC", sans-serif;
+  font-family: "Noto Serif SC", "PingFang SC", "Noto Sans SC", sans-serif;
 }
 
 html[lang="zh-CN"] .font-secondary,
 html[lang="zh-CN"] h1,
 html[lang="zh-CN"] h2,
 html[lang="zh-CN"] h3 {
-  font-family: "source-han-serif-sc", "PingFang SC", "Noto Serif SC", serif;
+  font-family: "Noto Serif SC", "PingFang SC", serif;
 }
