@@ -3795,6 +3795,23 @@ export class RelayServer extends EventEmitter {
     connection.socket.send(JSON.stringify(msg));
     return true;
   }
+
+  /**
+   * Check if a machine is reachable — either locally connected (with an open
+   * socket) or owned by a live instance (MACHINE_INSTANCE key in Redis).
+   * Returns false for ghost machines whose instance key has expired.
+   */
+  async isMachineReachable(machineId: string): Promise<boolean> {
+    const connection = machineRegistry.getConnection(machineId);
+    if (connection?.socket && connection.socket.readyState === WebSocket.OPEN) {
+      return true;
+    }
+    if (redisPubSub.isConnected()) {
+      const instanceId = await redisPubSub.getMachineInstance(machineId);
+      return !!instanceId;
+    }
+    return false;
+  }
 }
 
 // Singleton instance

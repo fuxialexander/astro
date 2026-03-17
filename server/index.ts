@@ -413,13 +413,26 @@ async function start() {
         }
       })
 
-      // WebSocket proxy: forward requests to locally-connected machines
+      // WebSocket proxy: forward requests to locally-connected machines.
+      // If forwarding fails (socket dead), send an error response back via Redis
+      // so the requesting instance fails fast instead of waiting for the 10s timeout.
       redisPubSub.on('ws:proxy:request', (event) => {
         // Only handle if this instance owns the machine's WebSocket
         if (!machineRegistry.isLocal(event.machineId)) return
         const sent = relayServer.handleWsProxyRequest(event.machineId, event.messageType, event.payload)
         if (!sent) {
           console.warn(`[relay] WS proxy: failed to forward ${event.messageType} to machine ${event.machineId}`)
+          // Publish error response so the requester doesn't wait for timeout
+          const responseType = event.messageType.replace('_request', ':response').replace('.request', ':response')
+          const correlationId = (event.payload as { correlationId?: string }).correlationId || event.correlationId
+          if (correlationId) {
+            redisPubSub.publishWsProxyResponse({
+              targetInstanceId: '',
+              correlationId,
+              responseType,
+              payload: { correlationId, error: 'Machine not connected (socket closed)' },
+            }).catch(() => {})
+          }
         }
       })
 
@@ -604,14 +617,26 @@ async function start() {
     })
 
     // On startup, hydrate from Redis so this instance sees machines already
-    // connected to other instances.
+    // connected to other instances. Only hydrate machines that have a live
+    // instance (MACHINE_INSTANCE key with TTL). Ghost machines whose instance
+    // key expired are cleaned up from the registry.
     if (redisPubSub.isConnected()) {
-      redisPubSub.getAllMachines().then((remoteMachines) => {
+      redisPubSub.getAllMachines().then(async (remoteMachines) => {
+        let hydrated = 0
+        let stale = 0
         for (const entry of remoteMachines) {
-          machineRegistry.registerRemote(entry.machineId, entry)
+          const instanceId = await redisPubSub.getMachineInstance(entry.machineId)
+          if (instanceId) {
+            machineRegistry.registerRemote(entry.machineId, entry)
+            hydrated++
+          } else {
+            // Ghost machine — instance key expired, clean up the registry entry
+            redisPubSub.unregisterMachine(entry.machineId).catch(() => {})
+            stale++
+          }
         }
-        if (remoteMachines.length > 0) {
-          console.log(`[relay] Hydrated ${remoteMachines.length} remote machines from Redis`)
+        if (hydrated > 0 || stale > 0) {
+          console.log(`[relay] Hydrated ${hydrated} remote machines from Redis (removed ${stale} stale)`)
         }
       }).catch((err) => {
         console.warn('[relay] Failed to hydrate remote machines from Redis:', err)

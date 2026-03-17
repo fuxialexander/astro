@@ -79,6 +79,13 @@ fsRoute.get('/directories', async (c) => {
 
   console.log(`[fs] GET /directories machineId=${machineId} path=${path}`)
 
+  // Fast-fail for ghost machines — check if any instance actually owns the WebSocket
+  const reachable = await relayServer.isMachineReachable(machineId)
+  if (!reachable) {
+    console.warn(`[fs] Machine ${machineId} not reachable (ghost or disconnected)`)
+    return c.json({ path, entries: [], error: 'Machine not connected' })
+  }
+
   try {
     const result = await requestDirectoryList(machineId, path)
     console.log(`[fs] /directories result: entries=${result.entries?.length ?? 0} error=${result.error ?? 'none'}`)
