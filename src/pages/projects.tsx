@@ -438,6 +438,10 @@ export function Projects() {
     if (displaySettings.groupBy === "none") {
       return [{ key: "all", label: "All Projects", items: sortedProjects }]
     }
+    // Pre-seed status groups so both Active and Archived always appear
+    const seed: Record<string, Project[]> = displaySettings.groupBy === "status"
+      ? { Active: [], Archived: [] }
+      : {}
     const grouped = sortedProjects.reduce<Record<string, Project[]>>((acc, p) => {
       let group: string
       switch (displaySettings.groupBy) {
@@ -455,7 +459,7 @@ export function Projects() {
       }
       ;(acc[group] ??= []).push(p)
       return acc
-    }, {})
+    }, seed)
     const groups = Object.entries(grouped).map(([label, items]) => {
       const Icon = displaySettings.groupBy === "initiative" ? (initiativeIcons[label] ?? Users) : Folder
       const iconColor = displaySettings.groupBy === "initiative" ? (initiativeIconColors[label] ?? "text-success") : "text-muted-foreground"
