@@ -40,7 +40,6 @@ import { PluginLoader } from "@/components/plugin-loader"
 import { PluginRoutes } from "@/components/plugin-routes"
 import { getBrowserHostname } from "@/lib/path-utils"
 import { refreshAllFileTrees } from "@/hooks/use-file-tree-refresh"
-import { ProjectLayout } from "@/components/project-data-loader"
 import { useGitHubStore } from "@/stores/github-store"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
 import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
@@ -100,16 +99,16 @@ function resetAllStores() {
   setApiActiveTeamId(undefined)
   // Clear all data arrays/maps to prevent cross-user data leakage
   useProjectStore.setState({ projects: [], loaded: false })
-  usePlanStore.setState({ nodes: [], edges: [], loaded: false, globallyLoaded: false })
+  usePlanStore.setState({ nodes: [], edges: [], loaded: false })
   useSettingsStore.setState({ loaded: false })
   useUserProfileStore.setState({ loaded: false })
   useDisplaySettingsStore.setState({ loaded: false })
-  useTaskChatStore.setState({ loaded: false, globallyLoaded: false })
+  useTaskChatStore.setState({ loaded: false })
   useUsageStore.setState({ loaded: false })
-  useSessionStore.setState({ sessions: new Map(), loaded: false, globallyLoaded: false })
+  useSessionStore.setState({ sessions: new Map(), loaded: false })
   useInitiativeStore.setState({ initiatives: [], loaded: false })
-  useExecutionStore.setState({ executions: new Map(), pendingApprovals: new Map(), batchExecutions: new Map(), loaded: false, globallyLoaded: false, loadedProjectIds: new Set() })
-  useActivityStore.setState({ activities: [], loaded: false, globallyLoaded: false })
+  useExecutionStore.setState({ executions: new Map(), pendingApprovals: new Map(), batchExecutions: new Map(), loaded: false })
+  useActivityStore.setState({ activities: [], loaded: false })
   useSidebarStore.setState({ loaded: false })
   usePluginStore.setState({ loaded: false })
   useSkillStore.setState({ loaded: false })
@@ -126,18 +125,21 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const authInitialized = useAuthStore((s) => s.initialized)
   const loadTeams = useTeamStore((s) => s.load)
   const loadProjects = useProjectStore((s) => s.load)
+  const loadPlan = usePlanStore((s) => s.load)
   const loadSettings = useSettingsStore((s) => s.load)
   const loadUserProfile = useUserProfileStore((s) => s.load)
   const loadDisplaySettings = useDisplaySettingsStore((s) => s.load)
+  const loadTaskChat = useTaskChatStore((s) => s.load)
   const loadUsage = useUsageStore((s) => s.load)
+  const loadSessions = useSessionStore((s) => s.load)
   const loadInitiatives = useInitiativeStore((s) => s.load)
+  const loadExecutions = useExecutionStore((s) => s.load)
+  const loadActivities = useActivityStore((s) => s.loadActivities)
   const loadSidebar = useSidebarStore((s) => s.load)
   const loadPlugins = usePluginStore((s) => s.load)
   const loadSkills = useSkillStore((s) => s.load)
   const loadTemplates = useExampleStore((s) => s.load)
   const loadAgent = useAgentStore((s) => s.load)
-  // Plan, executions, sessions, chat, and activities are loaded per-project
-  // via ProjectDataLoader when navigating to /project/:id routes
   const connectRealtime = useRealtimeStore((s) => s.connect)
   const disconnectRealtime = useRealtimeStore((s) => s.disconnect)
   const fetchGitHubStatus = useGitHubStore((s) => s.fetchStatus)
@@ -146,17 +148,21 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const gitHubEnabled = useFeatureFlag('github-integration')
   const teamsLoaded = useTeamStore((s) => s.loaded)
   const projectsLoaded = useProjectStore((s) => s.loaded)
+  const planLoaded = usePlanStore((s) => s.loaded)
   const settingsLoaded = useSettingsStore((s) => s.loaded)
   const userProfileLoaded = useUserProfileStore((s) => s.loaded)
   const displaySettingsLoaded = useDisplaySettingsStore((s) => s.loaded)
+  const taskChatLoaded = useTaskChatStore((s) => s.loaded)
   const usageLoaded = useUsageStore((s) => s.loaded)
+  const sessionsLoaded = useSessionStore((s) => s.loaded)
   const initiativesLoaded = useInitiativeStore((s) => s.loaded)
+  const executionsLoaded = useExecutionStore((s) => s.loaded)
+  const activitiesLoaded = useActivityStore((s) => s.loaded)
   const sidebarLoaded = useSidebarStore((s) => s.loaded)
   const pluginsLoaded = usePluginStore((s) => s.loaded)
   const skillsLoaded = useSkillStore((s) => s.loaded)
   const templatesLoaded = useExampleStore((s) => s.loaded)
   const agentLoaded = useAgentStore((s) => s.loaded)
-  // Plan, executions, sessions, chat, and activities load per-project (not globally)
 
   // Only load data if authenticated or in local mode
   const shouldLoadData = isLocalMode() || !!(authInitialized && session)
@@ -184,20 +190,22 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!shouldLoadData || !teamsLoaded) return
 
-    // Phase 2: Load global lightweight stores (no heavy per-project data)
     if (!projectsLoaded) loadProjects()
+    if (!planLoaded) loadPlan()
     if (!settingsLoaded) loadSettings()
     if (!userProfileLoaded) loadUserProfile()
     if (!displaySettingsLoaded) loadDisplaySettings()
+    if (!taskChatLoaded) loadTaskChat()
     if (!usageLoaded) loadUsage()
+    if (!sessionsLoaded) loadSessions()
     if (!initiativesLoaded) loadInitiatives()
+    if (!executionsLoaded) loadExecutions()
+    if (!activitiesLoaded) loadActivities()
     if (!sidebarLoaded) loadSidebar()
     if (!pluginsLoaded) loadPlugins()
     if (!skillsLoaded) loadSkills()
     if (!templatesLoaded) loadTemplates()
     if (!agentLoaded) loadAgent()
-    // Plan, executions, sessions, chat, and activities are loaded per-project
-    // via ProjectDataLoader — NOT loaded globally here
 
     connectRealtime()
 
@@ -230,8 +238,17 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     }
   }, [projectsLoaded, realtimeMachines.size])
 
-  // Reconcile running tasks is now triggered per-project by ProjectDataLoader
-  // after both plan + execution data are loaded for a specific project
+  // Reconcile running tasks after both plan + execution stores are loaded.
+  // After page refresh, plan nodes may have status=in_progress with an executionId
+  // from the DB, but the execution store and realtime store lose their in-memory
+  // entries. This bootstraps task streams and execution entries so the dashboard
+  // and active-tasks page show running tasks correctly.
+  const reconcileRunningTasks = useRealtimeStore((s) => s.reconcileRunningTasks)
+  useEffect(() => {
+    if (!planLoaded || !executionsLoaded) return
+    reconcileRunningTasks()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Run once after both stores load
+  }, [planLoaded, executionsLoaded])
 
   // Auto-sync GitHub: check connection status on load, fetch repos if connected
   useEffect(() => {
@@ -246,10 +263,9 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   }, [gitHubConnected, gitHubEnabled])
 
   // Critical stores: must load before rendering (navigation + core data)
-  // Plan/executions/sessions/chat/activities are no longer blocking — they load per-project
-  const criticalLoaded = teamsLoaded && projectsLoaded && userProfileLoaded && sidebarLoaded
+  const criticalLoaded = teamsLoaded && projectsLoaded && planLoaded && userProfileLoaded && sidebarLoaded
   // Non-critical stores load in background — page renders without them
-  const allLoaded = criticalLoaded && settingsLoaded && displaySettingsLoaded && usageLoaded && initiativesLoaded && agentLoaded && pluginsLoaded && skillsLoaded && templatesLoaded
+  const allLoaded = criticalLoaded && settingsLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded && initiativesLoaded && executionsLoaded && agentLoaded && activitiesLoaded && pluginsLoaded && skillsLoaded && templatesLoaded
 
   // Only block page render on critical stores
   if (shouldLoadData && !criticalLoaded) {
@@ -339,17 +355,15 @@ export default function App() {
                 <Route path="plan" element={<ProjectNewPlan />} />
                 <Route path="projects/new" element={<Navigate to="/projects" replace />} />
                 <Route path="projects/new/plan" element={<Navigate to="/plan" replace />} />
-                <Route path="project/:id" element={<ProjectLayout />}>
-                  <Route index element={<PlanView />} />
-                  <Route path="graph" element={<PlanView />} />
-                  <Route path="list" element={<PlanView />} />
-                  <Route path="timeline" element={<PlanView />} />
-                  <Route path="board" element={<PlanView />} />
-                  <Route path="overview" element={<PlanView />} />
-                  <Route path="knowledge" element={<PlanView />} />
-                  <Route path="repo" element={<PlanView />} />
-                  <Route path="task/:nodeId" element={<TaskDetail />} />
-                </Route>
+                <Route path="project/:id" element={<PlanView />} />
+                <Route path="project/:id/graph" element={<PlanView />} />
+                <Route path="project/:id/list" element={<PlanView />} />
+                <Route path="project/:id/timeline" element={<PlanView />} />
+                <Route path="project/:id/board" element={<PlanView />} />
+                <Route path="project/:id/overview" element={<PlanView />} />
+                <Route path="project/:id/knowledge" element={<PlanView />} />
+                <Route path="project/:id/repo" element={<PlanView />} />
+                <Route path="project/:id/task/:nodeId" element={<TaskDetail />} />
                 <Route path="initiatives" element={<Initiatives />} />
                 <Route path="tasks" element={<MyTasks />} />
                 <Route path="active" element={<ActiveTasks />} />

@@ -62,28 +62,8 @@ function teamScopeFilter(table: { teamId: typeof projects.teamId; ownerId: typeo
 
 const app = new Hono()
 
-// Performance timing middleware — log slow endpoints
-app.use('/*', async (c, next) => {
-  const start = Date.now()
-  await next()
-  const ms = Date.now() - start
-  if (ms > 200) {
-    console.log(`[perf] ${c.req.method} ${c.req.path} → ${ms}ms`)
-  }
-})
-
 // Apply authentication middleware to all routes
 app.use('/*', requireAuth)
-
-/**
- * Lightweight project-ID lookup: returns the set of project IDs accessible to this user.
- * Uses SELECT id (not SELECT *) to minimize overhead. Called per-request by filtered
- * endpoints (/plan, /executions, /sessions, /chat, /activities).
- */
-async function getUserProjectIds(user: AuthUser): Promise<string[]> {
-  const userProjects = await db.select({ id: projects.id }).from(projects).where(teamScopeFilter(projects, user))
-  return userProjects.map(p => p.id)
-}
 
 // ── Projects ──────────────────────────────────────────────────────────
 
@@ -492,64 +472,19 @@ app.delete('/initiatives/:id', async (c) => {
 
 app.get('/plan', async (c) => {
   const user = c.get('user')! as AuthUser
-  const filterProjectId = c.req.query('projectId')
 
-  // Get team's projects (use cached helper)
-  const allProjectIds = await getUserProjectIds(user)
-  const projectIds = new Set(
-    filterProjectId
-      ? allProjectIds.filter(id => id === filterProjectId)
-      : allProjectIds
-  )
+  // Get team's projects
+  const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
+  const projectIds = new Set(userProjects.map(p => p.id))
 
-  // Get nodes for user's projects — column-selective to exclude heavy text blobs
-  // (executionOutput can be 10-100KB per node; loaded on demand per-task instead)
+  // Get nodes for user's projects (scoped query instead of full table scan)
   const ids = [...projectIds]
   const rawNodes = ids.length > 0
-    ? await db.select({
-        clientId: planNodes.clientId,
-        projectId: planNodes.projectId,
-        number: planNodes.number,
-        type: planNodes.type,
-        title: planNodes.title,
-        description: planNodes.description,
-        status: planNodes.status,
-        parentId: planNodes.parentId,
-        environment: planNodes.environment,
-        verification: planNodes.verification,
-        positionX: planNodes.positionX,
-        positionY: planNodes.positionY,
-        startDate: planNodes.startDate,
-        endDate: planNodes.endDate,
-        priority: planNodes.priority,
-        estimate: planNodes.estimate,
-        dueDate: planNodes.dueDate,
-        milestoneId: planNodes.milestoneId,
-        labelIds: planNodes.labelIds,
-        executionId: planNodes.executionId,
-        executionError: planNodes.executionError,
-        executionStartedAt: planNodes.executionStartedAt,
-        executionCompletedAt: planNodes.executionCompletedAt,
-        actualStartDate: planNodes.actualStartDate,
-        actualEndDate: planNodes.actualEndDate,
-        branchName: planNodes.branchName,
-        prUrl: planNodes.prUrl,
-        prNumber: planNodes.prNumber,
-        attachments: planNodes.attachments,
-        links: planNodes.links,
-        acceptanceCriteria: planNodes.acceptanceCriteria,
-        loopConfig: planNodes.loopConfig,
-        loopCurrentIteration: planNodes.loopCurrentIteration,
-        loopBestMetricValue: planNodes.loopBestMetricValue,
-        loopBestIteration: planNodes.loopBestIteration,
-        loopStatus: planNodes.loopStatus,
-        createdAt: planNodes.createdAt,
-        updatedAt: planNodes.updatedAt,
-      }).from(planNodes).where(and(inArray(planNodes.projectId, ids), isNull(planNodes.deletedAt)))
+    ? await db.select().from(planNodes).where(and(inArray(planNodes.projectId, ids), isNull(planNodes.deletedAt)))
     : []
   const nodes = rawNodes
     .map(n => ({
-      id: n.clientId,
+      id: n.clientId, // Use clientId as frontend ID
       projectId: n.projectId,
       number: n.number,
       type: n.type,
@@ -557,7 +492,7 @@ app.get('/plan', async (c) => {
       description: n.description,
       status: n.status,
       parentId: n.parentId,
-      dependencies: [],
+      dependencies: [], // Will be populated below
       environment: n.environment,
       verification: n.verification,
       position: { x: n.positionX, y: n.positionY },
@@ -569,7 +504,7 @@ app.get('/plan', async (c) => {
       milestoneId: n.milestoneId,
       labelIds: n.labelIds,
       executionId: n.executionId,
-      executionOutput: '',
+      executionOutput: n.executionOutput,
       executionError: n.executionError,
       executionStartedAt: n.executionStartedAt,
       executionCompletedAt: n.executionCompletedAt,
@@ -578,7 +513,7 @@ app.get('/plan', async (c) => {
       branchName: n.branchName,
       prUrl: n.prUrl,
       prNumber: n.prNumber,
-      content: '',
+      content: n.content,
       attachments: n.attachments,
       links: n.links,
       acceptanceCriteria: n.acceptanceCriteria,
@@ -1573,12 +1508,8 @@ app.patch('/settings', async (c) => {
 
 app.get('/chat', async (c) => {
   const user = c.get('user')! as AuthUser
-  const filterProjectId = c.req.query('projectId')
-
-  const allProjectIds = await getUserProjectIds(user)
-  const projectIds = filterProjectId
-    ? allProjectIds.filter(id => id === filterProjectId)
-    : allProjectIds
+  const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
+  const projectIds = userProjects.map(p => p.id)
   if (projectIds.length === 0) return c.json({})
 
   // Return session metadata with message count — messages loaded on demand
@@ -1719,12 +1650,8 @@ app.delete('/chat/:nodeId', async (c) => {
 
 app.get('/sessions', async (c) => {
   const user = c.get('user')! as AuthUser
-  const filterProjectId = c.req.query('projectId')
-
-  const allProjectIds = await getUserProjectIds(user)
-  const projectIds = filterProjectId
-    ? allProjectIds.filter(id => id === filterProjectId)
-    : allProjectIds
+  const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
+  const projectIds = userProjects.map(p => p.id)
   if (projectIds.length === 0) return c.json([])
 
   // Return metadata only — heavy JSONB columns (messages, toolTraces, fileChanges,
@@ -1746,9 +1673,14 @@ app.get('/sessions', async (c) => {
     createdAt: sessions.createdAt,
     updatedAt: sessions.updatedAt,
     completedAt: sessions.completedAt,
-    // Lightweight computed fields — avoid jsonb_array_elements (expensive correlated subquery)
+    // Computed lightweight fields for list views:
     messageCount: sql<number>`coalesce(jsonb_array_length(${sessions.messages}), 0)`,
-    titlePreview: sql<string | null>`LEFT(${sessions.messages}->0->>'content', 200)`,
+    titlePreview: sql<string | null>`(
+      SELECT LEFT(m->>'content', 200)
+      FROM jsonb_array_elements(${sessions.messages}) AS m
+      WHERE m->>'role' = 'user'
+      LIMIT 1
+    )`,
   }).from(sessions).where(
     and(eq(sessions.userId, user.id), inArray(sessions.projectId, projectIds))
   )
@@ -1845,28 +1777,24 @@ app.post('/sessions/:sessionId/messages', async (c) => {
 
 app.get('/executions', async (c) => {
   const user = c.get('user')! as AuthUser
-  const filterProjectId = c.req.query('projectId')
 
-  // Get team's projects (use cached helper)
-  const allProjectIds = await getUserProjectIds(user)
-  const projectIds = new Set(
-    filterProjectId
-      ? allProjectIds.filter(id => id === filterProjectId)
-      : allProjectIds
-  )
+  // Get team's projects
+  const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
+  const projectIds = new Set(userProjects.map(p => p.id))
 
   if (projectIds.size === 0) {
     return c.json({})
   }
 
-  // Get executions for user's projects — exclude heavy streamText column.
-  // streamText is loaded on demand via GET /executions/:executionId.
+  // Get executions for user's projects — project only the columns we return
+  // to avoid transferring large streamText blobs from DB when unused.
   const ids = [...projectIds]
   const filtered = await db.select({
     executionId: taskExecutions.executionId,
     nodeClientId: taskExecutions.nodeClientId,
     projectId: taskExecutions.projectId,
     status: taskExecutions.status,
+    streamText: taskExecutions.streamText,
     error: taskExecutions.error,
     machineId: taskExecutions.machineId,
     sessionId: taskExecutions.sessionId,
@@ -1878,6 +1806,10 @@ app.get('/executions', async (c) => {
     summary: taskExecutions.summary,
   }).from(taskExecutions).where(inArray(taskExecutions.projectId, ids))
 
+  // Convert to map keyed by nodeClientId.
+  // streamText is kept in the list response because the execution-panel, summary
+  // backfill, and multiple display paths depend on it after page refresh.
+  // The main egress savings come from sessions (500x) and chat (300x) endpoints.
   const result: Record<string, unknown> = {}
   for (const exec of filtered) {
     result[exec.nodeClientId] = {
@@ -1885,7 +1817,7 @@ app.get('/executions', async (c) => {
       nodeId: exec.nodeClientId,
       projectId: exec.projectId,
       status: exec.status,
-      streamText: '',
+      streamText: exec.streamText,
       error: exec.error,
       toolTraces: [],
       fileChanges: [],
@@ -1965,9 +1897,7 @@ app.get('/executions/:nodeId', async (c) => {
   const nodeId = c.req.param('nodeId')
 
   // Single indexed lookup: WHERE node_client_id = ? (idx_executions_node)
-  // ?full=true includes streamText (heavy — only for on-demand detail view)
-  const wantFull = c.req.query('full') === 'true'
-  const selectCols = {
+  const [exec] = await db.select({
     executionId: taskExecutions.executionId,
     nodeId: taskExecutions.nodeClientId,
     projectId: taskExecutions.projectId,
@@ -1977,9 +1907,7 @@ app.get('/executions/:nodeId', async (c) => {
     sessionId: taskExecutions.sessionId,
     startedAt: taskExecutions.startedAt,
     completedAt: taskExecutions.completedAt,
-    ...(wantFull ? { streamText: taskExecutions.streamText, summary: taskExecutions.summary } : {}),
-  }
-  const [exec] = await db.select(selectCols).from(taskExecutions)
+  }).from(taskExecutions)
     .where(eq(taskExecutions.nodeClientId, nodeId))
     .orderBy(desc(taskExecutions.createdAt))
     .limit(1)

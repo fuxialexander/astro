@@ -186,10 +186,6 @@ interface PlanState {
   /** Node IDs recently updated via chat mutations — briefly highlighted in graph */
   recentlyUpdatedNodeIds: Set<string>
   load: () => Promise<void>
-  /** Load plan data for a single project (merges into global store) */
-  loadForProject: (projectId: string) => Promise<void>
-  /** True only after a full global load() — not set by loadForProject */
-  globallyLoaded: boolean
   addNode: (node: PlanNode) => void
   updateNode: (id: string, updates: Partial<PlanNode>) => void
   /** Merge a DB-fetched node into the store. DB wins — no write-back to API. */
@@ -211,73 +207,6 @@ interface PlanState {
 // Empty seed data — new users start with no plans and create via /projects/new
 const SEED_NODES: PlanNode[] = []
 const SEED_EDGES: PlanEdge[] = []
-
-/**
- * Deduplicate and prepare raw API nodes/edges for use in the store.
- * - Deduplicates edges by source→target
- * - Deduplicates nodes by ID, then by content (projectId+type+title+desc)
- * - Rebuilds node.dependencies from the edge graph
- * - Ensures positions and reconciles milestones
- */
-function prepareNodesAndEdges(
-  apiNodes: PlanNode[],
-  rawApiEdges: PlanEdge[],
-): { nodes: PlanNode[]; edges: PlanEdge[] } {
-  // Deduplicate edges by source→target
-  const seenEdges = new Set<string>()
-  const edges = rawApiEdges.filter((e) => {
-    const key = `${e.source}->${e.target}`
-    if (seenEdges.has(key)) return false
-    seenEdges.add(key)
-    return true
-  })
-
-  // Deduplicate nodes: by ID first, then collapse truly identical nodes within
-  // the same project. Racing setProjectPlan calls (SSE vs WebSocket) can create
-  // nodes with different UUIDs but identical content. We match on
-  // projectId + type + title + description (first 500 chars) so that legitimately
-  // different tasks with the same title are preserved. Among duplicates, prefer
-  // the node with a server-assigned number (lower wins).
-  const seenIds = new Set<string>()
-  const contentMap = new Map<string, PlanNode>()
-  const keepIds = new Set<string>()
-  for (const n of apiNodes) {
-    if (seenIds.has(n.id)) continue
-    seenIds.add(n.id)
-    const contentKey = `${n.projectId}::${n.type}::${n.title ?? ''}::${(n.description ?? '').slice(0, 500)}`
-    const existing = contentMap.get(contentKey)
-    if (existing) {
-      const existingNum = existing.number ?? Infinity
-      const currentNum = n.number ?? Infinity
-      if (currentNum < existingNum) {
-        keepIds.delete(existing.id)
-        keepIds.add(n.id)
-        contentMap.set(contentKey, n)
-      }
-    } else {
-      contentMap.set(contentKey, n)
-      keepIds.add(n.id)
-    }
-  }
-  const nodes = apiNodes.filter((n) => keepIds.has(n.id))
-
-  // Rebuild node.dependencies from edges (source of truth).
-  const nodeIdSet = new Set(nodes.map((n) => n.id))
-  const depsMap = new Map<string, string[]>()
-  for (const e of edges) {
-    if (!nodeIdSet.has(e.source) || !nodeIdSet.has(e.target)) continue
-    let deps = depsMap.get(e.target)
-    if (!deps) { deps = []; depsMap.set(e.target, deps) }
-    deps.push(e.source)
-  }
-  for (const node of nodes) {
-    node.dependencies = depsMap.get(node.id) ?? []
-  }
-
-  ensurePositions(nodes, edges)
-  reconcileMilestones(nodes, edges)
-  return { nodes, edges }
-}
 
 /**
  * Ensure all nodes have positions. Computes layout for projects with missing positions.
@@ -304,45 +233,73 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   nodes: [],
   edges: [],
   loaded: false,
-  globallyLoaded: false,
   recentlyUpdatedNodeIds: new Set<string>(),
 
   load: async () => {
     try {
-      const raw = await dataClient.getAllPlans()
-      const { nodes, edges } = prepareNodesAndEdges(raw.nodes, raw.edges)
-      set({ nodes, edges, loaded: true, globallyLoaded: true })
+      const { nodes: apiNodes, edges: rawApiEdges } = await dataClient.getAllPlans()
+      // Deduplicate edges by source→target on load
+      const seen = new Set<string>()
+      const edges = rawApiEdges.filter((e) => {
+        const key = `${e.source}->${e.target}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+
+      // Deduplicate nodes: by ID first, then collapse truly identical nodes within
+      // the same project. Racing setProjectPlan calls (SSE vs WebSocket) can create
+      // nodes with different UUIDs but identical content. We match on
+      // projectId + type + title + description (first 500 chars) so that legitimately
+      // different tasks with the same title (e.g. "Write tests" for frontend vs backend)
+      // are preserved. Among duplicates, prefer the node with a server-assigned number.
+      const seenIds = new Set<string>()
+      const contentMap = new Map<string, PlanNode>()
+      const keepIds = new Set<string>()
+      for (const n of apiNodes) {
+        if (seenIds.has(n.id)) continue
+        seenIds.add(n.id)
+        const contentKey = `${n.projectId}::${n.type}::${n.title ?? ''}::${(n.description ?? '').slice(0, 500)}`
+        const existing = contentMap.get(contentKey)
+        if (existing) {
+          // Duplicate content — keep the node with a server-assigned number (lower wins)
+          const existingNum = existing.number ?? Infinity
+          const currentNum = n.number ?? Infinity
+          if (currentNum < existingNum) {
+            keepIds.delete(existing.id)
+            keepIds.add(n.id)
+            contentMap.set(contentKey, n)
+          }
+          // else: keep existing, skip current
+        } else {
+          contentMap.set(contentKey, n)
+          keepIds.add(n.id)
+        }
+      }
+      const nodes = apiNodes.filter((n) => keepIds.has(n.id))
+
+      // Rebuild node.dependencies from edges (source of truth).
+      // The server doesn't persist node.dependencies, so after a page refresh
+      // all nodes have dependencies: []. Derive from the edge graph.
+      const nodeIdSet = new Set(nodes.map((n) => n.id))
+      const depsMap = new Map<string, string[]>()
+      for (const e of edges) {
+        if (!nodeIdSet.has(e.source) || !nodeIdSet.has(e.target)) continue
+        let deps = depsMap.get(e.target)
+        if (!deps) { deps = []; depsMap.set(e.target, deps) }
+        deps.push(e.source)
+      }
+      for (const node of nodes) {
+        node.dependencies = depsMap.get(node.id) ?? []
+      }
+
+      ensurePositions(nodes, edges)
+      // Reconcile milestone statuses on load (handles stale data)
+      reconcileMilestones(nodes, edges)
+      set({ nodes, edges, loaded: true })
     } catch {
       // API unavailable — start with empty data
-      set({ nodes: SEED_NODES, edges: SEED_EDGES, loaded: true, globallyLoaded: true })
-    }
-  },
-
-  loadForProject: async (projectId: string) => {
-    // Skip if we already loaded all data globally
-    if (get().globallyLoaded) return
-    try {
-      const raw = await dataClient.getAllPlans(projectId)
-      // Re-check after await: a concurrent global load() may have completed
-      if (get().globallyLoaded) return
-      const { nodes: newNodes, edges: newEdges } = prepareNodesAndEdges(raw.nodes, raw.edges)
-
-      // Merge into existing store: replace data for this project, keep others
-      const { nodes: existingNodes, edges: existingEdges } = get()
-      const otherNodes = existingNodes.filter((n) => n.projectId !== projectId)
-      const nodeProjects = new Map(existingNodes.map((n) => [n.id, n.projectId]))
-      const otherEdges = existingEdges.filter((e) => {
-        return nodeProjects.get(e.source) !== projectId && nodeProjects.get(e.target) !== projectId
-      })
-
-      set({
-        nodes: [...otherNodes, ...newNodes],
-        edges: [...otherEdges, ...newEdges],
-        loaded: true,
-      })
-    } catch (err) {
-      console.error('[plan-store] loadForProject failed:', err)
-      set({ loaded: true })
+      set({ nodes: SEED_NODES, edges: SEED_EDGES, loaded: true })
     }
   },
 

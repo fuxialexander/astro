@@ -20,13 +20,9 @@ export interface TaskChatSession {
 interface TaskChatState {
   sessions: Map<string, TaskChatSession>
   loaded: boolean
-  /** True only after a full global load() — not set by loadForProject */
-  globallyLoaded: boolean
 
   // Lifecycle
   load: () => Promise<void>
-  /** Load chat sessions for a single project (merges into global store) */
-  loadForProject: (projectId: string) => Promise<void>
 
   // Session management
   getSession: (nodeId: string) => TaskChatSession | undefined
@@ -50,7 +46,6 @@ function createMessageId(): string {
 export const useTaskChatStore = create<TaskChatState>((set, get) => ({
   sessions: new Map(),
   loaded: false,
-  globallyLoaded: false,
 
   load: async () => {
     try {
@@ -63,39 +58,14 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
             messages: entry.messages,
           })
         }
-        set({ sessions, loaded: true, globallyLoaded: true })
+        set({ sessions, loaded: true })
         return
       }
     } catch {
       // API unavailable
     }
 
-    set({ loaded: true, globallyLoaded: true })
-  },
-
-  loadForProject: async (projectId: string) => {
-    // Skip if we already loaded all data globally
-    if (get().globallyLoaded) return
-    try {
-      const chats = await dataClient.getAllChats(projectId)
-      // Re-check after await: a concurrent global load() may have completed
-      if (get().globallyLoaded) return
-      if (chats && Object.keys(chats).length > 0) {
-        const sessions = new Map(get().sessions)
-        for (const [nodeId, entry] of Object.entries(chats)) {
-          sessions.set(nodeId, {
-            ...entry.session,
-            messages: entry.messages,
-          })
-        }
-        set({ sessions, loaded: true })
-      } else {
-        set({ loaded: true })
-      }
-    } catch (err) {
-      console.error('[task-chat-store] loadForProject failed:', err)
-      set({ loaded: true })
-    }
+    set({ loaded: true })
   },
 
   getSession: (nodeId) => {

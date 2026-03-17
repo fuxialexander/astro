@@ -28,7 +28,6 @@ import { STATUS_CONFIG, statusBarColors, statusProgressColors } from "@/lib/stat
 import { assignDefaultDates } from "@/lib/timeline-utils"
 import { cn } from "@/lib/utils"
 import type { PlanNode, Priority } from "@/types"
-import { useGlobalProjectData } from "@/hooks/use-global-project-data"
 
 // --- Filter types ---
 
@@ -117,7 +116,6 @@ type MyTasksViewMode = "list" | "timeline" | "board"
 
 
 export function MyTasks() {
-  useGlobalProjectData()
   const { t } = useTranslation('tasks')
   const allProjects = useProjectStore((s) => s.projects)
   // Filter out playground sessions — they have no plan nodes and shouldn't appear in task views

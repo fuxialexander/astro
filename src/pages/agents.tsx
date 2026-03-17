@@ -8,10 +8,8 @@ import { useProjectStore } from "@/stores/project-store"
 import { formatDuration } from "@/lib/date-utils"
 import { cn } from "@/lib/utils"
 import { statusBadgeVariants } from "@/lib/status-config"
-import { useGlobalProjectData } from "@/hooks/use-global-project-data"
 
 export function Agents() {
-  useGlobalProjectData()
   const executions = useExecutionStore((s) => s.executions)
   const taskStreams = useRealtimeStore((s) => s.taskStreams)
   const rawNodes = usePlanStore((s) => s.nodes)

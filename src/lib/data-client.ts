@@ -290,9 +290,8 @@ export const dataClient = {
   },
 
   // ── Plan ────────────────────────────────────────────────────────────
-  async getAllPlans(projectId?: string): Promise<{ nodes: PlanNode[]; edges: PlanEdge[] }> {
-    const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''
-    const data = await json<{ nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] }>(`${BASE}/plan${qs}`)
+  async getAllPlans(): Promise<{ nodes: PlanNode[]; edges: PlanEdge[] }> {
+    const data = await json<{ nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] }>(`${BASE}/plan`)
     return { nodes: data.nodes.map(mapNode), edges: data.edges.map(mapEdge) }
   },
 
@@ -404,10 +403,9 @@ export const dataClient = {
   },
 
   // ── Chat ────────────────────────────────────────────────────────────
-  async getAllChats(projectId?: string): Promise<Record<string, { session: TaskChatSession; messages: TaskChatMessage[] }>> {
+  async getAllChats(): Promise<Record<string, { session: TaskChatSession; messages: TaskChatMessage[] }>> {
     type RawEntry = { session: Record<string, unknown>; messages: Record<string, unknown>[] }
-    const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''
-    const data = await json<Record<string, RawEntry>>(`${BASE}/chat${qs}`)
+    const data = await json<Record<string, RawEntry>>(`${BASE}/chat`)
 
     const result: Record<string, { session: TaskChatSession; messages: TaskChatMessage[] }> = {}
     for (const [nodeId, entry] of Object.entries(data)) {
@@ -440,9 +438,8 @@ export const dataClient = {
   },
 
   // ── Sessions ────────────────────────────────────────────────────────
-  async getAllSessions(projectId?: string): Promise<import("@/types").Session[]> {
-    const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''
-    const rows = await json<Record<string, unknown>[]>(`${BASE}/sessions${qs}`)
+  async getAllSessions(): Promise<import("@/types").Session[]> {
+    const rows = await json<Record<string, unknown>[]>(`${BASE}/sessions`)
     return rows.map(row => {
       const r = snakeToCamel(row)
       return {
@@ -550,9 +547,8 @@ export const dataClient = {
   },
 
   // ── Executions ──────────────────────────────────────────────────────
-  async getExecutions(projectId?: string): Promise<Record<string, TaskExecution>> {
-    const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''
-    const rows = await json<Record<string, Record<string, unknown>>>(`${BASE}/executions${qs}`)
+  async getExecutions(): Promise<Record<string, TaskExecution>> {
+    const rows = await json<Record<string, Record<string, unknown>>>(`${BASE}/executions`)
     const result: Record<string, TaskExecution> = {}
     for (const [nodeId, row] of Object.entries(rows)) {
       const r = snakeToCamel(row)
@@ -582,25 +578,6 @@ export const dataClient = {
     const row = await json<{ executionId?: string; status?: string } | null>(`${BASE}/executions/${encodeURIComponent(nodeId)}`)
     if (!row?.executionId) return null
     return { executionId: row.executionId, status: row.status || 'pending' }
-  },
-
-  async getExecutionFull(nodeId: string): Promise<TaskExecution | null> {
-    const row = await json<Record<string, unknown> | null>(`${BASE}/executions/${encodeURIComponent(nodeId)}?full=true`)
-    if (!row) return null
-    const r = snakeToCamel(row)
-    return {
-      executionId: (r.executionId || '') as string,
-      nodeId: (r.nodeId || nodeId) as string,
-      projectId: (r.projectId || '') as string,
-      status: (r.status || 'pending') as string,
-      streamText: (r.streamText || '') as string,
-      error: r.error as string | undefined,
-      machineId: r.machineId as string | undefined,
-      sessionId: r.sessionId as string | undefined,
-      summary: r.summary as TaskExecution['summary'],
-      startedAt: r.startedAt ? new Date(r.startedAt as string) : undefined,
-      completedAt: r.completedAt ? new Date(r.completedAt as string) : undefined,
-    } as TaskExecution
   },
 
   async saveExecution(execution: TaskExecution): Promise<void> {

@@ -18,7 +18,6 @@ import { useProjectStore } from "@/stores/project-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
-import { useGlobalProjectData } from "@/hooks/use-global-project-data"
 import { useInitiativeStore } from "@/stores/initiative-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useTeamStore } from "@/stores/team-store"
@@ -222,7 +221,6 @@ function getProjectBarColors(project: Project, progressMap: Record<string, numbe
 type ViewTab = "all" | "timeline" | "board"
 
 export function Projects() {
-  useGlobalProjectData()
   const { t } = useTranslation('projects')
   const allProjectsRaw = useProjectStore((s) => s.projects)
   const executions = useExecutionStore((s) => s.executions)
