@@ -60,6 +60,7 @@ const projectsDisplayConfig: DisplayPopoverConfig = {
     { value: "health", label: "Health" },
   ],
   propertyOptions: [
+    { value: "workingDirectory", label: "Working directory" },
     { value: "status", label: "Status" },
     { value: "health", label: "Health" },
     { value: "progress", label: "Progress" },
@@ -87,12 +88,21 @@ const projectsTimelineDisplayConfig: DisplayPopoverConfig = {
 
 // --- Column definitions for project list ---
 // Note: This will be replaced with a function that takes renaming state
+function shortenPath(path: string | undefined): string {
+  if (!path) return ""
+  // Show last 2 segments with ~ prefix: /Users/foo/Documents/repos/my-project → ~/repos/my-project
+  const segments = path.replace(/\/$/, "").split("/")
+  if (segments.length <= 3) return path
+  return "~/" + segments.slice(-2).join("/")
+}
+
 function getProjectColumns(
   renamingProjectId: string | null,
   setRenamingProjectId: (id: string | null) => void,
   handleRename: (id: string, name: string) => void,
   validateName: (name: string) => string | null,
   progressMap: Record<string, number>,
+  visibleProperties: string[],
 ): ListColumn<Project>[] {
   return [
     {
@@ -127,11 +137,16 @@ function getProjectColumns(
                 setRenamingProjectId(p.id)
               }}
               onClick={(e) => e.stopPropagation()}
-              className="text-sm truncate flex-1 hover:underline group/name"
+              className="text-sm truncate hover:underline group/name min-w-0"
             >
               {p.name}
               <Pencil className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/name:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setRenamingProjectId(p.id); }} />
             </Link>
+          )}
+          {visibleProperties.includes("workingDirectory") && p.workingDirectory && (
+            <span className="text-xs text-muted-foreground/60 truncate ml-3 flex-1 min-w-0" title={p.workingDirectory}>
+              {shortenPath(p.workingDirectory)}
+            </span>
           )}
         </div>
       ),
@@ -653,8 +668,8 @@ export function Projects() {
   ]
 
   const projectColumns = useMemo(
-    () => getProjectColumns(renamingProjectId, setRenamingProjectId, handleProjectRename, validateProjectName, progressMap),
-    [renamingProjectId, validateProjectName, handleProjectRename, setRenamingProjectId, progressMap]
+    () => getProjectColumns(renamingProjectId, setRenamingProjectId, handleProjectRename, validateProjectName, progressMap, displaySettings.visibleProperties),
+    [renamingProjectId, validateProjectName, handleProjectRename, setRenamingProjectId, progressMap, displaySettings.visibleProperties]
   )
 
   return (
