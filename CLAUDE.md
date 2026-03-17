@@ -96,7 +96,16 @@ Everything runs locally — no Fly.io, Redis, or external services needed for de
 
 ### Architecture Principles
 
-**Server must remain stateless.** Never store per-request or per-session state on the server. All state lives in the database (Drizzle ORM / Postgres or PGlite). The server reads and writes DB; it does not hold in-memory session maps, caches, or flags.
+**Server must remain stateless.** Never store per-request or per-session state on the server. All state lives in the database (Drizzle ORM / Postgres or PGlite) or Redis (for multi-instance coordination). Fly.io runs 2 backend instances with round-robin HTTP — state on Instance A is invisible to Instance B.
+
+| Anti-pattern | Problem | Correct Alternative |
+|-------------|---------|-------------------|
+| `const userSessions = new Map()` | Lost on restart, invisible to other instance | Store in DB or Redis |
+| `let currentTask = ...` at module scope | Shared across all requests on one instance | Read from DB per-request |
+| In-memory cache without TTL or Redis | Grows unbounded, stale across instances | Use Redis with TTL, or DB query |
+| Global variable tracking "who is logged in" | Meaningless with round-robin | Auth token in request header |
+
+**Exception:** `machineRegistry` stores live WebSocket handles — these are inherently per-process. The authoritative machine data lives in Redis (`relay:machines` hash) and the database (`registered_machines` table).
 
 **Frontend derives UI state from the DB as single source of truth.** Do not use in-memory React state to encode information that already exists in the store/DB (e.g., "did we just start this?"). Instead, derive decisions from observable store fields (execution status, plan nodes, etc.) that are backed by the database. Transient UI-only state (modal open/close, input text) is fine, but anything that affects routing or data decisions must be derived from store state, not from which button was clicked.
 
@@ -128,6 +137,21 @@ Use `Glob` and `Read` to explore the full directory tree as needed.
 5. AI generates `startDate`/`endDate` for each plan node; timeline uses topological sort fallback for legacy data
 6. All state persisted via `dataClient` → `POST /api/data/*` → Drizzle ORM (PGlite local / Postgres server)
 7. On page refresh: `useRestoredExecution` hydrates activity from `streaming_events` table → same UI as live streaming
+
+### Lazy Loading Discipline
+
+Only load the data that the current view needs. Large fields are deferred until the user navigates to a specific project.
+
+| Phase | When | What loads | What is excluded |
+|-------|------|-----------|-----------------|
+| **Slim global** | App startup | All projects, plan nodes (metadata), executions (metadata) | `content`, `executionOutput`, `streamText` |
+| **Full per-project** | User opens a project | Full plan nodes + full executions for that project | Nothing |
+
+If you add a new column to `plan_nodes` or `task_executions` that could hold large text/JSON:
+- Add it to the slim exclusion in `server/routes/data.ts` (`slim ? null : newField`)
+- Ensure it's included in the per-project endpoint
+- Handle `null` gracefully in the frontend (slim load returns null for excluded fields)
+- Add it to `useProjectData()` merge logic if needed
 
 ### Provider & Dispatch System
 - **Provider adapters** live in `packages/agent-runner/src/providers/` (base adapter, SLURM adapter)
@@ -229,12 +253,88 @@ Use `Glob` and `Read` to explore the full directory tree as needed.
 
 **Important:** The astro repo's CI reviews both repos. Agent-runner PRs trigger AI code review via `.github/workflows/ai-review.yml` in the agent-runner repo. Address review comments before merging.
 
+## Feature Flags: Internal Before External
+
+New features must be hidden behind feature flags. Internal teams test first; external users see nothing until the feature is released (GA).
+
+### Three Files to Keep in Sync
+
+| File | Role | Key Export |
+|------|------|-----------|
+| `server/lib/feature-flags.ts` | Backend check | `hasFeature(teamFlags, flag)` |
+| `src/hooks/use-feature-flag.ts` | Frontend hook | `useFeatureFlag(flag)` |
+| `scripts/sync-feature-flags.ts` | DB sync script | `INTERNAL_TEAMS`, `INTERNAL_FLAGS` |
+
+Both `feature-flags.ts` and `use-feature-flag.ts` contain a `GLOBAL_DEFAULTS` object. **These must have identical keys and values.**
+
+### Feature Lifecycle
+
+**Adding a new feature:**
+- Pick a kebab-case flag name (e.g., `my-feature`)
+- Add `'my-feature': false` to `GLOBAL_DEFAULTS` in **both** files
+- Add `'my-feature': true` to `INTERNAL_FLAGS` in `scripts/sync-feature-flags.ts`
+- Gate frontend: `useFeatureFlag('my-feature')` hook, `<FeatureFlagRoute>` wrapper, or `featureFlag` on sidebar items
+- Gate backend: `hasFeature(team?.featureFlags, 'my-feature')` in route handlers
+- Deploy, then run `npm run env:prod && npm run flags` to enable for internal teams
+
+**Releasing to everyone (GA):**
+- Change `GLOBAL_DEFAULTS` to `true` in **both** files
+- Remove from `INTERNAL_FLAGS`
+- Run `npm run flags` to clean up, then deploy
+
+**Emergency kill switch:**
+- Set `GLOBAL_DEFAULTS` to `false` in **both** files
+- Deploy — feature hidden instantly, no DB changes needed
+
+**Commands:**
+```bash
+npm run flags           # Sync flags to internal teams (writes to DB)
+npm run flags:status    # Show all teams and their current flags (read-only)
+npm run flags:dry-run   # Preview changes without writing to DB
+```
+
 ## Guidelines
 
 ### Database
 **When implementing database-backed features, always include the Supabase schema migration as part of the initial implementation. Do not wait for the user to ask about database schema changes.**
 
 **Drizzle schema and Supabase migrations must always be kept in sync. When adding or modifying a table in the Drizzle schema (`packages/core/src/db/schema.ts`), always create the corresponding Supabase migration in `supabase/migrations/`. Conversely, when writing a new migration, ensure the Drizzle schema reflects the same change. Never leave one without the other.**
+
+**Four-step schema checklist (all in the same commit):**
+1. Edit `packages/core/src/db/schema.ts` — the Drizzle ORM source of truth
+2. Export from `server/lib/db/schema.ts` — the re-export shim (50+ files import from here)
+3. Run `npx drizzle-kit generate` — generates PGlite migration in `drizzle/` folder
+4. Write Supabase migration in `supabase/migrations/YYYYMMDDHHMMSS_description.sql`
+
+| Common Mistake | What breaks |
+|---------------|------------|
+| Forgot Supabase migration | Local mode works, production crashes at startup |
+| Forgot re-export shim | `import { myTable } from '../db/schema.js'` returns `undefined` |
+| Forgot `drizzle-kit generate` | PGlite (local mode) missing the new table |
+| Forgot `IF NOT EXISTS` in migration | Migration fails if run twice (e.g., after rollback + redeploy) |
+
+**Supabase migration template:**
+```sql
+CREATE TABLE IF NOT EXISTS my_table (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE my_table ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "team members can read" ON my_table
+  FOR SELECT USING (
+    team_id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
+  );
+
+CREATE POLICY "team members can write" ON my_table
+  FOR ALL USING (
+    team_id IN (SELECT team_id FROM team_members WHERE user_id = auth.uid())
+  );
+```
 
 ### Debugging
 **When debugging issues, investigate the root cause before attempting fixes. Check if setup scripts, cached tokens, or stale state could be the source. Do not iterate through surface-level fixes.**
@@ -244,6 +344,46 @@ Use `Glob` and `Read` to explore the full directory tree as needed.
 
 ### Error Handling
 **Never silently fall back to a degraded mode. If an operation is expected to succeed (e.g., worktree creation, auth, external service call), fail fast with a descriptive error rather than swallowing the exception and continuing in a broken state. Errors must be surfaced to the user (via SSE, API response, or UI) — a `console.warn` alone is not sufficient. When cleanup of prior state is needed before an operation (e.g., stale worktrees, temp files), implement a fallback cleanup path (e.g., force-remove + prune) rather than wrapping the whole block in `catch {}`. Prefer throwing descriptive errors over returning `null` from functions that the caller expects to succeed.**
+
+### Backend Non-Negotiable Rules
+
+| Rule | Why |
+|------|-----|
+| Server never touches filesystem directly | All FS goes through relay to agent runners; no filesystem on Fly.io |
+| All routes use `requireAuth` middleware | Prevents unauthorized data access |
+| Never silently swallow errors | Users need to know what went wrong |
+| CORS allows only `https://astroanywhere.com` | Security boundary |
+
+**Redis and Multi-Instance Awareness:**
+- `REDIS_URL` is required in production (cross-instance features break without it)
+- `MACHINE_INSTANCE` TTL = 5 minutes, refreshed every 30s by heartbeat
+- `relay:machines` hash has no TTL — ghost entries persist until startup cleanup
+- `_fromProxy` flag on responses prevents infinite Redis echo loops — never remove this check
+- If you add new streaming event types, add them to the persistence pipeline too
+
+### Deploy Protocol
+
+```bash
+# Pre-deploy (all must pass)
+npm run lint && npm run build && npm test
+
+# Deploy
+npm run deploy           # Both backend + frontend
+npm run deploy:backend   # Fly.io only
+npm run deploy:frontend  # Cloudflare Pages only
+
+# Post-deploy verification
+curl -s https://api.astroanywhere.com/api/health | jq .
+fly status --app astro-backend-deploy
+fly logs --app astro-backend-deploy | head -50
+```
+
+| Common Deploy Issue | Fix |
+|-------------------|-----|
+| `--frozen-lockfile` fails | Run `pnpm install` and commit the lockfile |
+| Docker build fails | Run `npm run build` locally first |
+| Health check fails after deploy | Check `fly logs` for the error |
+| Frontend shows old code | Wait 1-2 min or purge Cloudflare cache |
 
 ### Planning
 **When referencing existing codebases or config paths for integration plans, verify the actual paths and file structure by reading the filesystem first. Do not assume paths like ~/.cyrus/ — check what actually exists.**
@@ -263,8 +403,52 @@ Use `Glob` and `Read` to explore the full directory tree as needed.
 
 **After creating a PR, run `/pr-shepherd <PR number>` to review and validate it.** This skill acts as a local GitHub Action — it runs code review (security, data integrity, Astro-specific principles), build, lint, and tests, then auto-fixes Critical and Important issues and pushes until CI passes.
 
+**Branch naming:**
+
+| Type | Pattern | Example |
+|------|---------|---------|
+| Feature | `feat/short-description` | `feat/loop-nodes` |
+| Bug fix | `fix/short-description` | `fix/ghost-machine-timeout` |
+| Docs | `docs/short-description` | `docs/multi-instance-relay` |
+| Chore | `chore/short-description` | `chore/update-dependencies` |
+
 **Lockfile rule:** When changing dependencies in `package.json`, always run `pnpm install` and commit the updated `pnpm-lock.yaml`. The Fly.io deploy uses `--frozen-lockfile` and will fail if specifiers are out of sync.
 
 **Submodule rules for `packages/agent-runner`:**
 - If there are no explicit changes to agent-runner, never include it in your PR. Unstage it (`git restore --staged packages/agent-runner`) to avoid submodule pointer issues.
 - If all changes are exclusively in agent-runner, do not PR to this main repo. Instead, create the PR in the agent-runner repo (`github.com/astro-anywhere/astro-agent`).
+
+## Quick Reference: Warning Signs
+
+| Symptom | Likely Cause | First Check |
+|---------|-------------|-------------|
+| Directory browser shows spinner | Ghost machines in Redis | `curl api/health` — are machines connected? |
+| Page takes 10+ seconds to load | Large field loaded globally (not slim) | Network tab: check `/api/data/plan?slim=1` size |
+| Feature visible to external users | Flag default set to `true` prematurely | Check `GLOBAL_DEFAULTS` in both feature-flags files |
+| New table missing in production | Forgot Supabase migration | Check `supabase/migrations/` for the table |
+| Import returns `undefined` for a table | Forgot re-export in `server/lib/db/schema.ts` | Add the export to the shim file |
+| 401 errors on new API route | Missing `requireAuth` middleware | Add `route.use('/*', requireAuth)` |
+| CORS error in browser | Wrong origin or missing CORS config | Check `CORS_ORIGIN` in Fly.io secrets |
+| Deploy fails with lockfile error | `pnpm-lock.yaml` not committed | Run `pnpm install`, commit lockfile |
+| Machines disconnect after 5 minutes | `MACHINE_INSTANCE` TTL not refreshing | Check `fly logs` for heartbeat errors |
+| Infinite log spam with same correlationId | Missing `_fromProxy` guard | Check `server/index.ts` proxy response handler |
+| SSE events lost on page refresh | Streaming events not persisted to DB | Check `streaming-event-log.ts` flush logic |
+| Data from wrong user appears | Missing team/user filter in DB query | Check query has `WHERE team_id = ...` |
+
+## Key Files
+
+| File | Role |
+|------|------|
+| `packages/core/src/db/schema.ts` | Database schema source of truth (Drizzle ORM) |
+| `server/lib/db/schema.ts` | Re-export shim for backward compatibility |
+| `server/lib/feature-flags.ts` | Backend feature flag check (`hasFeature()`) |
+| `src/hooks/use-feature-flag.ts` | Frontend feature flag hook (`useFeatureFlag()`) |
+| `scripts/sync-feature-flags.ts` | Sync flags to internal teams (`npm run flags`) |
+| `server/lib/relay-server.ts` | WebSocket relay, heartbeat, `isMachineReachable()` |
+| `server/lib/redis-pubsub.ts` | Redis adapter for cross-instance coordination |
+| `server/lib/machine-registry.ts` | In-memory machine registry (WebSocket handles) |
+| `server/routes/data.ts` | Data API with slim mode (`?slim=1`) |
+| `src/hooks/use-project-data.ts` | Per-project full data loading hook |
+| `fly.toml` | Fly.io deployment config (2 instances, ports) |
+| `supabase/migrations/` | Production database migrations |
+| `drizzle/` | PGlite (local mode) auto-generated migrations |
