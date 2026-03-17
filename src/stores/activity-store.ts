@@ -38,6 +38,8 @@ type ActivityStore = {
   loading: boolean
   error: string | null
   loadActivities: () => Promise<void>
+  /** Load activities for a single project (merges into global store) */
+  loadForProject: (projectId: string) => Promise<void>
   addActivity: (activity: Omit<Activity, "id" | "timestamp">) => void
   getProjectActivities: (projectId: string, limit?: number) => Activity[]
   clearProjectActivities: (projectId: string) => void
@@ -58,6 +60,19 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
       set({ activities, loaded: true, loading: false })
     } catch (err) {
       set({ loaded: true, loading: false, error: err instanceof Error ? err.message : 'Failed to load activities' })
+    }
+  },
+
+  loadForProject: async (projectId: string) => {
+    try {
+      const activities = await dataClient.listActivities(projectId)
+      set((state) => {
+        // Merge: remove existing for this project, add fresh
+        const others = state.activities.filter((a) => a.projectId !== projectId)
+        return { activities: [...activities, ...others].slice(0, 1000), loaded: true }
+      })
+    } catch {
+      // API unavailable
     }
   },
 

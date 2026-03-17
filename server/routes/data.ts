@@ -62,8 +62,28 @@ function teamScopeFilter(table: { teamId: typeof projects.teamId; ownerId: typeo
 
 const app = new Hono()
 
+// Performance timing middleware — log slow endpoints
+app.use('/*', async (c, next) => {
+  const start = Date.now()
+  await next()
+  const ms = Date.now() - start
+  if (ms > 200) {
+    console.log(`[perf] ${c.req.method} ${c.req.path} → ${ms}ms`)
+  }
+})
+
 // Apply authentication middleware to all routes
 app.use('/*', requireAuth)
+
+/**
+ * Cached project-ID lookup: returns the set of project IDs accessible to this user.
+ * Eliminates the duplicate SELECT * FROM projects WHERE team_scope queries
+ * that every endpoint was making independently.
+ */
+async function getUserProjectIds(user: AuthUser): Promise<string[]> {
+  const userProjects = await db.select({ id: projects.id }).from(projects).where(teamScopeFilter(projects, user))
+  return userProjects.map(p => p.id)
+}
 
 // ── Projects ──────────────────────────────────────────────────────────
 
@@ -472,10 +492,15 @@ app.delete('/initiatives/:id', async (c) => {
 
 app.get('/plan', async (c) => {
   const user = c.get('user')! as AuthUser
+  const filterProjectId = c.req.query('projectId')
 
-  // Get team's projects
-  const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
-  const projectIds = new Set(userProjects.map(p => p.id))
+  // Get team's projects (use cached helper)
+  const allProjectIds = await getUserProjectIds(user)
+  const projectIds = new Set(
+    filterProjectId
+      ? allProjectIds.filter(id => id === filterProjectId)
+      : allProjectIds
+  )
 
   // Get nodes for user's projects — column-selective to exclude heavy text blobs
   // (executionOutput can be 10-100KB per node; loaded on demand per-task instead)
@@ -1548,8 +1573,12 @@ app.patch('/settings', async (c) => {
 
 app.get('/chat', async (c) => {
   const user = c.get('user')! as AuthUser
-  const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
-  const projectIds = userProjects.map(p => p.id)
+  const filterProjectId = c.req.query('projectId')
+
+  const allProjectIds = await getUserProjectIds(user)
+  const projectIds = filterProjectId
+    ? allProjectIds.filter(id => id === filterProjectId)
+    : allProjectIds
   if (projectIds.length === 0) return c.json({})
 
   // Return session metadata with message count — messages loaded on demand
@@ -1690,8 +1719,12 @@ app.delete('/chat/:nodeId', async (c) => {
 
 app.get('/sessions', async (c) => {
   const user = c.get('user')! as AuthUser
-  const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
-  const projectIds = userProjects.map(p => p.id)
+  const filterProjectId = c.req.query('projectId')
+
+  const allProjectIds = await getUserProjectIds(user)
+  const projectIds = filterProjectId
+    ? allProjectIds.filter(id => id === filterProjectId)
+    : allProjectIds
   if (projectIds.length === 0) return c.json([])
 
   // Return metadata only — heavy JSONB columns (messages, toolTraces, fileChanges,
@@ -1812,10 +1845,15 @@ app.post('/sessions/:sessionId/messages', async (c) => {
 
 app.get('/executions', async (c) => {
   const user = c.get('user')! as AuthUser
+  const filterProjectId = c.req.query('projectId')
 
-  // Get team's projects
-  const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
-  const projectIds = new Set(userProjects.map(p => p.id))
+  // Get team's projects (use cached helper)
+  const allProjectIds = await getUserProjectIds(user)
+  const projectIds = new Set(
+    filterProjectId
+      ? allProjectIds.filter(id => id === filterProjectId)
+      : allProjectIds
+  )
 
   if (projectIds.size === 0) {
     return c.json({})

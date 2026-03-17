@@ -87,6 +87,8 @@ interface SessionState {
 
   // Lifecycle
   load: () => Promise<void>
+  /** Load sessions for a single project (merges into global store) */
+  loadForProject: (projectId: string) => Promise<void>
   ensureFullSession: (sessionId: string) => Promise<Session | undefined>
 
   // CRUD
@@ -186,6 +188,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
 
     set({ loaded: true })
+  },
+
+  loadForProject: async (projectId: string) => {
+    try {
+      const apiSessions = await dataClient.getAllSessions(projectId)
+      if (apiSessions && apiSessions.length > 0) {
+        const sessions = new Map(get().sessions)
+        for (const session of apiSessions) {
+          sessions.set(session.id, session)
+        }
+        set({ sessions, loaded: true })
+      }
+    } catch {
+      // API unavailable
+    }
   },
 
   ensureFullSession: async (sessionId: string) => {

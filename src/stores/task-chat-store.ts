@@ -23,6 +23,8 @@ interface TaskChatState {
 
   // Lifecycle
   load: () => Promise<void>
+  /** Load chat sessions for a single project (merges into global store) */
+  loadForProject: (projectId: string) => Promise<void>
 
   // Session management
   getSession: (nodeId: string) => TaskChatSession | undefined
@@ -66,6 +68,24 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
     }
 
     set({ loaded: true })
+  },
+
+  loadForProject: async (projectId: string) => {
+    try {
+      const chats = await dataClient.getAllChats(projectId)
+      if (chats && Object.keys(chats).length > 0) {
+        const sessions = new Map(get().sessions)
+        for (const [nodeId, entry] of Object.entries(chats)) {
+          sessions.set(nodeId, {
+            ...entry.session,
+            messages: entry.messages,
+          })
+        }
+        set({ sessions, loaded: true })
+      }
+    } catch {
+      // API unavailable
+    }
   },
 
   getSession: (nodeId) => {

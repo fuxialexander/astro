@@ -186,6 +186,8 @@ interface PlanState {
   /** Node IDs recently updated via chat mutations — briefly highlighted in graph */
   recentlyUpdatedNodeIds: Set<string>
   load: () => Promise<void>
+  /** Load plan data for a single project (merges into global store) */
+  loadForProject: (projectId: string) => Promise<void>
   addNode: (node: PlanNode) => void
   updateNode: (id: string, updates: Partial<PlanNode>) => void
   /** Merge a DB-fetched node into the store. DB wins — no write-back to API. */
@@ -300,6 +302,54 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     } catch {
       // API unavailable — start with empty data
       set({ nodes: SEED_NODES, edges: SEED_EDGES, loaded: true })
+    }
+  },
+
+  loadForProject: async (projectId: string) => {
+    try {
+      const { nodes: apiNodes, edges: rawApiEdges } = await dataClient.getAllPlans(projectId)
+
+      // Deduplicate edges
+      const seen = new Set<string>()
+      const newEdges = rawApiEdges.filter((e) => {
+        const key = `${e.source}->${e.target}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+
+      // Rebuild dependencies from edges
+      const nodeIdSet = new Set(apiNodes.map((n) => n.id))
+      const depsMap = new Map<string, string[]>()
+      for (const e of newEdges) {
+        if (!nodeIdSet.has(e.source) || !nodeIdSet.has(e.target)) continue
+        let deps = depsMap.get(e.target)
+        if (!deps) { deps = []; depsMap.set(e.target, deps) }
+        deps.push(e.source)
+      }
+      for (const node of apiNodes) {
+        node.dependencies = depsMap.get(node.id) ?? []
+      }
+
+      ensurePositions(apiNodes, newEdges)
+      reconcileMilestones(apiNodes, newEdges)
+
+      // Merge into existing store: replace data for this project, keep others
+      const { nodes: existingNodes, edges: existingEdges } = get()
+      const otherNodes = existingNodes.filter((n) => n.projectId !== projectId)
+      const otherEdges = existingEdges.filter((e) => {
+        const nodeProjects = new Map(existingNodes.map((n) => [n.id, n.projectId]))
+        return nodeProjects.get(e.source) !== projectId && nodeProjects.get(e.target) !== projectId
+      })
+
+      set({
+        nodes: [...otherNodes, ...apiNodes],
+        edges: [...otherEdges, ...newEdges],
+        loaded: true,
+      })
+    } catch (err) {
+      console.error('[plan-store] loadForProject failed:', err)
+      set({ loaded: true })
     }
   },
 

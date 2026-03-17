@@ -208,8 +208,12 @@ interface ExecutionState {
 
   // Load state
   loaded: boolean
+  /** Set of project IDs already loaded via loadForProject */
+  loadedProjectIds: Set<string>
 
   // Actions
+  /** Load executions for a single project (merges into global store) */
+  loadForProject: (projectId: string) => Promise<void>
   startExecution: (nodeId: string, projectId: string, options?: ExecutionOptions) => Promise<void>
   cancelExecution: (nodeId: string) => Promise<void>
   resetExecution: (nodeId: string) => Promise<void>
@@ -347,6 +351,30 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   completedProjectIds: new Set(),
   pendingApprovals: new Map(),
   loaded: false,
+  loadedProjectIds: new Set(),
+
+  loadForProject: async (projectId: string) => {
+    // Skip if already loaded for this project
+    if (get().loadedProjectIds.has(projectId)) return
+    try {
+      const executionsRecord = await dataClient.getExecutions(projectId)
+      const newExecs = new Map<string, TaskExecution>(Object.entries(executionsRecord))
+
+      // Merge into existing store
+      const { executions: existing, loadedProjectIds } = get()
+      const merged = new Map(existing)
+      for (const [nodeId, exec] of newExecs) {
+        merged.set(nodeId, exec)
+      }
+
+      const updatedProjectIds = new Set(loadedProjectIds)
+      updatedProjectIds.add(projectId)
+      set({ executions: merged, loaded: true, loadedProjectIds: updatedProjectIds })
+    } catch (err) {
+      console.error('[execution-store] loadForProject failed:', err)
+      set({ loaded: true })
+    }
+  },
 
   startExecution: async (nodeId: string, projectId: string, options?: ExecutionOptions) => {
     // Get node and project info
