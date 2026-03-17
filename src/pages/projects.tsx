@@ -92,7 +92,7 @@ function shortenPath(path: string | undefined): string {
   if (!path) return ""
   // Show last 2 segments with ~ prefix: /Users/foo/Documents/repos/my-project → ~/repos/my-project
   const segments = path.replace(/\/$/, "").split("/")
-  if (segments.length <= 3) return path
+  if (segments.length <= 4) return path
   return "~/" + segments.slice(-2).join("/")
 }
 
@@ -137,14 +137,14 @@ function getProjectColumns(
                 setRenamingProjectId(p.id)
               }}
               onClick={(e) => e.stopPropagation()}
-              className="text-sm truncate hover:underline group/name min-w-0"
+              className="text-sm truncate hover:underline group/name min-w-0 flex-1"
             >
               {p.name}
               <Pencil className="h-3 w-3 ml-1.5 inline-block opacity-0 group-hover/name:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setRenamingProjectId(p.id); }} />
             </Link>
           )}
           {visibleProperties.includes("workingDirectory") && p.workingDirectory && (
-            <span className="text-xs text-muted-foreground/60 truncate ml-3 flex-1 min-w-0" title={p.workingDirectory}>
+            <span className="text-xs text-muted-foreground/60 truncate ml-3 shrink min-w-0" title={p.workingDirectory}>
               {shortenPath(p.workingDirectory)}
             </span>
           )}
