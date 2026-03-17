@@ -401,14 +401,14 @@ async function start() {
 
       // Set up Redis event handlers for cross-instance routing
       redisPubSub.on('task:dispatch', async (event) => {
-        // Only handle if this instance has the machine
-        if (event.targetMachineId && machineRegistry.isConnected(event.targetMachineId)) {
+        // Only handle if this instance owns the machine's WebSocket connection
+        if (event.targetMachineId && machineRegistry.isLocal(event.targetMachineId)) {
           relayServer.dispatchTask(event.task, event.targetMachineId, event.userId)
         }
       })
 
       redisPubSub.on('task:cancel', async (event) => {
-        if (machineRegistry.isConnected(event.machineId)) {
+        if (machineRegistry.isLocal(event.machineId)) {
           relayServer.cancelTask(event.taskId, event.machineId, event.reason)
         }
       })
@@ -535,6 +535,34 @@ async function start() {
         })
       }
     })
+
+    // Subscribe to Redis machine state events — sync remote machines into local registry.
+    // This enables multi-instance deployments: each instance sees all machines, not just
+    // the ones connected to its own WebSocket server.
+    redisPubSub.on('machine:state', (event) => {
+      if (event.event === 'machine.connected' && event.machineInfo) {
+        machineRegistry.registerRemote(event.machineId, event.machineInfo)
+      } else if (event.event === 'machine.disconnected') {
+        machineRegistry.removeRemote(event.machineId)
+      } else if (event.event === 'machine.updated' && event.machineInfo) {
+        machineRegistry.registerRemote(event.machineId, event.machineInfo)
+      }
+    })
+
+    // On startup, hydrate from Redis so this instance sees machines already
+    // connected to other instances.
+    if (redisPubSub.isConnected()) {
+      redisPubSub.getAllMachines().then((remoteMachines) => {
+        for (const entry of remoteMachines) {
+          machineRegistry.registerRemote(entry.machineId, entry)
+        }
+        if (remoteMachines.length > 0) {
+          console.log(`[relay] Hydrated ${remoteMachines.length} remote machines from Redis`)
+        }
+      }).catch((err) => {
+        console.warn('[relay] Failed to hydrate remote machines from Redis:', err)
+      })
+    }
 
     console.log(`[relay] WebSocket server listening on port ${relayPort}`)
   } catch (err) {

@@ -1488,6 +1488,17 @@ export class RelayServer extends EventEmitter {
 
     const socket = connection.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
+      // Remote machine (connected to another instance) — route via Redis pub/sub
+      if (!connection.socket && redisPubSub.isConnected()) {
+        console.log(`[relay] Machine ${machineId} is remote — routing task ${task.taskId} via Redis`);
+        redisPubSub.requestTaskDispatch(task, machineId, userId).catch((err) => {
+          console.error(`[relay] Failed to route dispatch via Redis for task ${task.taskId}:`, err);
+        });
+        this.taskToMachine.set(task.taskId, machineId);
+        this.taskDispatchedAt.set(task.taskId, Date.now());
+        redisPubSub.mapTaskToMachine(task.taskId, machineId).catch(() => {});
+        return true;
+      }
       console.error(`[relay] Failed to send dispatch for task ${task.taskId} to machine ${machineId} (socket not open)`);
       notifyWarning(`WebSocket dispatch send failed for task ${task.taskId} — machine ${machineId} socket not open`);
       return false;
