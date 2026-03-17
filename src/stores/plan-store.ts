@@ -328,10 +328,8 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       // Merge: replace nodes/edges for this project, keep others
       const { nodes: existingNodes, edges: existingEdges } = get()
       const otherNodes = existingNodes.filter((n) => n.projectId !== projectId)
-      const otherEdges = existingEdges.filter((e) => {
-        const sourceNode = existingNodes.find((n) => n.id === e.source)
-        return sourceNode?.projectId !== projectId
-      })
+      const projectNodeIds = new Set(existingNodes.filter((n) => n.projectId === projectId).map((n) => n.id))
+      const otherEdges = existingEdges.filter((e) => !projectNodeIds.has(e.source) && !projectNodeIds.has(e.target))
       const mergedNodes = [...otherNodes, ...fullNodes]
       const mergedEdges = [...otherEdges, ...fullEdges]
       reconcileMilestones(mergedNodes, mergedEdges)

@@ -1800,7 +1800,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       // dataClient already deserializes dates, just convert Record to Map
       const executions = new Map<string, TaskExecution>(Object.entries(executionsRecord))
 
-      // Backfill summaries for completed executions that have streamText but no summary
+      // Backfill summaries for completed executions that have streamText but no summary.
+      // Note: In slim mode, streamText is empty so this loop is effectively a no-op.
+      // It remains for correctness if slim mode is ever disabled.
       for (const [nodeId, exec] of executions) {
         if (!exec.summary && exec.streamText && (exec.status === 'success' || exec.status === 'failure')) {
           const parsed = parseExecutiveSummary(exec.streamText)

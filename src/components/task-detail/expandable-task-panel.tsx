@@ -89,6 +89,14 @@ export function ExpandableTaskPanel({
 
   const [draftContent, setDraftContent] = useState(node.content || '')
 
+  // Sync draft content when node.content arrives async (slim → full load transition).
+  useEffect(() => {
+    const latest = node.content || ''
+    if (latest !== draftContent && !hasChanges) {
+      setDraftContent(latest)
+    }
+  }, [node.content]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleContentChange = useCallback((html: string) => {
     setDraftContent(html)
     setHasChanges(html !== (node.content || ''))

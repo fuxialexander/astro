@@ -13,14 +13,23 @@ export function useProjectData(projectId: string | undefined) {
   const planLoaded = usePlanStore((s) => s.loaded)
   const execsLoaded = useExecutionStore((s) => s.loaded)
   const loadedRef = useRef<Set<string>>(new Set())
+  const loadingRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     if (!projectId || !planLoaded || !execsLoaded) return
-    // Only load once per project per session
-    if (loadedRef.current.has(projectId)) return
-    loadedRef.current.add(projectId)
+    // Only load once per project per session (unless previous attempt failed)
+    if (loadedRef.current.has(projectId) || loadingRef.current.has(projectId)) return
+    loadingRef.current.add(projectId)
 
-    loadPlanForProject(projectId)
-    loadExecsForProject(projectId)
+    Promise.all([
+      loadPlanForProject(projectId),
+      loadExecsForProject(projectId),
+    ]).then(() => {
+      loadedRef.current.add(projectId)
+    }).catch(() => {
+      // Allow retry on next mount/navigation
+    }).finally(() => {
+      loadingRef.current.delete(projectId)
+    })
   }, [projectId, planLoaded, execsLoaded, loadPlanForProject, loadExecsForProject])
 }
