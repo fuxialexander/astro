@@ -26,7 +26,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useGitHubCommentsStore } from '@/stores/github-comments-store'
-import { useGitHubStore } from '@/stores/github-store'
+import { useGitHubAppStore } from '@/stores/github-app-store'
 import { editGitHubComment, deleteGitHubComment } from '@/lib/api-client'
 import { StreamingMarkdown } from '@/components/ui/streaming-markdown'
 import type { GitHubComment, GitHubReviewThread, GitHubReviewComment } from '@/types'
@@ -111,21 +111,18 @@ function ReplyInput({ onSubmit, placeholder = 'Write a reply...', className }: R
 
 // ── Connect GitHub Prompt ──────────────────────────────────────────────
 
-function ConnectGitHubPrompt({ className }: { className?: string }) {
-  const { connect, loading } = useGitHubStore()
-
+function InstallGitHubAppPrompt({ className }: { className?: string }) {
   return (
     <div className={cn('flex items-center gap-2 rounded-lg border border-dashed border-muted-foreground/30 px-3 py-2', className)}>
       <Github className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-      <span className="text-xs text-muted-foreground">Connect GitHub to reply</span>
+      <span className="text-xs text-muted-foreground">Install the GitHub App to reply</span>
       <Button
         size="sm"
         variant="outline"
-        onClick={() => connect()}
-        disabled={loading}
+        onClick={() => { window.location.href = '/settings?tab=connected-accounts' }}
         className="h-5 px-2 text-[10px] ml-auto"
       >
-        Connect
+        Install
       </Button>
     </div>
   )
@@ -340,7 +337,8 @@ export function GitHubCommentBlock({
   compact,
   className,
 }: GitHubCommentBlockProps) {
-  const { connected, user: ghUser } = useGitHubStore()
+  const installations = useGitHubAppStore((s) => s.installations)
+  const connected = installations.length > 0
   const {
     comments,
     loading,
@@ -380,7 +378,7 @@ export function GitHubCommentBlock({
   if (!connected) {
     return (
       <div className={cn('px-4 py-2', className)}>
-        <ConnectGitHubPrompt />
+        <InstallGitHubAppPrompt />
       </div>
     )
   }
@@ -449,7 +447,7 @@ export function GitHubCommentBlock({
               compact={compact}
               owner={owner}
               repo={repo}
-              currentUserLogin={ghUser?.login}
+              currentUserLogin={undefined}
               onMutated={() => fetchComments(owner, repo, number)}
             />
           ))}
@@ -473,7 +471,7 @@ interface PrReviewThreadProps {
 
 export function PrReviewThread({ thread, owner, repo, number }: PrReviewThreadProps) {
   const [expanded, setExpanded] = useState(true)
-  const { connected } = useGitHubStore()
+  const connected = useGitHubAppStore((s) => s.installations.length > 0)
   const { postReviewReply } = useGitHubCommentsStore()
 
   const handleReply = useCallback(
@@ -547,7 +545,7 @@ export function PrReviewThread({ thread, owner, repo, number }: PrReviewThreadPr
             </div>
           ) : (
             <div className="px-3 pb-2">
-              <ConnectGitHubPrompt />
+              <InstallGitHubAppPrompt />
             </div>
           )}
         </div>
@@ -571,7 +569,7 @@ export function PrReviewThreadsSection({
   number,
   className,
 }: PrReviewThreadsSectionProps) {
-  const { connected } = useGitHubStore()
+  const connected = useGitHubAppStore((s) => s.installations.length > 0)
   const {
     reviewThreads,
     loading,

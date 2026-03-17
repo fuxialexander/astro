@@ -15,6 +15,7 @@ import prApp from './github-pr.js';
 import { commentsApp, reviewCommentsApp, commentsStreamApp, prStreamApp } from './github-comments.js';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
 import { githubStore } from '../lib/github-store.js';
+import { resolveGitHubToken } from '../lib/github-client.js';
 import { sanitizeGitHubName } from '@astro/core/prompt-templates';
 
 const app = new Hono();
@@ -45,14 +46,27 @@ function githubApiHeaders(accessToken: string): Record<string, string> {
 
 /**
  * Helper: Resolve a GitHub token for the current user.
- * Returns the user's OAuth token or null if not connected.
+ * Tries OAuth first, then falls back to the unified token chain
+ * (GitHub App installation → GITHUB_TOKEN env).
  */
-async function resolveUserToken(userId: string): Promise<{ token: string } | { token: null; error: string }> {
+async function resolveUserToken(
+  userId: string,
+  owner?: string,
+  repo?: string,
+): Promise<{ token: string } | { token: null; error: string }> {
+  // Try OAuth connection first (posts as user)
   const connection = await githubStore.getConnection(userId);
-  if (!connection) {
-    return { token: null, error: 'GitHub account not connected. Connect your GitHub account in Settings to perform this action.' };
+  if (connection?.accessToken) {
+    return { token: connection.accessToken };
   }
-  return { token: connection.accessToken };
+  // Fall back to unified token chain (GitHub App → env)
+  if (owner && repo) {
+    const tokenResult = await resolveGitHubToken(owner, repo, userId);
+    if (tokenResult) {
+      return { token: tokenResult.token };
+    }
+  }
+  return { token: null, error: 'GitHub App not installed. Install the GitHub App in Settings to perform this action.' };
 }
 
 /**
@@ -60,16 +74,28 @@ async function resolveUserToken(userId: string): Promise<{ token: string } | { t
  * Prefers GITHUB_TOKEN env var (bot/installation token with higher perms),
  * falls back to user's OAuth token.
  */
-async function resolveMergeToken(userId: string): Promise<{ token: string; isBot: boolean } | { token: null; error: string }> {
-  // Prefer GITHUB_TOKEN (installation token / CI token) for merge operations
+async function resolveMergeToken(
+  userId: string,
+  owner?: string,
+  repo?: string,
+): Promise<{ token: string; isBot: boolean } | { token: null; error: string }> {
+  // Prefer GITHUB_TOKEN env var
   if (process.env.GITHUB_TOKEN) {
     return { token: process.env.GITHUB_TOKEN, isBot: true };
   }
-  const connection = await githubStore.getConnection(userId);
-  if (!connection) {
-    return { token: null, error: 'GitHub account not connected. Connect your GitHub account in Settings to perform this action.' };
+  // Try GitHub App installation token
+  if (owner && repo) {
+    const tokenResult = await resolveGitHubToken(owner, repo, userId);
+    if (tokenResult) {
+      return { token: tokenResult.token, isBot: tokenResult.type !== 'oauth' };
+    }
   }
-  return { token: connection.accessToken, isBot: false };
+  // Fall back to OAuth
+  const connection = await githubStore.getConnection(userId);
+  if (connection?.accessToken) {
+    return { token: connection.accessToken, isBot: false };
+  }
+  return { token: null, error: 'GitHub App not installed. Install the GitHub App in Settings to perform this action.' };
 }
 
 /**
@@ -105,8 +131,7 @@ app.post('/pr/:owner/:repo/:prNumber/review', async (c) => {
     return c.json({ success: false, error: 'A review body is required when requesting changes' }, 400);
   }
 
-  // Use user's OAuth token for reviews (posted as the user)
-  const tokenResult = await resolveUserToken(userId);
+  const tokenResult = await resolveUserToken(userId, owner, repo);
   if (!tokenResult.token) {
     return c.json({ success: false, error: tokenResult.error }, 401);
   }
@@ -184,7 +209,7 @@ app.post('/pr/:owner/:repo/:prNumber/merge', async (c) => {
   }
 
   // Use installation token for merge (higher permissions)
-  const tokenResult = await resolveMergeToken(userId);
+  const tokenResult = await resolveMergeToken(userId, owner, repo);
   if (!tokenResult.token) {
     return c.json({ success: false, error: tokenResult.error }, 401);
   }
@@ -287,8 +312,7 @@ app.post('/pr/:owner/:repo/:prNumber/comment', async (c) => {
     return c.json({ success: false, error: 'Comment body is required' }, 400);
   }
 
-  // Use user's OAuth token for comments (posted as the user)
-  const tokenResult = await resolveUserToken(userId);
+  const tokenResult = await resolveUserToken(userId, owner, repo);
   if (!tokenResult.token) {
     return c.json({ success: false, error: tokenResult.error }, 401);
   }
@@ -321,6 +345,11 @@ app.post('/pr/:owner/:repo/:prNumber/comment', async (c) => {
         id: data.id,
         htmlUrl: data.html_url,
         createdAt: data.created_at,
+        user: data.user ? {
+          login: data.user.login,
+          avatarUrl: data.user.avatar_url,
+          id: data.user.id,
+        } : undefined,
       },
     });
   } catch (error) {
@@ -346,7 +375,7 @@ app.put('/pr/:owner/:repo/:prNumber/ready', async (c) => {
     return c.json({ success: false, error: 'Invalid owner, repo, or prNumber' }, 400);
   }
 
-  const tokenResult = await resolveUserToken(userId);
+  const tokenResult = await resolveUserToken(userId, owner, repo);
   if (!tokenResult.token) {
     return c.json({ success: false, error: tokenResult.error }, 401);
   }

@@ -1,14 +1,13 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react"
-import { Github, GitFork, Lock, Loader2 } from "lucide-react"
+import { Github, Lock, Loader2 } from "lucide-react"
 import Fuse from "fuse.js"
-import { useGitHubStore } from "@/stores/github-store"
+import { useGitHubAppStore } from "@/stores/github-app-store"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useToastStore } from "@/stores/toast-store"
 import { apiUrl } from "@/lib/api-url"
 import { getAccessToken } from "@/lib/supabase-client"
 import { cn } from "@/lib/utils"
-import type { GitHubRepo } from "@/types"
 
 async function authHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = {}
@@ -19,16 +18,24 @@ async function authHeaders(): Promise<Record<string, string>> {
   return headers
 }
 
+/** Repo shape from GitHub App installations */
+interface InstallationRepo {
+  id: number
+  name: string
+  full_name: string
+  private: boolean
+}
+
 interface GitHubRepoPickerDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** When provided, selecting a repo calls this callback instead of POSTing to create a project */
-  onSelect?: (repo: GitHubRepo) => void
+  onSelect?: (repo: InstallationRepo) => void
 }
 
 export function GitHubRepoPickerDialog({ open, onOpenChange, onSelect }: GitHubRepoPickerDialogProps) {
-  const repos = useGitHubStore((s) => s.repos)
-  const loading = useGitHubStore((s) => s.loading)
+  const installations = useGitHubAppStore((s) => s.installations)
+  const loading = useGitHubAppStore((s) => s.loading)
   const projects = useProjectStore((s) => s.projects)
   const addToast = useToastStore((s) => s.add)
 
@@ -37,6 +44,21 @@ export function GitHubRepoPickerDialog({ open, onOpenChange, onSelect }: GitHubR
   const [linking, setLinking] = useState<number | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+
+  // Aggregate repos from all GitHub App installations
+  const repos = useMemo(() => {
+    const seen = new Set<number>()
+    const all: InstallationRepo[] = []
+    for (const inst of installations) {
+      for (const repo of inst.repos) {
+        if (!seen.has(repo.id)) {
+          seen.add(repo.id)
+          all.push(repo)
+        }
+      }
+    }
+    return all
+  }, [installations])
 
   // Already-linked repo keys to exclude
   const linkedRepoKeys = useMemo(
@@ -51,7 +73,7 @@ export function GitHubRepoPickerDialog({ open, onOpenChange, onSelect }: GitHubR
 
   // Available repos (not already linked)
   const availableRepos = useMemo(
-    () => repos.filter((r) => !linkedRepoKeys.has(r.fullName)),
+    () => repos.filter((r) => !linkedRepoKeys.has(r.full_name)),
     [repos, linkedRepoKeys]
   )
 
@@ -60,9 +82,8 @@ export function GitHubRepoPickerDialog({ open, onOpenChange, onSelect }: GitHubR
     () =>
       new Fuse(availableRepos, {
         keys: [
-          { name: "fullName", weight: 2 },
-          { name: "description", weight: 1 },
-          { name: "language", weight: 0.5 },
+          { name: "full_name", weight: 2 },
+          { name: "name", weight: 1 },
         ],
         threshold: 0.35,
         includeScore: true,
@@ -103,7 +124,7 @@ export function GitHubRepoPickerDialog({ open, onOpenChange, onSelect }: GitHubR
   }, [selectedIndex])
 
   const handleLink = useCallback(
-    async (repo: GitHubRepo) => {
+    async (repo: InstallationRepo) => {
       // In onSelect mode, just return the repo without creating a project
       if (onSelect) {
         onSelect(repo)
@@ -112,6 +133,7 @@ export function GitHubRepoPickerDialog({ open, onOpenChange, onSelect }: GitHubR
       }
 
       setLinking(repo.id)
+      const [owner, repoName] = repo.full_name.split("/")
       try {
         const hdrs = await authHeaders()
         const res = await fetch(apiUrl("/api/github/projects"), {
@@ -119,8 +141,8 @@ export function GitHubRepoPickerDialog({ open, onOpenChange, onSelect }: GitHubR
           headers: { ...hdrs, "Content-Type": "application/json" },
           body: JSON.stringify({
             repoId: repo.id,
-            owner: repo.owner.login,
-            repo: repo.name,
+            owner,
+            repo: repoName,
           }),
         })
         if (!res.ok) {
@@ -133,7 +155,7 @@ export function GitHubRepoPickerDialog({ open, onOpenChange, onSelect }: GitHubR
         addToast({
           type: "success",
           title: "Repository imported",
-          description: `${repo.fullName} synced ${data.sync?.total ?? 0} issues`,
+          description: `${repo.full_name} synced ${data.sync?.total ?? 0} issues`,
         })
         onOpenChange(false)
       } catch (err) {
@@ -229,29 +251,10 @@ export function GitHubRepoPickerDialog({ open, onOpenChange, onSelect }: GitHubR
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium truncate">
-                      {repo.fullName}
+                      {repo.full_name}
                     </span>
                     {repo.private && (
                       <Lock className="h-3 w-3 text-muted-foreground shrink-0" />
-                    )}
-                  </div>
-                  {repo.description && (
-                    <div className="text-xs text-muted-foreground truncate mt-0.5">
-                      {repo.description}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                    {repo.language && (
-                      <span className="flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-full bg-primary" />
-                        {repo.language}
-                      </span>
-                    )}
-                    {repo.fork && (
-                      <span className="flex items-center gap-1">
-                        <GitFork className="h-3 w-3" />
-                        Fork
-                      </span>
                     )}
                   </div>
                 </div>

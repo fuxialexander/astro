@@ -1,8 +1,11 @@
 import { useState, useMemo } from "react"
-import { X, Sparkles, Eye, GitBranch, RefreshCw, Zap, Bug, ChevronDown, ChevronUp } from "lucide-react"
+import { X, Sparkles, Eye, GitBranch, RefreshCw, Zap, Bug, ChevronDown, ChevronUp, Github, ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import { useGitHubStore } from "@/stores/github-store"
+import { useGitHubAppStore } from "@/stores/github-app-store"
+import { useFeatureFlag } from "@/hooks/use-feature-flag"
 
 const DISMISS_KEY = "astro-whats-new-dismissed-v2026-03-13"
 
@@ -167,6 +170,46 @@ function VisualisePreview() {
   )
 }
 
+// ── GitHub App Migration Card ──────────────────────────────────────
+
+function GitHubMigrationCard() {
+  const gitHubEnabled = useFeatureFlag('github-integration')
+  const oauthConnected = useGitHubStore((s) => s.connected)
+  const oauthUser = useGitHubStore((s) => s.user)
+  const appInstallations = useGitHubAppStore((s) => s.installations)
+
+  if (!gitHubEnabled || !oauthConnected || appInstallations.length > 0) return null
+
+  return (
+    <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.03] p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10 shrink-0 mt-0.5">
+          <Github className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] font-semibold">Switch to the GitHub App</span>
+            <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-amber-500/20 text-amber-600 dark:text-amber-400">
+              Action needed
+            </Badge>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+            {oauthUser ? `@${oauthUser.login} is` : "You're"} using a personal OAuth token which is being deprecated.
+            Install the GitHub App for better security, team access, and webhook automation.
+          </p>
+          <button
+            onClick={() => { window.location.href = '/settings?tab=connected-accounts' }}
+            className="inline-flex items-center gap-1.5 mt-2.5 text-[11px] font-medium text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
+          >
+            Go to Settings
+            <ArrowRight className="h-3 w-3" />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Component ─────────────────────────────────────────────────
 
 export function WhatsNewSection() {
@@ -178,8 +221,6 @@ export function WhatsNewSection() {
   const fixes = useMemo(() => CHANGELOG.filter((c) => c.type === "fix"), [])
   const others = useMemo(() => CHANGELOG.filter((c) => c.type !== "fix"), [])
 
-  if (dismissed) return null
-
   function dismiss() {
     setDismissed(true)
     try { localStorage.setItem(DISMISS_KEY, "1") } catch { /* noop */ }
@@ -187,6 +228,10 @@ export function WhatsNewSection() {
 
   return (
     <div className="flex flex-col gap-3 animate-in fade-in slide-in-from-top-2 duration-500">
+      {/* GitHub App migration card — always visible when applicable, independent of What's New dismiss */}
+      <GitHubMigrationCard />
+
+      {dismissed ? null : (<>
       <div className="flex items-center gap-2">
         <Sparkles className="h-3.5 w-3.5 text-primary/70" />
         <h2 className="text-[13px] font-semibold tracking-wide">What&apos;s New</h2>
@@ -287,6 +332,7 @@ export function WhatsNewSection() {
           )}
         </div>
       )}
+      </>)}
     </div>
   )
 }
