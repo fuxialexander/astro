@@ -224,6 +224,10 @@ export function ItemListView<T>({
 }: ItemListViewProps<T>) {
   const isMobile = useMediaQuery("(max-width: 639px)")
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    // Only honor defaultCollapsed when there are multiple groups.
+    // With a single group, collapsing it hides all items and no group header
+    // is rendered (hasMultipleGroups check), so the user can't expand it.
+    if (groups.length <= 1) return new Set<string>()
     const initial = new Set<string>()
     for (const g of groups) {
       if (g.defaultCollapsed) initial.add(g.key)
@@ -233,6 +237,14 @@ export function ItemListView<T>({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [lastClickedId, setLastClickedId] = useState<string | null>(null)
   const itemRefs = useRef<Map<string, HTMLElement>>(new Map())
+
+  // When groups shrink to 1 (e.g., all projects become archived), clear collapsed
+  // state so the remaining group is always visible.
+  useEffect(() => {
+    if (groups.length <= 1) {
+      setCollapsed((prev) => prev.size > 0 ? new Set<string>() : prev)
+    }
+  }, [groups.length])
 
   const toggleGroup = useCallback((key: string) => {
     setCollapsed((prev) => {
