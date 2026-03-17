@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { dataClient } from "@/lib/data-client"
+import { useUserProfileStore } from "@/stores/user-profile-store"
 
 export interface SidebarItem {
   id: string
@@ -80,8 +81,17 @@ export const useSidebarStore = create<SidebarStore>((set, get) => ({
   loaded: false,
 
   load: async () => {
+    // Try to get sidebar config from the already-loaded user profile store
+    // to avoid a duplicate /api/data/profile fetch.
+    const profileState = useUserProfileStore.getState()
+    if (profileState.loaded && profileState.profile?.sidebarConfig) {
+      const merged = mergeWithDefaults(profileState.profile.sidebarConfig)
+      set({ items: merged, loaded: true })
+      return
+    }
+
+    // Fallback: fetch profile directly (e.g. if sidebar loads before profile store)
     try {
-      // Try API first (server mode) — extract sidebarConfig from profile
       const profile = await dataClient.getProfile()
       if (profile?.sidebarConfig) {
         const merged = mergeWithDefaults(profile.sidebarConfig)
