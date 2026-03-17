@@ -493,8 +493,8 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
         </div>
       )}
 
-      {/* Team Switcher — only shown when user has multiple teams */}
-      {showAuth && hasMultipleTeams && (
+      {/* Team Switcher — shown when user has multiple teams */}
+      {hasMultipleTeams && (
         <TeamSwitcher collapsed={collapsed} />
       )}
 
