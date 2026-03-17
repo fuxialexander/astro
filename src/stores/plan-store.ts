@@ -323,6 +323,8 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     if (get().globallyLoaded) return
     try {
       const raw = await dataClient.getAllPlans(projectId)
+      // Re-check after await: a concurrent global load() may have completed
+      if (get().globallyLoaded) return
       const { nodes: newNodes, edges: newEdges } = prepareNodesAndEdges(raw.nodes, raw.edges)
 
       // Merge into existing store: replace data for this project, keep others

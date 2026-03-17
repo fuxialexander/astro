@@ -361,6 +361,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     if (get().globallyLoaded || get().loadedProjectIds.has(projectId)) return
     try {
       const executionsRecord = await dataClient.getExecutions(projectId)
+      // Re-check after await: a concurrent global load() may have completed
+      if (get().globallyLoaded) return
       const newExecs = new Map<string, TaskExecution>(Object.entries(executionsRecord))
 
       // Merge into existing store

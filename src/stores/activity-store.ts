@@ -71,6 +71,8 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
     if (get().globallyLoaded) return
     try {
       const activities = await dataClient.listActivities(projectId)
+      // Re-check after await: a concurrent global load() may have completed
+      if (get().globallyLoaded) return
       set((state) => {
         // Merge: remove existing for this project, add fresh
         const others = state.activities.filter((a) => a.projectId !== projectId)

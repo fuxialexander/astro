@@ -78,6 +78,8 @@ export const useTaskChatStore = create<TaskChatState>((set, get) => ({
     if (get().globallyLoaded) return
     try {
       const chats = await dataClient.getAllChats(projectId)
+      // Re-check after await: a concurrent global load() may have completed
+      if (get().globallyLoaded) return
       if (chats && Object.keys(chats).length > 0) {
         const sessions = new Map(get().sessions)
         for (const [nodeId, entry] of Object.entries(chats)) {
