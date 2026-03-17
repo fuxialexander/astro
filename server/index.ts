@@ -37,6 +37,7 @@ import { telegramChannel } from './lib/channel/adapters/telegram-channel.js'
 import { telegramRoute } from './routes/telegram.js'
 import { teamsRoute } from './routes/teams.js'
 import { communityRoute } from './routes/community.js'
+import { executionsRoute } from './routes/executions.js'
 import { runMigrations } from './lib/db/migrate.js'
 import { closeDb } from '../packages/core/src/db/index.js'
 import { relayServer } from './lib/relay-server.js'
@@ -226,6 +227,7 @@ export function createApp() {
   app.route('/api/observations', observationsRoute)
   app.route('/api/teams', teamsRoute)
   app.route('/api/community', communityRoute)
+  app.route('/api/executions', executionsRoute)
 
   // Auth routes are always mounted (endpoints guard themselves with isLocalMode())
   app.route('/api/auth', authRoute)

@@ -405,6 +405,7 @@ export interface UsageMetrics {
 export interface TaskExecution {
   nodeId: string;
   projectId: string;
+  userId?: string;
   executionId: string;
   status: 'pending' | 'running' | 'success' | 'failure' | 'cancelled';
   streamText: string;
@@ -429,6 +430,10 @@ export interface TaskExecution {
   computeBackend?: string;
   /** SSE connection state for reconnection tracking */
   connectionState?: 'connected' | 'reconnecting' | 'polling';
+  /** UUID of user who verified this execution */
+  verifiedBy?: string;
+  /** Optional note from the verifier */
+  verificationNote?: string;
   summary?: ExecutionSummary;
   subroutineProgress?: {
     name: string;

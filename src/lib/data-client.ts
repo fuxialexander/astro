@@ -655,18 +655,22 @@ export const dataClient = {
 
   // ── Teams (uses /api/teams, not /api/data) ─────────────────────────
   async listTeams(): Promise<{ teams: Team[]; teamMembers: Record<string, TeamMember[]> }> {
-    // GET /api/teams returns a flat array of teams with memberRole
     const rows = await json<Record<string, unknown>[]>('/api/teams')
+    const teamMembers: Record<string, TeamMember[]> = {}
     const teams = rows.map(row => {
       const r = snakeToCamel(row)
+      const members = (r.members as Record<string, unknown>[] | undefined) ?? []
+      teamMembers[r.id as string] = members.map(m => ({
+        ...snakeToCamel(m),
+        joinedAt: toDate((m as Record<string, unknown>).joined_at ?? (m as Record<string, unknown>).joinedAt),
+      } as TeamMember))
       return {
         ...r,
         createdAt: toDate(r.createdAt),
         updatedAt: toDate(r.updatedAt),
       } as Team
     })
-    // Members are loaded separately via getTeamMembers()
-    return { teams, teamMembers: {} }
+    return { teams, teamMembers }
   },
 
   async createTeam(team: Partial<Team>): Promise<Team> {

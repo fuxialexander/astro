@@ -221,9 +221,42 @@ Before editing design docs, backups were created: `bak_ARCHITECTURE.md`, `bak_TA
 | Refresh robustness documentation (resolved) | 3 (#19, #20, #21) |
 | Documentation audit pass (resolved) | 9 (#22-#30 — IndexedDB refs, stale paths, missing banners) |
 | Other issues (open) | 1 (#6 — production domain references) |
+| New subsystems without dedicated design docs (open) | 1 (#31 — connected accounts, plugin system, notifications) |
+| Team system design/code drift (open) | 1 (#32 — AUTH_AND_TEAMS.md partially ahead of code) |
 | Aspirational docs (low implementation) | 4 (AGENT_PERFORMANCE, ATTENTION_TRIAGE, COST_TRACKING, CROSS_PROJECT_REFERENCES) |
-| **Total open** | **1** |
+| **Total open** | **3** |
 | **Total resolved** | **29** |
+
+---
+
+### #31 — New subsystems implemented post-2026-02-27 without dedicated design docs (open)
+
+Three subsystems are fully implemented but lack dedicated design docs:
+- **Connected Accounts** (`connected-accounts-store.ts`, `/api/connected-accounts`) — Slack, Telegram, GitHub Webhooks, Linear integrations. Architecture-level coverage in ARCHITECTURE.md/FRONTEND.md but no standalone doc.
+- **Plugin System** (`src/types/plugin.ts`, `plugin-store.ts`) — Browser plugin architecture. Covered conceptually in TAURI_APP.md but no implementation doc.
+- **Notifications** (`notification-store.ts`, `/api/notifications`) — Persistent dismissible notifications distinct from toasts. No design doc.
+
+### #32 — AUTH_AND_TEAMS.md partially ahead of implemented code (open)
+
+`AUTH_AND_TEAMS.md` is a living design doc that describes both what's built and what's planned. Three gaps between design and current `main`:
+
+1. **§10.1 references `team-context-store`** — actual store is `team-store.ts`. The described behavior (localStorage persistence of active team, all-stores reset on team switch) is NOT yet in main; it's designed but awaiting [PR #686](https://github.com/fuxialexander/astro/pull/686).
+
+2. **No complete `/api/teams` API table** in any design doc. Current implemented endpoints in `server/routes/teams.ts`:
+   - `GET /api/teams/` — list user's teams + members
+   - `POST /api/teams/` — create team
+   - `PATCH /api/teams/:teamId` — update name/description
+   - `DELETE /api/teams/:teamId` — delete team (owner only, personal team protected)
+   - `GET /api/teams/:teamId/members` — list members
+   - `PATCH /api/teams/:teamId/members/:userId` — change member role
+   - `DELETE /api/teams/:teamId/members/:memberId` — remove member
+   - `POST /api/teams/invite` — send invitation email
+   - `GET /api/teams/:teamId/invites` — list pending invitations
+   - `DELETE /api/teams/invites/:inviteId` — cancel invitation
+   - `GET /api/teams/invite/:token` — get invite metadata (public)
+   - `POST /api/teams/accept/:token` — accept invite (auth required)
+
+3. **PR #686 features designed but not merged**: TeamSwitcher UI component, execution verification API (`/api/executions/:id/verify|rerun|skip`), execution attribution (`userId` on task_executions), project-members data route.
 
 ---
 
@@ -232,4 +265,4 @@ Before editing design docs, backups were created: `bak_ARCHITECTURE.md`, `bak_TA
 1. **IndexedDB references persist in technical docs long after removal from code.** Design docs were updated promptly (2026-02-27 refresh), but technical docs lagged. Consider adding a grep check for "IndexedDB" to CI to catch regressions.
 2. **Schema source-of-truth path** (`packages/core/src/db/schema.ts`) was incorrect in `database-schema.md`. This is a common issue when packages are extracted -- all references to the old path need updating.
 3. **Design doc status banners** are inconsistent. TAURI_APP.md was missing one while all other aspirational docs had them. A checklist for new design docs would help.
-4. **Only 1 open issue remains** (#6 production domain references). The documentation is in good health overall after the 2026-02-27 refresh and this 2026-03-01 audit pass.
+4. **Codebase has grown significantly since 2026-03-01 audit** (commits through #804). New features (background execution monitoring, project page UX, approval routing) may have design drift. Run another audit pass when documentation effort is prioritized.

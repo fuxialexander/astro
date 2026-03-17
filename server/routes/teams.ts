@@ -22,8 +22,14 @@ import { eq, and, sql, gt, isNull, count } from 'drizzle-orm'
 
 const teamsRoute = new Hono()
 
-// Apply auth middleware to all team routes
-teamsRoute.use('*', requireAuth)
+// Apply auth middleware to all team routes except the public invite-info lookup
+// (GET /invite/:token is hit by new users before they register — no JWT yet)
+teamsRoute.use('*', async (c, next) => {
+  if (c.req.method === 'GET' && c.req.path.match(/\/invite\/[^/]+$/)) {
+    return next()
+  }
+  return requireAuth(c, next)
+})
 
 /**
  * POST /api/teams/invite
@@ -301,9 +307,11 @@ teamsRoute.get('/invite/:token', async (c) => {
       .from(userProfiles)
       .where(eq(userProfiles.email, invite.email))
 
+    // Do not return the raw email — the token was sent to a specific address,
+    // but the URL may be forwarded. The caller can verify their own email
+    // against the invite after accepting.
     return c.json({
       invite: {
-        email: invite.email,
         role: invite.role,
         teamName: team?.name || 'Unknown Team',
         expiresAt: invite.expiresAt,
@@ -368,17 +376,17 @@ teamsRoute.post('/accept/:token', async (c) => {
       return c.json({ error: 'You are already a member of this team' }, 400)
     }
 
-    // Add user to team
-    await db.insert(teamMembers).values({
-      teamId: invite.teamId,
-      userId: user.id,
-      role: invite.role,
+    // Add user to team and mark invite as used atomically to prevent double-accept
+    await db.transaction(async (tx) => {
+      await tx.insert(teamMembers).values({
+        teamId: invite.teamId,
+        userId: user.id,
+        role: invite.role,
+      })
+      await tx.update(inviteTokens)
+        .set({ usedAt: new Date() })
+        .where(eq(inviteTokens.id, invite.id))
     })
-
-    // Mark invite as used
-    await db.update(inviteTokens)
-      .set({ usedAt: new Date() })
-      .where(eq(inviteTokens.id, invite.id))
 
     // Get team details
     const [team] = await db.select()
@@ -517,10 +525,7 @@ teamsRoute.delete('/:teamId/members/:memberId', async (c) => {
  * List all teams the current user belongs to.
  */
 teamsRoute.get('/', async (c) => {
-  if (isLocalMode()) {
-    return c.json({ error: 'Teams not available in local mode' }, 503)
-  }
-
+  // Allow team listing in local mode (seeded teams for testing)
   try {
     const user = c.get('user') as AuthUser
 
@@ -538,6 +543,29 @@ teamsRoute.get('/', async (c) => {
       .innerJoin(teams, eq(teams.id, teamMembers.teamId))
       .where(eq(teamMembers.userId, user.id))
 
+    const teamIds = rows.map((r) => r.id)
+    const allMembers = teamIds.length > 0
+      ? await db
+          .select({
+            teamId: teamMembers.teamId,
+            userId: teamMembers.userId,
+            role: teamMembers.role,
+            joinedAt: teamMembers.joinedAt,
+            name: userProfiles.name,
+            email: userProfiles.email,
+            avatarUrl: userProfiles.avatarUrl,
+          })
+          .from(teamMembers)
+          .leftJoin(userProfiles, eq(userProfiles.id, teamMembers.userId))
+          .where(sql`${teamMembers.teamId} IN (${sql.join(teamIds.map((id) => sql`${id}`), sql`, `)})`)
+      : []
+
+    const membersByTeam: Record<string, typeof allMembers> = {}
+    for (const m of allMembers) {
+      if (!membersByTeam[m.teamId]) membersByTeam[m.teamId] = []
+      membersByTeam[m.teamId].push(m)
+    }
+
     return c.json(rows.map((r) => ({
       id: r.id,
       name: r.name,
@@ -546,6 +574,13 @@ teamsRoute.get('/', async (c) => {
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
       memberRole: r.role,
+      members: (membersByTeam[r.id] ?? []).map((m) => ({
+        teamId: m.teamId,
+        userId: m.userId,
+        role: m.role,
+        joinedAt: m.joinedAt,
+        user: { name: m.name, email: m.email, avatarUrl: m.avatarUrl },
+      })),
     })))
   } catch (err) {
     console.error('[teams] List teams error:', err)
@@ -667,10 +702,13 @@ teamsRoute.delete('/:teamId', async (c) => {
       return c.json({ error: 'Only team owners can delete teams' }, 403)
     }
 
-    // Check it's not the user's personal (auto-created) team
-    const [team] = await db.select().from(teams).where(eq(teams.id, teamId))
-    if (team && team.name === 'Personal') {
-      return c.json({ error: 'Cannot delete your personal team' }, 400)
+    // Prevent deleting the user's last team — they must always belong to at least one
+    const [{ userTeamCount }] = await db
+      .select({ userTeamCount: count() })
+      .from(teamMembers)
+      .where(eq(teamMembers.userId, user.id))
+    if (userTeamCount <= 1) {
+      return c.json({ error: 'Cannot delete your last team' }, 400)
     }
 
     // Delete members first, then team
@@ -718,6 +756,23 @@ teamsRoute.patch('/:teamId/members/:userId', async (c) => {
     // Cannot change own role
     if (targetUserId === user.id) {
       return c.json({ error: 'Cannot change your own role' }, 400)
+    }
+
+    // If demoting an owner, ensure at least one owner remains
+    if (body.role !== 'owner') {
+      const [target] = await db
+        .select({ role: teamMembers.role })
+        .from(teamMembers)
+        .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, targetUserId)))
+      if (target?.role === 'owner') {
+        const [{ ownerCount }] = await db
+          .select({ ownerCount: count() })
+          .from(teamMembers)
+          .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.role, 'owner')))
+        if (ownerCount <= 1) {
+          return c.json({ error: 'Cannot demote the last owner of a team' }, 400)
+        }
+      }
     }
 
     await db

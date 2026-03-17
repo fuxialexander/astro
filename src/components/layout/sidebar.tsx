@@ -25,6 +25,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Switch } from "@/components/ui/switch"
 import { InlineRenameInput } from "@/components/inline-rename-input"
+import { TeamSwitcher } from "@/components/team-switcher"
 
 const iconMap: Record<string, typeof CheckSquare> = {
   CheckSquare,
@@ -96,6 +97,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const showAuth = isServerMode()
 
   const activeProjectId = params.id
+  const hasMultipleTeams = useTeamStore((s) => s.teams.length > 1)
   const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0
   const [settingsExpanded, setSettingsExpanded] = useState(() => {
     try { return localStorage.getItem("astro-sidebar-settings") !== "collapsed" } catch { return true /* localStorage unavailable */ }
@@ -489,6 +491,11 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
             </kbd>
           </button>
         </div>
+      )}
+
+      {/* Team Switcher — shown when user has multiple teams */}
+      {hasMultipleTeams && (
+        <TeamSwitcher collapsed={collapsed} />
       )}
 
       {/* Scrollable middle section: navigation + projects */}

@@ -14,8 +14,6 @@ import {
   taskChatMessages,
   taskExecutions,
   activityEvents,
-  teams,
-  teamMembers,
   toolTraces,
   fileChanges,
   blobs,
@@ -59,6 +57,7 @@ function teamScopeFilter(table: { teamId: typeof projects.teamId; ownerId: typeo
     and(isNull(table.teamId), eq(table.ownerId, user.id))
   )!
 }
+
 
 const app = new Hono()
 
@@ -1459,16 +1458,25 @@ app.post('/usage/increment', async (c) => {
 // ── Per-Project Costs ─────────────────────────────────────────────────
 
 app.post('/usage/project-costs', async (c) => {
+  const user = c.get('user')! as AuthUser
   const body = await c.req.json<{ projectIds: string[] }>()
   const ids = body.projectIds || []
   if (ids.length === 0) return c.json({})
+
+  // Restrict to projects the caller can actually access via their team scope
+  const accessibleProjects = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(inArray(projects.id, ids), teamScopeFilter(projects, user)))
+  const accessibleIds = accessibleProjects.map((p) => p.id)
+  if (accessibleIds.length === 0) return c.json({})
 
   const rows = await db.select({
     projectId: taskExecutions.projectId,
     totalCost: sql<number>`coalesce(sum(${taskExecutions.estimatedCostUsd}), 0)`,
   })
     .from(taskExecutions)
-    .where(inArray(taskExecutions.projectId, ids))
+    .where(inArray(taskExecutions.projectId, accessibleIds))
     .groupBy(taskExecutions.projectId)
 
   const result: Record<string, number> = {}
@@ -1830,6 +1838,7 @@ app.get('/executions', async (c) => {
       executionId: exec.executionId,
       nodeId: exec.nodeClientId,
       projectId: exec.projectId,
+      userId: exec.userId,
       status: exec.status,
       streamText: slim ? '' : (exec as Record<string, unknown>).streamText ?? '',
       error: exec.error,
@@ -1867,6 +1876,7 @@ app.post('/executions', async (c) => {
     executionId: body.executionId,
     nodeClientId: body.nodeId,
     projectId: body.projectId,
+    userId: user.id,
     status: body.status || 'pending',
     streamText: body.streamText || '',
     error: body.error || null,
@@ -2072,6 +2082,7 @@ app.get('/search', async (c) => {
   const executionResults = await db.select({
     executionId: taskExecutions.executionId,
     projectId: taskExecutions.projectId,
+    userId: taskExecutions.userId,
     nodeId: taskExecutions.nodeId,
     status: taskExecutions.status,
     startedAt: taskExecutions.startedAt,
@@ -2217,172 +2228,7 @@ app.delete('/activities/:projectId', async (c) => {
   return c.json({ ok: true })
 })
 
-// ── Teams ──────────────────────────────────────────────────────────────
-
-app.get('/teams', async (c) => {
-  const userId = c.get('user')!.id
-
-  // Get all teams where user is a member
-  const userTeamIds = await db.select({ teamId: teamMembers.teamId })
-    .from(teamMembers)
-    .where(eq(teamMembers.userId, userId))
-
-  if (userTeamIds.length === 0) {
-    return c.json({ teams: [], teamMembers: {} })
-  }
-
-  const teamIdList = userTeamIds.map(t => t.teamId)
-  const teamRows = await db.select().from(teams)
-    .where(sql`${teams.id} IN (${sql.join(teamIdList.map(id => sql`${id}`), sql`, `)})`)
-
-  // Get all team members for these teams
-  const memberRows = await db.select().from(teamMembers)
-    .where(sql`${teamMembers.teamId} IN (${sql.join(teamIdList.map(id => sql`${id}`), sql`, `)})`)
-
-  // Group members by team
-  const teamMembersMap: Record<string, typeof memberRows> = {}
-  for (const member of memberRows) {
-    if (!teamMembersMap[member.teamId]) {
-      teamMembersMap[member.teamId] = []
-    }
-    teamMembersMap[member.teamId].push(member)
-  }
-
-  return c.json({ teams: teamRows, teamMembers: teamMembersMap })
-})
-
-app.post('/teams', async (c) => {
-  const body = await c.req.json()
-  const userId = c.get('user')!.id
-  const now = new Date()
-
-  const teamId = body.id || crypto.randomUUID()
-
-  const row = {
-    id: teamId,
-    name: body.name,
-    description: body.description ?? '',
-    createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
-    updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
-  }
-
-  await db.insert(teams).values(row).onConflictDoUpdate({
-    target: teams.id,
-    set: { ...row, id: undefined } as typeof row,
-  })
-
-  // Add creator as team owner
-  await db.insert(teamMembers).values({
-    teamId,
-    userId,
-    role: 'owner',
-    joinedAt: now,
-  }).onConflictDoNothing()
-
-  const [created] = await db.select().from(teams).where(eq(teams.id, teamId))
-  return c.json(created, 201)
-})
-
-app.patch('/teams/:id', async (c) => {
-  const teamId = c.req.param('id')
-  const userId = c.get('user')!.id
-
-  // Verify user is team owner or admin
-  const [membership] = await db.select().from(teamMembers)
-    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
-
-  if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
-    return c.json({ error: 'Forbidden' }, 403)
-  }
-
-  const body = await c.req.json()
-  const patch: Record<string, unknown> = { updatedAt: new Date() }
-  if (body.name !== undefined) patch.name = body.name
-  if (body.description !== undefined) patch.description = body.description
-
-  await db.update(teams).set(patch).where(eq(teams.id, teamId))
-  const [updated] = await db.select().from(teams).where(eq(teams.id, teamId))
-  return c.json(updated)
-})
-
-app.delete('/teams/:id', async (c) => {
-  const teamId = c.req.param('id')
-  const userId = c.get('user')!.id
-
-  // Verify user is team owner
-  const [membership] = await db.select().from(teamMembers)
-    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
-
-  if (!membership || membership.role !== 'owner') {
-    return c.json({ error: 'Forbidden' }, 403)
-  }
-
-  await db.delete(teams).where(eq(teams.id, teamId))
-  return c.json({ ok: true })
-})
-
-app.post('/teams/:teamId/members', async (c) => {
-  const teamId = c.req.param('teamId')
-  const userId = c.get('user')!.id
-  const body = await c.req.json()
-
-  // Verify user is team owner or admin
-  const [membership] = await db.select().from(teamMembers)
-    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
-
-  if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
-    return c.json({ error: 'Forbidden' }, 403)
-  }
-
-  await db.insert(teamMembers).values({
-    teamId,
-    userId: body.userId,
-    role: body.role ?? 'member',
-    joinedAt: new Date(),
-  }).onConflictDoNothing()
-
-  return c.json({ ok: true })
-})
-
-app.delete('/teams/:teamId/members/:userId', async (c) => {
-  const teamId = c.req.param('teamId')
-  const currentUserId = c.get('user')!.id
-  const targetUserId = c.req.param('userId')
-
-  // Verify user is team owner or admin
-  const [membership] = await db.select().from(teamMembers)
-    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, currentUserId)))
-
-  if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
-    return c.json({ error: 'Forbidden' }, 403)
-  }
-
-  await db.delete(teamMembers).where(
-    and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, targetUserId))
-  )
-  return c.json({ ok: true })
-})
-
-app.patch('/teams/:teamId/members/:userId', async (c) => {
-  const teamId = c.req.param('teamId')
-  const currentUserId = c.get('user')!.id
-  const targetUserId = c.req.param('userId')
-  const body = await c.req.json()
-
-  // Verify user is team owner or admin
-  const [membership] = await db.select().from(teamMembers)
-    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, currentUserId)))
-
-  if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
-    return c.json({ error: 'Forbidden' }, 403)
-  }
-
-  await db.update(teamMembers)
-    .set({ role: body.role })
-    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, targetUserId)))
-
-  return c.json({ ok: true })
-})
+// ── Teams (handled by /api/teams via server/routes/teams.ts — NOT /api/data/teams) ──
 
 // ── Blobs (image/file storage) ──────────────────────────────────────
 

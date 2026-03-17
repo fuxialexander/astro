@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The product vision is documented in `vision.md`. The UI design is in `UI.pen` (read via Pencil MCP tools only, not with `Read` or `Grep`).
 
-**Documentation:** Complete documentation is in `docs/index.md` with sections for Backend, Frontend, Relay Server, and System Setup.
+**Documentation:** `docs/design/` holds the canonical design docs (ARCHITECTURE, FRONTEND, BACKEND, DATA_MODEL, etc.). `docs/index.md` indexes all docs. `docs/design/CURRENT_CONFLICT_VIEW.md` tracks known gaps between design and code.
 
 ## Build & Quality
 
@@ -157,6 +157,14 @@ Use `Glob` and `Read` to explore the full directory tree as needed.
 - **MCP Integration**: Custom MCP server (`server/lib/mcp/astro-tools-server.ts`) provides `ask_user_question` tool for dynamic agent approvals. See `docs/mcp/tools-reference.md` for all 15 MCP tools.
 - **Workspace Model**: Claude Code-aligned workspace with `.astro/` agent directory, git worktrees for isolation, configurable delivery modes (`pr`/`push`/`branch`/`copy`/`direct`). See `docs/design/WORKSPACE_V2.md`
 - **Teams**: Multi-user team support with invitations, role-based access control, and shared projects
+- **Observation/Trace System**: Agent execution visibility via `observation_events` table; `RawObservation`, `TraceTree` types in `src/types/observations.ts`; routes at `/api/observations`
+- **Connected Accounts**: Slack, Telegram, GitHub Webhooks, Linear integrations with encrypted credentials; `connected-accounts-store.ts`, routes at `/api/connected-accounts`
+- **Machine Instructions**: Team-scoped markdown documents injected into execution context; `machine-instruction-store.ts`, `/api/machine-instructions`
+- **Skills System**: OpenClaw skill definitions and collections; `skill-store.ts`, `/api/skills`
+- **Community Marketplace**: Shared plans with fork/star/trending; `community-store.ts`, `/api/community`
+- **Plugin System**: Browser plugin architecture with sidebar, command, route, and theme contributions; `src/types/plugin.ts`, `plugin-store.ts`
+- **GitHub Sync**: Bidirectional issue/PR sync; `GitHubSyncSettings`, `GitHubSyncDirection` in types; `/api/github-sync`, `/api/github-comments`
+- **Notifications**: Persistent dismissible notifications (separate from toasts); `notification-store.ts`, `/api/notifications`
 
 ## Target Users
 
@@ -179,7 +187,8 @@ Use `Glob` and `Read` to explore the full directory tree as needed.
 - PlanNode list fields: `dueDate` (ISO YYYY-MM-DD), `estimate` (XS/S/M/L/XL), `milestoneId`
 - Display settings: `DisplayPopover` component with `DisplayPopoverConfig` for per-view groupBy/orderBy/properties
 - Usage tracking: `useUsageStore` accumulates session metrics (cost, tokens, task counts) from execution results
-- Types include: `TaskExecution`, `ProviderStatus`, `Priority`, `Label`, `UserProfile`, `DomainExpertise`, `UsageMetrics`
+- Types include: `TaskExecution` (fields: `status`, `userId`, `deliveryStatus`, `deliveryError`, `computeBackend`, `summary`, `subroutineProgress`, `planTodos`, `planQuestions`), `ProviderStatus`, `Priority`, `Label`, `UserProfile`, `DomainExpertise`, `UsageMetrics`, `DeliveryMode` (`pr|push|branch|copy|direct`), `WorktreeStrategy` (`copy|reference|direct`), `SessionStatus`, `ConnectedAccount`, `ChannelType`
+- There are ~29 Zustand stores; see `docs/frontend/state-management.md` for the full list and patterns
 
 ## Package Names
 - Root: `astro` (package.json)
