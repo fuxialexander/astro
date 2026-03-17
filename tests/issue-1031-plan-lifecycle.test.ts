@@ -133,6 +133,90 @@ describe('Phase 1: Chat Mutation Reliability', () => {
     })
   })
 
+  describe('Temp ID cross-reference between addNodes and updateNodes', () => {
+    it('resolves temp IDs from addNodes when used as nodeId in updateNodes', () => {
+      seedStore()
+      // AI adds a milestone with temp ID, then updates an existing node to depend on it
+      const content = `\`\`\`json
+{
+  "addNodes": [
+    {
+      "id": "new-milestone",
+      "title": "Manifest Generation Complete",
+      "description": "Gate milestone",
+      "type": "milestone",
+      "priority": "high"
+    }
+  ],
+  "updateNodes": [
+    { "nodeId": "new-milestone", "status": "completed" }
+  ]
+}
+\`\`\``
+      const { mutations } = extractMutations(content)
+      const { affectedNodeIds } = applyMutationsToStore(PROJECT_ID, mutations)
+
+      // Both the addNode and the updateNode should have been applied
+      expect(affectedNodeIds).toHaveLength(2)
+
+      // The newly added node should have the updated status
+      const realId = affectedNodeIds[0] // first is the addNode
+      const node = usePlanStore.getState().nodes.find(n => n.id === realId)!
+      expect(node.title).toBe('Manifest Generation Complete')
+      expect(node.status).toBe('completed')
+    })
+
+    it('resolves temp IDs in updateNodes.dependencies referencing addNodes', () => {
+      seedStore()
+      const content = `\`\`\`json
+{
+  "addNodes": [
+    {
+      "id": "cache-layer",
+      "title": "Add caching",
+      "description": "Redis cache"
+    }
+  ],
+  "updateEdges": [
+    { "action": "add", "source": "cache-layer", "target": "t2", "type": "dependency" }
+  ]
+}
+\`\`\``
+      const { mutations } = extractMutations(content)
+      applyMutationsToStore(PROJECT_ID, mutations)
+
+      // The edge should use the real UUID, not the temp ID
+      const edges = usePlanStore.getState().edges
+      const cacheNode = usePlanStore.getState().nodes.find(n => n.title === 'Add caching')!
+      const edge = edges.find(e => e.source === cacheNode.id && e.target === 't2')
+      expect(edge).toBeTruthy()
+    })
+
+    it('resolves temp IDs in updateNodes when looking up newly added nodes by title', () => {
+      seedStore()
+      const content = `\`\`\`json
+{
+  "addNodes": [
+    {
+      "id": "tmp-gate",
+      "title": "Quality Gate",
+      "description": "Verification step"
+    }
+  ],
+  "updateNodes": [
+    { "nodeTitle": "Quality Gate", "priority": "urgent" }
+  ]
+}
+\`\`\``
+      const { mutations } = extractMutations(content)
+      const { affectedNodeIds } = applyMutationsToStore(PROJECT_ID, mutations)
+
+      expect(affectedNodeIds).toHaveLength(2) // addNode + updateNode
+      const gateNode = usePlanStore.getState().nodes.find(n => n.title === 'Quality Gate')!
+      expect(gateNode.priority).toBe('urgent')
+    })
+  })
+
 })
 
 // ─── Phase 2: Regenerate Safety ─────────────────────────────────────

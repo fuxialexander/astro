@@ -234,18 +234,26 @@ export function applyMutationsToStore(
     reorganizeProject(projectId)
   }
 
+  // Re-read nodes after addNodes so newly created nodes are findable by title/id
+  const currentNodes = newNodes.length > 0
+    ? usePlanStore.getState().nodes.filter((n) => n.projectId === projectId)
+    : planNodes
+
   // Apply node property updates
   for (const u of nodeUpdates) {
+    // Resolve temp IDs from addNodes (e.g. "manifest-milestone" → real UUID)
     let resolvedNodeId: string | undefined = u.nodeId
+      ? (idMap.get(u.nodeId) ?? u.nodeId)
+      : undefined
 
     if (!resolvedNodeId && u.nodeTitle) {
       const normalizedTitle = (u.nodeTitle as string).trim().toLowerCase()
       // Exact case-insensitive match first
-      let candidates = planNodes.filter((n) => n.title.trim().toLowerCase() === normalizedTitle)
+      let candidates = currentNodes.filter((n) => n.title.trim().toLowerCase() === normalizedTitle)
 
       // Fuzzy fallback: substring includes match (handles truncation, abbreviation)
       if (candidates.length === 0) {
-        candidates = planNodes.filter((n) => {
+        candidates = currentNodes.filter((n) => {
           const nodeTitle = n.title.trim().toLowerCase()
           return nodeTitle.includes(normalizedTitle) || normalizedTitle.includes(nodeTitle)
         })
@@ -256,7 +264,7 @@ export function applyMutationsToStore(
       }
 
       if (candidates.length === 0) {
-        const availableTitles = planNodes.slice(0, 5).map((n) => `"${n.title}"`).join(', ')
+        const availableTitles = currentNodes.slice(0, 5).map((n) => `"${n.title}"`).join(', ')
         console.warn(`[plan-mutations] Node update failed: no node found with title "${u.nodeTitle}". Available: ${availableTitles}`)
         useToastStore.getState().add({
           type: 'warning',
@@ -296,7 +304,7 @@ export function applyMutationsToStore(
 
     // Reconcile edges when dependencies change (resolve temp IDs from addNodes)
     if (Array.isArray(u.dependencies)) {
-      const currentNode = planNodes.find((n) => n.id === resolvedNodeId)
+      const currentNode = currentNodes.find((n) => n.id === resolvedNodeId)
       if (currentNode) {
         const resolvedDeps = (u.dependencies as string[]).map(d => idMap.get(d) ?? d)
         // Update patch with resolved IDs so the node's dependencies field is correct
@@ -331,15 +339,15 @@ export function applyMutationsToStore(
         target: resolvedTarget,
         type: (op.type as "dependency" | "branch") ?? "dependency",
       })
-      // Look up target in both existing planNodes and newly added nodes
-      const targetNode = planNodes.find((n) => n.id === resolvedTarget)
-        ?? store.nodes.find((n) => n.id === resolvedTarget)
+      // Look up target in current nodes (includes newly added nodes)
+      const targetNode = currentNodes.find((n) => n.id === resolvedTarget)
+        ?? usePlanStore.getState().nodes.find((n) => n.id === resolvedTarget)
       if (targetNode && !targetNode.dependencies.includes(resolvedSource)) {
         updateNode(resolvedTarget, { dependencies: [...targetNode.dependencies, resolvedSource] })
       }
     } else if (op.action === "remove") {
       removeEdge(resolvedSource, resolvedTarget)
-      const targetNode = planNodes.find((n) => n.id === resolvedTarget)
+      const targetNode = currentNodes.find((n) => n.id === resolvedTarget)
       if (targetNode) {
         updateNode(resolvedTarget, { dependencies: targetNode.dependencies.filter((d) => d !== resolvedSource) })
       }
