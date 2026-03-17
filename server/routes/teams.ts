@@ -525,10 +525,7 @@ teamsRoute.delete('/:teamId/members/:memberId', async (c) => {
  * List all teams the current user belongs to.
  */
 teamsRoute.get('/', async (c) => {
-  if (isLocalMode()) {
-    return c.json({ error: 'Teams not available in local mode' }, 503)
-  }
-
+  // Allow team listing in local mode (seeded teams for testing)
   try {
     const user = c.get('user') as AuthUser
 
