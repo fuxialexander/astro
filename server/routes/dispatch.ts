@@ -1709,7 +1709,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           projectId,
           userId: user?.id ?? null,
           status: isSuccess ? 'success' : 'failure',
-          error: msg.result.error || null,
+          error: msg.result.error ?? null,
           startedAt,
           completedAt: completionTime,
           sessionId: capturedSessionId,
@@ -1723,12 +1723,12 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           estimatedCostUsd: dispatchMetrics?.estimatedCostUsd ?? null,
           model: capturedModel || dispatchMetrics?.model || null,
           turnsUsed: dispatchMetrics?.turnsUsed ?? null,
-          summary: msg.result.summary || null,
+          summary: msg.result.summary ?? null,
         }).onConflictDoUpdate({
           target: taskExecutions.executionId,
           set: {
             status: isSuccess ? 'success' : 'failure',
-            error: msg.result.error || null,
+            error: msg.result.error ?? null,
             completedAt: completionTime,
             sessionId: capturedSessionId,
             durationMs: dispatchMetrics?.durationMs ?? null,
