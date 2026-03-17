@@ -57,6 +57,8 @@ import {
   revokeMachine,
   updateMachineName,
   updateMachineProviderConfigs,
+  shareMachineWithTeam,
+  getTeamMachines,
 } from '../lib/registered-machines-store.js';
 import { machineRegistry } from '../lib/machine-registry.js';
 import { relayServer } from '../lib/relay-server.js';
@@ -1010,6 +1012,82 @@ deviceAuthRoute.delete('/machines/:id', requireAuth, async (c) => {
       message: `Machine "${machine.name}" has been revoked`,
     });
   }
+});
+
+// ============================================================================
+// Team Machine Sharing
+// ============================================================================
+
+/**
+ * GET /device/team-machines
+ * List all machines shared with the current user's team.
+ * Returns machines owned by other team members that have been contributed.
+ */
+deviceAuthRoute.get('/team-machines', requireAuth, async (c) => {
+  const user = c.get('user') as { id: string; teamId: string };
+  const teamId = user.teamId;
+
+  if (!teamId) {
+    return c.json({ machines: [], count: 0 });
+  }
+
+  const machines = await getTeamMachines(teamId);
+  const liveIds = new Set(machineRegistry.getAll().map(m => m.machineId));
+
+  return c.json({
+    machines: machines.map(m => ({
+      id: m.id,
+      name: m.name,
+      hostname: m.hostname,
+      platform: m.platform,
+      providers: m.providers,
+      userId: m.userId,
+      teamId: m.teamId,
+      registeredAt: m.registeredAt,
+      lastSeenAt: m.lastSeenAt,
+      isConnected: liveIds.has(m.id),
+      isRevoked: m.isRevoked,
+    })),
+    count: machines.length,
+  });
+});
+
+/**
+ * PATCH /device/machines/:id/share
+ * Share or unshare a machine with the current user's team.
+ * Only the machine owner can share/unshare.
+ * Body: { shared: boolean }
+ */
+deviceAuthRoute.patch('/machines/:id/share', requireAuth, async (c) => {
+  const user = c.get('user') as { id: string; teamId: string };
+  const id = c.req.param('id');
+  const body = await c.req.json() as { shared: boolean };
+
+  if (typeof body.shared !== 'boolean') {
+    return c.json({ error: 'Missing required field: shared (boolean)' }, 400);
+  }
+
+  // Verify ownership
+  const machine = await getMachine(id);
+  if (!machine) {
+    return c.json({ error: 'Machine not found' }, 404);
+  }
+  if (machine.userId !== user.id) {
+    return c.json({ error: 'Not authorized — only the machine owner can share it' }, 403);
+  }
+
+  const targetTeamId = body.shared ? user.teamId : null;
+  const success = await shareMachineWithTeam(id, targetTeamId);
+
+  if (!success) {
+    return c.json({ error: 'Failed to update machine sharing' }, 500);
+  }
+
+  return c.json({
+    success: true,
+    shared: body.shared,
+    teamId: targetTeamId,
+  });
 });
 
 // ============================================================================

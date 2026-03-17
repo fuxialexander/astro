@@ -30,6 +30,8 @@ import { useExecutionStore, type ComputeBackendInfo } from "@/stores/execution-s
 import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { AddEnvironmentDialog } from "@/components/environments/add-environment-dialog"
+import { TeamMachinesSection } from "@/components/environments/team-machines-section"
+import { useFeatureFlag } from "@/hooks/use-feature-flag"
 import { BackendDetailDialog } from "@/components/environments/backend-detail-dialog"
 import { MachineDetailDialog } from "@/components/environments/machine-detail-dialog"
 import { InstructionPicker } from "@/components/execution/instruction-picker"
@@ -540,6 +542,7 @@ export function Environments() {
 
   // Check if we're in multi-tenant mode
   const isMultiTenant = isServerMode()
+  const showTeamMachines = useFeatureFlag('team-machines')
 
   const revokeMachine = useMachinesStore((s) => s.revokeMachine)
   const registeredMachines = useMachinesStore((s) => s.machines)
@@ -973,6 +976,21 @@ export function Environments() {
           Create Instruction
         </Button>
       </div>
+
+      {/* Team Machines */}
+      {showTeamMachines && isMultiTenant && (
+        <div className="flex flex-col gap-4">
+          <div className="hidden md:flex flex-col gap-1">
+            <div className="flex items-center gap-3">
+              <h2 className="text-lg font-semibold">Team Machines</h2>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Share your machines with teammates, or use machines contributed by your team.
+            </p>
+          </div>
+          <TeamMachinesSection />
+        </div>
+      )}
 
       {/* Compute Backends */}
       <div className="flex flex-col gap-4">
