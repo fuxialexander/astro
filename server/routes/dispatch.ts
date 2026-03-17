@@ -1384,6 +1384,9 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     // msg.result.output is equivalent for completed sessions; accumulatedText is the
     // fallback when the relay strips output from the result message.
     let accumulatedText = ''
+    // Captured from session_init event — used for server-side taskExecutions persistence
+    let capturedSessionId: string | null = null
+    let capturedModel: string | null = null
     // Two-tier timeout: short startup period, longer once events are flowing.
     // If the agent-runner never picks up the task (crash, busy, bad state),
     // we detect it quickly instead of hanging for days.
@@ -1692,6 +1695,55 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         console.error('[dispatch] Error persisting execution result to plan node:', err)
       }
 
+      // Server-side taskExecutions persistence — ensures the execution record exists
+      // even if the browser disconnects before the frontend can persist it.
+      // Uses onConflictDoUpdate so that if the frontend already persisted this record
+      // (via dataClient.saveExecution), the server-side data wins for metrics/status.
+      try {
+        const startedAt = dispatchMetrics?.durationMs
+          ? new Date(completionTime.getTime() - dispatchMetrics.durationMs)
+          : completionTime
+        await db.insert(taskExecutions).values({
+          executionId,
+          nodeClientId: nodeId,
+          projectId,
+          userId: user?.id ?? null,
+          status: isSuccess ? 'success' : 'failure',
+          error: msg.result.error || null,
+          startedAt,
+          completedAt: completionTime,
+          sessionId: capturedSessionId,
+          machineId: machineId || null,
+          providerId: preferredProvider || null,
+          providerName: preferredProvider || null,
+          durationMs: dispatchMetrics?.durationMs ?? null,
+          inputTokens: dispatchMetrics?.inputTokens ?? null,
+          outputTokens: dispatchMetrics?.outputTokens ?? null,
+          tokensUsed: dispatchMetrics?.tokensUsed ?? null,
+          estimatedCostUsd: dispatchMetrics?.estimatedCostUsd ?? null,
+          model: capturedModel || dispatchMetrics?.model || null,
+          turnsUsed: dispatchMetrics?.turnsUsed ?? null,
+          summary: msg.result.summary || null,
+        }).onConflictDoUpdate({
+          target: taskExecutions.executionId,
+          set: {
+            status: isSuccess ? 'success' : 'failure',
+            error: msg.result.error || null,
+            completedAt: completionTime,
+            durationMs: dispatchMetrics?.durationMs ?? null,
+            inputTokens: dispatchMetrics?.inputTokens ?? null,
+            outputTokens: dispatchMetrics?.outputTokens ?? null,
+            tokensUsed: dispatchMetrics?.tokensUsed ?? null,
+            estimatedCostUsd: dispatchMetrics?.estimatedCostUsd ?? null,
+            model: capturedModel || dispatchMetrics?.model || null,
+            turnsUsed: dispatchMetrics?.turnsUsed ?? null,
+            ...(msg.result.summary ? { summary: msg.result.summary } : {}),
+          },
+        })
+      } catch (err: unknown) {
+        console.error('[dispatch] Error persisting taskExecution record:', err)
+      }
+
       // Update schedule run status if this dispatch was triggered by a cron schedule
       if (scheduleRunId) {
         const runStatus = (finalNodeStatus === 'auto_verified' || finalNodeStatus === 'completed') ? 'success' : 'failure'
@@ -1752,6 +1804,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       if (!alive || msg.taskId !== executionId) return
       lastActivity = Date.now()
       hasReceivedEvent = true
+      capturedSessionId = msg.sessionId || null
+      capturedModel = msg.model || null
       const data = { sessionId: msg.sessionId, model: msg.model }
       // seq comes from relay-server's persist; use it as the SSE event id for catch-up ordering
       const seq = msg._dbSeq ?? 0
@@ -2179,6 +2233,25 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       } catch (err: unknown) {
         console.error('[dispatch] Failed to set plan_node in_progress:', err)
       }
+    }
+
+    // Create initial taskExecutions record server-side so it exists in the DB
+    // even if the browser disconnects before the frontend can persist it.
+    // onResult will update this record with final status, metrics, and summary.
+    try {
+      await db.insert(taskExecutions).values({
+        executionId,
+        nodeClientId: nodeId,
+        projectId,
+        userId: user?.id ?? null,
+        status: 'running',
+        startedAt: new Date(),
+        machineId: machineId || null,
+        providerId: preferredProvider || null,
+        providerName: preferredProvider || null,
+      }).onConflictDoNothing()
+    } catch (err: unknown) {
+      console.error('[dispatch] Error creating initial taskExecution record:', err)
     }
 
     // Emit task:init via event bus so the global SSE stream (/api/events/stream)
