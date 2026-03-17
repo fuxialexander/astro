@@ -77,8 +77,11 @@ fsRoute.get('/directories', async (c) => {
     return c.json({ error: 'machineId is required' }, 400)
   }
 
+  console.log(`[fs] GET /directories machineId=${machineId} path=${path}`)
+
   try {
     const result = await requestDirectoryList(machineId, path)
+    console.log(`[fs] /directories result: entries=${result.entries?.length ?? 0} error=${result.error ?? 'none'}`)
     return c.json(result)
   } catch (error) {
     console.error('[fs] Error listing directories:', error)
@@ -97,6 +100,7 @@ async function requestDirectoryList(
 
   return new Promise<DirectoryListResult>((resolve) => {
     const timeout = setTimeout(() => {
+      console.warn(`[fs] directory_list TIMEOUT cid=${correlationId} machineId=${machineId} path=${path}`)
       relayServer.removeListener('directory_list:response', handler)
       resolve({ path, entries: [], error: 'Request timed out' })
     }, 10000) // 10 second timeout for directory listing
@@ -117,6 +121,7 @@ async function requestDirectoryList(
     relayServer.on('directory_list:response', handler)
 
     const sent = relayServer.requestDirectoryList(machineId, path, correlationId)
+    console.log(`[fs] requestDirectoryList sent=${sent} cid=${correlationId} machineId=${machineId}`)
     if (!sent) {
       clearTimeout(timeout)
       relayServer.removeListener('directory_list:response', handler)
