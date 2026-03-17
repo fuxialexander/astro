@@ -6,6 +6,7 @@ import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Penci
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
 import { ReplanDialog } from "@/components/replan-dialog"
+import { PlanHistory } from "@/components/plan-history"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { TaskCreationForm } from "@/components/task-creation-form"
@@ -2023,6 +2024,9 @@ export function PlanView() {
             ) : null}
           </div>
         )}
+
+        {/* Plan history (archived plans restore) */}
+        <PlanHistory projectId={project.id} />
 
         {/* Chat panel toggle */}
         <Tooltip>

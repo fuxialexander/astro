@@ -25,8 +25,8 @@
     "description": "Describe what has changed or what needs to be replanned",
     "placeholder": "What needs to change?",
     "submit": "Replan",
-    "regenerateTitle": "Regenerate Plan",
-    "regenerateDescription": "This will archive your current tasks, gather lessons from execution history, and generate a new plan.",
+    "regenerateTitle": "Archive & Regenerate Plan",
+    "regenerateDescription": "Your current plan will be archived and a new plan generated. You can restore the archived plan from Plan History if needed.",
     "totalTasks": "total tasks",
     "completed": "completed",
     "withOpenPrs": "with open PRs",
@@ -34,6 +34,7 @@
     "changePlaceholder": "Describe what you'd like different in the new plan (optional)",
     "runningWarning": "Some tasks are currently running. They will be cancelled.",
     "regenerate": "Regenerate",
+    "archiveAndRegenerate": "Archive & Regenerate",
     "regenerating": "Regenerating..."
   },
   "welcome": {

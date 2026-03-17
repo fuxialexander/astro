@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { useNavigate } from "react-router"
-import { RefreshCw, AlertTriangle, Loader2 } from "lucide-react"
+import { Archive, AlertTriangle, Loader2 } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -50,28 +50,19 @@ export function ReplanDialog({ open, onOpenChange, project }: ReplanDialogProps)
   const handleRegenerate = async () => {
     setIsProcessing(true)
     try {
-      // Get live nodes and edges
+      // Get live nodes and edges BEFORE archiving (for lessons extraction)
       const liveNodes = nodes.filter((n) => isLive(n) && n.projectId === project.id)
       const liveNodeIds = new Set(liveNodes.map((n) => n.id))
       const liveEdges = edges.filter(
         (e) => isLive(e) && (liveNodeIds.has(e.source) || liveNodeIds.has(e.target))
       )
 
-      // Extract lessons and build summary
+      // Extract lessons and build summary from current plan
       const lessons = extractLessonsFromPlan(liveNodes)
       const previousPlanSummary = buildPreviousPlanSummary(liveNodes, liveEdges)
 
-      // Archive all live nodes for this project
-      const archivedNodeIds = usePlanStore.getState().archiveProjectForReplan(project.id)
-
-      // Fire-and-forget: reset tasks on the backend
-      if (archivedNodeIds.length > 0) {
-        bulkResetTasks(archivedNodeIds, project.id).catch((err) => {
-          console.error("[replan-dialog] bulkResetTasks failed:", err)
-        })
-      }
-
-      // Start the replan session
+      // Start the replan session FIRST — if this fails (network, auth),
+      // the original plan remains untouched.
       await useExecutionStore.getState().startReplanSession(
         project.id,
         changeDescription || undefined,
@@ -79,6 +70,19 @@ export function ReplanDialog({ open, onOpenChange, project }: ReplanDialogProps)
         previousPlanSummary,
         { visionDoc: project.visionDoc }
       )
+
+      // Replan dispatch succeeded — now safe to archive the old plan.
+      // The deletionActionId groups all archived nodes for potential restoration.
+      const archivedNodeIds = usePlanStore.getState().archiveProjectForReplan(project.id)
+
+      // Await bulkResetTasks to ensure execution state is consistent
+      if (archivedNodeIds.length > 0) {
+        try {
+          await bulkResetTasks(archivedNodeIds, project.id)
+        } catch (err) {
+          console.error("[replan-dialog] bulkResetTasks failed:", err)
+        }
+      }
 
       onOpenChange(false)
       // Navigate to the plan activity page to show generation progress
@@ -99,7 +103,7 @@ export function ReplanDialog({ open, onOpenChange, project }: ReplanDialogProps)
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <RefreshCw className="h-4 w-4" />
+            <Archive className="h-4 w-4" />
             {t('replan.regenerateTitle')}
           </DialogTitle>
           <DialogDescription>
@@ -166,8 +170,8 @@ export function ReplanDialog({ open, onOpenChange, project }: ReplanDialogProps)
               </>
             ) : (
               <>
-                <RefreshCw className="h-4 w-4" />
-                {t('replan.regenerate')}
+                <Archive className="h-4 w-4" />
+                {t('replan.archiveAndRegenerate', 'Archive & Regenerate')}
               </>
             )}
           </Button>

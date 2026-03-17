@@ -25,8 +25,8 @@
     "description": "描述发生了哪些变化，或需要重新规划的内容",
     "placeholder": "需要做哪些调整？",
     "submit": "重新规划",
-    "regenerateTitle": "重新生成规划",
-    "regenerateDescription": "当前筹谋将被归档，系统将从执行历史中汲取经验，并生成新的规划。",
+    "regenerateTitle": "归档并重新生成规划",
+    "regenerateDescription": "当前规划将被归档，并重新生成新规划。如有需要，可从规划历史中恢复已归档的规划。",
     "totalTasks": "个筹谋",
     "completed": "已完成",
     "withOpenPrs": "有待合并的 PR",
@@ -34,6 +34,7 @@
     "changePlaceholder": "描述新规划与当前规划的不同之处（可选）",
     "runningWarning": "部分筹谋正在执行中，将被取消。",
     "regenerate": "重新生成",
+    "archiveAndRegenerate": "归档并重新生成",
     "regenerating": "重新生成中…"
   },
   "welcome": {

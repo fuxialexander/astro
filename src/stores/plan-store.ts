@@ -204,6 +204,10 @@ interface PlanState {
   resetNode: (nodeId: string, projectId: string) => Promise<{ success: boolean; errors?: string[] }>
   /** Soft-delete all live nodes for a project (for replan). Returns archived node IDs. */
   archiveProjectForReplan: (projectId: string) => string[]
+  /** Restore an archived plan by clearing deletedAt on all nodes/edges with a given deletionActionId. */
+  restoreArchivedPlan: (projectId: string, deletionActionId: string) => void
+  /** Get archived plan groups for a project, grouped by deletionActionId. */
+  getArchivedPlanGroups: (projectId: string) => Array<{ deletionActionId: string; archivedAt: Date; nodeCount: number; titles: string[] }>
 }
 
 // Empty seed data — new users start with no plans and create via /projects/new
@@ -792,5 +796,88 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     }
 
     return nodeIds
+  },
+
+  restoreArchivedPlan: (projectId, deletionActionId) => {
+    // First, archive current live nodes (if any) to make room
+    const currentLiveNodes = get().nodes.filter((n) => isLive(n) && n.projectId === projectId)
+    if (currentLiveNodes.length > 0) {
+      get().archiveProjectForReplan(projectId)
+    }
+
+    // Restore all nodes/edges with the given deletionActionId.
+    // Reset execution state so restored nodes are re-executable.
+    const nextNodes = get().nodes.map((n) =>
+      n.projectId === projectId && n.deletionActionId === deletionActionId
+        ? {
+            ...n,
+            deletedAt: undefined,
+            deletionActionId: undefined,
+            status: 'planned' as const,
+            executionId: undefined,
+            executionOutput: undefined,
+            executionError: undefined,
+            executionStartedAt: undefined,
+            executionCompletedAt: undefined,
+            updatedAt: new Date(),
+          }
+        : n
+    )
+    const restoredNodeIds = new Set(
+      nextNodes.filter((n) => n.projectId === projectId && !n.deletedAt && n.deletionActionId === undefined)
+        .map((n) => n.id)
+    )
+    const nextEdges = get().edges.map((e) =>
+      e.deletionActionId === deletionActionId && (restoredNodeIds.has(e.source) || restoredNodeIds.has(e.target))
+        ? { ...e, deletedAt: undefined, deletionActionId: undefined }
+        : e
+    )
+    set({ nodes: nextNodes, edges: nextEdges })
+
+    // Persist restoration asynchronously — only for nodes actually restored
+    for (const id of restoredNodeIds) {
+      dataClient.updateNode(id, {
+        deletedAt: undefined,
+        deletionActionId: undefined,
+        status: 'planned',
+        executionId: undefined,
+        executionOutput: undefined,
+        executionError: undefined,
+        executionStartedAt: undefined,
+        executionCompletedAt: undefined,
+      }).catch((err) => {
+        console.error('[plan-store] Failed to restore node in API:', err)
+      })
+    }
+
+    useToastStore.getState().add({
+      type: 'success',
+      title: 'Plan restored',
+      description: `Restored ${restoredNodeIds.size} tasks from archived plan.`,
+    })
+  },
+
+  getArchivedPlanGroups: (projectId) => {
+    const archivedNodes = get().nodes.filter(
+      (n) => n.projectId === projectId && n.deletedAt && n.deletionActionId
+    )
+    const groups = new Map<string, { archivedAt: Date; nodes: PlanNode[] }>()
+    for (const node of archivedNodes) {
+      const actionId = node.deletionActionId!
+      const existing = groups.get(actionId)
+      if (existing) {
+        existing.nodes.push(node)
+      } else {
+        groups.set(actionId, { archivedAt: node.deletedAt!, nodes: [node] })
+      }
+    }
+    return Array.from(groups.entries())
+      .map(([deletionActionId, { archivedAt, nodes }]) => ({
+        deletionActionId,
+        archivedAt,
+        nodeCount: nodes.length,
+        titles: nodes.filter((n) => n.type === 'task').slice(0, 3).map((n) => n.title),
+      }))
+      .sort((a, b) => b.archivedAt.getTime() - a.archivedAt.getTime())
   },
 }))
