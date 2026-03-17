@@ -204,6 +204,13 @@
       "when": 1773734400000,
       "tag": "0028_add_loop_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1773820800000,
+      "tag": "0029_add_execution_user_verification",
+      "breakpoints": true
     }
   ]
 }
