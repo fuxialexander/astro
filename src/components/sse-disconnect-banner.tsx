@@ -31,10 +31,11 @@ export function SseDisconnectBanner() {
     }
   }, [connected, phase, transition])
 
-  // Delayed transition: ready/reconnected -> disconnected (after 3s of being disconnected)
+  // Delayed transition: ready/reconnected -> disconnected
+  // Use 10s threshold to suppress brief disconnects from multi-instance routing
   useEffect(() => {
     if (!connected && (phase === "ready" || phase === "reconnected")) {
-      const t = setTimeout(() => setPhase("disconnected"), 3000)
+      const t = setTimeout(() => setPhase("disconnected"), 10000)
       return () => clearTimeout(t)
     }
   }, [connected, phase])

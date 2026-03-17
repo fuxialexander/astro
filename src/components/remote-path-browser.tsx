@@ -63,7 +63,7 @@ interface RemotePathBrowserProps {
   onSelect: (path: string) => void
 }
 
-/** Fetch directory listing from the API */
+/** Fetch directory listing from the API with auto-retry for transient failures */
 async function fetchDirectoryList(
   machineId: string,
   path: string
@@ -76,14 +76,41 @@ async function fetchDirectoryList(
     headers["Authorization"] = `Bearer ${token}`
   }
 
-  const params = new URLSearchParams({ machineId, path })
-  const response = await fetch(apiUrl(`/api/fs/directories?${params}`), { headers })
+  const MAX_RETRIES = 2
+  const RETRY_DELAY_MS = 1500
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch directory listing: ${response.statusText}`)
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const params = new URLSearchParams({ machineId, path })
+      const response = await fetch(apiUrl(`/api/fs/directories?${params}`), { headers })
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch directory listing: ${response.statusText}`)
+      }
+
+      const result = await response.json()
+
+      // Retry on transient errors (machine not connected, timeout) unless last attempt
+      if (result.error && attempt < MAX_RETRIES) {
+        const transient = /not connected|timed? ?out|unavailable/i.test(result.error)
+        if (transient) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
+          continue
+        }
+      }
+
+      return result
+    } catch (err) {
+      if (attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
+        continue
+      }
+      throw err
+    }
   }
 
-  return response.json()
+  // Unreachable, but TypeScript needs it
+  throw new Error("Failed to fetch directory listing after retries")
 }
 
 /** Create a directory on a remote machine */
