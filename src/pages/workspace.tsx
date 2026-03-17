@@ -7,7 +7,7 @@ import { apiUrl } from "@/lib/api-url"
 import { authHeaders } from "@/lib/auth-headers"
 import { formatRelativeTime } from "@/lib/date-utils"
 import { cn } from "@/lib/utils"
-import { useGitHubStore } from "@/stores/github-store"
+import { useGitHubAppStore } from "@/stores/github-app-store"
 import { useProjectStore } from "@/stores/project-store"
 import { GitHubRepoPickerDialog } from "@/components/github-repo-picker-dialog"
 import type { GitHubWorkspaceSummary, GitHubWorkspaceAttentionItem, GitHubWorkspaceProjectSummary } from "@/types"
@@ -185,7 +185,9 @@ export function Workspace() {
   const [error, setError] = useState<string | null>(null)
   const [importOpen, setImportOpen] = useState(false)
 
-  const connected = useGitHubStore((s) => s.connected)
+  const installations = useGitHubAppStore((s) => s.installations)
+  const fetchInstallations = useGitHubAppStore((s) => s.fetchInstallations)
+  const connected = installations.length > 0
   const projects = useProjectStore((s) => s.projects)
   const githubProjects = projects.filter((p) => p.projectType === "github")
 
@@ -206,6 +208,10 @@ export function Workspace() {
       setLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    void fetchInstallations()
+  }, [fetchInstallations])
 
   useEffect(() => {
     if (connected) void load()
@@ -271,15 +277,15 @@ export function Workspace() {
               <Github className="h-4.5 w-4.5 text-muted-foreground" />
             </div>
             <div>
-              <p className="text-sm font-semibold">Connect your GitHub account</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">Link repos to import issues, PRs, and enable agent automation.</p>
+              <p className="text-sm font-semibold">Install the GitHub App</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">Install the Astro GitHub App to import repos, sync issues, and enable agent automation.</p>
             </div>
           </div>
           <button
             className="gh-action-btn rounded-lg px-4 py-2 text-[12px] font-semibold"
             onClick={() => navigate("/settings?tab=connected-accounts")}
           >
-            Connect
+            Install
           </button>
         </div>
       )}
@@ -355,7 +361,7 @@ export function Workspace() {
                 <div className="col-span-full py-8 text-center text-sm text-muted-foreground">
                   {connected
                     ? "No repos imported yet. Click Import Repo to get started."
-                    : "Connect your GitHub account to import repos."}
+                    : "Install the GitHub App to import repos."}
                 </div>
               )}
             </div>

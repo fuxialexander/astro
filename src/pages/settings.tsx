@@ -15,11 +15,11 @@ import {
   Paintbrush,
   Trash2,
   AlertTriangle,
-  CheckCircle2,
   XCircle,
   Loader2,
-  Github,
   Users,
+  Github,
+  ArrowRight,
   Mail,
   Clock,
   Copy,
@@ -51,9 +51,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { GitHubSyncButton } from "@/components/github-connect-button"
 import { GitHubAppInstallationManager } from "@/components/github-app-installation-manager"
-import { GitHubIntegrationGuide } from "@/components/github-integration-guide"
 import { PluginSettingsContent } from "@/components/plugin-settings"
 import { SkillSettingsContent } from "@/components/skill-settings"
 import { GitHubProjectLinker } from "@/components/github-project-linker"
@@ -647,36 +645,26 @@ function ProfileContent() {
 function ConnectedAccountsContent() {
   const { t } = useTranslation("settings")
   const gitHubEnabled = useFeatureFlag('github-integration')
-  const { connected, user, repos, selectedRepoIds, fetchStatus, disconnect, connect } = useGitHubStore()
-  const { installations, install: installApp } = useGitHubAppStore()
+  const oauthConnected = useGitHubStore((s) => s.connected)
+  const oauthUser = useGitHubStore((s) => s.user)
+  const fetchOAuthStatus = useGitHubStore((s) => s.fetchStatus)
+  const disconnectOAuth = useGitHubStore((s) => s.disconnect)
+  const appInstallations = useGitHubAppStore((s) => s.installations)
+  const installApp = useGitHubAppStore((s) => s.install)
   const { load: loadAccounts, loaded: accountsLoaded } = useConnectedAccountsStore()
   const { add: addToast } = useToastStore()
   const [searchParams, setSearchParams] = useSearchParams()
+  const [dismissedMigration, setDismissedMigration] = useState(false)
 
-  // Handle OAuth callback
+  // Check OAuth status on mount to detect legacy connections
   useEffect(() => {
-    const githubParam = searchParams.get('github')
+    if (gitHubEnabled) fetchOAuthStatus()
+  }, [fetchOAuthStatus, gitHubEnabled])
+
+  // Handle GitHub App callback
+  useEffect(() => {
     const githubAppParam = searchParams.get('github-app')
     const reason = searchParams.get('reason')
-
-    if (githubParam === 'connected') {
-      addToast({
-        title: 'GitHub connected',
-        description: 'Your GitHub account has been successfully connected.',
-        type: 'success',
-        duration: 5000,
-      })
-      // Clear query params
-      setSearchParams({})
-    } else if (githubParam === 'error') {
-      addToast({
-        title: 'Connection failed',
-        description: 'Failed to connect your GitHub account. Please try again.',
-        type: 'error',
-        duration: 5000,
-      })
-      setSearchParams({})
-    }
 
     if (githubAppParam === 'installed') {
       addToast({
@@ -711,14 +699,27 @@ function ConnectedAccountsContent() {
   }, [searchParams, addToast, setSearchParams])
 
   useEffect(() => {
-    if (gitHubEnabled) fetchStatus()
-  }, [fetchStatus, gitHubEnabled])
-
-  useEffect(() => {
     if (!accountsLoaded) {
       loadAccounts()
     }
   }, [accountsLoaded, loadAccounts])
+
+  // Show migration banner if user has OAuth but no App installed
+  const showMigrationBanner = oauthConnected && appInstallations.length === 0 && !dismissedMigration
+
+  const handleMigrateToApp = async () => {
+    await installApp()
+  }
+
+  const handleDisconnectOAuth = async () => {
+    await disconnectOAuth()
+    addToast({
+      title: 'OAuth disconnected',
+      description: 'Your personal GitHub OAuth token has been removed.',
+      type: 'success',
+      duration: 3000,
+    })
+  }
 
   return (
     <div className="flex flex-col gap-8">
@@ -726,76 +727,68 @@ function ConnectedAccountsContent() {
 
       {gitHubEnabled && (
         <>
-          {/* GitHub Integration Guide — shown only until both integrations are set up */}
-          {(!connected || installations.length === 0) && (
-            <section className="flex flex-col gap-3">
-              <h2 className="text-sm font-semibold">GitHub</h2>
-              <p className="text-[13px] text-muted-foreground">
-                Astro integrates with GitHub in two ways. Choose the option that best fits your workflow—you can use both simultaneously.
-              </p>
-
-              <GitHubIntegrationGuide
-                onOAuthClick={connect}
-                onAppClick={installApp}
-                oauthConnected={connected}
-                appInstalled={installations.length > 0}
-              />
-            </section>
-          )}
-
-          {/* Personal Account Connection Status */}
-          {connected && (
-            <section className="flex flex-col gap-3">
-              <h3 className="text-sm font-semibold">Personal Account Status</h3>
-
-              <div className="rounded-xl border border-border bg-card">
-                <div className="flex items-center justify-between px-4 py-4 border-b border-border">
-                  <div className="flex items-center gap-3">
-                    <div className={cn(
-                      "flex h-10 w-10 items-center justify-center rounded-lg",
-                      "bg-primary/10"
-                    )}>
-                      <Github className={cn("h-5 w-5", "text-primary")} />
-                    </div>
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-sm font-medium">@{user?.login}</span>
-                      <span className="text-[13px] text-muted-foreground">
-                        Personal account
-                      </span>
-                    </div>
-                  </div>
-                  <Badge variant="success" className="gap-1">
-                    <CheckCircle2 className="h-3 w-3" />
-                    Connected
-                  </Badge>
+          {/* Migration banner for OAuth users */}
+          {showMigrationBanner && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5">
+              <div className="flex items-start gap-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10 shrink-0">
+                  <Github className="h-5 w-5 text-amber-600 dark:text-amber-400" />
                 </div>
-
-                <div className="px-4 py-3.5 border-b border-border">
-                  <div className="flex items-center justify-between">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-sm">Repositories</span>
-                      <span className="text-[13px] text-muted-foreground">
-                        {repos.length} repositories • {selectedRepoIds.length} selected
-                      </span>
-                    </div>
-                    <GitHubSyncButton />
-                  </div>
-                </div>
-                <div className="px-4 py-3.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-sm">Disconnect</span>
-                      <span className="text-[13px] text-muted-foreground">
-                        Remove personal account integration
-                      </span>
-                    </div>
-                    <Button variant="outline" size="sm" onClick={disconnect}>
-                      Disconnect
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-semibold">Switch to the GitHub App</h3>
+                  <p className="text-[13px] text-muted-foreground mt-1">
+                    You're currently connected via a personal OAuth token
+                    {oauthUser ? ` as @${oauthUser.login}` : ''}.
+                    We've moved to GitHub App authentication which provides better security,
+                    team-wide access, and webhook automation without sharing personal tokens.
+                  </p>
+                  <div className="flex items-center gap-3 mt-3">
+                    <Button
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={handleMigrateToApp}
+                    >
+                      Install GitHub App
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-muted-foreground"
+                      onClick={() => setDismissedMigration(true)}
+                    >
+                      Later
                     </Button>
                   </div>
                 </div>
               </div>
-            </section>
+            </div>
+          )}
+
+          {/* OAuth disconnect card — shown when user has both OAuth and App */}
+          {oauthConnected && appInstallations.length > 0 && (
+            <div className="rounded-xl border border-border bg-card p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {oauthUser?.avatarUrl && (
+                    <img
+                      src={oauthUser.avatarUrl}
+                      alt={oauthUser.login}
+                      className="h-8 w-8 rounded-full"
+                    />
+                  )}
+                  <div>
+                    <p className="text-sm font-medium">Legacy OAuth connection</p>
+                    <p className="text-[12px] text-muted-foreground">
+                      {oauthUser ? `@${oauthUser.login} — ` : ''}You can safely disconnect this now that the GitHub App is installed.
+                    </p>
+                  </div>
+                </div>
+                <Button variant="outline" size="sm" onClick={handleDisconnectOAuth}>
+                  Disconnect
+                </Button>
+              </div>
+            </div>
           )}
 
           {/* GitHub App Installations */}

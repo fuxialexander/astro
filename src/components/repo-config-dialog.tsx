@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { useProjectStore } from "@/stores/project-store"
 import { useActivityStore } from "@/stores/activity-store"
-import { useGitHubStore } from "@/stores/github-store"
+import { useGitHubAppStore } from "@/stores/github-app-store"
 import { useMachinesStore } from "@/stores/machines-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
@@ -33,7 +33,8 @@ export function RepoConfigDialog({
 }) {
   const updateProject = useProjectStore((s) => s.updateProject)
   const addActivity = useActivityStore((s) => s.addActivity)
-  const { connected, repos, selectedRepoIds, fetchRepos, connect: connectGitHub } = useGitHubStore()
+  const installations = useGitHubAppStore((s) => s.installations)
+  const connected = installations.length > 0
   const registeredMachines = useMachinesStore((s) => s.machines)
   const fetchMachines = useMachinesStore((s) => s.fetchMachines)
   const relayMachines = useExecutionStore((s) => s.machines)
@@ -77,12 +78,26 @@ export function RepoConfigDialog({
     }
   }, [open, isMultiTenant, fetchMachines, machinesLoaded, loadMachines])
 
-  // Fetch GitHub repos when connected
-  useEffect(() => {
-    if (connected && open && repos.length === 0) {
-      fetchRepos()
+  // Aggregate repos from all GitHub App installations
+  const repos = useMemo(() => {
+    const seen = new Set<number>()
+    const all: Array<{ id: number; name: string; fullName: string; sshUrl: string; description?: string; private: boolean }> = []
+    for (const inst of installations) {
+      for (const repo of inst.repos) {
+        if (!seen.has(repo.id)) {
+          seen.add(repo.id)
+          all.push({
+            id: repo.id,
+            name: repo.name,
+            fullName: repo.full_name,
+            sshUrl: `git@github.com:${repo.full_name}.git`,
+            private: repo.private,
+          })
+        }
+      }
     }
-  }, [connected, open, repos.length, fetchRepos])
+    return all
+  }, [installations])
 
   // Auto-select single machine
   const allMachines = useMemo(() => {
@@ -134,7 +149,7 @@ export function RepoConfigDialog({
 
   // Filter repos by search query
   const filteredRepos = repos.filter((repo) => {
-    if (!searchQuery) return selectedRepoIds.length === 0 || selectedRepoIds.includes(repo.id)
+    if (!searchQuery) return true
     const query = searchQuery.toLowerCase()
     return (
       repo.name.toLowerCase().includes(query) ||
@@ -242,7 +257,8 @@ export function RepoConfigDialog({
     if (connected) {
       setShowGitHubBrowser(true)
     } else {
-      connectGitHub()
+      // Navigate to settings to install GitHub App
+      window.location.href = '/settings?tab=connected-accounts'
     }
   }
 

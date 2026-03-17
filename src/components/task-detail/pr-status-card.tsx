@@ -53,7 +53,7 @@ import {
 } from "@/lib/api-client"
 import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
 import { cn } from "@/lib/utils"
-import { useGitHubStore } from "@/stores/github-store"
+import { useGitHubAppStore } from "@/stores/github-app-store"
 import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 
 interface PrStatusCardProps {
@@ -73,8 +73,7 @@ export function PrStatusCard({
   currentUserLogin,
 }: PrStatusCardProps) {
   const addToast = useToastStore((s) => s.add)
-  const connected = useGitHubStore((s) => s.connected)
-  const ghUser = useGitHubStore((s) => s.user)
+  const connected = useGitHubAppStore((s) => s.installations.length > 0)
   const [prDetails, setPrDetails] = useState<PrDetails | null>(null)
   const [descriptionExpanded, setDescriptionExpanded] = useState(false)
   const [checksResult, setChecksResult] = useState<PrChecksResult | null>(null)
@@ -246,9 +245,9 @@ export function PrStatusCard({
             createdAt: result.comment.createdAt || new Date().toISOString(),
             updatedAt: result.comment.createdAt || new Date().toISOString(),
             user: {
-              login: ghUser?.login ?? '',
-              avatarUrl: ghUser?.avatarUrl ?? '',
-              id: ghUser?.id ?? 0,
+              login: result.comment.user?.login ?? '',
+              avatarUrl: result.comment.user?.avatarUrl ?? '',
+              id: result.comment.user?.id ?? 0,
             },
           })
         }
@@ -270,7 +269,7 @@ export function PrStatusCard({
     } finally {
       setActionLoading(null)
     }
-  }, [owner, repo, prNumber, commentBody, addToast, ghUser])
+  }, [owner, repo, prNumber, commentBody, addToast])
 
   const handleMarkReady = useCallback(async () => {
     if (!isDraft || !isOpen) return
@@ -482,14 +481,14 @@ export function PrStatusCard({
         {/* Action buttons - only for open PRs */}
         {isOpen && !connected && (
           <div className="px-4 py-2.5 border-t border-border/50 flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Connect GitHub to take actions</span>
+            <span className="text-xs text-muted-foreground">Install the GitHub App to take actions</span>
             <Button
               variant="outline"
               size="sm"
               className="h-7 text-xs ml-auto"
-              onClick={() => useGitHubStore.getState().connect()}
+              onClick={() => { window.location.href = '/settings?tab=connected-accounts' }}
             >
-              Connect
+              Install
             </Button>
           </div>
         )}

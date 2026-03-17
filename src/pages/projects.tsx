@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ImportPreviewDialog } from "@/components/sharing/import-preview-dialog"
 import { GitHubRepoPickerDialog } from "@/components/github-repo-picker-dialog"
-import { useGitHubStore } from "@/stores/github-store"
+import { useGitHubAppStore } from "@/stores/github-app-store"
 import { DisplayPopover, type DisplayPopoverConfig } from "@/components/display-popover"
 import { FilterSelect } from "@/components/views/filter-select"
 import { ItemListView, type ListColumn, type ListGroup, type BatchAction } from "@/components/views/item-list-view"
@@ -252,14 +252,9 @@ export function Projects() {
   const createInputRef = useRef<HTMLInputElement>(null)
   const [githubPickerOpen, setGithubPickerOpen] = useState(false)
 
-  // GitHub integration — DataLoader already fetches status+repos on app startup;
-  // this re-syncs repos when navigating to the projects page
-  const githubConnected = useGitHubStore((s) => s.connected)
-  const syncGitHubRepos = useGitHubStore((s) => s.syncRepos)
-
-  useEffect(() => {
-    if (githubConnected) syncGitHubRepos()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- run once on mount
+  // GitHub App integration
+  const githubInstallations = useGitHubAppStore((s) => s.installations)
+  const githubConnected = githubInstallations.length > 0
 
   // Focus input when inline creation row appears
   useEffect(() => {

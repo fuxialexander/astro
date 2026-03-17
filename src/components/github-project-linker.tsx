@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react"
+import { useState, useMemo, useCallback, useEffect } from "react"
 import { Github, Link2, Unlink, RefreshCw, Search, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,13 +11,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
-import { useGitHubStore } from "@/stores/github-store"
+import { useGitHubAppStore } from "@/stores/github-app-store"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useToastStore } from "@/stores/toast-store"
 import { apiUrl } from "@/lib/api-url"
 import { getAccessToken } from "@/lib/supabase-client"
-import type { Project, GitHubRepo } from "@/types"
+import type { Project } from "@/types"
 
 async function authHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = {}
@@ -28,9 +28,17 @@ async function authHeaders(): Promise<Record<string, string>> {
   return headers
 }
 
+/** Repo shape from GitHub App installations */
+interface InstallationRepo {
+  id: number
+  name: string
+  full_name: string
+  private: boolean
+}
+
 export function GitHubProjectLinker() {
-  const connected = useGitHubStore((s) => s.connected)
-  const repos = useGitHubStore((s) => s.repos)
+  const installations = useGitHubAppStore((s) => s.installations)
+  const fetchInstallations = useGitHubAppStore((s) => s.fetchInstallations)
   const projects = useProjectStore((s) => s.projects)
   const allNodes = usePlanStore((s) => s.nodes)
   const addToast = useToastStore((s) => s.add)
@@ -40,6 +48,27 @@ export function GitHubProjectLinker() {
   const [unlinking, setUnlinking] = useState<string | null>(null)
   const [syncing, setSyncing] = useState<string | null>(null)
   const [confirmUnlink, setConfirmUnlink] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (installations.length === 0) fetchInstallations()
+  }, [installations.length, fetchInstallations])
+
+  // Aggregate repos from all GitHub App installations
+  const repos = useMemo(() => {
+    const seen = new Set<number>()
+    const all: InstallationRepo[] = []
+    for (const inst of installations) {
+      for (const repo of inst.repos) {
+        if (!seen.has(repo.id)) {
+          seen.add(repo.id)
+          all.push(repo)
+        }
+      }
+    }
+    return all
+  }, [installations])
+
+  const hasAppInstalled = installations.length > 0
 
   const linkedProjects = useMemo(
     () =>
@@ -56,14 +85,10 @@ export function GitHubProjectLinker() {
   )
 
   const filteredRepos = useMemo(() => {
-    const available = repos.filter((r) => !linkedRepoKeys.has(r.fullName))
+    const available = repos.filter((r) => !linkedRepoKeys.has(r.full_name))
     if (!search) return available.slice(0, 20)
     const q = search.toLowerCase()
-    return available.filter(
-      (r) =>
-        r.fullName.toLowerCase().includes(q) ||
-        r.description?.toLowerCase().includes(q)
-    )
+    return available.filter((r) => r.full_name.toLowerCase().includes(q))
   }, [repos, linkedRepoKeys, search])
 
   // Count synced plan nodes per project
@@ -79,8 +104,9 @@ export function GitHubProjectLinker() {
   }, [allNodes, linkedProjects])
 
   const handleLink = useCallback(
-    async (repo: GitHubRepo) => {
+    async (repo: InstallationRepo) => {
       setLinking(repo.id)
+      const [owner, repoName] = repo.full_name.split("/")
       try {
         const hdrs = await authHeaders()
         const res = await fetch(apiUrl("/api/github/projects"), {
@@ -88,8 +114,8 @@ export function GitHubProjectLinker() {
           headers: { ...hdrs, "Content-Type": "application/json" },
           body: JSON.stringify({
             repoId: repo.id,
-            owner: repo.owner.login,
-            repo: repo.name,
+            owner,
+            repo: repoName,
           }),
         })
         if (!res.ok) {
@@ -97,13 +123,12 @@ export function GitHubProjectLinker() {
           throw new Error(err.error || "Failed to link repository")
         }
         const data = await res.json()
-        // Reload projects and plan nodes to pick up server-created project + synced issues
         await useProjectStore.getState().load()
         await usePlanStore.getState().load()
         addToast({
           type: "success",
           title: "Repository linked",
-          description: `${repo.fullName} synced ${data.sync?.total ?? 0} issues`,
+          description: `${repo.full_name} synced ${data.sync?.total ?? 0} issues`,
         })
       } catch (err) {
         addToast({
@@ -157,7 +182,6 @@ export function GitHubProjectLinker() {
         )
         if (!res.ok) throw new Error("Failed to sync")
         const data = await res.json()
-        // Reload plan nodes so synced tasks appear immediately
         await usePlanStore.getState().load()
         addToast({
           type: "success",
@@ -178,7 +202,7 @@ export function GitHubProjectLinker() {
     [addToast]
   )
 
-  if (!connected) return null
+  if (!hasAppInstalled) return null
 
   return (
     <section className="flex flex-col gap-3">
@@ -234,68 +258,67 @@ export function GitHubProjectLinker() {
       )}
 
       {/* Link new repo section */}
-      <div className="rounded-xl border border-border bg-card">
-        <div className="px-4 py-3 border-b border-border">
-          <div className="flex items-center gap-2">
-            <Search className="h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search repositories to link..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="border-0 px-0 h-8 focus-visible:ring-0"
-            />
+      {repos.length > 0 && (
+        <div className="rounded-xl border border-border bg-card">
+          <div className="px-4 py-3 border-b border-border">
+            <div className="flex items-center gap-2">
+              <Search className="h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search repositories to link..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="border-0 px-0 h-8 focus-visible:ring-0"
+              />
+            </div>
           </div>
-        </div>
-        <div className="max-h-[300px] overflow-y-auto">
-          {filteredRepos.map((repo) => (
-            <div
-              key={repo.id}
-              className="flex items-center justify-between px-4 py-2.5 hover:bg-muted/50"
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <Github className="h-4 w-4 text-muted-foreground shrink-0" />
-                <div className="min-w-0">
-                  <div className="text-sm font-medium truncate">
-                    {repo.fullName}
-                  </div>
-                  {repo.description && (
-                    <div className="text-[12px] text-muted-foreground truncate">
-                      {repo.description}
+          <div className="max-h-[300px] overflow-y-auto">
+            {filteredRepos.map((repo) => (
+              <div
+                key={repo.id}
+                className="flex items-center justify-between px-4 py-2.5 hover:bg-muted/50"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <Github className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium truncate">
+                      {repo.full_name}
                     </div>
+                  </div>
+                  {repo.private && (
+                    <Badge variant="secondary" className="text-[11px] shrink-0">
+                      Private
+                    </Badge>
                   )}
                 </div>
-                {repo.language && (
-                  <Badge variant="secondary" className="text-[11px] shrink-0">
-                    {repo.language}
-                  </Badge>
-                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleLink(repo)}
+                  disabled={linking === repo.id}
+                >
+                  {linking === repo.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <>
+                      <Link2 className="h-3.5 w-3.5 mr-1" />
+                      Link
+                    </>
+                  )}
+                </Button>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleLink(repo)}
-                disabled={linking === repo.id}
-              >
-                {linking === repo.id ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <>
-                    <Link2 className="h-3.5 w-3.5 mr-1" />
-                    Link
-                  </>
-                )}
-              </Button>
-            </div>
-          ))}
-          {filteredRepos.length === 0 && (
-            <div className="px-4 py-6 text-center text-sm text-muted-foreground">
-              {search
-                ? "No matching repositories"
-                : "All repositories are already linked"}
-            </div>
-          )}
+            ))}
+            {filteredRepos.length === 0 && (
+              <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+                {search
+                  ? "No matching repositories"
+                  : repos.length === 0
+                    ? "No repositories available from GitHub App installations"
+                    : "All repositories are already linked"}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Unlink confirmation dialog */}
       <Dialog

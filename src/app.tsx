@@ -42,6 +42,8 @@ import { getBrowserHostname } from "@/lib/path-utils"
 import { refreshAllFileTrees } from "@/hooks/use-file-tree-refresh"
 import { AppErrorBoundary } from "@/components/app-error-boundary"
 import { useGitHubStore } from "@/stores/github-store"
+import { useGitHubAppStore } from "@/stores/github-app-store"
+import { useToastStore } from "@/stores/toast-store"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
 import { useConnectedAccountsStore } from "@/stores/connected-accounts-store"
 import { useApiKeysStore } from "@/stores/api-keys-store"
@@ -117,6 +119,7 @@ function resetAllStores() {
   useAgentStore.setState({ sessions: new Map(), loaded: false })
   // Reset external integration stores
   useGitHubStore.setState({ connected: false, user: null, connectedAt: null, repos: [], selectedRepoIds: [], lastSyncedAt: null })
+  useGitHubAppStore.setState({ installations: [], loading: false, error: null })
   useConnectedAccountsStore.setState({ accounts: [], loaded: false })
   useApiKeysStore.setState({ encryptedKeys: [], decryptedKeys: new Map(), loaded: false })
 }
@@ -143,9 +146,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const loadAgent = useAgentStore((s) => s.load)
   const connectRealtime = useRealtimeStore((s) => s.connect)
   const disconnectRealtime = useRealtimeStore((s) => s.disconnect)
-  const fetchGitHubStatus = useGitHubStore((s) => s.fetchStatus)
-  const gitHubConnected = useGitHubStore((s) => s.connected)
-  const fetchGitHubRepos = useGitHubStore((s) => s.fetchRepos)
+  const fetchGitHubAppInstallations = useGitHubAppStore((s) => s.fetchInstallations)
   const gitHubEnabled = useFeatureFlag('github-integration')
   const teamsLoaded = useTeamStore((s) => s.loaded)
   const projectsLoaded = useProjectStore((s) => s.loaded)
@@ -259,17 +260,38 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Run once after both stores load
   }, [planLoaded, executionsLoaded])
 
-  // Auto-sync GitHub: check connection status on load, fetch repos if connected
+  // Auto-sync GitHub App: fetch installations and check OAuth status on load
+  const fetchGitHubOAuthStatus = useGitHubStore((s) => s.fetchStatus)
+  const addToast = useToastStore((s) => s.add)
+
   useEffect(() => {
     if (!shouldLoadData || !teamsLoaded || !gitHubEnabled) return
-    fetchGitHubStatus().catch(() => {})
+    fetchGitHubAppInstallations().catch(() => {})
+    fetchGitHubOAuthStatus().catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldLoadData, teamsLoaded, gitHubEnabled])
 
+  // Show one-time migration toast for OAuth users without GitHub App
+  const oauthConnected = useGitHubStore((s) => s.connected)
+  const appInstallations = useGitHubAppStore((s) => s.installations)
+  const migrationToastShownRef = useRef(false)
+
   useEffect(() => {
-    if (gitHubConnected && gitHubEnabled) fetchGitHubRepos().catch(() => {})
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gitHubConnected, gitHubEnabled])
+    if (migrationToastShownRef.current) return
+    if (!gitHubEnabled || !oauthConnected) return
+    // Wait until app installations have been fetched (loading = false means fetch completed)
+    const appLoading = useGitHubAppStore.getState().loading
+    if (appLoading) return
+    if (appInstallations.length === 0) {
+      migrationToastShownRef.current = true
+      addToast({
+        type: 'warning',
+        title: 'Switch to GitHub App',
+        description: 'Your GitHub OAuth token is deprecated. Go to Settings → Connected Accounts to install the GitHub App.',
+        duration: 10000,
+      })
+    }
+  }, [oauthConnected, appInstallations, gitHubEnabled, addToast])
 
   // Critical stores: must load before rendering (navigation + core data)
   const criticalLoaded = teamsLoaded && projectsLoaded && planLoaded && userProfileLoaded && sidebarLoaded

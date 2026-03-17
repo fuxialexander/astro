@@ -437,6 +437,11 @@ export interface PrCommentResult {
     id: number
     htmlUrl: string
     createdAt: string
+    user?: {
+      login: string
+      avatarUrl: string
+      id: number
+    }
   }
 }
 
