@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { useParams, useLocation, useNavigate } from "react-router"
+import { useProjectData } from "@/hooks/use-project-data"
 import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors, Bot, Check } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
@@ -1721,6 +1722,7 @@ const VALID_VIEWS = new Set<ViewMode>(["graph", "list", "timeline", "board"])
 export function PlanView() {
   const { t } = useTranslation('plan')
   const { id } = useParams()
+  useProjectData(id) // Load full project data (content, executionOutput, streamText)
   const location = useLocation()
   const navigate = useNavigate()
   const project = useProjectStore((s) => s.projects.find((p) => p.id === id))

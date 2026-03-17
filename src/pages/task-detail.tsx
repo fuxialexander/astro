@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { useParams, Link, useNavigate, useSearchParams } from "react-router"
+import { useProjectData } from "@/hooks/use-project-data"
 import { ArrowLeft, Clock, Monitor, Square, Loader2, GitBranch, ExternalLink, RotateCcw, Check, Scissors, AlertCircle, CheckCircle2, XCircle, Layers, FileText, FolderEdit, PanelRight, Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -39,6 +40,7 @@ function deduplicateFileChanges(changes: Array<{ path: string; action: string; l
 export function TaskDetail() {
   const navigate = useNavigate()
   const { id: projectId, nodeId } = useParams<{ id: string; nodeId: string }>()
+  useProjectData(projectId) // Load full project data (content, executionOutput, streamText)
   const [searchParams, setSearchParams] = useSearchParams()
   const node = usePlanStore((s) => s.nodes.find((n) => n.id === nodeId))
   const updateNode = usePlanStore((s) => s.updateNode)

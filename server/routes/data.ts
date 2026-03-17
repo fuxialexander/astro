@@ -472,6 +472,7 @@ app.delete('/initiatives/:id', async (c) => {
 
 app.get('/plan', async (c) => {
   const user = c.get('user')! as AuthUser
+  const slim = c.req.query('slim') === '1'
 
   // Get team's projects
   const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
@@ -504,7 +505,8 @@ app.get('/plan', async (c) => {
       milestoneId: n.milestoneId,
       labelIds: n.labelIds,
       executionId: n.executionId,
-      executionOutput: n.executionOutput,
+      // Slim mode: exclude large text blobs (loaded per-project on demand)
+      executionOutput: slim ? null : n.executionOutput,
       executionError: n.executionError,
       executionStartedAt: n.executionStartedAt,
       executionCompletedAt: n.executionCompletedAt,
@@ -513,7 +515,7 @@ app.get('/plan', async (c) => {
       branchName: n.branchName,
       prUrl: n.prUrl,
       prNumber: n.prNumber,
-      content: n.content,
+      content: slim ? null : n.content,
       attachments: n.attachments,
       links: n.links,
       acceptanceCriteria: n.acceptanceCriteria,
@@ -1777,6 +1779,8 @@ app.post('/sessions/:sessionId/messages', async (c) => {
 
 app.get('/executions', async (c) => {
   const user = c.get('user')! as AuthUser
+  const slim = c.req.query('slim') === '1'
+  const filterProjectId = c.req.query('projectId')
 
   // Get team's projects
   const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
@@ -1786,15 +1790,24 @@ app.get('/executions', async (c) => {
     return c.json({})
   }
 
-  // Get executions for user's projects — project only the columns we return
-  // to avoid transferring large streamText blobs from DB when unused.
-  const ids = [...projectIds]
-  const filtered = await db.select({
+  // If projectId filter is set, verify it belongs to the user's team
+  let ids: string[]
+  if (filterProjectId) {
+    if (!projectIds.has(filterProjectId)) {
+      return c.json({ error: 'Project not found' }, 404)
+    }
+    ids = [filterProjectId]
+  } else {
+    ids = [...projectIds]
+  }
+
+  // Build column selection — slim mode excludes large streamText blob
+  const columns = {
     executionId: taskExecutions.executionId,
     nodeClientId: taskExecutions.nodeClientId,
     projectId: taskExecutions.projectId,
     status: taskExecutions.status,
-    streamText: taskExecutions.streamText,
+    ...(!slim ? { streamText: taskExecutions.streamText } : {}),
     error: taskExecutions.error,
     machineId: taskExecutions.machineId,
     sessionId: taskExecutions.sessionId,
@@ -1804,12 +1817,11 @@ app.get('/executions', async (c) => {
     completedAt: taskExecutions.completedAt,
     durationMs: taskExecutions.durationMs,
     summary: taskExecutions.summary,
-  }).from(taskExecutions).where(inArray(taskExecutions.projectId, ids))
+  }
+
+  const filtered = await db.select(columns).from(taskExecutions).where(inArray(taskExecutions.projectId, ids))
 
   // Convert to map keyed by nodeClientId.
-  // streamText is kept in the list response because the execution-panel, summary
-  // backfill, and multiple display paths depend on it after page refresh.
-  // The main egress savings come from sessions (500x) and chat (300x) endpoints.
   const result: Record<string, unknown> = {}
   for (const exec of filtered) {
     result[exec.nodeClientId] = {
@@ -1817,7 +1829,7 @@ app.get('/executions', async (c) => {
       nodeId: exec.nodeClientId,
       projectId: exec.projectId,
       status: exec.status,
-      streamText: exec.streamText,
+      streamText: slim ? '' : (exec as Record<string, unknown>).streamText ?? '',
       error: exec.error,
       toolTraces: [],
       fileChanges: [],
