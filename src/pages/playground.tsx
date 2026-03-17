@@ -509,7 +509,7 @@ export function Playground() {
         `Fork: ${title}`,
         {
           targetMachineId: session.machineId,
-          workingDirectory: session.cwd || "~",
+          workingDirectory: session.cwd || undefined,
           resumeSessionId: session.sessionId,
           forkSession: true,
         }
@@ -718,7 +718,7 @@ export function Playground() {
         editingPrompt.trim(),
         {
           targetMachineId: execution.machineId,
-          workingDirectory: project?.workingDirectory || workingDir || "~",
+          workingDirectory: project?.workingDirectory || workingDir || undefined,
           preferredProvider: provider || undefined,
           model: effectiveModel,
         }
