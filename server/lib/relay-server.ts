@@ -1852,27 +1852,35 @@ export class RelayServer extends EventEmitter {
    */
   requestGitPull(machineId: string, workingDirectory: string): boolean {
     const connection = machineRegistry.getConnection(machineId);
-    if (!connection) {
-      console.warn(`[relay] Machine ${machineId} not connected for git pull request`);
-      return false;
+    const correlationId = `git-pull-${Date.now()}`;
+
+    // Local socket — send directly
+    const socket = connection?.socket;
+    if (socket && socket.readyState === 1 /* WebSocket.OPEN */) {
+      const msg = {
+        type: 'git_pull.request',
+        timestamp: new Date().toISOString(),
+        workingDirectory,
+        correlationId,
+      };
+      socket.send(JSON.stringify(msg));
+      console.log(`[relay] Git pull request sent to machine ${machineId} for ${workingDirectory}`);
+      return true;
     }
 
-    const socket = connection.socket;
-    if (!socket || socket.readyState !== 1 /* WebSocket.OPEN */) {
-      console.warn(`[relay] Socket not open for git pull on machine ${machineId}`);
-      return false;
+    // Remote or unknown machine — route via Redis proxy.
+    if (redisPubSub.isConnected()) {
+      redisPubSub.publishWsProxyRequest({
+        machineId,
+        correlationId,
+        messageType: 'git_pull.request',
+        payload: { workingDirectory, correlationId },
+      }).catch((err) => console.error('[relay] Redis proxy git_pull.request failed:', err));
+      return true;
     }
 
-    const msg = {
-      type: 'git_pull.request',
-      timestamp: new Date().toISOString(),
-      workingDirectory,
-      correlationId: `git-pull-${Date.now()}`,
-    };
-
-    socket.send(JSON.stringify(msg));
-    console.log(`[relay] Git pull request sent to machine ${machineId} for ${workingDirectory}`);
-    return true;
+    console.warn(`[relay] Machine ${machineId} not reachable (no local socket, no Redis) for git pull request`);
+    return false;
   }
 
   /**
@@ -2778,12 +2786,9 @@ export class RelayServer extends EventEmitter {
    */
   requestFileList(machineId: string, path: string, correlationId: string): boolean {
     const connection = machineRegistry.getConnection(machineId);
-    if (!connection) {
-      console.error(`[relay] Machine ${machineId} not found for file list request`);
-      return false;
-    }
 
-    const socket = connection.socket;
+    // Local socket — send directly
+    const socket = connection?.socket;
     if (socket && socket.readyState === WebSocket.OPEN) {
       const msg = {
         type: 'file_list_request',
@@ -2794,7 +2799,8 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
-    // Remote machine — route via Redis proxy
+    // Remote or unknown machine — route via Redis proxy.
+    // The machine may be on another instance even if not yet synced to this registry.
     if (redisPubSub.isConnected()) {
       redisPubSub.publishWsProxyRequest({
         machineId,
@@ -2805,6 +2811,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
+    console.error(`[relay] Machine ${machineId} not reachable (no local socket, no Redis) for file list request`);
     return false;
   }
 
@@ -2838,12 +2845,9 @@ export class RelayServer extends EventEmitter {
    */
   requestDirectoryList(machineId: string, path: string, correlationId: string): boolean {
     const connection = machineRegistry.getConnection(machineId);
-    if (!connection) {
-      console.error(`[relay] Machine ${machineId} not found for directory list request`);
-      return false;
-    }
 
-    const socket = connection.socket;
+    // Local socket — send directly
+    const socket = connection?.socket;
     if (socket && socket.readyState === WebSocket.OPEN) {
       const msg = {
         type: 'directory_list_request',
@@ -2854,7 +2858,8 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
-    // Remote machine — route via Redis proxy
+    // Remote or unknown machine — route via Redis proxy.
+    // The machine may be on another instance even if not yet synced to this registry.
     if (redisPubSub.isConnected()) {
       redisPubSub.publishWsProxyRequest({
         machineId,
@@ -2865,6 +2870,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
+    console.error(`[relay] Machine ${machineId} not reachable (no local socket, no Redis) for directory list request`);
     return false;
   }
 
@@ -2904,12 +2910,9 @@ export class RelayServer extends EventEmitter {
    */
   requestFileContent(machineId: string, path: string, correlationId: string): boolean {
     const connection = machineRegistry.getConnection(machineId);
-    if (!connection) {
-      console.error(`[relay] Machine ${machineId} not found for file content request`);
-      return false;
-    }
 
-    const socket = connection.socket;
+    // Local socket — send directly
+    const socket = connection?.socket;
     if (socket && socket.readyState === WebSocket.OPEN) {
       const msg = {
         type: 'file_content_request',
@@ -2920,7 +2923,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
-    // Remote machine — route via Redis proxy
+    // Remote or unknown machine — route via Redis proxy.
     if (redisPubSub.isConnected()) {
       redisPubSub.publishWsProxyRequest({
         machineId,
@@ -2931,6 +2934,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
+    console.error(`[relay] Machine ${machineId} not reachable (no local socket, no Redis) for file content request`);
     return false;
   }
 
@@ -2988,12 +2992,9 @@ export class RelayServer extends EventEmitter {
     correlationId: string,
   ): boolean {
     const connection = machineRegistry.getConnection(machineId);
-    if (!connection) {
-      console.error(`[relay] Machine ${machineId} not found for file upload request`);
-      return false;
-    }
 
-    const socket = connection.socket;
+    // Local socket — send directly
+    const socket = connection?.socket;
     if (socket && socket.readyState === WebSocket.OPEN) {
       const msg = {
         type: 'file_upload_request',
@@ -3004,7 +3005,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
-    // Remote machine — route via Redis proxy
+    // Remote or unknown machine — route via Redis proxy.
     if (redisPubSub.isConnected()) {
       redisPubSub.publishWsProxyRequest({
         machineId,
@@ -3015,6 +3016,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
+    console.error(`[relay] Machine ${machineId} not reachable (no local socket, no Redis) for file upload request`);
     return false;
   }
 
@@ -3030,12 +3032,9 @@ export class RelayServer extends EventEmitter {
     content: string,
   ): boolean {
     const connection = machineRegistry.getConnection(machineId);
-    if (!connection) {
-      console.error(`[relay] Machine ${machineId} not found for file upload chunk`);
-      return false;
-    }
 
-    const socket = connection.socket;
+    // Local socket — send directly
+    const socket = connection?.socket;
     if (socket && socket.readyState === WebSocket.OPEN) {
       const msg = {
         type: 'file_upload_chunk',
@@ -3046,7 +3045,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
-    // Remote machine — route via Redis proxy
+    // Remote or unknown machine — route via Redis proxy.
     if (redisPubSub.isConnected()) {
       redisPubSub.publishWsProxyRequest({
         machineId,
@@ -3057,6 +3056,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
+    console.error(`[relay] Machine ${machineId} not reachable (no local socket, no Redis) for file upload chunk`);
     return false;
   }
 
@@ -3094,12 +3094,9 @@ export class RelayServer extends EventEmitter {
    */
   requestSessionsList(machineId: string, correlationId: string, maxAgeMs?: number): boolean {
     const connection = machineRegistry.getConnection(machineId);
-    if (!connection) {
-      console.error(`[relay] Machine ${machineId} not found for sessions list request`);
-      return false;
-    }
 
-    const socket = connection.socket;
+    // Local socket — send directly
+    const socket = connection?.socket;
     if (socket && socket.readyState === WebSocket.OPEN) {
       const msg = {
         type: 'sessions_list_request',
@@ -3110,7 +3107,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
-    // Remote machine — route via Redis proxy
+    // Remote or unknown machine — route via Redis proxy.
     if (redisPubSub.isConnected()) {
       redisPubSub.publishWsProxyRequest({
         machineId,
@@ -3121,6 +3118,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
+    console.error(`[relay] Machine ${machineId} not reachable (no local socket, no Redis) for sessions list request`);
     return false;
   }
 
@@ -3156,12 +3154,9 @@ export class RelayServer extends EventEmitter {
    */
   requestCreateDirectory(machineId: string, parentPath: string, name: string, correlationId: string): boolean {
     const connection = machineRegistry.getConnection(machineId);
-    if (!connection) {
-      console.error(`[relay] Machine ${machineId} not found for create directory request`);
-      return false;
-    }
 
-    const socket = connection.socket;
+    // Local socket — send directly
+    const socket = connection?.socket;
     if (socket && socket.readyState === WebSocket.OPEN) {
       const msg = {
         type: 'create_directory_request',
@@ -3172,7 +3167,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
-    // Remote machine — route via Redis proxy
+    // Remote or unknown machine — route via Redis proxy.
     if (redisPubSub.isConnected()) {
       redisPubSub.publishWsProxyRequest({
         machineId,
@@ -3183,6 +3178,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
+    console.error(`[relay] Machine ${machineId} not reachable (no local socket, no Redis) for create directory request`);
     return false;
   }
 
@@ -3229,12 +3225,9 @@ export class RelayServer extends EventEmitter {
     },
   ): boolean {
     const connection = machineRegistry.getConnection(machineId);
-    if (!connection) {
-      console.error(`[relay] Machine ${machineId} not found for repo setup request`);
-      return false;
-    }
 
-    const socket = connection.socket;
+    // Local socket — send directly
+    const socket = connection?.socket;
     if (socket && socket.readyState === WebSocket.OPEN) {
       const msg = {
         type: 'repo_setup_request',
@@ -3245,7 +3238,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
-    // Remote machine — route via Redis proxy
+    // Remote or unknown machine — route via Redis proxy.
     if (redisPubSub.isConnected()) {
       redisPubSub.publishWsProxyRequest({
         machineId,
@@ -3256,6 +3249,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
+    console.error(`[relay] Machine ${machineId} not reachable (no local socket, no Redis) for repo setup request`);
     return false;
   }
 
@@ -3289,12 +3283,9 @@ export class RelayServer extends EventEmitter {
    */
   requestSlashCommands(machineId: string, correlationId: string, workingDirectory?: string): boolean {
     const connection = machineRegistry.getConnection(machineId);
-    if (!connection) {
-      console.error(`[relay] Machine ${machineId} not found for slash commands request`);
-      return false;
-    }
 
-    const socket = connection.socket;
+    // Local socket — send directly
+    const socket = connection?.socket;
     if (socket && socket.readyState === WebSocket.OPEN) {
       const msg = {
         type: 'slash_commands_request',
@@ -3305,7 +3296,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
-    // Remote machine — route via Redis proxy
+    // Remote or unknown machine — route via Redis proxy.
     if (redisPubSub.isConnected()) {
       redisPubSub.publishWsProxyRequest({
         machineId,
@@ -3316,6 +3307,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
+    console.error(`[relay] Machine ${machineId} not reachable (no local socket, no Redis) for slash commands request`);
     return false;
   }
 
@@ -3348,12 +3340,9 @@ export class RelayServer extends EventEmitter {
    */
   requestRepoDetect(machineId: string, path: string, correlationId: string): boolean {
     const connection = machineRegistry.getConnection(machineId);
-    if (!connection) {
-      console.error(`[relay] Machine ${machineId} not found for repo detect request`);
-      return false;
-    }
 
-    const socket = connection.socket;
+    // Local socket — send directly
+    const socket = connection?.socket;
     if (socket && socket.readyState === WebSocket.OPEN) {
       const msg = {
         type: 'repo_detect_request',
@@ -3364,7 +3353,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
-    // Remote machine — route via Redis proxy
+    // Remote or unknown machine — route via Redis proxy.
     if (redisPubSub.isConnected()) {
       redisPubSub.publishWsProxyRequest({
         machineId,
@@ -3375,6 +3364,7 @@ export class RelayServer extends EventEmitter {
       return true;
     }
 
+    console.error(`[relay] Machine ${machineId} not reachable (no local socket, no Redis) for repo detect request`);
     return false;
   }
 
@@ -3417,23 +3407,32 @@ export class RelayServer extends EventEmitter {
     },
   ): boolean {
     const connection = machineRegistry.getConnection(machineId);
-    if (!connection) {
-      console.error(`[relay] Machine ${machineId} not found for git init request`);
-      return false;
+
+    // Local socket — send directly
+    const socket = connection?.socket;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      const msg = {
+        type: 'git_init_request',
+        timestamp: new Date().toISOString(),
+        payload,
+      };
+      socket.send(JSON.stringify(msg));
+      return true;
     }
 
-    const msg = {
-      type: 'git_init_request',
-      timestamp: new Date().toISOString(),
-      payload,
-    };
-
-    const socket = connection.socket;
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-      return false;
+    // Remote or unknown machine — route via Redis proxy.
+    if (redisPubSub.isConnected()) {
+      redisPubSub.publishWsProxyRequest({
+        machineId,
+        correlationId: payload.correlationId,
+        messageType: 'git_init_request',
+        payload: payload as unknown as Record<string, unknown>,
+      }).catch((err) => console.error('[relay] Redis proxy git_init_request failed:', err));
+      return true;
     }
-    socket.send(JSON.stringify(msg));
-    return true;
+
+    console.error(`[relay] Machine ${machineId} not reachable (no local socket, no Redis) for git init request`);
+    return false;
   }
 
   /**
@@ -3466,23 +3465,32 @@ export class RelayServer extends EventEmitter {
    */
   requestBranchList(machineId: string, path: string, correlationId: string): boolean {
     const connection = machineRegistry.getConnection(machineId);
-    if (!connection) {
-      console.error(`[relay] Machine ${machineId} not found for branch list request`);
-      return false;
+
+    // Local socket — send directly
+    const socket = connection?.socket;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      const msg = {
+        type: 'branch_list_request',
+        timestamp: new Date().toISOString(),
+        payload: { path, correlationId },
+      };
+      socket.send(JSON.stringify(msg));
+      return true;
     }
 
-    const msg = {
-      type: 'branch_list_request',
-      timestamp: new Date().toISOString(),
-      payload: { path, correlationId },
-    };
-
-    const socket = connection.socket;
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-      return false;
+    // Remote or unknown machine — route via Redis proxy.
+    if (redisPubSub.isConnected()) {
+      redisPubSub.publishWsProxyRequest({
+        machineId,
+        correlationId,
+        messageType: 'branch_list_request',
+        payload: { path, correlationId },
+      }).catch((err) => console.error('[relay] Redis proxy branch_list_request failed:', err));
+      return true;
     }
-    socket.send(JSON.stringify(msg));
-    return true;
+
+    console.error(`[relay] Machine ${machineId} not reachable (no local socket, no Redis) for branch list request`);
+    return false;
   }
 
   /**
