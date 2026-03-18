@@ -23,7 +23,7 @@ import {
   projectKnowledge,
   loopIterations,
 } from '../lib/db/schema.js'
-import { eq, and, or, sql, desc, isNull, inArray, notInArray } from 'drizzle-orm'
+import { eq, and, or, sql, desc, isNull, inArray, notInArray, ne } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.js'
 import { isServerMode } from '../lib/app-mode.js'
@@ -74,7 +74,9 @@ app.get('/projects', async (c) => {
   const user = c.get('user')! as AuthUser
   const allTeams = c.req.query('allTeams') === '1'
   const filter = allTeams ? allTeamsScopeFilter(projects, user) : teamScopeFilter(projects, user)
-  const rows = await db.select().from(projects).where(filter)
+  const rows = await db.select().from(projects).where(
+    and(filter, ne(projects.status, 'deleted'))
+  )
   return c.json(rows)
 })
 
@@ -209,6 +211,7 @@ app.patch('/projects/:id', async (c) => {
     and(eq(projects.id, id), teamScopeFilter(projects, user))
   )
   if (!existing) return c.json({ error: 'Not found' }, 404)
+  if (existing.status === 'deleted') return c.json({ error: 'Not found' }, 404)
 
   const body = await c.req.json()
   const patch: Record<string, unknown> = { updatedAt: new Date() }
@@ -313,7 +316,7 @@ app.delete('/projects/:id', async (c) => {
   )
   if (!existing) return c.json({ error: 'Not found' }, 404)
 
-  // Audit log project deletion
+  // Audit log project deletion (soft delete)
   await logAuditEvent({
     userId: user.id,
     action: AuditActions.PROJECT_DELETE,
@@ -321,13 +324,14 @@ app.delete('/projects/:id', async (c) => {
     resourceId: projectId,
     details: {
       projectName: existing.name,
-      status: existing.status,
+      previousStatus: existing.status,
+      softDelete: true,
     },
     ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
     userAgent: c.req.header('user-agent'),
   })
 
-  await db.delete(projects).where(
+  await db.update(projects).set({ status: 'deleted', updatedAt: new Date() }).where(
     and(eq(projects.id, projectId), teamScopeFilter(projects, user))
   )
 

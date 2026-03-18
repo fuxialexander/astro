@@ -21,6 +21,7 @@ import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useTeamStore } from "@/stores/team-store"
+import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
 import { fmtDate, addDays, isValidDateStr } from "@/lib/timeline-utils"
 import { formatShortDate, isOverdue } from "@/lib/date-utils"
 import { isServerMode } from "@/lib/app-mode"
@@ -164,7 +165,7 @@ function getProjectColumns(
     label: "Status",
     width: "w-[100px]",
     render: (p) => (
-      <Badge variant="success" className="text-xs">
+      <Badge variant={p.status === "active" ? "success" : "secondary"} className="text-xs">
         {p.status === "active" ? "Active" : "Archived"}
       </Badge>
     ),
@@ -290,8 +291,7 @@ export function Projects() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [healthFilter, setHealthFilter] = useState("all")
   const [initiativeFilter, setInitiativeFilter] = useState("all")
-  // Default to the active team when in a multi-team workspace; "all" for solo users
-  const [teamFilter, setTeamFilter] = useState(() => teams.length > 1 && activeTeamId ? activeTeamId : "all")
+  const workspaceFilter = useWorkspaceFilterStore((s) => s.workspaceFilter)
   const [importBundle, setImportBundle] = useState<import("@/lib/sharing/types").AstroExportBundle | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null)
@@ -324,6 +324,9 @@ export function Projects() {
       return
     }
     const id = crypto.randomUUID()
+    const teamId = workspaceFilter !== 'all' && workspaceFilter !== 'personal'
+      ? workspaceFilter
+      : workspaceFilter === 'all' ? activeTeamId ?? undefined : undefined
     addProject({
       id,
       name: trimmed,
@@ -333,12 +336,13 @@ export function Projects() {
       color: getRandomColor(),
       icon: getRandomProjectIcon(),
       labels: DEFAULT_LABELS,
+      teamId,
       createdAt: new Date(),
       updatedAt: new Date(),
     } as Project)
     setCreating(false)
     navigate(`/project/${id}/graph`)
-  }, [addProject, navigate])
+  }, [addProject, navigate, workspaceFilter, activeTeamId])
 
   const handleImportFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -454,8 +458,10 @@ export function Projects() {
     if (initiativeFilter !== "all") {
       filtered = filtered.filter((p) => p.initiativeId === initiativeFilter)
     }
-    if (teamFilter !== "all") {
-      filtered = filtered.filter((p) => p.teamId === teamFilter)
+    if (workspaceFilter === "personal") {
+      filtered = filtered.filter((p) => !p.teamId)
+    } else if (workspaceFilter !== "all") {
+      filtered = filtered.filter((p) => p.teamId === workspaceFilter)
     }
     const sorted = [...filtered]
     const dir = displaySettings.orderDirection === "asc" ? 1 : -1
@@ -479,7 +485,7 @@ export function Projects() {
       }
     })
     return sorted
-  }, [projects, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted, statusFilter, healthFilter, initiativeFilter, teamFilter, progressMap])
+  }, [projects, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted, statusFilter, healthFilter, initiativeFilter, workspaceFilter, progressMap])
 
   // Group projects for list view
   const listGroups = useMemo((): ListGroup<Project>[] => {
@@ -763,7 +769,7 @@ export function Projects() {
               className="hidden"
               onChange={handleImportFile}
             />
-            <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
+            <Button size="sm" className="gap-1.5 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0" onClick={() => setCreating(true)}>
               <Plus className="h-3.5 w-3.5" />
               <span className="hidden md:inline">{t('new')}</span>
             </Button>
@@ -790,10 +796,10 @@ export function Projects() {
         />
 
         {/* Filter Bar */}
-        <div className="flex items-center gap-3 border-b border-border px-6 py-3 shrink-0">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3 border-b border-border px-4 sm:px-6 py-3 shrink-0 overflow-x-auto">
+          <div className="flex items-center gap-2 shrink-0">
             <ListFilter className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium text-muted-foreground">Filter</span>
+            <span className="text-sm font-medium text-muted-foreground hidden sm:inline">Filter</span>
           </div>
           <div className="flex items-center gap-3">
             <FilterSelect
@@ -826,15 +832,6 @@ export function Projects() {
               ]}
               onChange={setInitiativeFilter}
             />
-            <FilterSelect
-              label="Team"
-              value={teamFilter}
-              options={[
-                { value: "all", label: "All Teams" },
-                ...teams.map((t) => ({ value: t.id, label: t.name })),
-              ]}
-              onChange={setTeamFilter}
-            />
           </div>
         </div>
 
@@ -854,13 +851,15 @@ export function Projects() {
             </div>
           ) : projects.length === 0 && creating ? (
             <div className="flex-1 overflow-auto flex items-start justify-center pt-24">
-              <div className="flex items-center gap-2.5 px-6 py-2.5 w-full max-w-md">
+              <div className="flex items-center gap-2.5 px-4 sm:px-6 py-2.5 w-full max-w-md">
                 <Plus className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 <input
                   ref={createInputRef}
                   type="text"
                   placeholder="Project name... (Enter to create, Esc to cancel)"
                   className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground border-b border-border pb-1"
+                  enterKeyHint="done"
+                  autoCapitalize="sentences"
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault()
@@ -891,13 +890,15 @@ export function Projects() {
               sortDirection={displaySettings.orderDirection}
               onSort={handleSort}
               footer={() => creating ? (
-                <div className="flex items-center gap-2.5 px-6 py-2.5 border-b border-border hover:bg-muted/30 transition-colors">
+                <div className="flex items-center gap-2.5 px-4 sm:px-6 py-3 sm:py-2.5 border-b border-border hover:bg-muted/30 transition-colors">
                   <Plus className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   <input
                     ref={createInputRef}
                     type="text"
                     placeholder="Project name... (Enter to create, Esc to cancel)"
                     className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                    enterKeyHint="done"
+                    autoCapitalize="sentences"
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault()
@@ -919,7 +920,7 @@ export function Projects() {
                 <button
                   type="button"
                   onClick={() => setCreating(true)}
-                  className="flex items-center gap-2.5 px-6 h-9 w-full text-left text-xs text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors cursor-pointer border-b border-border"
+                  className="flex items-center gap-2.5 px-4 sm:px-6 min-h-[44px] sm:min-h-0 sm:h-9 w-full text-left text-xs text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors cursor-pointer border-b border-border"
                 >
                   <Plus className="h-3.5 w-3.5" />
                   <span>Add project</span>
@@ -1127,6 +1128,16 @@ export function Projects() {
             )}
           </div>
         )}
+
+        {/* Mobile FAB for project creation */}
+        <button
+          type="button"
+          onClick={() => setCreating(true)}
+          className="fixed bottom-6 right-6 z-50 flex sm:hidden items-center justify-center h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg active:scale-95 transition-transform"
+          aria-label="Create project"
+        >
+          <Plus className="h-6 w-6" />
+        </button>
     </div>
   )
 }

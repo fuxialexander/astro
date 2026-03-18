@@ -26,6 +26,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { Switch } from "@/components/ui/switch"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { TeamSwitcher } from "@/components/team-switcher"
+import { WorkspaceSwitcher } from "@/components/workspace-switcher"
 
 const iconMap: Record<string, typeof CheckSquare> = {
   CheckSquare,
@@ -492,6 +493,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
           </button>
         </div>
       )}
+
+      {/* Workspace Switcher — filter across all, personal, or specific team */}
+      <WorkspaceSwitcher collapsed={collapsed} />
 
       {/* Team Switcher — shown when user has at least one team */}
       {hasTeams && (
