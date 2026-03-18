@@ -1,6 +1,50 @@
 ---
-title: Plan Graph
-description: Plan Graph feature documentation.
+title: "Plan Graph"
+description: "The directed graph data model at the heart of Astro."
 ---
 
-<Note>This page is coming soon. See [Core Concepts](/concepts) for an overview.</Note>
+## Overview
+
+The plan graph is Astro's core data model — a **directed acyclic graph** (DAG) of tasks, milestones, and dependencies. Unlike flat issue lists, the graph explicitly represents:
+
+- **Linear sequences**: Task A must complete before Task B starts
+- **Branching exploration**: Multiple parallel hypothesis branches
+- **Merging paths**: Results from multiple tasks feeding into a single downstream task
+
+## Task Statuses
+
+```
+planned → dispatched → in_progress → auto_verified → completed
+                                   ↘               ↗
+                                     awaiting_approval
+                                     awaiting_judgment
+
+planned → pruned   (branch cut)
+```
+
+## Dependencies
+
+Dependencies are explicit directed edges. A task with dependencies can only be dispatched after all predecessors reach a terminal status (`completed`, `auto_verified`, or `pruned`). When you prune a task, all downstream dependents are also pruned.
+
+## Branch Pruning
+
+Right-click any task or branch → **Prune Branch**. This:
+
+1. Sets the task status to `pruned`
+2. Recursively prunes all downstream dependents
+3. Cancels any running executions in the pruned subtree
+4. Prompts you to redirect effort to another branch
+
+## Graph Visualization
+
+The plan graph renders via `@xyflow/react` (React Flow). You can:
+
+- **Pan and zoom** to navigate large plans
+- **Drag nodes** to rearrange the layout
+- **Click a node** to open its detail panel
+- **Right-click** for context menu actions
+- **Toggle timeline view** to see tasks on a Gantt-style timeline
+
+## Timeline View
+
+Switch to timeline view (**View → Timeline**) to see tasks laid out on a date axis. Dates are set by AI during plan generation, editable per-task, and computed via topological sort for tasks without explicit dates.
