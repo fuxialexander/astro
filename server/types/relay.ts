@@ -511,6 +511,8 @@ export interface TaskToolTraceMessage extends BaseMessage {
   toolResult?: unknown;
   success?: boolean;
   duration?: number;  // milliseconds
+  /** Claude API tool_use_id — enables exact matching of tool_result to tool_use */
+  toolUseId?: string;
   /** DB sequence number assigned by relay-server on persist (used as SSE event id) */
   _dbSeq?: number;
 }

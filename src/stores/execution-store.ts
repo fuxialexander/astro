@@ -2677,7 +2677,8 @@ function handleSSEEvent(
       try {
         const parsed = JSON.parse(data)
         const now = new Date()
-        const traceId = `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
+        // Use toolUseId from Claude API if available for exact matching
+        const traceId = parsed.toolUseId || `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
         const trace: ToolTrace = {
           id: traceId,
           toolName: parsed.toolName,
@@ -2716,15 +2717,19 @@ function handleSSEEvent(
           const newExecutions = new Map(state.executions)
           const exec = newExecutions.get(nodeId)
           if (exec && exec.toolTraces.length > 0) {
-            // Find the last UNPAIRED trace with the matching tool name.
-            // Searching backwards handles parallel/out-of-order tool calls
-            // (e.g., tool_use "Read" → tool_use "Bash" → tool_result "Read").
-            const matchingTrace = [...exec.toolTraces].reverse().find(
-              t => t.toolName === parsed.toolName && !t.toolResult
-            ) || exec.toolTraces[exec.toolTraces.length - 1]
+            // Match by toolUseId first (exact), then fall back to toolName (best-effort)
+            const matchingTrace = parsed.toolUseId
+              ? exec.toolTraces.find(t => t.id === parsed.toolUseId && !t.toolResult)
+              : undefined
+            const fallbackTrace = !matchingTrace
+              ? ([...exec.toolTraces].reverse().find(
+                  t => t.toolName === parsed.toolName && !t.toolResult
+                ) || exec.toolTraces[exec.toolTraces.length - 1])
+              : undefined
+            const matched = matchingTrace || fallbackTrace!
 
-            const updatedToolTraces = matchingTrace.toolName === parsed.toolName
-              ? exec.toolTraces.map(t => t === matchingTrace
+            const updatedToolTraces = matched.toolName === parsed.toolName
+              ? exec.toolTraces.map(t => t === matched
                   ? { ...t, toolResult: parsed.result, success: parsed.success, duration: parsed.duration }
                   : t)
               : exec.toolTraces
@@ -2734,7 +2739,7 @@ function handleSSEEvent(
               toolTraces: updatedToolTraces,
               activityEvents: [...exec.activityEvents, {
                 type: 'tool_result' as const,
-                id: matchingTrace.id,
+                id: matched.id,
                 toolName: parsed.toolName,
                 toolResult: parsed.result,
                 success: parsed.success,

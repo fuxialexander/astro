@@ -267,6 +267,7 @@ interface AgentRunnerTaskToolUseMessage {
     taskId: string;
     toolName: string;
     toolInput: unknown;
+    toolUseId?: string;
   };
 }
 
@@ -279,6 +280,7 @@ interface AgentRunnerTaskToolResultMessage {
     toolName: string;
     result: unknown;
     success: boolean;
+    toolUseId?: string;
   };
 }
 
@@ -2567,17 +2569,18 @@ export class RelayServer extends EventEmitter {
       taskId: payload.taskId,
       toolName: payload.toolName,
       toolInput: payload.toolInput,
+      toolUseId: payload.toolUseId,
     };
     let seq: number | undefined;
     try {
-      seq = await streamingEventLog.append(payload.taskId, 'tool_use', { toolName: payload.toolName, toolInput: payload.toolInput });
+      seq = await streamingEventLog.append(payload.taskId, 'tool_use', { toolName: payload.toolName, toolInput: payload.toolInput, toolUseId: payload.toolUseId });
     } catch (err) {
       console.error(`[relay-server] Failed to persist tool_use event for task ${payload.taskId}:`, err);
     }
     this.emit('task:tool_trace', Object.assign(traceMsg, { _dbSeq: seq }));
     this.publishToRedis({
       eventType: 'tool_use', taskId: payload.taskId,
-      data: { toolName: payload.toolName, toolInput: payload.toolInput },
+      data: { toolName: payload.toolName, toolInput: payload.toolInput, toolUseId: payload.toolUseId },
       dbSeq: seq,
     });
   }
@@ -2594,17 +2597,18 @@ export class RelayServer extends EventEmitter {
       toolName: payload.toolName,
       toolResult: payload.result,
       success: payload.success,
+      toolUseId: payload.toolUseId,
     };
     let seq: number | undefined;
     try {
-      seq = await streamingEventLog.append(payload.taskId, 'tool_result', { toolName: payload.toolName, result: payload.result, success: payload.success });
+      seq = await streamingEventLog.append(payload.taskId, 'tool_result', { toolName: payload.toolName, result: payload.result, success: payload.success, toolUseId: payload.toolUseId });
     } catch (err) {
       console.error(`[relay-server] Failed to persist tool_result event for task ${payload.taskId}:`, err);
     }
     this.emit('task:tool_trace', Object.assign(traceMsg, { _dbSeq: seq }));
     this.publishToRedis({
       eventType: 'tool_result', taskId: payload.taskId,
-      data: { toolName: payload.toolName, toolResult: payload.result, success: payload.success },
+      data: { toolName: payload.toolName, toolResult: payload.result, success: payload.success, toolUseId: payload.toolUseId },
       dbSeq: seq,
     });
   }
