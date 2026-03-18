@@ -11,6 +11,7 @@ export const PROVIDER_NAMES: Record<string, string> = {
   'codex': 'OpenAI Codex',
   'openclaw': 'OpenClaw',
   'opencode': 'OpenCode',
+  'pi': 'Pi',
 }
 
 export interface MachineProvider {

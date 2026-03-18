@@ -11,4 +11,4 @@
  * "Provider" is legacy terminology — these represent the AI agents
  * (AI service providers) that can execute tasks.
  */
-export type ProviderType = 'claude-sdk' | 'codex' | 'openclaw' | 'opencode' | 'custom';
+export type ProviderType = 'claude-sdk' | 'codex' | 'openclaw' | 'opencode' | 'pi' | 'custom';
