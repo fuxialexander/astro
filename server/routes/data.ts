@@ -47,16 +47,8 @@ function pickByNameHash(name: string, arr: readonly string[]): string {
 }
 
 /**
- * Build a strict team-scoped filter.
- * After the backfill migration, all projects/blobs have a non-null teamId.
- */
-function teamScopeFilter(table: { teamId: typeof projects.teamId }, user: AuthUser) {
-  return eq(table.teamId, user.teamId)
-}
-
-/**
  * Cross-team scope filter: matches all teams the user belongs to.
- * Used when ?allTeams=1 query param is present.
+ * All project/blob access checks use this to support cross-team projects.
  */
 function allTeamsScopeFilter(table: { teamId: typeof projects.teamId }, user: AuthUser) {
   return inArray(table.teamId, user.teamIds)
@@ -72,8 +64,7 @@ app.use('/*', requireAuth)
 
 app.get('/projects', async (c) => {
   const user = c.get('user')! as AuthUser
-  const allTeams = c.req.query('allTeams') === '1'
-  const filter = allTeams ? allTeamsScopeFilter(projects, user) : teamScopeFilter(projects, user)
+  const filter = allTeamsScopeFilter(projects, user)
   const rows = await db.select().from(projects).where(
     and(filter, ne(projects.status, 'deleted'))
   )
@@ -196,7 +187,7 @@ app.get('/projects/:id', async (c) => {
   const user = c.get('user')! as AuthUser
   const projectId = c.req.param('id')
   const [row] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, projectId), allTeamsScopeFilter(projects, user))
   )
   if (!row) return c.json({ error: 'Not found' }, 404)
   return c.json(row)
@@ -208,7 +199,7 @@ app.patch('/projects/:id', async (c) => {
 
   // Verify team access first
   const [existing] = await db.select().from(projects).where(
-    and(eq(projects.id, id), teamScopeFilter(projects, user))
+    and(eq(projects.id, id), allTeamsScopeFilter(projects, user))
   )
   if (!existing) return c.json({ error: 'Not found' }, 404)
   if (existing.status === 'deleted') return c.json({ error: 'Not found' }, 404)
@@ -300,7 +291,7 @@ app.patch('/projects/:id', async (c) => {
     // Otherwise, preserve existing githubRepoId (e.g., when updating owner/repo without providing repoId)
   }
   await db.update(projects).set(patch).where(
-    and(eq(projects.id, id), teamScopeFilter(projects, user))
+    and(eq(projects.id, id), allTeamsScopeFilter(projects, user))
   )
   const [updated] = await db.select().from(projects).where(eq(projects.id, id))
   return c.json(updated)
@@ -312,7 +303,7 @@ app.delete('/projects/:id', async (c) => {
 
   // Verify team access before deletion
   const [existing] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, projectId), allTeamsScopeFilter(projects, user))
   )
   if (!existing) return c.json({ error: 'Not found' }, 404)
 
@@ -332,7 +323,7 @@ app.delete('/projects/:id', async (c) => {
   })
 
   await db.update(projects).set({ status: 'deleted', updatedAt: new Date() }).where(
-    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, projectId), allTeamsScopeFilter(projects, user))
   )
 
   // Broadcast project cleanup to connected machine(s) (best-effort)
@@ -470,11 +461,8 @@ app.delete('/initiatives/:id', async (c) => {
 app.get('/plan', async (c) => {
   const user = c.get('user')! as AuthUser
   const slim = c.req.query('slim') === '1'
-  const allTeams = c.req.query('allTeams') === '1'
-
-  // Get team's projects (or all teams' projects)
-  const projectFilter = allTeams ? allTeamsScopeFilter(projects, user) : teamScopeFilter(projects, user)
-  const userProjects = await db.select().from(projects).where(projectFilter)
+  // Get all projects the user has access to (across all teams)
+  const userProjects = await db.select().from(projects).where(allTeamsScopeFilter(projects, user))
   const projectIds = new Set(userProjects.map(p => p.id))
 
   // Get nodes for user's projects (scoped query instead of full table scan)
@@ -547,7 +535,7 @@ app.get('/plan/:projectId', async (c) => {
 
   // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
@@ -619,7 +607,7 @@ app.get('/plan/nodes/:nodeId', async (c) => {
 
   // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, row.projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, row.projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Not found' }, 404)
 
@@ -674,7 +662,7 @@ app.put('/plan/:projectId', async (c) => {
 
   // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
@@ -824,7 +812,7 @@ app.post('/plan/nodes', async (c) => {
 
   // Verify project access via team scope
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, body.projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, body.projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
@@ -1467,7 +1455,7 @@ app.post('/usage/project-costs', async (c) => {
   const accessibleProjects = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(inArray(projects.id, ids), teamScopeFilter(projects, user)))
+    .where(and(inArray(projects.id, ids), allTeamsScopeFilter(projects, user)))
   const accessibleIds = accessibleProjects.map((p) => p.id)
   if (accessibleIds.length === 0) return c.json({})
 
@@ -1520,7 +1508,7 @@ app.patch('/settings', async (c) => {
 
 app.get('/chat', async (c) => {
   const user = c.get('user')! as AuthUser
-  const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
+  const userProjects = await db.select().from(projects).where(allTeamsScopeFilter(projects, user))
   const projectIds = userProjects.map(p => p.id)
   if (projectIds.length === 0) return c.json({})
 
@@ -1662,7 +1650,7 @@ app.delete('/chat/:nodeId', async (c) => {
 
 app.get('/sessions', async (c) => {
   const user = c.get('user')! as AuthUser
-  const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
+  const userProjects = await db.select().from(projects).where(allTeamsScopeFilter(projects, user))
   const projectIds = userProjects.map(p => p.id)
   if (projectIds.length === 0) return c.json([])
 
@@ -1791,11 +1779,8 @@ app.get('/executions', async (c) => {
   const user = c.get('user')! as AuthUser
   const slim = c.req.query('slim') === '1'
   const filterProjectId = c.req.query('projectId')
-  const allTeams = c.req.query('allTeams') === '1'
-
-  // Get team's projects (or all teams' projects)
-  const projectFilter = allTeams ? allTeamsScopeFilter(projects, user) : teamScopeFilter(projects, user)
-  const userProjects = await db.select().from(projects).where(projectFilter)
+  // Get all projects the user has access to (across all teams)
+  const userProjects = await db.select().from(projects).where(allTeamsScopeFilter(projects, user))
   const projectIds = new Set(userProjects.map(p => p.id))
 
   if (projectIds.size === 0) {
@@ -1865,9 +1850,9 @@ app.post('/executions', async (c) => {
   const user = c.get('user')! as AuthUser
   const body = await c.req.json()
 
-  // Verify project access via team scope
+  // Verify project access via team scope (use allTeams to support cross-team projects)
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, body.projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, body.projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) {
     return c.json({ error: 'Project not found or not authorized' }, 404)
@@ -1971,7 +1956,7 @@ app.delete('/executions/:nodeId', async (c) => {
   // Verify user has access to the project via team scope
   const projectId = nodeExecutions[0].projectId
   const [project] = await db.select({ id: projects.id }).from(projects)
-    .where(and(eq(projects.id, projectId), teamScopeFilter(projects, user)))
+    .where(and(eq(projects.id, projectId), allTeamsScopeFilter(projects, user)))
   if (!project) {
     return c.json({ error: 'Not authorized' }, 403)
   }
@@ -2051,7 +2036,7 @@ app.get('/search', async (c) => {
   // Search projects
   const projectResults = await db.select().from(projects)
     .where(and(
-      teamScopeFilter(projects, user),
+      allTeamsScopeFilter(projects, user),
       or(
         sql`${projects.name} ILIKE ${pattern}`,
         sql`${projects.description} ILIKE ${pattern}`
@@ -2073,7 +2058,7 @@ app.get('/search', async (c) => {
     .innerJoin(projects, eq(planNodes.projectId, projects.id))
     .where(and(
       isNull(planNodes.deletedAt),
-      teamScopeFilter(projects, user),
+      allTeamsScopeFilter(projects, user),
       or(
         sql`${planNodes.title} ILIKE ${pattern}`,
         sql`${planNodes.description} ILIKE ${pattern}`
@@ -2092,7 +2077,7 @@ app.get('/search', async (c) => {
   }).from(taskExecutions)
     .innerJoin(projects, eq(taskExecutions.projectId, projects.id))
     .where(and(
-      teamScopeFilter(projects, user),
+      allTeamsScopeFilter(projects, user),
       or(
         sql`${taskExecutions.executionId} ILIKE ${pattern}`,
         sql`${taskExecutions.streamText} ILIKE ${pattern}`
@@ -2113,7 +2098,7 @@ app.get('/export', async (c) => {
   try {
     // Export all user data
     const [profile] = await db.select().from(userProfiles).where(eq(userProfiles.id, user.id))
-    const userProjects = await db.select().from(projects).where(teamScopeFilter(projects, user))
+    const userProjects = await db.select().from(projects).where(allTeamsScopeFilter(projects, user))
     const settings = await db.select().from(displaySettings).where(eq(displaySettings.userId, user.id))
     const usage = await db.select().from(usageMetrics).where(eq(usageMetrics.userId, user.id))
     const chatSessions = await db.select().from(taskChatSessions).where(eq(taskChatSessions.userId, user.id))
@@ -2279,7 +2264,7 @@ app.get('/blobs/:id', async (c) => {
 
   // Ownership check: blob must belong to the same team or be owned by the user
   const [row] = await db.select().from(blobs).where(
-    and(eq(blobs.id, id), teamScopeFilter(blobs, user))
+    and(eq(blobs.id, id), allTeamsScopeFilter(blobs, user))
   )
   if (!row) return c.json({ error: 'Blob not found' }, 404)
 
@@ -2319,7 +2304,7 @@ app.get('/comments', async (c) => {
 
   // Always verify project access (not just when comments exist)
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
@@ -2340,7 +2325,7 @@ app.post('/comments', async (c) => {
 
   // Verify project access
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, body.projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, body.projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
@@ -2505,7 +2490,7 @@ app.get('/knowledge', async (c) => {
 
   // Verify project access
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Not found' }, 404)
 
@@ -2529,7 +2514,7 @@ app.post('/knowledge', async (c) => {
 
   // Verify project access
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Not found' }, 404)
 
@@ -2568,7 +2553,7 @@ app.delete('/knowledge/:id', async (c) => {
 
   // Verify project access via parent project
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, row.projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, row.projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
@@ -2587,7 +2572,7 @@ app.get('/loop-iterations', async (c) => {
 
   // Verify project access
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
@@ -2607,7 +2592,7 @@ app.post('/loop/stop', async (c) => {
 
   // Verify project access
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 

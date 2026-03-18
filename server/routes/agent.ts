@@ -19,17 +19,14 @@ import { redisPubSub, type StreamingEventMessage } from '../lib/redis-pubsub.js'
 import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, ProviderType, ImageAttachment } from '../types/relay.js'
 import { db } from '../lib/db/index.js'
 import { projects, taskExecutions, registeredMachines, machineInstructions, blobs } from '../lib/db/schema.js'
-import { eq, isNull, and, or, inArray } from 'drizzle-orm'
+import { eq, and, inArray } from 'drizzle-orm'
 
 /** Verify the user has access to the given project (team-scoped). */
 async function verifyProjectAccess(projectId: string, user: AuthUser): Promise<boolean> {
   const [row] = await db.select({ id: projects.id }).from(projects).where(
     and(
       eq(projects.id, projectId),
-      or(
-        eq(projects.teamId, user.teamId),
-        and(isNull(projects.teamId), eq(projects.ownerId, user.id))
-      )
+      inArray(projects.teamId, user.teamIds)
     )
   ).limit(1)
   return !!row
@@ -593,10 +590,7 @@ async function fetchImageBlobs(imageRefs: string[], user: AuthUser): Promise<{ i
       filename: blobs.filename,
     }).from(blobs).where(and(
       inArray(blobs.id, imageRefs),
-      or(
-        eq(blobs.teamId, user.teamId),
-        and(isNull(blobs.teamId), eq(blobs.ownerId, user.id))
-      )
+      inArray(blobs.teamId, user.teamIds)
     ))
     const images = blobRows.map(row => ({
       blobId: row.id,

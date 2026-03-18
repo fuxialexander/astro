@@ -40,7 +40,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   loadAllTeams: async () => {
     set({ loading: true, error: null })
     try {
-      const projects = await dataClient.listProjects({ allTeams: true })
+      const projects = await dataClient.listProjects()
       set({ projects, loaded: true, loading: false })
     } catch (err) {
       set({ projects: SEED_PROJECTS, loaded: true, loading: false, error: err instanceof Error ? err.message : 'Failed to load projects' })
