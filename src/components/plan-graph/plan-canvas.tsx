@@ -173,6 +173,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
 
   const projectEdges = useMemo(() => {
     const nodeIds = new Set(projectNodes.map((n) => n.id))
+    const milestoneNodeIds = new Set(projectNodes.filter((n) => n.type === 'milestone').map((n) => n.id))
     const allProjectEdges = planEdges.filter((e) => {
       // Edge belongs to this project if either endpoint is a project node
       // or if the edge connects through a hidden node (for bridging)
@@ -180,8 +181,12 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
       return allProjectNodeIds.has(e.source) || allProjectNodeIds.has(e.target)
     })
 
-    // Direct edges where both endpoints are visible
-    const directEdges = allProjectEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
+    // Direct edges where both endpoints are visible, excluding milestone-task edges
+    // (task-milestone membership is expressed via milestoneId, not graph edges)
+    const directEdges = allProjectEdges.filter((e) =>
+      nodeIds.has(e.source) && nodeIds.has(e.target) &&
+      !milestoneNodeIds.has(e.source) && !milestoneNodeIds.has(e.target)
+    )
 
     // Bridge edges through hidden nodes (e.g., completed milestones hidden by filter).
     // For each hidden node H, for every edge A→H and H→B where A and B are visible,
