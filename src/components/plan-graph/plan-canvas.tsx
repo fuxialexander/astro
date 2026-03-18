@@ -112,6 +112,15 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
     if (!machinesLoaded) loadMachines()
   }, [machinesLoaded, loadMachines])
 
+  // Auto-reorganize when the canvas opens (projectId changes or first mount with nodes)
+  const handleReorganizeRef = useRef<(() => void) | null>(null)
+  useEffect(() => {
+    if (projectNodes.length === 0) return
+    const timer = setTimeout(() => handleReorganizeRef.current?.(), 150)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId])
+
   // Resolve project machine for read-only display
   const resolvedMachineId = project?.defaultMachineId
   const resolvedMachineName = resolvedMachineId
@@ -377,11 +386,16 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   // Compute milestone positions dynamically: centered above their member tasks.
   // Overlapping milestones are placed in additional rows stacking upward.
   const milestonePositions = useMemo(() => {
-    const MILESTONE_ROW_BASE_Y = -8   // closest row to tasks (~8px gap to task nodes at y=40)
     const MILESTONE_WIDTH = 200
     const MILESTONE_HEIGHT = 40
     const GAP = 16            // min horizontal gap between milestones
     const ROW_STRIDE = MILESTONE_HEIGHT + 8  // vertical distance between rows (stacks upward)
+    // Base Y: just above the topmost task node so the gap stays ~8px regardless of layout
+    const taskNodesWithPos = projectNodes.filter(n => n.type !== 'milestone' && n.position)
+    const topmostTaskY = taskNodesWithPos.length > 0
+      ? Math.min(...taskNodesWithPos.map(t => t.position!.y))
+      : 40
+    const MILESTONE_ROW_BASE_Y = topmostTaskY - MILESTONE_HEIGHT - 8
     const positions = new Map<string, { x: number; y: number }>()
 
     // Pass 1: compute ideal x for milestones anchored to member tasks
@@ -726,6 +740,8 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
     // Fit view after layout with a short delay for React to re-render
     setTimeout(() => rfFitView({ padding: 0.3, duration: 300 }), 50)
   }, [reorganizeProject, projectId, rfFitView])
+  // Keep ref in sync so the on-open effect always calls the latest version
+  handleReorganizeRef.current = handleReorganize
 
   const handleTaskCreated = useCallback(() => {
     setAddChildState(null)
