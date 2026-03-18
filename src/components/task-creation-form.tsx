@@ -25,7 +25,7 @@ interface TaskCreationFormProps {
    */
   childNodeId?: string
   defaultMilestoneId?: string
-  defaultNodeType?: "task" | "milestone"
+  defaultNodeType?: "task" | "milestone" | "loop"
   position?: { x: number; y: number }
   mode: "inline" | "popover" | "dialog"
   /** When true, the description field is expanded by default */
