@@ -1681,6 +1681,78 @@ export class RelayServer extends EventEmitter {
       console.log(`[relay] Executing cross-instance safety decision for task ${event.taskId}: ${event.decision}`);
       this.sendSafetyDecisionLocal(event.taskId, event.machineId, event.decision);
     });
+
+    // ── Cross-instance streaming bridge ──────────────────────────────
+    // When a task runs on Instance B but the SSE stream lives on Instance A,
+    // Instance A's relayServer.on() listeners never fire (they are local).
+    // This bridge re-emits cross-instance streaming events as local relay
+    // events so dispatch.ts, agent.ts, and events.ts all receive them
+    // without needing their own Redis subscriptions.
+    redisPubSub.on('task:streaming', (msg) => {
+      if (msg.instanceId === redisPubSub.getInstanceId()) return; // skip own — already emitted locally
+      switch (msg.eventType) {
+        case 'text':
+          this.emit('task:text', { taskId: msg.taskId, text: msg.data.text as string });
+          break;
+        case 'tool_use':
+        case 'tool_result': {
+          const traceMsg: TaskToolTraceMessage = {
+            type: 'task.tool_trace',
+            taskId: msg.taskId,
+            toolName: msg.data.toolName as string,
+            toolInput: msg.eventType === 'tool_use' ? msg.data.toolInput : undefined,
+            toolResult: msg.eventType === 'tool_result' ? (msg.data.toolResult ?? msg.data.result) : undefined,
+            success: msg.data.success as boolean | undefined,
+            duration: msg.data.duration as number | undefined,
+            toolUseId: msg.data.toolUseId as string | undefined,
+            _dbSeq: msg.dbSeq,
+          };
+          this.emit('task:tool_trace', traceMsg);
+          break;
+        }
+        case 'file_change':
+          this.emit('task:file_change', {
+            taskId: msg.taskId,
+            path: msg.data.path as string,
+            action: msg.data.action as string,
+            linesAdded: msg.data.linesAdded as number | undefined,
+            linesRemoved: msg.data.linesRemoved as number | undefined,
+            diff: msg.data.diff as string | undefined,
+            _dbSeq: msg.dbSeq,
+          });
+          break;
+        case 'session_init':
+          this.emit('task:session_init', {
+            taskId: msg.taskId,
+            sessionId: msg.data.sessionId as string,
+            model: msg.data.model as string | undefined,
+            _dbSeq: msg.dbSeq,
+          });
+          break;
+        case 'progress':
+          this.emit('task:progress', {
+            taskId: msg.taskId,
+            progress: msg.data.progress as number | undefined,
+            message: msg.data.message as string | undefined,
+          });
+          break;
+        case 'result':
+          this.emit('task:result', {
+            result: {
+              taskId: msg.taskId,
+              status: msg.data.status as string,
+              output: msg.data.output as string | undefined,
+              error: msg.data.error as string | undefined,
+              duration: msg.data.duration as number | undefined,
+              branchName: msg.data.branchName as string | undefined,
+              prUrl: msg.data.prUrl as string | undefined,
+              prNumber: msg.data.prNumber as number | undefined,
+              deliveryStatus: msg.data.deliveryStatus as string | undefined,
+            },
+          });
+          break;
+      }
+    });
   }
 
   /**

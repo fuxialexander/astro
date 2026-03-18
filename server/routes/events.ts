@@ -667,62 +667,16 @@ eventsRoute.get('/stream', async (c) => {
     relayServer.on('task:file_change', onRelayFileChange)
 
     // Cross-instance streaming handler via Redis pub/sub.
-    // When Redis is connected and multiple server instances exist, streaming events
-    // from other instances arrive here. Self-instance events are skipped (the local
-    // EventEmitter path already delivered them).
-    // NOTE: No activeDispatchStreams guard needed here. The dispatch SSE stream only
-    // exists on the instance that initiated the dispatch, and cross-instance events
-    // (different instanceId) by definition come from tasks running on other instances
-    // which won't have a local dispatch bridge.
+    // Streaming events (text, tool_use, tool_result, etc.) are now bridged in
+    // relay-server.ts — they re-emit as local relay events, so the relay
+    // listeners above (onRelayText, onRelayToolTrace, etc.) handle them.
+    // This handler only covers non-streaming Redis events that have no
+    // relay equivalent: node_status_changed, task_init, task_ready.
     const onRedisStreaming = async (msg: StreamingEventMessage) => {
       if (!alive) return
       if (msg.instanceId === redisPubSub.getInstanceId()) return
-      // Cross-instance user isolation: deny-by-default when userId is missing.
-      // The receiving instance's executionContextStore won't have the task (it runs
-      // on another instance), so we check the userId embedded in the Redis message.
-      // Events with project-level isolation (node_status_changed, task_init,
-      // task_ready) bypass the userId check — their case branches use
-      // isProjectOwnedByUser as authoritative check instead.
-      const hasProjectCheck = msg.eventType === 'node_status_changed'
-        || msg.eventType === 'task_init' || msg.eventType === 'task_ready'
-      if (user?.id && !hasProjectCheck
-        && msg.userId !== user.id && msg.userId !== LOCAL_USER_ID) return
-
+      // Cross-instance user isolation: these events use project-level checks.
       switch (msg.eventType) {
-        case 'text':
-          throttle.write(msg.taskId, msg.data.text as string)
-          break
-        case 'tool_use':
-        case 'tool_result': {
-          const data = JSON.stringify({ taskId: msg.taskId, ...msg.data })
-          const id = msg.dbSeq ? String(msg.dbSeq) : eventBuffer.push('task:tool_trace', data)
-          stream.writeSSE({ id, event: 'task:tool_trace', data }).catch(() => { alive = false })
-          break
-        }
-        case 'file_change': {
-          const data = JSON.stringify({ taskId: msg.taskId, ...msg.data })
-          const id = msg.dbSeq ? String(msg.dbSeq) : eventBuffer.push('task:file_change', data)
-          stream.writeSSE({ id, event: 'task:file_change', data }).catch(() => { alive = false })
-          break
-        }
-        case 'session_init': {
-          const data = JSON.stringify({ taskId: msg.taskId, ...msg.data })
-          const id = msg.dbSeq ? String(msg.dbSeq) : eventBuffer.push('task:session_init', data)
-          stream.writeSSE({ id, event: 'task:session_init', data }).catch(() => { alive = false })
-          break
-        }
-        case 'progress': {
-          const data = JSON.stringify({ taskId: msg.taskId, ...msg.data })
-          const id = msg.dbSeq ? String(msg.dbSeq) : eventBuffer.push('task:progress', data)
-          stream.writeSSE({ id, event: 'task:progress', data }).catch(() => { alive = false })
-          break
-        }
-        case 'result': {
-          const data = JSON.stringify({ taskId: msg.taskId, ...msg.data })
-          const id = eventBuffer.push('task:result', data)
-          stream.writeSSE({ id, event: 'task:result', data }).catch(() => { alive = false })
-          break
-        }
         case 'node_status_changed': {
           // Use project ownership check (not just userId) for node status events.
           // The userId in the message is a hint from executionContextStore; the

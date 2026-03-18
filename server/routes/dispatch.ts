@@ -1375,6 +1375,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     let resultSent = false
     let waitingForApproval = false
     let hasReceivedEvent = false // Whether we've received any event from agent-runner
+    const dispatchStartTime = Date.now() // For elapsed time tracking
+    let lastElapsedMsg = 0 // Last time we sent an elapsed-time message
 
     // Hono's streamSSE only wires the abort signal for old Bun; on Node.js the
     // signal fires via @hono/node-server's outgoing.on("close") but the SSE helper
@@ -2412,6 +2414,23 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       // preventing a reconnect catch-up from re-fetching text already delivered via SSE.
       const textSeq = await streamingEventLog.flushText(executionId).catch(() => null)
       stream.writeSSE({ id: textSeq ? String(textSeq) : undefined, event: 'heartbeat', data: '' }).catch(() => { alive = false; clearInterval(heartbeat) })
+
+      // Periodic elapsed-time message for task execution — shows the user
+      // the task is still alive during long silent phases.
+      // Every 3 minutes (task execution is long-running, don't spam).
+      const TASK_ELAPSED_INTERVAL_MS = 180_000
+      const nowMs = Date.now()
+      if (hasReceivedEvent && nowMs - lastElapsedMsg >= TASK_ELAPSED_INTERVAL_MS) {
+        const totalSec = Math.round((nowMs - dispatchStartTime) / 1000)
+        const mins = Math.floor(totalSec / 60)
+        const secs = totalSec % 60
+        const elapsed = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`
+        const elapsedText = `\n── [Astro] Still working... (${elapsed} elapsed)\n`
+        streamingEventLog.append(executionId, 'text', { text: elapsedText }).then((seq) => {
+          stream.writeSSE({ id: seq ? String(seq) : undefined, event: 'text', data: elapsedText }).catch(() => {})
+        }).catch(() => {})
+        lastElapsedMsg = nowMs
+      }
     }, 15000)
 
     stream.onAbort(() => {
