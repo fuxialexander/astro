@@ -545,9 +545,9 @@ app.get('/plan/:projectId', async (c) => {
   const user = c.get('user')! as AuthUser
   const projectId = c.req.param('projectId')
 
-  // Verify project access via team scope
+  // Verify project access — user may belong to multiple teams
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
@@ -672,9 +672,9 @@ app.put('/plan/:projectId', async (c) => {
 
   if (!UUID_RE.test(projectId)) return c.json({ error: 'Invalid project ID' }, 400)
 
-  // Verify project access via team scope
+  // Verify project access — user may belong to multiple teams
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
@@ -822,9 +822,9 @@ app.post('/plan/nodes', async (c) => {
 
   if (!body.projectId || !UUID_RE.test(body.projectId)) return c.json({ error: 'Invalid project ID' }, 400)
 
-  // Verify project access via team scope
+  // Verify project access — user may belong to multiple teams
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, body.projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, body.projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
@@ -889,9 +889,9 @@ app.patch('/plan/nodes/:id', async (c) => {
   const [node] = await db.select().from(planNodes).where(eq(planNodes.clientId, id))
   if (!node) return c.json({ error: 'Node not found' }, 404)
 
-  // Verify project access via team scope
+  // Verify project access — user may belong to multiple teams, so check all
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, node.projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, node.projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
@@ -1221,9 +1221,9 @@ app.delete('/plan/nodes/:id', async (c) => {
   const [node] = await db.select().from(planNodes).where(eq(planNodes.clientId, id))
   if (!node) return c.json({ error: 'Node not found' }, 404)
 
-  // Verify project access via team scope
+  // Verify project access — user may belong to multiple teams
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, node.projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, node.projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
@@ -1239,9 +1239,9 @@ app.post('/plan/edges', async (c) => {
   const user = c.get('user')! as AuthUser
   const body = await c.req.json()
 
-  // Verify project access via team scope
+  // Verify project access — user may belong to multiple teams
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, body.projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, body.projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
@@ -1263,9 +1263,9 @@ app.delete('/plan/edges/:id', async (c) => {
   const [edge] = await db.select().from(planEdges).where(eq(planEdges.clientId, id))
   if (!edge) return c.json({ error: 'Edge not found' }, 404)
 
-  // Verify project access via team scope
+  // Verify project access — user may belong to multiple teams
   const [project] = await db.select().from(projects).where(
-    and(eq(projects.id, edge.projectId), teamScopeFilter(projects, user))
+    and(eq(projects.id, edge.projectId), allTeamsScopeFilter(projects, user))
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
@@ -1942,9 +1942,9 @@ app.get('/executions/:nodeId', async (c) => {
     return c.json(null)
   }
 
-  // Verify project access via team scope
+  // Verify project access — user may belong to multiple teams
   const [project] = await db.select({ id: projects.id }).from(projects)
-    .where(and(eq(projects.id, exec.projectId), teamScopeFilter(projects, user)))
+    .where(and(eq(projects.id, exec.projectId), allTeamsScopeFilter(projects, user)))
   if (!project) {
     return c.json({ error: 'Not authorized' }, 403)
   }
@@ -2003,7 +2003,7 @@ app.get('/tool-traces', async (c) => {
     .limit(1)
   if (execution?.projectId) {
     const [project] = await db.select({ id: projects.id }).from(projects)
-      .where(and(eq(projects.id, execution.projectId), teamScopeFilter(projects, user)))
+      .where(and(eq(projects.id, execution.projectId), allTeamsScopeFilter(projects, user)))
       .limit(1)
     if (!project) return c.json({ error: 'Not authorized' }, 403)
   }
@@ -2028,7 +2028,7 @@ app.get('/file-changes', async (c) => {
     .limit(1)
   if (execution?.projectId) {
     const [project] = await db.select({ id: projects.id }).from(projects)
-      .where(and(eq(projects.id, execution.projectId), teamScopeFilter(projects, user)))
+      .where(and(eq(projects.id, execution.projectId), allTeamsScopeFilter(projects, user)))
       .limit(1)
     if (!project) return c.json({ error: 'Not authorized' }, 403)
   }
