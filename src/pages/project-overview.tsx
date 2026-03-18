@@ -88,9 +88,10 @@ export function OverviewTab({
   const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider)
   const teams = useTeamStore((s) => s.teams)
   const activeTeamId = useTeamStore((s) => s.activeTeamId)
-  const teamMemberCount = useTeamStore((s) => (activeTeamId ? (s.teamMembers[activeTeamId]?.length ?? 0) : 0))
+  const projectTeamId = project.teamId || activeTeamId
+  const teamMemberCount = useTeamStore((s) => (projectTeamId ? (s.teamMembers[projectTeamId]?.length ?? 0) : 0))
   const isSoloWorkspace = teamMemberCount <= 1
-  const teamMembers = useTeamStore((s) => activeTeamId ? s.teamMembers[activeTeamId] ?? [] : [])
+  const teamMembers = useTeamStore((s) => projectTeamId ? s.teamMembers[projectTeamId] ?? [] : [])
   const miAssign = useMachineInstructionStore((s) => s.assignToMachine)
   const recentActivities = useMemo(
     () => activities.filter((a) => a.projectId === project.id).slice(0, 3),
@@ -722,38 +723,39 @@ export function OverviewTab({
             </div>
           )}
 
-          <div className="flex items-center justify-between">
-            <span className="text-[13px] text-muted-foreground">Team</span>
-            {editingTeam ? (
-              <select
-                className="text-[13px] rounded-md border border-input bg-background px-2 py-1 max-w-[160px]"
-                value={project.teamId || ""}
-                onChange={(e) => {
-                  updateProject(project.id, { teamId: e.target.value || undefined })
-                  setEditingTeam(false)
-                }}
-                onBlur={() => setEditingTeam(false)}
-                autoFocus
-              >
-                <option value="">Personal</option>
-                {teams.map((team) => (
-                  <option key={team.id} value={team.id}>
-                    {team.name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div
-                className="flex items-center gap-1 cursor-pointer hover:opacity-80"
-                onClick={() => setEditingTeam(true)}
-              >
-                <Users className="h-3.5 w-3.5 text-primary" />
-                <span className="text-[13px]">
-                  {teams.find(t => t.id === project.teamId)?.name ?? "Personal"}
-                </span>
-              </div>
-            )}
-          </div>
+          {teams.length > 1 && (
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] text-muted-foreground">Team</span>
+              {editingTeam ? (
+                <select
+                  className="text-[13px] rounded-md border border-input bg-background px-2 py-1 max-w-[160px]"
+                  value={project.teamId || ""}
+                  onChange={(e) => {
+                    updateProject(project.id, { teamId: e.target.value || undefined })
+                    setEditingTeam(false)
+                  }}
+                  onBlur={() => setEditingTeam(false)}
+                  autoFocus
+                >
+                  {teams.map((team) => (
+                    <option key={team.id} value={team.id}>
+                      {team.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div
+                  className="flex items-center gap-1 cursor-pointer hover:opacity-80"
+                  onClick={() => setEditingTeam(true)}
+                >
+                  <Users className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-[13px]">
+                    {teams.find(t => t.id === project.teamId)?.name ?? teams[0]?.name}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex items-center justify-between">
             <span className="text-[13px] text-muted-foreground">Start Date</span>

@@ -118,15 +118,12 @@ eventsRoute.get('/stream', async (c) => {
       if (!user?.id) return true // no auth = local mode, allow all
       try {
         const { projects } = await import('../lib/db/schema.js')
-        const { eq, and, or, isNull } = await import('drizzle-orm')
+        const { eq, and, inArray } = await import('drizzle-orm')
         const { db } = await import('../lib/db/index.js')
         const [project] = await db.select({ id: projects.id }).from(projects).where(
           and(
             eq(projects.id, projectId),
-            or(
-              eq(projects.teamId, user.teamId),
-              and(isNull(projects.teamId), eq(projects.ownerId, user.id))
-            )
+            inArray(projects.teamId, user.teamIds)
           )
         ).limit(1)
         return !!project

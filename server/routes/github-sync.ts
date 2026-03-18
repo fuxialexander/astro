@@ -417,7 +417,7 @@ app.post('/projects/:projectId/sync-issues', async (c) => {
     .from(projects)
     .where(and(
       eq(projects.id, projectId),
-      eq(projects.teamId, user.teamId)
+      inArray(projects.teamId, user.teamIds)
     ))
     .limit(1);
 
@@ -479,7 +479,7 @@ app.delete('/projects/:projectId', async (c) => {
     .from(projects)
     .where(and(
       eq(projects.id, projectId),
-      eq(projects.teamId, user.teamId)
+      inArray(projects.teamId, user.teamIds)
     ))
     .limit(1);
 
@@ -498,7 +498,7 @@ app.delete('/projects/:projectId', async (c) => {
   // preventing future achievement awards based on that historical work.
   await db.update(projects)
     .set({ status: 'deleted', updatedAt: new Date() })
-    .where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId)));
+    .where(and(eq(projects.id, projectId), inArray(projects.teamId, user.teamIds)));
 
   return c.body(null, 204);
 });
@@ -514,7 +514,7 @@ app.get('/projects', async (c) => {
     .from(projects)
     .where(and(
       eq(projects.projectType, 'github'),
-      eq(projects.teamId, user.teamId)
+      inArray(projects.teamId, user.teamIds)
     ));
 
   return c.json({ projects: rows });
@@ -532,7 +532,7 @@ app.post('/projects/:projectId/repo-cache/sync', async (c) => {
 
   const [project] = await db.select()
     .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId)))
+    .where(and(eq(projects.id, projectId), inArray(projects.teamId, user.teamIds)))
     .limit(1);
 
   if (!project) {
@@ -562,7 +562,7 @@ app.get('/projects/:projectId/repo-cache', async (c) => {
 
   const [project] = await db.select()
     .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId)))
+    .where(and(eq(projects.id, projectId), inArray(projects.teamId, user.teamIds)))
     .limit(1);
 
   if (!project) {
@@ -600,7 +600,7 @@ app.get('/projects/:projectId/pr/:prNumber/files', async (c) => {
 
   const [project] = await db.select()
     .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId)))
+    .where(and(eq(projects.id, projectId), inArray(projects.teamId, user.teamIds)))
     .limit(1);
 
   if (!project) {
@@ -641,7 +641,7 @@ app.get('/workspace/summary', async (c) => {
 
   const githubProjects = await db.select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.projectType, 'github'), eq(projects.teamId, user.teamId)));
+    .where(and(eq(projects.projectType, 'github'), inArray(projects.teamId, user.teamIds)));
 
   const summary = await getWorkspaceGitHubSummary(githubProjects.map((project) => project.id));
   return c.json(summary);
@@ -678,7 +678,7 @@ app.post('/issues', async (c) => {
     .from(projects)
     .where(and(
       eq(projects.id, projectId),
-      eq(projects.teamId, user.teamId)
+      inArray(projects.teamId, user.teamIds)
     ))
     .limit(1);
 
@@ -802,7 +802,7 @@ app.post('/issues/link', async (c) => {
     .from(projects)
     .where(and(
       eq(projects.id, projectId),
-      eq(projects.teamId, user.teamId)
+      inArray(projects.teamId, user.teamIds)
     ))
     .limit(1);
 
@@ -871,7 +871,7 @@ app.post('/issues/unlink', async (c) => {
     .from(projects)
     .where(and(
       eq(projects.id, projectId),
-      eq(projects.teamId, user.teamId)
+      inArray(projects.teamId, user.teamIds)
     ))
     .limit(1);
 
@@ -929,7 +929,7 @@ app.get('/issues/search', async (c) => {
     .from(projects)
     .where(and(
       eq(projects.id, projectId),
-      eq(projects.teamId, user.teamId)
+      inArray(projects.teamId, user.teamIds)
     ))
     .limit(1);
 
@@ -980,7 +980,7 @@ app.get('/projects/:projectId/sync-settings', async (c) => {
   const [project] = await db.select({
     githubSyncSettings: projects.githubSyncSettings,
     projectType: projects.projectType,
-  }).from(projects).where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId))).limit(1);
+  }).from(projects).where(and(eq(projects.id, projectId), inArray(projects.teamId, user.teamIds))).limit(1);
 
   if (!project) {
     return c.json({ error: 'Project not found' }, 404);
@@ -1040,7 +1040,7 @@ app.put('/projects/:projectId/sync-settings', async (c) => {
   const [project] = await db.select({
     id: projects.id,
     projectType: projects.projectType,
-  }).from(projects).where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId))).limit(1);
+  }).from(projects).where(and(eq(projects.id, projectId), inArray(projects.teamId, user.teamIds))).limit(1);
 
   if (!project) {
     return c.json({ error: 'Project not found' }, 404);
@@ -1089,7 +1089,7 @@ app.post('/issues/sync-fields', async (c) => {
     .innerJoin(projects, eq(projects.id, planNodes.projectId))
     .where(and(
       eq(planNodes.clientId, body.nodeId),
-      eq(projects.teamId, user.teamId),
+      inArray(projects.teamId, user.teamIds),
     )).limit(1);
 
   if (!node) {
@@ -1126,7 +1126,7 @@ app.get('/sync-health', async (c) => {
   // Verify project belongs to user's team
   const [project] = await db.select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId)))
+    .where(and(eq(projects.id, projectId), inArray(projects.teamId, user.teamIds)))
     .limit(1);
   if (!project) {
     return c.json({ error: 'Project not found' }, 404);

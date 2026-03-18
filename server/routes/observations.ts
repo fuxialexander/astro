@@ -21,10 +21,7 @@ observationsRoute.use('/*', requireAuth)
  */
 async function getUserProjectIds(user: AuthUser): Promise<string[]> {
   const rows = await db.select({ id: projects.id }).from(projects).where(
-    or(
-      eq(projects.teamId, user.teamId),
-      and(isNull(projects.teamId), eq(projects.ownerId, user.id))
-    )
+    inArray(projects.teamId, user.teamIds)
   )
   return rows.map(r => r.id)
 }

@@ -24,7 +24,7 @@ import { executionContextStore, activeDispatchStreams } from '../lib/execution-c
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
 import { projects, planNodes, planEdges, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines, scheduleRuns } from '../lib/db/schema.js'
-import { eq, isNull, and, or, inArray, sql } from 'drizzle-orm'
+import { eq, isNull, and, inArray, sql } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction } from '../lib/prompt-templates.js'
@@ -434,10 +434,7 @@ dispatchRoute.post('/task', async (c) => {
     const [dbProject] = await db.select().from(projects)
       .where(and(
         eq(projects.id, projectId),
-        or(
-          eq(projects.teamId, user!.teamId),
-          and(isNull(projects.teamId), eq(projects.ownerId, user!.id))
-        )
+        inArray(projects.teamId, user!.teamIds)
       )).limit(1)
     if (!dbProject) {
       return c.json({ success: false, error: 'Project not found or not authorized' }, 404)
@@ -1238,10 +1235,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         filename: blobs.filename,
       }).from(blobs).where(and(
         inArray(blobs.id, imageRefs),
-        or(
-          eq(blobs.teamId, user.teamId),
-          and(isNull(blobs.teamId), eq(blobs.ownerId, user.id))
-        )
+        inArray(blobs.teamId, user.teamIds)
       ))
 
       if (blobRows.length > 0) {
@@ -1287,10 +1281,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     const [row] = await db.select().from(projects).where(
       and(
         eq(projects.id, projectId),
-        or(
-          eq(projects.teamId, user!.teamId),
-          and(isNull(projects.teamId), eq(projects.ownerId, user!.id))
-        )
+        inArray(projects.teamId, user!.teamIds)
       )
     ).limit(1)
     projectRecord = row as unknown as Project | undefined
@@ -2717,10 +2708,7 @@ dispatchRoute.post('/cancel', async (c) => {
         const [project] = await db.select({ id: projects.id }).from(projects)
           .where(and(
             eq(projects.id, nodeRow.projectId),
-            or(
-              eq(projects.teamId, cancelUser.teamId),
-              and(isNull(projects.teamId), eq(projects.ownerId, cancelUser.id))
-            )
+            inArray(projects.teamId, cancelUser.teamIds)
           )).limit(1)
         if (!project) {
           return c.json({ success: false, error: 'Not authorized for this task' }, 403)
@@ -2802,10 +2790,7 @@ dispatchRoute.post('/prune', async (c) => {
     const [project] = await db.select({ id: projects.id }).from(projects)
       .where(and(
         eq(projects.id, projectId),
-        or(
-          eq(projects.teamId, user.teamId),
-          and(isNull(projects.teamId), eq(projects.ownerId, user.id))
-        )
+        inArray(projects.teamId, user.teamIds)
       )).limit(1)
     if (!project) {
       return c.json({ success: false, error: 'Project not found or not authorized' }, 404)
