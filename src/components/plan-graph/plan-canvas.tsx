@@ -32,6 +32,7 @@ import { calculateChildPosition, calculateParentPosition } from "@/lib/graph-uti
 import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
+import { getMilestoneColor } from "@/components/plan-graph/plan-node-shared"
 
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -129,8 +130,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
     if (!graphDisplaySettings.showCompleted) {
       nodes = nodes.filter((n) => n.status !== "completed" && n.status !== "auto_verified")
     }
-    // Hide milestones — edge bridging creates transitive edges through them
-    nodes = nodes.filter((n) => n.type !== "milestone")
     return nodes
   }, [planNodes, projectId, graphDisplaySettings.showCompleted])
 
@@ -358,6 +357,11 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
 
   const highlightBy = graphDisplaySettings.groupBy
 
+  const orderedMilestoneIds = useMemo(
+    () => projectNodes.filter(n => n.type === 'milestone').map(n => n.id),
+    [projectNodes]
+  )
+
   const rfNodes: Node[] = useMemo(
     () =>
       projectNodes.map((n) => ({
@@ -384,6 +388,9 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
             loopBestMetricValue: n.loopBestMetricValue,
             loopStatus: n.loopStatus,
           } : {}),
+          milestoneColor: n.type === 'milestone'
+            ? (getMilestoneColor(n.id, orderedMilestoneIds) ?? null)
+            : (n.milestoneId ? (getMilestoneColor(n.milestoneId, orderedMilestoneIds) ?? null) : null),
           highlightBy,
           checked: checkedIds.has(n.id),
           selectionActive: selectionActive,
@@ -393,7 +400,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
         },
         selected: n.id === selectedId,
       })),
-    [projectNodes, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy, readOnly, loopNodesEnabled]
+    [projectNodes, orderedMilestoneIds, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy, readOnly, loopNodesEnabled]
   )
 
   const rfEdges: Edge[] = useMemo(

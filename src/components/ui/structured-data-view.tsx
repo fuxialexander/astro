@@ -2,6 +2,31 @@ import type { Spec } from '@json-render/core'
 import { isJsonRenderSpec } from '@/lib/json-render'
 import { dataToSpec } from '@/lib/json-render/auto-spec'
 import { JsonRenderView } from './json-render-view'
+import { isPlanTreeData } from '@/components/activity-blocks'
+
+/** Flatten a plan tree (from `astro-cli plan tree --json`) into a PlanNodeList spec */
+function planTreeToSpec(roots: ReturnType<typeof isPlanTreeData extends (d: unknown) => d is infer T ? () => T : never>): Spec {
+  const flatNodes: Record<string, unknown>[] = []
+  const seen = new Set<string>()
+  function walk(nodes: Array<{ id: string; title: string; status: string; type: string; children: unknown[] } & Record<string, unknown>>) {
+    for (const n of nodes) {
+      if (!seen.has(n.id)) {
+        seen.add(n.id)
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { children: _children, ...rest } = n
+        flatNodes.push(rest)
+      }
+      if (Array.isArray(n.children) && n.children.length > 0) {
+        walk(n.children as typeof nodes)
+      }
+    }
+  }
+  walk(roots as Parameters<typeof walk>[0])
+  return {
+    root: 'list',
+    elements: { list: { type: 'PlanNodeList', props: { nodes: flatNodes }, children: [] } },
+  }
+}
 
 interface StructuredDataViewProps {
   data: unknown
@@ -26,8 +51,27 @@ export function StructuredDataView({ data, maxHeight = '150px', maxChars }: Stru
     return <JsonRenderView spec={data as unknown as Spec} maxHeight={maxHeight} />
   }
 
-  // 2. String → raw text
+  // 1b. Plan tree JSON (astro-cli plan tree --json output) → PlanNodeList spec
+  if (isPlanTreeData(data)) {
+    const planSpec = planTreeToSpec(data)
+    return <JsonRenderView spec={planSpec} maxHeight={maxHeight} />
+  }
+
+  // 2. String → try to parse as JSON for rich rendering, else raw text
   if (typeof data === 'string') {
+    const trimmed = data.trim()
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      let parsed: unknown
+      try { parsed = JSON.parse(trimmed) } catch { /* not valid JSON */ }
+      if (parsed !== undefined) {
+        if (isPlanTreeData(parsed)) {
+          return <JsonRenderView spec={planTreeToSpec(parsed)} maxHeight={maxHeight} />
+        }
+        if (isJsonRenderSpec(parsed)) {
+          return <JsonRenderView spec={parsed as unknown as Spec} maxHeight={maxHeight} />
+        }
+      }
+    }
     const text = maxChars ? data.slice(0, maxChars) : data
     return (
       <pre className="font-mono text-[11px] whitespace-pre-wrap break-all text-foreground/80 overflow-auto" style={{ maxHeight }}>

@@ -121,6 +121,10 @@ When discussing or documenting a component, render its API as a structured view:
 ### Feedback
 - **Progress** — `{ value: 0-100, label? }` — Progress bar
 
+### Plan
+- **PlanNodeList** — `{ nodes: [{ id, title, type, status, description?, estimate?, priority?, dueDate?, milestoneId?, dependencies?: string[] }] }` — Sorted task list with status dots, metadata badges, hover detail popover, and dependency arrow chips that scroll to linked nodes. Milestones sorted first, then by activity status. Use after plan mutations to show the updated plan state.
+- **PlanGraph** — `{ nodes: [...] }` — Same node schema as PlanNodeList. Renders as an interactive DAG graph with auto-layout (dagre), milestone banners, status-colored task cards, and directional dependency edges.
+
 ### Input
 - **Button** — `{ label, variant?, size? }` — Clickable button (wire via element `on` field)
 
