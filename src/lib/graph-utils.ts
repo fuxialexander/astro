@@ -379,7 +379,7 @@ export function computeEdgeHandles(
  * These edges can be hidden in the UI to reduce visual clutter without
  * removing the underlying dependency data.
  */
-export function computeRedundantEdgeIds(edges: PlanEdge[]): Set<string> {
+export function computeRedundantEdgeIds(edges: { id: string; source: string; target: string }[]): Set<string> {
   // Build adjacency list (all edges)
   const adj = new Map<string, string[]>()
   for (const e of edges) {

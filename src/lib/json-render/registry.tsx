@@ -27,6 +27,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import dagre from '@dagrejs/dagre'
 import { STATUS_DOT_COLOR, PRIORITY_PIP_COLOR, GRAPH_EDGE_COLOR, getMilestoneColor, type MilestoneColor } from '@/components/plan-graph/plan-node-shared'
+import { computeRedundantEdgeIds } from '@/lib/graph-utils'
 
 const gapMap = { sm: 'gap-1', md: 'gap-3', lg: 'gap-5' } as const
 const alignMap = { start: 'items-start', center: 'items-center', end: 'items-end', stretch: 'items-stretch' } as const
@@ -139,20 +140,23 @@ function buildDagreLayout(
     }
   })
 
-  // Dependency edges between tasks
-  const taskEdges: Edge[] = tasks.flatMap(n =>
+  // Dependency edges between tasks — apply transitive reduction to avoid
+  // long edges visually crossing through intermediate nodes
+  const allTaskEdgeDefs = tasks.flatMap(n =>
     (n.dependencies ?? [])
       .filter(dep => tasks.some(x => x.id === dep))
-      .map(dep => ({
-        id: `e-${dep}-${n.id}`,
-        source: dep,
-        target: n.id,
-        type: 'default',
-        animated: tasks.find(x => x.id === dep)?.status === 'in_progress',
-        style: { stroke: GRAPH_EDGE_COLOR, strokeWidth: 1.5, opacity: 0.7 },
-        markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: GRAPH_EDGE_COLOR },
-      }))
+      .map(dep => ({ id: `e-${dep}-${n.id}`, source: dep, target: n.id }))
   )
+  const redundantTaskEdgeIds = computeRedundantEdgeIds(allTaskEdgeDefs)
+  const taskEdges: Edge[] = allTaskEdgeDefs
+    .filter(e => !redundantTaskEdgeIds.has(e.id))
+    .map(e => ({
+      ...e,
+      type: 'default',
+      animated: tasks.find(x => x.id === e.source)?.status === 'in_progress',
+      style: { stroke: GRAPH_EDGE_COLOR, strokeWidth: 1.5, opacity: 0.7 },
+      markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: GRAPH_EDGE_COLOR },
+    }))
 
   // Dependency edges between milestones (left→right in the top row)
   const milestoneEdges: Edge[] = milestones.flatMap(ms =>
