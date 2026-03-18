@@ -689,7 +689,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
             <span className="text-muted-foreground">Completed</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="h-2 w-2 rounded-full bg-warning" />
+            <div className="h-2 w-2 rounded-full bg-info" />
             <span className="text-muted-foreground">In Progress</span>
           </div>
           <div className="flex items-center gap-1.5">

@@ -165,7 +165,7 @@ function getProjectColumns(
     label: "Status",
     width: "w-[100px]",
     render: (p) => (
-      <Badge variant="success" className="text-xs">
+      <Badge variant={p.status === "active" ? "success" : "secondary"} className="text-xs">
         {p.status === "active" ? "Active" : "Archived"}
       </Badge>
     ),
