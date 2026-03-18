@@ -22,6 +22,7 @@ import { NodeInspectorSheet, NodeInspectorSidebar } from "@/components/node-insp
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useTeamStore } from "@/stores/team-store"
+import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { PRIORITY_CONFIG } from "@/lib/constants"
@@ -123,6 +124,7 @@ export function MyTasks() {
   const loadAllTeamsPlans = usePlanStore((s) => s.loadAllTeams)
   const teams = useTeamStore((s) => s.teams)
   const activeTeamId = useTeamStore((s) => s.activeTeamId)
+  const workspaceFilter = useWorkspaceFilterStore((s) => s.workspaceFilter)
 
   // Load all teams' data on mount for cross-team task view
   useEffect(() => {
@@ -132,10 +134,16 @@ export function MyTasks() {
   }, [])
 
   // Filter out playground sessions — they have no plan nodes and shouldn't appear in task views
-  const projects = useMemo(
-    () => allProjects.filter((p) => p.projectType != null && p.projectType !== 'playground'),
-    [allProjects]
-  )
+  // Then apply workspace filter to scope projects by team
+  const projects = useMemo(() => {
+    let filtered = allProjects.filter((p) => p.projectType != null && p.projectType !== 'playground')
+    if (workspaceFilter === 'personal') {
+      filtered = filtered.filter((p) => !p.teamId)
+    } else if (workspaceFilter !== 'all') {
+      filtered = filtered.filter((p) => p.teamId === workspaceFilter)
+    }
+    return filtered
+  }, [allProjects, workspaceFilter])
   const projectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects])
   const rawNodes = usePlanStore((s) => s.nodes)
   const nodes = useMemo(() => rawNodes.filter((n) => isLive(n) && projectIds.has(n.projectId)), [rawNodes, projectIds])
