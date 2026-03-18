@@ -1,7 +1,7 @@
 import { create } from "zustand"
 
 interface WorkspaceFilterState {
-  workspaceFilter: 'all' | 'personal' | (string & {})
+  workspaceFilter: 'all' | (string & {})
   setWorkspaceFilter: (filter: string) => void
 }
 

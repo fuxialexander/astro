@@ -137,9 +137,7 @@ export function MyTasks() {
   // Then apply workspace filter to scope projects by team
   const projects = useMemo(() => {
     let filtered = allProjects.filter((p) => p.projectType != null && p.projectType !== 'playground')
-    if (workspaceFilter === 'personal') {
-      filtered = filtered.filter((p) => !p.teamId)
-    } else if (workspaceFilter !== 'all') {
+    if (workspaceFilter !== 'all') {
       filtered = filtered.filter((p) => p.teamId === workspaceFilter)
     }
     return filtered
