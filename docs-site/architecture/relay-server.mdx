@@ -1,0 +1,59 @@
+---
+title: "Relay Server"
+description: "WebSocket relay for real-time bidirectional communication between backend and agent machines."
+---
+
+## Overview
+
+The relay server (`server/lib/relay-server.ts`) runs on port 3002 alongside the Hono API. It maintains persistent WebSocket connections to registered agent machines and provides real-time bidirectional communication.
+
+## Responsibilities
+
+- Accept WebSocket connections from `astro-agent` instances
+- Register machines and track their presence
+- Route task dispatches from the backend to the correct machine
+- Relay streaming events from agents back to the backend (and via SSE to browsers)
+- Detect machine disconnections via heartbeat timeouts
+
+## Machine Registry
+
+Two layers track machine presence:
+
+| Layer | Storage | Purpose |
+|-------|---------|---------|
+| `machineRegistry` (in-memory) | Per-process | Holds live WebSocket handles |
+| `relay:machines` Redis hash | Cross-instance | Authoritative presence for HTTP requests |
+| `registered_machines` DB table | Persistent | Machine metadata and history |
+
+Machine instances have a 5-minute TTL in Redis, refreshed every 30 seconds by heartbeat. Ghost entries persist in the Redis hash until startup cleanup.
+
+## Heartbeat Protocol
+
+```
+Agent                    Relay
+  │──── heartbeat ──────▶ │  Every 30s
+  │◀─── heartbeat_ack ─── │
+  │                        │
+  │  (no heartbeat 5min)   │
+  │                        │  TTL expires → machine marked offline
+```
+
+## Multi-Instance Coordination
+
+With 2 Fly.io backend instances, a WebSocket connection to Instance A is invisible to Instance B. Redis pub/sub bridges this:
+
+1. Browser sends HTTP request (may hit Instance B)
+2. Backend checks Redis for machine presence
+3. If machine is on Instance A, publishes dispatch event to Redis
+4. Instance A's relay picks it up and routes to the machine's WebSocket
+
+The `_fromProxy` flag on relay responses prevents infinite echo loops — always check for it before re-publishing.
+
+## `isMachineReachable()`
+
+```typescript
+// server/lib/relay-server.ts
+async function isMachineReachable(machineId: string): Promise<boolean>
+```
+
+Checks both in-memory registry (local connection) and Redis hash (any instance). Use this before attempting task dispatch.

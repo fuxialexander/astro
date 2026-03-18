@@ -1,0 +1,82 @@
+---
+title: "Data Model"
+description: "Database schema, key tables, and Drizzle ORM patterns."
+---
+
+## Overview
+
+Astro uses Drizzle ORM as the query layer over either PGlite (local mode) or Postgres (server mode). The schema source of truth is `packages/core/src/db/schema.ts`.
+
+## Key Tables
+
+### `projects`
+Top-level project container. Belongs to a `team`.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `team_id` | UUID | Owning team |
+| `name` | TEXT | Project name |
+| `description` | TEXT | Goal description |
+| `vision_doc` | TEXT | Injected into every agent session |
+| `status` | TEXT | `active`, `archived`, `completed` |
+
+### `plan_nodes`
+Individual tasks in the plan graph.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `project_id` | UUID | Parent project |
+| `title` | TEXT | Task title |
+| `description` | TEXT | Detailed task description |
+| `status` | TEXT | `planned` \| `dispatched` \| `in_progress` \| `auto_verified` \| `awaiting_approval` \| `awaiting_judgment` \| `completed` \| `pruned` |
+| `start_date` | TEXT | ISO YYYY-MM-DD |
+| `end_date` | TEXT | ISO YYYY-MM-DD |
+| `execution_id` | UUID | FK to current/latest execution |
+| `execution_output` | TEXT | *(excluded from slim loads)* |
+
+### `task_executions`
+Records of each execution attempt for a task.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `plan_node_id` | UUID | Task being executed |
+| `status` | TEXT | Execution status |
+| `machine_id` | UUID | Machine that ran/is running it |
+| `summary` | TEXT | AI-generated completion summary |
+| `compute_backend` | TEXT | `local` \| `slurm` \| `cloud` |
+
+### `streaming_events`
+Append-only log of all streaming events per execution. Enables page-refresh recovery.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `execution_id` | UUID | Parent execution |
+| `seq` | INT | Sequence number (monotonic) |
+| `type` | TEXT | Event type (`text`, `tool_use`, etc.) |
+| `data` | JSONB | Event payload |
+
+### `registered_machines`
+Machines that have registered with the relay.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `team_id` | UUID | Owning team |
+| `name` | TEXT | Human-readable name |
+| `provider` | TEXT | `local` \| `slurm` |
+| `labels` | TEXT[] | Machine capability labels |
+
+## Schema Changes
+
+Always follow the four-step checklist when modifying the schema:
+
+1. Edit `packages/core/src/db/schema.ts` (source of truth)
+2. Export from `server/lib/db/schema.ts` (re-export shim)
+3. Run `npx drizzle-kit generate` (PGlite migration)
+4. Write `supabase/migrations/YYYYMMDDHHMMSS_description.sql` (production migration)
+
+After merging, run `npm run db:push` to apply to production Supabase.

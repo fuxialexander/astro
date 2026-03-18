@@ -1,0 +1,148 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Astro",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#4F46E5",
+    "light": "#818CF8",
+    "dark": "#3730A3",
+    "anchors": {
+      "from": "#4F46E5",
+      "to": "#6366F1"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "GitHub",
+      "url": "https://github.com/astro-anywhere/astro"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Get Started",
+    "url": "https://astroanywhere.com"
+  },
+  "tabs": [
+    {
+      "name": "Guides",
+      "url": "/"
+    },
+    {
+      "name": "Architecture",
+      "url": "architecture"
+    },
+    {
+      "name": "API Reference",
+      "url": "api-reference"
+    },
+    {
+      "name": "CLI & Agent",
+      "url": "cli"
+    }
+  ],
+  "anchors": [
+    {
+      "name": "Community",
+      "icon": "discord",
+      "url": "https://discord.gg/astroanywhere"
+    },
+    {
+      "name": "Changelog",
+      "icon": "list",
+      "url": "https://github.com/astro-anywhere/astro/blob/main/CHANGELOG.md"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Getting Started",
+      "pages": [
+        "introduction",
+        "quickstart",
+        "installation",
+        "concepts"
+      ]
+    },
+    {
+      "group": "Use Cases",
+      "pages": [
+        "use-cases/builders",
+        "use-cases/scientists"
+      ]
+    },
+    {
+      "group": "Tutorials",
+      "pages": [
+        "tutorials/plan-first-project",
+        "tutorials/connect-machine",
+        "tutorials/dispatch-tasks",
+        "tutorials/use-cli",
+        "tutorials/collaborate-with-team"
+      ]
+    },
+    {
+      "group": "Architecture",
+      "pages": [
+        "architecture/overview",
+        "architecture/frontend",
+        "architecture/backend",
+        "architecture/agent-runner",
+        "architecture/relay-server",
+        "architecture/data-model"
+      ]
+    },
+    {
+      "group": "Features",
+      "pages": [
+        "features/plan-graph",
+        "features/approval-system",
+        "features/activity-feed",
+        "features/realtime-sync",
+        "features/skills",
+        "features/mcp-tools"
+      ]
+    },
+    {
+      "group": "Setup & Deployment",
+      "pages": [
+        "setup/local-mode",
+        "setup/dev-mode",
+        "setup/production",
+        "setup/environment-variables",
+        "setup/security"
+      ]
+    },
+    {
+      "group": "API Reference",
+      "pages": [
+        "api-reference/endpoints",
+        "api-reference/data-api",
+        "api-reference/dispatch-api",
+        "api-reference/events-api",
+        "api-reference/authentication"
+      ]
+    },
+    {
+      "group": "CLI & Agent",
+      "pages": [
+        "cli/cli-overview",
+        "cli/cli-commands",
+        "cli/agent-runner",
+        "cli/agent-providers"
+      ]
+    },
+    {
+      "group": "Integrations",
+      "pages": [
+        "integrations/github",
+        "integrations/hpc-slurm"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/astro-anywhere/astro",
+    "twitter": "https://twitter.com/astroanywhere"
+  }
+}

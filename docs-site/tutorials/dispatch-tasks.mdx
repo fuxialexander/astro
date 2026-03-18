@@ -1,0 +1,63 @@
+---
+title: "Dispatch Tasks"
+description: "Learn how task dispatch works — dependency ordering, machine selection, and parallel execution."
+---
+
+## How Dispatch Works
+
+Astro's dispatch engine automatically sends tasks to machines when their prerequisites are complete. The process:
+
+1. **Dependency check** — Is every predecessor task completed or auto-verified?
+2. **Machine selection** — Which registered machines are available and match the task's requirements?
+3. **Context assembly** — Vision document + task description + dependency outputs are assembled
+4. **Agent execution** — The task is sent to the selected machine's agent runner
+5. **Result routing** — Output streams back to Astro; verification runs; status updates
+
+## Dispatching Manually
+
+To dispatch a task that's ready (all dependencies complete):
+
+1. Find the task in the plan graph
+2. Click the task to open its panel
+3. Click **Dispatch** (visible when status is `planned` and dependencies are met)
+
+Or dispatch all ready tasks at once: **Plan → Dispatch All Ready**
+
+## Automatic Dispatch
+
+Enable auto-dispatch on a project to automatically send tasks to agents as soon as their prerequisites complete:
+
+**Project Settings → Execution → Auto-dispatch: On**
+
+<Warning>
+  With auto-dispatch enabled, tasks run as soon as dependencies complete. Make sure you've reviewed the plan carefully before enabling this.
+</Warning>
+
+## Parallel Execution
+
+Tasks with no shared dependencies run in parallel. If you have 3 tasks with no dependencies on each other and 3 registered machines, all 3 execute simultaneously.
+
+The plan graph view shows active executions with a pulsing indicator on each running task node.
+
+## Machine Selection
+
+By default, Astro selects the least-busy available machine. To target a specific machine:
+
+1. Open the task panel
+2. Under **Execution Settings**, select a specific machine or machine label
+3. Dispatch
+
+## Monitoring Execution
+
+While a task runs:
+- The **Activity Feed** shows real-time agent output — tool calls, file changes, text output
+- The **task panel** shows a live stream of the execution
+- The **machine status panel** shows CPU/memory usage on the executing machine
+
+## Cancelling a Task
+
+To cancel a running task:
+1. Open the task panel
+2. Click **Cancel Execution**
+
+This sends a cancellation signal to the agent. In-progress work may be partially complete.

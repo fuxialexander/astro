@@ -1,0 +1,8 @@
+# Mintlify cache directory
+.mintlify/
+
+# Node modules (if installed locally)
+node_modules/
+
+# Build output
+.build/

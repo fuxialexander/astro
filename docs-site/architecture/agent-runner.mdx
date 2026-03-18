@@ -1,0 +1,85 @@
+---
+title: "Agent Runner"
+description: "The astro-agent binary — how tasks execute on registered machines."
+---
+
+## Overview
+
+The agent runner (`@astroanywhere/agent`, binary: `astro-agent`) is the component that runs on each registered machine. It:
+
+1. Connects to the Astro relay server via WebSocket
+2. Receives task dispatches from the backend
+3. Executes tasks using a configured AI agent (e.g., Claude Code)
+4. Streams results back via WebSocket
+
+The agent runner is a git submodule at `packages/agent-runner/`, pointing to `github.com/astro-anywhere/astro-agent`.
+
+## Architecture
+
+```
+Astro Backend
+    │  WebSocket (task payload)
+    ▼
+astro-agent (on registered machine)
+    │
+    ├── Base Provider (local shell)
+    │   └── Spawns coding agent with task + context
+    │
+    └── Slurm Provider (HPC)
+        └── Submits sbatch job → monitors → returns result
+```
+
+## Providers
+
+### Base Provider
+
+Executes tasks directly in a local shell. Used for:
+- Local machine development
+- Cloud VMs
+- Any direct-execution environment
+
+### Slurm Provider
+
+Submits tasks as Slurm batch jobs. Used for:
+- HPC clusters with job scheduling
+- Environments where compute runs on separate nodes from the login node
+
+Configuration:
+```bash
+astro-agent register --provider slurm \
+  --slurm-partition gpu \
+  --slurm-account my-allocation \
+  --slurm-mem 32G \
+  --slurm-time 4:00:00
+```
+
+## Streaming Events
+
+The agent runner emits structured streaming events during execution:
+
+| Event | Description |
+|-------|-------------|
+| `init` | Execution started |
+| `session_init` | Agent session initialized |
+| `text` | Agent text output |
+| `tool_use` | Agent tool call |
+| `tool_result` | Tool call result |
+| `file_change` | File modified/created/deleted |
+| `progress` | Progress indicator |
+| `result` | Final execution result |
+| `error` | Execution error |
+| `done` | Execution complete |
+
+All events are persisted to the `streaming_events` table for page-refresh recovery.
+
+## Workspace Model
+
+Each task execution runs in an isolated git worktree (`.astro/worktrees/`), preventing interference between concurrent tasks. The delivery mode controls how completed work is returned:
+
+| Mode | Behavior |
+|------|---------|
+| `pr` | Opens a GitHub pull request |
+| `push` | Pushes directly to a branch |
+| `branch` | Creates a branch, no push |
+| `copy` | Copies changed files |
+| `direct` | Modifies working directory directly |
