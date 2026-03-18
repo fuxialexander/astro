@@ -325,3 +325,49 @@ export function layoutGraph(
   return positions
 }
 
+/**
+ * Compute optimal source/target handle IDs for an edge based on relative node positions.
+ *
+ * Returns { sourceHandle, targetHandle } where each is one of:
+ *   "right"  / "left"   — horizontal (LR) flow
+ *   "bottom" / "top"    — vertical (TB) flow
+ *
+ * Decision rule:
+ *   If the target is primarily below/above the source (|dy| > 1.5·|dx| and |dy| > 30px),
+ *   the edge uses vertical handles (bottom→top). Otherwise horizontal (right→left).
+ *
+ * Visual reference (each box is a node):
+ *
+ *   Horizontal flow (right→left):          Vertical flow (bottom→top):
+ *
+ *     ┌─────┐          ┌─────┐              ┌─────┐
+ *     │  A  ●──────────●  B  │              │  A  │
+ *     └─────┘ right  left └─────┘              └──●──┘  bottom
+ *                                                 │
+ *                                                 │
+ *                                              ┌──●──┐  top
+ *                                              │  B  │
+ *                                              └─────┘
+ */
+export function computeEdgeHandles(
+  srcPos: { x: number; y: number } | undefined,
+  tgtPos: { x: number; y: number } | undefined,
+): { sourceHandle: string; targetHandle: string } {
+  if (!srcPos || !tgtPos) {
+    return { sourceHandle: "right", targetHandle: "left" }
+  }
+
+  const dx = tgtPos.x - srcPos.x
+  const dy = tgtPos.y - srcPos.y
+
+  // If target is primarily below/above the source, use vertical handles
+  if (Math.abs(dy) > Math.abs(dx) * 1.5 && Math.abs(dy) > 30) {
+    return {
+      sourceHandle: dy > 0 ? "bottom" : "right",
+      targetHandle: dy > 0 ? "top" : "left",
+    }
+  }
+
+  return { sourceHandle: "right", targetHandle: "left" }
+}
+

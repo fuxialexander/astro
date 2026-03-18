@@ -28,7 +28,7 @@ import { DeletableEdge } from "./deletable-edge"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { MachineWorkdirSelector } from "@/components/machine-workdir-selector"
-import { calculateChildPosition, calculateParentPosition } from "@/lib/graph-utils"
+import { calculateChildPosition, calculateParentPosition, computeEdgeHandles } from "@/lib/graph-utils"
 import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
@@ -552,19 +552,10 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
           })()
 
           // Pick optimal handle pair based on relative node positions
-          const srcPos = nodePositionMap.get(e.source)
-          const tgtPos = nodePositionMap.get(e.target)
-          let sourceHandle = "right"
-          let targetHandle = "left"
-          if (srcPos && tgtPos) {
-            const dx = tgtPos.x - srcPos.x
-            const dy = tgtPos.y - srcPos.y
-            // If target is primarily below/above the source, use vertical handles
-            if (Math.abs(dy) > Math.abs(dx) * 1.5 && Math.abs(dy) > 30) {
-              sourceHandle = dy > 0 ? "bottom" : "right"
-              targetHandle = dy > 0 ? "top" : "left"
-            }
-          }
+          const { sourceHandle, targetHandle } = computeEdgeHandles(
+            nodePositionMap.get(e.source),
+            nodePositionMap.get(e.target),
+          )
 
           return {
             id: e.id,
