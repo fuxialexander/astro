@@ -66,6 +66,8 @@ import type { TaskActivityEvent } from "@/types"
 import { useRestoredExecution } from "@/hooks/use-restored-execution"
 import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
 import { useChatActivityEvents } from "@/hooks/use-chat-activity-events"
+import { JsonRenderView } from "@/components/ui/json-render-view"
+import type { Spec } from "@json-render/core"
 
 // Identify playground projects by the projectType field (persisted) or execution key (in-memory fallback)
 function isPlaygroundProject(project: { projectType?: string; id: string }, executions: Map<string, unknown>): boolean {
@@ -679,6 +681,14 @@ export function Playground() {
       }
       case 'approval_response':
         return null
+      case 'json_render_spec': {
+        const specEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'json_render_spec' }>
+        return (
+          <div key={index} className="px-4 py-2">
+            <JsonRenderView spec={specEvent.spec as unknown as Spec} componentDefs={block.componentDefs} />
+          </div>
+        )
+      }
       default:
         return null
     }

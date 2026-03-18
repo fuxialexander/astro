@@ -45,6 +45,8 @@ import { useRestoredExecution } from "@/hooks/use-restored-execution"
 import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
 import { useChatActivityEvents } from "@/hooks/use-chat-activity-events"
 import { Link } from "react-router"
+import { JsonRenderView } from "@/components/ui/json-render-view"
+import type { Spec } from "@json-render/core"
 
 interface PlanGenerationProps {
   projectId: string
@@ -621,6 +623,14 @@ export function PlanGeneration({
         return <SystemPromptBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'system_prompt' }>} />
       case 'plan_result':
         return <PlanGraphBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'plan_result' }>} />
+      case 'json_render_spec': {
+        const specEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'json_render_spec' }>
+        return (
+          <div key={index} className="px-4 py-2">
+            <JsonRenderView spec={specEvent.spec as unknown as Spec} componentDefs={block.componentDefs} />
+          </div>
+        )
+      }
       default:
         return null
     }
