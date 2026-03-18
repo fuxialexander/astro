@@ -239,17 +239,17 @@ async function streamChatViaRelay(
       const seq = msg._dbSeq ?? 0
       stream.writeSSE({
         event: 'tool_use',
-        data: JSON.stringify({ toolName: msg.toolName, toolInput: msg.toolInput }),
+        data: JSON.stringify({ toolName: msg.toolName, toolInput: msg.toolInput, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) }),
         id: String(seq),
       }).catch(() => { alive = false })
-      executionEventBus.emit('task:tool_trace', { taskId: opts.taskId, toolName: msg.toolName, toolInput: msg.toolInput })
+      executionEventBus.emit('task:tool_trace', { taskId: opts.taskId, toolName: msg.toolName, toolInput: msg.toolInput, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) })
       if (msg.toolResult !== undefined) {
         stream.writeSSE({
           event: 'tool_result',
-          data: JSON.stringify({ toolName: msg.toolName, success: msg.success, result: msg.toolResult }),
+          data: JSON.stringify({ toolName: msg.toolName, success: msg.success, result: msg.toolResult, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) }),
           id: String(seq),
         }).catch(() => { alive = false })
-        executionEventBus.emit('task:tool_trace', { taskId: opts.taskId, toolName: msg.toolName, toolResult: typeof msg.toolResult === 'string' ? msg.toolResult.slice(0, 100000) : msg.toolResult, success: msg.success ?? true })
+        executionEventBus.emit('task:tool_trace', { taskId: opts.taskId, toolName: msg.toolName, toolResult: typeof msg.toolResult === 'string' ? msg.toolResult.slice(0, 100000) : msg.toolResult, success: msg.success ?? true, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) })
       }
     }
 
