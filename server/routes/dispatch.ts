@@ -1846,7 +1846,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       // Only send tool_use SSE when toolInput is present (avoid orphan tool_use
       // events for result-only traces from relay's separate toolUse/toolResult flow)
       if (msg.toolInput !== undefined) {
-        const data = { toolName: msg.toolName, toolInput: msg.toolInput }
+        const data = { toolName: msg.toolName, toolInput: msg.toolInput, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) }
         // seq comes from relay-server's persist; use it as the SSE event id for catch-up ordering
         const seq = msg._dbSeq ?? 0
         stream.writeSSE({
@@ -1857,7 +1857,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         executionEventBus.emit('task:tool_trace', { taskId: executionId, toolName: msg.toolName, toolInput: msg.toolInput })
       }
       if (msg.toolResult !== undefined) {
-        const resultData = { toolName: msg.toolName, success: msg.success, result: msg.toolResult }
+        const resultData = { toolName: msg.toolName, success: msg.success, result: msg.toolResult, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) }
         const seq = msg._dbSeq ?? 0
         stream.writeSSE({
           id: String(seq),

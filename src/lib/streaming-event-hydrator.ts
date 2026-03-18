@@ -128,10 +128,14 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
       }
       case 'tool_use': {
         const toolName = (data.toolName as string) || 'unknown'
-        const id = `hydrated-${++idCounter}`
+        const apiToolUseId = data.toolUseId as string | undefined
+        // Use Claude API toolUseId as the ID when available for exact matching
+        const id = apiToolUseId || `hydrated-${++idCounter}`
         // Track unpaired tool_use IDs so matching tool_result gets the same ID
         if (!unpairedToolUseIds.has(toolName)) unpairedToolUseIds.set(toolName, [])
         unpairedToolUseIds.get(toolName)!.push(id)
+        // Also track by toolUseId for exact matching in tool_result
+        if (apiToolUseId) unpairedToolUseIds.set(`__exact__${apiToolUseId}`, [id])
         activityEvents.push({
           type: 'tool_use',
           id,
@@ -150,10 +154,26 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
       }
       case 'tool_result': {
         const toolName = (data.toolName as string) || 'unknown'
-        // Reuse ID from the matching tool_use so grouping pairs them correctly
-        const pendingIds = unpairedToolUseIds.get(toolName)
-        const id = pendingIds?.shift() ?? `hydrated-${++idCounter}`
-        if (pendingIds?.length === 0) unpairedToolUseIds.delete(toolName)
+        const apiToolUseId = data.toolUseId as string | undefined
+        // Match by toolUseId first (exact), then fall back to toolName queue
+        let id: string
+        const exactMatch = apiToolUseId ? unpairedToolUseIds.get(`__exact__${apiToolUseId}`) : undefined
+        if (exactMatch?.length) {
+          id = exactMatch.shift()!
+          unpairedToolUseIds.delete(`__exact__${apiToolUseId}`)
+          // Also remove from toolName queue to keep it consistent
+          const nameQueue = unpairedToolUseIds.get(toolName)
+          if (nameQueue) {
+            const idx = nameQueue.indexOf(id)
+            if (idx >= 0) nameQueue.splice(idx, 1)
+            if (nameQueue.length === 0) unpairedToolUseIds.delete(toolName)
+          }
+        } else {
+          // Fallback to toolName-based FIFO matching
+          const pendingIds = unpairedToolUseIds.get(toolName)
+          id = pendingIds?.shift() ?? `hydrated-${++idCounter}`
+          if (pendingIds?.length === 0) unpairedToolUseIds.delete(toolName)
+        }
         activityEvents.push({
           type: 'tool_result',
           id,
