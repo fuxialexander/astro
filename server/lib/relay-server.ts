@@ -1272,8 +1272,8 @@ export class RelayServer extends EventEmitter {
    * Looks up the task owner from executionContextStore so receiving instances can
    * filter by user without relying on their own (empty) in-memory store.
    */
-  private publishToRedis(event: Omit<StreamingEventMessage, 'instanceId'>): void {
-    const userId = executionContextStore.getUserIdForTask(event.taskId);
+  private async publishToRedis(event: Omit<StreamingEventMessage, 'instanceId'>): Promise<void> {
+    const userId = await executionContextStore.getUserIdForTaskWithFallback(event.taskId);
     redisPubSub.publishStreamingEvent({ ...event, userId }).catch((err) => {
       console.error(`[relay] Failed to publish ${event.eventType} to Redis:`, err);
     });
@@ -1282,7 +1282,7 @@ export class RelayServer extends EventEmitter {
   /**
    * Handle task result
    */
-  private handleTaskResult(message: TaskResultMessage): void {
+  private async handleTaskResult(message: TaskResultMessage): Promise<void> {
     console.log(`[relay] Task result received: ${message.result.taskId} - ${message.result.status}`);
     this.taskToMachine.delete(message.result.taskId);
     this.taskDispatchedAt.delete(message.result.taskId);
@@ -1293,7 +1293,7 @@ export class RelayServer extends EventEmitter {
     // Snapshot userId BEFORE emit — dispatch.ts's onResult handler synchronously
     // calls executionContextStore.remove(), so getUserIdForTask returns undefined
     // after emit returns. publishToRedis needs the userId for cross-instance isolation.
-    const userId = executionContextStore.getUserIdForTask(message.result.taskId);
+    const userId = await executionContextStore.getUserIdForTaskWithFallback(message.result.taskId);
     this.emit('task:result', message);
     redisPubSub.publishStreamingEvent({
       eventType: 'result', taskId: message.result.taskId, userId,
