@@ -57,7 +57,7 @@ export function TaskCreationForm({
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [showDescription, setShowDescription] = useState(defaultShowDescription)
-  const [nodeType, setNodeType] = useState<"task" | "milestone">(defaultNodeType ?? "task")
+  const [nodeType, setNodeType] = useState<"task" | "milestone" | "loop">(defaultNodeType ?? "task")
   const [priority, setPriority] = useState<Priority>("none")
   const [estimate, setEstimate] = useState<Estimate | "">("")
   const [dueDate, setDueDate] = useState("")
