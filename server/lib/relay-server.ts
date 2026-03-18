@@ -1271,18 +1271,26 @@ export class RelayServer extends EventEmitter {
    * Publish a streaming event to Redis with userId for cross-instance user isolation.
    * Looks up the task owner from executionContextStore so receiving instances can
    * filter by user without relying on their own (empty) in-memory store.
+   *
+   * Uses async getUserIdForTaskWithFallback() which checks the local Map first,
+   * then falls back to Redis. This is critical for the cross-instance case where
+   * the WebSocket instance (receiving agent events) is NOT the dispatch instance
+   * (which registered the execution context). The fallback caches locally, so
+   * only the first event per task triggers a Redis lookup.
    */
-  private publishToRedis(event: Omit<StreamingEventMessage, 'instanceId'>): void {
-    const userId = executionContextStore.getUserIdForTask(event.taskId);
-    redisPubSub.publishStreamingEvent({ ...event, userId }).catch((err) => {
+  private async publishToRedis(event: Omit<StreamingEventMessage, 'instanceId'>): Promise<void> {
+    try {
+      const userId = await executionContextStore.getUserIdForTaskWithFallback(event.taskId);
+      await redisPubSub.publishStreamingEvent({ ...event, userId });
+    } catch (err) {
       console.error(`[relay] Failed to publish ${event.eventType} to Redis:`, err);
-    });
+    }
   }
 
   /**
    * Handle task result
    */
-  private handleTaskResult(message: TaskResultMessage): void {
+  private async handleTaskResult(message: TaskResultMessage): Promise<void> {
     console.log(`[relay] Task result received: ${message.result.taskId} - ${message.result.status}`);
     this.taskToMachine.delete(message.result.taskId);
     this.taskDispatchedAt.delete(message.result.taskId);
@@ -1292,8 +1300,14 @@ export class RelayServer extends EventEmitter {
     redisPubSub.removeTaskMapping(message.result.taskId).catch(() => {});
     // Snapshot userId BEFORE emit — dispatch.ts's onResult handler synchronously
     // calls executionContextStore.remove(), so getUserIdForTask returns undefined
-    // after emit returns. publishToRedis needs the userId for cross-instance isolation.
-    const userId = executionContextStore.getUserIdForTask(message.result.taskId);
+    // after emit returns. Uses async fallback for cross-instance case where the
+    // WebSocket instance is not the dispatch instance.
+    let userId: string | undefined;
+    try {
+      userId = await executionContextStore.getUserIdForTaskWithFallback(message.result.taskId);
+    } catch {
+      userId = executionContextStore.getUserIdForTask(message.result.taskId);
+    }
     this.emit('task:result', message);
     redisPubSub.publishStreamingEvent({
       eventType: 'result', taskId: message.result.taskId, userId,
@@ -2755,7 +2769,7 @@ export class RelayServer extends EventEmitter {
     });
   }
 
-  private handleAgentRunnerTaskResult(message: AgentRunnerTaskResultMessage): void {
+  private async handleAgentRunnerTaskResult(message: AgentRunnerTaskResultMessage): Promise<void> {
     const { payload } = message;
     const { taskId, status, exitCode, output, error, artifacts, metrics, branchName, prUrl, prNumber, commitBeforeSha, commitAfterSha, deliveryStatus, deliveryError, summary } = payload;
     this.taskToMachine.delete(taskId);
@@ -2765,6 +2779,16 @@ export class RelayServer extends EventEmitter {
     const ackTimer = this.dispatchAckTimers.get(taskId);
     if (ackTimer) { clearTimeout(ackTimer); this.dispatchAckTimers.delete(taskId); }
     redisPubSub.removeTaskMapping(taskId).catch(() => {});
+
+    // Snapshot userId BEFORE emit — dispatch.ts's onResult handler synchronously
+    // calls executionContextStore.remove(), so getUserIdForTask returns undefined
+    // after emit returns. Uses async fallback for cross-instance case.
+    let userId: string | undefined;
+    try {
+      userId = await executionContextStore.getUserIdForTaskWithFallback(taskId);
+    } catch {
+      userId = executionContextStore.getUserIdForTask(taskId);
+    }
 
     // Convert to standard result message
     const resultMsg: TaskResultMessage = {
@@ -2797,13 +2821,15 @@ export class RelayServer extends EventEmitter {
       },
     };
     this.emit('task:result', resultMsg);
-    this.publishToRedis({
-      eventType: 'result', taskId,
+    redisPubSub.publishStreamingEvent({
+      eventType: 'result', taskId, userId,
       data: {
         status: resultMsg.result.status, output, error,
         duration: resultMsg.result.duration,
         branchName, prUrl, prNumber, deliveryStatus,
       },
+    }).catch((err) => {
+      console.error(`[relay] Failed to publish result to Redis:`, err);
     });
   }
 
