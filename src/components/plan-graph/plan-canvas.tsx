@@ -524,6 +524,15 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
     return taskNodes
   }, [projectNodes, orderedMilestoneIds, milestonePositions, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy, readOnly, loopNodesEnabled, handleCreateMilestone, graphDisplaySettings.fastEdit, updateNode])
 
+  // Build a position lookup for edge handle routing
+  const nodePositionMap = useMemo(() => {
+    const map = new Map<string, { x: number; y: number }>()
+    for (const n of projectNodes) {
+      if (n.position) map.set(n.id, n.position)
+    }
+    return map
+  }, [projectNodes])
+
   const rfEdges: Edge[] = useMemo(
     () =>
       projectEdges.map((e) => {
@@ -537,10 +546,27 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
             return "#94A3B8"
           })()
 
+          // Pick optimal handle pair based on relative node positions
+          const srcPos = nodePositionMap.get(e.source)
+          const tgtPos = nodePositionMap.get(e.target)
+          let sourceHandle = "right"
+          let targetHandle = "left"
+          if (srcPos && tgtPos) {
+            const dx = tgtPos.x - srcPos.x
+            const dy = tgtPos.y - srcPos.y
+            // If target is primarily below/above the source, use vertical handles
+            if (Math.abs(dy) > Math.abs(dx) * 1.5 && Math.abs(dy) > 30) {
+              sourceHandle = dy > 0 ? "bottom" : "right"
+              targetHandle = dy > 0 ? "top" : "left"
+            }
+          }
+
           return {
             id: e.id,
             source: e.source,
             target: e.target,
+            sourceHandle,
+            targetHandle,
             type: "deletable",
             data: { onDelete: readOnly ? undefined : handleEdgeDelete, readOnly },
             style: {
@@ -551,7 +577,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
             animated: e.type === "branch",
           }
         }),
-    [projectEdges, projectNodes, handleEdgeDelete, readOnly]
+    [projectEdges, projectNodes, nodePositionMap, handleEdgeDelete, readOnly]
   )
 
   // Connection handlers for mindmap-like drag interactions
