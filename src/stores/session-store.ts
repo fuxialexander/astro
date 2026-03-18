@@ -866,6 +866,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         },
         onError: (error) => {
           get().appendToLastAssistantMessage(sid, `\nError: ${error}`)
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'error',
+            error,
+            timestamp: new Date(),
+          })
           useExecutionStore.getState().setChatMutationActive(projectId, false)
           chatAbortControllers.delete(sid)
           set((state) => {
@@ -893,15 +898,30 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         },
       },
       abortController.signal,
-    ).catch(() => {
-      // Stream errored at fetch level — clean up
-      useExecutionStore.getState().setChatMutationActive(projectId, false)
-      chatAbortControllers.delete(sid)
-      set((state) => {
-        const ss = new Set(state.streamingSessions)
-        ss.delete(sid)
-        return { streamingSessions: ss }
-      })
+    ).catch((err) => {
+      // Stream errored at fetch level — surface error so the user sees it.
+      // Guard: if this controller was replaced by a newer stream, skip cleanup
+      // to avoid clearing the newer stream's state (race on rapid re-send).
+      const isAbort = err?.name === 'AbortError'
+      const isStale = chatAbortControllers.get(sid) !== abortController
+      if (!isAbort && !isStale) {
+        const errorMsg = err?.message || 'Connection failed'
+        get().appendToLastAssistantMessage(sid, `\nError: ${errorMsg}`)
+        useRealtimeStore.getState().pushActivityEvent(sid, {
+          type: 'error',
+          error: errorMsg,
+          timestamp: new Date(),
+        })
+      }
+      if (!isStale) {
+        useExecutionStore.getState().setChatMutationActive(projectId, false)
+        chatAbortControllers.delete(sid)
+        set((state) => {
+          const ss = new Set(state.streamingSessions)
+          ss.delete(sid)
+          return { streamingSessions: ss }
+        })
+      }
     })
   },
 
@@ -1093,13 +1113,26 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         },
       },
       abortController.signal,
-    ).catch(() => {
-      chatAbortControllers.delete(sid)
-      set((state) => {
-        const ss = new Set(state.streamingSessions)
-        ss.delete(sid)
-        return { streamingSessions: ss }
-      })
+    ).catch((err) => {
+      const isAbort = err?.name === 'AbortError'
+      const isStale = chatAbortControllers.get(sid) !== abortController
+      if (!isAbort && !isStale) {
+        const errorMsg = err?.message || 'Connection failed'
+        get().appendToLastAssistantMessage(sid, `\nError: ${errorMsg}`)
+        useRealtimeStore.getState().pushActivityEvent(sid, {
+          type: 'error',
+          error: errorMsg,
+          timestamp: new Date(),
+        })
+      }
+      if (!isStale) {
+        chatAbortControllers.delete(sid)
+        set((state) => {
+          const ss = new Set(state.streamingSessions)
+          ss.delete(sid)
+          return { streamingSessions: ss }
+        })
+      }
     })
   },
 

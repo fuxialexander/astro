@@ -104,16 +104,23 @@ export async function projectChatWithAgent(
     return
   }
 
+  let terminated = false
   await parseChatSSE(res, {
     onText: callbacks.onText,
     onToolUse: callbacks.onToolUse,
     onToolResult: callbacks.onToolResult,
-    onDone: callbacks.onDone,
-    onError: callbacks.onError,
+    onDone: (sessionId) => { terminated = true; callbacks.onDone(sessionId) },
+    onError: (error) => { terminated = true; callbacks.onError(error) },
     onSeq: callbacks.onSeq,
     onMetrics: callbacks.onMetrics,
     onCompaction: callbacks.onCompaction,
   })
+
+  // If the stream ended without a done/error event (server crash, network drop),
+  // fire onDone so the frontend clears streaming state instead of hanging forever.
+  if (!terminated) {
+    callbacks.onDone("")
+  }
 }
 
 export async function abortAgent(sessionId: string): Promise<void> {
@@ -177,15 +184,20 @@ export async function chatWithTask(
     return
   }
 
+  let terminated = false
   await parseChatSSE(res, {
     onText: callbacks.onText,
     onToolUse: callbacks.onToolUse,
     onToolResult: callbacks.onToolResult,
-    onDone: callbacks.onDone,
-    onError: callbacks.onError,
+    onDone: (sessionId) => { terminated = true; callbacks.onDone(sessionId) },
+    onError: (error) => { terminated = true; callbacks.onError(error) },
     onSeq: callbacks.onSeq,
     onMetrics: callbacks.onMetrics,
   })
+
+  if (!terminated) {
+    callbacks.onDone("")
+  }
 }
 
 /**

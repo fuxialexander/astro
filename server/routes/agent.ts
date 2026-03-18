@@ -15,6 +15,7 @@ import { activeDispatchStreams } from '../lib/execution-context-store.js'
 import { incrementChatSSE, decrementChatSSE } from '../lib/sse-connection-tracker.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
+import { redisPubSub, type StreamingEventMessage } from '../lib/redis-pubsub.js'
 import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, ProviderType, ImageAttachment } from '../types/relay.js'
 import { db } from '../lib/db/index.js'
 import { projects, taskExecutions, registeredMachines, machineInstructions, blobs } from '../lib/db/schema.js'
@@ -307,6 +308,73 @@ async function streamChatViaRelay(
     relayServer.on('task:session_init', onSessionInit)
     relayServer.on('machine:disconnected', onMachineDisconnected)
 
+    // Cross-instance streaming: when the task runs on a remote instance,
+    // response events arrive via Redis pub/sub instead of local relay events.
+    // Convert them into the same SSE writes so the client receives output
+    // regardless of which instance the agent runner is connected to.
+    const onRedisStreaming = (msg: StreamingEventMessage) => {
+      if (!alive) return
+      // Only process events from other instances for this task
+      if (msg.instanceId === redisPubSub.getInstanceId()) return
+      if (msg.taskId !== opts.taskId) return
+      lastActivity = Date.now()
+
+      switch (msg.eventType) {
+        case 'text':
+          stream.writeSSE({ event: 'text', data: msg.data.text as string }).catch(() => { alive = false })
+          executionEventBus.emit('task:stdout', { output: { taskId: opts.taskId, data: msg.data.text as string, stream: 'stdout', timestamp: new Date() } })
+          break
+        case 'tool_use':
+        case 'tool_result': {
+          const seq = msg.dbSeq ?? 0
+          stream.writeSSE({
+            event: msg.eventType === 'tool_use' ? 'tool_use' : 'tool_result',
+            data: JSON.stringify(msg.data),
+            id: String(seq),
+          }).catch(() => { alive = false })
+          break
+        }
+        case 'file_change': {
+          const seq = msg.dbSeq ?? 0
+          stream.writeSSE({
+            event: 'file_change',
+            data: JSON.stringify(msg.data),
+            id: String(seq),
+          }).catch(() => { alive = false })
+          break
+        }
+        case 'session_init': {
+          providerSessionId = msg.data.sessionId as string
+          const seq = msg.dbSeq ?? 0
+          stream.writeSSE({
+            event: 'session_init',
+            data: JSON.stringify({ sessionId: msg.data.sessionId, model: msg.data.model }),
+            id: String(seq),
+          }).catch(() => { alive = false })
+          break
+        }
+        case 'result': {
+          const resultData = msg.data as Record<string, unknown>
+          const resolvedSessionId = providerSessionId || opts.taskId
+          const isSuccess = resultData.status === 'completed'
+          const metrics = resultData.metrics as Record<string, unknown> | undefined
+
+          if (!isSuccess) {
+            const errorMsg = (resultData.error as string) || 'Agent runner task failed'
+            stream.writeSSE({ event: 'error', data: errorMsg }).catch(() => {})
+          } else {
+            stream.writeSSE({
+              event: 'done',
+              data: JSON.stringify({ sessionId: resolvedSessionId, metrics }),
+            }).catch(() => {})
+          }
+          alive = false
+          break
+        }
+      }
+    }
+    redisPubSub.on('task:streaming', onRedisStreaming)
+
     const cleanup = () => {
       relayServer.off('task:text', onText)
       relayServer.off('task:result', onResult)
@@ -314,6 +382,7 @@ async function streamChatViaRelay(
       relayServer.off('task:file_change', onFileChange)
       relayServer.off('task:session_init', onSessionInit)
       relayServer.off('machine:disconnected', onMachineDisconnected)
+      redisPubSub.off('task:streaming', onRedisStreaming)
     }
 
     // Extract authenticated user for machine ownership filtering
