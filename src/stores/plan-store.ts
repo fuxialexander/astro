@@ -547,8 +547,12 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       }
     }
 
-    // Auto-complete or revert milestone nodes
-    if (prevNode && prevNode.status !== dbNode.status) {
+    // Auto-complete or revert milestone nodes.
+    // Always run (no status-transition guard): the caller may have already patched
+    // the store (e.g., synchronous SSE pre-patch in realtime-store), making
+    // prevNode.status === dbNode.status even though a real transition occurred.
+    // computeMilestoneUpdates returns empty when there's nothing to update.
+    if (prevNode) {
       const milestoneUpdates = computeMilestoneUpdates(dbNode.id, get().nodes, get().edges)
       if (milestoneUpdates.length > 0) {
         const updateMap = new Map(milestoneUpdates.map((mu) => [mu.id, mu.status]))
