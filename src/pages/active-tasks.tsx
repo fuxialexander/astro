@@ -8,6 +8,7 @@ import { useProjectStore } from "@/stores/project-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useSessionStore } from "@/stores/session-store"
+import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
 import { statusBadgeVariants, TERMINAL_NODE_STATUSES } from "@/lib/status-config"
 
 interface ActiveTask {
@@ -238,9 +239,10 @@ export function ActiveTasks() {
   const nodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
   const streamingSessions = useSessionStore((s) => s.streamingSessions)
   const allSessions = useSessionStore((s) => s.sessions)
+  const workspaceFilter = useWorkspaceFilterStore((s) => s.workspaceFilter)
 
   // Build active task list from executions + streaming sessions
-  const { groupedTasks, totalCount } = useMemo(() => {
+  const groupedTasks = useMemo(() => {
     const taskMap = new Map<string, ActiveTask[]>()
     // Track nodeIds already added from executions so we don't double-count
     const addedNodeIds = new Set<string>()
@@ -350,10 +352,7 @@ export function ActiveTasks() {
       taskMap.set(session.projectId, list)
     }
 
-    let count = 0
-    for (const tasks of taskMap.values()) count += tasks.length
-
-    return { groupedTasks: taskMap, totalCount: count }
+    return taskMap
   }, [executions, rawNodes, nodes, projects, nodesLoaded, streamingSessions, allSessions])
 
   // Sort projects: those with more active tasks first
@@ -371,18 +370,34 @@ export function ActiveTasks() {
       .sort((a, b) => b.tasks.length - a.tasks.length)
   }, [groupedTasks, projects, projectsLoaded])
 
+  // Apply workspace filter: match projects by teamId
+  const filteredProjects = useMemo(() => {
+    if (workspaceFilter === 'all') return sortedProjects
+    return sortedProjects.filter((group) => {
+      const project = projects.find((p) => p.id === group.projectId)
+      if (!project) return false
+      if (workspaceFilter === 'personal') return !project.teamId
+      return project.teamId === workspaceFilter
+    })
+  }, [sortedProjects, workspaceFilter, projects])
+
+  const filteredCount = useMemo(
+    () => filteredProjects.reduce((sum, g) => sum + g.tasks.length, 0),
+    [filteredProjects],
+  )
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-4 md:px-8 py-4 border-b border-border/60 shrink-0">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-primary font-semibold text-foreground">{t('active', 'Active')}</h1>
-          {totalCount > 0 && (
+          {filteredCount > 0 && (
             <span className="flex items-center gap-1.5 rounded-full bg-info/10 px-2.5 py-0.5 text-xs font-medium text-info">
               <div className="relative h-2 w-2">
                 <div className="absolute inset-0 rounded-full border-[1.5px] border-info border-t-transparent animate-spin" />
               </div>
-              {totalCount}
+              {filteredCount}
             </span>
           )}
         </div>
@@ -390,7 +405,7 @@ export function ActiveTasks() {
 
       {/* Content */}
       <div className="flex-1 overflow-auto px-4 md:px-8 py-6">
-        {totalCount === 0 ? (
+        {filteredCount === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted/50">
               <Play className="h-5 w-5 text-muted-foreground" />
@@ -404,7 +419,7 @@ export function ActiveTasks() {
           </div>
         ) : (
           <div className="flex flex-col gap-3 max-w-2xl">
-            {sortedProjects.map((group) => (
+            {filteredProjects.map((group) => (
               <ProjectGroup
                 key={group.projectId}
                 projectId={group.projectId}
