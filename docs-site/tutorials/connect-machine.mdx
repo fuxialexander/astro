@@ -1,0 +1,74 @@
+---
+title: "Connect a Machine"
+description: "Register an execution machine so Astro can dispatch tasks to it."
+---
+
+## Overview
+
+Astro dispatches tasks to **registered machines** — any machine where you run the `astro-agent` binary. This can be your local machine, an HPC login node, a cloud VM, or any SSH-accessible server.
+
+## Install the Agent Runner
+
+On the machine you want to register:
+
+```bash
+# Install globally via npm
+npm install -g @astroanywhere/agent
+
+# Verify installation
+astro-agent --version
+```
+
+## Register the Machine
+
+From your Astro UI:
+
+1. Navigate to **Settings → Machines**
+2. Click **Add Machine**
+3. Copy the registration token shown
+
+On the target machine, run:
+
+```bash
+astro-agent register --token <YOUR_TOKEN> --name "my-laptop"
+```
+
+## Start the Agent
+
+```bash
+# Start the agent (connects to your Astro server)
+astro-agent start --server https://api.astroanywhere.com
+```
+
+For local development:
+
+```bash
+astro-agent start --server http://localhost:3001
+```
+
+## Verify Connection
+
+In the Astro UI, navigate to **Settings → Machines**. Your machine should appear with a green "Connected" status.
+
+## HPC / Slurm Setup
+
+For HPC clusters, install the agent on the login node and configure it to submit jobs via Slurm:
+
+```bash
+astro-agent register --token <TOKEN> --name "hpc-cluster" --provider slurm
+astro-agent start --server https://api.astroanywhere.com
+```
+
+When tasks are dispatched to this machine, the agent submits them as Slurm batch jobs and monitors their status.
+
+See [Agent Providers →](/cli-agent/agent-providers) for full Slurm configuration options.
+
+## Machine Labels
+
+Assign labels to machines to control which tasks run where:
+
+```bash
+astro-agent register --token <TOKEN> --name "gpu-server" --labels gpu,cuda
+```
+
+In your plan, task requirements can specify required machine labels.

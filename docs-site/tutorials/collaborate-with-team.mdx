@@ -1,0 +1,61 @@
+---
+title: "Collaborate with a Team"
+description: "Invite team members, share projects, and coordinate work across your organization."
+---
+
+## Teams in Astro
+
+Astro supports multi-user teams with shared projects, role-based access, and real-time collaboration. Team members see the same plan graph, activity feed, and execution status.
+
+## Create a Team
+
+1. Navigate to **Settings → Team**
+2. Click **Create Team**
+3. Enter a team name
+
+## Invite Members
+
+1. Go to **Settings → Team → Members**
+2. Click **Invite Member**
+3. Enter their email address
+4. Select a role: **Owner**, **Admin**, or **Member**
+
+Invited users receive an email with a link to join.
+
+## Shared Projects
+
+All projects created within a team are visible to all team members. Project access follows the team membership — add someone to the team and they immediately see all team projects.
+
+## Real-Time Collaboration
+
+Multiple team members can view the same plan simultaneously. Changes sync in real time:
+- Task status updates appear instantly for all viewers
+- New tasks added by one member appear on others' graphs
+- Activity feed is shared across all team members
+
+## Machine Instructions
+
+Team admins can add **machine instructions** — shared context documents injected into all agent executions for the team. Use these for team-wide conventions:
+
+```markdown
+# Team Machine Instructions
+
+## Code Style
+- Use TypeScript strict mode
+- Follow the existing patterns in src/components/ui/
+- All API routes must use requireAuth middleware
+
+## Architecture Rules
+- Server must remain stateless
+- Never store per-request state on the server
+```
+
+Go to **Settings → Machine Instructions** to manage these.
+
+## Feature Flags
+
+Admins can enable experimental features for the team:
+
+**Settings → Feature Flags → Toggle feature**
+
+Some features are in internal testing before general availability.

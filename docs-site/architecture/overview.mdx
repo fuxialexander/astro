@@ -1,0 +1,79 @@
+---
+title: "Architecture Overview"
+description: "How Astro is structured — frontend, backend, agent runner, and data flow."
+---
+
+## System Components
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                    Browser (React + Vite)                 │
+│  Plan Graph · Activity Feed · Chat · Settings            │
+└─────────────────────┬────────────────────────────────────┘
+                      │ HTTP /api  +  SSE /api/stream
+┌─────────────────────▼────────────────────────────────────┐
+│              Hono API Server (port 3001)                  │
+│  Routes · Auth · Dispatch Engine · MCP Server            │
+└──────┬──────────────┬──────────────────┬─────────────────┘
+       │              │                  │
+  ┌────▼────┐   ┌─────▼──────┐   ┌──────▼──────┐
+  │ PGlite  │   │  Postgres   │   │   Redis     │
+  │ (local) │   │ (Supabase)  │   │ (pub/sub)   │
+  └─────────┘   └────────────┘   └─────────────┘
+                                        │
+┌───────────────────────────────────────▼─────────────────┐
+│              WebSocket Relay (port 3002)                  │
+│  Machine heartbeats · Task streaming · Event relay       │
+└──────────────────────┬──────────────────────────────────┘
+                       │ WebSocket
+         ┌─────────────┼─────────────┐
+    ┌────▼────┐   ┌────▼────┐   ┌───▼─────┐
+    │ Laptop  │   │   HPC   │   │  Cloud  │
+    │  Agent  │   │  Agent  │   │  Agent  │
+    └─────────┘   └─────────┘   └─────────┘
+```
+
+## Data Flow
+
+1. **Stores load from backend** on mount via `DataLoader` — `dataClient.load()` → `GET /api/data/*`
+2. **Project creation** → navigates to plan view → triggers AI generation via SSE
+3. **Backend streams** Claude Agent SDK output as Server-Sent Events; events persisted to `streaming_events` table
+4. **Plan nodes/edges** stored in Zustand → rendered in React Flow graph
+5. **Task dispatch** → Dispatch Engine routes through queue → machine selection → execution → result routing
+6. **Results stream back** via WebSocket relay → SSE to browser → activity feed updates
+7. **Page refresh** → `useRestoredExecution` hydrates activity from `streaming_events` table
+
+## Key Design Principles
+
+### Server Is Stateless
+
+The server never stores per-request or per-session state. All state lives in the database or Redis. Fly.io runs 2 backend instances with round-robin HTTP — state on Instance A is invisible to Instance B.
+
+### Frontend Derives UI State from DB
+
+Do not use in-memory React state to encode information that already exists in the store/DB. Derive decisions from observable store fields backed by the database.
+
+### Lazy Loading
+
+Large fields are deferred until needed. The slim global load (`?slim=1`) excludes `content`, `executionOutput`, and `streamText`. Full data loads per-project when the user navigates there.
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Vite 7 + React 19 + TypeScript + Tailwind CSS v4 |
+| Routing | React Router v7 |
+| State | Zustand 5 stores |
+| Graph | @xyflow/react |
+| Backend | Hono.js on Node.js |
+| Database | Drizzle ORM → PGlite (local) or Postgres (server) |
+| AI | @anthropic-ai/claude-agent-sdk |
+| Deploy | Fly.io (backend) + Cloudflare Pages (frontend) |
+
+## Further Reading
+
+- [Frontend Architecture →](/architecture/frontend)
+- [Backend Architecture →](/architecture/backend)
+- [Agent Runner →](/architecture/agent-runner)
+- [Relay Server →](/architecture/relay-server)
+- [Data Model →](/architecture/data-model)

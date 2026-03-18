@@ -1,0 +1,90 @@
+---
+title: "Backend Architecture"
+description: "Hono.js API server, dispatch engine, and database layer."
+---
+
+## Overview
+
+The backend is a Hono.js server running on Node.js (port 3001). It handles REST API routes, SSE streaming, WebSocket relay coordination, and the dispatch engine.
+
+## Directory Structure
+
+```
+server/
+├── routes/            # Hono route handlers
+│   ├── data.ts        # Data CRUD API (/api/data/*)
+│   ├── dispatch.ts    # Task dispatch endpoints
+│   ├── stream.ts      # SSE streaming endpoints
+│   └── ...
+├── lib/
+│   ├── db/            # Re-export shims → packages/core/src/db/
+│   ├── dispatch/      # Dispatch engine (queue, machine selection, routing)
+│   ├── relay-server.ts # WebSocket relay
+│   ├── redis-pubsub.ts # Redis pub/sub adapter
+│   ├── machine-registry.ts # In-memory machine registry
+│   ├── feature-flags.ts    # Backend feature flag check
+│   └── mcp/           # MCP server (ask_user_question tool)
+└── index.ts           # Entry point; starts Hono + relay server
+```
+
+## API Routes
+
+All routes require authentication via `requireAuth` middleware:
+
+```typescript
+route.use('/*', requireAuth);
+```
+
+Key route groups:
+- `GET/POST /api/data/*` — CRUD for all data models (slim mode via `?slim=1`)
+- `POST /api/dispatch` — Dispatch a task to an agent
+- `GET /api/stream/:executionId` — SSE stream for a running execution
+- `POST /api/chat` — Chat with plan AI (SSE response)
+- `GET /api/health` — Health check
+
+## Dispatch Engine
+
+```
+Task ready
+    ↓
+Queue (in-memory, Redis-backed for multi-instance)
+    ↓
+Machine selection (least-busy, label matching)
+    ↓
+Context assembly (vision doc + deps + task description)
+    ↓
+Agent execution (via WebSocket relay → machine)
+    ↓
+Result routing (streaming events → DB → SSE to browser)
+```
+
+The dispatch logic shared across frontend/backend lives in `packages/core/src/dispatch/`.
+
+## Database
+
+Drizzle ORM is the query layer. Two backends:
+- **Local mode**: PGlite (Postgres-in-WASM, runs in the backend process)
+- **Server mode**: postgres-js connecting to Supabase
+
+Schema source of truth: `packages/core/src/db/schema.ts`
+
+### Slim Loading
+
+The data API supports `?slim=1` to exclude large fields during global loads:
+
+```typescript
+// server/routes/data.ts
+const node = {
+  ...planNode,
+  content: slim ? null : planNode.content,
+  executionOutput: slim ? null : planNode.executionOutput,
+};
+```
+
+## Multi-Instance Considerations
+
+Fly.io runs 2 backend instances with round-robin HTTP. Key rules:
+- **Never store per-request state on the server** — use DB or Redis
+- `machineRegistry` stores live WebSocket handles — inherently per-process
+- Machine presence synced via Redis (`relay:machines` hash)
+- `_fromProxy` flag prevents infinite Redis echo loops

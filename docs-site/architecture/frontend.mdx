@@ -1,0 +1,83 @@
+---
+title: "Frontend Architecture"
+description: "React, Zustand, and the plan graph visualization layer."
+---
+
+## Overview
+
+The frontend is a Vite 7 + React 19 single-page application. All routing is client-side via React Router v7. State is managed by ~29 Zustand stores, persisted to the backend via `dataClient`.
+
+## Directory Structure
+
+```
+src/
+├── components/         # Shared UI components
+│   ├── ui/            # shadcn/ui-style primitives
+│   └── ...            # Feature components
+├── pages/             # Route-level page components
+├── stores/            # Zustand stores (29+)
+├── hooks/             # Custom React hooks
+├── lib/               # Utilities (data-client, app-mode, utils)
+└── types/             # TypeScript type definitions
+```
+
+## State Management
+
+All state is managed by Zustand stores. The pattern:
+
+```typescript
+// Use selectors, not whole-store subscriptions
+const project = usePlanStore((s) => s.projects[projectId]);
+
+// Persist via dataClient, never directly to localStorage
+await dataClient.save('plan', { nodes, edges });
+```
+
+Key stores: `usePlanStore`, `useExecutionStore`, `useUsageStore`, `useActivityStore`, `useProjectStore`, and more. See [State Management →](/architecture/frontend) for the full list.
+
+## Data Loading
+
+`DataLoader` component orchestrates startup:
+1. Load teams (sets `X-Team-Id` header for all subsequent requests)
+2. Slim-load all projects and plan nodes (metadata only, no large fields)
+3. Per-project full loads trigger when user navigates to a project
+
+## Plan Graph
+
+The plan graph uses `@xyflow/react` (React Flow). Key patterns:
+
+```typescript
+// Node type definition
+type TaskNodeData = Node<{ task: PlanNode; ... }>;
+
+// NodeProps usage
+function TaskNode({ data }: NodeProps<TaskNodeData>) { ... }
+
+// Cast nodeTypes to avoid React Flow type issues
+const nodeTypes = { task: TaskNode } as any;
+
+// Always wrap in ReactFlowProvider when using useReactFlow()
+<ReactFlowProvider>
+  <PlanGraph />
+</ReactFlowProvider>
+```
+
+## SSE Streaming
+
+Use the typed wrappers for SSE parsing:
+
+```typescript
+import { parseChatSSE, parseExecutionSSE } from '@/lib/sse-parser';
+
+// Chat streaming
+for await (const event of parseChatSSE(response)) {
+  if (event.type === 'text') { /* ... */ }
+}
+```
+
+## Component Patterns
+
+- `cn()` from `@/lib/utils` for Tailwind class merging
+- `lucide-react` for all icons
+- Radix UI primitives manually (not CLI-installed)
+- `@/` path alias maps to `./src/`
