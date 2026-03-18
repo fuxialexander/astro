@@ -8,7 +8,7 @@ SET team_id = (
   updated_at = now()
 WHERE p.team_id IS NULL
   AND EXISTS (SELECT 1 FROM team_members tm WHERE tm.user_id = p.owner_id);
-
+--> statement-breakpoint
 UPDATE initiatives i
 SET team_id = (
     SELECT tm.team_id FROM team_members tm
@@ -18,7 +18,7 @@ SET team_id = (
   updated_at = now()
 WHERE i.team_id IS NULL
   AND EXISTS (SELECT 1 FROM team_members tm WHERE tm.user_id = i.owner_id);
-
+--> statement-breakpoint
 UPDATE blobs b
 SET team_id = (
     SELECT tm.team_id FROM team_members tm
@@ -27,13 +27,17 @@ SET team_id = (
   )
 WHERE b.team_id IS NULL
   AND EXISTS (SELECT 1 FROM team_members tm WHERE tm.user_id = b.owner_id);
-
+--> statement-breakpoint
 -- Clean up orphaned rows
 DELETE FROM blobs WHERE team_id IS NULL;
+--> statement-breakpoint
 DELETE FROM projects WHERE team_id IS NULL;
+--> statement-breakpoint
 DELETE FROM initiatives WHERE team_id IS NULL;
-
+--> statement-breakpoint
 -- Enforce NOT NULL
 ALTER TABLE projects ALTER COLUMN team_id SET NOT NULL;
+--> statement-breakpoint
 ALTER TABLE initiatives ALTER COLUMN team_id SET NOT NULL;
+--> statement-breakpoint
 ALTER TABLE blobs ALTER COLUMN team_id SET NOT NULL;
