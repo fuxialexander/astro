@@ -48,6 +48,12 @@ function isChatSessionStream(streamId: string): boolean {
 // from overwriting newer state (e.g., rapid dispatched → in_progress → completed).
 const nodeStatusGen = new Map<string, number>()
 
+/** Valid PlanNode status values for runtime validation of SSE payloads. */
+const VALID_NODE_STATUSES: ReadonlySet<string> = new Set([
+  'planned', 'dispatched', 'in_progress', 'auto_verified',
+  'awaiting_judgment', 'awaiting_approval', 'completed', 'pruned',
+])
+
 export interface HpcCapability {
   clusterName?: string
   partitions: string[]
@@ -1855,7 +1861,6 @@ function handleRealtimeEvent(
       const projectId = data.projectId as string
       const execId = data.executionId as string | undefined
       const eventStatus = data.status as string | undefined
-      const VALID_NODE_STATUSES = new Set(['planned', 'dispatched', 'in_progress', 'auto_verified', 'awaiting_judgment', 'awaiting_approval', 'completed', 'pruned'])
 
       // Capture pre-patch status for side effects in the async handler below.
       // Must be read BEFORE the synchronous patch so notifications and YOLO
@@ -1905,7 +1910,7 @@ function handleRealtimeEvent(
         // notifications and YOLO — the user hasn't seen this node yet.
         if (prevStatus !== undefined && prevStatus !== freshNode.status) {
           const TERMINAL = new Set(['completed', 'auto_verified', 'pruned', 'awaiting_judgment', 'awaiting_approval'])
-          const wasTerminal = prevStatus ? TERMINAL.has(prevStatus) : false
+          const wasTerminal = TERMINAL.has(prevStatus) // prevStatus is narrowed to string by outer guard
           const isNowTerminal = TERMINAL.has(freshNode.status)
 
           // Browser notification for task completion/failure
