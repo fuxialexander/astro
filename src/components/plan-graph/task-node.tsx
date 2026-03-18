@@ -166,22 +166,22 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
-        {!data.readOnly && (
-          <>
-            <Handle
-              type="target"
-              position={Position.Left}
-              className={cn(
-                "!border-none !rounded-full transition-all duration-150",
-                hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
-              )}
-            />
-            {hovered && (
-              <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
-                <Plus className="h-3 w-3 text-primary-foreground" />
-              </div>
-            )}
-          </>
+        {/* Target handles — always present for edge routing */}
+        <Handle type="target" position={Position.Left} id="left"
+          isConnectable={!data.readOnly}
+          className={cn(
+            "!border-none !rounded-full transition-all duration-150",
+            data.readOnly
+              ? "!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0 !p-0"
+              : hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
+          )} />
+        <Handle type="target" position={Position.Top} id="top"
+          isConnectable={false}
+          className="!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0 !p-0 !border-0" />
+        {!data.readOnly && hovered && (
+          <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+            <Plus className="h-3 w-3 text-primary-foreground" />
+          </div>
         )}
 
         {showTooltip && (
@@ -259,22 +259,22 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
           )
         })()}
 
-        {!data.readOnly && (
-          <>
-            <Handle
-              type="source"
-              position={Position.Right}
-              className={cn(
-                "!border-none !rounded-full transition-all duration-150",
-                hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
-              )}
-            />
-            {hovered && (
-              <div className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
-                <Plus className="h-3 w-3 text-primary-foreground" />
-              </div>
-            )}
-          </>
+        {/* Source handles — always present for edge routing */}
+        <Handle type="source" position={Position.Right} id="right"
+          isConnectable={!data.readOnly}
+          className={cn(
+            "!border-none !rounded-full transition-all duration-150",
+            data.readOnly
+              ? "!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0 !p-0"
+              : hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
+          )} />
+        <Handle type="source" position={Position.Bottom} id="bottom"
+          isConnectable={false}
+          className="!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0 !p-0 !border-0" />
+        {!data.readOnly && hovered && (
+          <div className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+            <Plus className="h-3 w-3 text-primary-foreground" />
+          </div>
         )}
       </div>
     )
@@ -304,18 +304,21 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
-        {!data.readOnly && (
-          <>
-            <Handle type="target" position={Position.Left}
-              className={cn("!border-none !rounded-full transition-all duration-150",
-                hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
-              )} />
-            {hovered && (
-              <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
-                <Plus className="h-3 w-3 text-primary-foreground" />
-              </div>
-            )}
-          </>
+        {/* Target handles — always present for edge routing */}
+        <Handle type="target" position={Position.Left} id="left"
+          isConnectable={!data.readOnly}
+          className={cn("!border-none !rounded-full transition-all duration-150",
+            data.readOnly
+              ? "!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0 !p-0"
+              : hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
+          )} />
+        <Handle type="target" position={Position.Top} id="top"
+          isConnectable={false}
+          className="!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0 !p-0 !border-0" />
+        {!data.readOnly && hovered && (
+          <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+            <Plus className="h-3 w-3 text-primary-foreground" />
+          </div>
         )}
 
         {showTooltip && (
@@ -351,18 +354,21 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
           </div>
         </div>
 
-        {!data.readOnly && (
-          <>
-            <Handle type="source" position={Position.Right}
-              className={cn("!border-none !rounded-full transition-all duration-150",
-                hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
-              )} />
-            {hovered && (
-              <div className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
-                <Plus className="h-3 w-3 text-primary-foreground" />
-              </div>
-            )}
-          </>
+        {/* Source handles — always present for edge routing */}
+        <Handle type="source" position={Position.Right} id="right"
+          isConnectable={!data.readOnly}
+          className={cn("!border-none !rounded-full transition-all duration-150",
+            data.readOnly
+              ? "!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0 !p-0"
+              : hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
+          )} />
+        <Handle type="source" position={Position.Bottom} id="bottom"
+          isConnectable={false}
+          className="!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0 !p-0 !border-0" />
+        {!data.readOnly && hovered && (
+          <div className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+            <Plus className="h-3 w-3 text-primary-foreground" />
+          </div>
         )}
       </div>
     )
@@ -389,25 +395,24 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Target handle */}
-      {!data.readOnly && (
-        <>
-          <Handle
-            type="target"
-            position={Position.Left}
-            className={cn(
-              "!border-none !rounded-full transition-all duration-150",
-              hovered && data.status !== "pruned"
-                ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair"
-                : "!w-2 !h-2 !bg-border"
-            )}
-          />
-          {hovered && data.status !== "pruned" && (
-            <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
-              <Plus className="h-3 w-3 text-primary-foreground" />
-            </div>
-          )}
-        </>
+      {/* Target handles — always present for edge routing */}
+      <Handle type="target" position={Position.Left} id="left"
+        isConnectable={!data.readOnly}
+        className={cn(
+          "!border-none !rounded-full transition-all duration-150",
+          data.readOnly || data.status === "pruned"
+            ? "!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0 !p-0"
+            : hovered
+              ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair"
+              : "!w-2 !h-2 !bg-border"
+        )} />
+      <Handle type="target" position={Position.Top} id="top"
+        isConnectable={false}
+        className="!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0 !p-0 !border-0" />
+      {!data.readOnly && hovered && data.status !== "pruned" && (
+        <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+          <Plus className="h-3 w-3 text-primary-foreground" />
+        </div>
       )}
 
       {/* Hover tooltip */}
@@ -561,25 +566,24 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         </button>
       )}
 
-      {/* Source handle */}
-      {!data.readOnly && (
-        <>
-          <Handle
-            type="source"
-            position={Position.Right}
-            className={cn(
-              "!border-none !rounded-full transition-all duration-150",
-              hovered && data.status !== "pruned"
-                ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair"
-                : "!w-2 !h-2 !bg-border"
-            )}
-          />
-          {hovered && data.status !== "pruned" && (
-            <div className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
-              <Plus className="h-3 w-3 text-primary-foreground" />
-            </div>
-          )}
-        </>
+      {/* Source handles — always present for edge routing */}
+      <Handle type="source" position={Position.Right} id="right"
+        isConnectable={!data.readOnly}
+        className={cn(
+          "!border-none !rounded-full transition-all duration-150",
+          data.readOnly || data.status === "pruned"
+            ? "!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0 !p-0"
+            : hovered
+              ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair"
+              : "!w-2 !h-2 !bg-border"
+        )} />
+      <Handle type="source" position={Position.Bottom} id="bottom"
+        isConnectable={false}
+        className="!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0 !p-0 !border-0" />
+      {!data.readOnly && hovered && data.status !== "pruned" && (
+        <div className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+          <Plus className="h-3 w-3 text-primary-foreground" />
+        </div>
       )}
     </div>
   )

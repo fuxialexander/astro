@@ -28,7 +28,7 @@ import { DeletableEdge } from "./deletable-edge"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { MachineWorkdirSelector } from "@/components/machine-workdir-selector"
-import { calculateChildPosition, calculateParentPosition } from "@/lib/graph-utils"
+import { calculateChildPosition, calculateParentPosition, computeEdgeHandles } from "@/lib/graph-utils"
 import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
@@ -529,6 +529,15 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
     return taskNodes
   }, [projectNodes, orderedMilestoneIds, milestonePositions, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy, readOnly, loopNodesEnabled, handleCreateMilestone, graphDisplaySettings.fastEdit, updateNode])
 
+  // Build a position lookup for edge handle routing
+  const nodePositionMap = useMemo(() => {
+    const map = new Map<string, { x: number; y: number }>()
+    for (const n of projectNodes) {
+      if (n.position) map.set(n.id, n.position)
+    }
+    return map
+  }, [projectNodes])
+
   const rfEdges: Edge[] = useMemo(
     () =>
       projectEdges.map((e) => {
@@ -542,10 +551,18 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
             return "#94A3B8"
           })()
 
+          // Pick optimal handle pair based on relative node positions
+          const { sourceHandle, targetHandle } = computeEdgeHandles(
+            nodePositionMap.get(e.source),
+            nodePositionMap.get(e.target),
+          )
+
           return {
             id: e.id,
             source: e.source,
             target: e.target,
+            sourceHandle,
+            targetHandle,
             type: "deletable",
             data: { onDelete: readOnly ? undefined : handleEdgeDelete, readOnly },
             style: {
@@ -556,7 +573,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
             animated: e.type === "branch",
           }
         }),
-    [projectEdges, projectNodes, handleEdgeDelete, readOnly]
+    [projectEdges, projectNodes, nodePositionMap, handleEdgeDelete, readOnly]
   )
 
   // Connection handlers for mindmap-like drag interactions
