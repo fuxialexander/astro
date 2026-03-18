@@ -348,7 +348,9 @@ async function streamChatViaRelay(
       return
     }
 
-    // Keepalive + activity timeout
+    // Keepalive + activity timeout + elapsed-time heartbeat
+    let lastElapsedMsg = startTime
+    const ELAPSED_INTERVAL_MS = 60_000 // Show elapsed time every 60 seconds
     const heartbeat = setInterval(async () => {
       if (!alive) { clearInterval(heartbeat); return }
       if (Date.now() - lastActivity > ACTIVITY_TIMEOUT_MS) {
@@ -368,6 +370,20 @@ async function streamChatViaRelay(
       // via SSE — preventing duplicate text output after a network blip.
       const textSeq = await streamingEventLog.flushText(persistId).catch(() => null)
       stream.writeSSE({ id: textSeq ? String(textSeq) : undefined, event: 'heartbeat', data: '' }).catch(() => { alive = false; clearInterval(heartbeat) })
+
+      // Periodic elapsed-time message — shows the user the session is alive
+      // when there's a long silent phase (agent reading files, running tools).
+      // Only emits if enough time has passed since the last elapsed message.
+      if (Date.now() - lastElapsedMsg >= ELAPSED_INTERVAL_MS) {
+        const elapsedSec = Math.round((Date.now() - startTime) / 1000)
+        const mins = Math.floor(elapsedSec / 60)
+        const secs = elapsedSec % 60
+        const elapsed = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`
+        const elapsedText = `\n── [Astro] Working... (${elapsed} elapsed)\n`
+        const seq = await streamingEventLog.append(persistId, 'text', { text: elapsedText }).catch(() => null)
+        stream.writeSSE({ id: seq ? String(seq) : undefined, event: 'text', data: elapsedText }).catch(() => {})
+        lastElapsedMsg = Date.now()
+      }
     }, 15000)
 
     stream.onAbort(() => {
