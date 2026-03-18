@@ -1,6 +1,465 @@
 ---
-title: Mcp Tools
-description: Mcp Tools feature documentation.
+title: "MCP Tools"
+description: "15 built-in tools that let agents manage plans, projects, initiatives, and interact with users — all from within task execution."
+icon: "wrench"
 ---
 
-<Note>This page is coming soon. See [Core Concepts](/concepts) for an overview.</Note>
+## Overview
+
+**Model Context Protocol (MCP)** is an open standard for giving AI agents access to tools and data sources. Astro provides a custom MCP server that agents use during task execution to read and modify the plan, manage projects, and request human input.
+
+Every agent running within Astro has access to **15 server-side MCP tools** organized into five categories:
+
+<CardGroup cols={2}>
+  <Card title="User Interaction" icon="comment" href="#user-interaction">
+    1 tool — Ask the user clarifying questions and get approvals
+  </Card>
+  <Card title="Plan Management" icon="diagram-project" href="#plan-management">
+    5 tools — Query, create, update, and delete tasks and dependencies
+  </Card>
+  <Card title="Project Management" icon="folder" href="#project-management">
+    4 tools — List, create, and update projects
+  </Card>
+  <Card title="Initiative Management" icon="flag" href="#initiative-management">
+    3 tools — Group related projects into initiatives
+  </Card>
+  <Card title="Data Access" icon="database" href="#data-access">
+    2 tools — Read user profile and execution history
+  </Card>
+</CardGroup>
+
+All tools automatically use the current execution context (project ID, auth token) when available — agents rarely need to specify these explicitly.
+
+---
+
+## Installation & Configuration
+
+The MCP server is provided by the `@astroanywhere/agent` package and is configured automatically when you connect a machine via `astro-agent setup`.
+
+### Automatic Setup
+
+```bash
+# Install the agent runner (if not already installed)
+npm install -g @astroanywhere/agent
+
+# Configure MCP in Claude Code
+astro-agent setup
+```
+
+This writes to `~/.claude/mcp_servers.json`:
+
+```json
+{
+  "mcpServers": {
+    "astro": {
+      "command": "npx",
+      "args": ["@astroanywhere/agent", "mcp"]
+    }
+  }
+}
+```
+
+### Manual Configuration
+
+For local development before the package is published:
+
+```json
+{
+  "mcpServers": {
+    "astro": {
+      "command": "node",
+      "args": ["/absolute/path/to/astro/packages/agent-runner/dist/cli.js", "mcp"]
+    }
+  }
+}
+```
+
+### Environment Variables
+
+The MCP server receives these automatically from the provider:
+
+| Variable | Description |
+|----------|-------------|
+| `ASTRO_EXECUTION_ID` | Current execution/task ID |
+| `ASTRO_PROJECT_ID` | Current project ID (default for most tools) |
+| `ASTRO_SERVER_URL` | Astro API URL (default: `http://localhost:3001`) |
+| `ASTRO_AUTH_TOKEN` | Authentication token for API requests |
+
+---
+
+## User Interaction
+
+### `ask_user_question`
+
+Pause execution and ask the user to make a decision. Execution resumes once the user selects an option.
+
+**When to use:** Multiple approaches are equally valid and user preferences determine the best choice.
+
+**When NOT to use:** Questions you can research yourself, or standard best practices.
+
+**Parameters:**
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `question` | Yes | Clear, concise question |
+| `options` | Yes | Array of 2–5 option strings |
+
+**Example:**
+
+```javascript
+ask_user_question({
+  question: "Which state management library should I use?",
+  options: [
+    "Zustand (lightweight, already in project)",
+    "Redux Toolkit (more structured, better DevTools)",
+    "React Context (native, no dependencies)"
+  ]
+})
+// Returns: "User selected: Zustand (lightweight, already in project)"
+```
+
+See [Approval System](/features/approval-system) for a full explanation of how approvals work.
+
+---
+
+## Plan Management
+
+### `query_plan`
+
+Query the plan graph for the current project. Returns all nodes (tasks) and edges (dependencies).
+
+```javascript
+query_plan()
+// Returns:
+{
+  "nodes": [
+    {
+      "id": "node-abc",
+      "title": "Setup database schema",
+      "status": "completed",
+      "type": "task",
+      "priority": "high",
+      "estimate": "M"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-xyz",
+      "source": "node-abc",
+      "target": "node-def",
+      "type": "dependency"
+    }
+  ]
+}
+```
+
+### `create_task`
+
+Create a new task node in the plan.
+
+**Parameters:**
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `title` | Yes | Concise, actionable task title |
+| `description` | Yes | Detailed task description (injected into agent prompt) |
+| `type` | No | `task`, `milestone`, `branch`, or `decision` (default: `task`) |
+| `status` | No | Initial status (default: `planned`) |
+| `parentId` | No | Parent task ID for hierarchical organization |
+| `dependencies` | No | Array of task IDs this task depends on |
+| `environment` | No | `local`, `remote`, `hpc`, or `cloud` |
+| `verification` | No | `auto` or `human` (default: `auto`) |
+| `priority` | No | `critical`, `high`, `normal`, or `low` |
+| `estimate` | No | `XS`, `S`, `M`, `L`, or `XL` |
+| `dueDate` | No | Due date in `YYYY-MM-DD` format |
+| `projectId` | No | Defaults to current project |
+
+```javascript
+create_task({
+  title: "Add input validation",
+  description: "Add Zod validation for all user-facing API inputs",
+  priority: "high",
+  estimate: "S",
+  dependencies: ["node-abc"]
+})
+// Returns: "Task created successfully with ID: node-1234567890-abc"
+```
+
+### `update_task`
+
+Update any properties of an existing task.
+
+```javascript
+update_task({
+  taskId: "node-abc",
+  status: "completed",
+  estimate: "S"  // Update estimate based on actual effort
+})
+// Returns: "Task node-abc updated successfully"
+```
+
+### `create_dependency`
+
+Create a dependency edge between two tasks. Task B depends on Task A means B cannot start until A completes.
+
+```javascript
+create_dependency({
+  sourceTaskId: "node-abc",  // must complete first
+  targetTaskId: "node-def",  // depends on source
+  type: "dependency"
+})
+// Returns: "Dependency created: node-abc → node-def"
+```
+
+### `delete_task`
+
+Delete a task from the plan. Also deletes all connected edges.
+
+<Warning>
+This cannot be undone. Use with caution — prefer setting `status: "pruned"` to remove a task from the active plan while preserving history.
+</Warning>
+
+```javascript
+delete_task({ taskId: "node-abc" })
+// Returns: "Task node-abc deleted successfully"
+```
+
+---
+
+## Project Management
+
+### `query_projects`
+
+List all projects accessible to the current user.
+
+```javascript
+query_projects()
+// Returns: Array of project objects with id, name, status, health, progress
+```
+
+### `get_project`
+
+Get detailed information about a specific project, including the vision document.
+
+```javascript
+get_project()  // Defaults to current project
+get_project({ projectId: "proj-123" })
+// Returns: Full project object including visionDoc
+```
+
+### `create_project`
+
+Create a new project.
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `name` | Yes | Concise project name |
+| `description` | Yes | Project description |
+| `visionDoc` | No | Markdown vision document |
+| `status` | No | `active` or `archived` (default: `active`) |
+| `workingDirectory` | No | Local path or repository URL |
+| `defaultEnvironment` | No | Default compute backend |
+| `initiativeId` | No | Initiative to group under |
+
+```javascript
+create_project({
+  name: "Payment Integration",
+  description: "Integrate Stripe payment processing",
+  visionDoc: "# Goal\n\nAdd secure payment processing for subscription tiers.",
+  workingDirectory: "https://github.com/org/repo.git",
+  defaultEnvironment: "local"
+})
+// Returns: "Project created successfully with ID: 550e8400-..."
+```
+
+### `update_project`
+
+Update an existing project's metadata, vision, health, or configuration.
+
+```javascript
+update_project({
+  health: "on_track",
+  progress: 75
+})
+// Returns: "Project proj-123 updated successfully"
+```
+
+---
+
+## Initiative Management
+
+Initiatives group related projects under a common goal.
+
+### `query_initiatives`
+
+List all initiatives accessible to the current user.
+
+```javascript
+query_initiatives()
+// Returns: Array of initiative objects
+```
+
+### `create_initiative`
+
+Create a new initiative.
+
+```javascript
+create_initiative({
+  name: "Q2 2026 Mobile Launch",
+  description: "Ship iOS and Android apps",
+  goal: "Reach mobile users with native apps",
+  lead: "Bob Johnson",
+  color: "#10b981"
+})
+// Returns: "Initiative created successfully with ID: 660e8400-..."
+```
+
+### `update_initiative`
+
+Update an initiative's properties or status.
+
+```javascript
+update_initiative({
+  initiativeId: "init-456",
+  status: "completed"
+})
+// Returns: "Initiative init-456 updated successfully"
+```
+
+---
+
+## Data Access
+
+### `get_user_profile`
+
+Get the current user's profile — name, email, domains of expertise, experience level, and preferred machines.
+
+```javascript
+get_user_profile()
+// Returns:
+{
+  "id": "user-789",
+  "name": "Jane Developer",
+  "domains": ["backend", "infrastructure", "databases"],
+  "experienceLevel": "senior",
+  "preferredMachines": ["machine-abc123"]
+}
+```
+
+Use this to tailor your approach to the user's expertise level (e.g., include more explanation for junior users, skip basics for senior users).
+
+### `query_executions`
+
+Query execution history — past task executions with status, output, timing, and cost metrics.
+
+```javascript
+query_executions()
+// Returns: Object mapping nodeId → execution object
+{
+  "node-abc": {
+    "status": "completed",
+    "durationMs": 300000,
+    "model": "claude-sonnet-4-5-20250929",
+    "inputTokens": 5000,
+    "outputTokens": 2000,
+    "estimatedCostUsd": 0.05
+  }
+}
+```
+
+---
+
+## Usage Patterns
+
+### Pattern 1: Discover New Work During Execution
+
+```javascript
+// Query the existing plan to understand context
+const plan = await query_plan()
+
+// Create a follow-up task for work discovered during execution
+await create_task({
+  title: "Add error handling for API failures",
+  description: "Implement retry logic and error boundaries for external API calls",
+  priority: "high",
+  estimate: "M",
+  dependencies: ["node-current-task-id"]
+})
+
+// Chain another task
+await create_task({
+  title: "Add integration tests for error scenarios",
+  description: "Test retry logic with mocked API failures",
+  priority: "normal",
+  estimate: "S",
+  dependencies: ["node-error-handling-id"]
+})
+```
+
+### Pattern 2: Ask Before a High-Stakes Decision
+
+```javascript
+const choice = await ask_user_question({
+  question: "Which database migration strategy should I use?",
+  options: [
+    "Blue-green deployment (zero downtime, requires duplicate resources)",
+    "Rolling migration (gradual, lower resource cost, brief degradation)",
+    "Maintenance window (fastest, requires scheduled downtime)"
+  ]
+})
+// choice = "Rolling migration..."
+// Proceed with the selected approach
+```
+
+### Pattern 3: Update Status After Completion
+
+```javascript
+// Mark the task complete and record actual estimate
+await update_task({
+  taskId: "node-current",
+  status: "completed",
+  estimate: "M"  // Was estimated XS, actually took M
+})
+
+// Create a follow-up if learnings suggest more work
+await create_task({
+  title: "Refactor error handling based on learnings",
+  description: "Apply patterns discovered during implementation to other modules",
+  priority: "normal",
+  dependencies: ["node-current"]
+})
+```
+
+---
+
+## Error Handling
+
+All tools return errors in a consistent format:
+
+```json
+{
+  "content": [{ "type": "text", "text": "Error: No project ID available..." }],
+  "isError": true
+}
+```
+
+Common errors:
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `No project ID available` | Tool called outside of execution context | Set `ASTRO_PROJECT_ID` or pass `projectId` explicitly |
+| `Task not found` | Invalid task ID | Use `query_plan` to get valid IDs |
+| `Unauthorized` | Auth token missing or expired | Check `ASTRO_AUTH_TOKEN` |
+| `Options must have 2-5 items` | `ask_user_question` constraint | Reduce or expand the options array |
+
+---
+
+## Best Practices
+
+1. **Query before creating** — Use `query_plan` to understand the existing structure before adding new tasks
+2. **Always set dependencies** — Explicit dependencies ensure correct execution ordering
+3. **Write useful descriptions** — Task descriptions are the agent's system prompt; make them detailed
+4. **Update status when done** — Keep the plan accurate so teammates and future agents have correct context
+5. **Ask sparingly** — Reserve `ask_user_question` for decisions that genuinely depend on user preferences; don't ask about things you can figure out
+6. **Use estimates** — `priority` and `estimate` help with planning and resource allocation
+7. **Check user profile first** — On unfamiliar projects, `get_user_profile` helps you calibrate the right level of detail
