@@ -1,0 +1,101 @@
+---
+title: "Quick Start"
+description: "Get Astro running locally in under 5 minutes with zero external dependencies."
+icon: "rocket"
+---
+
+Get a fully functional Astro instance running on your machine in minutes. You'll use **Local Mode**, which runs everything in-process with no Docker, no database server, and no external services.
+
+## Prerequisites
+
+Before you begin, make sure you have:
+
+<CardGroup cols={2}>
+  <Card title="Node.js 20+" icon="node-js">
+    [Download Node.js](https://nodejs.org/) — LTS recommended.
+  </Card>
+  <Card title="pnpm" icon="box">
+    Install with `npm install -g pnpm` or see [pnpm.io](https://pnpm.io/installation).
+  </Card>
+</CardGroup>
+
+You'll also need **Git** installed to clone the repository.
+
+## Get Astro Running
+
+<Steps>
+
+### Clone the repository
+
+```bash
+git clone https://github.com/astro-anywhere/astro.git
+cd astro
+```
+
+### Install dependencies
+
+```bash
+pnpm install
+```
+
+This installs all packages for the frontend, backend, and shared core library.
+
+### Start in Local Mode
+
+```bash
+npm run dev:local
+```
+
+This single command starts everything you need:
+
+| Service | URL | Purpose |
+|---------|-----|---------|
+| **Vite dev server** | [http://localhost:5173](http://localhost:5173) | Frontend (React SPA) |
+| **Hono API server** | [http://localhost:3001](http://localhost:3001) | Backend API |
+| **WebSocket relay** | [http://localhost:3002](http://localhost:3002) | Real-time communication |
+
+<Note>
+  Local Mode uses **PGlite** (Postgres compiled to WebAssembly) running inside the backend process. Your data is persisted to `~/.astro/pglite/` on disk — no Docker or external database required.
+</Note>
+
+### Open Astro in your browser
+
+Navigate to [http://localhost:5173](http://localhost:5173). You should see the Astro dashboard with a "Local Mode" badge in the sidebar.
+
+### Create your first project
+
+1. Click **New Project** in the sidebar
+2. Enter a goal description — be specific about what you want to build or explore:
+   > "Build a REST API for a task management app with user authentication and role-based access control"
+3. Click **Generate Plan**
+
+Astro's AI will decompose your goal into a structured **plan graph** — a directed graph of tasks with dependencies, milestones, and decision points.
+
+</Steps>
+
+## What Just Happened?
+
+When you created that project, Astro:
+
+1. **Analyzed your goal** using Claude to understand scope, constraints, and success criteria
+2. **Generated a plan graph** with tasks, dependencies, and milestones — not a flat list, but a directed graph that captures parallel workstreams and decision points
+3. **Injected your project vision** as context that will follow every agent session, keeping execution aligned with your intent
+
+You can now explore the plan, edit nodes, add dependencies, or dispatch tasks to an AI agent.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="book-open" href="/getting-started/concepts">
+    Understand plan graphs, tiered verification, and multi-environment dispatch.
+  </Card>
+  <Card title="Connect a Machine" icon="server" href="/tutorials/connect-machine">
+    Register a machine so you can dispatch tasks to AI agents.
+  </Card>
+  <Card title="Full Installation" icon="gear" href="/getting-started/installation">
+    Set up Dev Mode (multi-user) or Production deployment.
+  </Card>
+  <Card title="Architecture Overview" icon="sitemap" href="/getting-started/architecture-overview">
+    See how frontend, backend, relay, and agents fit together.
+  </Card>
+</CardGroup>
