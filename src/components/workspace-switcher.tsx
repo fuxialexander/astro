@@ -122,7 +122,14 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
         createdAt: new Date(),
         updatedAt: new Date(),
       }
+      // addTeam must complete (synchronous Zustand set) before handleSelect,
+      // which calls setActiveTeam — that guards with teams.some(t => t.id === teamId).
+      // Verify the team is in the store before proceeding.
       addTeam(team)
+      if (!useTeamStore.getState().teams.some((t) => t.id === team.id)) {
+        console.error("Failed to add team to store before selecting it")
+        return
+      }
       handleSelect(team.id)
       setCreateDialogOpen(false)
       setNewTeamName("")
@@ -160,7 +167,7 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
               selected={workspaceFilter}
               onSelect={handleSelect}
               getUserRole={getUserRole}
-              teams={teams}
+
               onCreateClick={() => { setOpen(false); setCreateDialogOpen(true) }}
             />
           </PopoverContent>
@@ -205,7 +212,7 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
               selected={workspaceFilter}
               onSelect={handleSelect}
               getUserRole={getUserRole}
-              teams={teams}
+
               onCreateClick={() => { setOpen(false); setCreateDialogOpen(true) }}
             />
           </PopoverContent>
@@ -231,14 +238,12 @@ function OptionList({
   selected,
   onSelect,
   getUserRole,
-  teams,
   onCreateClick,
 }: {
   options: FilterOption[]
   selected: string
   onSelect: (value: string) => void
   getUserRole: (teamId: string) => string | null
-  teams: { id: string; name: string }[]
   onCreateClick: () => void
 }) {
   return (
@@ -286,9 +291,8 @@ function OptionList({
           </div>
         )
       })}
-      {teams.length > 0 && (
-        <>
-          <div className="h-px bg-border/60 my-1 mx-1" />
+      <>
+        <div className="h-px bg-border/60 my-1 mx-1" />
           <button
             onClick={onCreateClick}
             className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors w-full text-left"
@@ -301,7 +305,6 @@ function OptionList({
             <span>New workspace</span>
           </button>
         </>
-      )}
     </div>
   )
 }
