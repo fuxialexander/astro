@@ -182,29 +182,26 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
 
   const projectEdges = useMemo(() => {
     const nodeIds = new Set(projectNodes.map((n) => n.id))
-    const taskNodeIds = new Set(projectNodes.filter((n) => n.type !== 'milestone').map((n) => n.id))
-    const milestoneNodeIds = new Set(projectNodes.filter((n) => n.type === 'milestone').map((n) => n.id))
     const allProjectNodeIds = new Set(planNodes.filter((n) => n.projectId === projectId).map((n) => n.id))
     const allProjectEdges = planEdges.filter((e) =>
       allProjectNodeIds.has(e.source) || allProjectNodeIds.has(e.target)
     )
 
-    // Direct task→task edges (both endpoints are visible non-milestone nodes)
+    // Direct edges where both endpoints are visible (tasks or milestones).
+    // Milestones are gate nodes: edges go task→milestone→task. Since milestones
+    // are rendered as visible nodes, draw edges to/from them directly.
     const directEdges = allProjectEdges.filter((e) =>
-      taskNodeIds.has(e.source) && taskNodeIds.has(e.target)
+      nodeIds.has(e.source) && nodeIds.has(e.target)
     )
 
-    // Bridge edges through milestones and hidden nodes.
-    // Milestones are gate nodes in the edge graph (task→milestone→task) but float
-    // above the graph visually. Create synthetic task→task edges through them so
-    // the dependency lines connect task nodes directly.
-    // Also bridge through hidden nodes (e.g., completed nodes filtered out).
-    const bridgeNodeIds = new Set([
-      ...milestoneNodeIds,
-      ...planNodes
+    // Bridge edges through hidden nodes only (e.g., nodes filtered out by view).
+    // For each hidden node H with edges A→H and H→B where A,B are visible,
+    // create a synthetic edge A→B so the dependency chain stays connected.
+    const bridgeNodeIds = new Set(
+      planNodes
         .filter((n) => n.projectId === projectId && !nodeIds.has(n.id))
         .map((n) => n.id),
-    ])
+    )
     const bridgeEdges: typeof directEdges = []
     if (bridgeNodeIds.size > 0) {
       const inMap = new Map<string, string[]>()
@@ -218,8 +215,8 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
         }
       }
       for (const bId of bridgeNodeIds) {
-        const sources = (inMap.get(bId) ?? []).filter((s) => taskNodeIds.has(s))
-        const targets = (outMap.get(bId) ?? []).filter((t) => taskNodeIds.has(t))
+        const sources = (inMap.get(bId) ?? []).filter((s) => nodeIds.has(s))
+        const targets = (outMap.get(bId) ?? []).filter((t) => nodeIds.has(t))
         for (const s of sources) {
           for (const t of targets) {
             bridgeEdges.push({
