@@ -1854,7 +1854,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           event: 'tool_use',
           data: JSON.stringify(data),
         }).catch(() => { alive = false })
-        executionEventBus.emit('task:tool_trace', { taskId: executionId, toolName: msg.toolName, toolInput: msg.toolInput })
+        executionEventBus.emit('task:tool_trace', { taskId: executionId, toolName: msg.toolName, toolInput: msg.toolInput, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) })
       }
       if (msg.toolResult !== undefined) {
         const resultData = { toolName: msg.toolName, success: msg.success, result: msg.toolResult, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) }
@@ -1864,7 +1864,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           event: 'tool_result',
           data: JSON.stringify(resultData),
         }).catch(() => { alive = false })
-        executionEventBus.emit('task:tool_trace', { taskId: executionId, toolName: msg.toolName, toolResult: typeof msg.toolResult === 'string' ? msg.toolResult.slice(0, 100000) : msg.toolResult, success: msg.success ?? true })
+        executionEventBus.emit('task:tool_trace', { taskId: executionId, toolName: msg.toolName, toolResult: typeof msg.toolResult === 'string' ? msg.toolResult.slice(0, 100000) : msg.toolResult, success: msg.success ?? true, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) })
       }
     }
 

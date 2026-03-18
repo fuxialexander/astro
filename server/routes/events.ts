@@ -289,6 +289,7 @@ eventsRoute.get('/stream', async (c) => {
         toolResult: msg.toolResult,
         success: msg.success,
         duration: msg.duration,
+        ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}),
       })
       const id = eventBuffer.push('task:tool_trace', data)
       stream.writeSSE({ id, event: 'task:tool_trace', data }).catch(() => { alive = false })
@@ -641,6 +642,7 @@ eventsRoute.get('/stream', async (c) => {
         taskId: msg.taskId, toolName: msg.toolName,
         toolInput: msg.toolInput, toolResult: msg.toolResult,
         success: msg.success, duration: msg.duration,
+        ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}),
       }
       const data = JSON.stringify(eventData)
       const id = msg._dbSeq ? String(msg._dbSeq) : eventBuffer.push('task:tool_trace', data)

@@ -1285,6 +1285,8 @@ function handleRealtimeEvent(
         // as execution-store.ts uses for local dispatch.
         const isResultOnly = hasResult && !hasInput
 
+        const toolUseId = data.toolUseId as string | undefined
+
         if (isResultOnly) {
           // Result-only event: find the last matching trace by toolName and update it
           const lastTraceIdx = [...newToolTraces].reverse().findIndex(t => t.toolName === toolName && !t.toolResult)
@@ -1309,15 +1311,25 @@ function handleRealtimeEvent(
           }
 
           // Find the matching tool_use activity event to reuse its ID.
-          const pairedResultIds = new Set(
-            newActivityEvents
-              .filter((e): e is Extract<TaskActivityEvent, { type: 'tool_result' }> => e.type === 'tool_result')
-              .map(e => e.id)
-          )
-          const matchingUse = [...newActivityEvents].reverse().find(
-            (e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> =>
-              e.type === 'tool_use' && e.toolName === toolName && !pairedResultIds.has(e.id)
-          )
+          // Match by toolUseId first (exact), fall back to toolName (best-effort).
+          let matchingUse: Extract<TaskActivityEvent, { type: 'tool_use' }> | undefined
+          if (toolUseId) {
+            matchingUse = newActivityEvents.find(
+              (e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> =>
+                e.type === 'tool_use' && e.id === toolUseId
+            )
+          }
+          if (!matchingUse) {
+            const pairedResultIds = new Set(
+              newActivityEvents
+                .filter((e): e is Extract<TaskActivityEvent, { type: 'tool_result' }> => e.type === 'tool_result')
+                .map(e => e.id)
+            )
+            matchingUse = [...newActivityEvents].reverse().find(
+              (e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> =>
+                e.type === 'tool_use' && e.toolName === toolName && !pairedResultIds.has(e.id)
+            )
+          }
           const resultId = matchingUse?.id || `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
 
           newActivityEvents = [
@@ -1334,7 +1346,7 @@ function handleRealtimeEvent(
           ]
         } else {
           // Input event (tool_use) or combined event (has both input and result)
-          const traceId = `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
+          const traceId = toolUseId || `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
           newToolTraces = [
             ...newToolTraces,
             {
