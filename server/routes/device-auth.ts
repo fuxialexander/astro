@@ -29,7 +29,7 @@ import {
   TOKEN_EXPIRY,
   DEFAULT_MACHINE_SCOPES,
 } from '../types/device-auth.js';
-import type { MachineInfo } from '../types/relay.js';
+import type { MachineInfo, ProviderType } from '../types/relay.js';
 import {
   createDeviceCode,
   getDeviceCodeByUserCode,
@@ -1115,7 +1115,7 @@ deviceAuthRoute.post('/simulate-machine', requireAuth, async (c) => {
     const machineName = body.name || (isHpc ? 'Sherlock HPC' : `Dev Machine ${machineId.slice(-4)}`);
     const hostname = isHpc ? 'sh03-ln01.stanford.edu' : `${machineName.toLowerCase().replace(/\s+/g, '-')}.local`;
     const platform = isHpc ? 'linux' : 'darwin';
-    const providers: Array<'claude-sdk' | 'codex' | 'openclaw' | 'opencode' | 'custom'> = ['claude-sdk'];
+    const providers: Array<ProviderType> = ['claude-sdk'];
 
     // Register in persistent store — use authenticated user's ID
     const machine = await registerMachine({

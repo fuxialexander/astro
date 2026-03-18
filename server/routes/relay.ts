@@ -169,7 +169,7 @@ relayRoute.get('/machines/provider/:provider', (c) => {
   const provider = c.req.param('provider') as ProviderType;
   const user = c.get('user') as AuthUser | undefined;
 
-  if (!['claude-sdk', 'codex', 'openclaw', 'opencode', 'custom'].includes(provider)) {
+  if (!['claude-sdk', 'codex', 'openclaw', 'opencode', 'pi', 'custom'].includes(provider)) {
     return c.json({ error: 'Invalid provider type' }, 400);
   }
 

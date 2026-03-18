@@ -17,7 +17,7 @@
  * (AI service providers) that can execute tasks. Compute backends
  * (AWS, GCP, Slurm) are separate from AI agents.
  */
-export type ProviderType = 'claude-sdk' | 'codex' | 'openclaw' | 'opencode' | 'custom';
+export type ProviderType = 'claude-sdk' | 'codex' | 'openclaw' | 'opencode' | 'pi' | 'custom';
 
 /** Status of a machine connection */
 export type MachineConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
