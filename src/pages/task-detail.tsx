@@ -108,7 +108,7 @@ export function TaskDetail() {
   })))
 
   // Get machine ID for steering (from execution or realtime stream)
-  const machineId = execution?.machineId || taskStream?.machineId || ""
+  const machineId = execution?.machineId || taskStream?.machineId || undefined
 
   return (
     <div className="flex h-dvh md:h-full flex-col">
