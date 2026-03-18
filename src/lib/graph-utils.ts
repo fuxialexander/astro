@@ -1,7 +1,7 @@
 import type { PlanNode, PlanEdge } from "@/types"
 
-export const NODE_WIDTH = 180
-export const NODE_HEIGHT = 44
+export const NODE_WIDTH = 164
+export const NODE_HEIGHT = 56
 const MILESTONE_WIDTH = 240
 const MILESTONE_HEIGHT = 36
 const VERTICAL_GAP = 60
@@ -39,36 +39,30 @@ export function calculateParentPosition(
   allNodes: PlanNode[],
   allEdges: PlanEdge[]
 ): { x: number; y: number } {
-  // If child has no position, return default
-  if (!childNode.position) {
-    return { x: 0, y: 0 }
-  }
+  if (!childNode.position) return { x: 0, y: 0 }
 
-  // Find existing parents of this child (nodes that point to the child)
+  // Parent is to the LEFT of the child in LR layout
+  const baseX = childNode.position.x - NODE_WIDTH - HORIZONTAL_GAP
+
+  // Find existing parents to avoid y overlap
   const parentIds = new Set(
     allEdges.filter((e) => e.target === childNode.id).map((e) => e.source)
   )
   const parentNodes = allNodes.filter((n) => parentIds.has(n.id) && n.position)
 
-  // Calculate base Y position (above the child node)
-  const baseY = childNode.position.y - NODE_HEIGHT - VERTICAL_GAP
-
-  let x: number
+  let y: number
   if (parentNodes.length === 0) {
-    // No existing parents, start at the child's x position
-    x = childNode.position.x
+    y = childNode.position.y
   } else {
-    // Offset to the right of existing parents
-    const maxX = Math.max(...parentNodes.map((n) => n.position!.x))
-    x = maxX + NODE_WIDTH + HORIZONTAL_GAP
+    const maxY = Math.max(...parentNodes.map((n) => n.position!.y))
+    y = maxY + NODE_HEIGHT + VERTICAL_GAP
   }
 
-  // Shift right until clear of all existing nodes (max 20 attempts)
-  for (let i = 0; i < 20 && overlapsAny(x, baseY, allNodes); i++) {
-    x += NODE_WIDTH + HORIZONTAL_GAP
+  for (let i = 0; i < 20 && overlapsAny(baseX, y, allNodes); i++) {
+    y += NODE_HEIGHT + VERTICAL_GAP
   }
 
-  return { x, y: baseY }
+  return { x: baseX, y }
 }
 
 /**
@@ -81,33 +75,30 @@ export function calculateChildPosition(
   allNodes: PlanNode[],
   allEdges: PlanEdge[]
 ): { x: number; y: number } {
-  // If parent has no position, return default
-  if (!parentNode.position) {
-    return { x: 0, y: 0 }
-  }
+  if (!parentNode.position) return { x: 0, y: 0 }
 
-  // Find existing children of this parent
+  // Child is to the RIGHT of the parent in LR layout
+  const baseX = parentNode.position.x + NODE_WIDTH + HORIZONTAL_GAP
+
+  // Find existing children to avoid y overlap
   const childIds = new Set(
     allEdges.filter((e) => e.source === parentNode.id).map((e) => e.target)
   )
   const childNodes = allNodes.filter((n) => childIds.has(n.id) && n.position)
 
-  const baseY = parentNode.position.y + NODE_HEIGHT + VERTICAL_GAP
-
-  let x: number
+  let y: number
   if (childNodes.length === 0) {
-    x = parentNode.position.x
+    y = parentNode.position.y
   } else {
-    const maxX = Math.max(...childNodes.map((n) => n.position.x))
-    x = maxX + NODE_WIDTH + HORIZONTAL_GAP
+    const maxY = Math.max(...childNodes.map((n) => n.position.y))
+    y = maxY + NODE_HEIGHT + VERTICAL_GAP
   }
 
-  // Shift right until clear of all existing nodes (max 20 attempts)
-  for (let i = 0; i < 20 && overlapsAny(x, baseY, allNodes); i++) {
-    x += NODE_WIDTH + HORIZONTAL_GAP
+  for (let i = 0; i < 20 && overlapsAny(baseX, y, allNodes); i++) {
+    y += NODE_HEIGHT + VERTICAL_GAP
   }
 
-  return { x, y: baseY }
+  return { x: baseX, y }
 }
 
 /**
@@ -237,18 +228,18 @@ export function layoutGraph(
     }
   }
 
-  // Assign positions based on rank and column
+  // Assign positions based on rank (→ x) and column (→ y), left-to-right execution order
   const positions = new Map<string, { x: number; y: number }>()
   const margin = 40
-  const columnWidth = NODE_WIDTH + HORIZONTAL_GAP
+  const rowHeight = NODE_HEIGHT + VERTICAL_GAP
 
   for (let r = 0; r <= maxRank; r++) {
     const row = ranks.get(r)
     if (!row) continue
 
-    const y = margin + r * (NODE_HEIGHT + VERTICAL_GAP)
+    const x = margin + r * (NODE_WIDTH + HORIZONTAL_GAP)
 
-    // Sort nodes by column for consistent left-to-right ordering
+    // Sort nodes by column for consistent top-to-bottom ordering within a rank
     row.sort((a, b) => {
       const colA = chainColumn.get(a.id) ?? 0
       const colB = chainColumn.get(b.id) ?? 0
@@ -257,12 +248,12 @@ export function layoutGraph(
 
     for (const n of row) {
       const col = chainColumn.get(n.id) ?? 0
-      const x = margin + col * columnWidth
+      const y = margin + col * rowHeight
       positions.set(n.id, { x, y })
     }
   }
 
-  // Second pass: center parents above their children
+  // Second pass: center parents vertically relative to their children
   for (let r = maxRank; r >= 0; r--) {
     const row = ranks.get(r)
     if (!row) continue
@@ -277,71 +268,55 @@ export function layoutGraph(
 
       if (childPositions.length === 0) continue
 
-      const childWidths = childList.map((cid) => {
-        const cn = nodes.find((nd) => nd.id === cid)
-        return cn?.type === "milestone" ? MILESTONE_WIDTH : NODE_WIDTH
-      })
-
-      // Center of children span
-      const leftmost = Math.min(...childPositions.map((p) => p.x))
-      const rightmost = Math.max(
-        ...childPositions.map((p, i) => p.x + childWidths[i])
-      )
-      const centerX = (leftmost + rightmost) / 2
-      const parentW = n.type === "milestone" ? MILESTONE_WIDTH : NODE_WIDTH
+      // Center of children y-span
+      const topmost = Math.min(...childPositions.map((p) => p.y))
+      const bottommost = Math.max(...childPositions.map((p) => p.y + NODE_HEIGHT))
+      const centerY = (topmost + bottommost) / 2
       const pos = positions.get(n.id)
       if (pos) {
-        pos.x = centerX - parentW / 2
+        pos.y = centerY - NODE_HEIGHT / 2
       }
     }
   }
 
-  // Final pass: fix overlaps within each rank
+  // Final pass: fix y overlaps within each rank
   for (let r = 0; r <= maxRank; r++) {
     const row = ranks.get(r)
     if (!row || row.length <= 1) continue
 
-    // Sort by current x position
-    row.sort((a, b) => (positions.get(a.id)?.x ?? 0) - (positions.get(b.id)?.x ?? 0))
+    // Sort by current y position
+    row.sort((a, b) => (positions.get(a.id)?.y ?? 0) - (positions.get(b.id)?.y ?? 0))
 
     for (let i = 1; i < row.length; i++) {
       const prev = positions.get(row[i - 1].id)!
       const curr = positions.get(row[i].id)!
-      const prevW = row[i - 1].type === "milestone" ? MILESTONE_WIDTH : NODE_WIDTH
-      const minX = prev.x + prevW + HORIZONTAL_GAP
-      if (curr.x < minX) {
-        curr.x = minX
+      const minY = prev.y + NODE_HEIGHT + VERTICAL_GAP
+      if (curr.y < minY) {
+        curr.y = minY
       }
     }
   }
 
-  // Place isolated nodes compactly below (or beside) the main graph.
-  // Arrange them in a 2-column grid so they don't spread too far.
+  // Place isolated nodes in a compact grid to the right of the main graph
   if (isolatedIds.size > 0) {
-    // Compute bounding box of the main graph
     let mainMaxX = 0
     let mainMaxY = 0
     for (const pos of positions.values()) {
       mainMaxX = Math.max(mainMaxX, pos.x + NODE_WIDTH)
-      mainMaxY = Math.max(mainMaxY, pos.y)
+      mainMaxY = Math.max(mainMaxY, pos.y + NODE_HEIGHT)
     }
 
-    // Isolated nodes go in a compact 2-column grid.
-    // If there's a main graph, place them below it with a gap; otherwise top-left.
-    const ISOLATED_COLS = Math.min(2, isolatedIds.size)
-    const itemsPerCol = Math.ceil(isolatedIds.size / ISOLATED_COLS)
-    const isolatedStartX = margin
-    const isolatedStartY = mainMaxY > 0
-      ? mainMaxY + NODE_HEIGHT + VERTICAL_GAP * 2
-      : margin
+    const ISOLATED_ROWS = Math.min(3, isolatedIds.size)
+    const isolatedStartX = mainMaxX > 0 ? mainMaxX + HORIZONTAL_GAP * 2 : margin
+    const isolatedStartY = margin
 
     let idx = 0
     for (const id of isolatedIds) {
-      const col = Math.floor(idx / itemsPerCol)
-      const row = idx % itemsPerCol
+      const row = idx % ISOLATED_ROWS
+      const col = Math.floor(idx / ISOLATED_ROWS)
       positions.set(id, {
-        x: isolatedStartX + col * columnWidth,
-        y: isolatedStartY + row * (NODE_HEIGHT + VERTICAL_GAP),
+        x: isolatedStartX + col * (NODE_WIDTH + HORIZONTAL_GAP),
+        y: isolatedStartY + row * rowHeight,
       })
       idx++
     }

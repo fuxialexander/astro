@@ -24,6 +24,7 @@ interface TaskCreationFormProps {
    */
   childNodeId?: string
   defaultMilestoneId?: string
+  defaultNodeType?: "task" | "milestone"
   position?: { x: number; y: number }
   mode: "inline" | "popover" | "dialog"
   /** When true, the description field is expanded by default */
@@ -37,6 +38,7 @@ export function TaskCreationForm({
   parentNodeId,
   childNodeId,
   defaultMilestoneId,
+  defaultNodeType,
   position,
   mode,
   defaultShowDescription = false,
@@ -53,7 +55,7 @@ export function TaskCreationForm({
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [showDescription, setShowDescription] = useState(defaultShowDescription)
-  const [nodeType, setNodeType] = useState<"task" | "milestone">("task")
+  const [nodeType, setNodeType] = useState<"task" | "milestone">(defaultNodeType ?? "task")
   const [priority, setPriority] = useState<Priority>("none")
   const [estimate, setEstimate] = useState<Estimate | "">("")
   const [dueDate, setDueDate] = useState("")
@@ -195,21 +197,27 @@ export function TaskCreationForm({
   const isInline = mode === "inline"
   const isPopover = mode === "popover"
 
-  // Simplified popover mode - title only, matches node visual style
+  // Simplified popover mode — visually matches a real task node
   if (isPopover) {
     return (
       <div
-        className="w-[180px] h-[44px] rounded-xl border border-primary/50 bg-card shadow-lg flex items-center gap-2.5 px-3"
+        className="rounded-md border-2 border-primary/60 bg-card shadow-md flex flex-col gap-1 px-2.5 py-2"
+        style={{ width: 164, minHeight: 56 }}
         onKeyDown={handleKeyDown}
       >
-        <span className="h-2 w-2 rounded-full bg-primary shrink-0" />
+        {/* Status row: dot + type hint */}
+        <div className="flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: '#94a3b8' }} />
+          <span className="text-[9px] text-muted-foreground/60 uppercase tracking-wide">planned</span>
+        </div>
+        {/* Title input */}
         <input
           ref={titleRef}
           type="text"
           placeholder={t('taskCreation.titlePlaceholder', { ns: 'dialogs' })}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          className="flex-1 bg-transparent text-xs font-medium outline-none placeholder:text-muted-foreground"
+          className="flex-1 bg-transparent text-[11px] font-medium leading-snug outline-none placeholder:text-muted-foreground/50"
           autoFocus
         />
       </div>

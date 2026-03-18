@@ -14,6 +14,7 @@ export interface DisplaySettings {
   showProjectList?: boolean
   showWeekNumbers?: boolean
   showEmptyGroups?: boolean
+  fastEdit?: boolean
 }
 
 const DEFAULTS: Record<ViewKey, DisplaySettings> = {
