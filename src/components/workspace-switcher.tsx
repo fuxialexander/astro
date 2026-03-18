@@ -83,7 +83,10 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
     setWorkspaceFilter(value)
     setOpen(false)
 
-    // When selecting a specific team, also set it as active team
+    // When selecting a specific team, also set it as active team and reload stores.
+    // When "All Workspaces" is selected, activeTeamId is intentionally left unchanged —
+    // "All Workspaces" is a client-side view filter over already-loaded data, and the
+    // backend continues scoped to the last active team for new fetches.
     if (value !== "all") {
       if (value !== activeTeamId) {
         setSwitching(true)
