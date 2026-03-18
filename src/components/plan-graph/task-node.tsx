@@ -140,7 +140,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
 
   // Verification state
   const isVerified = !!execution?.verifiedBy
-  const needsVerification = (data.status === "auto_verified" || data.status === "awaiting_judgment") && !isVerified
+  const needsVerification = data.status === "awaiting_judgment" && !isVerified
 
   // Selection state
   const showCheckbox = !data.readOnly && (hovered || data.selectionActive)
