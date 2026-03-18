@@ -60,9 +60,10 @@
       "group": "Getting Started",
       "pages": [
         "introduction",
-        "quickstart",
-        "installation",
-        "concepts"
+        "getting-started/quickstart",
+        "getting-started/installation",
+        "getting-started/concepts",
+        "getting-started/architecture-overview"
       ]
     },
     {
