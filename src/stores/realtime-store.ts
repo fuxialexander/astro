@@ -1855,6 +1855,7 @@ function handleRealtimeEvent(
       const projectId = data.projectId as string
       const execId = data.executionId as string | undefined
       const eventStatus = data.status as string | undefined
+      const VALID_NODE_STATUSES = new Set(['planned', 'dispatched', 'in_progress', 'auto_verified', 'awaiting_judgment', 'awaiting_approval', 'completed', 'pruned'])
 
       // Capture pre-patch status for side effects in the async handler below.
       // Must be read BEFORE the synchronous patch so notifications and YOLO
@@ -1864,7 +1865,10 @@ function handleRealtimeEvent(
       // Synchronously patch plan node status from SSE event data for instant UI response.
       // This prevents stale "Running" indicators and sidebar active counts while the
       // async getNode() round-trip completes. The full DB hydration below overwrites this.
-      if (eventStatus) {
+      // Note: This uses setState() directly (not updateNode) because this is a speculative
+      // patch — it must NOT write back to the API or trigger worktree cleanup. The async
+      // mergeNodeFromDB below handles the authoritative merge with all side effects.
+      if (eventStatus && VALID_NODE_STATUSES.has(eventStatus)) {
         const planStore = usePlanStore.getState()
         const existingNode = planStore.nodes.find((n) => n.id === nodeId)
         if (existingNode && existingNode.status !== eventStatus) {
@@ -1890,11 +1894,16 @@ function handleRealtimeEvent(
         // since the synchronous patch above already updated the store.
         const prevStatus = statusBeforePatch
 
-        // Merge DB state into plan store (DB wins, no write-back)
-        planStore.mergeNodeFromDB(freshNode)
+        // Merge DB state into plan store (DB wins, no write-back).
+        // Pass statusBeforePatch so milestone reconciliation can detect the
+        // real transition even though the sync pre-patch already updated the store.
+        planStore.mergeNodeFromDB(freshNode, statusBeforePatch)
 
-        // Side effects based on status transition
-        if (prevStatus !== freshNode.status) {
+        // Side effects based on status transition.
+        // Guard on prevStatus !== undefined: if the node wasn't in the local store
+        // yet (e.g., created by another user, SSE arrived before DataLoader), skip
+        // notifications and YOLO — the user hasn't seen this node yet.
+        if (prevStatus !== undefined && prevStatus !== freshNode.status) {
           const TERMINAL = new Set(['completed', 'auto_verified', 'pruned', 'awaiting_judgment', 'awaiting_approval'])
           const wasTerminal = prevStatus ? TERMINAL.has(prevStatus) : false
           const isNowTerminal = TERMINAL.has(freshNode.status)
