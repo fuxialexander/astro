@@ -1,0 +1,375 @@
+---
+title: "Using the CLI"
+description: "Install the Astro CLI, authenticate, manage projects and tasks from the terminal, and use the interactive TUI."
+---
+
+## What You'll Learn
+
+The `astro-cli` package gives you full control over Astro from the command line. This tutorial covers:
+
+- Installing and authenticating the CLI
+- Creating and listing projects
+- Viewing plan graphs in the terminal
+- Dispatching and monitoring tasks
+- Using the interactive TUI mode
+
+**Time:** ~10 minutes
+
+## Prerequisites
+
+<Check>
+  **Node.js 20+ installed.** The CLI requires Node.js.
+</Check>
+
+<Check>
+  **An Astro server running.** Either locally (`npm run dev:local` at `http://localhost:3001`) or the production server at `https://api.astroanywhere.com`.
+</Check>
+
+## Tutorial
+
+<Steps>
+
+<Step title="Install the CLI">
+
+Install `@astroanywhere/cli` globally via npm:
+
+```bash
+npm install -g @astroanywhere/cli
+```
+
+Verify the installation:
+
+```bash
+astro-cli --version
+```
+
+**Expected outcome:** The CLI version number prints (e.g., `1.0.0`). The binary is available as `astro-cli` in your terminal.
+
+<Tip>
+  You can also run without installing globally: `npx @astroanywhere/cli <command>`
+</Tip>
+
+</Step>
+
+<Step title="Authenticate with your Astro server">
+
+The CLI needs to connect to your Astro server. Authentication uses the same device flow as the agent runner.
+
+**For local development (no auth required in local mode):**
+
+```bash
+astro-cli config set server http://localhost:3001
+```
+
+**For production or dev mode (requires authentication):**
+
+```bash
+astro-cli auth login --server https://api.astroanywhere.com
+```
+
+The CLI opens a browser window (or prints a device code if no browser is available):
+
+```
+Opening browser for authentication...
+
+If the browser doesn't open, visit:
+  https://astroanywhere.com/device
+
+And enter code: WXYZ-1234
+```
+
+Authorize in the browser, and the CLI stores your credentials.
+
+**Expected outcome:** The CLI prints a success message and saves credentials to `~/.astro-cli/config.json`.
+
+```
+✓ Authenticated successfully
+  Server: https://api.astroanywhere.com
+  User: you@example.com
+  Team: My Team
+```
+
+<Info>
+  In local mode (PGlite), authentication is skipped. The CLI connects directly to `localhost:3001` without credentials.
+</Info>
+
+</Step>
+
+<Step title="List and create projects">
+
+**List all projects:**
+
+```bash
+astro-cli project list
+```
+
+Output:
+
+```
+ID          NAME              TASKS   STATUS     UPDATED
+a1b2c3d4    My First API      12      active     2 hours ago
+e5f6g7h8    Research Pipeline  8       active     1 day ago
+```
+
+**Create a new project:**
+
+```bash
+astro-cli project create --name "CLI Tutorial Project" \
+  --description "A project created from the command line to demonstrate CLI usage."
+```
+
+Output:
+
+```
+✓ Project created
+  ID: i9j0k1l2
+  Name: CLI Tutorial Project
+  URL: http://localhost:5173/project/i9j0k1l2
+```
+
+**View project details:**
+
+```bash
+astro-cli project show i9j0k1l2
+```
+
+**Expected outcome:** You can see all your projects and create new ones directly from the terminal.
+
+<Tip>
+  All CLI commands support `--json` for machine-readable output, making it easy to script Astro operations:
+  ```bash
+  astro-cli project list --json | jq '.[0].id'
+  ```
+</Tip>
+
+</Step>
+
+<Step title="View plan graphs in the terminal">
+
+The CLI can render plan graphs as text-based trees:
+
+```bash
+astro-cli plan show --project i9j0k1l2
+```
+
+Output:
+
+```
+CLI Tutorial Project — Plan Graph
+
+├── [planned] Setup project scaffolding (XS)
+│   ├── [planned] Initialize TypeScript config (XS)
+│   └── [planned] Set up Hono server (S)
+│       ├── [planned] Implement CRUD endpoints (M)
+│       │   └── [planned] Add input validation (S)
+│       └── [planned] Add JWT authentication (M)
+│           └── [planned] Write integration tests (M)
+└── [planned] Write documentation (S)
+
+8 tasks · 0 completed · 0 in progress · 8 planned
+```
+
+**List individual tasks:**
+
+```bash
+astro-cli task list --project i9j0k1l2
+```
+
+Output:
+
+```
+ID          STATUS      ESTIMATE   TITLE
+t001        planned     XS         Setup project scaffolding
+t002        planned     XS         Initialize TypeScript config
+t003        planned     S          Set up Hono server
+t004        planned     M          Implement CRUD endpoints
+t005        planned     S          Add input validation
+t006        planned     M          Add JWT authentication
+t007        planned     M          Write integration tests
+t008        planned     S          Write documentation
+```
+
+**View task details:**
+
+```bash
+astro-cli task show t001 --project i9j0k1l2
+```
+
+**Expected outcome:** The plan graph renders as an ASCII tree in the terminal, showing task status, estimates, and dependencies.
+
+</Step>
+
+<Step title="Dispatch and monitor tasks">
+
+**Dispatch a specific task:**
+
+```bash
+astro-cli task dispatch t001 --project i9j0k1l2
+```
+
+Output:
+
+```
+✓ Task dispatched
+  Task: Setup project scaffolding
+  Machine: my-laptop
+  Status: dispatched → in_progress
+```
+
+**Watch the execution in real time:**
+
+```bash
+astro-cli task watch t001 --project i9j0k1l2
+```
+
+The watch command streams the activity feed to your terminal, similar to `tail -f`:
+
+```
+[12:34:01] ▶ Agent started execution
+[12:34:03] 🔧 tool_use: Read file package.json
+[12:34:04] 📄 tool_result: {"name": "cli-tutorial", ...}
+[12:34:06] 🔧 tool_use: Write file tsconfig.json
+[12:34:07] 📝 file_change: + tsconfig.json (created)
+[12:34:10] 💬 text: Setting up the project structure...
+[12:34:15] ✅ Agent completed execution
+```
+
+Press `Ctrl+C` to stop watching (the task keeps running).
+
+**Check task status:**
+
+```bash
+astro-cli task show t001 --project i9j0k1l2
+```
+
+**Cancel a running task:**
+
+```bash
+astro-cli task cancel t001 --project i9j0k1l2
+```
+
+**Expected outcome:** You can dispatch, monitor, and cancel tasks entirely from the terminal.
+
+</Step>
+
+<Step title="Manage machines">
+
+**List registered machines:**
+
+```bash
+astro-cli machine list
+```
+
+Output:
+
+```
+NAME           STATUS       LABELS          LAST SEEN
+my-laptop      connected    local           just now
+gpu-server     connected    gpu,cuda,a100   2 min ago
+hpc-cluster    disconnected slurm           3 hours ago
+```
+
+**Check machine health:**
+
+```bash
+astro-cli machine status my-laptop
+```
+
+**Expected outcome:** You can see all connected machines and their current status.
+
+</Step>
+
+<Step title="Use the interactive TUI">
+
+For a richer terminal experience, launch the TUI (terminal user interface):
+
+```bash
+astro-cli tui
+```
+
+The TUI provides a full-screen, keyboard-driven interface:
+
+- **Left panel:** Project list and sidebar navigation
+- **Center panel:** Plan graph as an interactive tree
+- **Right panel:** Task details and activity feed
+- **Bottom bar:** Status information and keyboard shortcuts
+
+**Key bindings in TUI mode:**
+
+| Key | Action |
+|-----|--------|
+| `↑/↓` or `j/k` | Navigate tasks |
+| `Enter` | Select/expand a task |
+| `d` | Dispatch selected task |
+| `c` | Cancel selected task |
+| `a` | Toggle activity feed |
+| `r` | Refresh data |
+| `q` | Quit TUI |
+| `?` | Show help |
+
+The TUI is especially useful for monitoring over SSH or in environments without a browser.
+
+**Expected outcome:** A full-screen terminal UI showing your projects, plans, and running tasks.
+
+<Info>
+  The TUI updates in real time — task status changes, new activity events, and machine connections all reflect immediately without manual refresh.
+</Info>
+
+</Step>
+
+</Steps>
+
+## CLI Command Reference
+
+Here's a quick reference for the most common commands:
+
+```bash
+# Projects
+astro-cli project list                     # List all projects
+astro-cli project create --name "..."      # Create a project
+astro-cli project show <id>                # View project details
+
+# Plans
+astro-cli plan show --project <id>         # View plan graph
+astro-cli plan generate --project <id>     # Trigger plan generation
+
+# Tasks
+astro-cli task list --project <id>         # List tasks
+astro-cli task show <task-id>              # View task details
+astro-cli task dispatch <task-id>          # Dispatch a task
+astro-cli task watch <task-id>             # Stream activity feed
+astro-cli task cancel <task-id>            # Cancel execution
+
+# Machines
+astro-cli machine list                     # List machines
+astro-cli machine status <name>            # Check machine health
+
+# Config
+astro-cli config set server <url>          # Set server URL
+astro-cli config set team <team-id>        # Set active team
+astro-cli config show                      # Show current config
+
+# Interactive
+astro-cli tui                              # Launch TUI
+```
+
+<Tip>
+  Add `--json` to any command for machine-readable JSON output. Add `--help` to any command for detailed usage information.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="CLI Commands Reference" icon="book" href="/cli/cli-commands">
+    Full reference for all CLI commands and flags.
+  </Card>
+  <Card title="Agent Runner" icon="robot" href="/cli/agent-runner">
+    Configure and manage the agent runner binary.
+  </Card>
+  <Card title="Your First Project" icon="rocket" href="/tutorials/first-project">
+    Follow the full project workflow in the web UI.
+  </Card>
+  <Card title="Dispatch and Execute" icon="paper-plane" href="/tutorials/dispatch-and-execute">
+    Deep-dive into how dispatch and execution work.
+  </Card>
+</CardGroup>

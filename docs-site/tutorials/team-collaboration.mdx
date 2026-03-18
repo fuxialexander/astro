@@ -1,0 +1,261 @@
+---
+title: "Team Collaboration"
+description: "Create a team, invite members, share projects, and collaborate in real time with role-based access control."
+---
+
+## What You'll Learn
+
+Astro is built for teams. This tutorial covers:
+
+- Creating a team
+- Inviting members with role-based access
+- Working on shared projects
+- Real-time collaboration features
+- Managing team-wide settings
+
+**Time:** ~10 minutes
+
+## Prerequisites
+
+<Check>
+  **Astro running in dev or production mode.** Teams require authentication, which is not available in local mode (`dev:local`). Use `npm run dev:dev` or connect to production.
+</Check>
+
+<Check>
+  **An Astro account.** You need to be signed in with passkey authentication.
+</Check>
+
+## Tutorial
+
+<Steps>
+
+<Step title="Create a team">
+
+1. Click your **avatar** or **profile icon** in the bottom-left of the sidebar.
+2. Click **Create Team**.
+3. Enter a team name (e.g., "My Engineering Team").
+4. Click **Create**.
+
+Astro creates the team and sets you as the **Owner**.
+
+**Expected outcome:** The sidebar shows your new team name. A "Local Mode" badge does NOT appear (you're in authenticated mode). The team switcher (click your avatar) lists your personal space and the new team.
+
+<Info>
+  Each team gets its own isolated workspace — projects, machines, instructions, and feature flags are all team-scoped. Data never leaks between teams.
+</Info>
+
+</Step>
+
+<Step title="Invite team members">
+
+1. Navigate to **Settings** (gear icon in the sidebar).
+2. Click **Team → Members**.
+3. Click **Invite Member**.
+4. Enter their email address.
+5. Select a role:
+
+| Role | Permissions |
+|------|------------|
+| **Owner** | Full control: manage team, members, billing, delete team |
+| **Admin** | Manage projects, machines, instructions, feature flags. Cannot delete team or manage billing. |
+| **Member** | Create and edit projects, dispatch tasks, view activity. Cannot manage team settings. |
+
+6. Click **Send Invite**.
+
+The invited user receives an email with a link to join the team.
+
+**Expected outcome:** The pending invitation appears in the Members list with "Invited" status. When the recipient accepts, their status changes to "Active."
+
+<Tip>
+  You can invite multiple people at once. Each invitation is independent — recipients join at their own pace.
+</Tip>
+
+</Step>
+
+<Step title="Share and work on projects">
+
+All projects created within a team are automatically visible to all team members.
+
+**Create a shared project:**
+1. Make sure you're in the team context (check the team name in the sidebar).
+2. Click **New Project**.
+3. Create the project as usual — name, description, generate plan.
+
+Every team member sees this project in their sidebar immediately.
+
+**Switch between teams:**
+1. Click your **avatar** in the sidebar.
+2. Select a different team from the dropdown.
+3. The sidebar updates to show that team's projects.
+
+**Expected outcome:** Projects created under a team appear for all members of that team. Switching teams changes the visible project list.
+
+<Warning>
+  Projects belong to the team they were created in. There's no way to move a project between teams — create a new one in the target team if needed.
+</Warning>
+
+</Step>
+
+<Step title="Collaborate in real time">
+
+Astro syncs changes across all team members in real time using Supabase Realtime (CDC-based sync with last-write-wins conflict resolution).
+
+**What syncs in real time:**
+
+| Data | Sync behavior |
+|------|--------------|
+| Plan nodes (tasks) | Status, title, description changes appear instantly |
+| Plan edges (dependencies) | New/removed edges reflect immediately |
+| Task execution status | `dispatched` → `in_progress` → `completed` updates live |
+| Activity feed events | Streaming events appear for all viewers |
+| Project settings | Changes to project metadata sync across devices |
+
+**Try it:** Open the same project in two browser windows (or have a teammate open it). Edit a task title in one window — it appears in the other within ~200ms.
+
+**Expected outcome:** Multiple team members see each other's changes without refreshing. Task status updates, new nodes, and activity events all sync in real time.
+
+<Info>
+  Realtime sync adds ~1–2 KB/s idle bandwidth and ~5–10 KB/s during active editing. It's automatically disabled in local mode (PGlite doesn't support Supabase Realtime).
+</Info>
+
+</Step>
+
+<Step title="Configure role-based access">
+
+Roles control what each team member can do:
+
+**What Owners can do (that Admins cannot):**
+- Delete the team
+- Manage billing and subscription
+- Transfer ownership to another member
+- Remove Admins
+
+**What Admins can do (that Members cannot):**
+- Manage machine registrations
+- Edit machine instructions
+- Toggle feature flags
+- Invite and remove Members
+- Configure connected accounts (GitHub, Slack, etc.)
+
+**What Members can do:**
+- Create and edit projects
+- Generate and refine plans
+- Dispatch and cancel tasks
+- View activity feeds
+- Respond to approval requests
+
+**Change a member's role:**
+1. Go to **Settings → Team → Members**.
+2. Click the role dropdown next to a member's name.
+3. Select the new role.
+4. Click **Save**.
+
+**Expected outcome:** The member's permissions update immediately. They see or lose access to admin features based on their new role.
+
+</Step>
+
+<Step title="Set up team machine instructions">
+
+Machine instructions are shared context documents that get injected into every agent execution for your team. They're how you enforce team conventions across all AI-driven tasks.
+
+1. Navigate to **Settings → Machine Instructions**.
+2. Click **Add Instruction**.
+3. Write your team's conventions:
+
+```markdown
+# Team Coding Standards
+
+## General
+- All code must be TypeScript with strict mode enabled
+- Use ESLint and Prettier — no lint warnings in committed code
+- Write tests for all new functionality
+
+## Architecture
+- Follow the existing patterns in the codebase
+- API routes must use authentication middleware
+- Database queries must include team_id filters for data isolation
+
+## Git
+- Branch naming: feat/*, fix/*, docs/*, chore/*
+- Commit messages: conventional commits format
+- Never push directly to main
+
+## Security
+- No secrets in code — use environment variables
+- All user input must be validated
+- SQL queries must use parameterized statements
+```
+
+4. Click **Save**.
+
+**Expected outcome:** The instruction document is saved and will be included in the context of every task execution for this team. All team members benefit from consistent agent behavior.
+
+<Tip>
+  Create separate instruction documents for different concerns (coding standards, architecture rules, security requirements). They're concatenated in order — organize them from general to specific.
+</Tip>
+
+</Step>
+
+<Step title="Connect team integrations (optional)">
+
+Astro supports integrations that benefit the whole team:
+
+**GitHub Sync:**
+1. Go to **Settings → Connected Accounts → GitHub**.
+2. Authorize Astro to access your GitHub organization.
+3. Enable bidirectional sync — Astro tasks can create GitHub issues and PRs.
+
+**Slack Notifications:**
+1. Go to **Settings → Connected Accounts → Slack**.
+2. Install the Astro Slack app to your workspace.
+3. Configure which channels receive notifications (task completions, approval requests, errors).
+
+**Expected outcome:** Team integrations are configured. GitHub issues sync with Astro tasks, and Slack receives notifications for key events.
+
+<Info>
+  Connected account credentials are encrypted at rest. Only team Admins and Owners can configure integrations.
+</Info>
+
+</Step>
+
+</Steps>
+
+## Team Account Types
+
+Astro supports different account configurations:
+
+| Type | Description | Auth | Real-time |
+|------|------------|------|-----------|
+| **Local** | PGlite, single user, no auth | None | No |
+| **Personal** | Single-user team, passkey auth | WebAuthn | Yes |
+| **Team** | Multi-user, invite-only | WebAuthn | Yes |
+| **Enterprise** | SSO, advanced admin controls | SAML/OIDC | Yes |
+
+Local mode is great for solo development. Upgrade to a team when you're ready to collaborate.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Can't create a team | Running in local mode | Switch to `npm run dev:dev` or production |
+| Invite email not received | Email in spam folder | Check spam; re-send invitation from Settings |
+| Changes not syncing | Realtime subscription disconnected | Refresh the page; check browser console for WebSocket errors |
+| Member can't see a project | Project in a different team | Verify both users are in the same team context |
+| Admin can't delete team | Only Owners can delete | Ask the team Owner to delete or transfer ownership |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Real-time Sync" icon="rotate" href="/features/realtime-sync">
+    Technical deep-dive into the real-time sync architecture.
+  </Card>
+  <Card title="Your First Project" icon="rocket" href="/tutorials/first-project">
+    Create a project and walk through the full workflow.
+  </Card>
+  <Card title="Security" icon="lock" href="/setup/security">
+    Authentication, authorization, and data isolation details.
+  </Card>
+  <Card title="GitHub Integration" icon="github" href="/integrations/github">
+    Full reference for GitHub bidirectional sync.
+  </Card>
+</CardGroup>
