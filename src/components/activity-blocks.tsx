@@ -473,6 +473,13 @@ export function TextBlock({ events, isStreaming, onLinkClick, onSendPrompt, prep
   if (!text) return null
   if (preprocessContent) text = preprocessContent(text)
 
+  // Operational messages (prefixed with ── [Astro], [Git], [Delivery], or [Astro])
+  // use single \n for line breaks. Markdown treats single \n as a space — convert to
+  // double-space + \n (markdown line break) so each message renders on its own line.
+  if (/──\s*\[/.test(text)) {
+    text = text.replace(/\n/g, '  \n')
+  }
+
   return (
     <div className="px-4 py-1">
       <StreamingMarkdown content={text} isStreaming={isStreaming} className="text-xs leading-relaxed" onLinkClick={onLinkClick} onSendPrompt={onSendPrompt} />
