@@ -48,6 +48,12 @@ function isChatSessionStream(streamId: string): boolean {
 // from overwriting newer state (e.g., rapid dispatched → in_progress → completed).
 const nodeStatusGen = new Map<string, number>()
 
+/** Valid PlanNode status values for runtime validation of SSE payloads. */
+const VALID_NODE_STATUSES: ReadonlySet<string> = new Set([
+  'planned', 'dispatched', 'in_progress', 'auto_verified',
+  'awaiting_judgment', 'awaiting_approval', 'completed', 'pruned',
+])
+
 export interface HpcCapability {
   clusterName?: string
   partitions: string[]
@@ -1854,6 +1860,30 @@ function handleRealtimeEvent(
       const nodeId = data.nodeId as string
       const projectId = data.projectId as string
       const execId = data.executionId as string | undefined
+      const eventStatus = data.status as string | undefined
+
+      // Capture pre-patch status for side effects in the async handler below.
+      // Must be read BEFORE the synchronous patch so notifications and YOLO
+      // auto-execute still detect the status transition correctly.
+      const statusBeforePatch = usePlanStore.getState().nodes.find((n) => n.id === nodeId)?.status
+
+      // Synchronously patch plan node status from SSE event data for instant UI response.
+      // This prevents stale "Running" indicators and sidebar active counts while the
+      // async getNode() round-trip completes. The full DB hydration below overwrites this.
+      // Note: This uses setState() directly (not updateNode) because this is a speculative
+      // patch — it must NOT write back to the API or trigger worktree cleanup. The async
+      // mergeNodeFromDB below handles the authoritative merge with all side effects.
+      if (eventStatus && VALID_NODE_STATUSES.has(eventStatus)) {
+        const planStore = usePlanStore.getState()
+        const existingNode = planStore.nodes.find((n) => n.id === nodeId)
+        if (existingNode && existingNode.status !== eventStatus) {
+          usePlanStore.setState({
+            nodes: planStore.nodes.map((n) =>
+              n.id === nodeId ? { ...n, status: eventStatus as typeof n.status } : n
+            ),
+          })
+        }
+      }
 
       // Re-read authoritative state from DB (with generation counter to prevent
       // out-of-order responses from overwriting newer state)
@@ -1865,16 +1895,22 @@ function handleRealtimeEvent(
         if ((nodeStatusGen.get(nodeId) || 0) > gen) return // stale response, discard
 
         const planStore = usePlanStore.getState()
-        const prevNode = planStore.nodes.find((n) => n.id === nodeId)
-        const prevStatus = prevNode?.status
+        // Use pre-patch status (not current store status) for transition detection,
+        // since the synchronous patch above already updated the store.
+        const prevStatus = statusBeforePatch
 
-        // Merge DB state into plan store (DB wins, no write-back)
-        planStore.mergeNodeFromDB(freshNode)
+        // Merge DB state into plan store (DB wins, no write-back).
+        // Pass statusBeforePatch so milestone reconciliation can detect the
+        // real transition even though the sync pre-patch already updated the store.
+        planStore.mergeNodeFromDB(freshNode, statusBeforePatch)
 
-        // Side effects based on status transition
-        if (prevStatus !== freshNode.status) {
+        // Side effects based on status transition.
+        // Guard on prevStatus !== undefined: if the node wasn't in the local store
+        // yet (e.g., created by another user, SSE arrived before DataLoader), skip
+        // notifications and YOLO — the user hasn't seen this node yet.
+        if (prevStatus !== undefined && prevStatus !== freshNode.status) {
           const TERMINAL = new Set(['completed', 'auto_verified', 'pruned', 'awaiting_judgment', 'awaiting_approval'])
-          const wasTerminal = prevStatus ? TERMINAL.has(prevStatus) : false
+          const wasTerminal = TERMINAL.has(prevStatus) // prevStatus is narrowed to string by outer guard
           const isNowTerminal = TERMINAL.has(freshNode.status)
 
           // Browser notification for task completion/failure

@@ -192,8 +192,12 @@ interface PlanState {
   loadForProject: (projectId: string) => Promise<void>
   addNode: (node: PlanNode) => void
   updateNode: (id: string, updates: Partial<PlanNode>) => void
-  /** Merge a DB-fetched node into the store. DB wins — no write-back to API. */
-  mergeNodeFromDB: (dbNode: PlanNode) => void
+  /** Merge a DB-fetched node into the store. DB wins — no write-back to API.
+   *  @param prevStatus - If the caller has already patched the store (e.g., sync SSE
+   *    pre-patch), pass the original status so the milestone reconciliation guard
+   *    can detect the real transition. Without this, prevNode.status would already
+   *    match dbNode.status and reconciliation would be skipped. */
+  mergeNodeFromDB: (dbNode: PlanNode, prevStatus?: string) => void
   removeNodes: (ids: string[]) => void
   addEdge: (edge: PlanEdge) => void
   removeEdge: (source: string, target: string) => void
@@ -501,7 +505,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
    * to the API (avoids circular persistence). Triggers milestone reconciliation
    * and worktree cleanup same as updateNode.
    */
-  mergeNodeFromDB: (dbNode: PlanNode) => {
+  mergeNodeFromDB: (dbNode: PlanNode, prevStatus?: string) => {
     const prevNode = get().nodes.find((n) => n.id === dbNode.id)
     // DB-authoritative fields: status, executionId, executionOutput, executionError,
     //   executionStartedAt, executionCompletedAt, title, description, endDate, etc.
@@ -547,8 +551,11 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       }
     }
 
-    // Auto-complete or revert milestone nodes
-    if (prevNode && prevNode.status !== dbNode.status) {
+    // Auto-complete or revert milestone nodes when status actually changed.
+    // Use caller-provided prevStatus (from before any sync pre-patch) if available,
+    // otherwise fall back to prevNode.status from the current store.
+    const effectivePrevStatus = prevStatus ?? prevNode?.status
+    if (prevNode && effectivePrevStatus !== dbNode.status) {
       const milestoneUpdates = computeMilestoneUpdates(dbNode.id, get().nodes, get().edges)
       if (milestoneUpdates.length > 0) {
         const updateMap = new Map(milestoneUpdates.map((mu) => [mu.id, mu.status]))
