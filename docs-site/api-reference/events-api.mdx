@@ -1,6 +1,214 @@
 ---
-title: Events Api
-description: Events Api API reference.
+title: Events API
+description: SSE endpoints for streaming execution output, real-time updates, and event catch-up.
+icon: radio
 ---
 
-<Note>This page is coming soon.</Note>
+## Overview
+
+Astro uses Server-Sent Events (SSE) as the primary real-time transport. There are two SSE patterns:
+
+1. **Action SSE** — `POST /api/dispatch/task`, `POST /api/agent/chat`, etc. return an SSE stream for that specific operation
+2. **Global event stream** — `GET /api/events/stream` provides a persistent SSE connection for real-time events across all operations
+
+All structural events are persisted to the `streaming_events` database table, enabling recovery on page refresh and SSE reconnect.
+
+## Global Event Stream
+
+### `GET /api/events/stream`
+
+Persistent SSE connection for real-time updates. Supports automatic reconnection with `Last-Event-ID`.
+
+**Authentication:** JWT passed as `?token=<jwt>` query parameter (EventSource API limitation — it cannot send custom headers).
+
+```javascript
+const eventSource = new EventSource(
+  `/api/events/stream?token=${jwt}&projectId=${projectId}`
+);
+
+eventSource.addEventListener('task.dispatched', (e) => {
+  const data = JSON.parse(e.data);
+  console.log('Task dispatched:', data);
+});
+
+eventSource.addEventListener('task.stdout', (e) => {
+  const data = JSON.parse(e.data);
+  console.log(data.output);
+});
+```
+
+**Query Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `token` | JWT authentication token (required in server mode) |
+| `projectId` | Filter events for a specific project (optional) |
+| `userId` | Filter events for a specific user (optional) |
+
+### Global Event Types
+
+| Event | Description |
+|-------|-------------|
+| `machine.connected` | Machine connected to relay |
+| `machine.disconnected` | Machine disconnected |
+| `task.dispatched` | Task sent to agent runner |
+| `task.stdout` | Task output chunk |
+| `task.progress` | Progress update (0-100) |
+| `task.result` | Task completed |
+| `approval.requested` | Approval needed from user |
+| `activity.created` | Activity event created |
+
+## Execution SSE Events
+
+When you dispatch a task via `POST /api/dispatch/task`, the response is an SSE stream with these event types:
+
+| Event | Description | Persisted |
+|-------|-------------|-----------|
+| `init` | Execution initialized | Yes |
+| `session_init` | Agent session started | Yes |
+| `text` | Text output from agent | Yes |
+| `tool_use` | Agent invoked a tool | Yes |
+| `tool_result` | Tool returned a result | Yes |
+| `file_change` | File was created/modified/deleted | Yes |
+| `progress` | Progress update (percentage, stage) | Yes |
+| `result` | Execution completed (success or failure) | Yes |
+| `error` | Error occurred | Yes |
+| `approval_request` | Agent requests user approval | Yes |
+| `approval_response` | User responded to approval | Yes |
+| `safety_prompt` | Safety check needed | Yes |
+| `safety_response` | User responded to safety prompt | Yes |
+| `steer_message` | User sent steering message | Yes |
+| `heartbeat` | Keepalive signal | No |
+| `done` | Stream termination signal | No |
+| `aborted` | Execution was cancelled | No |
+
+### Example: Parsing Execution SSE
+
+```typescript
+import { parseExecutionSSE } from '@/lib/sse-parser';
+
+const response = await fetch('/api/dispatch/task', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify(taskPayload)
+});
+
+for await (const event of parseExecutionSSE(response)) {
+  switch (event.type) {
+    case 'text':
+      appendOutput(event.data.text);
+      break;
+    case 'tool_use':
+      showToolCall(event.data.name, event.data.input);
+      break;
+    case 'result':
+      handleCompletion(event.data);
+      break;
+    case 'error':
+      handleError(event.data.message);
+      break;
+  }
+}
+```
+
+## Chat SSE Events
+
+Chat endpoints (`POST /api/agent/chat`, `/api/agent/project-chat`, `/api/agent/task-chat`) return SSE streams with:
+
+| Event | Description |
+|-------|-------------|
+| `text` | Text output from AI |
+| `tool_use` | AI invoked a tool |
+| `tool_result` | Tool returned a result |
+| `session_init` | Chat session initialized |
+| `plan_result` | Structured plan output (when generating plans) |
+| `done` | Stream completed |
+| `error` | Error occurred |
+| `aborted` | Chat was aborted |
+| `heartbeat` | Keepalive signal |
+
+## Event Catch-Up
+
+### `GET /api/events/catch-up`
+
+Paginated endpoint for catching up on missed streaming events after a disconnect or page refresh.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `executionIds` | string | Comma-separated execution IDs to catch up on |
+| `afterSeq` | number | Cursor — return events with `seq > afterSeq` |
+| `limit` | number | Max events per page (default: 1000) |
+
+```bash
+curl "https://<api>/api/events/catch-up?executionIds=exec-1,exec-2&afterSeq=0&limit=500" \
+  -H "Authorization: Bearer <token>"
+```
+
+<ResponseField name="events" type="StreamingEvent[]">
+  Array of streaming events, ordered by sequence number.
+</ResponseField>
+
+<ResponseField name="lastSeq" type="number">
+  Sequence number of the last event returned. Use as `afterSeq` for the next page.
+</ResponseField>
+
+<ResponseField name="hasMore" type="boolean">
+  Whether there are more events to fetch. Loop until `false`.
+</ResponseField>
+
+```json
+{
+  "events": [
+    {
+      "seq": 1,
+      "executionId": "exec-1",
+      "type": "text",
+      "data": { "text": "Starting tests..." },
+      "timestamp": "2026-03-17T12:00:01Z"
+    }
+  ],
+  "lastSeq": 42,
+  "hasMore": true
+}
+```
+
+## Streaming Event Persistence
+
+All structural SSE events (everything except `heartbeat`, `done`, and `aborted`) are written to the `streaming_events` database table before being sent. The database `seq` becomes the SSE event `id`, enabling cursor-based catch-up.
+
+### Three-Layer Architecture
+
+```
+Layer 1: Live SSE        — Real-time events during active execution
+Layer 2: streaming_events — Persisted DB table for recovery
+Layer 3: Observation      — Long-term execution traces
+```
+
+### Reconnect Behavior
+
+The frontend client uses exponential backoff for SSE reconnect (3s to 60s cap, visibility-aware):
+
+1. On disconnect, the client reconnects to `/api/events/stream` with `Last-Event-ID`
+2. Missed events are fetched via paginated `/api/events/catch-up` (loops until `hasMore=false`)
+3. `mergeHydratedAndLive()` deduplicates DB history with live SSE events
+
+### Page Refresh Recovery
+
+The `useRestoredExecution()` hook handles page refresh:
+
+1. On mount, checks for active executions
+2. Fetches historical events from `streaming_events` table
+3. Hydrates the UI to match the state before refresh
+4. Subscribes to live SSE for new events
+5. Merges historical and live events seamlessly
+
+## Dual-Path Deduplication
+
+When a dispatch bridge is active for a task (the user is on the execution page), the global event stream (`/api/events/stream`) skips relay-direct events for that task via the `activeDispatchStreams` guard. This prevents double-sending.
+
+After a page refresh kills the dispatch bridge, the global stream picks up relay-direct events as a fallback — ensuring no events are lost.

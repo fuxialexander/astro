@@ -1,6 +1,337 @@
 ---
-title: Hpc Slurm
-description: Hpc Slurm integration guide.
+title: HPC and Slurm Integration
+description: Connect HPC clusters and remote machines to Astro for distributed task execution via Slurm.
+icon: server
 ---
 
-<Note>This page is coming soon.</Note>
+## Overview
+
+Astro can dispatch tasks to HPC clusters and remote machines via the agent runner. The AI agent runs on a **gateway machine** that has access to Slurm CLI tools, submits jobs to the cluster scheduler, and streams output back to the Astro dashboard in real-time.
+
+```
+Browser (Astro UI)
+    ↓ SSE
+Hono API (Fly.io or localhost)
+    ↓ HTTP + Events
+Relay Server (WebSocket)
+    ↕ WS messages
+Agent Runner (on HPC login node / remote machine)
+    ↓ sbatch, squeue, sacct
+Slurm Scheduler → Compute Nodes
+```
+
+## Architecture
+
+The AI agent does **not** run on compute nodes. It runs on the gateway machine (typically the HPC login node) and interacts with Slurm through CLI tools:
+
+1. Writes job scripts (`.sbatch` files)
+2. Submits via `sbatch`
+3. Monitors via `squeue` / `sacct`
+4. Reads output files from shared filesystem
+5. Reports results back to Astro
+
+<Note>
+  The agent runner automatically detects Slurm when `sinfo` is available on the system. No manual configuration is needed for basic HPC support.
+</Note>
+
+## Setup
+
+### Prerequisites
+
+- **Node.js 20+** on the gateway machine
+- **Slurm CLI tools** accessible (`sbatch`, `squeue`, `sacct`, `sinfo`)
+- **Network access** to the Astro relay (WebSocket on port 3002)
+
+### Install the Agent Runner
+
+On the HPC login node:
+
+```bash
+# Load Node.js (varies by cluster)
+module load nodejs   # or: node, nodejs, node/20
+
+# Install globally
+npm install -g @astroanywhere/agent
+
+# Or use npx (no install)
+npx @astroanywhere/agent status
+```
+
+### Connect to Astro
+
+<Tabs>
+  <Tab title="Direct Connect (Dev)">
+    No auth needed in dev mode:
+
+    ```bash
+    astro-agent connect \
+      --url ws://localhost:3002 \
+      --name "Sherlock HPC" \
+      --dir /home/user/projects
+    ```
+  </Tab>
+  <Tab title="SSH Tunnel (Recommended)">
+    If the HPC login node cannot reach your machine directly:
+
+    ```bash
+    # Terminal 1: Create tunnel (on your local machine)
+    ssh -R 3002:localhost:3002 user@sherlock.stanford.edu
+
+    # Terminal 2: On the HPC (through the tunnel)
+    astro-agent connect \
+      --url ws://localhost:3002 \
+      --name "Sherlock HPC"
+    ```
+  </Tab>
+  <Tab title="Device Auth (Production)">
+    Full OAuth2 device authorization flow:
+
+    ```bash
+    # Request a device code
+    astro-agent setup --url wss://<your-fly-app>.fly.dev:3002
+
+    # Follow the on-screen instructions:
+    # 1. Open the verification URL in your browser
+    # 2. Enter the user code
+    # 3. Authorize the device
+    # The agent runner connects automatically
+    ```
+  </Tab>
+</Tabs>
+
+### Verify Slurm Detection
+
+```bash
+astro-agent status
+```
+
+Expected output:
+
+```
+System Status:
+  ✓ Claude Code SDK available
+  ✓ WebSocket relay reachable
+
+Slurm Status:
+  ✓ Available (version 22.05)
+  Cluster: Sherlock
+  Partitions: gpu, cpu, interactive
+  Default: cpu
+  Accounts: myaccount, shared
+```
+
+## Configuring Slurm Parameters
+
+When creating tasks in the Astro UI, set HPC parameters in the task metadata:
+
+| Parameter | Example | Description |
+|-----------|---------|-------------|
+| `partition` | `gpu` | Slurm partition |
+| `nodes` | `1` | Number of nodes |
+| `cpusPerTask` | `4` | CPUs per task |
+| `mem` | `16G` | Memory per node |
+| `time` | `1:00:00` | Wall time limit |
+| `gpu.type` | `a100` | GPU type |
+| `gpu.count` | `1` | Number of GPUs |
+| `modules` | `["cuda/11.8"]` | Modules to load |
+| `account` | `mylab` | Billing account |
+
+### Example: Auto-Generated SBATCH Script
+
+When a task is dispatched with HPC parameters, the agent generates a script like:
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=astro-task-abc123
+#SBATCH --partition=gpu
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16G
+#SBATCH --time=01:00:00
+#SBATCH --gres=gpu:a100:1
+#SBATCH --output=astro-task-abc123_%j.out
+#SBATCH --error=astro-task-abc123_%j.err
+
+set -e
+echo "Job ID: $SLURM_JOB_ID"
+echo "Node: $SLURMD_NODENAME"
+
+module load cuda/11.8
+module load python/3.10
+
+cd /home/user/project
+python train.py --gpu
+```
+
+## Dispatching Tasks
+
+### From the UI
+
+1. Open a project plan view
+2. Click on a task node
+3. Click **Execute** in the detail panel
+4. Select the HPC machine from the dropdown
+5. Choose provider: `claude-code` (AI agent) or `slurm` (direct job)
+6. Click **Dispatch**
+7. Monitor output in real-time
+
+### Via API
+
+```bash
+curl -X POST https://<api>/api/relay/slurm/dispatch \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task": {
+      "nodeId": "node-abc123",
+      "projectId": "550e8400-...",
+      "title": "Train model",
+      "description": "Train ResNet on CIFAR-10"
+    },
+    "targetClusterId": "machine-hpc-1",
+    "slurmConfig": {
+      "partition": "gpu",
+      "nodes": 1,
+      "cpusPerTask": 4,
+      "mem": "32G",
+      "time": "4:00:00",
+      "gpu": { "type": "a100", "count": 2 },
+      "modules": ["cuda/12.0", "python/3.11"]
+    }
+  }'
+```
+
+## HPC API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/relay/slurm/clusters` | List HPC-capable machines |
+| GET | `/api/relay/slurm/clusters/:machineId` | Get Slurm cluster info (partitions, accounts, GPUs) |
+| GET | `/api/relay/slurm/jobs` | List active Slurm jobs |
+| POST | `/api/relay/slurm/dispatch` | Dispatch a task to HPC |
+
+## CLI Reference
+
+```bash
+# Check system capabilities
+astro-agent status
+
+# Connect to relay
+astro-agent connect --url ws://localhost:3002 --name "My HPC"
+
+# Connect with options
+astro-agent connect \
+  --url ws://localhost:3002 \
+  --name "Sherlock HPC" \
+  --dir /scratch/user/project \
+  --no-worktree                   # Disable git worktree isolation
+
+# View/update config
+astro-agent config --show
+astro-agent config --url ws://new-host:3002
+astro-agent config --name "New Name"
+```
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `ASTRO_RELAY_URL` | Relay WebSocket URL (overrides config) |
+| `ASTRO_MACHINE_NAME` | Machine display name |
+| `ASTRO_AUTH_TOKEN` | Pre-configured auth token |
+
+Config file location: `~/.astro/agent.json`
+
+## Keeping Connections Alive
+
+HPC login nodes may kill idle SSH sessions. Use `tmux` or `screen` to persist the agent runner:
+
+```bash
+ssh user@sherlock.stanford.edu
+tmux new -s astro-agent
+astro-agent connect --url ws://localhost:3002 --name "Sherlock HPC"
+# Ctrl+B, D to detach
+# Reconnect later: tmux attach -t astro-agent
+```
+
+For auto-reconnecting SSH tunnels, use `autossh`:
+
+```bash
+autossh -M 0 -R 3002:localhost:3002 user@sherlock.stanford.edu \
+  -o "ServerAliveInterval=30" -o "ServerAliveCountMax=3"
+```
+
+## Troubleshooting
+
+<Accordion title="Machine not showing in UI">
+  ```bash
+  # Check relay is running
+  curl http://localhost:3001/api/relay/health
+
+  # List connected machines
+  curl http://localhost:3001/api/relay/machines
+
+  # Check WebSocket port
+  nc -zv localhost 3002
+  ```
+</Accordion>
+
+<Accordion title="Remote machine cannot reach relay">
+  Use an SSH tunnel:
+  ```bash
+  ssh -R 3002:localhost:3002 user@remote-host
+  ```
+  Or use a jump host:
+  ```bash
+  ssh -J jumphost -R 3002:localhost:3002 user@hpc-login
+  ```
+</Accordion>
+
+<Accordion title="Agent runner disconnects">
+  The relay sends heartbeat pings every 30 seconds. If 3 pings are missed (90s), the connection drops.
+
+  Common causes:
+  - Network instability — use `tmux`/`screen`
+  - SSH dropped — use `autossh` with `ServerAliveInterval`
+  - High machine load causing agent to freeze
+</Accordion>
+
+<Accordion title="Slurm jobs not submitting">
+  ```bash
+  # Verify Slurm works directly
+  sinfo
+  squeue -u $USER
+  sbatch --wrap="echo hello" --partition=normal
+
+  # Check agent runner output
+  astro-agent connect --url ws://localhost:3002 --name "HPC" 2>&1 | grep -i slurm
+  ```
+</Accordion>
+
+<Accordion title="Port conflicts">
+  ```bash
+  # Check what is using port 3002
+  lsof -i :3002
+
+  # Use a different port
+  RELAY_PORT=3003 npm run dev:backend
+  astro-agent connect --url ws://localhost:3003 --name "My Machine"
+  ```
+</Accordion>
+
+## Production Notes
+
+For production HPC deployment:
+
+```bash
+# Required secrets
+RELAY_JWT_SECRET=<strong-random-secret>
+
+# Use TLS WebSocket
+astro-agent connect --url wss://<your-fly-app>.fly.dev:3002
+
+# Optional: Redis for multi-instance relay
+REDIS_URL=redis://redis-host:6379
+```
+
+In production, machines must complete the full device auth flow to get a signed JWT for the WebSocket connection.

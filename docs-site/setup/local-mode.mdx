@@ -1,6 +1,151 @@
 ---
 title: Local Mode
-description: Local Mode setup documentation.
+description: Run Astro entirely on your machine with PGlite — no Docker, no accounts, no external services.
+icon: laptop
 ---
 
-<Note>This page is coming soon. See the [Installation guide](/installation) for an overview.</Note>
+import { Steps, Step } from '/snippets/steps.mdx'
+
+## Overview
+
+Local Mode uses **PGlite** (Postgres-in-WASM) as the data store, running inside the backend process. No authentication, no Supabase, no Docker required. All data persists to disk, and the full stack runs on three local ports.
+
+This is the fastest way to start using Astro for individual development.
+
+| Aspect | Local Mode |
+|--------|-----------|
+| **Database** | PGlite (Postgres-in-WASM) |
+| **Auth** | None — single user |
+| **External services** | None required |
+| **Multi-device sync** | Not available |
+| **Team features** | Not available |
+| **Best for** | Solo development, rapid iteration, offline work |
+
+## How It Works
+
+The full stack runs locally on three ports:
+
+```
+Vite dev server (port 5173)  →  serves the React frontend
+Hono API server (port 3001)  →  REST API + PGlite database
+WebSocket relay  (port 3002)  →  connects agent runners
+```
+
+The frontend communicates with the backend through `dataClient`, which calls `/api/data/*` endpoints. These endpoints use Drizzle ORM over PGlite — the exact same schema used in server mode with Postgres.
+
+```
+Frontend stores → dataClient → POST /api/data/* → Drizzle ORM → PGlite (disk)
+```
+
+## Quick Start
+
+<Steps>
+  <Step title="Start the full stack">
+    ```bash
+    npm run dev:local
+    ```
+
+    This command switches the environment to local mode and starts all three services. It is equivalent to:
+
+    ```bash
+    npm run env:local && npm run dev
+    ```
+  </Step>
+  <Step title="Open the app">
+    Navigate to [http://localhost:5173](http://localhost:5173). You should see the app immediately — no login screen.
+
+    Look for the **"Local Mode"** badge in the sidebar to confirm you're in local mode.
+  </Step>
+  <Step title="Verify the backend">
+    ```bash
+    curl http://localhost:3001/api/health
+    ```
+
+    Expected response:
+    ```json
+    {
+      "status": "ok",
+      "mode": "pglite",
+      "authenticated": true
+    }
+    ```
+  </Step>
+</Steps>
+
+## Mode Detection
+
+Local mode is auto-detected when Supabase environment variables (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) are absent. You can check the current mode in code:
+
+<Tabs>
+  <Tab title="Frontend">
+    ```typescript
+    import { isLocalMode } from '@/lib/app-mode'
+
+    if (isLocalMode()) {
+      // PGlite, no auth
+    }
+    ```
+  </Tab>
+  <Tab title="Backend">
+    ```typescript
+    import { isLocalMode } from 'server/lib/app-mode'
+
+    if (isLocalMode()) {
+      // PGlite, skip auth middleware
+    }
+    ```
+  </Tab>
+  <Tab title="Shared (packages/core)">
+    ```typescript
+    import { isLocalMode } from '@astro/core/app-mode'
+    ```
+  </Tab>
+</Tabs>
+
+## Data Persistence
+
+PGlite stores data on disk at `~/.astro/pglite/`. The database uses the same Drizzle ORM schema as the server mode Postgres database (source of truth: `packages/core/src/db/schema.ts`).
+
+<Warning>
+  PGlite data lives on a single machine. There is no backup or sync. If you delete `~/.astro/pglite/`, all local data is lost.
+</Warning>
+
+## Feature Guards
+
+Server-only features are hidden in the UI when running in local mode. These checks happen at the component level — there are no route-level redirects.
+
+| Feature | Guard | Behavior in Local Mode |
+|---------|-------|----------------------|
+| Community marketplace | `isServerMode()` | Sidebar link hidden |
+| Publish to Community | `isServerMode()` | Button hidden |
+| Browse Community (direct URL) | `isLocalMode()` | Shows "Requires server mode" |
+| Team management | `isServerMode()` | Not available |
+| Multi-device sync | `isServerMode()` | Not available |
+
+## Limitations
+
+<Warning>
+  Local mode is designed for single-user development. The following features are not available:
+</Warning>
+
+- **No authentication** — anyone with network access to port 5173 can use the app
+- **No multi-device sync** — no Supabase Realtime
+- **No Row-Level Security (RLS)** — all data accessible without ownership checks
+- **No team features** — teams, invitations, and role-based access are disabled
+- **No Community features** — browse, publish, fork, star, and comment are disabled
+
+## Guided Tour
+
+On first visit, a driver.js guided tour highlights sidebar navigation items. In local mode, the tour has 4 steps (the Community step is skipped). The tour fires once per browser via `localStorage` key `astro-tour-completed`.
+
+## Switching Modes
+
+To switch from local mode to dev or production mode:
+
+```bash
+npm run env:dev    # Switch to dev mode (local Supabase + Cloudflare tunnel)
+npm run env:prod   # Switch to production mode (remote Supabase + Fly.io)
+npm run env:switch # Show current mode
+```
+
+See [Dev Mode](/setup/dev-mode) and [Production](/setup/production) for details on other modes.

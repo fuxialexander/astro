@@ -1,6 +1,323 @@
 ---
-title: Production
-description: Production setup documentation.
+title: Production Deployment
+description: Deploy Astro to production with Fly.io (backend), Cloudflare Pages (frontend), and Supabase (database).
+icon: rocket
 ---
 
-<Note>This page is coming soon. See the [Installation guide](/installation) for an overview.</Note>
+## Overview
+
+Astro's production deployment consists of three independently deployed components:
+
+| Component | Code | Hosted On | Deployed With |
+|-----------|------|-----------|--------------|
+| **Frontend** | `src/` | Cloudflare Pages (CDN) | `wrangler pages deploy` |
+| **Backend + Relay** | `server/` | Fly.io (cloud VM) | `fly deploy` |
+| **Agent Runner** | `packages/agent-runner/` | npm registry | `npm publish` |
+
+```
+┌──────────────────────┐
+│  Browser (CDN)       │  Cloudflare Pages serves static HTML/JS/CSS
+│  React app           │  Makes API calls to Fly.io backend
+└──────────┬───────────┘
+           │ HTTPS (REST + SSE)
+           ▼
+┌──────────────────────┐
+│  Fly.io VM           │  Hono API (port 3001) + WebSocket relay (port 3002)
+│  Node.js process     │  Connects to Supabase for persistence
+│  No AI credentials   │  Routes AI calls through relay to agent runners
+└────┬────────────┬────┘
+     │ Postgres   │ WebSocket
+     ▼            ▼
+┌──────────┐  ┌──────────────┐
+│ Supabase │  │ Agent Runner │  Runs on user's machine (laptop, HPC, cloud VM)
+│ (managed)│  │ (npm package)│  Uses user's own Claude credentials
+└──────────┘  └──────────────┘
+```
+
+<Note>
+  The Fly.io VM has no AI credentials. All AI execution routes through the relay to agent runners on user machines.
+</Note>
+
+## Prerequisites
+
+1. **Fly.io CLI** — `brew install flyctl` then `fly auth login`
+2. **Supabase project** (cloud-hosted) at [supabase.com](https://supabase.com)
+3. **Wrangler CLI** (optional) — `npm install -g wrangler` for Cloudflare Pages
+
+## Step-by-Step Deployment
+
+<Steps>
+  <Step title="Create the Fly.io app">
+    ```bash
+    fly apps create <your-fly-app> --org personal
+    fly apps list  # verify it appears
+    ```
+  </Step>
+
+  <Step title="Set up Supabase">
+    Create a project at [supabase.com](https://supabase.com) and collect these values:
+
+    | Value | Location in Dashboard |
+    |-------|----------------------|
+    | **Project URL** | Settings → API → Project URL |
+    | **Anon key** | Settings → API → Project API Keys → `anon` `public` |
+    | **Service role key** | Settings → API → Project API Keys → `service_role` |
+    | **Database password** | Set during project creation |
+
+    Build the `DATABASE_URL` from Settings → Database → Connection string (**Transaction** mode, port **6543**):
+
+    ```
+    postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true
+    ```
+
+    <Warning>
+      If your password contains special characters, URL-encode them (e.g., `@` → `%40`).
+    </Warning>
+  </Step>
+
+  <Step title="Configure environment and push secrets">
+    ```bash
+    # One-time: generate profile templates
+    npm run env:init
+
+    # Edit .env.prod with your Supabase credentials and Fly.io app name
+    # Edit .env with shared JWT secrets (generate with: openssl rand -hex 32)
+    ```
+
+    Push secrets to Fly.io:
+
+    ```bash
+    fly secrets import --app <your-fly-app> < .env
+
+    # Verify (shows names only, not values)
+    fly secrets list --app <your-fly-app>
+    ```
+
+    <Expandable title="Required secrets">
+      | Secret | Description |
+      |--------|-------------|
+      | `RELAY_JWT_SECRET` | Signs agent runner auth tokens. Generate: `openssl rand -hex 32` |
+      | `DEVICE_AUTH_JWT_SECRET` | Signs device auth access tokens. Must differ from above. |
+      | `DEVICE_AUTH_REFRESH_SECRET` | Signs device auth refresh tokens. Must differ from above. |
+      | `DATABASE_URL` | Supabase pooler connection string (port 6543) |
+      | `SUPABASE_URL` | Supabase project URL |
+      | `SUPABASE_ANON_KEY` | Supabase anon/public key |
+      | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (bypasses RLS) |
+      | `WEBAUTHN_RP_ID` | Domain for passkey auth |
+      | `WEBAUTHN_ORIGIN` | Full URL for passkey verification |
+      | `CORS_ORIGIN` | Frontend URL for CORS |
+      | `FRONTEND_URL` | Frontend URL for invite links |
+      | `ASTRO_BASE_URL` | Frontend URL for device auth links and emails |
+    </Expandable>
+  </Step>
+
+  <Step title="Run database migrations">
+    ```bash
+    npm run db:push
+    ```
+
+    Or manually:
+
+    ```bash
+    for f in supabase/migrations/*.sql; do
+      echo "=== Running: $(basename $f) ==="
+      PGPASSWORD='your-password' psql \
+        -h aws-0-<region>.pooler.supabase.com -p 6543 \
+        -U postgres.<project-ref> -d postgres -f "$f"
+    done
+    ```
+  </Step>
+
+  <Step title="Deploy backend">
+    ```bash
+    npm run env:prod     # Activate prod profile
+    npm run deploy:backend
+    ```
+
+    Verify:
+
+    ```bash
+    curl -s https://<your-fly-app>.fly.dev/api/health | python3 -m json.tool
+    ```
+
+    Expected: `"status": "ok"`, `"mode": "supabase"`.
+  </Step>
+
+  <Step title="Deploy frontend">
+    ```bash
+    npm run deploy:frontend
+    ```
+
+    This reads `VITE_*` vars from your env profile, builds the frontend, and deploys to Cloudflare Pages.
+
+    <Expandable title="Manual deployment (without env profiles)">
+      ```bash
+      VITE_API_BASE_URL=https://<your-fly-app>.fly.dev \
+      VITE_SUPABASE_URL=https://<ref>.supabase.co \
+      VITE_SUPABASE_ANON_KEY=eyJ... \
+      npm run build
+
+      wrangler pages deploy dist --project-name=astro-app
+      ```
+    </Expandable>
+  </Step>
+
+  <Step title="Connect an agent runner">
+    On a user machine:
+
+    ```bash
+    npm install -g @astroanywhere/agent
+    astro-agent setup --relay wss://<your-fly-app>.fly.dev:3002
+    astro-agent start
+    ```
+
+    The machine should appear in the web UI under Environments.
+  </Step>
+</Steps>
+
+## Subsequent Deploys
+
+```bash
+npm run env:prod     # Activate prod profile (if you switched modes)
+npm run deploy       # Deploy both backend + frontend
+```
+
+Or deploy individually:
+
+```bash
+npm run deploy:backend    # Fly.io only
+npm run deploy:frontend   # Cloudflare Pages only
+```
+
+<Warning>
+  Always deploy from the `main` branch. The deploy script warns if you're on a different branch.
+</Warning>
+
+## VM Resources and Scaling
+
+Default configuration in `fly.toml`:
+
+| Resource | Default | Notes |
+|----------|---------|-------|
+| CPU | 1x shared vCPU | Sufficient for less than 50 concurrent users |
+| Memory | 1024 MB | Node.js + machine registry + event buffers |
+| Region | `sjc` (San Jose) | Set via `primary_region` in fly.toml |
+| Instances | 2 | High availability (round-robin HTTP) |
+
+### Scaling
+
+```bash
+# Scale memory
+fly scale memory 2048 --app <your-fly-app>
+
+# Scale to dedicated CPU
+fly scale vm performance-1x --app <your-fly-app>
+
+# Scale instances (requires REDIS_URL for state sharing)
+fly scale count 3 --app <your-fly-app>
+```
+
+<Warning>
+  Multiple instances require `REDIS_URL` for relay state sharing. Without Redis, each instance has its own in-memory state and agent runners may connect to a different instance than the one handling their tasks.
+</Warning>
+
+## Cost Estimate
+
+| Resource | Monthly Cost |
+|----------|-------------|
+| Fly.io (2x shared CPU, 1GB, always-on) | ~$10-15 |
+| Fly.io (1x shared CPU, 1GB, always-on) | ~$5-7 |
+| Cloudflare Pages | $0 (free tier) |
+| Supabase Free tier | $0 |
+| Supabase Pro tier | $25 |
+
+No Anthropic API costs on the server — users bring their own Claude credentials via agent runners.
+
+## Custom Domain
+
+<Steps>
+  <Step title="Allocate IPs">
+    ```bash
+    fly ips allocate-v4 --app <your-fly-app>
+    fly ips allocate-v6 --app <your-fly-app>
+    ```
+  </Step>
+  <Step title="Add certificate">
+    ```bash
+    fly certs create api.yourdomain.com --app <your-fly-app>
+    ```
+  </Step>
+  <Step title="Add DNS records">
+    At your registrar, add:
+    - `A    api.yourdomain.com` pointing to your Fly IPv4 address
+    - `AAAA api.yourdomain.com` pointing to your Fly IPv6 address
+  </Step>
+  <Step title="Update secrets">
+    ```bash
+    fly secrets set \
+      WEBAUTHN_RP_ID="yourdomain.com" \
+      WEBAUTHN_ORIGIN="https://api.yourdomain.com" \
+      CORS_ORIGIN="https://yourdomain.com" \
+      ASTRO_BASE_URL="https://yourdomain.com" \
+      FRONTEND_URL="https://yourdomain.com" \
+      --app <your-fly-app>
+    ```
+  </Step>
+</Steps>
+
+## Debugging
+
+### Logs
+
+```bash
+fly logs --app <your-fly-app>                    # Live streaming
+fly logs --app <your-fly-app> | grep "\[relay\]" # Filter by component
+fly logs --app <your-fly-app> | grep "\[db\]"    # Database issues
+```
+
+### Common Issues
+
+<Accordion title="Health check fails">
+  ```bash
+  fly status --app <your-fly-app>           # Is the VM running?
+  fly ssh console --app <your-fly-app>      # SSH into the container
+  curl -s http://localhost:3001/api/health  # Health check from inside
+  ```
+</Accordion>
+
+<Accordion title="Environment validation failed on startup">
+  Missing or invalid secrets. Check:
+  ```bash
+  fly secrets list --app <your-fly-app>
+  ```
+  - JWT secrets must be 64+ hex chars (`openssl rand -hex 32`)
+  - All three JWT secrets must be unique
+  - `SUPABASE_URL` and `SUPABASE_ANON_KEY` must be set for server mode
+</Accordion>
+
+<Accordion title="Database connection errors">
+  - Use the **pooler** connection string (port **6543**), not direct (5432)
+  - URL-encode special characters in the password
+  - "relation does not exist" means migrations need to run: `npm run db:push`
+</Accordion>
+
+<Accordion title="CORS errors in browser">
+  The backend allows origins from `CORS_ORIGIN` and `FRONTEND_URL` env vars. Update them:
+  ```bash
+  fly secrets set CORS_ORIGIN="https://your-frontend-url.com" --app <your-fly-app>
+  ```
+</Accordion>
+
+<Accordion title="WebSocket relay not reachable">
+  Agent runners connect to `wss://<your-fly-app>.fly.dev:3002`. Common causes:
+  - Port 3002 not exposed in `fly.toml`
+  - Corporate firewall blocking non-443 ports
+  - Relay crashed (check `fly logs | grep "\[relay\]"`)
+</Accordion>
+
+<Accordion title="OOM (Out of Memory) kills">
+  Scale up:
+  ```bash
+  fly scale memory 2048 --app <your-fly-app>
+  ```
+</Accordion>
