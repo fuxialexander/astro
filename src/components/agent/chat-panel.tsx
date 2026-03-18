@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { stripHtml } from "@/lib/html-utils"
-import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2, Clock, Sparkles, Paperclip } from "lucide-react"
+import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2, Clock, Sparkles, Paperclip, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -897,23 +897,35 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
             >
               <Paperclip className="h-4 w-4" />
             </Button>
-            <Button
-              size="icon"
-              className="h-9 w-9"
-              onClick={handleSend}
-              disabled={(!input.trim() && chatImages.length === 0) || !!pendingMessage}
-              title={isBusy ? "Queue message (⌘+Enter)" : "Send (⌘+Enter)"}
-            >
-              {isBusy ? (
-                pendingMessage ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+            {isStreaming ? (
+              <Button
+                size="icon"
+                variant="destructive"
+                className="h-9 w-9"
+                onClick={() => currentSession && abortChatStream(currentSession.id)}
+                title="Stop generation"
+              >
+                <Square className="h-3.5 w-3.5" />
+              </Button>
+            ) : (
+              <Button
+                size="icon"
+                className="h-9 w-9"
+                onClick={handleSend}
+                disabled={(!input.trim() && chatImages.length === 0) || !!pendingMessage}
+                title={isBusy ? "Queue message (⌘+Enter)" : "Send (⌘+Enter)"}
+              >
+                {isBusy ? (
+                  pendingMessage ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Clock className="h-4 w-4" />
+                  )
                 ) : (
-                  <Clock className="h-4 w-4" />
-                )
-              ) : (
-                <Send className="h-4 w-4" />
-              )}
-            </Button>
+                  <Send className="h-4 w-4" />
+                )}
+              </Button>
+            )}
           </div>
         </div>
       </div>
