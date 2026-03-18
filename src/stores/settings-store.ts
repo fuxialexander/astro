@@ -18,14 +18,17 @@ export const defaultModelTierMap: Record<ModelTier, Record<string, string>> = {
   large: {
     "claude-sdk": "opus",
     "codex": "gpt-5.4",
+    "pi": "google/gemini-2.5-pro",
   },
   medium: {
     "claude-sdk": "sonnet",
     "codex": "gpt-5.3-codex",
+    "pi": "google/gemini-2.5-flash",
   },
   small: {
     "claude-sdk": "haiku",
     "codex": "gpt-5.3-codex-spark-preview",
+    "pi": "google/gemini-2.5-flash",
   },
 }
 

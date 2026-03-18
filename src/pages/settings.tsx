@@ -1429,6 +1429,8 @@ function EnvironmentsSettingsContent() {
             • <span className="font-medium">claude-sdk</span> — Claude Agent SDK (Opus, Sonnet, Haiku)
             <br />
             • <span className="font-medium">codex</span> — OpenAI Codex CLI (gpt-5.4, gpt-5.3-codex, etc.)
+            <br />
+            • <span className="font-medium">pi</span> — Pi coding agent (multi-provider: use <span className="font-mono">provider/model</span> syntax, e.g. <span className="font-mono">anthropic/claude-sonnet-4-6</span>)
           </p>
         </div>
       </section>
@@ -1540,6 +1542,12 @@ function EnvironmentsSettingsContent() {
             Set the model name Astro passes to each agent. Use the same names shown by <span className="font-mono">/model</span> in Claude Code or Codex.
             <br />
             Reasoning effort is not controlled here — select it inside the agent after Astro launches it.
+          </p>
+          <p className="text-[11px] text-muted-foreground leading-relaxed mt-2">
+            <span className="font-semibold text-foreground">Pi:</span> Uses <span className="font-mono">provider/model</span> format (e.g. <span className="font-mono">google/gemini-2.5-pro</span>, <span className="font-mono">anthropic/claude-sonnet-4-6</span>, <span className="font-mono">openai/gpt-4o</span>).
+            You must configure API keys directly on the machine running Pi — set <span className="font-mono">GEMINI_API_KEY</span>, <span className="font-mono">ANTHROPIC_API_KEY</span>, <span className="font-mono">OPENAI_API_KEY</span>, etc. as environment variables.
+            <br />
+            <span className="font-semibold text-foreground">Free tier:</span> Google Gemini (<span className="font-mono">GEMINI_API_KEY</span>) offers generous free usage — Gemini 2.5 Flash and Pro are set as Pi defaults.
           </p>
         </div>
       </section>
