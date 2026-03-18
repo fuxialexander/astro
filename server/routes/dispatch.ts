@@ -2501,7 +2501,8 @@ dispatchRoute.post('/steer', async (c) => {
   const raw = await c.req.json()
   const parsed = steerSchema.safeParse(raw)
   if (!parsed.success) {
-    return c.json({ success: false, error: 'taskId, machineId, and message are required' }, 400)
+    const missing = parsed.error.issues.map(i => i.path.join('.')).join(', ')
+    return c.json({ success: false, error: `Validation failed: ${missing} — taskId, machineId, and message are required`, details: parsed.error.issues }, 400)
   }
   const { taskId, machineId, message, action, interrupt, sessionId, branchName } = parsed.data
 
@@ -2555,7 +2556,8 @@ dispatchRoute.post('/approval', async (c) => {
   const raw = await c.req.json()
   const parsed = approvalSchema.safeParse(raw)
   if (!parsed.success) {
-    return c.json({ success: false, error: 'taskId, machineId, and requestId are required' }, 400)
+    const missing = parsed.error.issues.map(i => i.path.join('.')).join(', ')
+    return c.json({ success: false, error: `Validation failed: ${missing} — taskId, machineId, and requestId are required`, details: parsed.error.issues }, 400)
   }
   const { taskId, machineId, requestId, answered, answer, message } = parsed.data
 
