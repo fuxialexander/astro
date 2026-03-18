@@ -1854,6 +1854,27 @@ function handleRealtimeEvent(
       const nodeId = data.nodeId as string
       const projectId = data.projectId as string
       const execId = data.executionId as string | undefined
+      const eventStatus = data.status as string | undefined
+
+      // Capture pre-patch status for side effects in the async handler below.
+      // Must be read BEFORE the synchronous patch so notifications and YOLO
+      // auto-execute still detect the status transition correctly.
+      const statusBeforePatch = usePlanStore.getState().nodes.find((n) => n.id === nodeId)?.status
+
+      // Synchronously patch plan node status from SSE event data for instant UI response.
+      // This prevents stale "Running" indicators and sidebar active counts while the
+      // async getNode() round-trip completes. The full DB hydration below overwrites this.
+      if (eventStatus) {
+        const planStore = usePlanStore.getState()
+        const existingNode = planStore.nodes.find((n) => n.id === nodeId)
+        if (existingNode && existingNode.status !== eventStatus) {
+          usePlanStore.setState({
+            nodes: planStore.nodes.map((n) =>
+              n.id === nodeId ? { ...n, status: eventStatus as typeof n.status } : n
+            ),
+          })
+        }
+      }
 
       // Re-read authoritative state from DB (with generation counter to prevent
       // out-of-order responses from overwriting newer state)
@@ -1865,8 +1886,9 @@ function handleRealtimeEvent(
         if ((nodeStatusGen.get(nodeId) || 0) > gen) return // stale response, discard
 
         const planStore = usePlanStore.getState()
-        const prevNode = planStore.nodes.find((n) => n.id === nodeId)
-        const prevStatus = prevNode?.status
+        // Use pre-patch status (not current store status) for transition detection,
+        // since the synchronous patch above already updated the store.
+        const prevStatus = statusBeforePatch
 
         // Merge DB state into plan store (DB wins, no write-back)
         planStore.mergeNodeFromDB(freshNode)
