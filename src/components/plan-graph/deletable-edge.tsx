@@ -52,7 +52,7 @@ export const DeletableEdge = memo(function DeletableEdge({
     targetY,
     sourcePosition,
     targetPosition,
-    curvature: 0.4,
+    curvature: 0.15,
   })
 
   return (

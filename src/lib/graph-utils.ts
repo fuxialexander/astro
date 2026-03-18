@@ -371,3 +371,51 @@ export function computeEdgeHandles(
   return { sourceHandle: "right", targetHandle: "left" }
 }
 
+/**
+ * Compute the set of edge IDs that are redundant due to transitivity.
+ * An edge (u → v) is redundant if v is reachable from u via at least one
+ * other path of length ≥ 2 (i.e. some w exists where u→w and w→*→v).
+ *
+ * These edges can be hidden in the UI to reduce visual clutter without
+ * removing the underlying dependency data.
+ */
+export function computeRedundantEdgeIds(edges: { id: string; source: string; target: string }[]): Set<string> {
+  // Build adjacency list (all edges)
+  const adj = new Map<string, string[]>()
+  for (const e of edges) {
+    if (!adj.has(e.source)) adj.set(e.source, [])
+    adj.get(e.source)!.push(e.target)
+  }
+
+  // BFS reachability from `start`, but skip the direct edge to `skipTarget`
+  function reachableWithoutDirect(start: string, skipTarget: string): Set<string> {
+    const visited = new Set<string>()
+    const queue: string[] = []
+    for (const nb of adj.get(start) ?? []) {
+      if (nb !== skipTarget && !visited.has(nb)) {
+        visited.add(nb)
+        queue.push(nb)
+      }
+    }
+    let head = 0
+    while (head < queue.length) {
+      const cur = queue[head++]
+      for (const nb of adj.get(cur) ?? []) {
+        if (!visited.has(nb)) {
+          visited.add(nb)
+          queue.push(nb)
+        }
+      }
+    }
+    return visited
+  }
+
+  const redundant = new Set<string>()
+  for (const e of edges) {
+    if (reachableWithoutDirect(e.source, e.target).has(e.target)) {
+      redundant.add(e.id)
+    }
+  }
+  return redundant
+}
+

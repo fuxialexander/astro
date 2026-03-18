@@ -1,5 +1,5 @@
 import { memo, useState, useCallback, useEffect, useRef } from "react"
-import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
+import { Handle, Position, useReactFlow, type Node, type NodeProps } from "@xyflow/react"
 import { Plus, GitPullRequest, GitPullRequestCreateArrow, Sparkles, Check, GitMerge, Loader2, CheckCircle2, XCircle, RotateCw, Eye, ShieldCheck, Diamond } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { STATUS_DOT_COLOR, PRIORITY_PIP_COLOR, type MilestoneColor } from "@/components/plan-graph/plan-node-shared"
@@ -69,6 +69,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
   const [hovered, setHovered] = useState(false)
   const [showTooltip, setShowTooltip] = useState(false)
   const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const { updateNode } = useReactFlow()
   const [editingTitle, setEditingTitle] = useState(false)
   const [editValue, setEditValue] = useState("")
   const editInputRef = useRef<HTMLInputElement>(null)
@@ -94,6 +95,11 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
       if (tooltipTimer.current) clearTimeout(tooltipTimer.current)
     }
   }, [hovered, data.title, data.description])
+
+  // Elevate node above milestones when tooltip is visible
+  useEffect(() => {
+    updateNode(id, { zIndex: showTooltip ? 1000 : 0 })
+  }, [id, showTooltip, updateNode])
 
   // Resolve highlight colors based on highlightBy mode (used by loop node)
   const highlight = (() => {
