@@ -58,6 +58,7 @@ import { ActiveTasks } from "@/pages/active-tasks"
 import { Workspace } from "@/pages/workspace"
 import { TeamInvite } from "@/pages/team-invite"
 import { ProjectNewPlan } from "@/pages/project-new-plan"
+import DemoPlanNodeList from "@/pages/demo-plan-node-list"
 import { Playground } from "@/pages/playground"
 import { ShareImport } from "@/pages/share-import"
 import { Examples } from "@/pages/examples"
@@ -410,6 +411,7 @@ export default function App() {
                 <Route path="share/:id" element={<ShareImport />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="plugins/*" element={<PluginRoutes />} />
+                <Route path="demo/plan-node-list" element={<DemoPlanNodeList />} />
               </Route>
             </Routes>
             </PluginLoader>

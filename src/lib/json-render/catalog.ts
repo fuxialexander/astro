@@ -190,6 +190,42 @@ export const astroCatalog = defineCatalog(schema, {
       description: 'A progress bar showing percentage completion (0-100).',
     },
 
+    // ── Plan ────────────────────────────────────────────────────────
+    PlanNodeList: {
+      props: z.object({
+        nodes: z.array(z.object({
+          id: z.string(),
+          title: z.string(),
+          type: z.string(),
+          status: z.string(),
+          description: z.string().optional().nullable(),
+          estimate: z.string().optional().nullable(),
+          priority: z.string().optional().nullable(),
+          dueDate: z.string().optional().nullable(),
+          milestoneId: z.string().optional().nullable(),
+          dependencies: z.array(z.string()).optional(),
+        })),
+      }),
+      description: 'A sorted task list showing plan nodes with status indicators, estimate/priority badges, and dependency arrows. Hover a row to see full details. Dependency chips link to related tasks. Use for displaying plan state after CLI mutations.',
+    },
+    PlanGraph: {
+      props: z.object({
+        nodes: z.array(z.object({
+          id: z.string(),
+          title: z.string(),
+          type: z.string(),
+          status: z.string(),
+          description: z.string().optional().nullable(),
+          estimate: z.string().optional().nullable(),
+          priority: z.string().optional().nullable(),
+          dueDate: z.string().optional().nullable(),
+          milestoneId: z.string().optional().nullable(),
+          dependencies: z.array(z.string()).optional(),
+        })),
+      }),
+      description: 'An interactive DAG graph with auto-layout (dagre), milestone banners, status-colored task cards, and directional dependency edges. Same node schema as PlanNodeList. Use for visualizing plan structure and dependencies.',
+    },
+
     // ── Input ───────────────────────────────────────────────────────
     Button: {
       props: z.object({

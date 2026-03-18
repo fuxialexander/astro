@@ -1,7 +1,8 @@
 import { memo, useState, useCallback, useEffect, useRef } from "react"
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
-import { Plus, GitPullRequest, GitPullRequestCreateArrow, Sparkles, Check, GitMerge, Loader2, CheckCircle2, XCircle, Diamond, RotateCw, Eye, ShieldCheck } from "lucide-react"
+import { Plus, GitPullRequest, GitPullRequestCreateArrow, Sparkles, Check, GitMerge, Loader2, CheckCircle2, XCircle, RotateCw, Eye, ShieldCheck, Flag } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { STATUS_DOT_COLOR, type MilestoneColor } from "@/components/plan-graph/plan-node-shared"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
 import { usePlanStore } from "@/stores/plan-store"
@@ -54,6 +55,7 @@ type TaskNodeData = Node<{
   loopMaxIterations?: number
   loopBestMetricValue?: number | null
   loopStatus?: string | null
+  milestoneColor?: MilestoneColor | null
 }>
 
 export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeData>) {
@@ -145,22 +147,22 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
 
   // ── Milestone node ─────────────────────────────────────────────
   if (isMilestone) {
-    const governedCount = data.governedCount ?? 0
+    const mc = data.milestoneColor ?? null
     return (
       <div
         className={cn(
-          "relative flex items-center gap-2 border-2 border-dashed px-4 shadow-sm transition-all duration-200",
-          "h-9 w-[240px] rounded-full",
-          highlight.border,
-          "bg-muted/40",
-          data.status === "completed" || data.status === "auto_verified"
-            ? "border-success/50 bg-success/5"
-            : "border-primary/30 bg-primary/[0.03]",
+          "relative rounded-lg shadow-sm overflow-hidden select-none flex items-center gap-2 px-3 py-2 border-2 cursor-pointer",
           data.status === "pruned" && "opacity-50",
           isChecked && "ring-2 ring-primary ring-offset-1 ring-offset-background",
           isFocused && "shadow-[0_0_0_3px_rgba(var(--primary),0.4)] scale-[1.05] z-50",
           isRecentlyUpdated && "ring-2 ring-info/50 animate-pulse"
         )}
+        style={{
+          width: 200,
+          minHeight: 40,
+          borderColor: mc?.border ?? '#f59e0b',
+          backgroundColor: mc?.bg ?? 'rgba(245,158,11,0.08)',
+        }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
@@ -193,46 +195,10 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
           </div>
         )}
 
-        {/* Selection checkbox or diamond icon */}
-        {showCheckbox ? (
-          <button
-            type="button"
-            onClick={handleCheckboxClick}
-            className={cn(
-              "relative z-10 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-[1.5px] transition-colors cursor-pointer p-1 -m-1",
-              isChecked
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-muted-foreground/40 bg-transparent hover:border-primary/60"
-            )}
-          >
-            {isChecked && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
-          </button>
-        ) : (
-          <Diamond className={cn(
-            "h-3.5 w-3.5 shrink-0 relative z-10",
-            data.status === "completed" || data.status === "auto_verified"
-              ? "text-success fill-success/20"
-              : "text-primary/60 fill-primary/10"
-          )} />
-        )}
-
-        <span className={cn(
-          "truncate text-[11px] font-semibold uppercase tracking-wider relative z-10",
-          data.status === "pruned"
-            ? "text-muted-foreground line-through"
-            : data.status === "completed" || data.status === "auto_verified"
-              ? "text-success/80"
-              : "text-foreground/70"
-        )}>
+        <Flag className="h-3.5 w-3.5 shrink-0 relative z-10" style={{ color: mc?.text ?? '#b45309' }} />
+        <span className="text-[11px] font-bold tracking-tight truncate flex-1 relative z-10" style={{ color: mc?.text ?? '#b45309' }}>
           {data.title}
         </span>
-
-        {/* Governed task count */}
-        {governedCount > 0 && (
-          <span className="ml-auto text-[10px] font-medium text-muted-foreground relative z-10 shrink-0">
-            {governedCount} {governedCount === 1 ? "task" : "tasks"}
-          </span>
-        )}
 
         {!data.readOnly && (
           <>
@@ -344,6 +310,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
   }
 
   // ── Regular task node ──────────────────────────────────────────
+  const mc = data.milestoneColor ?? null
   return (
     <div
       className={cn(
@@ -359,6 +326,10 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         isFocused && "shadow-[0_0_0_3px_rgba(var(--primary),0.4)] scale-[1.05] z-50",
         isRecentlyUpdated && "ring-2 ring-info/50 animate-pulse"
       )}
+      style={mc && !isOverdue ? {
+        borderLeftColor: mc.stripe,
+        borderLeftWidth: 3,
+      } : undefined}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -438,7 +409,10 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
             {isChecked && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
           </button>
         ) : (
-          <span className={cn("h-2 w-2 rounded-full shrink-0 relative z-10", highlight.dotColor)} />
+          <span
+            className="h-2 w-2 rounded-full shrink-0 relative z-10"
+            style={{ background: STATUS_DOT_COLOR[data.status] ?? '#94a3b8' }}
+          />
         )}
 
         <span className={cn(

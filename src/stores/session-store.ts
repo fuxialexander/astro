@@ -13,8 +13,6 @@
 import { create } from "zustand"
 import { dataClient } from "@/lib/data-client"
 import { projectChatWithAgent, chatWithTask, generateTitle, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
-import { extractMutations, applyMutationsToStore } from "@/lib/plan-mutations"
-import { applyPlanFromText } from "@/lib/plan-extraction"
 import { usePlanStore } from "./plan-store"
 import { useExecutionStore } from "./execution-store"
 import { useProjectStore } from "./project-store"
@@ -41,7 +39,7 @@ import type {
 const chatAbortControllers = new Map<string, AbortController>()
 
 // Plan-mutating MCP tools that should trigger a plan refresh
-const PLAN_MUTATING_TOOLS = new Set(["create_task", "update_task", "delete_task", "create_dependency"])
+const PLAN_MUTATING_TOOLS = new Set(["create_task", "update_task", "delete_task", "create_dependency", "Bash"])
 
 /** Parameters for sendChatMessage (project chat / replan) */
 export interface SendChatMessageParams {
@@ -789,15 +787,31 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             timestamp: new Date(),
           })
         },
-        onDone: (newProviderSessionId) => {
+        onDone: async (newProviderSessionId) => {
           if (newProviderSessionId) {
             get().setProviderSessionId(sid, newProviderSessionId, providerId)
           }
 
-          // Refresh plan from server if MCP tools modified the plan
+          // Refresh plan from server if Bash/MCP tools modified the plan
           if (needsPlanRefresh) {
-            usePlanStore.getState().load()
-            // Warn user if YOLO batch is active — tasks created via MCP won't auto-dispatch
+            await usePlanStore.getState().load()
+
+            // Push a plan_result event so the user sees an updated graph in the activity feed
+            const updatedNodes = usePlanStore.getState().nodes.filter((n) => n.projectId === projectId)
+            const updatedEdgeSet = new Set(updatedNodes.map((n) => n.id))
+            const updatedEdges = usePlanStore.getState().edges.filter(
+              (e) => updatedEdgeSet.has(e.source) || updatedEdgeSet.has(e.target)
+            )
+            const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
+            useRealtimeStore.getState().pushActivityEvent(sid, {
+              type: 'plan_result',
+              nodes: updatedNodes.map((n) => ({ id: n.id, title: n.title, type: n.type, status: n.status })),
+              edges: updatedEdges.map((e) => ({ source: e.source, target: e.target })),
+              projectName: project?.name ?? '',
+              timestamp: new Date(),
+            })
+
+            // Warn user if YOLO batch is active — tasks created via CLI won't auto-dispatch
             if (useExecutionStore.getState().isBatchActive(projectId)) {
               useToastStore.getState().add({
                 type: 'info',
@@ -811,54 +825,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           // yaml-spec parsing is handled by use-chat-activity-events.ts which
           // concatenates text events and extracts specs when isStreaming becomes false.
 
-          // Try full plan JSON extraction first (matches plan-generation page behavior).
-          // This handles the case where the AI outputs a complete plan object instead of mutations.
-          const planResult = applyPlanFromText(projectId, rawAssistantText)
-          if (planResult.applied) {
-            console.log(`[session-store] Full plan extracted from chat: ${planResult.nodeCount} nodes`)
-            useRealtimeStore.getState().pushActivityEvent(sid, {
-              type: 'mutation',
-              nodeUpdates: [],
-              edgeOps: [],
-              newNodes: [],
-              timestamp: new Date(),
-            })
-            get().updateLastAssistantMessage(sid, rawAssistantText)
-          } else {
-            // Fall back to incremental mutation extraction
-            const { cleanContent, mutations } = extractMutations(rawAssistantText)
-            const hasMutations = mutations.nodeUpdates.length > 0 || mutations.edgeOps.length > 0 || mutations.newNodes.length > 0
-
-            if (hasMutations) {
-              const { affectedNodeIds, resolvedMutations } = applyMutationsToStore(projectId, mutations)
-              if (affectedNodeIds.length > 0) {
-                usePlanStore.getState().markNodesAsUpdating(affectedNodeIds)
-              }
-              useRealtimeStore.getState().pushActivityEvent(sid, {
-                type: 'mutation',
-                nodeUpdates: resolvedMutations.nodeUpdates,
-                edgeOps: resolvedMutations.edgeOps,
-                newNodes: resolvedMutations.newNodes,
-                timestamp: new Date(),
-              })
-              get().updateLastAssistantMessage(sid, cleanContent, resolvedMutations)
-            } else {
-              // Detect both mutation-like arrays AND full plan JSON objects that weren't extracted
-              const looksLikeMutations = /\[\s*\{[^}]*"(?:nodeId|nodeTitle|action|title)"/.test(rawAssistantText)
-              const looksLikeFullPlan = /"nodes"\s*:\s*\[/.test(rawAssistantText) && /"edges"\s*:\s*\[/.test(rawAssistantText)
-              if ((looksLikeMutations || looksLikeFullPlan) && rawAssistantText.length > 100) {
-                console.warn("[session-store] Response contains plan/mutation JSON but extraction failed")
-                useToastStore.getState().add({
-                  type: "warning",
-                  title: "Plan changes not applied",
-                  description: looksLikeFullPlan
-                    ? "The AI output a full plan instead of incremental changes. Try asking: \"Apply those changes using the mutation format.\""
-                    : "The AI described changes but they weren't in the expected format. Try asking again with more specific instructions.",
-                })
-              }
-              get().updateLastAssistantMessage(sid, rawAssistantText)
-            }
-          }
+          get().updateLastAssistantMessage(sid, rawAssistantText)
 
           // Clear chat mutation flag and streaming state
           useExecutionStore.getState().setChatMutationActive(projectId, false)

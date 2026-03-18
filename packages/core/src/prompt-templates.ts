@@ -176,7 +176,7 @@ export interface ChatPlanEdge {
  * prompt injection attempts. We use delimiters to separate user content from
  * system instructions.
  */
-export function buildChatSystemPrompt(visionDoc?: string, planNodes?: ChatPlanNode[], planEdges?: ChatPlanEdge[], skillsInjection?: string): string {
+export function buildChatSystemPrompt(visionDoc?: string, planNodes?: ChatPlanNode[], planEdges?: ChatPlanEdge[], skillsInjection?: string, projectId?: string): string {
   // SECURITY: Wrap user-provided content in delimiters
   const visionSection = visionDoc
     ? `\n\n## Project Vision Document\n<user_vision>\n${visionDoc}\n</user_vision>\n`
@@ -228,7 +228,8 @@ export function buildChatSystemPrompt(visionDoc?: string, planNodes?: ChatPlanNo
       edgeSection = `\n\n## Current Edges (Dependencies)\n${edgeList}\n`
     }
 
-    planSection = `\n\n## Current Plan Nodes\n${nodeList}\n${milestoneSection}${edgeSection}`
+    const projectIdSection = projectId ? `\n\n**Project ID:** \`${projectId}\`\n` : ""
+    planSection = `\n\n## Current Plan Nodes\n${nodeList}\n${milestoneSection}${edgeSection}${projectIdSection}`
   }
 
   return `You are a project planning assistant for Astro with full tool capability. Help the user refine their project plan through conversation. You can modify any task property, manage dependencies/edges between nodes, and restructure the plan graph.
@@ -247,78 +248,57 @@ Be concise and actionable.
 ${visionSection}${planSection}${skillsInjection ? `\n\n## Available Skills & Tools\n\n${skillsInjection}\n` : ''}
 ## Modifying the Plan
 
-When the user asks to update, modify, or change anything in the plan, you MUST:
-1. Identify the relevant tasks/edges from the plan above.
-2. Apply changes by including a single structured JSON block at the END of your response.
-3. Explain what you changed conversationally BEFORE the JSON block.
+When the user asks to update, modify, add, or remove anything in the plan, use the \`astro-cli\` tool via Bash to apply changes. The CLI is already authenticated. Use \`--json\` for all write commands so you can capture the returned node IDs.
 
-### Mutation Format
+### Commands
 
-Output a single \`\`\`json code block containing a JSON object with up to three optional arrays:
+**Create a task:**
+\`\`\`bash
+astro-cli plan create-node --json \\
+  --project-id <PROJECT_ID> \\
+  --title "Task title" \\
+  --description "What needs to be done" \\
+  --type task \\
+  --milestone-id <milestoneId> \\
+  --dependency <nodeId> \\
+  --estimate M \\
+  --verification auto
+\`\`\`
+Returns \`{ "ok": true, "id": "<new-node-id>", ... }\` — capture the \`id\` for subsequent edge commands.
 
-- **"updateNodes"** — Modify existing nodes. Each object needs **"nodeId"** (exact ID, preferred) OR **"nodeTitle"** (case-insensitive title match), plus fields to change:
-  - "title", "description" (plain text), "content" (HTML — set BOTH when changing descriptions)
-  - "type": "milestone" | "task" | "decision"
-  - "status": "planned" | "completed" | "pruned" | "dispatched" | "in_progress" | "auto_verified" | "awaiting_judgment"
-  - "priority": "urgent" | "high" | "medium" | "low" | "none"
-  - "estimate": "XS" | "S" | "M" | "L" | "XL"
-  - "milestoneId", "dueDate" (YYYY-MM-DD), "startDate", "endDate", "verification" ("auto"|"human")
-  - "dependencies" (string[]) — replaces the full list; edges are auto-reconciled
-
-- **"addNodes"** — Create new nodes. "title" and "description" are required:
-  - "id" (optional temp ID for cross-referencing within the same block)
-  - "type" (default "task"), "milestoneId", "dependencies" (string[]), "priority", "estimate", "verification"
-
-- **"updateEdges"** — Add or remove edges:
-  - "action": "add" | "remove", "source": node ID, "target": node ID, "type": "dependency" | "branch"
-
-### Example
-
-User: "Reprioritize the API tasks and add a caching layer before deployment"
-
-\`\`\`json
-{
-  "updateNodes": [
-    { "nodeId": "abc-123", "priority": "urgent", "estimate": "M" },
-    { "nodeTitle": "Deploy to production", "type": "task", "priority": "low" }
-  ],
-  "addNodes": [
-    {
-      "id": "cache1",
-      "title": "Add Redis caching layer",
-      "description": "Set up Redis cache for API responses to reduce DB load",
-      "milestoneId": "m1",
-      "dependencies": ["abc-123"],
-      "priority": "high",
-      "estimate": "M"
-    }
-  ],
-  "updateEdges": [
-    { "action": "add", "source": "cache1", "target": "deploy-node-id", "type": "dependency" }
-  ]
-}
+**Update an existing task:**
+\`\`\`bash
+astro-cli plan update-node <nodeId> --json --description "New description" --priority high
+astro-cli plan update-node <nodeId> --json --add-dependency <otherId> --estimate L
 \`\`\`
 
-### Decomposition
+**Delete a task:**
+\`\`\`bash
+astro-cli plan delete-node <nodeId> --json
+\`\`\`
 
-When breaking down a task into sub-tasks:
-- Target each sub-task at ~20 min / <1000 LOC. Estimate "XS"/"S"/"M" — never larger than "M"
-- Preserve the original task's milestone assignment
-- Mark the original task as "completed" or "pruned" via updateNodes
-- Wire dependencies so sub-tasks form a clear DAG; prefer parallel branches when independent
+**Add a dependency edge:**
+\`\`\`bash
+astro-cli plan add-edge --json --project-id <PROJECT_ID> --source <fromNodeId> --target <toNodeId>
+\`\`\`
+
+**Remove a dependency edge:**
+\`\`\`bash
+astro-cli plan remove-edge --json --project-id <PROJECT_ID> --source <fromNodeId> --target <toNodeId>
+\`\`\`
+
+**After all changes — verify and adjust:**
+\`\`\`bash
+astro-cli plan tree --json --project-id <PROJECT_ID>
+\`\`\`
+Review the tree output. If anything is missing or wrong, apply additional commands to fix it.
 
 ### Rules
-- Only include fields that should change. Omit unchanged fields.
-- Do NOT include the JSON block if no changes are needed (e.g. the user is just asking a question).
-- Do NOT output any other \`\`\`json code blocks in your response — the only JSON block should be the mutation.
-- **CRITICAL:** When the user asks to change, update, add, remove, or modify ANYTHING in the plan, you MUST include the JSON block. This is the ONLY way changes are applied to the graph — without it, nothing happens. Never just describe what to do; always emit the block.
-- **NEVER** output a full plan JSON object. The mutation format ("updateNodes", "addNodes", "updateEdges") is the ONLY format that applies changes in chat.
-
-### WRONG format (full plan — will be silently dropped):
-\`\`\`
-{ "projectName": "...", "nodes": [...], "edges": [...] }
-\`\`\`
-The above format is ONLY used during initial plan generation, never in chat. Always use the mutation format instead.`
+- Run one command per change. Do not batch into a single command.
+- Always run \`plan tree --json\` after all changes to confirm the result. The JSON output is rendered as a visual tree in the UI for user inspection.
+- Node IDs are shown in brackets \`[id]\` in the plan above — use those exact IDs.
+- Do NOT output JSON mutation blocks — they no longer apply changes.
+- If a command fails (non-zero exit), show the error and fix it before continuing.`
 }
 
 export interface TaskExecutionContext {

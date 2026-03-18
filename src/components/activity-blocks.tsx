@@ -5,7 +5,7 @@
  * and task detail views can share the same rendering components.
  */
 
-import React, { useState, useRef, useCallback, useEffect } from "react"
+import React, { useState, useRef, useCallback } from "react"
 import {
   Loader2,
   CheckCircle2,
@@ -31,7 +31,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { TaskActivityEvent, ExecutionSummary } from "@/types"
-import { planToMermaid, type MermaidNode, type MermaidEdge } from "@/lib/plan-to-mermaid"
+import { JsonRenderView } from "@/components/ui/json-render-view"
 import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
 import { VisualWidget } from "@/components/ui/visual-widget"
 import { StructuredDataView } from "@/components/ui/structured-data-view"
@@ -1341,63 +1341,27 @@ export function SystemPromptBlock({ event }: { event: Extract<TaskActivityEvent,
 }
 
 /**
- * Inline plan DAG preview — renders a Mermaid flowchart from plan_result data.
+ * Inline plan DAG preview — renders a PlanGraph from plan_result data.
  * Appears in the activity feed after plan generation or plan chat mutations.
  */
 export function PlanGraphBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'plan_result' }> }) {
   const [expanded, setExpanded] = useState(true)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [svgHtml, setSvgHtml] = useState<string>('')
-  const [renderError, setRenderError] = useState(false)
-
-  const mermaidNodes: MermaidNode[] = event.nodes.map((n) => ({
-    id: n.id,
-    title: n.title,
-    type: (n.type as MermaidNode['type']) || 'task',
-    status: n.status,
-  }))
-  const mermaidEdges: MermaidEdge[] = event.edges
-  const mermaidCode = planToMermaid(mermaidNodes, mermaidEdges)
-
-  useEffect(() => {
-    if (!expanded || !mermaidCode) return
-    let cancelled = false
-
-    async function render() {
-      try {
-        // Dynamic import to keep mermaid out of the initial bundle
-        const { default: mermaid } = await import('mermaid')
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: 'strict',
-          theme: 'base',
-          themeVariables: {
-            primaryColor: '#dbeafe',
-            primaryBorderColor: '#93c5fd',
-            primaryTextColor: '#1e293b',
-            lineColor: '#64748b',
-            textColor: '#334155',
-            fontSize: '13px',
-            fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
-          },
-        })
-        const id = `plan-graph-${Date.now()}`
-        const { svg } = await mermaid.render(id, mermaidCode)
-        if (!cancelled) {
-          setSvgHtml(svg)
-          setRenderError(false)
-        }
-      } catch {
-        if (!cancelled) setRenderError(true)
-      }
-    }
-
-    render()
-    return () => { cancelled = true }
-  }, [expanded, mermaidCode])
 
   const taskCount = event.nodes.filter((n) => n.type !== 'milestone').length
   const milestoneCount = event.nodes.filter((n) => n.type === 'milestone').length
+
+  // Convert edge list to per-node dependencies array
+  const nodes = event.nodes.map((n) => ({
+    ...n,
+    dependencies: event.edges.filter((e) => e.target === n.id).map((e) => e.source),
+  }))
+
+  const spec = {
+    root: 'graph',
+    elements: {
+      graph: { type: 'PlanGraph', props: { nodes }, children: [] },
+    },
+  }
 
   return (
     <div className="rounded-lg border border-border/60 bg-muted/30 overflow-hidden">
@@ -1421,24 +1385,32 @@ export function PlanGraphBlock({ event }: { event: Extract<TaskActivityEvent, { 
         {expanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
       </button>
       {expanded && (
-        <div className="border-t border-border/40 px-3 py-3 overflow-x-auto">
-          {renderError ? (
-            <p className="text-xs text-muted-foreground italic">Failed to render plan graph.</p>
-          ) : svgHtml ? (
-            <div
-              ref={containerRef}
-              className="flex justify-center [&_svg]:max-w-full [&_svg]:h-auto"
-              dangerouslySetInnerHTML={{ __html: svgHtml }}
-            />
-          ) : (
-            <div className="flex items-center gap-2 py-2">
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">Rendering graph...</span>
-            </div>
-          )}
+        <div className="border-t border-border/40">
+          <JsonRenderView spec={spec as Parameters<typeof JsonRenderView>[0]['spec']} maxHeight="none" />
         </div>
       )}
     </div>
+  )
+}
+
+// ── Plan tree data detection ──────────────────────────────────────────
+
+interface PlanTreeNode {
+  id: string
+  title: string
+  status: string
+  type: string
+  children: PlanTreeNode[]
+}
+
+/** Check if data looks like `astro-cli plan tree --json` output */
+export function isPlanTreeData(data: unknown): data is PlanTreeNode[] {
+  if (!Array.isArray(data) || data.length === 0) return false
+  const sample = data[0]
+  return (
+    typeof sample === 'object' && sample !== null &&
+    'id' in sample && 'title' in sample && 'status' in sample &&
+    'type' in sample && 'children' in sample
   )
 }
 
