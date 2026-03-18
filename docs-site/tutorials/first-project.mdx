@@ -1,0 +1,238 @@
+---
+title: "Your First Project"
+description: "Create a project, generate an AI plan, refine it, dispatch tasks, and review results — all in one walkthrough."
+---
+
+## What You'll Build
+
+In this tutorial you'll go from a blank Astro dashboard to a fully planned and partially executed project. By the end you'll know how to:
+
+- Create a project and write a vision document
+- Trigger AI plan generation
+- Read and edit the plan graph
+- Dispatch a task to an execution machine
+- Review results and verify work
+
+**Time:** ~15 minutes
+
+## Prerequisites
+
+<Check>
+  **Astro running locally.** Complete the [Quickstart](/quickstart) first — you should have `npm run dev:local` running and the dashboard open at [http://localhost:5173](http://localhost:5173).
+</Check>
+
+<Check>
+  **At least one execution machine.** For local mode, your laptop acts as the default machine. For remote execution, see [Connect a Machine](/tutorials/connect-machine).
+</Check>
+
+## Tutorial
+
+<Steps>
+
+<Step title="Create a new project">
+
+Open the Astro dashboard at [http://localhost:5173](http://localhost:5173).
+
+1. Click **New Project** in the sidebar (or press `Cmd+N` / `Ctrl+N`).
+2. Enter a project name — for this tutorial, use: `My First API`
+3. Press **Enter** or click **Create**.
+
+**Expected outcome:** You're taken to the project view with an empty plan graph and a project description panel on the right.
+
+<Tip>
+  Project names can be changed later. Pick something descriptive so you can find it in the sidebar.
+</Tip>
+
+</Step>
+
+<Step title="Write a project description / vision document">
+
+The project description (also called the "vision document") is the most important input to Astro. It's injected into every agent session, giving each task executor the full context of what you're building and why.
+
+Click the **Description** area in the project panel and write a clear goal statement:
+
+```markdown
+## Goal
+Build a REST API for a simple task management app.
+
+## Stack
+- Node.js + TypeScript
+- Hono web framework
+- SQLite via Drizzle ORM
+
+## Features
+- Create, list, update, and complete tasks
+- User authentication with JWT
+- Input validation with Zod
+
+## Constraints
+- All endpoints must return JSON
+- Use RESTful conventions (GET /tasks, POST /tasks, etc.)
+- Include basic error handling and status codes
+
+## Timeline
+2 days
+```
+
+**Expected outcome:** The description saves automatically. You'll see a word count or character indicator confirming the content is stored.
+
+<Info>
+  The more context you provide — stack preferences, constraints, architecture decisions, timeline — the better the AI-generated plan. Think of this as a product brief for the AI.
+</Info>
+
+</Step>
+
+<Step title="Trigger AI plan generation">
+
+With your vision document written, it's time to let Astro generate a structured plan.
+
+1. Click the **Generate Plan** button at the top of the plan graph area.
+2. Astro streams the plan in real time — you'll see nodes and edges appearing on the graph as the AI thinks through the decomposition.
+
+The AI reads your vision document and produces:
+
+| Element | What it represents |
+|---------|-------------------|
+| **Nodes** | Individual tasks with descriptions, estimated size (XS–XL), and suggested dates |
+| **Edges** | Dependency relationships — Task B depends on Task A completing first |
+| **Milestones** | Optional groupings for phases (e.g., "Setup", "Core API", "Auth") |
+
+**Expected outcome:** A directed graph with 5–15 task nodes, connected by dependency edges. The graph renders in the React Flow canvas.
+
+<Warning>
+  Plan generation takes 10–30 seconds depending on complexity. Don't navigate away while streaming — you'll see a progress indicator.
+</Warning>
+
+</Step>
+
+<Step title="Review the generated plan graph">
+
+Take a moment to read through the generated plan. Click on any node to open its detail panel on the right side.
+
+For each node, review:
+
+- **Title** — Does it clearly describe a single deliverable?
+- **Description** — Is there enough context for an AI agent to execute this?
+- **Dependencies** — Are the prerequisite tasks correct?
+- **Estimate** — Does the size (XS/S/M/L/XL) seem reasonable?
+- **Dates** — Do `startDate` and `endDate` make sense given your timeline?
+
+**Expected outcome:** You understand the plan structure and can identify any tasks that need editing.
+
+<Tip>
+  Use the graph controls: **scroll to zoom**, **drag to pan**, **click a node** to select it. The minimap in the corner shows your position in larger graphs.
+</Tip>
+
+</Step>
+
+<Step title="Edit nodes and add dependencies">
+
+The generated plan is a starting point — refine it to match your vision.
+
+**Edit a task:**
+1. Click on a node to select it.
+2. In the detail panel, edit the title, description, estimate, or dates.
+3. Changes save automatically.
+
+**Add a new task:**
+1. Click the **+** button on the canvas (or right-click → **Add Task**).
+2. Fill in the task name and description.
+3. The new node appears on the graph.
+
+**Add a dependency (edge):**
+1. Hover over a node until you see the connection handle (small circle on the edge of the node).
+2. Drag from the handle of the **prerequisite** task to the **dependent** task.
+3. An arrow appears connecting them.
+
+**Remove a dependency:**
+1. Click on the edge (arrow) connecting two nodes.
+2. Press **Delete** or **Backspace**.
+
+**Example edit:** Suppose the plan doesn't include input validation. Add a new node:
+- **Title:** "Add Zod input validation to all endpoints"
+- **Description:** "Install Zod, create validation schemas for each endpoint's request body, and integrate with Hono middleware."
+- **Estimate:** S
+- **Dependency:** Connect it after "Implement CRUD endpoints"
+
+**Expected outcome:** Your plan graph now reflects your refined understanding of the project, with any corrections or additions applied.
+
+</Step>
+
+<Step title="Dispatch a task for execution">
+
+Now dispatch a task to an execution machine. Only tasks whose dependencies are all completed (or tasks with no dependencies) can be dispatched.
+
+1. Find a task with **no dependencies** (typically a setup or scaffolding task).
+2. Click on it to open the detail panel.
+3. Verify the status shows `planned`.
+4. Click the **Dispatch** button.
+
+The task status changes to `dispatched`, then `in_progress` once the agent begins work.
+
+**What happens behind the scenes:**
+1. Astro checks that all dependencies are met
+2. The dispatch engine selects an available machine
+3. Context is assembled: your vision document + task description + any dependency outputs
+4. The task is sent to the agent runner on the selected machine
+5. The agent executes the task and streams events back
+
+**Expected outcome:** The task node shows a pulsing indicator. The activity feed on the right shows real-time agent output — tool calls, file changes, and text.
+
+<Info>
+  In local mode, tasks execute on your own machine. The agent runner uses Claude Code to perform the work in an isolated git worktree.
+</Info>
+
+</Step>
+
+<Step title="Review results and verify">
+
+When the agent finishes, the task status changes based on the verification tier:
+
+| Status | Meaning | Action required |
+|--------|---------|-----------------|
+| `auto_verified` | Tests pass, build succeeds | None — task closes automatically |
+| `awaiting_judgment` | Needs human review | Review the summary and approve or reject |
+| `completed` | Manually approved | None |
+
+**To review a completed task:**
+1. Click on the task node.
+2. Read the **Execution Summary** in the detail panel — it shows what the agent did, files changed, and test results.
+3. Check the **Activity Feed** for the full execution log.
+4. If the status is `awaiting_judgment`, click **Approve** to accept or **Request Changes** to reject.
+
+**Expected outcome:** The task shows a green checkmark (completed). Any downstream tasks that depended on it are now eligible for dispatch.
+
+<Tip>
+  After approving a task, check if downstream tasks are now ready. You can dispatch them immediately or enable auto-dispatch in **Project Settings → Execution → Auto-dispatch**.
+</Tip>
+
+</Step>
+
+</Steps>
+
+## What You Learned
+
+You've completed the full Astro workflow:
+
+1. **Created** a project with a clear vision document
+2. **Generated** an AI-powered plan graph with tasks, dependencies, and estimates
+3. **Refined** the plan by editing nodes and adding dependencies
+4. **Dispatched** a task to an execution machine
+5. **Reviewed** and verified the results
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Connect a Machine" icon="server" href="/tutorials/connect-machine">
+    Register remote machines or HPC clusters for execution.
+  </Card>
+  <Card title="Dispatch Deep-Dive" icon="paper-plane" href="/tutorials/dispatch-and-execute">
+    Learn about machine selection, parallel execution, and approvals.
+  </Card>
+  <Card title="Plan Graph Reference" icon="diagram-project" href="/features/plan-graph">
+    Full reference for plan graph features and keyboard shortcuts.
+  </Card>
+  <Card title="Use the CLI" icon="terminal" href="/tutorials/using-the-cli">
+    Manage projects and tasks from the command line.
+  </Card>
+</CardGroup>

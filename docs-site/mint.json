@@ -77,11 +77,11 @@
     {
       "group": "Tutorials",
       "pages": [
-        "tutorials/plan-first-project",
+        "tutorials/first-project",
         "tutorials/connect-machine",
-        "tutorials/dispatch-tasks",
-        "tutorials/use-cli",
-        "tutorials/collaborate-with-team"
+        "tutorials/dispatch-and-execute",
+        "tutorials/using-the-cli",
+        "tutorials/team-collaboration"
       ]
     },
     {
