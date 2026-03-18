@@ -12,6 +12,7 @@ function planTreeToSpec(roots: ReturnType<typeof isPlanTreeData extends (d: unkn
     for (const n of nodes) {
       if (!seen.has(n.id)) {
         seen.add(n.id)
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { children: _children, ...rest } = n
         flatNodes.push(rest)
       }

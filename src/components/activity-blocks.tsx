@@ -1404,6 +1404,7 @@ interface PlanTreeNode {
 }
 
 /** Check if data looks like `astro-cli plan tree --json` output */
+// eslint-disable-next-line react-refresh/only-export-components
 export function isPlanTreeData(data: unknown): data is PlanTreeNode[] {
   if (!Array.isArray(data) || data.length === 0) return false
   const sample = data[0]
