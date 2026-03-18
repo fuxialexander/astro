@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
 import { cn } from '@/lib/utils'
-import { ChevronDown, ChevronRight, ArrowRight, ArrowUpRight, ArrowDownRight, Minus, Check, ChevronLeft, Flag } from 'lucide-react'
+import { ChevronDown, ChevronRight, ArrowRight, ArrowUpRight, ArrowDownRight, Minus, Check, ChevronLeft, Diamond } from 'lucide-react'
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -44,6 +44,8 @@ type PlanNodeInput = {
   dueDate?: string | null
   milestoneId?: string | null
   dependencies?: string[]
+  createdAt?: string | Date | null
+  number?: number | null
 }
 
 
@@ -62,7 +64,10 @@ function buildDagreLayout(
 ): { rfNodes: Node<{ node: PlanNodeInput; milestoneColor: MilestoneColor | null }>[]; rfEdges: Edge[] } {
 
   // Assign milestone colors first
-  const orderedMilestoneIds = nodes.filter(n => n.type === 'milestone').map(n => n.id)
+  const orderedMilestoneIds = nodes
+    .filter(n => n.type === 'milestone')
+    .sort((a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime())
+    .map(n => n.id)
   const milestoneColorMap = new Map<string, MilestoneColor>()
   for (const id of orderedMilestoneIds) {
     const color = getMilestoneColor(id, orderedMilestoneIds)
@@ -142,7 +147,7 @@ function buildDagreLayout(
         id: `e-${dep}-${n.id}`,
         source: dep,
         target: n.id,
-        type: 'smoothstep',
+        type: 'default',
         animated: tasks.find(x => x.id === dep)?.status === 'in_progress',
         style: { stroke: GRAPH_EDGE_COLOR, strokeWidth: 1.5, opacity: 0.7 },
         markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: GRAPH_EDGE_COLOR },
@@ -157,7 +162,7 @@ function buildDagreLayout(
         id: `e-${dep}-${ms.id}`,
         source: dep,
         target: ms.id,
-        type: 'smoothstep',
+        type: 'default',
         animated: milestones.find(x => x.id === dep)?.status === 'in_progress',
         style: { stroke: GRAPH_EDGE_COLOR, strokeWidth: 1.5, opacity: 0.7 },
         markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: GRAPH_EDGE_COLOR },
@@ -242,7 +247,7 @@ function PlanMilestoneNode({ data }: { data: PlanNodeRFData }) {
     >
       <Handle type="target" position={Position.Left} style={{ opacity: 0, width: 6, height: 6 }} />
       <Handle type="source" position={Position.Right} style={{ opacity: 0, width: 6, height: 6 }} />
-      <Flag className="h-3.5 w-3.5 shrink-0" style={{ color: mc?.text ?? '#b45309' }} />
+      <Diamond className="h-3.5 w-3.5 shrink-0" style={{ color: mc?.text ?? '#b45309' }} />
       <span className="text-[11px] font-bold tracking-tight truncate flex-1" style={{ color: mc?.text ?? '#b45309' }}>
         {n.title}
       </span>
@@ -899,7 +904,7 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
       }
 
       const PRIORITY_COLOR: Record<string, string> = {
-        critical: 'text-red-500', high: 'text-orange-400',
+        urgent: 'text-red-500', high: 'text-orange-400',
         medium: 'text-yellow-500', low: 'text-slate-400', none: 'text-slate-300',
       }
 
@@ -948,7 +953,7 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
                     onMouseLeave={() => setHoveredId(null)}
                   >
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <Flag className="h-3 w-3 shrink-0 text-muted-foreground/70" />
+                      <Diamond className="h-3 w-3 shrink-0 text-muted-foreground/70" />
                       <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', dot)} />
                       <span className="text-[11px] font-semibold tracking-tight text-foreground truncate flex-1 min-w-0">
                         {node.title}
@@ -1098,9 +1103,10 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
             <div className="w-px h-3 bg-border shrink-0" />
             {/* Priority legend */}
             {([
-              { color: PRIORITY_PIP_COLOR.critical, label: 'critical' },
-              { color: PRIORITY_PIP_COLOR.high,     label: 'high' },
-              { color: PRIORITY_PIP_COLOR.medium,   label: 'medium' },
+              { color: PRIORITY_PIP_COLOR.urgent, label: 'urgent' },
+              { color: PRIORITY_PIP_COLOR.high,   label: 'high' },
+              { color: PRIORITY_PIP_COLOR.medium, label: 'medium' },
+              { color: PRIORITY_PIP_COLOR.low,    label: 'low' },
             ] as const).map(({ color, label }) => (
               <span key={label} className="flex items-center gap-1 shrink-0">
                 <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />

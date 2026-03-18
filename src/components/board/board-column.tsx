@@ -1,6 +1,7 @@
 import { useDroppable } from "@dnd-kit/core"
 import { Plus } from "lucide-react"
 import { BoardCard } from "./board-card"
+import { TaskCreationForm } from "@/components/task-creation-form"
 import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
 
@@ -20,6 +21,10 @@ interface BoardColumnProps {
   dragMode?: DragMode
   reorderInsertIndex?: number | null
   activeNodeId?: string | null
+  fastEdit?: boolean
+  projectId?: string
+  isCreating?: boolean
+  onCreatingChange?: (creating: boolean) => void
 }
 
 // Grey ghost card placeholder
@@ -46,6 +51,10 @@ export function BoardColumn({
   dragMode = "column",
   reorderInsertIndex,
   activeNodeId,
+  fastEdit,
+  projectId,
+  isCreating,
+  onCreatingChange,
 }: BoardColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id,
@@ -102,6 +111,7 @@ export function BoardColumn({
                   projectName={projectName?.(node)}
                   onNodeSelect={onNodeSelect}
                   onNodeUpdate={onNodeUpdate}
+                  fastEdit={fastEdit}
                 />
               </div>
             </div>
@@ -118,16 +128,27 @@ export function BoardColumn({
           </div>
         )}
 
-        {/* Add task button */}
-        {onAddTask && (
-          <button
-            type="button"
-            onClick={onAddTask}
-            className="mt-1.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add task
-          </button>
+        {/* Add task — inline form inside the column */}
+        {(onAddTask || onCreatingChange) && (
+          isCreating && projectId ? (
+            <div className="mt-1.5 rounded-lg border border-primary/40 bg-card p-2">
+              <TaskCreationForm
+                mode="inline"
+                projectId={projectId}
+                onCreated={() => onCreatingChange?.(false)}
+                onCancel={() => onCreatingChange?.(false)}
+              />
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onCreatingChange ? onCreatingChange(true) : onAddTask?.()}
+              className="mt-1.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add task
+            </button>
+          )
         )}
       </div>
     </div>

@@ -1,8 +1,8 @@
 import { memo, useState, useCallback, useEffect, useRef } from "react"
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react"
-import { Plus, GitPullRequest, GitPullRequestCreateArrow, Sparkles, Check, GitMerge, Loader2, CheckCircle2, XCircle, RotateCw, Eye, ShieldCheck, Flag } from "lucide-react"
+import { Plus, GitPullRequest, GitPullRequestCreateArrow, Sparkles, Check, GitMerge, Loader2, CheckCircle2, XCircle, RotateCw, Eye, ShieldCheck, Diamond } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { STATUS_DOT_COLOR, type MilestoneColor } from "@/components/plan-graph/plan-node-shared"
+import { STATUS_DOT_COLOR, PRIORITY_PIP_COLOR, type MilestoneColor } from "@/components/plan-graph/plan-node-shared"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
 import { usePlanStore } from "@/stores/plan-store"
@@ -12,19 +12,19 @@ import { formatRelativeTime } from "@/lib/date-utils"
 
 const statusConfig: Record<string, { bg: string; border: string; dotColor: string }> = {
   planned: { bg: "bg-card", border: "border-border", dotColor: "bg-muted-foreground" },
-  dispatched: { bg: "bg-card", border: "border-info", dotColor: "bg-info" },
-  in_progress: { bg: "bg-card", border: "border-info", dotColor: "bg-info" },
-  auto_verified: { bg: "bg-card", border: "border-success", dotColor: "bg-success" },
-  awaiting_judgment: { bg: "bg-card", border: "border-warning", dotColor: "bg-warning" },
-  completed: { bg: "bg-card", border: "border-success", dotColor: "bg-success" },
-  pruned: { bg: "bg-muted", border: "border-border", dotColor: "bg-muted-foreground" },
+  dispatched: { bg: "bg-card", border: "border-border", dotColor: "bg-info" },
+  in_progress: { bg: "bg-card", border: "border-border", dotColor: "bg-info" },
+  auto_verified: { bg: "bg-card", border: "border-border", dotColor: "bg-success" },
+  awaiting_judgment: { bg: "bg-card", border: "border-border", dotColor: "bg-warning" },
+  completed: { bg: "bg-card", border: "border-border", dotColor: "bg-success" },
+  pruned: { bg: "bg-card", border: "border-border", dotColor: "bg-muted-foreground" },
 }
 
 const priorityHighlight: Record<string, { bg: string; border: string }> = {
-  urgent: { bg: "bg-error/10", border: "border-error" },
-  high: { bg: "bg-warning/10", border: "border-warning" },
-  medium: { bg: "bg-warning/10", border: "border-warning" },
-  low: { bg: "bg-info/10", border: "border-info" },
+  urgent: { bg: "bg-card", border: "border-border" },
+  high: { bg: "bg-card", border: "border-border" },
+  medium: { bg: "bg-card", border: "border-border" },
+  low: { bg: "bg-card", border: "border-border" },
   none: { bg: "bg-card", border: "border-border" },
 }
 
@@ -56,6 +56,10 @@ type TaskNodeData = Node<{
   loopBestMetricValue?: number | null
   loopStatus?: string | null
   milestoneColor?: MilestoneColor | null
+  milestoneTotal?: number
+  milestoneDone?: number
+  fastEdit?: boolean
+  onFastEdit?: (nodeId: string, title: string) => void
 }>
 
 export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeData>) {
@@ -65,9 +69,19 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
   const [hovered, setHovered] = useState(false)
   const [showTooltip, setShowTooltip] = useState(false)
   const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [editValue, setEditValue] = useState("")
+  const editInputRef = useRef<HTMLInputElement>(null)
   const focusedId = useKeyboardNavStore((s) => s.focusedId)
   const isFocused = focusedId === id
   const isRecentlyUpdated = usePlanStore((s) => s.recentlyUpdatedNodeIds.has(id))
+
+  useEffect(() => {
+    if (editingTitle) {
+      editInputRef.current?.focus()
+      editInputRef.current?.select()
+    }
+  }, [editingTitle])
 
   // Show tooltip with delay to avoid flicker on quick mouse passes
   useEffect(() => {
@@ -81,7 +95,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
     }
   }, [hovered, data.title, data.description])
 
-  // Resolve highlight colors based on highlightBy mode
+  // Resolve highlight colors based on highlightBy mode (used by loop node)
   const highlight = (() => {
     const mode = data.highlightBy ?? "status"
     if (mode === "priority") {
@@ -91,7 +105,6 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
     if (mode === "none") {
       return { bg: neutralHighlight.bg, border: neutralHighlight.border, dotColor: statusCfg.dotColor }
     }
-    // Default: status-based (original behavior)
     return { bg: statusCfg.bg, border: statusCfg.border, dotColor: statusCfg.dotColor }
   })()
 
@@ -123,10 +136,6 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
   const isVerified = !!execution?.verifiedBy
   const needsVerification = (data.status === "auto_verified" || data.status === "awaiting_judgment") && !isVerified
 
-  // Priority dot for urgent/high
-  const showPriorityDot = data.priority === "urgent" || data.priority === "high"
-  const priorityDotColor = data.priority === "urgent" ? "bg-error" : "bg-warning"
-
   // Selection state
   const showCheckbox = !data.readOnly && (hovered || data.selectionActive)
   const isChecked = data.checked ?? false
@@ -136,22 +145,13 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
     data.onToggleSelect?.(id)
   }, [data, id])
 
-  // Overdue detection
-  const isOverdue = (() => {
-    if (!data.dueDate || data.status === "completed" || data.status === "pruned" || data.status === "auto_verified") return false
-    const due = new Date(data.dueDate + "T00:00:00Z")
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    return due < today
-  })()
-
   // ── Milestone node ─────────────────────────────────────────────
   if (isMilestone) {
     const mc = data.milestoneColor ?? null
     return (
       <div
         className={cn(
-          "relative rounded-lg shadow-sm overflow-hidden select-none flex items-center gap-2 px-3 py-2 border-2 cursor-pointer",
+          "relative rounded-lg shadow-sm select-none flex items-center gap-2 px-3 py-2 border-2 cursor-pointer",
           data.status === "pruned" && "opacity-50",
           isChecked && "ring-2 ring-primary ring-offset-1 ring-offset-background",
           isFocused && "shadow-[0_0_0_3px_rgba(var(--primary),0.4)] scale-[1.05] z-50",
@@ -170,14 +170,14 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
           <>
             <Handle
               type="target"
-              position={Position.Top}
+              position={Position.Left}
               className={cn(
                 "!border-none !rounded-full transition-all duration-150",
                 hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
               )}
             />
             {hovered && (
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+              <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
                 <Plus className="h-3 w-3 text-primary-foreground" />
               </div>
             )}
@@ -195,23 +195,82 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
           </div>
         )}
 
-        <Flag className="h-3.5 w-3.5 shrink-0 relative z-10" style={{ color: mc?.text ?? '#b45309' }} />
-        <span className="text-[11px] font-bold tracking-tight truncate flex-1 relative z-10" style={{ color: mc?.text ?? '#b45309' }}>
-          {data.title}
-        </span>
+        <Diamond className="h-3.5 w-3.5 shrink-0 relative z-10" style={{ color: mc?.text ?? '#b45309' }} />
+        {editingTitle ? (
+          <input
+            ref={editInputRef}
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onKeyDown={(e) => {
+              e.stopPropagation()
+              if (e.key === "Enter") {
+                e.preventDefault()
+                const t = editValue.trim()
+                if (t) data.onFastEdit?.(id, t)
+                setEditingTitle(false)
+              } else if (e.key === "Escape") {
+                e.preventDefault()
+                setEditingTitle(false)
+              }
+            }}
+            onBlur={() => {
+              const t = editValue.trim()
+              if (t && t !== data.title) data.onFastEdit?.(id, t)
+              setEditingTitle(false)
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="flex-1 min-w-0 bg-transparent text-[11px] font-bold tracking-tight outline-none relative z-10"
+            style={{ color: mc?.text ?? '#b45309' }}
+          />
+        ) : (
+          <span
+            className={cn("text-[11px] font-bold tracking-tight truncate flex-1 relative z-10", data.fastEdit && "cursor-text")}
+            style={{ color: mc?.text ?? '#b45309' }}
+            onClick={data.fastEdit ? (e) => {
+              e.stopPropagation()
+              setEditValue(data.title)
+              setEditingTitle(true)
+            } : undefined}
+          >
+            {data.number != null && <span className="font-normal opacity-60 mr-1">#{data.number}</span>}
+            {data.title}
+          </span>
+        )}
+
+        {/* Completion pie */}
+        {(data.milestoneTotal ?? 0) > 0 && (() => {
+          const total = data.milestoneTotal!
+          const done = data.milestoneDone ?? 0
+          const pct = done / total
+          const r = 7
+          const circ = 2 * Math.PI * r
+          const dash = pct * circ
+          return (
+            <svg width="18" height="18" className="shrink-0 relative z-10" viewBox="0 0 18 18">
+              <circle cx="9" cy="9" r={r} fill="none" stroke={(mc?.border ?? '#b45309') + '30'} strokeWidth="2.5" />
+              <circle cx="9" cy="9" r={r} fill="none" stroke={mc?.border ?? '#b45309'} strokeWidth="2.5"
+                strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
+                transform="rotate(-90 9 9)" />
+              <text x="9" y="9" dominantBaseline="central" textAnchor="middle"
+                fontSize="5" fontWeight="bold" fill={mc?.text ?? '#b45309'}>
+                {done}/{total}
+              </text>
+            </svg>
+          )
+        })()}
 
         {!data.readOnly && (
           <>
             <Handle
               type="source"
-              position={Position.Bottom}
+              position={Position.Right}
               className={cn(
                 "!border-none !rounded-full transition-all duration-150",
                 hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
               )}
             />
             {hovered && (
-              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+              <div className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
                 <Plus className="h-3 w-3 text-primary-foreground" />
               </div>
             )}
@@ -247,12 +306,12 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
       >
         {!data.readOnly && (
           <>
-            <Handle type="target" position={Position.Top}
+            <Handle type="target" position={Position.Left}
               className={cn("!border-none !rounded-full transition-all duration-150",
                 hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
               )} />
             {hovered && (
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+              <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
                 <Plus className="h-3 w-3 text-primary-foreground" />
               </div>
             )}
@@ -294,12 +353,12 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
 
         {!data.readOnly && (
           <>
-            <Handle type="source" position={Position.Bottom}
+            <Handle type="source" position={Position.Right}
               className={cn("!border-none !rounded-full transition-all duration-150",
                 hovered ? "!w-6 !h-6 !bg-primary shadow-md cursor-crosshair" : "!w-2 !h-2 !bg-border"
               )} />
             {hovered && (
-              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+              <div className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
                 <Plus className="h-3 w-3 text-primary-foreground" />
               </div>
             )}
@@ -311,34 +370,31 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
 
   // ── Regular task node ──────────────────────────────────────────
   const mc = data.milestoneColor ?? null
+  const priorityPipColor = data.priority ? PRIORITY_PIP_COLOR[data.priority] : null
   return (
     <div
       className={cn(
-        "relative flex border px-3 shadow-sm transition-all duration-200",
-        highlight.bg,
-        highlight.border,
-        "w-[180px] rounded-xl",
-        (attribution || needsVerification || isVerified) ? "flex-col justify-center gap-0.5 h-[54px]" : "items-center gap-2.5 h-[44px]",
-        data.status === "pruned" && "opacity-50",
-        isOverdue && "border-l-error border-l-[3px]",
+        "relative rounded-md border bg-card shadow-sm select-none",
+        data.status === "pruned" && "opacity-40",
         isChecked && "ring-2 ring-primary ring-offset-1 ring-offset-background",
-        isRunning && "shadow-lg shadow-primary/20",
         isFocused && "shadow-[0_0_0_3px_rgba(var(--primary),0.4)] scale-[1.05] z-50",
         isRecentlyUpdated && "ring-2 ring-info/50 animate-pulse"
       )}
-      style={mc && !isOverdue ? {
-        borderLeftColor: mc.stripe,
-        borderLeftWidth: 3,
-      } : undefined}
+      style={{
+        width: 164,
+        minHeight: 56,
+        borderColor: mc ? mc.border + '60' : undefined,
+        backgroundColor: mc ? mc.bg : undefined,
+      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Target handle - grows into draggable '+' button on hover for adding parent nodes */}
+      {/* Target handle */}
       {!data.readOnly && (
         <>
           <Handle
             type="target"
-            position={Position.Top}
+            position={Position.Left}
             className={cn(
               "!border-none !rounded-full transition-all duration-150",
               hovered && data.status !== "pruned"
@@ -346,22 +402,18 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
                 : "!w-2 !h-2 !bg-border"
             )}
           />
-
-          {/* Plus icon overlaid on target handle (top) */}
           {hovered && data.status !== "pruned" && (
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+            <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
               <Plus className="h-3 w-3 text-primary-foreground" />
             </div>
           )}
         </>
       )}
 
-      {/* Hover tooltip showing full title + description */}
+      {/* Hover tooltip */}
       {showTooltip && (
         <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-[280px] z-30 pointer-events-none bg-popover border shadow-lg rounded-lg p-3">
-          <p className="text-xs font-semibold text-foreground leading-snug">
-            {data.title}
-          </p>
+          <p className="text-xs font-semibold text-foreground leading-snug">{data.title}</p>
           {data.description && (
             <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed line-clamp-4">
               {data.description.slice(0, 200)}{data.description.length > 200 ? "..." : ""}
@@ -370,150 +422,151 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
         </div>
       )}
 
-      {/* Active glow effect for running tasks */}
+      {/* Running glow */}
       {isRunning && (
         <div className="absolute -inset-4 -z-10 opacity-20 pointer-events-none">
-          <div
-            className="absolute inset-0 rounded-full blur-xl"
-            style={{
-              background: "radial-gradient(ellipse 160px 60px at center, rgba(59, 130, 246, 0.25) 0%, rgba(59, 130, 246, 0) 70%)",
-            }}
-          />
+          <div className="absolute inset-0 rounded-full blur-xl"
+            style={{ background: "radial-gradient(ellipse 160px 60px at center, rgba(59, 130, 246, 0.25) 0%, rgba(59, 130, 246, 0) 70%)" }} />
         </div>
       )}
 
-      {/* Progress bar overlay for running tasks (clipped to node border) */}
+      {/* Progress bar overlay */}
       {isRunning && progress > 0 && (
-        <div className="absolute inset-0 overflow-hidden pointer-events-none rounded-xl">
-          <div
-            className="absolute left-0 top-0 bottom-0 bg-info/10 transition-all duration-500"
-            style={{ width: `${progress}%` }}
-          />
+        <div className="absolute inset-0 overflow-hidden pointer-events-none rounded-md">
+          <div className="absolute left-0 top-0 bottom-0 bg-info/10 transition-all duration-500"
+            style={{ width: `${progress}%` }} />
         </div>
       )}
 
-      {/* Title row */}
-      <div className="flex items-center gap-2.5 min-w-0">
-        {/* Status dot / Selection checkbox */}
-        {showCheckbox ? (
-          <button
-            type="button"
-            onClick={handleCheckboxClick}
-            className={cn(
-              "relative z-10 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-[1.5px] transition-colors cursor-pointer p-1 -m-1",
-              isChecked
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-muted-foreground/40 bg-transparent hover:border-primary/60"
-            )}
-          >
-            {isChecked && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
-          </button>
-        ) : (
-          <span
-            className="h-2 w-2 rounded-full shrink-0 relative z-10"
-            style={{ background: STATUS_DOT_COLOR[data.status] ?? '#94a3b8' }}
-          />
-        )}
+      <div className="px-2.5 py-1.5 flex flex-col gap-1">
+        {/* Title row */}
+        <div className="flex items-start gap-1.5 min-w-0">
+          {showCheckbox && (
+            <button
+              type="button"
+              onClick={handleCheckboxClick}
+              className={cn(
+                "relative z-10 flex h-3.5 w-3.5 shrink-0 mt-px items-center justify-center rounded-full border-[1.5px] transition-colors cursor-pointer",
+                isChecked
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-muted-foreground/40 bg-transparent hover:border-primary/60"
+              )}
+            >
+              {isChecked && <Check className="h-2 w-2" strokeWidth={3} />}
+            </button>
+          )}
+          {editingTitle ? (
+            <input
+              ref={editInputRef}
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                if (e.key === "Enter") {
+                  e.preventDefault()
+                  const t = editValue.trim()
+                  if (t) data.onFastEdit?.(id, t)
+                  setEditingTitle(false)
+                } else if (e.key === "Escape") {
+                  e.preventDefault()
+                  setEditingTitle(false)
+                }
+              }}
+              onBlur={() => {
+                const t = editValue.trim()
+                if (t && t !== data.title) data.onFastEdit?.(id, t)
+                setEditingTitle(false)
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="flex-1 min-w-0 bg-transparent text-[11px] font-medium leading-tight text-foreground/90 outline-none border-b border-primary/60 relative z-10"
+            />
+          ) : (
+            <span
+              className={cn(
+                "text-[11px] font-medium leading-tight line-clamp-2 text-foreground/90 relative z-10",
+                data.status === "pruned" && "line-through text-muted-foreground",
+                data.fastEdit && "cursor-text"
+              )}
+              onClick={data.fastEdit ? (e) => {
+                e.stopPropagation()
+                setEditValue(data.title)
+                setEditingTitle(true)
+              } : undefined}
+            >
+              {data.number != null && <span className="text-muted-foreground/60 mr-1">#{data.number}</span>}
+              {data.title}
+            </span>
+          )}
+        </div>
 
-        <span className={cn(
-          "truncate text-xs font-medium relative z-10",
-          data.status === "pruned" ? "text-muted-foreground line-through" : "text-foreground"
-        )}>
-          {data.number != null && <span className="text-muted-foreground mr-1">#{data.number}</span>}
-          {data.title}
-        </span>
+        {/* Status / meta row */}
+        <div className="flex items-center gap-1.5 relative z-10">
+          <span className="h-1.5 w-1.5 rounded-full shrink-0"
+            style={{ background: STATUS_DOT_COLOR[data.status] ?? '#94a3b8' }} />
 
-        {/* GitHub issue badge */}
-        {data.githubIssueNumber && (
-          <a
-            href={data.githubIssueUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[10px] font-medium text-muted-foreground hover:text-primary relative z-10 shrink-0"
-            onClick={(e) => e.stopPropagation()}
-            title={`GitHub Issue #${data.githubIssueNumber}`}
-          >
-            #{data.githubIssueNumber}
-          </a>
-        )}
-
-        {/* Progress percentage for running tasks */}
-        {isRunning && progress > 0 && (
-          <span className="text-[10px] font-medium text-info relative z-10 ml-auto">
-            {progress}%
-          </span>
-        )}
-
-        {/* Merge queue status badge */}
-        {data.mergeQueueStatus && (
-          <span className="relative z-10 ml-auto shrink-0" title={`Merge queue: ${data.mergeQueueStatus}`}>
-            {data.mergeQueueStatus === 'queued' && <GitMerge className="h-3 w-3 text-info" />}
-            {data.mergeQueueStatus === 'testing' && <Loader2 className="h-3 w-3 text-warning animate-spin" />}
-            {data.mergeQueueStatus === 'merged' && <CheckCircle2 className="h-3 w-3 text-success" />}
-            {data.mergeQueueStatus === 'failed' && <XCircle className="h-3 w-3 text-error" />}
-          </span>
-        )}
-
-        {/* PR indicator */}
-        {data.prUrl && !data.mergeQueueStatus && (
-          <GitPullRequest className="h-3 w-3 shrink-0 text-primary relative z-10 ml-auto" />
-        )}
-
-        {/* Auto-PR indicator - shows when autoPr is enabled but no PR exists yet */}
-        {data.autoPr && !data.prUrl && !data.mergeQueueStatus && (
-          <span className="relative z-10 ml-auto shrink-0" title="Auto-PR enabled">
-            <GitPullRequestCreateArrow className="h-3 w-3 text-info" />
-          </span>
-        )}
-      </div>
-
-      {/* Execution attribution line / verification badge */}
-      {(attribution || needsVerification || isVerified) && (
-        <div className="flex items-center gap-1 relative z-10 pl-[18px] leading-tight min-w-0">
+          {/* Verification / attribution */}
           {isVerified ? (
-            <span className="inline-flex items-center gap-0.5 text-[9px] font-medium rounded-full bg-success/12 text-success px-1.5 py-px border border-success/20 truncate">
-              <ShieldCheck className="h-2 w-2 shrink-0" />
-              Verified
+            <span className="inline-flex items-center gap-0.5 text-[9px] font-medium rounded-full bg-success/12 text-success px-1 py-px border border-success/20">
+              <ShieldCheck className="h-2 w-2 shrink-0" />Verified
             </span>
           ) : needsVerification ? (
-            <span className="inline-flex items-center gap-0.5 text-[9px] font-medium rounded-full bg-warning/12 text-warning px-1.5 py-px border border-warning/20 truncate">
-              <Eye className="h-2 w-2 shrink-0" />
-              Review
+            <span className="inline-flex items-center gap-0.5 text-[9px] font-medium rounded-full bg-warning/12 text-warning px-1 py-px border border-warning/20">
+              <Eye className="h-2 w-2 shrink-0" />Review
             </span>
           ) : attribution ? (
-            <span className="truncate text-[9px] text-muted-foreground/60">
-              {attribution.name} · {attribution.timeAgo}
-            </span>
+            <span className="truncate text-[9px] text-muted-foreground/60">{attribution.name}</span>
           ) : null}
+
+          {/* Right side icons + priority pip */}
+          <div className="ml-auto flex items-center gap-1">
+            {isRunning && progress > 0 && (
+              <span className="text-[9px] font-medium text-info">{progress}%</span>
+            )}
+            {data.mergeQueueStatus && (
+              <span title={`Merge queue: ${data.mergeQueueStatus}`}>
+                {data.mergeQueueStatus === 'queued' && <GitMerge className="h-2.5 w-2.5 text-info" />}
+                {data.mergeQueueStatus === 'testing' && <Loader2 className="h-2.5 w-2.5 text-warning animate-spin" />}
+                {data.mergeQueueStatus === 'merged' && <CheckCircle2 className="h-2.5 w-2.5 text-success" />}
+                {data.mergeQueueStatus === 'failed' && <XCircle className="h-2.5 w-2.5 text-error" />}
+              </span>
+            )}
+            {data.prUrl && !data.mergeQueueStatus && (
+              <GitPullRequest className="h-2.5 w-2.5 text-primary" />
+            )}
+            {data.autoPr && !data.prUrl && !data.mergeQueueStatus && (
+              <GitPullRequestCreateArrow className="h-2.5 w-2.5 text-info" />
+            )}
+            {priorityPipColor && (
+              <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: priorityPipColor }} />
+            )}
+          </div>
         </div>
+      </div>
+
+      {/* in_progress ring overlay */}
+      {isRunning && (
+        <div className="absolute inset-0 rounded-md ring-1 ring-inset pointer-events-none"
+          style={{ borderColor: mc?.stripe ?? '#60a5fa', opacity: 0.4 }} />
       )}
 
-      {/* Priority dot for urgent/high */}
-      {showPriorityDot && (
-        <span className={cn("absolute top-1 right-1.5 h-[6px] w-[6px] rounded-full z-10", priorityDotColor)} />
-      )}
-
-      {/* Decompose button — visible on hover for tasks */}
+      {/* Decompose button */}
       {!data.readOnly && hovered && isTask && data.status !== "pruned" && data.onDecompose && (
         <button
           type="button"
           title="Decompose into sub-tasks"
           className="absolute -top-3 -right-3 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-violet-500 text-white shadow-md hover:bg-violet-600 transition-colors cursor-pointer"
-          onClick={(e) => {
-            e.stopPropagation()
-            data.onDecompose?.(id)
-          }}
+          onClick={(e) => { e.stopPropagation(); data.onDecompose?.(id) }}
         >
           <Sparkles className="h-3 w-3" />
         </button>
       )}
 
-      {/* Source handle - grows into draggable '+' button on hover */}
+      {/* Source handle */}
       {!data.readOnly && (
         <>
           <Handle
             type="source"
-            position={Position.Bottom}
+            position={Position.Right}
             className={cn(
               "!border-none !rounded-full transition-all duration-150",
               hovered && data.status !== "pruned"
@@ -521,15 +574,94 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
                 : "!w-2 !h-2 !bg-border"
             )}
           />
-
-          {/* Plus icon overlaid on source handle */}
           {hovered && data.status !== "pruned" && (
-            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
+            <div className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 pointer-events-none z-20">
               <Plus className="h-3 w-3 text-primary-foreground" />
             </div>
           )}
         </>
       )}
+    </div>
+  )
+})
+
+/** Dashed placeholder node shown to the right of the last milestone.
+ *  Clicking activates inline editing that visually matches a real milestone node.
+ */
+export const AddMilestoneNode = memo(function AddMilestoneNode({
+  data,
+}: {
+  data: { onCreate: (title: string) => void }
+}) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus()
+  }, [editing])
+
+  const commit = useCallback(() => {
+    const title = value.trim()
+    if (title) data.onCreate(title)
+    setValue('')
+    setEditing(false)
+  }, [value, data])
+
+  const cancel = useCallback(() => {
+    setValue('')
+    setEditing(false)
+  }, [])
+
+  if (editing) {
+    // Editing state: visually matches a real milestone node (border-2, same dimensions)
+    return (
+      <div
+        className="relative rounded-lg flex items-center gap-2 px-3 py-2 border-2"
+        style={{
+          width: 200,
+          minHeight: 40,
+          borderColor: 'var(--border)',
+          backgroundColor: 'var(--muted)',
+        }}
+      >
+        <Diamond className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') { e.preventDefault(); commit() }
+            if (e.key === 'Escape') { e.preventDefault(); cancel() }
+            e.stopPropagation()
+          }}
+          onBlur={commit}
+          placeholder="Milestone name"
+          className="flex-1 min-w-0 bg-transparent text-[11px] font-bold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div
+      onClick={() => setEditing(true)}
+      className="flex items-center gap-1.5 px-3 rounded-lg cursor-pointer select-none"
+      style={{
+        width: 200,
+        height: 40,
+        border: '1.5px dashed',
+        borderColor: 'var(--border)',
+        background: 'transparent',
+        color: 'var(--muted-foreground)',
+        opacity: 0.55,
+        transition: 'opacity 0.15s',
+      }}
+      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.opacity = '1' }}
+      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.opacity = '0.55' }}
+    >
+      <Diamond className="h-3 w-3 shrink-0" />
+      <span className="text-[11px] font-medium">New milestone</span>
     </div>
   )
 })

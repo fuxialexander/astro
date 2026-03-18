@@ -65,6 +65,8 @@ interface BoardViewProps {
   onNodeSelect?: (node: PlanNode) => void
   onNodeUpdate?: (id: string, updates: Partial<PlanNode>) => void
   onAddTask?: (columnId: string) => void
+  fastEdit?: boolean
+  projectId?: string
 }
 
 /** Column label for the catch-all "unset" bucket per columnBy */
@@ -191,7 +193,10 @@ export function BoardView({
   onNodeSelect,
   onNodeUpdate,
   onAddTask,
+  fastEdit,
+  projectId,
 }: BoardViewProps) {
+  const [creatingInColumn, setCreatingInColumn] = useState<string | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [dragMode, setDragMode] = useState<DragMode>("column")
   const [overColumnId, setOverColumnId] = useState<string | null>(null)
@@ -510,6 +515,10 @@ export function BoardView({
             dragMode={activeId && overColumnId === col.id ? dragMode : "column"}
             reorderInsertIndex={activeId && overColumnId === col.id ? reorderInsertIndex : null}
             activeNodeId={activeId}
+            fastEdit={fastEdit}
+            projectId={projectId}
+            isCreating={creatingInColumn === col.id}
+            onCreatingChange={(creating) => setCreatingInColumn(creating ? col.id : null)}
           />
         ))}
       </div>

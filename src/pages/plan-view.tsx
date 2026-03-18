@@ -9,7 +9,6 @@ import { ReplanDialog } from "@/components/replan-dialog"
 import { PlanHistory } from "@/components/plan-history"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
-import { TaskCreationForm } from "@/components/task-creation-form"
 import { TaskRow } from "@/components/task-row"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -144,6 +143,13 @@ const planBoardDisplayConfig: DisplayPopoverConfig = {
     { value: "labels", label: "Labels" },
     { value: "pr", label: "PR" },
   ],
+}
+
+const planGraphDisplayConfig: DisplayPopoverConfig = {
+  viewKey: "plan-graph",
+  groupByOptions: [],
+  orderByOptions: [],
+  propertyOptions: [],
 }
 
 /** Shared "View as" options — all four view modes listed in logical order */
@@ -995,6 +1001,8 @@ export function PlanListView({
   const batchExecution = useExecutionStore((s) => s.batchExecutions.get(projectId))
   const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
   const [labelManagerOpen, setLabelManagerOpen] = useState(false)
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
+  const [editingTitle, setEditingTitle] = useState("")
 
   const handleNodeUpdate = useCallback((id: string, updates: Partial<PlanNode>) => {
     updateNode(id, updates)
@@ -1471,7 +1479,14 @@ export function PlanListView({
         headerActions={executeAllButton}
         groups={groups}
         visibleColumns={visibleColumnsWithName}
-        onItemClick={(node) => onNodeSelect(node)}
+        onItemClick={(node) => {
+          if (displaySettings.fastEdit) {
+            setEditingTitle(node.title)
+            setEditingNodeId(node.id)
+          } else {
+            onNodeSelect(node)
+          }
+        }}
         getItemId={(n) => n.id}
         getItemClass={(n) => cn(n.status === "pruned" && "opacity-50")}
         footer={renderAddTaskRow}
@@ -1480,6 +1495,42 @@ export function PlanListView({
         sortDirection={displaySettings.orderDirection}
         onSort={handleSort}
         onGroupDrop={displaySettings.groupBy !== "none" && displaySettings.groupBy !== "project" ? handleGroupDrop : undefined}
+        renderItemName={displaySettings.fastEdit ? (node) => {
+          if (editingNodeId === node.id) {
+            return (
+              <input
+                autoFocus
+                value={editingTitle}
+                onChange={(e) => setEditingTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault()
+                    const t = editingTitle.trim()
+                    if (t && t !== node.title) updateNode(node.id, { title: t })
+                    setEditingNodeId(null)
+                  } else if (e.key === "Escape") {
+                    e.preventDefault()
+                    setEditingNodeId(null)
+                  }
+                  e.stopPropagation()
+                }}
+                onBlur={() => {
+                  const t = editingTitle.trim()
+                  if (t && t !== node.title) updateNode(node.id, { title: t })
+                  setEditingNodeId(null)
+                }}
+                onClick={(e) => e.stopPropagation()}
+                className="flex-1 bg-transparent text-sm font-medium outline-none"
+              />
+            )
+          }
+          return (
+            <span className={cn("text-sm truncate flex items-center gap-1.5", node.status === "pruned" && "line-through")}>
+              {node.number != null && <span className="text-muted-foreground tabular-nums">{node.number}</span>}
+              <span className="truncate">{node.title}</span>
+            </span>
+          )
+        } : undefined}
         renderMobileItem={(node) => (
           <TaskRow
             task={node}
@@ -1491,6 +1542,53 @@ export function PlanListView({
         )}
       />
     </>
+  )
+}
+
+/** Lightweight inline row for adding a task directly in the timeline list */
+function TimelineInlineAddRow({ projectId, onCreated, onCancel }: { projectId: string; onCreated: () => void; onCancel: () => void }) {
+  const addNode = usePlanStore((s) => s.addNode)
+  const [title, setTitle] = useState("")
+
+  const commit = useCallback(() => {
+    const t = title.trim()
+    if (t) {
+      const now = new Date()
+      addNode({
+        id: crypto.randomUUID(),
+        projectId,
+        type: "task",
+        title: t,
+        description: "",
+        status: "planned",
+        parentId: null,
+        dependencies: [],
+        verification: "auto",
+        position: { x: 40, y: 40 },
+        createdAt: now,
+        updatedAt: now,
+      })
+      onCreated()
+    } else {
+      onCancel()
+    }
+  }, [title, projectId, addNode, onCreated, onCancel])
+
+  return (
+    <div className="flex items-center border-b border-border px-4 h-10">
+      <input
+        autoFocus
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); commit() }
+          if (e.key === "Escape") { e.preventDefault(); onCancel() }
+        }}
+        onBlur={commit}
+        placeholder="Task name"
+        className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
+      />
+    </div>
   )
 }
 
@@ -1516,6 +1614,8 @@ export function PlanTimelineView({
   const projects = useProjectStore((s) => s.projects)
   const displaySettings = useDisplaySettingsStore((s) => s.get(displayViewKey))
   const [isCreating, setIsCreating] = useState(false)
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
+  const [editingTitle, setEditingTitle] = useState("")
 
   const allProjectNodes = useMemo(() => {
     // If nodes provided (cross-project mode), use those
@@ -1630,20 +1730,56 @@ export function PlanTimelineView({
     <ItemTimelineView
       rows={timelineRows}
       viewKey={displayViewKey}
-      renderLeftCell={(node) => (
-        <span className={cn(
-          "text-sm truncate",
-          node.status === "pruned" && "line-through opacity-50"
-        )}>
-          {node.title}
-        </span>
-      )}
-      onItemClick={(node) => onNodeSelect(node)}
+      renderLeftCell={(node) => {
+        if (displaySettings.fastEdit && editingNodeId === node.id) {
+          return (
+            <input
+              autoFocus
+              value={editingTitle}
+              onChange={(e) => setEditingTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault()
+                  const t = editingTitle.trim()
+                  if (t && t !== node.title) updateNode(node.id, { title: t })
+                  setEditingNodeId(null)
+                } else if (e.key === "Escape") {
+                  e.preventDefault()
+                  setEditingNodeId(null)
+                }
+                e.stopPropagation()
+              }}
+              onBlur={() => {
+                const t = editingTitle.trim()
+                if (t && t !== node.title) updateNode(node.id, { title: t })
+                setEditingNodeId(null)
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full bg-transparent text-sm font-medium outline-none"
+            />
+          )
+        }
+        return (
+          <span className={cn(
+            "text-sm truncate",
+            node.status === "pruned" && "line-through opacity-50"
+          )}>
+            {node.title}
+          </span>
+        )
+      }}
+      onItemClick={(node) => {
+        if (displaySettings.fastEdit) {
+          setEditingTitle(node.title)
+          setEditingNodeId(node.id)
+        } else {
+          onNodeSelect(node)
+        }
+      }}
       onDateChange={(nodeId, startDate, endDate) => updateNode(nodeId, { startDate, endDate })}
       footer={
         isCreating ? (
-          <TaskCreationForm
-            mode="inline"
+          <TimelineInlineAddRow
             projectId={projectId}
             onCreated={() => setIsCreating(false)}
             onCancel={() => setIsCreating(false)}
@@ -1672,7 +1808,6 @@ export function PlanBoardView({
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const updateNode = usePlanStore((s) => s.updateNode)
   const boardSettings = useDisplaySettingsStore((s) => s.get("plan-board"))
-  const [creatingInColumn, setCreatingInColumn] = useState<string | null>(null)
 
   const nodes = useMemo(() => {
     // If nodes provided (cross-project mode), use those
@@ -1691,16 +1826,6 @@ export function PlanBoardView({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      {creatingInColumn && (
-        <div className="border-b border-border p-4">
-          <TaskCreationForm
-            mode="inline"
-            projectId={projectId}
-            onCreated={() => setCreatingInColumn(null)}
-            onCancel={() => setCreatingInColumn(null)}
-          />
-        </div>
-      )}
       <BoardView
         nodes={nodes}
         columnBy={(boardSettings.columnBy ?? "status") as "status" | "priority" | "milestone"}
@@ -1711,7 +1836,8 @@ export function PlanBoardView({
         milestones={milestones}
         onNodeSelect={(node) => onNodeSelect(node)}
         onNodeUpdate={handleNodeUpdate}
-        onAddTask={(columnId) => setCreatingInColumn(columnId)}
+        fastEdit={boardSettings.fastEdit}
+        projectId={projectId}
       />
     </div>
   )
@@ -1734,18 +1860,23 @@ export function PlanView() {
   const rawPlanEdges = usePlanStore((s) => s.edges)
   const planEdges = useMemo(() => rawPlanEdges.filter(isLive), [rawPlanEdges])
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
-
+  const graphFastEdit = useDisplaySettingsStore((s) => s.get("plan-graph").fastEdit)
+  const listFastEdit = useDisplaySettingsStore((s) => s.get("plan-list").fastEdit)
 
   /** Select a node: navigate to its task detail page */
   const handleNodeSelect = useCallback((node: PlanNode | null) => {
     if (node && id) {
       const pathParts = location.pathname.split('/')
       const from = pathParts[pathParts.length - 1] || 'graph'
-      navigate(`/project/${id}/task/${node.id}?from=${from}`)
+      // In fast edit mode the view handles inline editing; skip navigation
+      if ((from === 'graph' && graphFastEdit) || (from === 'list' && listFastEdit) || (from === 'timeline' && listFastEdit)) return
+      const activeStatuses = new Set(['in_progress', 'dispatched', 'completed', 'auto_verified'])
+      const tab = activeStatuses.has(node.status) ? 'activity' : 'content'
+      navigate(`/project/${id}/task/${node.id}?from=${from}&tab=${tab}`)
     } else {
       setSelectedNode(null)
     }
-  }, [id, navigate, location.pathname])
+  }, [id, navigate, location.pathname, graphFastEdit, listFastEdit])
 
   /** Handle node ID click from chat messages */
   const handleChatNodeSelect = useCallback((nodeId: string) => {
@@ -1978,7 +2109,7 @@ export function PlanView() {
               ...(viewMode === "list" ? planListDisplayConfig
                 : viewMode === "timeline" ? planTimelineDisplayConfig
                 : viewMode === "board" ? planBoardDisplayConfig
-                : planListDisplayConfig),
+                : planGraphDisplayConfig),
               viewAsOptions: PLAN_VIEW_AS_OPTIONS,
               activeViewAs: viewMode,
               onViewAsChange: (v) => navigate(`/project/${project.id}/${v}`),

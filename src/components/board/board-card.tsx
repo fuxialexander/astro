@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from "react"
 import { useDraggable } from "@dnd-kit/core"
 import {
   Calendar,
@@ -20,10 +21,21 @@ interface BoardCardProps {
   projectName?: string
   onNodeSelect?: (node: PlanNode) => void
   onNodeUpdate?: (id: string, updates: Partial<PlanNode>) => void
+  fastEdit?: boolean
 }
 
-export function BoardCard({ node, visibleProperties, projectName, onNodeSelect, onNodeUpdate }: BoardCardProps) {
+export function BoardCard({ node, visibleProperties, projectName, onNodeSelect, onNodeUpdate, fastEdit }: BoardCardProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: node.id })
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [editValue, setEditValue] = useState("")
+  const editInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (editingTitle) {
+      editInputRef.current?.focus()
+      editInputRef.current?.select()
+    }
+  }, [editingTitle])
 
   const priorityConfig = PRIORITY_CONFIG[(node.priority ?? "none") as Priority]
   const PIcon = priorityConfig.icon
@@ -37,24 +49,56 @@ export function BoardCard({ node, visibleProperties, projectName, onNodeSelect, 
       ref={setNodeRef}
       data-card-id={node.id}
       {...attributes}
-      {...listeners}
+      {...(fastEdit ? {} : listeners)}
       onClick={(e) => {
         e.stopPropagation()
-        onNodeSelect?.(node)
+        if (fastEdit) {
+          setEditValue(node.title)
+          setEditingTitle(true)
+        } else {
+          onNodeSelect?.(node)
+        }
       }}
       className={cn(
-        "rounded-lg border border-border bg-card px-3 py-2.5 shadow-sm cursor-grab active:cursor-grabbing transition-shadow",
+        "rounded-lg border border-border bg-card px-3 py-2.5 shadow-sm transition-shadow",
+        fastEdit ? "cursor-text" : "cursor-grab active:cursor-grabbing",
         "hover:shadow-md select-none",
         isDragging && "opacity-0"
       )}
     >
       <div>
-        <p className={cn(
-          "text-sm font-medium truncate",
-          node.status === "pruned" && "line-through opacity-50"
-        )}>
-          {node.title}
-        </p>
+        {editingTitle ? (
+          <input
+            ref={editInputRef}
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault()
+                const t = editValue.trim()
+                if (t && t !== node.title) onNodeUpdate?.(node.id, { title: t })
+                setEditingTitle(false)
+              } else if (e.key === "Escape") {
+                e.preventDefault()
+                setEditingTitle(false)
+              }
+            }}
+            onBlur={() => {
+              const t = editValue.trim()
+              if (t && t !== node.title) onNodeUpdate?.(node.id, { title: t })
+              setEditingTitle(false)
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full bg-transparent text-sm font-medium outline-none"
+          />
+        ) : (
+          <p className={cn(
+            "text-sm font-medium truncate",
+            node.status === "pruned" && "line-through opacity-50"
+          )}>
+            {node.title}
+          </p>
+        )}
 
         {/* Property row */}
         <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">

@@ -24,9 +24,10 @@ export const STATUS_DOT_COLOR: Record<string, string> = {
 
 // Priority pip colors
 export const PRIORITY_PIP_COLOR: Record<string, string> = {
-  critical: '#ef4444',
-  high:     '#f97316',
-  medium:   '#eab308',
+  urgent: '#ef4444',
+  high:   '#f97316',
+  medium: '#eab308',
+  low:    '#94a3b8',
 }
 
 // Edge color (slate-500, readable in light + dark)
