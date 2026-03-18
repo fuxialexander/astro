@@ -1,0 +1,78 @@
+---
+title: Use Cases
+description: Who Astro is for and how they use it — builders shipping software and scientists exploring research questions.
+---
+
+# Who Is Astro For?
+
+Astro serves two groups of people who face the same fundamental challenge: they need to plan, decompose, and orchestrate complex work across multiple agents and machines, but no tool today gives them a planning layer above their execution tools.
+
+<CardGroup cols={2}>
+  <Card
+    title="Builders"
+    icon="code"
+    href="/use-cases/builders"
+  >
+    Software developers using AI coding agents who need product-level planning above code-level context. Ship features faster with structured plans, parallel dispatch, and vision-coherent reviews.
+  </Card>
+  <Card
+    title="Scientists"
+    icon="flask"
+    href="/use-cases/scientists"
+  >
+    Researchers managing branching analyses across laptops, HPC clusters, and cloud. See your full exploration tree, prune dead ends, and focus your time on the branches that matter.
+  </Card>
+</CardGroup>
+
+---
+
+## Same Problem, Different Domains
+
+Strip away the surface differences, and both builders and scientists hit the same wall: they're stuck in a one-thing-at-a-time loop with no coordination, no dependency management, and no way to see the big picture. Astro's planning layer handles both.
+
+| Planning Need | Builders | Scientists |
+|---|---|---|
+| **Goal decomposition** | Product vision → milestones → features → tasks | Research question → hypotheses → analyses → tasks |
+| **Dependencies** | Feature B needs Feature A's API | Analysis B needs Dataset A's output |
+| **Parallel work** | Independent features built simultaneously | Independent analyses run simultaneously |
+| **Pruning** | Feature cut → downstream tasks cancelled | Hypothesis falsified → branch pruned |
+| **Time pressure** | Sprint deadlines, MVP scoping | Grant cycles, paper submission deadlines |
+| **Multiple machines** | Local dev machine + cloud CI | Laptop + HPC cluster + cloud GPU |
+| **Human judgment** | Does this feature match the product vision? | Is this result worth pursuing further? |
+
+---
+
+## The Core Loop
+
+Both personas follow the same planning loop — the details differ, but the structure is identical:
+
+<Steps>
+  <Step title="Describe your goal">
+    A product to build, or a research question to explore. Include your background, timeline, and constraints.
+  </Step>
+  <Step title="AI generates a structured plan">
+    A directed graph of milestones, branches, tasks, and dependencies — not a flat list. The AI acts as a domain expert tailored to your context.
+  </Step>
+  <Step title="You refine the plan">
+    Accept, modify, reorder, add branches, or prune entire lines of inquiry. Your expertise shapes the final plan.
+  </Step>
+  <Step title="Tasks dispatch to agents">
+    Based on dependency order, across any environment you specify. Parallel tasks run simultaneously on different machines.
+  </Step>
+  <Step title="You make the decisions that matter">
+    Auto-verifiable tasks close on their own. Your attention goes to the judgment calls and strategic decisions that only you can make.
+  </Step>
+</Steps>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="For Builders" icon="arrow-right" href="/use-cases/builders">
+    See how Astro helps software teams ship faster with AI-generated plans and multi-machine dispatch.
+  </Card>
+  <Card title="For Scientists" icon="arrow-right" href="/use-cases/scientists">
+    See how Astro helps researchers manage branching analyses across computing environments.
+  </Card>
+</CardGroup>

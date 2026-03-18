@@ -1,6 +1,186 @@
 ---
 title: Builders
-description: How Astro helps Builders.
+description: How Astro gives software developers a planning layer above their AI coding agents — turning one-at-a-time chat into coordinated, multi-agent product development.
 ---
 
-<Note>This page is coming soon. See the [introduction](/introduction) for an overview.</Note>
+# Astro for Builders
+
+You're a software developer using AI coding agents. Claude Code, Codex, or something similar. They're good at writing code when you tell them what to do. But you're stuck in a loop: describe a feature, wait for the PR, review it, go back to the chat, describe the next one. Repeat.
+
+The agents understand your codebase. They read your files, check your tests, follow your conventions. What they don't understand is your product. Feature 7 has no idea how it relates to features 3 and 12. Each agent session is an island — architecturally connected to the code, but completely disconnected from your product vision.
+
+Astro fixes this by adding a planning layer above your agents.
+
+---
+
+## The Problem
+
+Today's AI-assisted development breaks down on anything bigger than a single feature:
+
+- **No product-level context.** Each agent session gets your codebase but not your product vision, UX strategy, or how the current task fits into the bigger picture. You end up manually copy-pasting context into every session.
+- **One thing at a time.** You describe tasks sequentially through a chat window. Even when two features are completely independent, you wait for one to finish before starting the next.
+- **You are the bottleneck.** Not because agents are slow, but because you're manually sequencing work, injecting context, and reviewing everything through a chat interface that shows you one conversation at a time.
+- **No dependency tracking.** You keep the dependency graph in your head. When Feature B needs Feature A's API, you remember to run A first. When priorities shift, you mentally re-sequence everything.
+
+The result: features that work individually but don't fit together as a product. Shipping takes longer than it should, not because of execution speed, but because of coordination overhead.
+
+---
+
+## How Astro Solves It
+
+### 1. Vision Document: Product Context Above the Code
+
+Every Astro project starts with a **vision document** — a persistent, editable description of what you're building, why, and the key design principles guiding decisions. This document gets injected into every agent session alongside the codebase context.
+
+Your agents stop building features in isolation. They build features that serve the product.
+
+```
+┌─────────────────────────────────────────────────┐
+│  Vision Document (injected into every session)  │
+│                                                 │
+│  "We're building a collaborative editor for     │
+│  technical writers. Key principles:             │
+│  - Offline-first with CRDT sync                 │
+│  - Keyboard-driven UI, minimal mouse            │
+│  - Export to PDF, Markdown, and DOCX             │
+│  - Target: technical writers at SaaS companies"  │
+└────────────────────┬────────────────────────────┘
+                     │
+        ┌────────────┼────────────────┐
+        ▼            ▼                ▼
+   Agent Session  Agent Session   Agent Session
+   "Build the     "Add keyboard   "Implement
+    CRDT sync      shortcuts for   PDF export
+    layer"         all actions"    pipeline"
+```
+
+### 2. Plan Graph: From Flat Lists to Dependency-Aware Structure
+
+Instead of a backlog of issues, Astro generates a **directed graph** with explicit dependencies, parallel tracks, and milestones. You describe your goal; the AI generates a structured plan you can refine.
+
+<Steps>
+  <Step title="Describe your product goal">
+    "Build a collaborative technical editor with offline-first CRDT sync, keyboard-driven UI, and multi-format export. We have 6 weeks and two developers."
+  </Step>
+  <Step title="AI generates a plan graph">
+    The AI decomposes your goal into milestones, features, and tasks with explicit dependencies. It knows that the CRDT layer must exist before real-time collaboration can work, and that PDF export is independent of the editor UI.
+  </Step>
+  <Step title="Refine and adjust">
+    Move tasks around, add branches for alternative approaches, change priorities. The graph enforces dependency constraints — you can't accidentally schedule something before its prerequisite.
+  </Step>
+  <Step title="Execute with dependency awareness">
+    Astro dispatches tasks automatically when their dependencies are met. Independent tasks run in parallel across your machines.
+  </Step>
+</Steps>
+
+### 3. Parallel Multi-Machine Dispatch
+
+You have a laptop and a cloud dev machine. Or two laptops. Or a CI server you can SSH into. Astro dispatches independent tasks to available machines simultaneously.
+
+```
+Plan Graph                    Machines
+─────────                     ────────
+                               ┌──────────┐
+Task 1: CRDT core ──────────► │ Laptop    │
+                               └──────────┘
+                               ┌──────────┐
+Task 2: PDF export ──────────► │ Cloud VM  │
+(no dependency on Task 1)      └──────────┘
+
+Task 3: Real-time collab ──── (blocked: depends on Task 1)
+Task 4: Editor keyboard ───── (blocked: depends on Task 1)
+                                         ▲
+                          dispatched when │
+                          Task 1 completes│
+```
+
+Two features building at once. When Task 1 finishes, Tasks 3 and 4 unblock and dispatch automatically — potentially to different machines.
+
+### 4. Tiered Verification: Stop Reviewing What Tests Already Prove
+
+Not every completed task needs your eyes. Astro uses **tiered verification** to route your attention:
+
+| Verification tier | What happens | Your role |
+|---|---|---|
+| **Auto-verified** | Tests pass, build succeeds, linter clean | You see a notification, not a review request |
+| **Judgment required** | Feature works, but does it match the vision? | You review a product preview, not a code diff |
+| **Strategic decision** | Fork in the plan — which approach to take? | You choose direction with AI-generated context |
+
+As automated testing improves, more tasks auto-close. Your attention naturally shifts from code review to product decisions — the work that actually needs a human brain.
+
+### 5. Git Integration and Branch Management
+
+Every task maps to a git branch. Astro handles the plumbing:
+
+- **Branch creation**: Each task gets an isolated branch (or worktree) automatically
+- **PR creation**: Completed tasks generate pull requests with context from the vision document and task description
+- **Auto-merge**: Auto-verified tasks can merge without manual review
+- **Branch cleanup**: Pruned tasks clean up their branches and worktrees
+
+---
+
+## Example: Building a Full-Stack Feature
+
+You're building a dashboard for your SaaS product. It has a data API, a React frontend, and a notification system — three parallel tracks with some dependencies between them.
+
+<Steps>
+  <Step title="Create the project">
+    Open Astro, describe your goal: "Build an analytics dashboard showing user engagement metrics. Needs a REST API pulling from our events table, a React dashboard with charts, and email digests for weekly summaries. Ship in 2 weeks."
+  </Step>
+  <Step title="AI generates the plan">
+    Astro produces a graph with three tracks:
+
+    - **Track A (API)**: Design schema → Build endpoints → Add caching → Write API tests
+    - **Track B (Frontend)**: Scaffold dashboard → Build chart components → Wire to API → Add date filters
+    - **Track C (Notifications)**: Email template → Digest aggregation query → Scheduled job → Integration test
+
+    Dependencies: "Wire to API" depends on "Build endpoints." "Integration test" depends on both API tests and the scheduled job.
+  </Step>
+  <Step title="Refine the plan">
+    You adjust: move "Add caching" after launch (nice-to-have, not MVP), add a task for dark mode support on the charts, reprioritize the email digest to week 2.
+  </Step>
+  <Step title="Dispatch and monitor">
+    Track A and Track B start in parallel on two machines. You watch progress in the plan view — each task shows live agent output, file changes, and tool calls. When "Build endpoints" finishes (auto-verified: tests pass), "Wire to API" unblocks and dispatches automatically.
+  </Step>
+  <Step title="Make the judgment calls">
+    The chart component task finishes. Tests pass, but Astro surfaces it for judgment: "Does this match the product vision?" You look at the preview, notice the charts use a color palette that clashes with your brand, and steer the agent: "Use our brand colors from the design system."
+  </Step>
+  <Step title="Ship">
+    All tasks complete. Auto-verified tasks already merged. You approve the judgment tasks, the final PR goes up, and you've shipped in 8 days what would have taken 14 with sequential agent chat.
+  </Step>
+</Steps>
+
+---
+
+## Key Features for Builders
+
+| Feature | What it does |
+|---|---|
+| **Vision document** | Product-level context injected into every agent session |
+| **Plan graph** | Directed graph with milestones, dependencies, and parallel tracks |
+| **Multi-machine dispatch** | Run independent tasks on multiple machines simultaneously |
+| **Tiered verification** | Auto-close testable tasks, surface only judgment calls |
+| **Git integration** | Automatic branches, PRs, and merge for each task |
+| **Batch execution** | "Execute all" dispatches every ready task and auto-chains successors |
+| **Task steering** | Send guidance to a running agent without cancelling its session |
+| **Plan chat** | Discuss and modify the plan through natural language — the AI applies structured mutations to the graph |
+| **GitHub sync** | Bidirectional sync between plan nodes and GitHub issues/PRs |
+
+---
+
+## Getting Started
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get Astro running locally in under 5 minutes.
+  </Card>
+  <Card title="Plan Your First Project" icon="diagram-project" href="/tutorials/plan-first-project">
+    Walk through creating a project, generating a plan, and dispatching your first task.
+  </Card>
+  <Card title="Connect a Machine" icon="server" href="/tutorials/connect-machine">
+    Register your dev machine so Astro can dispatch tasks to it.
+  </Card>
+  <Card title="Dispatch Tasks" icon="play" href="/tutorials/dispatch-tasks">
+    Run tasks from your plan on connected machines.
+  </Card>
+</CardGroup>

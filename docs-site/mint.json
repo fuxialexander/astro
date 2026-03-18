@@ -68,6 +68,7 @@
     {
       "group": "Use Cases",
       "pages": [
+        "use-cases/overview",
         "use-cases/builders",
         "use-cases/scientists"
       ]
