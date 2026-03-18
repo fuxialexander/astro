@@ -7,6 +7,7 @@ import {
   CircleCheck,
   Play,
   User,
+  Users,
   MessageSquare,
   FolderGit2,
   Diamond,
@@ -85,6 +86,7 @@ export function OverviewTab({
   const liveMachines = useExecutionStore((s) => s.machines)
   const defaultProvider = useSettingsStore((s) => s.defaultProvider)
   const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider)
+  const teams = useTeamStore((s) => s.teams)
   const activeTeamId = useTeamStore((s) => s.activeTeamId)
   const teamMemberCount = useTeamStore((s) => (activeTeamId ? (s.teamMembers[activeTeamId]?.length ?? 0) : 0))
   const isSoloWorkspace = teamMemberCount <= 1
@@ -112,6 +114,7 @@ export function OverviewTab({
   const [editingStartDate, setEditingStartDate] = useState(false)
   const [editingTargetDate, setEditingTargetDate] = useState(false)
   const [editingInitiative, setEditingInitiative] = useState(false)
+  const [editingTeam, setEditingTeam] = useState(false)
   // Resolve description: may be stored as raw markdown (template-generated) or
   // HTML (previously edited via RichTextEditor). Use the same pattern as
   // task-content-tab for GitHub-imported node descriptions.
@@ -718,6 +721,39 @@ export function OverviewTab({
               </select>
             </div>
           )}
+
+          <div className="flex items-center justify-between">
+            <span className="text-[13px] text-muted-foreground">Team</span>
+            {editingTeam ? (
+              <select
+                className="text-[13px] rounded-md border border-input bg-background px-2 py-1 max-w-[160px]"
+                value={project.teamId || ""}
+                onChange={(e) => {
+                  updateProject(project.id, { teamId: e.target.value || undefined })
+                  setEditingTeam(false)
+                }}
+                onBlur={() => setEditingTeam(false)}
+                autoFocus
+              >
+                <option value="">Personal</option>
+                {teams.map((team) => (
+                  <option key={team.id} value={team.id}>
+                    {team.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div
+                className="flex items-center gap-1 cursor-pointer hover:opacity-80"
+                onClick={() => setEditingTeam(true)}
+              >
+                <Users className="h-3.5 w-3.5 text-primary" />
+                <span className="text-[13px]">
+                  {teams.find(t => t.id === project.teamId)?.name ?? "Personal"}
+                </span>
+              </div>
+            )}
+          </div>
 
           <div className="flex items-center justify-between">
             <span className="text-[13px] text-muted-foreground">Start Date</span>
