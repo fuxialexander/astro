@@ -1134,7 +1134,8 @@ There is no branch isolation — changes are made in-place.
 
 **IMPORTANT:**
 - Be careful — changes are applied directly to the project files
-- When done, commit all changes with a descriptive commit message`)
+- After making changes, remind the user to review and git commit/push their changes
+- Do NOT run git commit or git push yourself — let the user decide when and what to commit`)
       }
     }
 
@@ -1338,6 +1339,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     images,
     skipSafetyCheck: isBuiltinTemplate || (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && safetyDecision !== null) || !workingDirectory,
     ...(isInteractivePlan ? { type: 'plan' as const, useWorktree: false, deliveryMode: 'direct' as const } : {}),
+    ...(nodeId.startsWith('playground-') && !isInteractivePlan ? { type: 'playground' as const } : {}),
     ...(relaySystemPrompt ? { systemPrompt: relaySystemPrompt } : {}),
     ...(astroBaseUrl && { astroBaseUrl }),
     ...(githubIssueUrl && { githubIssueUrl }),

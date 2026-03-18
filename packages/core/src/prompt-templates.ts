@@ -176,7 +176,7 @@ export interface ChatPlanEdge {
  * prompt injection attempts. We use delimiters to separate user content from
  * system instructions.
  */
-export function buildChatSystemPrompt(visionDoc?: string, planNodes?: ChatPlanNode[], planEdges?: ChatPlanEdge[], skillsInjection?: string, projectId?: string): string {
+export function buildChatSystemPrompt(visionDoc?: string, planNodes?: ChatPlanNode[], planEdges?: ChatPlanEdge[], skillsInjection?: string, projectId?: string, taskType?: 'plan' | 'execution'): string {
   // SECURITY: Wrap user-provided content in delimiters
   const visionSection = visionDoc
     ? `\n\n## Project Vision Document\n<user_vision>\n${visionDoc}\n</user_vision>\n`
@@ -232,7 +232,20 @@ export function buildChatSystemPrompt(visionDoc?: string, planNodes?: ChatPlanNo
     planSection = `\n\n## Current Plan Nodes\n${nodeList}\n${milestoneSection}${edgeSection}${projectIdSection}`
   }
 
-  return `You are a project planning assistant for Astro with full tool capability. Help the user refine their project plan through conversation. You can modify any task property, manage dependencies/edges between nodes, and restructure the plan graph.
+  const isPlanMode = taskType === 'plan'
+
+  const preamble = isPlanMode
+    ? `You are a project planning assistant for Astro in **plan mode**. Help the user refine their project plan through conversation. You can modify any task property, manage dependencies/edges between nodes, and restructure the plan graph.
+
+**Plan mode is active.** You MUST NOT directly edit, write, or otherwise modify any files in the codebase. Your only way to make changes is through \`astro-cli\` commands via Bash. Do not run any other commands in Bash — only \`astro-cli\`.
+
+You have access to these tools:
+- Read-only file tools (Read, Grep, Glob): Explore the project codebase to understand context
+- Shell (Bash): Run \`astro-cli\` commands ONLY — no other shell commands
+- Web (WebSearch, WebFetch): Look up technologies, best practices, or documentation
+
+Use file tools freely to understand the codebase when the user's question needs more context than the plan provides. Then use \`astro-cli\` to apply plan changes.`
+    : `You are a project planning assistant for Astro with full tool capability. Help the user refine their project plan through conversation. You can modify any task property, manage dependencies/edges between nodes, and restructure the plan graph.
 
 You have access to all standard tools:
 - File tools (Read, Grep, Glob, Edit, Write): Explore and modify the project codebase
@@ -241,6 +254,10 @@ You have access to all standard tools:
 - Notebook (NotebookEdit): Edit Jupyter notebooks
 
 Use tools freely when the user's question needs information beyond the plan context, or when they ask you to make changes to the codebase. You are a planning assistant with execution capability — you can both plan and act.
+
+**Important:** After making file changes, remind the user to review and git commit/push their changes. Do NOT run git commit or git push yourself — let the user decide when and what to commit.`
+
+  return `${preamble}
 
 Be smart and reason through the tasks. Infer dependencies, priorities, due dates, estimates, and other metadata yourself based on the project context — do NOT ask the user about these unless it is genuinely ambiguous and critical to get right. Most of the time they are not important enough to interrupt the user.
 

@@ -675,7 +675,7 @@ agentRoute.post('/project-chat', async (c) => {
   // Inject lightweight generative UI hint (full catalog is in render-ui skill, loaded on-demand)
   chatSkills = (chatSkills || '') + '\n\n' + GENERATIVE_UI_HINT
 
-  const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges, chatSkills, projectId)
+  const systemPrompt = buildChatSystemPrompt(visionDoc, planNodes, planEdges, chatSkills, projectId, taskType)
 
   // Persist user message for catch-up hydration
   await streamingEventLog.append(streamId || taskId, 'steer_message', { message })
@@ -751,7 +751,7 @@ agentRoute.post('/project-chat', async (c) => {
     nodeId: '',
     prompt: message,
     systemPrompt,
-    type: taskType || 'execution',
+    type: taskType || 'chat',
     messages: compactedMessages,
     model: model || undefined,
     preferredProvider: providerId || undefined,

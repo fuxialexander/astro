@@ -432,6 +432,9 @@ export function PlanGeneration({
 
     let rawText = ""
     let rawTextAtLastSeq = ""
+    // Track whether astro-cli MCP tools mutated the plan (same pattern as ChatPanel)
+    const PLAN_MUTATING_TOOLS = new Set(["create_task", "update_task", "delete_task", "create_dependency", "Bash"])
+    let needsPlanRefresh = false
     try {
       await projectChatWithAgent(
         {
@@ -454,20 +457,37 @@ export function PlanGeneration({
           onText: (chunk) => {
             rawText += chunk
           },
-          onToolUse: () => {},
-          onToolResult: () => {},
-          onDone: (newSessionId) => {
+          onToolUse: (data) => {
+            if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
+          },
+          onToolResult: (data) => {
+            if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
+          },
+          onDone: async (newSessionId) => {
             if (newSessionId) setProviderSessionId(sid, newSessionId)
 
-            // Try full plan JSON extraction first (handles complete plan replacement)
-            const planResult = applyPlanFromText(projectId, rawText)
-            if (planResult.applied) {
-              console.log(`[plan-chat] Full plan extracted: ${planResult.nodeCount} nodes`)
-              const updatedNodes = usePlanStore.getState().nodes.filter((n) => n.projectId === projectId)
-              const updatedEdgeSet = new Set(updatedNodes.map((n) => n.id))
-              const updatedEdges = usePlanStore.getState().edges.filter(
-                (e) => updatedEdgeSet.has(e.source) || updatedEdgeSet.has(e.target)
-              )
+            // If astro-cli MCP tools mutated the plan, reload from server
+            if (needsPlanRefresh) {
+              console.log(`[plan-chat] Plan mutating tools detected, refreshing plan from server`)
+              await usePlanStore.getState().load()
+            }
+
+            // Fallback: try full plan JSON extraction from text (handles initial plan generation
+            // where the agent produces structured plan JSON in the response)
+            if (!needsPlanRefresh) {
+              const planResult = applyPlanFromText(projectId, rawText)
+              if (planResult.applied) {
+                console.log(`[plan-chat] Full plan extracted from text: ${planResult.nodeCount} nodes`)
+              }
+            }
+
+            // Push plan_result event so the activity feed shows the updated graph
+            const updatedNodes = usePlanStore.getState().nodes.filter((n) => n.projectId === projectId)
+            const updatedEdgeSet = new Set(updatedNodes.map((n) => n.id))
+            const updatedEdges = usePlanStore.getState().edges.filter(
+              (e) => updatedEdgeSet.has(e.source) || updatedEdgeSet.has(e.target)
+            )
+            if (updatedNodes.length > 0) {
               pushChatEvent({
                 type: 'plan_result',
                 nodes: updatedNodes.map((n) => ({ id: n.id, title: n.title, type: n.type, status: n.status })),

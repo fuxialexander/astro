@@ -143,7 +143,7 @@ export interface ImageAttachment {
  * - 'chat': Conversational exchange — multi-turn chat about a plan or project.
  * - 'summarize': Single-turn summarization of task output.
  */
-export type TaskDispatchType = 'execution' | 'plan' | 'chat' | 'summarize';
+export type TaskDispatchType = 'execution' | 'plan' | 'chat' | 'summarize' | 'playground';
 
 /**
  * A single message in a conversation history.

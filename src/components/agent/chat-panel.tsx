@@ -535,7 +535,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       {/* Header with session switcher and model/provider picker */}
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4 border-b border-border/60">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold">Plan Chat</span>
+          <span className="text-sm font-semibold">Project Chat</span>
           {/* Session metadata */}
           {messages.length > 0 && (
             <span className="text-[10px] text-muted-foreground tabular-nums">
