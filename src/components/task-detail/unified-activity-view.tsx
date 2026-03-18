@@ -327,9 +327,10 @@ export function UnifiedActivityView({
       || useExecutionStore.getState().getExecution(node.id)?.machineId
       || useRealtimeStore.getState().taskStreams.get(executionId)?.machineId
 
+    // Capture index before push so updateSteerMessage targets the correct entry
+    const steerIndex = taskStream?.steerMessages.length ?? 0
     // Track in store (not yet in activity timeline — waits for ack)
     addSteerMessage(executionId, text, interrupt)
-    const steerIndex = (taskStream?.steerMessages.length || 0)
 
     if (!resolvedMachineId) {
       updateSteerMessage(executionId, steerIndex, { accepted: false, ackMessage: 'No machine connected — cannot steer' })
@@ -683,7 +684,12 @@ export function UnifiedActivityView({
 
   // Allow steering on running tasks, or resuming completed tasks that have an active session
   // (works for all providers — the agent-runner's steerTask routes to resumeTask for completed tasks)
-  const canSteer = (isRunning || (execution?.status === "success" && !!execution?.sessionId)) && !!machineId
+  // Use the same 3-source resolution as handleSteer so the button stays enabled
+  // whenever the call would actually succeed (prop, execution store, or realtime stream)
+  const resolvedMachineIdForCanSteer = machineId
+    || useExecutionStore.getState().getExecution(node.id)?.machineId
+    || useRealtimeStore.getState().taskStreams.get(executionId)?.machineId
+  const canSteer = (isRunning || (execution?.status === "success" && !!execution?.sessionId)) && !!resolvedMachineIdForCanSteer
 
   function handleSend(interrupt = false) {
     const text = input.trim()
