@@ -473,11 +473,19 @@ export function TextBlock({ events, isStreaming, onLinkClick, onSendPrompt, prep
   if (!text) return null
   if (preprocessContent) text = preprocessContent(text)
 
-  // Operational messages (prefixed with ── [Astro], [Git], [Delivery], or [Astro])
-  // use single \n for line breaks. Markdown treats single \n as a space — convert to
-  // double-space + \n (markdown line break) so each message renders on its own line.
+  // Operational messages (── [Astro], [Git], [Delivery]) are system-level status lines,
+  // not AI-generated markdown. Render them as styled pre-formatted lines.
   if (/──\s*\[/.test(text)) {
-    text = text.replace(/\n/g, '  \n')
+    const lines = text.split('\n').filter(l => l.trim())
+    return (
+      <div className="px-4 py-1 space-y-0.5">
+        {lines.map((line, i) => (
+          <div key={i} className="text-xs font-mono text-blue-400 dark:text-blue-400/80">
+            {line}
+          </div>
+        ))}
+      </div>
+    )
   }
 
   return (
