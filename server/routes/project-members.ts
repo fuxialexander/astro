@@ -61,7 +61,7 @@ projectMembersRoute.get('/:projectId/members', async (c) => {
 
   // Access check: project owner, same team, or project member
   const isOwner = project.ownerId === user.id
-  const isSameTeam = project.teamId === user.teamId
+  const isSameTeam = project.teamId != null && user.teamIds.includes(project.teamId)
 
   let isMember = false
   if (!isOwner && !isSameTeam) {

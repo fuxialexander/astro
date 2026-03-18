@@ -319,7 +319,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
 
   loadAllTeams: async () => {
     try {
-      const { nodes: apiNodes, edges: rawApiEdges } = await dataClient.getAllPlans({ slim: true, allTeams: true })
+      const { nodes: apiNodes, edges: rawApiEdges } = await dataClient.getAllPlans({ slim: true })
       const seen = new Set<string>()
       const edges = rawApiEdges.filter((e) => {
         const key = `${e.source}->${e.target}`
