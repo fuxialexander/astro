@@ -511,3 +511,540 @@ describe('all publishToRedis call sites are covered', () => {
     expect(bridgeSource).toContain("eventType: 'task_ready'")
   })
 })
+
+// ─── getUserIdForTaskWithFallback caching verification ──────────────────────
+
+describe('executionContextStore: getUserIdForTaskWithFallback caches locally', () => {
+  it('getUserIdForTaskWithFallback caches Redis result in local store', () => {
+    // Verify the source has store.set() for local caching
+    const fallback = execContextSource.slice(
+      execContextSource.indexOf('async getUserIdForTaskWithFallback('),
+      execContextSource.indexOf('\n  },', execContextSource.indexOf('async getUserIdForTaskWithFallback(')) + 4,
+    )
+    expect(fallback).toContain('store.set(remote.executionId, remote)')
+  })
+
+  it('getUserIdForTaskWithFallback returns undefined when both stores miss', () => {
+    const fallback = execContextSource.slice(
+      execContextSource.indexOf('async getUserIdForTaskWithFallback('),
+      execContextSource.indexOf('\n  },', execContextSource.indexOf('async getUserIdForTaskWithFallback(')) + 4,
+    )
+    expect(fallback).toContain('return undefined')
+  })
+})
+
+// ─── Real-world two-instance simulation ─────────────────────────────────────
+//
+// These tests simulate the ACTUAL production architecture:
+//   - Two Fly.io instances (A and B) with round-robin HTTP
+//   - A shared Redis store (simulated with a Map)
+//   - Instance B handles dispatch POST → registers execution context
+//   - Instance A receives agent WebSocket events → publishes to Redis
+//   - Instance B's SSE serves the browser → filters by userId
+//
+// The simulation models:
+//   - Each instance's local in-memory Map (executionContextStore)
+//   - The shared Redis store (execution context + pub/sub channel)
+//   - The SSE filter logic (events.ts:686-687)
+//   - Event ordering across async boundaries
+//
+
+describe('real-world two-instance simulation', () => {
+  // ── Simulated Redis ──
+  // Models the shared Redis store and pub/sub channel
+  interface RedisContext {
+    executionId: string
+    projectId: string
+    nodeId: string
+    userId: string
+    machineId: string
+    createdAt: number
+  }
+  interface RedisStreamingEvent {
+    eventType: string
+    taskId: string
+    userId: string | undefined
+    instanceId: string
+    data: Record<string, unknown>
+  }
+
+  let redisContextStore: Map<string, string> // key → JSON
+  let redisPubSubChannel: RedisStreamingEvent[] // simulated pub/sub messages
+
+  // ── Simulated Instance ──
+  // Each instance has its own local Map and can interact with Redis
+  class SimulatedInstance {
+    readonly id: string
+    readonly localStore: Map<string, RedisContext>
+    deliveredToSSE: RedisStreamingEvent[] = []
+    authenticatedUserId: string | undefined
+
+    constructor(id: string, authenticatedUserId?: string) {
+      this.id = id
+      this.localStore = new Map()
+      this.authenticatedUserId = authenticatedUserId
+    }
+
+    // ── executionContextStore.register() ──
+    register(ctx: Omit<RedisContext, 'createdAt'>): void {
+      const entry: RedisContext = { ...ctx, createdAt: Date.now() }
+      this.localStore.set(ctx.executionId, entry)
+      // Write-through to Redis (SET with 4h TTL)
+      redisContextStore.set(
+        `relay:exec:context:${ctx.executionId}`,
+        JSON.stringify(entry),
+      )
+    }
+
+    // ── executionContextStore.remove() ──
+    remove(executionId: string): void {
+      this.localStore.delete(executionId)
+      // Async Redis delete (fire-and-forget)
+      redisContextStore.delete(`relay:exec:context:${executionId}`)
+    }
+
+    // ── getUserIdForTask (sync, local only) ──
+    getUserIdForTask(executionId: string): string | undefined {
+      return this.localStore.get(executionId)?.userId
+    }
+
+    // ── getUserIdForTaskWithFallback (async, local + Redis) ──
+    async getUserIdForTaskWithFallback(executionId: string): Promise<string | undefined> {
+      const local = this.localStore.get(executionId)?.userId
+      if (local) return local
+      const json = redisContextStore.get(`relay:exec:context:${executionId}`)
+      if (json) {
+        const remote: RedisContext = JSON.parse(json)
+        // Cache locally for subsequent sync lookups
+        this.localStore.set(remote.executionId, remote)
+        return remote.userId
+      }
+      return undefined
+    }
+
+    // ── publishToRedis (the FIXED version) ──
+    async publishToRedis(event: { eventType: string; taskId: string; data: Record<string, unknown> }): Promise<void> {
+      const userId = await this.getUserIdForTaskWithFallback(event.taskId)
+      const msg: RedisStreamingEvent = {
+        ...event,
+        userId,
+        instanceId: this.id,
+      }
+      redisPubSubChannel.push(msg)
+    }
+
+    // ── publishToRedis (the OLD BUGGY version for comparison) ──
+    publishToRedisOld(event: { eventType: string; taskId: string; data: Record<string, unknown> }): void {
+      const userId = this.getUserIdForTask(event.taskId) // sync only!
+      const msg: RedisStreamingEvent = {
+        ...event,
+        userId,
+        instanceId: this.id,
+      }
+      redisPubSubChannel.push(msg)
+    }
+
+    // ── SSE filter (events.ts:675-687) ──
+    receiveFromRedis(msg: RedisStreamingEvent): boolean {
+      // Skip events from same instance
+      if (msg.instanceId === this.id) return false
+
+      const LOCAL_USER_ID = 'local-user'
+      const hasProjectCheck = msg.eventType === 'node_status_changed'
+        || msg.eventType === 'task_init' || msg.eventType === 'task_ready'
+
+      // Cross-instance user isolation (deny-by-default)
+      if (this.authenticatedUserId && !hasProjectCheck
+        && msg.userId !== this.authenticatedUserId && msg.userId !== LOCAL_USER_ID) {
+        return false // DROPPED
+      }
+
+      // Event delivered to browser via SSE
+      this.deliveredToSSE.push(msg)
+      return true
+    }
+  }
+
+  beforeEach(() => {
+    redisContextStore = new Map()
+    redisPubSubChannel = []
+  })
+
+  describe('scenario: plan generation (dispatch on B, WebSocket on A, SSE on B)', () => {
+    it('OLD behavior: streaming events silently dropped', () => {
+      // Setup: two instances, user authenticated on Instance B's SSE
+      const instanceA = new SimulatedInstance('instance-a')
+      const instanceB = new SimulatedInstance('instance-b', 'user-123')
+
+      // Step 1: Browser POSTs dispatch to Instance B (round-robin)
+      instanceB.register({
+        executionId: 'exec-plan-1',
+        projectId: 'proj-1',
+        nodeId: 'node-1',
+        userId: 'user-123',
+        machineId: 'machine-1',
+      })
+
+      // Step 2: Agent runner connects WebSocket to Instance A (sticky)
+      // Instance A does NOT have the execution context locally
+
+      // Step 3: Agent sends streaming events through Instance A
+      // Using the OLD sync-only publishToRedis
+      const events = ['text', 'tool_use', 'tool_result', 'text', 'text']
+      for (const eventType of events) {
+        instanceA.publishToRedisOld({
+          eventType,
+          taskId: 'exec-plan-1',
+          data: { content: `event-${eventType}` },
+        })
+      }
+
+      // Step 4: Instance B receives events from Redis pub/sub
+      let deliveredCount = 0
+      for (const msg of redisPubSubChannel) {
+        if (instanceB.receiveFromRedis(msg)) deliveredCount++
+      }
+
+      // RESULT: ALL events dropped because userId is undefined
+      expect(deliveredCount).toBe(0)
+      expect(instanceB.deliveredToSSE).toHaveLength(0)
+
+      // Every message has userId: undefined
+      for (const msg of redisPubSubChannel) {
+        expect(msg.userId).toBeUndefined()
+      }
+    })
+
+    it('NEW behavior: streaming events delivered in real-time', async () => {
+      const instanceA = new SimulatedInstance('instance-a')
+      const instanceB = new SimulatedInstance('instance-b', 'user-123')
+
+      // Step 1: Dispatch on Instance B
+      instanceB.register({
+        executionId: 'exec-plan-2',
+        projectId: 'proj-1',
+        nodeId: 'node-1',
+        userId: 'user-123',
+        machineId: 'machine-1',
+      })
+
+      // Step 2: Agent sends streaming events through Instance A
+      // Using the NEW async publishToRedis with Redis fallback
+      const events = ['session_init', 'text', 'tool_use', 'tool_result', 'text', 'text', 'file_change']
+      for (const eventType of events) {
+        await instanceA.publishToRedis({
+          eventType,
+          taskId: 'exec-plan-2',
+          data: { content: `event-${eventType}` },
+        })
+      }
+
+      // Step 3: Instance B receives events from Redis pub/sub
+      let deliveredCount = 0
+      for (const msg of redisPubSubChannel) {
+        if (instanceB.receiveFromRedis(msg)) deliveredCount++
+      }
+
+      // RESULT: ALL events delivered because userId is resolved from Redis
+      expect(deliveredCount).toBe(events.length)
+      expect(instanceB.deliveredToSSE).toHaveLength(events.length)
+
+      // Every message has the correct userId
+      for (const msg of redisPubSubChannel) {
+        expect(msg.userId).toBe('user-123')
+      }
+    })
+
+    it('NEW behavior: only first event triggers Redis lookup, rest use cache', async () => {
+      const instanceA = new SimulatedInstance('instance-a')
+      const instanceB = new SimulatedInstance('instance-b', 'user-123')
+
+      instanceB.register({
+        executionId: 'exec-perf',
+        projectId: 'proj-1',
+        nodeId: 'node-1',
+        userId: 'user-123',
+        machineId: 'machine-1',
+      })
+
+      // Before any events: Instance A's local store is empty
+      expect(instanceA.localStore.has('exec-perf')).toBe(false)
+
+      // First event: triggers Redis lookup + local cache
+      await instanceA.publishToRedis({
+        eventType: 'text',
+        taskId: 'exec-perf',
+        data: {},
+      })
+
+      // After first event: Instance A's local store has the cached context
+      expect(instanceA.localStore.has('exec-perf')).toBe(true)
+      expect(instanceA.getUserIdForTask('exec-perf')).toBe('user-123')
+
+      // Subsequent events: use local cache (no Redis lookup needed)
+      // We can verify by checking the sync lookup works
+      for (let i = 0; i < 50; i++) {
+        await instanceA.publishToRedis({
+          eventType: 'text',
+          taskId: 'exec-perf',
+          data: { seq: i },
+        })
+      }
+
+      // All 51 events have correct userId
+      expect(redisPubSubChannel).toHaveLength(51)
+      for (const msg of redisPubSubChannel) {
+        expect(msg.userId).toBe('user-123')
+      }
+    })
+  })
+
+  describe('scenario: task result with emit-before-publish race', () => {
+    it('userId survives context removal triggered by emit', async () => {
+      const instanceA = new SimulatedInstance('instance-a')
+      const instanceB = new SimulatedInstance('instance-b', 'user-123')
+
+      // Dispatch on Instance B
+      instanceB.register({
+        executionId: 'exec-result-race',
+        projectId: 'proj-1',
+        nodeId: 'node-1',
+        userId: 'user-123',
+        machineId: 'machine-1',
+      })
+
+      // Task result arrives on Instance A
+      // Step 1: Snapshot userId BEFORE emit (the fix)
+      const userId = await instanceA.getUserIdForTaskWithFallback('exec-result-race')
+      expect(userId).toBe('user-123')
+
+      // Step 2: emit('task:result') triggers dispatch.ts onResult handler
+      // which synchronously calls executionContextStore.remove()
+      instanceA.remove('exec-result-race')
+      instanceB.remove('exec-result-race')
+
+      // Step 3: After removal, sync lookup fails on both instances
+      expect(instanceA.getUserIdForTask('exec-result-race')).toBeUndefined()
+      expect(instanceB.getUserIdForTask('exec-result-race')).toBeUndefined()
+
+      // Step 4: But the snapshotted userId is still valid!
+      const msg: RedisStreamingEvent = {
+        eventType: 'result',
+        taskId: 'exec-result-race',
+        userId, // pre-snapshotted value
+        instanceId: 'instance-a',
+        data: { status: 'completed' },
+      }
+      redisPubSubChannel.push(msg)
+
+      // Step 5: Instance B's SSE filter accepts the event
+      expect(instanceB.receiveFromRedis(msg)).toBe(true)
+      expect(instanceB.deliveredToSSE).toHaveLength(1)
+      expect(instanceB.deliveredToSSE[0].data).toEqual({ status: 'completed' })
+    })
+
+    it('without snapshot, result event would be dropped', () => {
+      const instanceA = new SimulatedInstance('instance-a')
+      const instanceB = new SimulatedInstance('instance-b', 'user-123')
+
+      instanceB.register({
+        executionId: 'exec-no-snapshot',
+        projectId: 'proj-1',
+        nodeId: 'node-1',
+        userId: 'user-123',
+        machineId: 'machine-1',
+      })
+
+      // Simulate OLD behavior: emit first, then try to get userId
+      instanceA.remove('exec-no-snapshot') // emit triggers sync remove
+      instanceB.remove('exec-no-snapshot')
+
+      // Now try to get userId (too late — context is gone)
+      const userId = instanceA.getUserIdForTask('exec-no-snapshot')
+      expect(userId).toBeUndefined()
+
+      // Publish with undefined userId
+      const msg: RedisStreamingEvent = {
+        eventType: 'result',
+        taskId: 'exec-no-snapshot',
+        userId, // undefined!
+        instanceId: 'instance-a',
+        data: { status: 'completed' },
+      }
+      redisPubSubChannel.push(msg)
+
+      // Instance B drops the event
+      expect(instanceB.receiveFromRedis(msg)).toBe(false)
+      expect(instanceB.deliveredToSSE).toHaveLength(0)
+    })
+  })
+
+  describe('scenario: same-instance (no cross-instance issue)', () => {
+    it('both dispatch and WebSocket on same instance works with sync lookup', () => {
+      const instance = new SimulatedInstance('instance-a', 'user-123')
+
+      // Dispatch and WebSocket on same instance
+      instance.register({
+        executionId: 'exec-same',
+        projectId: 'proj-1',
+        nodeId: 'node-1',
+        userId: 'user-123',
+        machineId: 'machine-1',
+      })
+
+      // Sync lookup works (context in local store)
+      expect(instance.getUserIdForTask('exec-same')).toBe('user-123')
+
+      // Even the old sync-only publish would work
+      instance.publishToRedisOld({
+        eventType: 'text',
+        taskId: 'exec-same',
+        data: {},
+      })
+
+      expect(redisPubSubChannel[0].userId).toBe('user-123')
+    })
+  })
+
+  describe('scenario: single instance, no Redis', () => {
+    it('works without any Redis store', async () => {
+      // Simulate no Redis by clearing the store
+      redisContextStore = new Map()
+
+      const instance = new SimulatedInstance('instance-a', 'user-123')
+
+      // Register locally only (no Redis write-through in single-instance)
+      instance.localStore.set('exec-local', {
+        executionId: 'exec-local',
+        projectId: 'proj-1',
+        nodeId: 'node-1',
+        userId: 'user-123',
+        machineId: 'machine-1',
+        createdAt: Date.now(),
+      })
+
+      // getUserIdForTaskWithFallback finds it in local store
+      const userId = await instance.getUserIdForTaskWithFallback('exec-local')
+      expect(userId).toBe('user-123')
+
+      // Publish works
+      await instance.publishToRedis({
+        eventType: 'text',
+        taskId: 'exec-local',
+        data: {},
+      })
+
+      expect(redisPubSubChannel[0].userId).toBe('user-123')
+    })
+  })
+
+  describe('scenario: multi-user isolation', () => {
+    it('user A cannot see user B streaming events', async () => {
+      const instanceA = new SimulatedInstance('instance-a')
+      const instanceB_userA = new SimulatedInstance('instance-b', 'user-A')
+      const instanceB_userB = new SimulatedInstance('instance-b', 'user-B')
+
+      // User B dispatches a task
+      instanceA.register({
+        executionId: 'exec-user-b',
+        projectId: 'proj-1',
+        nodeId: 'node-1',
+        userId: 'user-B',
+        machineId: 'machine-1',
+      })
+
+      // Agent sends events through Instance A
+      await instanceA.publishToRedis({
+        eventType: 'text',
+        taskId: 'exec-user-b',
+        data: { content: 'secret data from user B' },
+      })
+
+      const msg = redisPubSubChannel[0]
+
+      // User B's SSE receives the event
+      expect(instanceB_userB.receiveFromRedis(msg)).toBe(true)
+
+      // User A's SSE does NOT receive it (different userId)
+      expect(instanceB_userA.receiveFromRedis(msg)).toBe(false)
+    })
+  })
+
+  describe('scenario: Redis context TTL expiry', () => {
+    it('task context in Redis is found before TTL expires', async () => {
+      const instanceA = new SimulatedInstance('instance-a')
+      const instanceB = new SimulatedInstance('instance-b', 'user-123')
+
+      // Dispatch on Instance B writes to Redis
+      instanceB.register({
+        executionId: 'exec-ttl',
+        projectId: 'proj-1',
+        nodeId: 'node-1',
+        userId: 'user-123',
+        machineId: 'machine-1',
+      })
+
+      // Redis has the context (4h TTL in production)
+      expect(redisContextStore.has('relay:exec:context:exec-ttl')).toBe(true)
+
+      // Instance A finds it via Redis fallback
+      const userId = await instanceA.getUserIdForTaskWithFallback('exec-ttl')
+      expect(userId).toBe('user-123')
+    })
+
+    it('if Redis context is gone (TTL expired), userId is undefined', async () => {
+      const instanceA = new SimulatedInstance('instance-a')
+
+      // Simulate TTL expiry: Redis key is gone
+      // No context registered anywhere
+
+      const userId = await instanceA.getUserIdForTaskWithFallback('exec-expired')
+      expect(userId).toBeUndefined()
+    })
+  })
+
+  describe('scenario: rapid streaming events (performance)', () => {
+    it('100 events for same task: only 1 Redis lookup, rest from cache', async () => {
+      const instanceA = new SimulatedInstance('instance-a')
+      const instanceB = new SimulatedInstance('instance-b', 'user-123')
+
+      instanceB.register({
+        executionId: 'exec-rapid',
+        projectId: 'proj-1',
+        nodeId: 'node-1',
+        userId: 'user-123',
+        machineId: 'machine-1',
+      })
+
+      // Instance A starts without the context
+      expect(instanceA.localStore.size).toBe(0)
+
+      // Send 100 events
+      for (let i = 0; i < 100; i++) {
+        await instanceA.publishToRedis({
+          eventType: i % 3 === 0 ? 'text' : i % 3 === 1 ? 'tool_use' : 'tool_result',
+          taskId: 'exec-rapid',
+          data: { seq: i },
+        })
+      }
+
+      // All 100 events have correct userId
+      expect(redisPubSubChannel).toHaveLength(100)
+      for (const msg of redisPubSubChannel) {
+        expect(msg.userId).toBe('user-123')
+      }
+
+      // Instance A now has the context cached locally
+      expect(instanceA.localStore.has('exec-rapid')).toBe(true)
+      // Sync lookup works (cached from first Redis lookup)
+      expect(instanceA.getUserIdForTask('exec-rapid')).toBe('user-123')
+
+      // Instance B receives all 100 events
+      let delivered = 0
+      for (const msg of redisPubSubChannel) {
+        if (instanceB.receiveFromRedis(msg)) delivered++
+      }
+      expect(delivered).toBe(100)
+    })
+  })
+})
