@@ -491,8 +491,14 @@ app.delete('/projects/:projectId', async (c) => {
     return c.json({ error: 'Project is not a GitHub-linked project' }, 400);
   }
 
-  // Delete project (CASCADE removes plan nodes) — team-scoped for safety
-  await db.delete(projects).where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId)));
+  // Soft-delete the project (consistent with DELETE /api/projects/:id) so that
+  // dashboard stats and earned achievements are preserved.  A hard DELETE would
+  // cascade-delete task_executions, plan_nodes, and streaming_events, causing
+  // lifetime stats (lines added, PRs merged, speed-demon flag, etc.) to drop and
+  // preventing future achievement awards based on that historical work.
+  await db.update(projects)
+    .set({ status: 'deleted', updatedAt: new Date() })
+    .where(and(eq(projects.id, projectId), eq(projects.teamId, user.teamId)));
 
   return c.body(null, 204);
 });
