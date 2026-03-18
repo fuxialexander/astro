@@ -145,6 +145,10 @@ export async function computeLifetimeStats(userId: string): Promise<LifetimeStat
   const cached = getCached<LifetimeStats>(cacheKey)
   if (cached) return cached
 
+  // NOTE: Subqueries deliberately omit `status != 'deleted'` so that soft-deleted
+  // projects still contribute to lifetime stats and achievement thresholds.
+  // Deleting a project must never erase historical accomplishments — only hard-
+  // deleting a project row (which the API no longer does) would lose this data.
   // Run multiple queries in parallel
   const [
     usageRows,
