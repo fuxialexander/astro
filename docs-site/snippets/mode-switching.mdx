@@ -1,0 +1,12 @@
+### Switching Modes
+
+Astro supports three operating modes. Switch between them with:
+
+```bash
+npm run env:local    # Local mode: PGlite, no auth, single-user
+npm run env:dev      # Dev mode: local Supabase + Cloudflare tunnel
+npm run env:prod     # Production mode: remote Supabase + Fly.io
+npm run env:switch   # Show current mode
+```
+
+The `dev:local` and `dev:dev` commands switch automatically before starting.

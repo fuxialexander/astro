@@ -613,7 +613,28 @@ Add in Cloudflare Pages dashboard: Workers & Pages → Your Project → Custom D
 
 ## Documentation
 
-Complete documentation is in `docs/`:
+### Docs Site (Mintlify)
+
+The full user-facing documentation lives in `docs-site/` and is built with [Mintlify](https://mintlify.com/). It covers getting started, tutorials, architecture, API reference, CLI & agent runner, and integrations.
+
+**Run locally:**
+```bash
+npm run docs:dev    # Starts Mintlify dev server at http://localhost:3000
+```
+
+**Sections:**
+- **Getting Started** — Quickstart, installation (3 modes), concepts, architecture overview
+- **Use Cases** — Builders (software engineers) and Scientists (researchers)
+- **Tutorials** — First project, connect a machine, dispatch tasks, CLI usage, team collaboration
+- **Architecture** — Frontend, backend, agent runner, relay server, data model
+- **Features** — Plan graph, approval system, activity feed, realtime sync, skills, MCP tools
+- **API Reference** — Data API, Dispatch API, Events API
+- **CLI & Agent** — CLI commands, agent runner, provider adapters
+- **Integrations** — GitHub, HPC/Slurm
+
+### Design Docs (Internal)
+
+Detailed developer-facing design docs are in `docs/`:
 - [Architecture](docs/design/ARCHITECTURE.md) — System design, data flow, scaling
 - [Agent Runner](docs/design/AGENT_RUNNER.md) — CLI, providers, safety, worktrees
 - [Relay Protocol](docs/design/RELAY.md) — WebSocket message types
