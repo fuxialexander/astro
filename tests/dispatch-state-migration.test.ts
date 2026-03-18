@@ -187,7 +187,7 @@ describe('relay-server: cross-instance routing', () => {
 
     it('cleans up Redis on task result', () => {
       const resultMethod = relaySource.slice(
-        relaySource.indexOf('private handleTaskResult('),
+        relaySource.indexOf('private async handleTaskResult('),
         relaySource.indexOf('private handleTaskStdout(')
       )
       expect(resultMethod).toContain('redisPubSub.removeTaskMapping')

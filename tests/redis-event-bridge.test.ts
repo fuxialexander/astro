@@ -565,12 +565,12 @@ describe('relay-server Redis publish integration', () => {
   })
 
   it('has publishToRedis wrapper that attaches userId', () => {
-    // Find the wrapper method
-    const wrapperStart = relaySource.indexOf('private publishToRedis(')
+    // Find the wrapper method (now async for cross-instance Redis fallback)
+    const wrapperStart = relaySource.indexOf('private async publishToRedis(')
     expect(wrapperStart).toBeGreaterThan(-1)
     // Extract a generous chunk after the method signature
     const wrapperChunk = relaySource.slice(wrapperStart, wrapperStart + 300)
-    expect(wrapperChunk).toContain('executionContextStore.getUserIdForTask(event.taskId)')
+    expect(wrapperChunk).toContain('executionContextStore.getUserIdForTaskWithFallback(event.taskId)')
     expect(wrapperChunk).toContain('publishStreamingEvent')
     expect(wrapperChunk).toContain('userId')
     expect(wrapperChunk).toContain('.catch(')
@@ -637,13 +637,14 @@ describe('relay-server Redis publish integration', () => {
   it('publishes result events via redisPubSub.publishStreamingEvent (userId snapshot before emit)', () => {
     // handleTaskResult snapshots userId BEFORE emit to avoid the race where
     // dispatch.ts's onResult removes the context synchronously during emit.
+    // Now uses async getUserIdForTaskWithFallback for cross-instance Redis lookup.
     const handler = relaySource.slice(
-      relaySource.indexOf('private handleTaskResult('),
+      relaySource.indexOf('private async handleTaskResult('),
       relaySource.indexOf('private handleTaskStdout(')
     )
     expect(handler).toContain("eventType: 'result', taskId: message.result.taskId,")
-    // Verify userId is captured before this.emit
-    const userIdIdx = handler.indexOf('const userId = executionContextStore.getUserIdForTask(')
+    // Verify userId is captured before this.emit using the async fallback
+    const userIdIdx = handler.indexOf('const userId = await executionContextStore.getUserIdForTaskWithFallback(')
     const emitIdx = handler.indexOf("this.emit('task:result'")
     expect(userIdIdx).toBeGreaterThan(-1)
     expect(emitIdx).toBeGreaterThan(-1)
@@ -956,7 +957,7 @@ describe('relay-server publishToRedis error handling', () => {
   const relaySource = readFileSync(RELAY_PATH, 'utf-8')
 
   it('publishToRedis logs errors with console.error', () => {
-    const wrapperStart = relaySource.indexOf('private publishToRedis(')
+    const wrapperStart = relaySource.indexOf('private async publishToRedis(')
     const wrapperChunk = relaySource.slice(wrapperStart, wrapperStart + 300)
     expect(wrapperChunk).toContain('console.error')
   })
