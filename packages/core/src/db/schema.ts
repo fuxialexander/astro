@@ -10,7 +10,7 @@ export const projects = pgTable('projects', {
   name: text('name').notNull(),
   description: text('description').notNull().default(''),
   visionDoc: text('vision_doc').notNull().default(''),
-  status: text('status').notNull().default('active'), // 'active' | 'archived'
+  status: text('status').notNull().default('active'), // 'active' | 'archived' | 'deleted'
   startDate: date('start_date'),
   targetDate: date('target_date'),
   lead: text('lead'),
