@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Server,
@@ -36,6 +36,7 @@ import { BackendDetailDialog } from "@/components/environments/backend-detail-di
 import { MachineDetailDialog } from "@/components/environments/machine-detail-dialog"
 import { InstructionPicker } from "@/components/execution/instruction-picker"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
 import { isServerMode } from "@/lib/app-mode"
 import { formatRelativeTime } from "@/lib/date-utils"
 import { compactGpuName } from "@/lib/utils"
@@ -544,9 +545,20 @@ export function Environments() {
   const isMultiTenant = isServerMode()
   const showTeamMachines = useFeatureFlag('team-machines')
 
+  const workspaceFilter = useWorkspaceFilterStore((s) => s.workspaceFilter)
+
   const revokeMachine = useMachinesStore((s) => s.revokeMachine)
-  const registeredMachines = useMachinesStore((s) => s.machines)
+  const allRegisteredMachines = useMachinesStore((s) => s.machines)
   const fetchMachines = useMachinesStore((s) => s.fetchMachines)
+
+  // Apply workspace filter to registered machines
+  const registeredMachines = useMemo(() => {
+    if (workspaceFilter === 'all') return allRegisteredMachines
+    if (workspaceFilter === 'personal') {
+      return allRegisteredMachines.filter((m) => !m.teamId)
+    }
+    return allRegisteredMachines.filter((m) => m.teamId === workspaceFilter)
+  }, [allRegisteredMachines, workspaceFilter])
 
   // Machine instructions
   const miInstructions = useMachineInstructionStore((s) => s.instructions)
