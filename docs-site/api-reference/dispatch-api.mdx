@@ -1,6 +1,328 @@
 ---
-title: Dispatch Api
-description: Dispatch Api API reference.
+title: Dispatch API
+description: Endpoints for task execution, agent chat, machine management, and the dispatch engine.
+icon: play
 ---
 
-<Note>This page is coming soon.</Note>
+## Overview
+
+The Dispatch API handles task execution lifecycle — from dispatching tasks to connected machines, through real-time streaming, to cancellation and pruning. All endpoints require authentication.
+
+## Agent and AI Chat
+
+### `POST /api/agent/chat`
+
+Chat with AI about a project plan. Returns an SSE stream.
+
+```bash
+curl -X POST https://<api>/api/agent/chat \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "projectId": "550e8400-e29b-41d4-a716-446655440000",
+    "sessionId": "sess-abc123",
+    "message": "Add tests for the authentication module"
+  }'
+```
+
+<ResponseField name="SSE Stream" type="text/event-stream">
+  Event types: `text`, `tool_use`, `tool_result`, `session_init`, `plan_result`, `done`, `error`, `aborted`, `heartbeat`
+</ResponseField>
+
+### `POST /api/agent/project-chat`
+
+Project-focused chat (defaults to Haiku model for efficiency).
+
+### `POST /api/agent/task-chat`
+
+Task-specific chat with execution context injected.
+
+### `POST /api/agent/abort`
+
+Abort an active AI session.
+
+```bash
+curl -X POST https://<api>/api/agent/abort \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{ "sessionId": "sess-abc123" }'
+```
+
+```json
+{ "success": true, "sessionId": "sess-abc123" }
+```
+
+### `POST /api/agent/compact`
+
+Summarize conversation history (SSE stream).
+
+### `POST /api/agent/summarize`
+
+Generate a summary for a completed task.
+
+### `POST /api/agent/generate-title`
+
+Generate a short title from a task description.
+
+### `POST /api/agent/refine`
+
+Refine a task's title and description.
+
+### `POST /api/agent/suggest-labels`
+
+Suggest label IDs for a task based on its content.
+
+## Task Dispatch
+
+### `POST /api/dispatch/task`
+
+Dispatch a task to an agent runner. Returns an SSE stream for real-time execution tracking.
+
+```bash
+curl -X POST https://<api>/api/dispatch/task \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nodeId": "node-abc123",
+    "projectId": "550e8400-e29b-41d4-a716-446655440000",
+    "title": "Run unit tests",
+    "description": "Execute pytest test suite",
+    "environment": "local",
+    "machineId": "machine-xyz789",
+    "visionDoc": "Project context..."
+  }'
+```
+
+<ResponseField name="executionId" type="string">
+  Unique execution identifier for tracking.
+</ResponseField>
+
+<ResponseField name="SSE Stream" type="text/event-stream">
+  Event types: `init`, `session_init`, `text`, `tool_use`, `tool_result`, `file_change`, `progress`, `result`, `error`, `aborted`, `heartbeat`, `done`, `approval_request`, `approval_response`, `safety_prompt`, `steer_message`
+</ResponseField>
+
+<Note>
+  Plan generation also uses this endpoint with `isInteractivePlan: true` in the request body.
+</Note>
+
+### `POST /api/dispatch/cancel`
+
+Cancel a running task execution.
+
+```bash
+curl -X POST https://<api>/api/dispatch/cancel \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{ "executionId": "exec-def456" }'
+```
+
+```json
+{ "success": true, "executionId": "exec-def456" }
+```
+
+### `POST /api/dispatch/steer`
+
+Send a steering message to a running agent (mid-execution guidance).
+
+```bash
+curl -X POST https://<api>/api/dispatch/steer \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "executionId": "exec-def456",
+    "message": "Focus on testing edge cases"
+  }'
+```
+
+### `POST /api/dispatch/prune`
+
+Prune a branch — cancels the task and all downstream dependencies.
+
+```bash
+curl -X POST https://<api>/api/dispatch/prune \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nodeId": "node-abc123",
+    "projectId": "550e8400-e29b-41d4-a716-446655440000"
+  }'
+```
+
+```json
+{
+  "success": true,
+  "prunedNodes": ["node-abc123", "node-child1", "node-child2"]
+}
+```
+
+### `POST /api/dispatch/approval`
+
+Respond to an approval request from a running agent.
+
+### `POST /api/dispatch/safety-decision`
+
+Respond to a safety prompt.
+
+### `POST /api/dispatch/approve`
+
+Simple approve for a running task.
+
+### `POST /api/dispatch/request-dynamic-approval`
+
+Create an on-demand approval request.
+
+### Dispatch Engine Management
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/dispatch/status` | Dispatch engine status |
+| `GET /api/dispatch/ready/:projectId` | Check if nodes are ready to dispatch |
+| `POST /api/dispatch/engine/start` | Start dispatch engine |
+| `POST /api/dispatch/engine/stop` | Stop dispatch engine |
+| `POST /api/dispatch/reset` | Reset execution state for a node |
+| `POST /api/dispatch/cleanup` | Clean up stale execution state |
+
+## Relay and Machines
+
+### `GET /api/relay/machines`
+
+List all connected machines (filtered to the authenticated user's machines).
+
+```json
+{
+  "machines": [
+    {
+      "id": "machine-abc123",
+      "name": "Dev Laptop",
+      "environmentType": "local",
+      "providers": ["claude-code"],
+      "isConnected": true,
+      "load": {
+        "cpuPercent": 25,
+        "memoryPercent": 50,
+        "activeTasks": 1,
+        "queuedTasks": 0
+      }
+    }
+  ]
+}
+```
+
+### `GET /api/relay/machines/:machineId`
+
+Get detailed information for a specific machine, including providers, resources, and connection status.
+
+### `GET /api/relay/best-machine`
+
+Find the optimal machine for a task based on load and capabilities.
+
+**Query parameters:**
+- `environment` — Required environment type
+- `provider` — Required provider type
+
+```json
+{
+  "machineId": "machine-abc123",
+  "score": 0.85
+}
+```
+
+### `GET /api/relay/status`
+
+Detailed relay server status including uptime, connected machines, task queue, and Redis connectivity.
+
+### HPC / Slurm Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/relay/slurm/clusters` | List HPC-capable machines |
+| `GET /api/relay/slurm/clusters/:machineId` | Specific Slurm cluster info |
+| `GET /api/relay/slurm/jobs` | Active Slurm jobs |
+| `POST /api/relay/slurm/dispatch` | Dispatch a task to HPC/Slurm |
+
+### Other Relay Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/relay/health` | Relay + Redis health check |
+| `DELETE /api/relay/machines/:machineId` | Force disconnect a machine |
+| `POST /api/relay/dispatch` | Low-level task dispatch via relay |
+| `POST /api/relay/cancel` | Cancel task via relay |
+| `GET /api/relay/tasks/:taskId/machine` | Get machine running a task |
+| `GET /api/relay/sessions` | List Claude Code sessions from machines |
+
+## Device Authorization
+
+OAuth2 Device Authorization Grant (RFC 8628) for machine registration.
+
+### Flow
+
+<Steps>
+  <Step title="Request device code">
+    ```bash
+    curl -X POST https://<api>/api/device/authorize \
+      -H "Content-Type: application/json" \
+      -d '{ "client_id": "astro-agent", "scope": "dispatch report" }'
+    ```
+
+    ```json
+    {
+      "device_code": "GmRhmhcxhwAzkoEqiMEg_DnyEysNkuNhszIySk9eS",
+      "user_code": "BDWD-HQPK",
+      "verification_uri": "https://astro.example.com/device",
+      "expires_in": 900,
+      "interval": 5
+    }
+    ```
+  </Step>
+  <Step title="User authorizes in browser">
+    Display the `user_code` to the user. They visit `verification_uri` and enter the code.
+  </Step>
+  <Step title="Poll for token">
+    ```bash
+    curl -X POST https://<api>/api/device/token \
+      -H "Content-Type: application/json" \
+      -d '{
+        "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+        "device_code": "GmRhmhcxhwAzkoEqiMEg_DnyEysNkuNhszIySk9eS",
+        "client_id": "astro-agent"
+      }'
+    ```
+
+    Pending response: `{ "error": "authorization_pending" }`
+
+    Success response:
+    ```json
+    {
+      "access_token": "eyJhbGciOiJIUzI1NiIs...",
+      "token_type": "Bearer",
+      "expires_in": 3600,
+      "refresh_token": "def502004d8f7e4c...",
+      "scope": "dispatch report"
+    }
+    ```
+  </Step>
+  <Step title="Register machine">
+    ```bash
+    curl -X POST https://<api>/api/device/register \
+      -H "Authorization: Bearer <access-token>" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Dev Laptop",
+        "hostname": "macbook-pro.local",
+        "platform": "darwin",
+        "environmentType": "local",
+        "providers": ["claude-code"]
+      }'
+    ```
+  </Step>
+</Steps>
+
+### Token Management
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /api/device/refresh` | Refresh access token using refresh token |
+| `POST /api/device/revoke` | Revoke a refresh token (logout machine) |
+| `GET /api/device/machines` | List user's registered machines |
+| `DELETE /api/device/machines/:id` | Revoke a machine |

@@ -119,11 +119,10 @@
     {
       "group": "API Reference",
       "pages": [
-        "api-reference/endpoints",
+        "api-reference/overview",
         "api-reference/data-api",
         "api-reference/dispatch-api",
-        "api-reference/events-api",
-        "api-reference/authentication"
+        "api-reference/events-api"
       ]
     },
     {

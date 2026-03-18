@@ -1,6 +1,193 @@
 ---
 title: Security
-description: Security setup documentation.
+description: Security checklist and best practices for deploying Astro in production.
+icon: shield-check
 ---
 
-<Note>This page is coming soon. See the [Installation guide](/installation) for an overview.</Note>
+## Pre-Deployment Checklist
+
+Complete all items before deploying to production.
+
+### Environment Variables
+
+- Set `NODE_ENV=production` (handled automatically by `fly.toml`)
+- Generate JWT secrets with `openssl rand -hex 32` (one per secret, minimum 32 characters)
+- Set `DEVICE_AUTH_JWT_SECRET` — must differ from `RELAY_JWT_SECRET`
+- Set `DEVICE_AUTH_REFRESH_SECRET` — must differ from both above
+- Confirm `ALLOW_E2E_BYPASS` is **NOT** set in production
+- Verify Supabase credentials are set (`SUPABASE_URL`, anon key, service role key)
+- Verify JWKS endpoint is accessible: `curl ${SUPABASE_URL}/auth/v1/.well-known/jwks.json`
+
+<Note>
+  `SUPABASE_JWT_SECRET` is **not needed** — auth uses ES256 JWKS, not HS256.
+</Note>
+
+### Security Configuration
+
+- Verify test token bypass is disabled (no `ALLOW_E2E_BYPASS` env var)
+- Confirm JWT secrets are different between dev, staging, and production
+- Enable HTTPS/TLS on all production endpoints
+- Configure CORS to allow only the production frontend domain
+
+### Database Security
+
+- Enable Row Level Security (RLS) on all Supabase tables
+- Verify foreign key constraints are in place
+- Test ownership checks work for all CRUD operations
+- Run database migrations in production (`npm run db:push`)
+
+### Rate Limiting
+
+- Verify rate limiting is active on `/device/token` endpoint
+- Monitor rate limit metrics in first 24 hours
+
+## Authentication Architecture
+
+Astro uses three authentication methods, resolved in order by the `requireAuth` middleware:
+
+| Method | Header | When Used |
+|--------|--------|-----------|
+| **Local mode** | `X-User-Id` (optional) | No auth required, falls back to `LOCAL_USER_ID` |
+| **Supabase JWT** | `Authorization: Bearer <jwt>` | Web app (dev/prod) |
+| **Device token** | `Authorization: Bearer <device-jwt>` | CLI, registered machines |
+
+### WebAuthn (Passkeys)
+
+- Registration and login via FIDO2/WebAuthn
+- Requires HTTPS (except `localhost`)
+- Rate limited: 30 requests per 15 minutes per IP
+- State tokens expire after 10 minutes for CSRF protection
+
+### Device Authorization (OAuth2 RFC 8628)
+
+- Used by agent runners and CLI to register machines
+- Token polling rate limited: 10 requests/min per IP
+- 5 failed attempts trigger a 5-minute lockout
+- Refresh tokens enable persistent machine connections
+
+## Rate Limiting Reference
+
+| Scope | Window | Limit | Enforcement |
+|-------|--------|-------|-------------|
+| WebAuthn endpoints | 15 min | 30 req/IP | `hono-rate-limiter` middleware |
+| Device token polling | 1 min | 10 req/IP | Custom in-memory tracker |
+| Device auth failures | — | 5 attempts | 5-minute lockout |
+
+<Warning>
+  No global rate limiter is currently enforced. Consider implementing Redis-based rate limiting for multi-instance deployments.
+</Warning>
+
+## Manual Security Tests
+
+Run these tests against your production deployment:
+
+<Steps>
+  <Step title="Test IDOR protection">
+    Try accessing another user's project by ID. You should receive a `403 Forbidden` or `404 Not Found`.
+  </Step>
+  <Step title="Test authentication">
+    Make API calls without a valid JWT. All protected endpoints should return `401 Unauthorized`.
+  </Step>
+  <Step title="Test rate limiting">
+    Send rapid requests to `/api/device/token`. After 10 requests in 1 minute, you should be rate limited.
+  </Step>
+  <Step title="Test JWT secret validation">
+    Try starting the server without JWT secrets. It should fail to boot with an environment validation error.
+  </Step>
+  <Step title="Test ownership checks">
+    Authenticate as User A, then try to access User B's data. RLS policies should prevent access.
+  </Step>
+</Steps>
+
+## Post-Deployment Monitoring
+
+### Day 1 (First 24 Hours)
+
+- Monitor authentication failure rate
+- Check for rate limit violations
+- Review server logs for security warnings
+- Verify no test bypass warnings appear
+- Monitor database query performance (ownership checks add JOINs)
+
+### Week 1
+
+- Review access patterns for anomalies
+- Check for failed authorization attempts
+- Monitor rate limit effectiveness
+- Review JWT token refresh patterns
+
+## Security Incident Response
+
+### If a Security Issue Is Detected
+
+<Steps>
+  <Step title="Immediate actions">
+    - Rotate JWT secrets immediately
+    - Revoke all refresh tokens for affected users
+    - Enable additional logging
+    - Notify affected users
+  </Step>
+  <Step title="Investigation">
+    - Review server logs for attack pattern
+    - Check database for unauthorized access
+    - Identify compromised accounts
+    - Document timeline and scope
+  </Step>
+  <Step title="Remediation">
+    - Apply security patches
+    - Reset affected user sessions
+    - Update deployment checklist
+    - Conduct security audit
+  </Step>
+</Steps>
+
+### Rollback Procedure
+
+```bash
+# 1. Revert to previous deployment
+git revert <commit-hash>
+
+# 2. Rotate JWT secrets
+fly secrets set \
+  DEVICE_AUTH_JWT_SECRET="$(openssl rand -hex 32)" \
+  DEVICE_AUTH_REFRESH_SECRET="$(openssl rand -hex 32)" \
+  --app <your-fly-app>
+
+# 3. Deploy
+npm run deploy
+
+# 4. Verify
+curl https://api.yourdomain.com/api/health
+```
+
+## Security Hardening
+
+### High Priority
+
+- Implement Redis-based rate limiting for multi-instance deployments
+- Add audit logging for all authentication events
+- Set up automated security scanning (Dependabot, Snyk)
+- Configure security headers (CSP, HSTS)
+
+### Medium Priority
+
+- Add IP allowlisting for administrative endpoints
+- Implement automated secret rotation
+- Set up intrusion detection monitoring
+- Add CAPTCHA for device authorization flow
+
+## Compliance
+
+### GDPR/Privacy
+
+- Data export endpoint tested (`GET /api/data/export`)
+- User data deletion flow verified (`DELETE /api/auth/delete-account`)
+- Privacy policy updated to reflect data collection
+- Cookie consent mechanism in place
+
+### Security Standards
+
+- OWASP Top 10 review completed
+- SQL injection tests passed (Drizzle ORM with parameterized queries)
+- XSS protection verified
+- CSRF protection enabled (state tokens on OAuth flows)
