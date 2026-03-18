@@ -23,7 +23,7 @@ import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useContentSaveStore } from "@/stores/content-save-store"
 import { useKeyboardNav } from "@/hooks/use-keyboard-nav"
 import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
-import { TaskNode } from "./task-node"
+import { TaskNode, AddMilestoneNode } from "./task-node"
 import { DeletableEdge } from "./deletable-edge"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
@@ -32,11 +32,11 @@ import { calculateChildPosition, calculateParentPosition } from "@/lib/graph-uti
 import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
-import { getMilestoneColor } from "@/components/plan-graph/plan-node-shared"
+import { getMilestoneColor, STATUS_DOT_COLOR, PRIORITY_PIP_COLOR, GRAPH_EDGE_COLOR } from "@/components/plan-graph/plan-node-shared"
 
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const nodeTypes = { task: TaskNode as any }
+const nodeTypes = { task: TaskNode as any, addMilestone: AddMilestoneNode as any }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const edgeTypes = { deletable: DeletableEdge as any }
 
@@ -77,6 +77,8 @@ interface AddChildState {
    * When false: new node becomes a child/dependent of originNodeId
    */
   isUpwardDrag?: boolean
+  /** When origin is a milestone, new tasks are pre-assigned to it */
+  milestoneId?: string
 }
 
 function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }: PlanCanvasProps) {
@@ -86,6 +88,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const rawPlanEdges = usePlanStore((s) => s.edges)
   const planEdges = useMemo(() => rawPlanEdges.filter(isLive), [rawPlanEdges])
+  const addNode = usePlanStore((s) => s.addNode)
   const addEdge = usePlanStore((s) => s.addEdge)
   const removeEdge = usePlanStore((s) => s.removeEdge)
   const removeNodes = usePlanStore((s) => s.removeNodes)
@@ -358,78 +361,196 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   const highlightBy = graphDisplaySettings.groupBy
 
   const orderedMilestoneIds = useMemo(
-    () => projectNodes.filter(n => n.type === 'milestone').map(n => n.id),
+    () => projectNodes
+      .filter(n => n.type === 'milestone')
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .map(n => n.id),
     [projectNodes]
   )
 
-  const rfNodes: Node[] = useMemo(
-    () =>
-      projectNodes.map((n) => ({
-        id: n.id,
-        type: "task",
-        position: n.position || { x: 0, y: 0 }, // Defensive: ensure position is always defined
-        data: {
-          title: n.title,
-          number: n.number,
-          description: n.content ? stripHtml(n.content) : (n.description ?? ''),
-          status: n.status,
-          nodeType: (!loopNodesEnabled && n.type === 'loop') ? 'task' : n.type,
-          priority: n.priority,
-          dueDate: n.dueDate,
-          executionId: n.executionId,
-          prUrl: n.prUrl,
-          mergeQueueStatus: n.mergeQueueStatus,
-          autoPr: n.autoPr,
-          githubIssueNumber: n.githubIssueNumber,
-          githubIssueUrl: n.githubIssueUrl,
-          ...(loopNodesEnabled ? {
-            loopCurrentIteration: n.loopCurrentIteration,
-            loopMaxIterations: n.loopConfig?.maxIterations,
-            loopBestMetricValue: n.loopBestMetricValue,
-            loopStatus: n.loopStatus,
-          } : {}),
-          milestoneColor: n.type === 'milestone'
-            ? (getMilestoneColor(n.id, orderedMilestoneIds) ?? null)
-            : (n.milestoneId ? (getMilestoneColor(n.milestoneId, orderedMilestoneIds) ?? null) : null),
-          highlightBy,
-          checked: checkedIds.has(n.id),
-          selectionActive: selectionActive,
-          onDecompose: readOnly ? undefined : onDecomposeNode,
-          onToggleSelect: readOnly ? undefined : handleToggleSelect,
-          readOnly,
-        },
-        selected: n.id === selectedId,
-      })),
-    [projectNodes, orderedMilestoneIds, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy, readOnly, loopNodesEnabled]
-  )
+
+  // Compute milestone positions dynamically: centered above their member tasks.
+  // Overlapping milestones are placed in additional rows stacking upward.
+  const milestonePositions = useMemo(() => {
+    const MILESTONE_ROW_BASE_Y = -8   // closest row to tasks (~8px gap to task nodes at y=40)
+    const MILESTONE_WIDTH = 200
+    const MILESTONE_HEIGHT = 40
+    const GAP = 16            // min horizontal gap between milestones
+    const ROW_STRIDE = MILESTONE_HEIGHT + 8  // vertical distance between rows (stacks upward)
+    const positions = new Map<string, { x: number; y: number }>()
+
+    // Pass 1: compute ideal x for milestones anchored to member tasks
+    const idealX = new Map<string, number>()
+    for (const msId of orderedMilestoneIds) {
+      const memberTasks = projectNodes.filter(n => n.type !== 'milestone' && n.milestoneId === msId && n.position)
+      if (memberTasks.length > 0) {
+        const cx = memberTasks.reduce((sum, t) => sum + (t.position?.x ?? 0), 0) / memberTasks.length
+        idealX.set(msId, cx - MILESTONE_WIDTH / 2 + 82)
+      }
+    }
+
+    // Pass 2: place orphan milestones to the right of all anchored ones
+    let fallbackX = 0
+    for (const x of idealX.values()) {
+      const right = x + MILESTONE_WIDTH + GAP
+      if (right > fallbackX) fallbackX = right
+    }
+    for (const msId of orderedMilestoneIds) {
+      if (!idealX.has(msId)) {
+        idealX.set(msId, fallbackX)
+        fallbackX += MILESTONE_WIDTH + GAP
+      }
+    }
+
+    // Pass 3: assign rows — milestones sorted by x, each placed in the first row
+    // where it doesn't overlap any already-placed milestone.
+    // Extra rows stack upward (more negative y).
+    const rowOccupancy: Array<Array<{ x: number }>> = []  // rowOccupancy[rowIdx] = list of placed {x}
+
+    const sortedIds = [...orderedMilestoneIds].sort((a, b) => (idealX.get(a) ?? 0) - (idealX.get(b) ?? 0))
+
+    for (const msId of sortedIds) {
+      const x = idealX.get(msId) ?? 0
+      let placed = false
+      for (let row = 0; row < rowOccupancy.length; row++) {
+        const overlaps = rowOccupancy[row].some(p => Math.abs(p.x - x) < MILESTONE_WIDTH + GAP)
+        if (!overlaps) {
+          rowOccupancy[row].push({ x })
+          positions.set(msId, { x, y: MILESTONE_ROW_BASE_Y - row * ROW_STRIDE })
+          placed = true
+          break
+        }
+      }
+      if (!placed) {
+        const row = rowOccupancy.length
+        rowOccupancy.push([{ x }])
+        positions.set(msId, { x, y: MILESTONE_ROW_BASE_Y - row * ROW_STRIDE })
+      }
+    }
+
+    return positions
+  }, [projectNodes, orderedMilestoneIds])
+
+  const handleCreateMilestone = useCallback((title: string) => {
+    const now = new Date()
+    // Place to the right of the rightmost existing milestone position
+    const MILESTONE_WIDTH = 200
+    let rightmostX = 40
+    for (const pos of milestonePositions.values()) {
+      const right = pos.x + MILESTONE_WIDTH
+      if (right > rightmostX) rightmostX = right
+    }
+    addNode({
+      id: crypto.randomUUID(),
+      projectId,
+      type: 'milestone',
+      title,
+      description: '',
+      status: 'planned',
+      parentId: null,
+      dependencies: [],
+      verification: 'human',
+      position: { x: rightmostX + 24, y: 40 },
+      createdAt: now,
+      updatedAt: now,
+    })
+  }, [addNode, projectId, milestonePositions])
+
+  const rfNodes: Node[] = useMemo(() => {
+    const taskNodes = projectNodes.map((n) => ({
+      id: n.id,
+      type: "task",
+      position: n.type === 'milestone'
+        ? (milestonePositions.get(n.id) ?? { x: 0, y: -8 })
+        : (n.position || { x: 0, y: 0 }),
+      data: {
+        title: n.title,
+        number: n.number,
+        description: n.content ? stripHtml(n.content) : (n.description ?? ''),
+        status: n.status,
+        nodeType: (!loopNodesEnabled && n.type === 'loop') ? 'task' : n.type,
+        priority: n.priority,
+        dueDate: n.dueDate,
+        executionId: n.executionId,
+        prUrl: n.prUrl,
+        mergeQueueStatus: n.mergeQueueStatus,
+        autoPr: n.autoPr,
+        githubIssueNumber: n.githubIssueNumber,
+        githubIssueUrl: n.githubIssueUrl,
+        ...(loopNodesEnabled ? {
+          loopCurrentIteration: n.loopCurrentIteration,
+          loopMaxIterations: n.loopConfig?.maxIterations,
+          loopBestMetricValue: n.loopBestMetricValue,
+          loopStatus: n.loopStatus,
+        } : {}),
+        ...(n.type === 'milestone' ? (() => {
+          const members = projectNodes.filter(t => t.type !== 'milestone' && t.milestoneId === n.id)
+          const done = members.filter(t => t.status === 'completed' || t.status === 'auto_verified').length
+          return { milestoneTotal: members.length, milestoneDone: done }
+        })() : {}),
+        milestoneColor: n.type === 'milestone'
+          ? (getMilestoneColor(n.id, orderedMilestoneIds) ?? null)
+          : (n.milestoneId ? (getMilestoneColor(n.milestoneId, orderedMilestoneIds) ?? null) : null),
+        highlightBy,
+        checked: checkedIds.has(n.id),
+        selectionActive: selectionActive,
+        onDecompose: readOnly ? undefined : onDecomposeNode,
+        onToggleSelect: readOnly ? undefined : handleToggleSelect,
+        readOnly,
+        fastEdit: !readOnly && (graphDisplaySettings.fastEdit ?? false),
+        onFastEdit: !readOnly ? (nodeId: string, title: string) => updateNode(nodeId, { title }) : undefined,
+      },
+      selected: n.id === selectedId,
+    }))
+
+    if (!readOnly) {
+      // Add a dashed "add milestone" placeholder to the right of ALL milestones (any row)
+      const MILESTONE_WIDTH = 200
+      const MILESTONE_ROW_Y = -8
+      let rightmostX = 0
+      for (const pos of milestonePositions.values()) {
+        if (pos.x + MILESTONE_WIDTH > rightmostX) rightmostX = pos.x + MILESTONE_WIDTH
+      }
+      const addX = milestonePositions.size > 0 ? rightmostX + 16 : 40
+      taskNodes.push({
+        id: '__add_milestone__',
+        type: 'addMilestone',
+        position: { x: addX, y: MILESTONE_ROW_Y },
+        data: { onCreate: handleCreateMilestone } as unknown as typeof taskNodes[0]['data'],
+        selected: false,
+      })
+    }
+
+    return taskNodes
+  }, [projectNodes, orderedMilestoneIds, milestonePositions, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy, readOnly, loopNodesEnabled, handleCreateMilestone, graphDisplaySettings.fastEdit, updateNode])
 
   const rfEdges: Edge[] = useMemo(
     () =>
       projectEdges.map((e) => {
-        // Determine edge color based on target node status
-        const targetNode = projectNodes.find((n) => n.id === e.target)
-        const edgeColor = (() => {
-          if (!targetNode) return "#94A3B8" // slate-400 - visible on both themes
-          const status = targetNode.status
-          if (status === "completed" || status === "auto_verified") return "#22C55E" // green-500
-          if (status === "in_progress" || status === "dispatched") return "#F97316" // orange-500
-          return "#94A3B8" // slate-400 - visible default
-        })()
+          // Determine edge color based on target node status
+          const targetNode = projectNodes.find((n) => n.id === e.target)
+          const edgeColor = (() => {
+            if (!targetNode) return "#94A3B8"
+            const status = targetNode.status
+            if (status === "completed" || status === "auto_verified") return "#22C55E"
+            if (status === "in_progress" || status === "dispatched") return "#F97316"
+            return "#94A3B8"
+          })()
 
-        return {
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          type: "deletable",
-          data: { onDelete: readOnly ? undefined : handleEdgeDelete, readOnly },
-          style: {
-            stroke: edgeColor,
-            strokeWidth: 2.5,
-            strokeLinecap: "round" as const,
-          },
-          animated: e.type === "branch",
-        }
-      }),
+          return {
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            type: "deletable",
+            data: { onDelete: readOnly ? undefined : handleEdgeDelete, readOnly },
+            style: {
+              stroke: edgeColor,
+              strokeWidth: 2.5,
+              strokeLinecap: "round" as const,
+            },
+            animated: e.type === "branch",
+          }
+        }),
     [projectEdges, projectNodes, handleEdgeDelete, readOnly]
   )
 
@@ -450,6 +571,24 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   const onConnect = useCallback((connection: Connection) => {
     if (!connection.source || !connection.target) return
     if (connection.source === connection.target) return
+
+    const sourceNode = projectNodes.find((n) => n.id === connection.source)
+    const targetNode = projectNodes.find((n) => n.id === connection.target)
+
+    // Milestone → task: assign the task to the milestone instead of creating a dependency edge
+    if (sourceNode?.type === 'milestone' && targetNode && targetNode.type !== 'milestone') {
+      updateNode(connection.target, { milestoneId: connection.source })
+      connectingNodeRef.current = null
+      return
+    }
+
+    // Task → milestone: assign the task to the milestone
+    if (targetNode?.type === 'milestone' && sourceNode && sourceNode.type !== 'milestone') {
+      updateNode(connection.source, { milestoneId: connection.target })
+      connectingNodeRef.current = null
+      return
+    }
+
     const exists = projectEdges.some(
       (e) => e.source === connection.source && e.target === connection.target
     )
@@ -461,13 +600,10 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
       target: connection.target,
       type: "dependency",
     })
-    // Sync: add source to target node's dependencies array
-    const targetNode = projectNodes.find((n) => n.id === connection.target)
     if (targetNode && !targetNode.dependencies.includes(connection.source)) {
       updateNode(connection.target, { dependencies: [...targetNode.dependencies, connection.source] })
     }
     connectingNodeRef.current = null
-    // Auto-reorganize after adding a link (defer to ensure edge is in store)
     setTimeout(() => {
       reorganizeProject(projectId)
       setTimeout(() => rfFitView({ padding: 0.3, duration: 300 }), 50)
@@ -516,13 +652,13 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
           : calculateChildPosition(originNode, projectNodes, projectEdges))
       : dropPosition
 
-    // Center the popup on the node position
-    const nodeScreenPos = flowToScreenPosition(position)
-    const centeredScreenPos = {
-      x: nodeScreenPos.x - POPOVER_WIDTH / 2,
-      y: nodeScreenPos.y - POPOVER_HEIGHT / 2,
+    // Position the popup at the mouse drop point, offset so it doesn't obscure the cursor
+    const canvasRect = canvasRef.current?.getBoundingClientRect()
+    const dropScreenPos = {
+      x: clientX - (canvasRect?.left ?? 0) - POPOVER_WIDTH / 2,
+      y: clientY - (canvasRect?.top ?? 0) - POPOVER_HEIGHT / 2,
     }
-    const screenPos = clampPopoverPosition(centeredScreenPos, canvasRef.current)
+    const screenPos = clampPopoverPosition(dropScreenPos, canvasRef.current)
 
     justCreatedChild.current = true
     setAddChildState({
@@ -530,6 +666,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
       position,
       screenPosition: screenPos,
       isUpwardDrag,
+      milestoneId: originNode.type === 'milestone' ? nodeId : undefined,
     })
 
     connectingNodeRef.current = null
@@ -538,10 +675,13 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
       setSelectedId(node.id)
+      // In fast edit mode, clicking activates inline title editing in the node itself;
+      // do not navigate to the detail page.
+      if (graphDisplaySettings.fastEdit) return
       const planNode = projectNodes.find((n) => n.id === node.id)
       onNodeSelect?.(planNode ?? null)
     },
-    [projectNodes, onNodeSelect]
+    [projectNodes, onNodeSelect, graphDisplaySettings.fastEdit]
   )
 
   const handlePaneClick = useCallback(() => {
@@ -662,7 +802,50 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   const executingCount = projectNodes.filter((n) => n.status === "dispatched" || n.status === "in_progress").length
 
   return (
-    <div ref={canvasRef} className="relative h-full w-full">
+    <div className="relative h-full w-full flex flex-col">
+      {/* Legend bar — matches json-render PlanGraph header exactly */}
+      <div className="shrink-0 px-3 py-1.5 bg-muted/40 border-b border-border flex items-center gap-3 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+        {([
+          { color: STATUS_DOT_COLOR.in_progress,       label: 'in progress' },
+          { color: STATUS_DOT_COLOR.planned,            label: 'planned' },
+          { color: STATUS_DOT_COLOR.completed,          label: 'completed' },
+          { color: STATUS_DOT_COLOR.awaiting_approval,  label: 'awaiting' },
+          { color: STATUS_DOT_COLOR.pruned,             label: 'pruned' },
+        ] as const).map(({ color, label }) => (
+          <span key={label} className="flex items-center gap-1 shrink-0">
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+            <span className="text-[9px] text-muted-foreground/70">{label}</span>
+          </span>
+        ))}
+        <div className="w-px h-3 bg-border shrink-0" />
+        {([
+          { color: PRIORITY_PIP_COLOR.urgent, label: 'urgent' },
+          { color: PRIORITY_PIP_COLOR.high,   label: 'high' },
+          { color: PRIORITY_PIP_COLOR.medium, label: 'medium' },
+          { color: PRIORITY_PIP_COLOR.low,    label: 'low' },
+        ] as const).map(({ color, label }) => (
+          <span key={label} className="flex items-center gap-1 shrink-0">
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+            <span className="text-[9px] text-muted-foreground/70">{label}</span>
+          </span>
+        ))}
+        <div className="w-px h-3 bg-border shrink-0" />
+        <span className="flex items-center gap-1 shrink-0">
+          <svg width="18" height="6" className="shrink-0">
+            <line x1="0" y1="3" x2="18" y2="3" stroke={GRAPH_EDGE_COLOR} strokeWidth="1.5" strokeDasharray="4 3" opacity="0.8" />
+          </svg>
+          <span className="text-[9px] text-muted-foreground/70">active dep</span>
+        </span>
+        <span className="flex items-center gap-1 shrink-0">
+          <svg width="18" height="6" className="shrink-0">
+            <line x1="0" y1="3" x2="14" y2="3" stroke={GRAPH_EDGE_COLOR} strokeWidth="1.5" opacity="0.7" />
+            <polygon points="14,0 18,3 14,6" fill={GRAPH_EDGE_COLOR} opacity="0.7" />
+          </svg>
+          <span className="text-[9px] text-muted-foreground/70">depends on</span>
+        </span>
+      </div>
+
+      <div ref={canvasRef} className="relative flex-1">
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
@@ -673,7 +856,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
         onConnect={readOnly ? undefined : onConnect}
         onConnectStart={readOnly ? undefined : onConnectStart}
         onConnectEnd={readOnly ? undefined : onConnectEnd}
-        connectionLineType={ConnectionLineType.SmoothStep}
+        connectionLineType={ConnectionLineType.Bezier}
         connectionLineStyle={{
           stroke: "var(--primary)",
           strokeWidth: 3,
@@ -688,26 +871,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
         className="bg-background"
       >
         <Background gap={40} size={2} color="var(--muted-foreground)" style={{ opacity: 0.15 }} variant={BackgroundVariant.Dots} />
-
-        {/* Status legend — top-left, hidden on mobile (colors are self-explanatory from nodes) */}
-        <div className="react-flow__panel absolute top-3 left-3 z-10 hidden md:flex items-center gap-3 rounded-lg border border-border bg-card/85 backdrop-blur-sm px-2.5 py-1.5 shadow-sm text-[10px] font-medium">
-          <div className="flex items-center gap-1.5">
-            <div className="h-2 w-2 rounded-full bg-success" />
-            <span className="text-muted-foreground">Completed</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="h-2 w-2 rounded-full bg-info" />
-            <span className="text-muted-foreground">In Progress</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="h-2 w-2 rounded-full bg-warning" />
-            <span className="text-muted-foreground">Awaiting</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="h-2 w-2 rounded-full border border-muted-foreground/40" />
-            <span className="text-muted-foreground">Planned</span>
-          </div>
-        </div>
 
         {/* Unified graph controls — zoom in/out hidden on mobile */}
         <div className="react-flow__panel absolute bottom-3 left-2.5 z-10 flex flex-col rounded-xl border border-border bg-card shadow-lg overflow-hidden">
@@ -884,14 +1047,18 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
             projectId={projectId}
             // Upward drag: new node is a parent/dependency of originNode (pass childNodeId)
             // Downward drag: new node is a child/dependent of originNode (pass parentNodeId)
-            parentNodeId={addChildState.isUpwardDrag ? undefined : addChildState.originNodeId || undefined}
-            childNodeId={addChildState.isUpwardDrag ? addChildState.originNodeId : undefined}
+            // When origin is a milestone, don't set parent/child — only assign milestoneId
+            parentNodeId={addChildState.milestoneId ? undefined : (addChildState.isUpwardDrag ? undefined : addChildState.originNodeId || undefined)}
+            childNodeId={addChildState.milestoneId ? undefined : (addChildState.isUpwardDrag ? addChildState.originNodeId : undefined)}
+            defaultMilestoneId={addChildState.milestoneId}
             position={addChildState.position}
             onCreated={handleTaskCreated}
             onCancel={() => setAddChildState(null)}
           />
         </div>
       )}
+
+      </div>
     </div>
   )
 }

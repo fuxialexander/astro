@@ -219,6 +219,13 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
             onChange={(v) => handleUpdate({ showCompleted: v })}
           />
 
+          {/* Fast edit */}
+          <ToggleRow
+            label={t('display.fastEdit', 'Fast edit')}
+            checked={settings.fastEdit ?? false}
+            onChange={(v) => handleUpdate({ fastEdit: v })}
+          />
+
           {/* Zoom — timeline only */}
           {config.showZoom && (
             <>
