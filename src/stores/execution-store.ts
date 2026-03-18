@@ -285,7 +285,7 @@ interface ExecutionState {
   cancelPlanGeneration: (projectId: string) => Promise<void>
   /** Remove execution entry and delete the project created by startPlanGeneration. */
   cleanupPlanGeneration: (projectId: string) => void
-  steerPlanGeneration: (projectId: string, message: string) => Promise<boolean>
+  steerPlanGeneration: (projectId: string, message: string) => Promise<{ success: boolean; error?: 'no-machine' | 'send-failed' }>
 
   /** Start a plan session for an existing project (doesn't create a new project) */
   startPlanGenerationForProject: (
@@ -329,7 +329,7 @@ interface ExecutionState {
     }
   ) => Promise<{ projectId: string; nodeId: string }>
   cancelPlaygroundSession: (projectId: string) => Promise<void>
-  steerPlaygroundSession: (projectId: string, message: string) => Promise<boolean>
+  steerPlaygroundSession: (projectId: string, message: string) => Promise<{ success: boolean; error?: 'no-machine' | 'send-failed' }>
 
   // Persistence
   load: () => Promise<void>
@@ -1306,9 +1306,18 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   steerPlanGeneration: async (projectId, message) => {
     const nodeId = `plan-${projectId}`
     const execution = get().executions.get(nodeId)
-    if (!execution?.executionId || !execution.machineId) {
+
+    // Attempt to resolve machineId from the realtime store's taskStreams when the
+    // execution entry doesn't have one yet (e.g. session_init hasn't arrived).
+    let machineId = execution?.machineId
+    if (!machineId && execution?.executionId) {
+      const { useRealtimeStore } = await import("./realtime-store")
+      machineId = useRealtimeStore.getState().taskStreams.get(execution.executionId)?.machineId
+    }
+
+    if (!execution?.executionId || !machineId) {
       console.warn("[plan-generation] Cannot steer: no executionId or machineId")
-      return false
+      return { success: false, error: 'no-machine' as const }
     }
 
     try {
@@ -1318,7 +1327,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         headers,
         body: JSON.stringify({
           taskId: execution.executionId,
-          machineId: execution.machineId,
+          machineId,
           message,
           action: "guidance",
         }),
@@ -1326,14 +1335,14 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
       if (!response.ok) {
         console.error("[plan-generation] Failed to steer:", response.status)
-        return false
+        return { success: false, error: 'send-failed' as const }
       }
 
       const result = await response.json()
-      return result.success
+      return { success: !!result.success }
     } catch (error) {
       console.error("[plan-generation] Error steering:", error)
-      return false
+      return { success: false, error: 'send-failed' as const }
     }
   },
 
@@ -1788,9 +1797,18 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   steerPlaygroundSession: async (projectId, message) => {
     const nodeId = `playground-${projectId}`
     const execution = get().executions.get(nodeId)
-    if (!execution?.executionId || !execution.machineId) {
+
+    // Attempt to resolve machineId from the realtime store's taskStreams when the
+    // execution entry doesn't have one yet (e.g. session_init hasn't arrived).
+    let machineId = execution?.machineId
+    if (!machineId && execution?.executionId) {
+      const { useRealtimeStore } = await import("./realtime-store")
+      machineId = useRealtimeStore.getState().taskStreams.get(execution.executionId)?.machineId
+    }
+
+    if (!execution?.executionId || !machineId) {
       console.warn("[playground] Cannot steer: no executionId or machineId")
-      return false
+      return { success: false, error: 'no-machine' as const }
     }
 
     try {
@@ -1800,7 +1818,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         headers,
         body: JSON.stringify({
           taskId: execution.executionId,
-          machineId: execution.machineId,
+          machineId,
           message,
           action: "guidance",
         }),
@@ -1808,14 +1826,14 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
       if (!response.ok) {
         console.error("[playground] Failed to steer:", response.status)
-        return false
+        return { success: false, error: 'send-failed' as const }
       }
 
       const result = await response.json()
-      return result.success
+      return { success: !!result.success }
     } catch (error) {
       console.error("[playground] Error steering:", error)
-      return false
+      return { success: false, error: 'send-failed' as const }
     }
   },
 
