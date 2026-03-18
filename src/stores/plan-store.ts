@@ -516,6 +516,24 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { dependencies: _deps, ...dbFields } = dbNode
 
+    // Guard against status regression from stale DB reads.
+    // The SSE sync patch may have already advanced the status (e.g., to auto_verified)
+    // but the async getNode() response still has the old status (e.g., in_progress).
+    // Use a monotonic status ordering to prevent the UI from "blinking" backwards.
+    if (prevNode && dbFields.status && prevNode.status !== dbFields.status) {
+      const STATUS_ORDER: Record<string, number> = {
+        planned: 0, dispatched: 1, in_progress: 2,
+        auto_verified: 3, awaiting_approval: 3, awaiting_judgment: 3,
+        completed: 4, pruned: 4,
+      }
+      const currentRank = STATUS_ORDER[prevNode.status] ?? 0
+      const dbRank = STATUS_ORDER[dbFields.status] ?? 0
+      if (dbRank < currentRank) {
+        // DB has an older status — keep the local (more advanced) status
+        dbFields.status = prevNode.status as typeof dbFields.status
+      }
+    }
+
     if (!prevNode) {
       // Node not in local store (e.g., created by another client in multi-user).
       // Reload the full project plan to get edges too (adding a node without edges

@@ -54,6 +54,13 @@ const VALID_NODE_STATUSES: ReadonlySet<string> = new Set([
   'awaiting_judgment', 'awaiting_approval', 'completed', 'pruned',
 ])
 
+/** Monotonic status rank — prevents stale SSE/DB data from regressing the UI. */
+const STATUS_RANK: Record<string, number> = {
+  planned: 0, dispatched: 1, in_progress: 2,
+  auto_verified: 3, awaiting_approval: 3, awaiting_judgment: 3,
+  completed: 4, pruned: 4,
+}
+
 export interface HpcCapability {
   clusterName?: string
   partitions: string[]
@@ -1885,15 +1892,21 @@ function handleRealtimeEvent(
       // Note: This uses setState() directly (not updateNode) because this is a speculative
       // patch — it must NOT write back to the API or trigger worktree cleanup. The async
       // mergeNodeFromDB below handles the authoritative merge with all side effects.
+      // Guard: only advance status forward (monotonic) — never regress from a more-advanced
+      // status, which causes UI "blinking" (e.g., auto_verified → in_progress → auto_verified).
       if (eventStatus && VALID_NODE_STATUSES.has(eventStatus)) {
         const planStore = usePlanStore.getState()
         const existingNode = planStore.nodes.find((n) => n.id === nodeId)
         if (existingNode && existingNode.status !== eventStatus) {
-          usePlanStore.setState({
-            nodes: planStore.nodes.map((n) =>
-              n.id === nodeId ? { ...n, status: eventStatus as typeof n.status } : n
-            ),
-          })
+          const currentRank = STATUS_RANK[existingNode.status] ?? 0
+          const eventRank = STATUS_RANK[eventStatus] ?? 0
+          if (eventRank >= currentRank) {
+            usePlanStore.setState({
+              nodes: planStore.nodes.map((n) =>
+                n.id === nodeId ? { ...n, status: eventStatus as typeof n.status } : n
+              ),
+            })
+          }
         }
       }
 

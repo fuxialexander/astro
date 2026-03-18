@@ -182,49 +182,44 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
 
   const projectEdges = useMemo(() => {
     const nodeIds = new Set(projectNodes.map((n) => n.id))
+    const taskNodeIds = new Set(projectNodes.filter((n) => n.type !== 'milestone').map((n) => n.id))
     const milestoneNodeIds = new Set(projectNodes.filter((n) => n.type === 'milestone').map((n) => n.id))
-    const allProjectEdges = planEdges.filter((e) => {
-      // Edge belongs to this project if either endpoint is a project node
-      // or if the edge connects through a hidden node (for bridging)
-      const allProjectNodeIds = new Set(planNodes.filter((n) => n.projectId === projectId).map((n) => n.id))
-      return allProjectNodeIds.has(e.source) || allProjectNodeIds.has(e.target)
-    })
+    const allProjectNodeIds = new Set(planNodes.filter((n) => n.projectId === projectId).map((n) => n.id))
+    const allProjectEdges = planEdges.filter((e) =>
+      allProjectNodeIds.has(e.source) || allProjectNodeIds.has(e.target)
+    )
 
-    // Direct edges where both endpoints are visible, excluding milestone-task edges
-    // (task-milestone membership is expressed via milestoneId, not graph edges)
+    // Direct task→task edges (both endpoints are visible non-milestone nodes)
     const directEdges = allProjectEdges.filter((e) =>
-      nodeIds.has(e.source) && nodeIds.has(e.target) &&
-      !milestoneNodeIds.has(e.source) && !milestoneNodeIds.has(e.target)
+      taskNodeIds.has(e.source) && taskNodeIds.has(e.target)
     )
 
-    // Bridge edges through hidden nodes (e.g., completed milestones hidden by filter).
-    // For each hidden node H, for every edge A→H and H→B where A and B are visible,
-    // create a synthetic bridge edge A→B.
-    const hiddenNodeIds = new Set(
-      planNodes
+    // Bridge edges through milestones and hidden nodes.
+    // Milestones are gate nodes in the edge graph (task→milestone→task) but float
+    // above the graph visually. Create synthetic task→task edges through them so
+    // the dependency lines connect task nodes directly.
+    // Also bridge through hidden nodes (e.g., completed nodes filtered out).
+    const bridgeNodeIds = new Set([
+      ...milestoneNodeIds,
+      ...planNodes
         .filter((n) => n.projectId === projectId && !nodeIds.has(n.id))
-        .map((n) => n.id)
-    )
+        .map((n) => n.id),
+    ])
     const bridgeEdges: typeof directEdges = []
-    if (hiddenNodeIds.size > 0) {
-      // Build adjacency from all project edges
-      const incomingToHidden = new Map<string, string[]>() // hidden node → sources
-      const outgoingFromHidden = new Map<string, string[]>() // hidden node → targets
+    if (bridgeNodeIds.size > 0) {
+      const inMap = new Map<string, string[]>()
+      const outMap = new Map<string, string[]>()
       for (const e of allProjectEdges) {
-        if (hiddenNodeIds.has(e.target)) {
-          const sources = incomingToHidden.get(e.target) ?? []
-          sources.push(e.source)
-          incomingToHidden.set(e.target, sources)
+        if (bridgeNodeIds.has(e.target)) {
+          const arr = inMap.get(e.target) ?? []; arr.push(e.source); inMap.set(e.target, arr)
         }
-        if (hiddenNodeIds.has(e.source)) {
-          const targets = outgoingFromHidden.get(e.source) ?? []
-          targets.push(e.target)
-          outgoingFromHidden.set(e.source, targets)
+        if (bridgeNodeIds.has(e.source)) {
+          const arr = outMap.get(e.source) ?? []; arr.push(e.target); outMap.set(e.source, arr)
         }
       }
-      for (const hiddenId of hiddenNodeIds) {
-        const sources = (incomingToHidden.get(hiddenId) ?? []).filter((s) => nodeIds.has(s))
-        const targets = (outgoingFromHidden.get(hiddenId) ?? []).filter((t) => nodeIds.has(t))
+      for (const bId of bridgeNodeIds) {
+        const sources = (inMap.get(bId) ?? []).filter((s) => taskNodeIds.has(s))
+        const targets = (outMap.get(bId) ?? []).filter((t) => taskNodeIds.has(t))
         for (const s of sources) {
           for (const t of targets) {
             bridgeEdges.push({
