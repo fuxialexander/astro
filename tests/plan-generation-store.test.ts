@@ -49,6 +49,7 @@ vi.mock('@/lib/html-utils', () => ({
 // Mock plan-extraction
 vi.mock('@/lib/plan-extraction', () => ({
   extractPlanJsonFromText: vi.fn().mockReturnValue(null),
+  clearPlanFingerprint: vi.fn(),
 }))
 
 // Mock @astro/core/dispatch
@@ -416,7 +417,7 @@ describe('Plan Generation Store', () => {
         'Focus on the backend first',
       )
 
-      expect(result).toBe(true)
+      expect(result).toEqual({ success: true })
       expect(globalFetchMock).toHaveBeenCalledTimes(1)
       expect(globalFetchMock.mock.calls[0][0]).toBe('http://localhost:3001/api/dispatch/steer')
 
@@ -427,7 +428,7 @@ describe('Plan Generation Store', () => {
       expect(body.action).toBe('guidance')
     })
 
-    it('returns false when no executionId exists', async () => {
+    it('returns no-machine error when no executionId exists', async () => {
       const nodeId = `plan-no-exec`
       const executions = new Map()
       executions.set(nodeId, {
@@ -449,10 +450,11 @@ describe('Plan Generation Store', () => {
         'some guidance',
       )
 
-      expect(result).toBe(false)
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('no-machine')
     })
 
-    it('returns false when no machineId exists', async () => {
+    it('returns no-machine error when no machineId exists', async () => {
       const nodeId = `plan-no-machine`
       const executions = new Map()
       executions.set(nodeId, {
@@ -473,19 +475,21 @@ describe('Plan Generation Store', () => {
         'some guidance',
       )
 
-      expect(result).toBe(false)
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('no-machine')
     })
 
-    it('returns false when execution does not exist at all', async () => {
+    it('returns no-machine error when execution does not exist at all', async () => {
       const result = await useExecutionStore.getState().steerPlanGeneration(
         'nonexistent',
         'guidance',
       )
 
-      expect(result).toBe(false)
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('no-machine')
     })
 
-    it('returns false on API error', async () => {
+    it('returns send-failed error on API error', async () => {
       const nodeId = `plan-api-error`
       const executions = new Map()
       executions.set(nodeId, {
@@ -509,10 +513,11 @@ describe('Plan Generation Store', () => {
         'guidance',
       )
 
-      expect(result).toBe(false)
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('send-failed')
     })
 
-    it('returns false on network error', async () => {
+    it('returns send-failed error on network error', async () => {
       const nodeId = `plan-network-err`
       const executions = new Map()
       executions.set(nodeId, {
@@ -536,7 +541,8 @@ describe('Plan Generation Store', () => {
         'guidance',
       )
 
-      expect(result).toBe(false)
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('send-failed')
     })
 
     it('sends auth headers in steer request', async () => {

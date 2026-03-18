@@ -29,6 +29,7 @@ import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
+import { useToastStore } from "@/stores/toast-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useMachinesStore } from "@/stores/machines-store"
@@ -542,12 +543,27 @@ export function Playground() {
     }
 
     try {
-      await steerPlaygroundSession(activeProjectId, text)
-      // Server persists as 'pending' then updates to 'sent' on relay success.
-      // The steer_ack SSE event will update the activity indicator to accepted/failed.
+      const result = await steerPlaygroundSession(activeProjectId, text)
+      if (!result.success) {
+        if (result.error === 'no-machine') {
+          useToastStore.getState().add({
+            type: 'error',
+            title: 'Cannot send guidance',
+            description: 'No connected machine found. The agent may not have started yet.',
+            duration: 5000,
+          })
+        } else if (result.error === 'send-failed') {
+          useToastStore.getState().add({
+            type: 'error',
+            title: 'Guidance delivery failed',
+            description: 'Failed to send guidance to the agent. Please try again.',
+            duration: 4000,
+          })
+        }
+      }
     } catch {
-      // Server write-first: even if the HTTP call fails, the message may have
-      // been persisted as 'pending'. The relay batch-drain will pick it up.
+      // Unexpected error — steerPlaygroundSession returns structured results and
+      // should not throw, but guard here for safety.
     } finally {
       setSending(false)
     }

@@ -355,7 +355,24 @@ export function PlanGeneration({
     addSteerMessage(execution.executionId, text)
 
     try {
-      await steerPlanGeneration(projectId, text)
+      const result = await steerPlanGeneration(projectId, text)
+      if (!result.success) {
+        if (result.error === 'no-machine') {
+          useToastStore.getState().add({
+            type: 'error',
+            title: 'Cannot send guidance',
+            description: 'No connected machine found. The agent may not have started yet — your message will be queued.',
+            duration: 5000,
+          })
+        } else if (result.error === 'send-failed') {
+          useToastStore.getState().add({
+            type: 'error',
+            title: 'Guidance delivery failed',
+            description: 'Failed to send guidance to the agent. Please try again.',
+            duration: 4000,
+          })
+        }
+      }
     } finally {
       setSending(false)
     }
@@ -368,7 +385,16 @@ export function PlanGeneration({
       setPendingSteer(null)
       setSending(true)
       addSteerMessage(execution.executionId, msg)
-      steerPlanGeneration(projectId, msg).finally(() => setSending(false))
+      steerPlanGeneration(projectId, msg).then((result) => {
+        if (!result.success && result.error === 'send-failed') {
+          useToastStore.getState().add({
+            type: 'error',
+            title: 'Guidance delivery failed',
+            description: 'Failed to send queued guidance to the agent. Please try again.',
+            duration: 4000,
+          })
+        }
+      }).finally(() => setSending(false))
     }
   }, [pendingSteer, execution?.executionId, execution?.machineId, sending, projectId, addSteerMessage, steerPlanGeneration])
 

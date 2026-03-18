@@ -67,7 +67,7 @@ interface UnifiedActivityViewProps {
   taskStream?: TaskStream
   isRunning: boolean
   executionId: string
-  machineId: string
+  machineId?: string
 }
 
 export function UnifiedActivityView({
@@ -321,9 +321,22 @@ export function UnifiedActivityView({
   async function handleSteer(text: string, interrupt = false) {
     if (!text || sending) return
     setSending(true)
+
+    // Attempt to resolve machineId from multiple sources before giving up
+    const resolvedMachineId = machineId
+      || useExecutionStore.getState().getExecution(node.id)?.machineId
+      || useRealtimeStore.getState().taskStreams.get(executionId)?.machineId
+
+    // Capture index before push so updateSteerMessage targets the correct entry
+    const steerIndex = taskStream?.steerMessages.length ?? 0
     // Track in store (not yet in activity timeline — waits for ack)
     addSteerMessage(executionId, text, interrupt)
-    const steerIndex = (taskStream?.steerMessages.length || 0)
+
+    if (!resolvedMachineId) {
+      updateSteerMessage(executionId, steerIndex, { accepted: false, ackMessage: 'No machine connected — cannot steer' })
+      setSending(false)
+      return
+    }
 
     // Set 15s timeout
     const timeoutId = setTimeout(() => {
@@ -336,7 +349,7 @@ export function UnifiedActivityView({
         headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({
           taskId: executionId,
-          machineId,
+          machineId: resolvedMachineId,
           message: text,
           action: "guidance",
           interrupt,
@@ -671,7 +684,12 @@ export function UnifiedActivityView({
 
   // Allow steering on running tasks, or resuming completed tasks that have an active session
   // (works for all providers — the agent-runner's steerTask routes to resumeTask for completed tasks)
-  const canSteer = isRunning || (execution?.status === "success" && !!execution?.sessionId)
+  // Use the same 3-source resolution as handleSteer so the button stays enabled
+  // whenever the call would actually succeed (prop, execution store, or realtime stream)
+  const resolvedMachineIdForCanSteer = machineId
+    || useExecutionStore.getState().getExecution(node.id)?.machineId
+    || useRealtimeStore.getState().taskStreams.get(executionId)?.machineId
+  const canSteer = (isRunning || (execution?.status === "success" && !!execution?.sessionId)) && !!resolvedMachineIdForCanSteer
 
   function handleSend(interrupt = false) {
     const text = input.trim()
