@@ -40,8 +40,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   loadAllTeams: async () => {
     set({ loading: true, error: null })
     try {
-      const projects = await dataClient.listProjects({ allTeams: true })
-      set({ projects, loaded: true, loading: false })
+      const fetched = await dataClient.listProjects({ allTeams: true })
+      // Merge with current store: prefer local version when it's newer (pending optimistic update).
+      const currentMap = new Map(get().projects.map((p) => [p.id, p]))
+      const merged = fetched.map((p) => {
+        const local = currentMap.get(p.id)
+        if (local && local.updatedAt > p.updatedAt) return local
+        return p
+      })
+      // Preserve any locally-created projects not yet returned by the server.
+      for (const p of get().projects) {
+        if (!fetched.find((f) => f.id === p.id)) merged.push(p)
+      }
+      set({ projects: merged, loaded: true, loading: false })
     } catch (err) {
       set({ projects: SEED_PROJECTS, loaded: true, loading: false, error: err instanceof Error ? err.message : 'Failed to load projects' })
     }
@@ -77,12 +88,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   updateProject: (id, updates) => {
-    const next = get().projects.map((p) =>
+    const prev = get().projects
+    const next = prev.map((p) =>
       p.id === id ? { ...p, ...updates, updatedAt: new Date() } : p
     )
     set({ projects: next })
     dataClient.updateProject(id, updates).catch((err) => {
       console.error('[project-store] Failed to sync project update:', err)
+      // Roll back optimistic update so the UI reflects the real server state
+      set({ projects: prev })
+      useToastStore.getState().add({ type: 'error', title: 'Failed to save project', description: String(err) })
     })
   },
 

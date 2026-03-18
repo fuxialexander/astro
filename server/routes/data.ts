@@ -206,9 +206,11 @@ app.patch('/projects/:id', async (c) => {
   const user = c.get('user')! as AuthUser
   const id = c.req.param('id')
 
-  // Verify team access first
+  // Verify team access using all teams the user belongs to, not just the active team.
+  // teamScopeFilter (active team only) would silently return 404 when the project was
+  // previously reassigned to a different team the user also belongs to.
   const [existing] = await db.select().from(projects).where(
-    and(eq(projects.id, id), teamScopeFilter(projects, user))
+    and(eq(projects.id, id), allTeamsScopeFilter(projects, user))
   )
   if (!existing) return c.json({ error: 'Not found' }, 404)
   if (existing.status === 'deleted') return c.json({ error: 'Not found' }, 404)

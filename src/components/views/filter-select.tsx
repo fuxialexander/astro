@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useRef, useEffect } from "react"
 import { ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -11,12 +11,22 @@ interface FilterSelectProps {
 
 export function FilterSelect({ label, value, options, onChange }: FilterSelectProps) {
   const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+  const btnRef = useRef<HTMLButtonElement>(null)
   const selected = options.find((o) => o.value === value)
   const isActive = value !== "all"
+
+  useEffect(() => {
+    if (open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setPos({ top: r.bottom + 4, left: r.left })
+    }
+  }, [open])
 
   return (
     <div className="relative">
       <button
+        ref={btnRef}
         onClick={() => setOpen(!open)}
         className={cn(
           "flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer",
@@ -31,7 +41,10 @@ export function FilterSelect({ label, value, options, onChange }: FilterSelectPr
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-50 mt-1 min-w-[160px] rounded-md border bg-popover p-1 shadow-md">
+          <div
+            className="fixed z-50 min-w-[160px] rounded-md border bg-popover p-1 shadow-md"
+            style={{ top: pos.top, left: pos.left }}
+          >
             {options.map((opt) => (
               <button
                 key={opt.value}

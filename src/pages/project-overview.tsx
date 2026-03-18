@@ -735,7 +735,6 @@ export function OverviewTab({
                 onBlur={() => setEditingTeam(false)}
                 autoFocus
               >
-                <option value="">Personal</option>
                 {teams.map((team) => (
                   <option key={team.id} value={team.id}>
                     {team.name}

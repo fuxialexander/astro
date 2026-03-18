@@ -395,7 +395,10 @@ export function ItemListView<T>({
   const nameCol = columns.find((c) => c.id === "name")
   const otherCols = columns.filter((c) => c.id !== "name" && visibleColumns.includes(c.id))
   const allEmpty = groups.every((g) => g.items.length === 0)
-  const hasMultipleGroups = groups.length > 1
+  // Show group headers whenever a real groupBy is active, even if only one group exists.
+  // The "no grouping" case produces a sentinel group with key "all" — that's the only
+  // single-group case where headers should be suppressed.
+  const hasMultipleGroups = groups.length > 1 || (groups.length === 1 && groups[0].key !== 'all')
 
   if (allEmpty && emptyState) {
     return <div className="flex-1 overflow-auto">{emptyState}</div>
@@ -508,8 +511,8 @@ export function ItemListView<T>({
           {/* Rows */}
           {!isCollapsed && group.items.map((item) => renderRow(item, group.key, withDnd, group.itemClassName))}
 
-          {/* Footer */}
-          {!isCollapsed && footer?.(group.key)}
+          {/* Footer: always show for empty groups so the create row is accessible */}
+          {(!isCollapsed || group.items.length === 0) && footer?.(group.key)}
         </div>
       )
 
@@ -555,7 +558,7 @@ export function ItemListView<T>({
                     ))}
                   </div>
                 )}
-                {!isGroupCollapsed && footer?.(group.key)}
+                {(!isGroupCollapsed || group.items.length === 0) && footer?.(group.key)}
               </div>
             )
           })}

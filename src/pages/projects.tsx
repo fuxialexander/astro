@@ -291,6 +291,7 @@ export function Projects() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [healthFilter, setHealthFilter] = useState("all")
   const [initiativeFilter, setInitiativeFilter] = useState("all")
+  const [teamFilter, setTeamFilter] = useState("all")
   const workspaceFilter = useWorkspaceFilterStore((s) => s.workspaceFilter)
   const [importBundle, setImportBundle] = useState<import("@/lib/sharing/types").AstroExportBundle | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -458,6 +459,9 @@ export function Projects() {
     if (initiativeFilter !== "all") {
       filtered = filtered.filter((p) => p.initiativeId === initiativeFilter)
     }
+    if (teamFilter !== "all") {
+      filtered = filtered.filter((p) => p.teamId === teamFilter)
+    }
     if (workspaceFilter !== "all") {
       filtered = filtered.filter((p) => p.teamId === workspaceFilter)
     }
@@ -483,17 +487,28 @@ export function Projects() {
       }
     })
     return sorted
-  }, [projects, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted, statusFilter, healthFilter, initiativeFilter, workspaceFilter, progressMap])
+  }, [projects, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted, statusFilter, healthFilter, initiativeFilter, teamFilter, workspaceFilter, progressMap])
 
   // Group projects for list view
   const listGroups = useMemo((): ListGroup<Project>[] => {
     if (displaySettings.groupBy === "none") {
       return [{ key: "all", label: "All Projects", items: sortedProjects }]
     }
-    // Pre-seed status groups so both Active and Archived always appear
-    const seed: Record<string, Project[]> = displaySettings.groupBy === "status"
-      ? { Active: [], Archived: [] }
-      : {}
+    // Pre-seed all known group values so banners appear even for empty groups
+    const seed: Record<string, Project[]> = (() => {
+      switch (displaySettings.groupBy) {
+        case "status": return { Active: [], Archived: [] }
+        case "team": return Object.fromEntries(teams.map((t) => [t.name, [] as Project[]]))
+        case "initiative": return {
+          ...Object.fromEntries(initiatives.map((i) => [i.name, [] as Project[]])),
+          Other: [],
+        }
+        case "health": return Object.fromEntries(
+          Object.values(healthConfig).map((h) => [h.label, [] as Project[]])
+        )
+        default: return {}
+      }
+    })()
     const grouped = sortedProjects.reduce<Record<string, Project[]>>((acc, p) => {
       let group: string
       switch (displaySettings.groupBy) {
@@ -534,7 +549,7 @@ export function Projects() {
       groups.sort((a, b) => (statusOrder[a.label] ?? 99) - (statusOrder[b.label] ?? 99))
     }
     return groups
-  }, [sortedProjects, displaySettings.groupBy, getInitiativeName, getTeamName])
+  }, [sortedProjects, displaySettings.groupBy, getInitiativeName, getTeamName, teams, initiatives])
 
   // Timeline-specific settings
   const timelineDisplaySettings = useDisplaySettingsStore((s) => s.get("projects-timeline"))
@@ -830,6 +845,17 @@ export function Projects() {
               ]}
               onChange={setInitiativeFilter}
             />
+            {teams.length > 1 && (
+              <FilterSelect
+                label="Team"
+                value={teamFilter}
+                options={[
+                  { value: "all", label: "All teams" },
+                  ...teams.map((t) => ({ value: t.id, label: t.name })),
+                ]}
+                onChange={setTeamFilter}
+              />
+            )}
           </div>
         </div>
 
