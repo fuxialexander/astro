@@ -9,7 +9,6 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { parseYamlSpecFromText } from '../src/lib/json-render/parse-yaml-spec'
 import { groupActivityEvents } from '../src/components/activity-blocks'
 import type { TaskActivityEvent } from '../src/types'
 
