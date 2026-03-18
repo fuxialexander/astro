@@ -2,7 +2,7 @@ import { memo, useState, useRef, useCallback } from "react"
 import {
   BaseEdge,
   EdgeLabelRenderer,
-  getSmoothStepPath,
+  getBezierPath,
   type EdgeProps,
 } from "@xyflow/react"
 import { X } from "lucide-react"
@@ -45,15 +45,14 @@ export const DeletableEdge = memo(function DeletableEdge({
     }, 200)
   }, [])
 
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
     targetX,
     targetY,
     sourcePosition,
     targetPosition,
-    borderRadius: 8,
-    offset: 30,
+    curvature: 0.15,
   })
 
   return (
