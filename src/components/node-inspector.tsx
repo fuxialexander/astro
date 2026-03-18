@@ -317,7 +317,7 @@ export function NodeInspectorContent({
   const activeTeamId = useTeamStore((s) => s.activeTeamId)
   const teamMemberCount = useTeamStore((s) => (activeTeamId ? (s.teamMembers[activeTeamId]?.length ?? 0) : 0))
   const isSoloWorkspace = teamMemberCount <= 1
-  const needsVerification = (node.status === "auto_verified" || node.status === "awaiting_judgment") && !execution?.verifiedBy
+  const needsVerification = node.status === "awaiting_judgment" && !execution?.verifiedBy
   const isVerified = !!execution?.verifiedBy
   // Solo users can verify their own work (server enforces the same rule via isSoloWorkspace check)
   const canVerify = needsVerification && (isSoloWorkspace || execution?.userId !== currentUserId)
