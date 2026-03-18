@@ -324,9 +324,9 @@ export function Projects() {
       return
     }
     const id = crypto.randomUUID()
-    const teamId = workspaceFilter !== 'all' && workspaceFilter !== 'personal'
+    const teamId = workspaceFilter !== 'all'
       ? workspaceFilter
-      : workspaceFilter === 'all' ? activeTeamId ?? undefined : undefined
+      : activeTeamId ?? undefined
     addProject({
       id,
       name: trimmed,
@@ -458,9 +458,7 @@ export function Projects() {
     if (initiativeFilter !== "all") {
       filtered = filtered.filter((p) => p.initiativeId === initiativeFilter)
     }
-    if (workspaceFilter === "personal") {
-      filtered = filtered.filter((p) => !p.teamId)
-    } else if (workspaceFilter !== "all") {
+    if (workspaceFilter !== "all") {
       filtered = filtered.filter((p) => p.teamId === workspaceFilter)
     }
     const sorted = [...filtered]

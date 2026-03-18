@@ -376,7 +376,6 @@ export function ActiveTasks() {
     return sortedProjects.filter((group) => {
       const project = projects.find((p) => p.id === group.projectId)
       if (!project) return false
-      if (workspaceFilter === 'personal') return !project.teamId
       return project.teamId === workspaceFilter
     })
   }, [sortedProjects, workspaceFilter, projects])
