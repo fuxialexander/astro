@@ -21,6 +21,7 @@ import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useInitiativeStore } from "@/stores/initiative-store"
 import { useToastStore } from "@/stores/toast-store"
 import { useTeamStore } from "@/stores/team-store"
+import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
 import { fmtDate, addDays, isValidDateStr } from "@/lib/timeline-utils"
 import { formatShortDate, isOverdue } from "@/lib/date-utils"
 import { isServerMode } from "@/lib/app-mode"
@@ -290,8 +291,7 @@ export function Projects() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [healthFilter, setHealthFilter] = useState("all")
   const [initiativeFilter, setInitiativeFilter] = useState("all")
-  // Default to the active team when in a multi-team workspace; "all" for solo users
-  const [teamFilter, setTeamFilter] = useState(() => teams.length > 1 && activeTeamId ? activeTeamId : "all")
+  const workspaceFilter = useWorkspaceFilterStore((s) => s.workspaceFilter)
   const [importBundle, setImportBundle] = useState<import("@/lib/sharing/types").AstroExportBundle | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null)
@@ -324,6 +324,9 @@ export function Projects() {
       return
     }
     const id = crypto.randomUUID()
+    const teamId = workspaceFilter !== 'all' && workspaceFilter !== 'personal'
+      ? workspaceFilter
+      : workspaceFilter === 'all' ? activeTeamId ?? undefined : undefined
     addProject({
       id,
       name: trimmed,
@@ -333,12 +336,13 @@ export function Projects() {
       color: getRandomColor(),
       icon: getRandomProjectIcon(),
       labels: DEFAULT_LABELS,
+      teamId,
       createdAt: new Date(),
       updatedAt: new Date(),
     } as Project)
     setCreating(false)
     navigate(`/project/${id}/graph`)
-  }, [addProject, navigate])
+  }, [addProject, navigate, workspaceFilter, activeTeamId])
 
   const handleImportFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -454,8 +458,10 @@ export function Projects() {
     if (initiativeFilter !== "all") {
       filtered = filtered.filter((p) => p.initiativeId === initiativeFilter)
     }
-    if (teamFilter !== "all") {
-      filtered = filtered.filter((p) => p.teamId === teamFilter)
+    if (workspaceFilter === "personal") {
+      filtered = filtered.filter((p) => !p.teamId)
+    } else if (workspaceFilter !== "all") {
+      filtered = filtered.filter((p) => p.teamId === workspaceFilter)
     }
     const sorted = [...filtered]
     const dir = displaySettings.orderDirection === "asc" ? 1 : -1
@@ -479,7 +485,7 @@ export function Projects() {
       }
     })
     return sorted
-  }, [projects, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted, statusFilter, healthFilter, initiativeFilter, teamFilter, progressMap])
+  }, [projects, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted, statusFilter, healthFilter, initiativeFilter, workspaceFilter, progressMap])
 
   // Group projects for list view
   const listGroups = useMemo((): ListGroup<Project>[] => {
@@ -825,15 +831,6 @@ export function Projects() {
                 ...initiatives.map((i) => ({ value: i.id, label: i.name })),
               ]}
               onChange={setInitiativeFilter}
-            />
-            <FilterSelect
-              label="Team"
-              value={teamFilter}
-              options={[
-                { value: "all", label: "All Teams" },
-                ...teams.map((t) => ({ value: t.id, label: t.name })),
-              ]}
-              onChange={setTeamFilter}
             />
           </div>
         </div>
