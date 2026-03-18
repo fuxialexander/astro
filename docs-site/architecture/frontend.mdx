@@ -1,83 +1,447 @@
 ---
 title: "Frontend Architecture"
-description: "React, Zustand, and the plan graph visualization layer."
+description: "React 19 + Vite 7 SPA — routing, 29 Zustand stores, plan graph visualization, and SSE streaming."
+icon: "browser"
 ---
 
 ## Overview
 
-The frontend is a Vite 7 + React 19 single-page application. All routing is client-side via React Router v7. State is managed by ~29 Zustand stores, persisted to the backend via `dataClient`.
+The Astro frontend is a Vite 7 + React 19 single-page application written in strict TypeScript. All routing is client-side via React Router v7. State is managed by 29 Zustand stores that persist via the `dataClient` abstraction to `/api/data/*` endpoints backed by Drizzle ORM.
+
+There is **no mode branching** in frontend code. The same React components, stores, and hooks run identically in local mode (PGlite) and server mode (Supabase). Mode differences are handled entirely in the backend.
+
+---
 
 ## Directory Structure
 
 ```
 src/
-├── components/         # Shared UI components
-│   ├── ui/            # shadcn/ui-style primitives
-│   └── ...            # Feature components
-├── pages/             # Route-level page components
-├── stores/            # Zustand stores (29+)
-├── hooks/             # Custom React hooks
-├── lib/               # Utilities (data-client, app-mode, utils)
-└── types/             # TypeScript type definitions
+├── components/
+│   ├── ui/              # Primitive UI components (shadcn/ui pattern)
+│   ├── plan/            # Plan graph components
+│   ├── chat/            # Chat panel and session components
+│   ├── activity/        # Activity feed and event rendering
+│   └── execution/       # Task execution panels
+├── pages/               # React Router route components
+├── stores/              # 29 Zustand stores
+├── hooks/               # Custom React hooks
+├── lib/
+│   ├── data-client.ts   # API abstraction layer
+│   ├── app-mode.ts      # isLocalMode() detection
+│   ├── sse-parser.ts    # Type-safe SSE stream parsers
+│   └── utils.ts         # cn(), formatDate(), etc.
+└── types/               # TypeScript types (re-exports from @astro/core)
 ```
+
+The `@/` path alias maps to `./src/` (configured in both `vite.config.ts` and `tsconfig.app.json`).
+
+---
+
+## Routing
+
+React Router v7 (`react-router` package, not `react-router-dom`). All routes are client-side:
+
+| Path | View |
+|------|------|
+| `/` | Landing / redirect |
+| `/projects` | Project list |
+| `/project/:id/plan` | Plan graph view |
+| `/project/:id/timeline` | Timeline view |
+| `/project/:id/board` | Board / Kanban view |
+| `/project/:id/list` | List view |
+| `/project/:id/chat` | Project chat |
+| `/project/:id/activity` | Activity feed |
+| `/project/:id/settings` | Project settings |
+| `/settings` | App settings |
+| `/environments` | Machine management |
+| `/teams` | Team management |
+
+---
 
 ## State Management
 
-All state is managed by Zustand stores. The pattern:
+### Store Architecture
+
+All state lives in Zustand 5 stores, persisted via `dataClient` to the backend API. No IndexedDB. No local storage for application data.
+
+<Tabs>
+  <Tab title="Core Data">
+    | Store | File | Purpose |
+    |-------|------|---------|
+    | `usePlanStore` | `plan-store.ts` | Plan nodes, edges, graph layout |
+    | `useProjectStore` | `project-store.ts` | Projects CRUD, metadata |
+    | `useInitiativeStore` | `initiative-store.ts` | Initiatives grouping projects |
+    | `useSessionStore` | `session-store.ts` | Chat sessions, steer messages |
+    | `useTaskChatStore` | `task-chat-store.ts` | Per-node task chat history |
+    | `useActivityStore` | `activity-store.ts` | Activity events timeline |
+  </Tab>
+  <Tab title="Execution & Agents">
+    | Store | File | Purpose |
+    |-------|------|---------|
+    | `useExecutionStore` | `execution-store.ts` | Task execution state, SSE processing |
+    | `useAgentStore` | `agent-store.ts` | AI plan generation, SSE streaming |
+    | `useRealtimeStore` | `realtime-store.ts` | Real-time SSE events bridge |
+    | `useMachinesStore` | `machines-store.ts` | Registered machines, providers |
+    | `useSlurmStore` | `slurm-store.ts` | HPC clusters, jobs, queue |
+    | `useObservationStore` | `observation-store.ts` | Execution trace data |
+  </Tab>
+  <Tab title="User & Auth">
+    | Store | File | Purpose |
+    |-------|------|---------|
+    | `useAuthStore` | `auth-store.ts` | Supabase session, WebAuthn |
+    | `useUserProfileStore` | `user-profile-store.ts` | User identity and preferences |
+    | `useTeamStore` | `team-store.ts` | Teams, members, role checks |
+    | `useApiKeysStore` | `api-keys-store.ts` | Encrypted API keys (Web Crypto) |
+    | `useConnectedAccountsStore` | `connected-accounts-store.ts` | Slack, Telegram, GitHub, Linear |
+  </Tab>
+  <Tab title="UI & Settings">
+    | Store | File | Purpose |
+    |-------|------|---------|
+    | `useUiStore` | `ui-store.ts` | Sidebar, command palette, breadcrumbs |
+    | `useSidebarStore` | `sidebar-store.ts` | Sidebar items, visibility, ordering |
+    | `useDisplaySettingsStore` | `display-settings-store.ts` | Per-view groupBy/orderBy |
+    | `useKeyboardNavStore` | `keyboard-nav-store.ts` | Arrow-key navigation state |
+    | `useToastStore` | `toast-store.ts` | Toast notification queue |
+    | `useSettingsStore` | `settings-store.ts` | Model selection, backend health |
+    | `useUsageStore` | `usage-store.ts` | Session cost/token metrics |
+    | `useGithubStore` | `github-store.ts` | GitHub repos and sync state |
+    | `usePluginStore` | `plugin-store.ts` | Plugin registry, contributions |
+    | `useSkillStore` | `skill-store.ts` | OpenClaw skill registry |
+  </Tab>
+</Tabs>
+
+### Store Pattern
+
+Every store follows the same structure:
 
 ```typescript
-// Use selectors, not whole-store subscriptions
-const project = usePlanStore((s) => s.projects[projectId]);
+import { create } from 'zustand'
+import { dataClient } from '@/lib/data-client'
 
-// Persist via dataClient, never directly to localStorage
-await dataClient.save('plan', { nodes, edges });
+interface ProjectStore {
+  projects: Project[]
+  loading: boolean
+  error: string | null
+  load: () => Promise<void>
+  addProject: (p: Partial<Project>) => Promise<Project>
+}
+
+export const useProjectStore = create<ProjectStore>((set) => ({
+  projects: [],
+  loading: false,
+  error: null,
+
+  load: async () => {
+    set({ loading: true, error: null })
+    try {
+      const projects = await dataClient.listProjects()
+      set({ projects, loading: false })
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : 'Failed to load', loading: false })
+    }
+  },
+
+  addProject: async (partial) => {
+    const project = await dataClient.createProject(partial)
+    set((s) => ({ projects: [...s.projects, project] }))
+    return project
+  },
+}))
+
+// Always use selectors — never subscribe to the whole store
+const project = useProjectStore((s) => s.projects.find(p => p.id === projectId))
 ```
 
-Key stores: `usePlanStore`, `useExecutionStore`, `useUsageStore`, `useActivityStore`, `useProjectStore`, and more. See [State Management →](/architecture/frontend) for the full list.
+### Two-Phase Data Loading
 
-## Data Loading
+`DataLoader` (in `src/app.tsx`) orchestrates startup loading in two phases:
 
-`DataLoader` component orchestrates startup:
-1. Load teams (sets `X-Team-Id` header for all subsequent requests)
-2. Slim-load all projects and plan nodes (metadata only, no large fields)
-3. Per-project full loads trigger when user navigates to a project
+```
+Phase 1 — Teams
+  Sets X-Team-Id header used by all subsequent API calls
 
-## Plan Graph
+Phase 2a — Critical stores (block render until done)
+  usePlanStore.load()        GET /api/data/plan?slim=1
+  useProjectStore.load()     GET /api/data/projects
+  useExecutionStore.load()   GET /api/data/executions?slim=1
+  useUserProfileStore.load() GET /api/data/profile
+  useSidebarStore.load()     GET /api/data/sidebar
 
-The plan graph uses `@xyflow/react` (React Flow). Key patterns:
-
-```typescript
-// Node type definition
-type TaskNodeData = Node<{ task: PlanNode; ... }>;
-
-// NodeProps usage
-function TaskNode({ data }: NodeProps<TaskNodeData>) { ... }
-
-// Cast nodeTypes to avoid React Flow type issues
-const nodeTypes = { task: TaskNode } as any;
-
-// Always wrap in ReactFlowProvider when using useReactFlow()
-<ReactFlowProvider>
-  <PlanGraph />
-</ReactFlowProvider>
+Phase 2b — Non-critical stores (load in background)
+  useSettingsStore, useUsageStore, useSessionStore,
+  useInitiativeStore, useActivityStore, usePluginStore,
+  useSkillStore, useGithubStore, ...
 ```
 
-## SSE Streaming
+The **slim load** (`?slim=1`) excludes large fields (`content`, `executionOutput`, `streamText`) to keep initial transfer at 1–5 MB instead of 50+ MB. Per-project full loads happen on navigation via `useProjectData()`.
 
-Use the typed wrappers for SSE parsing:
+---
+
+## Plan Graph Visualization
+
+The plan graph uses `@xyflow/react` (React Flow). The plan is a directed acyclic graph of `PlanNode`s connected by `PlanEdge`s.
+
+### Edge Types
+
+| Type | Meaning |
+|------|---------|
+| `dependency` | Target depends on source; source must complete first |
+| `branch` | Target is an alternative exploration path from source |
+
+### Node Implementation Pattern
 
 ```typescript
-import { parseChatSSE, parseExecutionSSE } from '@/lib/sse-parser';
+import { type Node, type NodeProps } from '@xyflow/react'
 
-// Chat streaming
-for await (const event of parseChatSSE(response)) {
-  if (event.type === 'text') { /* ... */ }
+// 1. Define typed node data
+type TaskNodeData = Node<{
+  task: PlanNode
+  isSelected: boolean
+  onDispatch: () => void
+}>
+
+// 2. Implement node component
+function TaskNode({ data }: NodeProps<TaskNodeData>) {
+  const { task } = data
+  return (
+    <div className={cn('rounded-lg border p-3', statusColors[task.status])}>
+      <p className="font-medium">{task.title}</p>
+      <StatusBadge status={task.status} />
+    </div>
+  )
+}
+
+// 3. Cast nodeTypes to avoid React Flow type issues
+const nodeTypes = { task: TaskNode } as any
+
+// 4. Always wrap in ReactFlowProvider when using useReactFlow()
+export function PlanGraphView() {
+  return (
+    <ReactFlowProvider>
+      <PlanGraph nodeTypes={nodeTypes} />
+    </ReactFlowProvider>
+  )
 }
 ```
 
+### Status Colors
+
+| Status | Visual |
+|--------|--------|
+| `planned` | Gray |
+| `dispatched` | Blue |
+| `in_progress` | Amber/Yellow |
+| `auto_verified` | Teal |
+| `awaiting_approval` | Orange |
+| `awaiting_judgment` | Purple |
+| `completed` | Green |
+| `pruned` | Red/muted |
+
+---
+
+## SSE Streaming
+
+### Typed Parsers
+
+Use the typed wrappers from `@/lib/sse-parser` — never parse raw SSE manually:
+
+```typescript
+import { parseChatSSE, parseExecutionSSE } from '@/lib/sse-parser'
+
+// Chat / plan generation streaming
+const response = await fetch('/api/chat', {
+  method: 'POST',
+  body: JSON.stringify({ projectId, message }),
+})
+for await (const event of parseChatSSE(response)) {
+  switch (event.type) {
+    case 'text': appendText(event.text); break
+    case 'plan_result': applyGeneratedPlan(event.plan); break
+    case 'tool_use': showToolCall(event); break
+    case 'done': break
+  }
+}
+
+// Task execution streaming
+const response = await fetch(`/api/stream/${executionId}`)
+for await (const event of parseExecutionSSE(response)) {
+  switch (event.type) {
+    case 'text': appendOutput(event.text); break
+    case 'tool_use': showToolCall(event); break
+    case 'file_change': showFileChange(event); break
+    case 'result': handleResult(event.result); break
+    case 'done': markComplete(); break
+  }
+}
+```
+
+### Execution Event Types
+
+| Event | Description |
+|-------|-------------|
+| `init` | Execution started |
+| `session_init` | Agent session initialized; includes model name |
+| `text` | Agent text output |
+| `tool_use` | Agent tool call (name + input JSON) |
+| `tool_result` | Tool call result |
+| `file_change` | File modified, created, or deleted |
+| `progress` | Progress percentage (0–100) |
+| `result` | Final result with status and `UsageMetrics` |
+| `error` | Execution error with message |
+| `aborted` | Execution cancelled by user |
+| `heartbeat` | Keep-alive ping |
+| `done` | Stream complete |
+
+### Page-Refresh Recovery
+
+```typescript
+// src/hooks/use-restored-execution.ts
+const { events, isRestored } = useRestoredExecution(executionId)
+```
+
+On page refresh, `useRestoredExecution` fetches `streaming_events` from the DB via `fetchStreamingEventsCatchUp()` and replays them — identical UI to live streaming. For active executions, it reconnects to the SSE stream and fetches any missed events by sequence number.
+
+---
+
+## Activity Rendering
+
+Activity events are rendered via the centralized system in `activity-blocks.tsx`.
+
+```typescript
+import {
+  groupActivityEvents,
+  TextBlock,
+  ToolBlock,
+  ToolGroupBlock,
+  FileChangeBlock,
+} from '@/components/activity/activity-blocks'
+
+// Group raw events into display blocks
+const blocks = groupActivityEvents(events)
+
+// Render each block
+{blocks.map((block) => {
+  switch (block.type) {
+    case 'text':       return <TextBlock key={block.id} block={block} />
+    case 'tool':       return <ToolBlock key={block.id} block={block} />
+    case 'tool_group': return <ToolGroupBlock key={block.id} block={block} />
+    case 'file_change':return <FileChangeBlock key={block.id} block={block} />
+  }
+})}
+```
+
+### `TaskActivityEvent` Union Type
+
+```typescript
+type TaskActivityEvent =
+  | TextEvent
+  | ToolUseEvent
+  | ToolResultEvent
+  | FileChangeEvent
+  | SteerEvent
+  | ErrorEvent
+  | ChatUserEvent
+  | ChatAssistantEvent
+  | ApprovalRequestEvent
+  | ApprovalResponseEvent
+  | MutationEvent
+```
+
+---
+
 ## Component Patterns
 
-- `cn()` from `@/lib/utils` for Tailwind class merging
-- `lucide-react` for all icons
-- Radix UI primitives manually (not CLI-installed)
-- `@/` path alias maps to `./src/`
+### Styling
+
+```typescript
+import { cn } from '@/lib/utils'  // Tailwind class merging
+
+<div className={cn('rounded-lg p-4', isActive && 'bg-primary', className)}>
+```
+
+### Icons
+
+```typescript
+import { Play, Square, ChevronRight, Loader2 } from 'lucide-react'
+```
+
+### UI Primitives
+
+Located in `src/components/ui/`, following the shadcn/ui pattern (manually installed Radix primitives):
+
+```
+src/components/ui/
+├── button.tsx
+├── card.tsx
+├── dialog.tsx
+├── dropdown-menu.tsx
+├── input.tsx
+├── popover.tsx
+├── select.tsx
+├── separator.tsx
+├── tooltip.tsx
+└── markdown-renderer.tsx   # Supports onLinkClick for astro:node:uuid protocol
+```
+
+### Task Creation
+
+```typescript
+import { TaskCreationForm } from '@/components/task-creation-form'
+
+// Three modes depending on context
+<TaskCreationForm mode="inline"   projectId={id} />
+<TaskCreationForm mode="popover"  projectId={id} />
+<TaskCreationForm mode="dialog"   projectId={id} />
+```
+
+Creates nodes via `usePlanStore.addNode()` + `addEdge()`.
+
+### MarkdownRenderer
+
+```typescript
+import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
+
+<MarkdownRenderer
+  content={message}
+  onLinkClick={(href) => {
+    // Handle custom protocols like astro:node:uuid
+    if (href.startsWith('astro:node:')) navigateToNode(href.split(':')[2])
+  }}
+/>
+```
+
+---
+
+## Feature Flags
+
+```typescript
+import { useFeatureFlag } from '@/hooks/use-feature-flag'
+
+function MyFeature() {
+  const enabled = useFeatureFlag('my-feature')
+  if (!enabled) return null
+  return <MyFeatureUI />
+}
+```
+
+`GLOBAL_DEFAULTS` in `use-feature-flag.ts` must have identical keys and values to the backend's `feature-flags.ts`.
+
+For route-level gating:
+
+```typescript
+<FeatureFlagRoute flag="my-feature">
+  <MyFeaturePage />
+</FeatureFlagRoute>
+```
+
+---
+
+## Build
+
+```bash
+npm run dev:frontend    # Vite dev server only (http://localhost:5173)
+npm run build          # TypeScript check + Vite production build
+npm run lint           # ESLint
+```
+
+Vite proxies all `/api` requests to `localhost:3001` in development — no CORS configuration needed locally.
