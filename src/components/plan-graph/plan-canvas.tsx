@@ -28,7 +28,7 @@ import { DeletableEdge } from "./deletable-edge"
 import { TaskCreationForm } from "@/components/task-creation-form"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { MachineWorkdirSelector } from "@/components/machine-workdir-selector"
-import { calculateChildPosition, calculateParentPosition, computeEdgeHandles } from "@/lib/graph-utils"
+import { calculateChildPosition, calculateParentPosition, computeEdgeHandles, computeRedundantEdgeIds } from "@/lib/graph-utils"
 import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
@@ -552,9 +552,11 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
     return map
   }, [projectNodes])
 
+  const redundantEdgeIds = useMemo(() => computeRedundantEdgeIds(projectEdges), [projectEdges])
+
   const rfEdges: Edge[] = useMemo(
     () =>
-      projectEdges.map((e) => {
+      projectEdges.filter((e) => !redundantEdgeIds.has(e.id)).map((e) => {
           // Determine edge color based on target node status
           const targetNode = projectNodes.find((n) => n.id === e.target)
           const edgeColor = (() => {
@@ -587,7 +589,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
             animated: e.type === "branch",
           }
         }),
-    [projectEdges, projectNodes, nodePositionMap, handleEdgeDelete, readOnly]
+    [projectEdges, projectNodes, nodePositionMap, handleEdgeDelete, readOnly, redundantEdgeIds]
   )
 
   // Connection handlers for mindmap-like drag interactions
