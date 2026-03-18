@@ -125,13 +125,20 @@ export const executionContextStore = {
 
   /**
    * Async userId lookup with Redis fallback. Use when cross-instance
-   * visibility is needed and the caller can await.
+   * visibility is needed and the caller can await. Caches the full
+   * context locally on Redis hit, so subsequent sync lookups (including
+   * getUserIdForTask) return instantly without another Redis round-trip.
    */
   async getUserIdForTaskWithFallback(executionId: string): Promise<string | undefined> {
     const local = store.get(executionId)?.userId
     if (local) return local
     const remote = await redisPubSub.getExecutionContext(executionId)
-    return remote?.userId
+    if (remote) {
+      // Cache locally for subsequent sync lookups
+      store.set(remote.executionId, remote)
+      return remote.userId
+    }
+    return undefined
   },
 
   /** Number of tracked executions (for debugging/monitoring) */
