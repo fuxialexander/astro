@@ -1147,15 +1147,20 @@ export function ProjectNewPlan() {
                             setActiveProjectId(null)
                             setSearchParams({})
                           }
-                          // Cancel any running generation, then clean up execution + project
+                          // Cancel any running generation, then remove execution entry.
+                          // IMPORTANT: Do NOT call cleanupPlanGeneration or deleteProject —
+                          // the user is clearing plan session history, not deleting the project.
                           const execStore = useExecutionStore.getState()
                           const exec = execStore.executions.get(`plan-${p.id}`)
                           if (exec?.status === 'pending' || exec?.status === 'running') {
                             execStore.cancelPlanGeneration(p.id)
                           }
-                          // cleanupPlanGeneration removes the execution via proper Zustand set()
-                          // and calls deleteProject — avoids duplicating store logic here
-                          execStore.cleanupPlanGeneration(p.id)
+                          // Remove execution entry via proper Zustand set() (new Map reference)
+                          useExecutionStore.setState((state) => {
+                            const next = new Map(state.executions)
+                            next.delete(`plan-${p.id}`)
+                            return { executions: next }
+                          })
                         }}
                         className="p-0.5 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 [@media(hover:none)]:opacity-60 hover:bg-destructive/10 transition-all text-destructive"
                         title="Delete session"
