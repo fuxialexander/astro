@@ -1144,7 +1144,9 @@ export function PlanListView({
     return planNodes.filter((n) => n.projectId === projectId)
   }, [planNodes, projectId, nodes])
 
-  const milestones = useMemo(() => allProjectNodes.filter((n) => n.type === "milestone"), [allProjectNodes])
+  const milestones = useMemo(() =>
+    allProjectNodes.filter((n) => n.type === "milestone").sort((a, b) => (a.number ?? 0) - (b.number ?? 0)),
+    [allProjectNodes])
 
   const milestoneMap = useMemo(() => {
     const m = new Map<string, string>()
@@ -1624,7 +1626,9 @@ export function PlanTimelineView({
     return planNodes.filter((n) => n.projectId === projectId)
   }, [planNodes, projectId, nodes])
 
-  const milestones = useMemo(() => allProjectNodes.filter((n) => n.type === "milestone"), [allProjectNodes])
+  const milestones = useMemo(() =>
+    allProjectNodes.filter((n) => n.type === "milestone").sort((a, b) => (a.number ?? 0) - (b.number ?? 0)),
+    [allProjectNodes])
 
   const tasks = useMemo(() => {
     // Always exclude pruned nodes — they are abandoned, not completed
@@ -1817,7 +1821,7 @@ export function PlanBoardView({
   }, [planNodes, projectId, providedNodes])
 
   const milestones = useMemo(() => {
-    return nodes.filter((n) => n.type === "milestone")
+    return nodes.filter((n) => n.type === "milestone").sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
   }, [nodes])
 
   const handleNodeUpdate = useCallback((id: string, updates: Partial<PlanNode>) => {
