@@ -294,10 +294,10 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     }
   }, [oauthConnected, appInstallations, gitHubEnabled, addToast])
 
-  // Critical stores: must load before rendering (navigation + core data)
-  const criticalLoaded = teamsLoaded && projectsLoaded && planLoaded && userProfileLoaded && sidebarLoaded
+  // Critical stores: must load before rendering (navigation + core data + display settings to avoid view flash)
+  const criticalLoaded = teamsLoaded && projectsLoaded && planLoaded && userProfileLoaded && sidebarLoaded && displaySettingsLoaded
   // Non-critical stores load in background — page renders without them
-  const allLoaded = criticalLoaded && settingsLoaded && displaySettingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded && initiativesLoaded && executionsLoaded && agentLoaded && activitiesLoaded && pluginsLoaded && skillsLoaded && templatesLoaded
+  const allLoaded = criticalLoaded && settingsLoaded && taskChatLoaded && usageLoaded && sessionsLoaded && initiativesLoaded && executionsLoaded && agentLoaded && activitiesLoaded && pluginsLoaded && skillsLoaded && templatesLoaded
 
   // Only block page render on critical stores
   if (shouldLoadData && !criticalLoaded) {
