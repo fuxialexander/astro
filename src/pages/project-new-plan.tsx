@@ -156,7 +156,6 @@ export function ProjectNewPlan() {
     activeProjectId ? s.executions.get(`plan-${activeProjectId}`) : undefined
   )
   const allProjects = useProjectStore((s) => s.projects)
-  const deleteProject = useProjectStore((s) => s.deleteProject)
   const updateProject = useProjectStore((s) => s.updateProject)
   const project = useProjectStore((s) =>
     activeProjectId ? s.projects.find((p) => p.id === activeProjectId) : undefined
@@ -1148,8 +1147,15 @@ export function ProjectNewPlan() {
                             setActiveProjectId(null)
                             setSearchParams({})
                           }
-                          allExecutions.delete(`plan-${p.id}`)
-                          deleteProject(p.id)
+                          // Cancel any running generation, then clean up execution + project
+                          const execStore = useExecutionStore.getState()
+                          const exec = execStore.executions.get(`plan-${p.id}`)
+                          if (exec?.status === 'pending' || exec?.status === 'running') {
+                            execStore.cancelPlanGeneration(p.id)
+                          }
+                          // cleanupPlanGeneration removes the execution via proper Zustand set()
+                          // and calls deleteProject — avoids duplicating store logic here
+                          execStore.cleanupPlanGeneration(p.id)
                         }}
                         className="p-0.5 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 [@media(hover:none)]:opacity-60 hover:bg-destructive/10 transition-all text-destructive"
                         title="Delete session"
