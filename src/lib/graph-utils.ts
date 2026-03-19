@@ -458,11 +458,13 @@ export function computeEdgeHandles(
   const dx = tgtPos.x - srcPos.x
   const dy = tgtPos.y - srcPos.y
 
-  // If target is primarily below/above the source, use vertical handles
-  if (Math.abs(dy) > Math.abs(dx) * 1.5 && Math.abs(dy) > 30) {
+  // If target is primarily below the source, use vertical handles (bottom→top).
+  // For upward back-edges (dy < 0), fall through to horizontal handles (right→left)
+  // so bezier curves loop around visually rather than pointing against the flow.
+  if (dy > Math.abs(dx) * 1.5 && dy > 30) {
     return {
-      sourceHandle: dy > 0 ? "bottom" : "top",
-      targetHandle: dy > 0 ? "top" : "bottom",
+      sourceHandle: "bottom",
+      targetHandle: "top",
     }
   }
 
