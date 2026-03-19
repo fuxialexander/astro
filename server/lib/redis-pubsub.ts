@@ -124,7 +124,8 @@ export interface RedisExecutionContext {
 export type StreamingEventType =
   | 'text' | 'tool_use' | 'tool_result' | 'file_change'
   | 'session_init' | 'progress' | 'result'
-  | 'node_status_changed' | 'task_init' | 'task_ready';
+  | 'node_status_changed' | 'task_init' | 'task_ready'
+  | 'plan_result';
 
 /** Message published for cross-instance streaming event delivery */
 export interface StreamingEventMessage {

@@ -27,7 +27,6 @@ import { cn } from "@/lib/utils"
 import type { PlanNode, TaskExecution, TaskActivityEvent } from "@/types"
 import {
   groupActivityEvents,
-  findSummaryBlockIndices,
   TextBlock,
   ToolBlock,
   ToolGroupBlock,
@@ -51,8 +50,7 @@ import { InlineApprovalCard } from "@/components/plan-generation/inline-approval
 import { PrStatusCard } from "@/components/pr-status-card"
 import type { PrData, PrCheckRun, PrReview } from "@/components/pr-status-card"
 import { PRReviewThreads } from "@/components/pr-review-threads"
-import { useRestoredExecution } from "@/hooks/use-restored-execution"
-import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
+import { useStreamEvents } from "@/hooks/use-stream-events"
 import type { GitHubReviewThread } from "@/types"
 import { FileBrowser } from "@/components/file-browser"
 import { useMediaQuery } from "@/hooks/use-media-query"
@@ -210,31 +208,45 @@ export function UnifiedActivityView({
     }
   }, [chatSession?.id, chatSession?.messages.length, isChatStreaming, ensureFullSession])
 
-  // Get activity events — live during execution, restored from observations after refresh
-  const { activityEvents, isRestoring } = useRestoredExecution(
-    executionId,
-    execution,
-    taskStream,
-    isRunning,
+  // Unified stream events — replaces useRestoredExecution + useChatStreamEvents
+  const { activityEvents, isHydrating: isRestoring } = useStreamEvents(
+    executionId || undefined,
+    { execution, projectId },
   )
 
-  // Chat stream events (proper text/tool_use/tool_result tracking)
-  const {
-    chatEventsRef,
-    chatEventsVersion,
-    pushChatEvent,
-    flushChatEvents,
-    chatToolCounterRef,
-  } = useChatStreamEvents()
+  // Chat stream events: local accumulation for live task-chat SSE
+  const chatEventsRef = useRef<TaskActivityEvent[]>([])
+  const [chatEventsVersion, setChatEventsVersion] = useState(0)
+  const chatFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const chatToolCounterRef = useRef(0)
+
+  const pushChatEvent = useCallback((event: TaskActivityEvent) => {
+    chatEventsRef.current = [...chatEventsRef.current, event]
+    if (!chatFlushTimerRef.current) {
+      chatFlushTimerRef.current = setTimeout(() => {
+        setChatEventsVersion(v => v + 1)
+        chatFlushTimerRef.current = null
+      }, 50)
+    }
+  }, [])
+
+  const flushChatEvents = useCallback(() => {
+    if (chatFlushTimerRef.current) {
+      clearTimeout(chatFlushTimerRef.current)
+      chatFlushTimerRef.current = null
+    }
+    setChatEventsVersion(v => v + 1)
+  }, [])
+
+  useEffect(() => () => {
+    if (chatFlushTimerRef.current) clearTimeout(chatFlushTimerRef.current)
+  }, [])
 
   // Restore chat events from persisted session messages after page refresh.
-  // On a live session, chatEventsRef is populated by pushChatEvent during streaming.
-  // After refresh, the ref is empty — reconstruct display events from the session
-  // messages that were already saved to the DB via addMessage().
   useEffect(() => {
     if (!sessionsLoaded) return
     if (!chatSession) return
-    if (chatEventsRef.current.length > 0) return // already populated (live session)
+    if (chatEventsRef.current.length > 0) return
     const messages = chatSession.messages
     if (!messages || messages.length === 0) return
 
@@ -253,33 +265,18 @@ export function UnifiedActivityView({
       chatEventsRef.current = restoredChatEvents
       flushChatEvents()
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- chatEventsRef is a stable ref; sessionsLoaded+chatSession drive restoration
   }, [sessionsLoaded, chatSession, flushChatEvents])
 
   const allActivityEvents: TaskActivityEvent[] = useMemo(() => {
     void chatEventsVersion
     return [...activityEvents, ...chatEventsRef.current]
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- chatEventsRef is a stable ref
   }, [activityEvents, chatEventsVersion])
 
-  // Group events for display.
-  // When a SummaryCard is visible (execution.summary exists), remove ALL "## Executive Summary"
-  // text blocks — the structured SummaryCard already shows this content.
-  // Also deduplicate executive summary blocks even without SummaryCard — catch-up hydration
-  // can deliver the same summary text multiple times for old sessions.
+  // Group events for display
   const displayBlocks = useMemo(() => {
     const blocks = groupActivityEvents(allActivityEvents)
-    // Deduplicate executive summary text blocks from catch-up hydration.
-    // If SummaryCard is shown (execution.summary exists), remove ALL summary blocks.
-    // Otherwise, keep only the last occurrence (dedup duplicates from hydration).
-    const summaryIndices = findSummaryBlockIndices(blocks)
-    if (summaryIndices.length === 0) return blocks
-    const toRemove = new Set(
-      execution?.summary ? summaryIndices : summaryIndices.slice(0, -1)
-    )
-    if (toRemove.size === 0) return blocks
-    return blocks.filter((_, i) => !toRemove.has(i))
-  }, [allActivityEvents, execution?.summary])
+    return blocks
+  }, [allActivityEvents])
 
   // Pre-build approval response lookup (answered set + response map) to avoid O(n) scans in render
   const { answeredRequestIds, approvalResponseMap } = useMemo(() => {

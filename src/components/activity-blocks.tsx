@@ -104,27 +104,6 @@ export interface DisplayBlock {
 
 // ─── Grouping ───────────────────────────────────────────────────────
 
-/**
- * Find indices of text blocks that contain an "## Executive Summary" heading.
- * Used by display-layer dedup to remove duplicates from catch-up hydration.
- */
-// eslint-disable-next-line react-refresh/only-export-components
-export function findSummaryBlockIndices(blocks: DisplayBlock[]): number[] {
-  const indices: number[] = []
-  for (let i = 0; i < blocks.length; i++) {
-    if (blocks[i].type === 'text') {
-      const text = blocks[i].events
-        .filter((e): e is Extract<TaskActivityEvent, { type: 'text' }> => e.type === 'text')
-        .map(e => e.content)
-        .join('')
-      if (text.toLowerCase().includes('## executive summary')) {
-        indices.push(i)
-      }
-    }
-  }
-  return indices
-}
-
 // eslint-disable-next-line react-refresh/only-export-components
 export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[] {
   const blocks: DisplayBlock[] = []

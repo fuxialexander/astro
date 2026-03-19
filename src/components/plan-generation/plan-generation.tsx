@@ -41,9 +41,7 @@ import { InlineApprovalCard } from "./inline-approval-card"
 import { PlanResultCard } from "./plan-result-card"
 import { PlanGenerationHeader } from "./plan-generation-header"
 import type { TaskActivityEvent } from "@/types"
-import { useRestoredExecution } from "@/hooks/use-restored-execution"
-import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
-import { useChatActivityEvents } from "@/hooks/use-chat-activity-events"
+import { useStreamEvents } from "@/hooks/use-stream-events"
 import { Link } from "react-router"
 import { JsonRenderView } from "@/components/ui/json-render-view"
 import type { Spec } from "@json-render/core"
@@ -89,7 +87,6 @@ export function PlanGeneration({
 
   // Realtime state — select stable refs, derive filtered data in useMemo
   const executionId = execution?.executionId || ""
-  const taskStream = useRealtimeStore(useCallback((s) => s.taskStreams.get(executionId), [executionId]))
   const dynamicApprovalsMap = useRealtimeStore((s) => s.dynamicApprovals)
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
   const addSteerMessage = useRealtimeStore((s) => s.addSteerMessage)
@@ -168,47 +165,57 @@ export function PlanGeneration({
     }
   }, [chatSession?.id, chatSession?.messages.length, isChatStreaming, ensureFullSession])
 
-  // Get activity events — live during execution, restored from observations after refresh
-  const { activityEvents, isRestoring } = useRestoredExecution(
-    executionId,
-    execution,
-    taskStream,
-    isRunning,
-  )
-
-  // Chat stream events (proper text/tool_use/tool_result tracking for live streaming)
-  const {
-    chatEventsRef,
-    chatEventsVersion,
-    pushChatEvent,
-    flushChatEvents,
-  } = useChatStreamEvents()
-
-  // Hydrate chat events from streaming_events DB after page refresh
+  // Unified stream events — replaces 3-hook composition (useRestoredExecution + useChatStreamEvents + useChatActivityEvents)
+  // Execution events come from taskStreams keyed by executionId.
+  // Chat events come from taskStreams keyed by chatSession.id.
   const sessionMessages = useMemo(() => chatSession?.messages || [], [chatSession?.messages])
-  const { activityEvents: hydratedChatEvents } = useChatActivityEvents(
+  const { activityEvents: execActivityEvents, isHydrating: isRestoring } = useStreamEvents(
+    executionId || undefined,
+    { execution, projectId },
+  )
+  const { activityEvents: chatActivityEvents } = useStreamEvents(
     chatSession?.id,
-    sessionMessages,
-    isChatStreaming,
+    { legacySessionMessages: sessionMessages },
   )
 
-  // Merge: combine historical hydrated events with current-mount live events.
-  // hydratedChatEvents = DB events at mount time (all previous turns).
-  // chatEventsRef.current = live events from the current mount's chat turns.
-  // These two sets are non-overlapping: hydrated covers pre-mount history,
-  // ref covers post-mount activity. Concatenating both ensures a new browser
-  // (chatEventsRef empty, hydrated = all) and same browser mid-session
-  // (chatEventsRef has current turns, hydrated has prior turns) show the same
-  // complete history instead of diverging.
+  // Local chat events for current-mount live streaming (pushed via pushChatEvent below)
+  // These are frontend-only events (chat_user, plan_result, error) not yet in the DB
+  const chatEventsRef = useRef<TaskActivityEvent[]>([])
+  const [chatEventsVersion, setChatEventsVersion] = useState(0)
+  const chatFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const pushChatEvent = useCallback((event: TaskActivityEvent) => {
+    chatEventsRef.current = [...chatEventsRef.current, event]
+    if (!chatFlushTimerRef.current) {
+      chatFlushTimerRef.current = setTimeout(() => {
+        setChatEventsVersion(v => v + 1)
+        chatFlushTimerRef.current = null
+      }, 50)
+    }
+  }, [])
+
+  const flushChatEvents = useCallback(() => {
+    if (chatFlushTimerRef.current) {
+      clearTimeout(chatFlushTimerRef.current)
+      chatFlushTimerRef.current = null
+    }
+    setChatEventsVersion(v => v + 1)
+  }, [])
+
+  // Cleanup flush timer
+  useEffect(() => () => {
+    if (chatFlushTimerRef.current) clearTimeout(chatFlushTimerRef.current)
+  }, [])
+
+  // Merge: execution events + hydrated chat events + live chat events
   const allActivityEvents: TaskActivityEvent[] = useMemo(() => {
-    void chatEventsVersion // re-compute when chat events change
+    void chatEventsVersion
     const liveChatEvents = chatEventsRef.current
     const chatEvents = liveChatEvents.length > 0
-      ? [...hydratedChatEvents, ...liveChatEvents]
-      : hydratedChatEvents
-    return [...activityEvents, ...chatEvents]
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- chatEventsRef is a stable ref
-  }, [activityEvents, chatEventsVersion, hydratedChatEvents])
+      ? [...chatActivityEvents, ...liveChatEvents]
+      : chatActivityEvents
+    return [...execActivityEvents, ...chatEvents]
+  }, [execActivityEvents, chatEventsVersion, chatActivityEvents])
 
   // Group events for display
   const displayBlocks = useMemo(() => groupActivityEvents(allActivityEvents), [allActivityEvents])

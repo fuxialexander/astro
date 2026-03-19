@@ -1,7 +1,7 @@
 # Unified Streaming Pipeline
 
 > **Last updated:** 2026-03-18
-> **Status:** Proposal — not yet implemented.
+> **Status:** Phase 1 and Phase 2 complete. Phase 2.5 (reliability hardening + operational messages) next. Phase 3 rescoped to incremental SSE simplification. Phase 4 (CLI-only plan mutations) pending.
 > **Author:** Architecture review
 > **Related:** [ARCHITECTURE.md](ARCHITECTURE.md), [PLAN_AND_REPLAN.md](PLAN_AND_REPLAN.md), [EVENT_DUPLICATION_ANALYSIS.md](EVENT_DUPLICATION_ANALYSIS.md)
 
@@ -16,9 +16,10 @@ A design for unifying the four frontend streaming/rendering pathways (PlanGenera
 3. [Target Architecture](#3-target-architecture)
 4. [Detailed Design](#4-detailed-design)
 5. [Migration Plan](#5-migration-plan)
-6. [Risks and Mitigations](#6-risks-and-mitigations)
-7. [Non-Goals](#7-non-goals)
-8. [Open Questions](#8-open-questions)
+6. [Implementation Status](#6-implementation-status)
+7. [Risks and Mitigations](#7-risks-and-mitigations)
+8. [Non-Goals](#8-non-goals)
+9. [Open Questions](#9-open-questions)
 
 ---
 
@@ -166,7 +167,7 @@ graph TD
 
 4. **One rendering pipeline.** All pathways use `groupActivityEvents()` with the same preprocessing. Special blocks (PlanResultCard, PrStatusCard, InlineApprovalCard, GitHubCommentBlock, VisualWidget) are available in all pathways. The pathway only controls which blocks are *relevant* (via the tools available to the agent), not which blocks are *renderable*.
 
-5. **Plan mutations via CLI only.** `applyPlanFromText()` is removed. All plan mutations flow through `astro-cli` MCP tools (`create_task`, `update_task`, `delete_task`, `create_dependency`), which produce `tool_use`/`tool_result` events that are persisted like any other event. Plan refresh is triggered by detecting these tool names in the event stream.
+5. **Plan mutations via CLI only.** `applyPlanFromText()` is removed. All plan mutations flow through `astro-cli plan` commands (`plan create`, `plan create-node`, `plan update-node`, `plan delete-node`, `plan add-edge`, `plan remove-edge`) invoked via the `Bash` tool, which produce `tool_use`/`tool_result` events persisted like any other event. Plan refresh is triggered by detecting `Bash` in the event stream (already in `PLAN_MUTATING_TOOLS`).
 
 6. **Status derived from events.** A single `deriveStreamStatus()` function computes `idle | streaming | completed | error | awaiting_approval` from the event sequence. No pathway-specific status logic.
 
@@ -229,7 +230,9 @@ After unification, pathways differ only in:
 | **Layout** | PlanGeneration has a graph sidebar. ChatPanel is a drawer. Task Execution has file changes panel | View components (frontend) |
 | **Input affordances** | Plan gen has steer. Chat has message input. Task execution has steer + abort | View components (frontend) |
 
-Everything else -- event persistence, SSE transport, hydration, rendering, status tracking -- is identical.
+Everything else -- event persistence, SSE transport, hydration, rendering, status tracking, **tool access**, **permission mode** -- is identical.
+
+> **Architectural decision (2026-03-18): Same permissions for all pathways.** Plan generation previously restricted tools to read-only (no Write, Edit, MCP) and used `permissionMode: 'plan'`. This was security theater — the agent had `Bash` which can do anything. The restriction added complexity (special tool filtering in `claude-sdk-adapter.ts`, `type: 'plan'` relay field, separate permission mode) without meaningful safety. All pathways now use `permissionMode: 'bypassPermissions'` with the full tool set. The prompt alone controls whether the agent plans or executes.
 
 ---
 
@@ -259,9 +262,11 @@ The `streaming_events` table schema is unchanged. The `eventType` column already
 | `compaction` | `{ originalCount, compactedCount, summary }` | Chat (long conversations) |
 | `chat_user` | `{ message }` | Chat, Plan refinement |
 | `metrics` | `{ durationMs, inputTokens, outputTokens, totalCost, model, numTurns }` | All pathways |
+| `operational` | `{ message, source: 'astro' \| 'git' \| 'delivery' }` | Execution (agent-runner + backend heartbeat) |
 
 New additions vs. current:
 - `chat_user`: currently only in session messages; now persisted as a streaming event so chat history is fully reconstructible from `streaming_events`.
+- `operational`: currently emitted as `text` events with `── [Prefix]` formatting; now a distinct event type for type-safe rendering without regex detection (Section 4.11).
 - `metrics`: currently embedded in the `done` SSE event; now a separate persisted event type for clean querying.
 - `compaction`: currently an SSE-only event; now persisted for observability.
 
@@ -380,23 +385,50 @@ function ActivityBlockRenderer({ blocks }: { blocks: DisplayBlock[] }) {
 
 ### 4.5 Plan Mutations: CLI-Only Path
 
+> **Correction (2026-03-18):** Post-audit initially concluded that the CLI lacked mutation commands. After syncing `packages/cli` to latest main (v0.3.0, PR #9 `feat/plan-mutations`), the CLI has a **complete plan mutation surface**: `plan create` (atomic full-plan), `plan create-node`, `plan update-node`, `plan delete-node`, `plan add-edge`, `plan remove-edge`. All commands support `--json` for structured output and include node ID validation. The original "CLI-Only" design was correct — the CLI just needed to be updated.
+
 **Current state:** Two mutation mechanisms coexist:
 1. `applyPlanFromText()` in `src/lib/plan-extraction.ts`: regex-parses assistant text for JSON plan objects and mutation blocks, then applies them to the plan store. Used by PlanGeneration and execution store.
 2. `PLAN_MUTATING_TOOLS` in `session-store.ts`: detects `create_task`, `update_task`, etc. tool calls and triggers `loadPlanForProject()` to refresh from the DB. Used by ChatPanel.
 
-**Target state:** Only mechanism (2) survives, extended to all pathways:
+**Why mechanism (1) still exists:** Plan-type tasks have `Bash` in their tool set, so the agent *can* call CLI commands. But the plan generation prompt instructs the agent to emit raw JSON text rather than use CLI commands. The prompt needs updating, not the tool configuration.
 
-- `applyPlanFromText()` is deleted. The plan generation prompt is updated to use `astro-cli` tools (`create_task`, `update_task`, `delete_task`, `create_dependency`) instead of emitting raw JSON blocks.
-- The plan-mutating tool detection moves from `session-store.ts` to `groupActivityEvents()` or the `useStreamEvents` hook, so it works for all pathways.
-- When a `tool_result` event for a plan-mutating tool is detected, the hook calls `usePlanStore.loadPlanForProject(projectId)` to refresh the plan graph from the DB.
+**Target state:** The agent uses `astro-cli plan` commands via `Bash` for all plan mutations:
 
-**Why this is better:**
-- Single code path for plan mutations.
-- Tool calls are persisted as `tool_use`/`tool_result` events in `streaming_events`, making them recoverable after page refresh.
-- The plan store always reflects the DB state, not a fragile text-extraction result.
-- Plan mutations become available in all pathways (Playground can modify plans, Task Execution can add follow-up tasks).
+- **For initial plan generation:** The agent calls `astro-cli plan create --project-id <id> --json` with the full `{ nodes, edges }` piped via stdin. This is atomic (one command creates the entire plan) and returns the short-ID-to-UUID mapping in JSON.
+- **For plan refinements:** The agent calls `astro-cli plan create-node`, `update-node`, `delete-node`, `add-edge`, `remove-edge` as needed.
+- `applyPlanFromText()` is deleted. The plan generation prompt is updated to use CLI commands instead of emitting raw JSON blocks.
+- The plan-mutating tool detection (already in `useStreamEvents` lines 272-287) triggers `usePlanStore.loadPlanForProject(projectId)` when it sees `Bash` tool results containing `astro-cli plan` commands. `PLAN_MUTATING_TOOLS` already includes `Bash`.
 
-**Migration concern:** The plan generation prompt currently produces a full JSON plan object. Switching to per-node tool calls may increase token usage and latency for initial plan generation. See [Risks](#6-risks-and-mitigations) for mitigation.
+**CLI plan commands available (v0.3.0):**
+
+| Command | Purpose | Key flags |
+|---|---|---|
+| `plan create` | Create/replace entire plan from JSON | `--project-id`, `--file` or stdin pipe |
+| `plan create-node` | Create single node | `--title`, `--type`, `--dependency`, `--milestone-id`, `--estimate`, `--verification`, etc. |
+| `plan update-node <id>` | Update node fields | `--title`, `--status`, `--add-dependency`, `--remove-dependency`, etc. |
+| `plan delete-node <id>` | Delete a node | — |
+| `plan add-edge` | Add dependency edge | `--source`, `--target`, `--type` (with node ID validation) |
+| `plan remove-edge` | Remove dependency edge | `--source`, `--target` |
+
+All commands support `--json` for structured machine-readable output. `plan create` handles short-ID-to-UUID mapping (e.g., agent emits `n1`, CLI maps to UUIDs and returns the mapping).
+
+**Why CLI via Bash is better than MCP for plan mutations:**
+- **Already works:** Plan tasks have `Bash` access. No agent-runner config change needed.
+- **Complete surface:** All CRUD operations + edge management + ID validation already implemented.
+- **Atomic plan creation:** `plan create` accepts `{ nodes, edges }` atomically — same efficiency as the proposed MCP `create_plan` tool.
+- **Structured output:** `--json` flag returns `{ ok: true, nodeCount, edgeCount, idMapping }` — parseable by the agent for follow-up operations.
+- **Frontend detection:** `PLAN_MUTATING_TOOLS` already includes `Bash`. When `useStreamEvents` sees a `Bash` tool_result, it triggers a plan refresh.
+- **Observable:** CLI commands appear as `tool_use` (Bash) / `tool_result` events in `streaming_events`, making them recoverable after page refresh.
+
+**Why not MCP?** The MCP server (`astro-tools-server.ts`) also has mutation tools (`create_task`, `update_task`, etc.), but:
+- MCP tools are currently excluded from plan-type tasks in `claude-sdk-adapter.ts`.
+- The MCP tools use different names (`create_task`) than the CLI (`plan create-node`), requiring frontend detection updates.
+- The CLI's `plan create` command (atomic full-plan creation with ID mapping) has no MCP equivalent.
+- Adding MCP access to plan tasks is an unnecessary config change when `Bash` already works.
+- MCP adds a server process + transport layer; CLI is a direct subprocess with no ongoing connection.
+
+**Migration concern:** None for token usage — `plan create` accepts the same JSON the agent currently emits in text, just routed through a CLI command instead. The prompt change is: "call `astro-cli plan create --project-id {id} --json` with the plan JSON piped to stdin" instead of "emit the plan JSON in your response text."
 
 ### 4.6 Exactly-Once Delivery
 
@@ -415,14 +447,47 @@ The current deduplication hacks exist because:
 - `deduplicateTextBlocks()` in the hydrator is kept as a safety net for legacy data but should not trigger for new streams.
 - `findSummaryBlockIndices()` is removed after migration.
 
-### 4.7 Multi-Tab and Multi-Device Consistency
+### 4.7 Real-Time Delivery Architecture
 
-**Current:** No explicit multi-tab handling. Each tab opens its own SSE connection and maintains its own realtime store state. Two tabs viewing the same execution will both show live events, but hydration state is independent.
+Astro's streaming pipeline maps to the standard real-time messaging architecture used by chat and collaboration apps:
 
-**Target (no change for Phase 1):** Multi-tab behavior remains the same. Each tab subscribes via SSE and hydrates independently. This is acceptable because:
+| Layer | Standard Pattern | Astro Implementation |
+|---|---|---|
+| **Transport (client↔server)** | WebSocket (bidirectional) or SSE (server→client) | **SSE** for server→client push (`events.ts`), **POST** for client→server actions (steer, abort, approvals). WebSocket reserved for relay (agent-runner↔backend). |
+| **Cross-instance fan-out** | Pub/Sub broker (Redis, Kafka) | **Redis Pub/Sub** (`redis-pubsub.ts`). Server A receives events from relay → publishes to `TASK_STREAMING` channel → Server B receives → pushes to its SSE clients. |
+| **Persistence** | Message store (DB) | **`streaming_events` table** (append-only, seq-ordered). Source of truth for hydration, catch-up, and page-refresh recovery. |
+| **Offline/background recovery** | Push notifications + catch-up on reconnect | **SSE reconnect with `Last-Event-ID`** + DB catch-up via `hydrateFromCatchUp()`. **Browser notifications** for approval requests (`showApprovalNotification`). Tab visibility handler re-hydrates on foreground. |
+| **Optimistic UI** | Render before server confirms | **Partial.** Chat messages render via `chatEventsRef` before SSE confirmation. Steer messages rendered optimistically. Plan creation not yet optimistic. |
+
+#### 4.7.1 Multi-Tab Consistency
+
+Each tab opens its own SSE connection and maintains its own realtime store state. Two tabs viewing the same execution will both show live events, but hydration state is independent. This is acceptable because:
 - `streaming_events` is append-only and seq-ordered, so multiple readers see a consistent view.
 - SSE connections are cheap (one per tab, not per stream).
-- Supabase Realtime subscription (Phase 3, future) could replace SSE for true cross-tab push, but this is out of scope.
+- Supabase Realtime subscription could replace SSE for true cross-tab push in the future, but is out of scope.
+
+#### 4.7.2 Background Client Notifications (Future)
+
+Currently, task completion notifications only appear when the tab is focused. If a 2-hour execution finishes while the user is in another app, they don't know until they switch back.
+
+**Current coverage:**
+- Approval requests: `showApprovalNotification()` fires a browser `Notification` (works when tab is backgrounded but browser is open).
+- Task completion: Toast only (visible only when tab is focused).
+
+**Future improvement:**
+- Extend `showApprovalNotification` pattern to task completion and plan generation completion.
+- Consider browser Push API (via service worker) for notifications when the browser is closed entirely. This requires a push notification backend (FCM/VAPID) which is out of scope for the streaming pipeline design but noted for future work.
+
+#### 4.7.3 Optimistic UI Patterns
+
+| Action | Current UX | Optimistic improvement |
+|---|---|---|
+| Send chat message | Message appears in `chatEventsRef` immediately (optimistic) | Already optimistic |
+| Send steer message | Steer event rendered immediately in activity feed | Already optimistic |
+| Create plan (CLI) | Wait for `plan_result` event via SSE (~1-2s round-trip) | Could render "Plan creating..." skeleton when `Bash` tool_use containing `astro-cli plan create` is detected, before tool_result arrives |
+| Abort task | Wait for synthetic `result` event via SSE | Could optimistically mark as "aborting" on button click, before SSE confirms |
+
+These optimistic patterns are not blocking for Phase 4 but improve perceived responsiveness.
 
 ### 4.8 Active Dispatch Stream Suppression
 
@@ -437,13 +502,242 @@ The current deduplication hacks exist because:
 
 **Alternative considered:** Keep the direct SSE path for low-latency text streaming but have the global bus handle only structural events. Rejected because it reintroduces the dual-path problem.
 
+### 4.9 Stream Lifecycle & Reliability
+
+The original design focused on data flow correctness but did not address failure modes. Post-implementation audit revealed three gaps that must be addressed before Phase 3.
+
+#### 4.9.1 Stream Watchdog (Stale Stream Cleanup)
+
+**Problem:** If an agent runner crashes, the relay drops, or a network partition occurs mid-stream, the stream never receives a terminal event (`result` or `error`). The frontend shows "in progress" indefinitely. The `streaming_events` rows accumulate without cleanup.
+
+**Current state:** `streamingEventLog.cleanup(olderThan)` is time-based only. The relay has heartbeat monitoring for machine connections (45-60s grace) but no per-task watchdog. The frontend has no timeout in `useStreamEvents`.
+
+**Design:**
+
+1. **Backend watchdog job** (runs every 60s):
+   - Query `streaming_events` for streams where `MAX(createdAt) < NOW() - interval '15 minutes'` AND no terminal event (`result`, `error`) exists.
+   - For each stale stream, insert a synthetic `error` event: `{ error: 'Stream timed out — no events received for 15 minutes', synthetic: true }`.
+   - The 15-minute window is configurable via `STREAM_WATCHDOG_TIMEOUT_MS` env var.
+   - Log the timeout for observability.
+
+2. **Frontend timeout** (defense in depth):
+   - `useStreamEvents` starts a 20-minute inactivity timer on mount. Reset on every new event.
+   - If the timer fires, derive status as `error` with a "stream may have stalled" indicator.
+   - This is UI-only — does not write to the DB. The backend watchdog is the authoritative closer.
+
+3. **Relay disconnect cleanup:**
+   - When `relay-server.ts` detects a machine disconnect (heartbeat timeout), enumerate all active tasks for that machine and insert `error` events for any that lack terminal events.
+   - This catches the common case (machine goes offline) faster than the 15-minute watchdog.
+
+#### 4.9.2 Stream Cancellation
+
+**Problem:** Users cannot abort a stuck or runaway stream from the frontend. The `/api/agent/abort` endpoint exists but only signals the relay — there is no guarantee the agent runner stops, and the frontend has no feedback loop.
+
+**Current state:** `POST /api/agent/abort` calls `relayServer.cancelTask(id)` and returns immediately. No terminal event is guaranteed. The frontend must poll or wait for the stream to eventually produce a `result` or `error`.
+
+**Design:**
+
+1. **Abort with synthetic terminal event:**
+   - When `/api/agent/abort` is called, after forwarding to the relay, also insert a `result` event with `{ status: 'aborted', synthetic: true }` into `streaming_events`.
+   - This guarantees the frontend sees a terminal state even if the relay/agent never responds.
+   - If the agent later sends its own terminal event, it is appended but `deriveStreamStatus()` already returns the first terminal state encountered (scanning backwards), so the abort wins.
+
+2. **Frontend abort UX:**
+   - All pathways surface an abort button when `status === 'streaming'`.
+   - On click: `POST /api/agent/abort`, then optimistically set local status to `'completed'` (abort).
+   - The SSE bus delivers the synthetic `result` event, confirming the abort.
+
+#### 4.9.3 Text Buffer Loss on Relay Crash
+
+**Problem:** `StreamingEventLog` buffers text chunks in memory and flushes to DB when the next structural event arrives or on a heartbeat timer. If the relay process crashes between flushes, buffered text is lost.
+
+**Current state:** On flush failure, chunks are re-inserted into the buffer (line 46-53 of `streaming-event-log.ts`). But if the process itself dies, the in-memory buffer is gone.
+
+**Mitigation (acceptable risk):**
+- The text buffer typically holds < 1 second of text (heartbeat flushes every ~5s, structural events flush more frequently).
+- Lost text is at most one partial sentence — not catastrophic for the user experience.
+- A full fix (write-ahead log or per-chunk persistence) would add latency to every text chunk and is not worth the trade-off.
+- `flushAll()` is called on graceful shutdown (SSE disconnect handler), covering the normal disconnect case.
+- **Decision:** Accept this as a known limitation. Document it but do not fix it.
+
+### 4.10 Hydration Safety & Resource Limits
+
+#### 4.10.1 Hydration/Live Event Race Condition
+
+**Problem:** When `useStreamEvents` mounts, it (1) triggers `hydrateFromCatchUp()` to load persisted events from the DB and (2) subscribes to live SSE events via the realtime store. Events arriving between the DB query and the SSE subscription could be duplicated (present in both) or lost (present in neither).
+
+**Current state:** The race is partially mitigated:
+- Hydration uses `afterSeq` from `realtimeClient.lastSeq`, so catch-up queries only events newer than the last SSE event received.
+- On reconnect, the realtime store deduplicates by building a set of `seq` numbers from both existing and hydrated events (lines 583-627 of `realtime-store.ts`).
+- For initial mount (not reconnect), hydrated events replace the stream only if existing is empty.
+
+**Remaining gap:** If events arrive via SSE *during* the hydration fetch (which is async), both the SSE handler and the hydration callback write to `taskStreams`. The dedup logic runs in the hydration callback, but SSE events pushed after the dedup completes are not checked.
+
+**Mitigation (acceptable):**
+- `seq`-based ordering means duplicates are visually identical (same content, same position). `groupActivityEvents()` produces the same `DisplayBlock[]` regardless of duplicates.
+- `deduplicateTextBlocks()` in the hydrator catches content-level duplicates as a safety net.
+- A lock-based solution (pause SSE writes during hydration) would add complexity and latency. Not worth it given the visual-equivalence property.
+- **Decision:** Accept. The current dedup mechanisms are sufficient. Remove `deduplicateTextBlocks()` only after Phase 3 when the dual-path is fully eliminated.
+
+#### 4.10.1.1 Text Format Mismatch in Catch-Up Paths
+
+**Problem:** Live SSE sends raw strings for `text` events (`data: Hello world`). The DB stores `{ text: "Hello world" }` as a JSON object. Catch-up paths (polling reconnect, steer error recovery) read from the DB and call `JSON.stringify(row.data)`, producing `'{"text":"Hello world"}'` — which the frontend renders literally as JSON instead of plain text.
+
+**Current state (PR #1140):** Introduced `extractStreamingEventData()` in `streaming-event-hydrator.ts` to normalize DB rows back to the raw string format that `handleSSEEvent`/`replayEvent` expect. All catch-up paths must use this utility instead of raw `JSON.stringify(row.data)`.
+
+**Files affected:**
+- `src/lib/streaming-event-hydrator.ts` — new `extractStreamingEventData()` utility
+- `src/stores/execution-store.ts` — polling reconnect catch-up
+- `src/components/task-detail/unified-activity-view.ts` — steer catch-up
+
+**Root cause:** The streaming pipeline has a format asymmetry by design — SSE `data` is a raw string for text events, but the DB `data` column is always a JSON object. Any code path that reads from the DB and feeds events back into the SSE event handlers must account for this mismatch.
+
+#### 4.10.2 Event Pagination & Memory Pressure
+
+**Problem:** Long-running tasks (hours of execution) can produce thousands of events. Does the system handle this?
+
+**Current state (better than initially assessed):**
+- **Catch-up pagination exists:** `fetchStreamingEventsCatchUp()` fetches up to 50 pages of 1000 events each (50,000 events max). This is sufficient for all practical execution durations.
+- **In-memory accumulation:** All events for a stream are held in `taskStreams[streamId].activityEvents[]`. For a 12-hour execution, this could be 10,000-50,000 events. Modern browsers handle arrays of this size without issue (~5-50MB).
+- **Rendering:** `groupActivityEvents()` collapses many events into fewer `DisplayBlock[]` (e.g., consecutive text events become one TextBlock). The rendering list is much shorter than the event list.
+
+**Known limits:**
+- **50,000 event hard cap:** Streams exceeding this lose older events on catch-up hydration. In practice, no execution has approached this limit.
+- **No virtual scrolling:** `ActivityBlockRenderer` renders all blocks. For extremely long outputs (1000+ display blocks), scrolling performance may degrade.
+- **No event compaction:** Unlike chat (which has `compaction` events), execution streams have no mechanism to summarize/discard old events.
+
+**Recommendations (future, not blocking):**
+- Add virtual scrolling to `ActivityBlockRenderer` if users report scroll lag on long executions.
+- Consider execution-level compaction: after a task completes, collapse tool traces into summaries. This is a UX improvement, not a correctness issue.
+- The 50,000 event cap is sufficient. Do not increase it.
+
+#### 4.10.3 Seq Ordering Across Instances
+
+**Problem:** `seq` is a global auto-incrementing identity column, not per-execution. With 2 Fly.io instances, concurrent writes from different instances interleave `seq` numbers across executions.
+
+**Why this is fine:**
+- Within a single execution, events are ordered by `seq` and the ordering is correct because a single execution flows through a single relay connection on a single instance.
+- Cross-execution interleaving of `seq` is harmless — each execution's events are queried with `WHERE executionId = ?` and sorted by `seq`.
+- The `GENERATED ALWAYS AS IDENTITY` column in Postgres guarantees monotonicity within a single connection. Since each relay task holds a single connection for its lifetime, per-execution ordering is guaranteed.
+- **Decision:** No change needed. The design doc's claim that "`seq` orders events within a stream" is correct despite `seq` being global.
+
+#### 4.10.4 Tab Visibility & Recovery
+
+**Problem:** When a browser tab is hidden, the SSE connection stays open but heartbeat monitoring is disabled. If a task completes while the tab is hidden, the reconnect handler only catches up streams with `status === 'running'`.
+
+**Current state:** `realtime-client.ts` defers reconnection when hidden and schedules it 1 second after visibility returns. But catch-up only runs for streams the store believes are active.
+
+**Fix (Phase 2.5):**
+- On visibility change to `visible`, trigger catch-up hydration for *all* streams currently displayed in the UI, not just those with `status === 'running'`.
+- `useStreamEvents` should re-derive status from the hydrated events, catching transitions that occurred while hidden.
+- This is a small change in `realtime-store.ts`'s `onReconnect` handler: remove the status filter, or have `useStreamEvents` trigger its own catch-up on visibility change.
+
+### 4.11 Operational Messages as First-Class Events
+
+#### 4.11.1 Problem
+
+Operational messages (`── [Astro] Preparing worktree...`, `── [Git] Rebased onto main`, `── [Delivery] Changes applied in-place`) are system-level status lines emitted by the agent-runner and backend. They are **not** AI-generated content, but the pipeline treats them identically to AI text — they're emitted via `stream.text()`, persisted as `eventType: 'text'`, and detected in the frontend renderer via a regex heuristic (`/──\s*\[/`).
+
+This is fragile for four reasons:
+
+1. **False positives.** If the AI generates text matching `── [`, the entire text block flips to blue monospace operational styling. There is no way to distinguish AI text from platform messages by content inspection alone.
+2. **All-or-nothing rendering.** The regex test is applied to the merged text of all consecutive text events in a `DisplayBlock`. If a block contains *any* operational message mixed with AI text, the entire block is rendered as operational — or the operational messages are rendered as markdown. Neither is correct.
+3. **Fragile format contract.** The `── [Prefix]` format is an informal convention across ~25 call sites in `task-executor.ts` and `worktree.ts`. Any change to the prefix (e.g., a new source like `── [Docker]`) requires updating the regex. The format is not enforced by types or interfaces.
+4. **No structured metadata.** The frontend cannot programmatically filter, group, or style operational messages by source (`Astro` vs `Git` vs `Delivery`) because the source is embedded in free-text content.
+
+#### 4.11.2 Design: `operational` Event Type
+
+Operational messages become a distinct event type at every layer of the pipeline.
+
+**Streaming event schema (new row in Section 4.1 table):**
+
+| eventType | Data shape | Emitted by |
+|---|---|---|
+| `operational` | `{ message: string, source: 'astro' \| 'git' \| 'delivery' }` | Execution (agent-runner + backend heartbeat) |
+
+**TaskActivityEvent (new variant):**
+
+```typescript
+| { type: 'operational'; message: string; source: 'astro' | 'git' | 'delivery'; timestamp: Date; seq?: number }
+```
+
+**DisplayBlock (new type):**
+
+```typescript
+| { type: 'operational'; events: Array<Extract<TaskActivityEvent, { type: 'operational' }>> }
+```
+
+**Changes by layer:**
+
+| Layer | File(s) | Change |
+|---|---|---|
+| **Agent-runner: stream interface** | `packages/agent-runner/src/types/` | Add `operational(message: string, source: string): void` to the stream callback interface |
+| **Agent-runner: emitters** | `task-executor.ts` (~20 sites), `worktree.ts` (~5 sites) | Replace `stream.text("── [Astro] Preparing worktree...\n")` with `stream.operational("Preparing worktree: branch foo", "astro")` |
+| **Agent-runner: relay bridge** | SSE bridge code | Emit `event: operational` SSE events (not `event: text`) |
+| **Backend: heartbeat** | `server/routes/agent.ts:471`, `server/routes/dispatch.ts:2421` | Emit `operational` event via `streamingEventLog.append()` instead of `appendText()` |
+| **Backend: persistence** | `server/lib/streaming-event-log.ts` | No change — `append()` already handles arbitrary `eventType` |
+| **Core: types** | `packages/core/src/types.ts` | Add `operational` variant to `TaskActivityEvent` union |
+| **Frontend: hydrator** | `src/lib/streaming-event-hydrator.ts` | Map `eventType: 'operational'` → `{ type: 'operational', message, source }` |
+| **Frontend: grouping** | `src/components/activity-blocks.tsx` | `groupActivityEvents()`: group consecutive `operational` events into one `DisplayBlock` (same pattern as text grouping) |
+| **Frontend: renderer** | `src/components/activity-blocks.tsx` | New `OperationalBlock` component — renders messages as blue monospace lines with source prefix. Remove the `/──\s*\[/` regex branch from `TextBlock` |
+| **Frontend: block renderer** | `src/components/activity-block-renderer.tsx` | Add `case 'operational': return <OperationalBlock .../>` |
+
+**OperationalBlock component (replaces regex branch in TextBlock):**
+
+```typescript
+function OperationalBlock({ events }: { events: Array<Extract<TaskActivityEvent, { type: 'operational' }>> }) {
+  return (
+    <div className="px-4 py-1 space-y-0.5">
+      {events.map((e, i) => (
+        <div key={i} className="text-xs font-mono text-blue-400 dark:text-blue-400/80">
+          ── [{e.source === 'astro' ? 'Astro' : e.source === 'git' ? 'Git' : 'Delivery'}] {e.message}
+        </div>
+      ))}
+    </div>
+  )
+}
+```
+
+The `── [Source]` prefix is now a **rendering concern**, not a data concern. The source is structured data; the visual prefix is reconstructed in the component.
+
+#### 4.11.3 Backward Compatibility
+
+Old `streaming_events` rows (before this change) store operational messages as `eventType: 'text'` with content like `"── [Astro] Preparing worktree...\n"`. The hydrator needs a **migration shim**:
+
+```typescript
+// In hydrateStreamingEvents(), when processing a 'text' row:
+if (row.eventType === 'text') {
+  const text = row.data.text
+  // Migration shim: detect legacy operational messages and emit as 'operational' type
+  const opMatch = text.match(/^──\s*\[(Astro|Git|Delivery)\]\s*(.+?)[\n]*$/)
+  if (opMatch) {
+    return {
+      type: 'operational' as const,
+      source: opMatch[1].toLowerCase() as 'astro' | 'git' | 'delivery',
+      message: opMatch[2].trim(),
+      timestamp: row.createdAt,
+      seq: row.seq,
+    }
+  }
+  // ... normal text handling
+}
+```
+
+This shim can be removed after the 30-day retention window (all old `text` rows containing operational messages will have been cleaned up).
+
+**Mixed blocks:** During the migration window, a single flushed `text` DB row may contain both AI text and operational messages concatenated together (because `StreamingEventLog.flushText()` joins all buffered chunks). The shim handles this by splitting on `\n` and classifying each line independently — lines matching the operational pattern become `operational` events, others become `text` events. This is the only place where the regex is used, and it's explicitly marked as legacy.
+
+#### 4.11.4 Why Not Just Fix the Newlines?
+
+All operational messages already include trailing `\n` in the source code. The line-breaking issue described in PR #1140 (`── [Astro] Created branch── [Astro] Pushing to remote`) does not reproduce with current code. Adding a split on `── [` lookahead in the renderer would mask the real problem: **operational messages are not text and should not share the text event pipeline.** The robust fix is type-level separation, not better regex.
+
 ---
 
 ## 5. Migration Plan
 
-Migration is split into four phases. Each phase is independently deployable and backward-compatible. The entire migration can be paused or reverted at any phase boundary.
+Migration is split into five phases. Each phase is independently deployable and backward-compatible. The entire migration can be paused or reverted at any phase boundary.
 
-### Phase 1: Persist All Chat Events (Backend)
+### Phase 1: Persist All Chat Events (Backend) -- COMPLETE
 
 **Goal:** Make `streaming_events` the complete record for all pathways, including ChatPanel.
 
@@ -458,14 +752,14 @@ Migration is split into four phases. Each phase is independently deployable and 
 
 **Estimated scope:** ~50 lines changed in `agent.ts`.
 
-### Phase 2: Unified Frontend Hydration
+### Phase 2: Unified Frontend Hydration -- COMPLETE
 
 **Goal:** Replace the three hydration hooks with `useStreamEvents`.
 
 **Changes:**
 1. Create `src/hooks/use-stream-events.ts` implementing the `useStreamEvents` hook.
 2. Create `src/components/activity-block-renderer.tsx` implementing the shared block renderer.
-3. Add `deriveStreamStatus()` to the hook or a utility module.
+3. Add `deriveStreamStatus()` to `src/lib/stream-status.ts`.
 4. Update PlanGeneration to use `useStreamEvents(streamId)` instead of the three-hook composition.
 5. Update ChatPanel to use `useStreamEvents(streamId)` with a fallback to session messages for pre-migration sessions.
 6. Update Playground and Task Execution similarly.
@@ -475,51 +769,232 @@ Migration is split into four phases. Each phase is independently deployable and 
 
 **Estimated scope:** ~300 lines new code, ~500 lines removed. Spread across 4-6 PRs (one per pathway + shared infrastructure).
 
-### Phase 3: Eliminate Direct SSE Streaming
+### Phase 2.5: Reliability Hardening -- NEXT
 
-**Goal:** All events flow through the global SSE bus. Dispatch endpoints no longer stream directly.
+**Goal:** Address the cross-cutting reliability gaps identified in post-implementation audit (Section 4.9, 4.10). These gaps exist regardless of Phase 3 and should be fixed first.
 
 **Changes:**
-1. Modify `streamChatViaRelay` to return a `streamId` via a JSON response instead of streaming SSE. Events are delivered via the global SSE bus.
-2. Update execution-store and session-store dispatch actions to use `POST` + subscribe pattern instead of SSE streaming.
-3. Remove `activeDispatchStreams` and `isChatSessionStream()`.
-4. Remove `parseChatSSE` and `parseExecutionSSE` wrappers (the global SSE handler in `realtime-client.ts` handles all events).
 
-**Risk:** This is the highest-risk phase. See [Risks](#6-risks-and-mitigations).
+1. **Stream watchdog** (Section 4.9.1):
+   - Add a periodic job (60s interval) in the backend that detects stale streams (no events for 15 minutes, no terminal event) and inserts a synthetic `error` event.
+   - Add relay disconnect cleanup: when a machine heartbeat times out, close its active streams with synthetic `error` events.
+   - Estimated: ~80 lines in `server/lib/streaming-event-log.ts` + `server/lib/relay-server.ts`.
 
-**Validation:** End-to-end test: dispatch a task, verify events appear in the UI via global SSE only.
+2. **Abort with terminal event** (Section 4.9.2):
+   - Update `POST /api/agent/abort` to insert a `result` event with `{ status: 'aborted', synthetic: true }` in addition to forwarding to the relay.
+   - Estimated: ~15 lines in `server/routes/agent.ts`.
 
-**Estimated scope:** ~400 lines changed across backend and frontend.
+3. **Tab visibility recovery** (Section 4.10.4):
+   - On visibility change to `visible`, catch up *all* displayed streams, not just those with `status === 'running'`.
+   - Estimated: ~20 lines in `realtime-store.ts`.
+
+4. **Delete old hooks:**
+   - Delete `src/hooks/use-restored-execution.ts`, `src/hooks/use-chat-activity-events.ts`, `src/hooks/use-chat-stream-events.ts`.
+   - Remove all imports and usages (should be zero after Phase 2, but verify).
+   - Delete `findSummaryBlockIndices()` from `activity-blocks.tsx`.
+   - Estimated: ~600 lines removed, 0 new.
+
+5. **Operational messages as first-class events** (Section 4.11):
+   - Agent-runner: add `stream.operational(message, source)` to the stream interface; replace ~25 `stream.text("── [Astro/Git/Delivery] ...")` call sites in `task-executor.ts` and `worktree.ts`.
+   - Backend: emit `operational` events for elapsed heartbeats in `agent.ts` and `dispatch.ts` (2 call sites).
+   - Core: add `operational` variant to `TaskActivityEvent` union in `packages/core/src/types.ts`.
+   - Frontend: add hydration mapping, `OperationalBlock` component, `groupActivityEvents()` grouping rule; remove `/──\s*\[/` regex branch from `TextBlock`.
+   - Legacy shim in hydrator for old `text` rows containing operational messages (removable after 30 days).
+   - Estimated: ~120 lines new (across 3 repos), ~30 lines removed (regex branch).
+
+**Risk:** Low. The watchdog and abort changes are additive. Old hook deletion is safe because Phase 2 already migrated all consumers. Operational message migration is additive — the legacy shim ensures old data renders correctly.
+
+**Validation:**
+- Watchdog: Kill an agent-runner mid-task, verify the stream transitions to `error` within 15 minutes.
+- Abort: Click abort, verify the stream shows "aborted" immediately (without waiting for the relay).
+- Tab recovery: Start a task, hide the tab, wait for completion, show the tab, verify final state appears.
+- Old hooks: `npm run build` passes with no imports of deleted files.
+- Operational messages: Run a task, verify worktree/delivery status lines render as blue monospace. Hydrate an old execution (pre-migration), verify operational messages still render correctly via the legacy shim.
+
+**Estimated scope:** ~220 lines new, ~630 lines removed. 2-3 PRs.
+
+### Phase 3: SSE Path Simplification -- RESCOPED
+
+**Goal:** ~~All events flow through the global SSE bus.~~ Reduce the dual-path complexity incrementally without a big-bang migration. The direct SSE path remains as a latency optimization, but the suppression/coordination logic is eliminated.
+
+**Strategic change:** The original Phase 3 proposed converting dispatch endpoints from SSE streaming to `POST` + subscribe. Post-audit analysis shows this is high-risk for marginal benefit — the dual-path problem is already mitigated by Phase 2 (all pathways read from `useStreamEvents`, which consumes `taskStreams` regardless of how events arrived). The real cost of the dual path is the suppression logic (`isChatSessionStream()`, `activeDispatchStreams`), not the path itself.
+
+**New approach — seq-based dedup eliminates suppression:**
+
+1. **Step 1: Add seq-based dedup to realtime store** (~50 lines):
+   - When the global SSE bus pushes an event into `taskStreams`, check if an event with the same `seq` already exists. If so, skip it.
+   - This makes it safe for both the direct SSE path and the global bus to push events into the same stream — duplicates are silently dropped.
+   - Text events (which arrive without `seq` from direct SSE) are already handled: the hydrator's batched DB version (with `seq`) supersedes the unbatched SSE version on reconnect.
+
+2. **Step 2: Remove `isChatSessionStream()` guard** (~30 lines removed):
+   - With seq-based dedup, the global SSE bus can safely push events for chat sessions. The guard is no longer needed.
+   - Remove from `realtime-store.ts` (definition + all call sites).
+
+3. **Step 3: Remove `activeDispatchStreams` tracking** (~50 lines removed):
+   - With seq-based dedup in the realtime store, the backend no longer needs to suppress events for streams with active dispatch SSE bridges.
+   - Remove from `server/routes/agent.ts` and `server/routes/events.ts`.
+
+4. **Step 4 (optional, future): Convert to POST + subscribe**:
+   - Only pursue if latency measurement confirms the DB + pub/sub path is acceptable (< 50ms added latency for text chunks).
+   - This step removes `parseChatSSE` and `parseExecutionSSE` wrappers.
+   - Can be done per-pathway incrementally.
+
+**Why this is better than the original Phase 3:**
+- Each step is independently deployable and independently revertible.
+- Steps 1-3 remove ~130 lines of suppression logic without changing the SSE transport at all.
+- No latency risk — direct SSE continues to provide low-latency text streaming.
+- Step 4 becomes optional, pursued only if measurement justifies it.
+
+**Risk:** Low (steps 1-3). Medium (step 4, if pursued).
+
+**Validation:** After each step, run the full test suite + manual smoke test of all 4 pathways. Verify no duplicate events in the UI.
+
+**Estimated scope:** Steps 1-3: ~50 lines new, ~80 lines removed. Step 4: ~400 lines changed (same as original Phase 3).
 
 ### Phase 4: CLI-Only Plan Mutations
 
-**Goal:** Remove `applyPlanFromText()` and make all plan mutations flow through `astro-cli` tools.
+**Goal:** Remove `applyPlanFromText()` and make all plan mutations flow through `astro-cli plan` commands via Bash.
+
+**Prerequisites:** Update `packages/cli` submodule pointer to v0.3.0+ (which includes `plan create`, `create-node`, `update-node`, `delete-node`, `add-edge`, `remove-edge`).
+
+> **Implementation discovery (2026-03-18):** The prompt change (step 1) has a critical dependency on the `plan_result` SSE event pipeline. Currently:
+> - The backend extracts plan JSON from accumulated text (`extractPlanJsonFromText` in `dispatch.ts:1496`) and emits a `plan_result` event
+> - The `plan_result` event renders as `PlanGraphBlock` in the activity feed (chat panel + plan generation view)
+> - YOLO auto-dispatch triggers after `plan_result` extraction (polls DB for nodes, then dispatches root tasks)
+>
+> With CLI-based plan creation, the JSON goes to `astro-cli` via Bash — NOT into `accumulatedText`. So `extractPlanJsonFromText` finds nothing, no `plan_result` event is emitted, and the plan graph doesn't render inline.
+
+**Solution: End-to-end `plan_result` event from data API**
+
+The CLI creates plans via `PUT /api/data/plan/{projectId}`. By passing `executionId` from the CLI's environment, the data API can emit a `plan_result` streaming event directly — no text parsing needed.
+
+```
+Agent calls Bash: astro-cli plan create --project-id <id> --json
+                        │
+                        ▼
+CLI reads ASTRO_EXECUTION_ID from env (set by agent-runner)
+CLI calls: PUT /api/data/plan/{projectId}
+           Body: { nodes, edges, executionId }
+                        │
+                        ▼
+Backend data.ts setPlan endpoint:
+  1. Upsert nodes/edges in DB (existing logic)
+  2. IF executionId provided:
+     a. streamingEventLog.append(executionId, 'plan_result', { nodes, edges, projectName })
+        → persisted to streaming_events table
+        → SSE bus auto-broadcasts to frontend
+     b. Frontend useStreamEvents sees plan_result
+        → renders PlanGraphBlock inline
+        → triggers usePlanStore.load() from DB
+     c. YOLO pipeline detects plan_result
+        → plan nodes already in DB (created in step 1)
+        → dispatches root tasks immediately (no polling needed)
+```
+
+**Three changes across 3 repos:**
+
+| Repo | File | Change | Lines |
+|------|------|--------|-------|
+| agent-runner | `claude-sdk-adapter.ts:848` | Add `ASTRO_EXECUTION_ID: task.id` to session env (alongside `ASTRO_AUTH_TOKEN`) | +1 |
+| CLI | `client.ts:setPlan()` | Read `ASTRO_EXECUTION_ID` from env, pass as `executionId` in request body | +3 |
+| Backend | `data.ts:setPlan` endpoint | If `executionId` in body, call `streamingEventLog.append(executionId, 'plan_result', ...)` | +10 |
+
+**Why this is robust:**
+- `plan_result` event is persisted to `streaming_events` → survives page refresh
+- SSE bus broadcasts automatically → all tabs/devices see the plan immediately
+- Plan nodes are already in DB before the event → YOLO dispatch needs no polling
+- No text parsing, no regex extraction, no Bash input sniffing
+- Falls back gracefully: if `ASTRO_EXECUTION_ID` is not set (interactive CLI use), no event emitted and plan is created normally
 
 **Changes:**
-1. Update plan generation prompt (`buildInteractivePlanPrompt`) to use `astro-cli` tools instead of emitting raw JSON.
-2. Move plan-mutating tool detection from `session-store.ts` to the `useStreamEvents` hook.
-3. Delete `src/lib/plan-extraction.ts` (`applyPlanFromText`, `extractPlanJson`, `extractMutations`).
-4. Delete `findSummaryBlockIndices()` from `activity-blocks.tsx`.
-5. Update tests.
+1. **Update plan generation prompt:** Update `buildInteractivePlanPrompt` (in `packages/core/`) to instruct the agent to call `astro-cli plan create --project-id {id} --json` with plan JSON piped to stdin, instead of emitting raw JSON in text output. Pass `projectId` from `dispatch.ts` to the prompt. For refinements, instruct the agent to use `plan create-node`, `update-node`, `delete-node` as needed.
+2. **Delete `applyPlanFromText()`:** Remove `src/lib/plan-extraction.ts` and all call sites:
+   - `execution-store.ts` (~4 call sites)
+   - `realtime-store.ts` (~3 call sites)
+   - `agent-store.ts` (~2 call sites)
+   - `plan-generation.tsx` (~2 call sites)
+3. **Clean up `PLAN_MUTATING_TOOLS`:** Remove from `session-store.ts` (already in `useStreamEvents`). `Bash` is already in the set, so CLI commands are already detected.
+4. Update tests.
 
-**Validation:** Generate a plan, verify nodes/edges are created via tool calls. Refine a plan in ChatPanel, verify mutations via tool calls. Page-refresh recovery works.
+**Validation:** Generate a plan, verify nodes/edges are created via `Bash` tool call containing `astro-cli plan create` (visible as `tool_use`/`tool_result` in streaming events). Refine a plan in ChatPanel, verify mutations via CLI commands. Page-refresh recovery works (tool events hydrated from DB).
 
-**Estimated scope:** ~200 lines new (prompt changes), ~600 lines removed.
+**Estimated scope:** ~100 lines new (prompt changes), ~800 lines removed.
 
 ### Phase Summary
 
-| Phase | What | Risk | Reversible | Dependencies |
-|---|---|---|---|---|
-| 1 | Persist all chat events | Low | Yes (extra writes are harmless) | None |
-| 2 | Unified frontend hydration | Medium | Yes (old hooks still exist) | Phase 1 |
-| 3 | Eliminate direct SSE | High | Yes (can re-enable direct SSE) | Phase 2 |
-| 4 | CLI-only plan mutations | Medium | Partial (prompt changes are hard to revert) | Phase 1 |
+| Phase | What | Risk | Reversible | Dependencies | Status |
+|---|---|---|---|---|---|
+| 1 | Persist all chat events | Low | Yes | None | **COMPLETE** |
+| 2 | Unified frontend hydration | Medium | Yes | Phase 1 | **COMPLETE** |
+| 2.5 | Reliability hardening | Low | Yes | Phase 2 | **NEXT** |
+| 3 | SSE path simplification (steps 1-3) | Low | Yes | Phase 2 | Pending |
+| 3.4 | POST + subscribe (optional) | Medium | Yes | Phase 3 steps 1-3 | Deferred |
+| 4.0 | Solve `plan_result` pipeline for CLI | Medium | Yes | Phase 2 | **NEXT** (blocks 4.1) |
+| 4.1 | Prompt change + delete `applyPlanFromText` | Medium | Partial | Phase 4.0 + CLI v0.3.0 | Pending |
 
-Phase 4 can proceed in parallel with Phases 2-3 since it is backend/prompt focused.
+Phase 4 can proceed in parallel with Phases 2.5 and 3 since it is backend/prompt focused. Phase 2.5 should be completed before Phase 3.
 
 ---
 
-## 6. Risks and Mitigations
+## 6. Implementation Status
+
+*Post-implementation audit conducted 2026-03-18. This section tracks what shipped, what remains, and what the audit uncovered.*
+
+### 6.1 What Shipped
+
+| Component | File | Status |
+|---|---|---|
+| Backend: `chat_user` persistence | `server/routes/agent.ts:136-138` | Shipped |
+| Backend: `metrics` persistence | `server/routes/agent.ts:211-221` | Shipped |
+| Backend: `compaction` persistence | `server/routes/agent.ts:419-424` | Shipped |
+| `useStreamEvents` hook | `src/hooks/use-stream-events.ts` (306 lines) | Shipped |
+| `ActivityBlockRenderer` | `src/components/activity-block-renderer.tsx` (220 lines) | Shipped |
+| `deriveStreamStatus()` | `src/lib/stream-status.ts` (62 lines) | Shipped |
+| PlanGeneration migration | `src/components/plan-generation/plan-generation.tsx:168-179` | Shipped |
+| ChatPanel migration | `src/components/agent/chat-panel.tsx:225-250` | Shipped |
+| Playground migration | `src/pages/playground.tsx:354-386` | Shipped |
+| Task Execution migration | `src/components/task-detail/unified-activity-view.tsx:212-216` | Shipped |
+| Plan-mutating tool detection in `useStreamEvents` | `src/hooks/use-stream-events.ts:272-287` | Shipped (early) |
+
+### 6.2 What Remains (Tech Debt)
+
+| Item | File | Blocked by |
+|---|---|---|
+| Old hook: `useRestoredExecution` | `src/hooks/use-restored-execution.ts` | Phase 2.5 |
+| Old hook: `useChatActivityEvents` | `src/hooks/use-chat-activity-events.ts` | Phase 2.5 |
+| Old hook: `useChatStreamEvents` | `src/hooks/use-chat-stream-events.ts` | Phase 2.5 |
+| `findSummaryBlockIndices()` | `src/components/activity-blocks.tsx:112` | Phase 2.5 |
+| `deduplicateTextBlocks()` | `src/lib/streaming-event-hydrator.ts:404` | Phase 3 (step 4) |
+| `isChatSessionStream()` | `src/stores/realtime-store.ts:35` | Phase 3 (step 2) |
+| `activeDispatchStreams` | `server/routes/agent.ts`, `server/routes/events.ts` | Phase 3 (step 3) |
+| `parseChatSSE` / `parseExecutionSSE` | `src/lib/sse-parser.ts:96, 179` | Phase 3 (step 4) |
+| `applyPlanFromText()` (8+ call sites) | `src/lib/plan-extraction.ts`, stores | Phase 4 |
+| `PLAN_MUTATING_TOOLS` in session-store | `src/stores/session-store.ts:42` | Phase 4 |
+| Regex-based operational message detection | `src/components/activity-blocks.tsx:457` | Phase 2.5 |
+| `stream.text("── [...]")` for operational messages | `packages/agent-runner/src/lib/task-executor.ts`, `worktree.ts` (~25 sites) | Phase 2.5 |
+
+### 6.3 Gaps Discovered in Audit
+
+The following concerns were not addressed in the original design and have been added as Sections 4.9 and 4.10:
+
+| Gap | Severity | Section | Resolution |
+|---|---|---|---|
+| No cleanup for stale/hung streams | High | 4.9.1 | Stream watchdog in Phase 2.5 |
+| No abort with guaranteed terminal event | High | 4.9.2 | Synthetic abort event in Phase 2.5 |
+| Text buffer loss on relay crash | Low | 4.9.3 | Accepted — < 1s of text at risk |
+| Hydration/live event race condition | Medium | 4.10.1 | Accepted — seq dedup is sufficient |
+| Event pagination limits | Low | 4.10.2 | 50k cap is sufficient for all practical use |
+| Seq ordering across instances | Low | 4.10.3 | Per-execution ordering is guaranteed |
+| Tab visibility recovery incomplete | Medium | 4.10.4 | Fix in Phase 2.5 |
+| Session message divergence during Phase 2 | Medium | — | Session messages remain for agent context; `streaming_events` is display source. Divergence is acceptable since they serve different purposes. |
+| No explicit turn boundaries in chat | Low | — | `chat_user` events are sufficient turn markers. Formal `turn_start` event not needed. |
+| Orphaned `tool_use` without `tool_result` | Low | — | UI already renders in-flight tools as "running". No timeout needed — the stream watchdog catches the parent stream. |
+| Text format mismatch in catch-up paths | High | 4.10.1.1 | `extractStreamingEventData()` utility (PR #1140) |
+| Operational messages detected by regex, not type | Medium | 4.11 | First-class `operational` event type in Phase 2.5 |
+
+---
+
+## 7. Risks and Mitigations
 
 ### R1: Latency increase from indirect SSE (Phase 3)
 
@@ -530,14 +1005,11 @@ Phase 4 can proceed in parallel with Phases 2-3 since it is backend/prompt focus
 - If latency is unacceptable, keep direct SSE for text events only and use pub/sub for structural events. This is a partial win (still removes most suppression logic).
 - The DB insert is already happening in parallel today; the additional cost is the pub/sub notification, which is sub-millisecond for Redis.
 
-### R2: Plan generation token increase (Phase 4)
+### R2: Plan generation token increase (Phase 4) -- RESOLVED
 
-**Risk:** Switching from a single JSON block to per-node `create_task` tool calls increases token usage and latency for plan generation.
+**Risk:** ~~Switching from a single JSON block to per-node `create_task` tool calls increases token usage and latency for plan generation.~~
 
-**Mitigation:**
-- Measure token usage before and after on a sample of plan generation prompts.
-- Consider a hybrid: the agent emits a `plan_result` event with the full plan JSON (for fast display), and the backend applies it to the DB via `astro-cli` tools internally. This preserves the single-response efficiency while keeping the CLI-only mutation path.
-- The `plan_result` event type already exists and is already rendered by the hydrator.
+**Resolution:** `astro-cli plan create` accepts the full `{ nodes, edges }` JSON piped via stdin — same payload as the current text-emitted JSON, just routed through a Bash tool call. No per-node calls needed for initial plan generation. Token usage is comparable. For plan refinements, `plan create-node`, `update-node`, `delete-node` handle individual mutations.
 
 ### R3: Breaking legacy chat sessions (Phase 2)
 
@@ -565,13 +1037,40 @@ Phase 4 can proceed in parallel with Phases 2-3 since it is backend/prompt focus
 - The existing cleanup job (`streamingEventLog.cleanup()`) removes events older than a configurable threshold.
 - Monitor table size after Phase 1 deployment.
 
+### R6: Stale streams accumulate without watchdog (Phase 2.5)
+
+**Risk:** Without the stream watchdog (Section 4.9.1), streams from crashed agents or dropped connections stay "in progress" indefinitely. Users see stale activity. The `streaming_events` table grows without bound for these streams.
+
+**Mitigation:**
+- Phase 2.5 introduces a backend watchdog (15-minute inactivity timeout) and relay disconnect cleanup.
+- Until Phase 2.5 ships, the existing `streamingEventLog.cleanup(olderThan)` time-based deletion prevents unbounded table growth, but users may see stale "in progress" states.
+- **Priority:** High. This is the most impactful gap from the audit.
+
+### R7: Session message / streaming_events divergence
+
+**Risk:** During Phase 2, both `SessionMessage` rows and `streaming_events` rows are written for the same chat turn. If one write fails and the other succeeds, the two sources diverge.
+
+**Mitigation:**
+- The two serve different purposes: `SessionMessage` is used for agent conversation context (passed back to Claude). `streaming_events` is used for UI display. They do not need to be byte-identical.
+- `useStreamEvents` falls back to session messages only when `streaming_events` has zero rows — not when it has partial rows. So a partial streaming_events write still shows what was persisted.
+- Long-term: Phase 4 removes the dependency on `applyPlanFromText()` from session messages, further reducing coupling. Eventually, session messages may be reconstructed from `streaming_events` rather than written independently.
+
+### R8: Seq-based dedup may mask event loss (Phase 3)
+
+**Risk:** The Phase 3 seq-based dedup strategy (Section 5, Phase 3, Step 1) silently drops events with duplicate `seq` numbers. If a bug causes two *different* events to share the same `seq` (e.g., a DB identity sequence reset), the dedup would mask data loss.
+
+**Mitigation:**
+- Postgres `GENERATED ALWAYS AS IDENTITY` sequences never reset unless explicitly altered. This is not a realistic failure mode.
+- The dedup compares `seq` numbers only, not content. If two events with the same `seq` have different content, this would indicate a serious DB corruption issue far beyond the streaming pipeline.
+- Add a debug assertion in development mode: if dedup drops an event whose content differs from the existing event with the same `seq`, log a warning.
+
 ---
 
-## 7. Non-Goals
+## 8. Non-Goals
 
 The following are explicitly out of scope for this design:
 
-1. **Changing the agent-runner or relay protocol.** The relay WebSocket protocol and agent-runner event format are unchanged. This refactor is purely about how the backend persists events and how the frontend consumes them.
+1. **Changing the agent-runner or relay protocol.** The relay WebSocket protocol and agent-runner event format are largely unchanged. The one exception is the addition of the `operational` event type (Section 4.11), which adds a new event kind to the stream callback interface without changing the transport protocol.
 
 2. **Changing delivery mode.** Git-based delivery (PR, push, branch, copy, direct) remains in the agent-runner. The CLI-based delivery alternative was evaluated and rejected.
 
@@ -589,53 +1088,77 @@ The following are explicitly out of scope for this design:
 
 ---
 
-## 8. Open Questions
+## 9. Open Questions
 
 **Q1: Should the global SSE bus use Server-Sent Events or WebSocket?**
-Currently SSE. WebSocket would allow bidirectional communication (steer messages, approval responses) without separate POST endpoints. However, SSE is simpler, works through CDNs, and the existing POST-based steer/approval flow works well. Recommendation: keep SSE.
+
+**Resolved: Keep SSE.** WebSocket would allow bidirectional communication (steer messages, approval responses) without separate POST endpoints. However, SSE is simpler, works through CDNs, and the existing POST-based steer/approval flow works well. The rescoped Phase 3 (incremental simplification) does not require changing the transport.
 
 **Q2: How long should `streaming_events` rows be retained?**
-Currently cleaned up by `streamingEventLog.cleanup()` with a caller-specified cutoff. With chat events now persisted, the table grows faster. Options:
-- 7 days (current default for execution events)
-- 30 days (to support "show me last month's chat history")
-- Per-session TTL (chat sessions retain longer than execution events)
 
-Recommendation: 30 days for all event types, with a future option for per-session TTL.
+**Resolved: 30 days, with watchdog cleanup for stale streams.** The time-based `streamingEventLog.cleanup()` will use a 30-day window for all event types. Additionally, the Phase 2.5 watchdog (Section 4.9.1) inserts terminal events for stale streams, ensuring they are properly closed before the 30-day cleanup sweeps them. No per-session TTL is needed — the 30-day window is sufficient for chat history ("show me last month's conversation") and execution debugging.
 
 **Q3: Should `streamId` be the session ID or a separate identifier?**
-Currently, `streamId` is set to `{sessionId}-{turnIndex}` for chat sessions and `executionId` for executions. For the unified model, using `sessionId` directly (with events ordered by seq) would simplify the mapping. However, this loses the ability to distinguish turns within a session.
 
-Recommendation: Keep `streamId = sessionId` for the DB key, and use `seq` ordering to distinguish turns. A `chat_user` event marks the start of each turn.
+**Resolved: Keep current `{sessionId}-{turnIndex}` for chat, `executionId` for execution.** The implementation confirmed that per-turn stream IDs work well with `useStreamEvents`. Using `sessionId` directly would require the hook to merge events across turns, adding complexity. The current approach keeps each turn's events isolated for clean hydration. `chat_user` events mark turn boundaries within the broader session, and `useStreamEvents` can be called with multiple stream IDs when the full session history is needed.
 
 **Q4: What is the upgrade path for the plan generation prompt?**
-Phase 4 requires the plan generation agent to use `astro-cli` tools instead of emitting JSON. This is a significant prompt engineering effort. Should we:
-- (a) Update the prompt and rely on the agent to figure it out, or
-- (b) Keep the JSON output format but have the *backend* parse it and execute the CLI tools, or
-- (c) Introduce a `create_plan` tool that accepts the full plan JSON in one call?
 
-Recommendation: Option (c) -- a single `create_plan` tool that accepts `{ nodes, edges }` and applies them atomically. This preserves the efficiency of single-response plan generation while routing through the tool system for consistency.
+**Resolved: CLI `plan create` command via Bash.** The original options were (a) update prompt for per-node tool calls, (b) backend-parsed JSON, or (c) a single atomic tool. We chose (c) — but via the CLI's `astro-cli plan create` command, which already exists in CLI v0.3.0 (PR #9). The agent pipes `{ nodes, edges }` JSON to stdin, and the CLI handles UUID generation, ID mapping, edge creation, and atomic DB persistence. The command returns a JSON `idMapping` so the agent can reference created nodes. No agent-runner config changes needed — plan tasks already have `Bash` access. The tool call produces a `tool_use`/`tool_result` pair in `streaming_events`, making plan creation recoverable after page refresh. The prompt change is minimal: replace "emit JSON in your text" with "call `astro-cli plan create --project-id {id} --json` with the plan piped to stdin."
+
+**Q5: Should Phase 3 Step 4 (POST + subscribe) be pursued?**
+
+**Open.** The rescoped Phase 3 (steps 1-3) removes the suppression logic without changing the transport. Step 4 would eliminate the direct SSE path entirely, providing architectural purity but adding latency. Decision criteria:
+- Measure text streaming latency through DB + Redis pub/sub path vs. direct SSE.
+- If delta < 50ms p99, proceed with Step 4.
+- If delta > 50ms, keep direct SSE as a latency optimization and accept the dual-path (which is safe after steps 1-3 eliminate the suppression guards).
+- This measurement should be done after Phase 2.5 and Phase 3 steps 1-3 ship.
 
 ---
 
 ## Appendix: File Impact Summary
 
-Files that will be **created:**
-- `src/hooks/use-stream-events.ts`
-- `src/components/activity-block-renderer.tsx`
-- `src/lib/stream-status.ts` (status derivation utility)
+Files **created** (Phase 1-2, shipped):
+- `src/hooks/use-stream-events.ts` -- shipped
+- `src/components/activity-block-renderer.tsx` -- shipped
+- `src/lib/stream-status.ts` -- shipped
 
-Files that will be **significantly modified:**
-- `server/routes/agent.ts` (persist chat_user, metrics, compaction events)
-- `src/stores/realtime-store.ts` (remove `isChatSessionStream`, handle all event types uniformly)
-- `src/stores/session-store.ts` (remove streaming infrastructure, keep session/message management)
-- `src/stores/execution-store.ts` (remove direct SSE parsing, use global bus)
-- `src/components/activity-blocks.tsx` (add shared block components)
-- `src/components/plan-generation/plan-generation.tsx` (simplify to use `useStreamEvents`)
+Files **significantly modified** (Phase 1-2, shipped):
+- `server/routes/agent.ts` -- shipped (persist chat_user, metrics, compaction events)
+- `src/components/plan-generation/plan-generation.tsx` -- shipped (uses `useStreamEvents`)
+- `src/components/agent/chat-panel.tsx` -- shipped (uses `useStreamEvents`)
+- `src/pages/playground.tsx` -- shipped (uses `useStreamEvents`)
+- `src/components/task-detail/unified-activity-view.tsx` -- shipped (uses `useStreamEvents`)
 
-Files that will be **deleted** (Phase 4):
-- `src/lib/plan-extraction.ts`
-- `src/hooks/use-chat-stream-events.ts`
+Files to be **modified** (Phase 2.5):
+- `server/lib/streaming-event-log.ts` (add watchdog job)
+- `server/lib/relay-server.ts` (add disconnect cleanup)
+- `server/routes/agent.ts` (abort with synthetic terminal event; emit `operational` events for heartbeat)
+- `server/routes/dispatch.ts` (emit `operational` events for dispatch heartbeat)
+- `src/stores/realtime-store.ts` (tab visibility recovery)
+- `packages/agent-runner/src/lib/task-executor.ts` (replace `stream.text("── [...]")` with `stream.operational()`)
+- `packages/agent-runner/src/lib/worktree.ts` (replace `stream.text("── [...]")` with `stream.operational()`)
+- `packages/core/src/types.ts` (add `operational` variant to `TaskActivityEvent`)
+- `src/lib/streaming-event-hydrator.ts` (map `operational` event type + legacy shim for old `text` rows)
+- `src/components/activity-blocks.tsx` (add `OperationalBlock`, remove regex branch from `TextBlock`)
+- `src/components/activity-block-renderer.tsx` (add `operational` case)
 
-Files that will be **deprecated then deleted** (after migration):
+Files to be **modified** (Phase 3, steps 1-3):
+- `src/stores/realtime-store.ts` (add seq-based dedup, remove `isChatSessionStream`)
+- `server/routes/agent.ts` (remove `activeDispatchStreams`)
+- `server/routes/events.ts` (remove `activeDispatchStreams` guards)
+
+Files to be **deleted** (Phase 2.5):
 - `src/hooks/use-restored-execution.ts`
 - `src/hooks/use-chat-activity-events.ts`
+- `src/hooks/use-chat-stream-events.ts`
+
+Files to be **modified** (Phase 4):
+- `packages/core/src/prompts/` (update plan generation prompt to use CLI commands)
+- `packages/cli/` (sync submodule pointer to v0.3.0+)
+
+Files to be **deleted** (Phase 4):
+- `src/lib/plan-extraction.ts`
+
+Files to be **deleted** (Phase 3 step 4, if pursued):
+- `parseChatSSE` and `parseExecutionSSE` from `src/lib/sse-parser.ts` (the base `parseSSEStream` remains)

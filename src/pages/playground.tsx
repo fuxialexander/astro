@@ -41,7 +41,6 @@ import { FileBrowser } from "@/components/file-browser"
 import { InlineApprovalCard } from "@/components/plan-generation/inline-approval-card"
 import {
   groupActivityEvents,
-  findSummaryBlockIndices,
   TextBlock,
   ToolBlock,
   ToolGroupBlock,
@@ -64,9 +63,7 @@ import { ProviderDropdown } from "@/components/execution/provider-dropdown"
 import { InstructionPicker } from "@/components/execution/instruction-picker"
 import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
 import type { TaskActivityEvent } from "@/types"
-import { useRestoredExecution } from "@/hooks/use-restored-execution"
-import { useChatStreamEvents } from "@/hooks/use-chat-stream-events"
-import { useChatActivityEvents } from "@/hooks/use-chat-activity-events"
+import { useStreamEvents } from "@/hooks/use-stream-events"
 import { JsonRenderView } from "@/components/ui/json-render-view"
 import type { Spec } from "@json-render/core"
 
@@ -154,7 +151,6 @@ export function Playground() {
 
   // Realtime state for activity events
   const executionId = execution?.executionId || ""
-  const taskStream = useRealtimeStore(useCallback((s) => s.taskStreams.get(executionId), [executionId]))
   const dynamicApprovalsMap = useRealtimeStore((s) => s.dynamicApprovals)
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
   const addSteerMessage = useRealtimeStore((s) => s.addSteerMessage)
@@ -353,37 +349,43 @@ export function Playground() {
     return () => unregisterMounted(chatSessionId)
   }, [chatSessionId, registerMounted, unregisterMounted])
 
-  // Get activity events — live during execution, restored from observations after refresh
-  const { activityEvents, isRestoring } = useRestoredExecution(
-    executionId,
-    execution,
-    taskStream,
-    isRunning,
+  // Unified stream events — replaces useRestoredExecution + useChatStreamEvents + useChatActivityEvents
+  const { activityEvents, isHydrating: isRestoring } = useStreamEvents(
+    executionId || undefined,
+    { execution },
   )
 
   // Chat stream events — live events from store-owned SSE land in realtime store
   const chatTaskStream = useRealtimeStore(useCallback((s) => s.taskStreams.get(chatSessionId), [chatSessionId]))
-  const liveChatEvents = chatTaskStream?.activityEvents || []
+  const liveChatEvents = useMemo(() => chatTaskStream?.activityEvents || [], [chatTaskStream?.activityEvents])
 
   // Local pushChatEvent for immediate user events (before store takes over)
-  const {
-    chatEventsRef,
-    chatEventsVersion,
-    pushChatEvent,
-  } = useChatStreamEvents()
+  const chatEventsRef = useRef<TaskActivityEvent[]>([])
+  const [chatEventsVersion, setChatEventsVersion] = useState(0)
+  const chatFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Hydrate chat events from streaming_events DB after page refresh
+  const pushChatEvent = useCallback((event: TaskActivityEvent) => {
+    chatEventsRef.current = [...chatEventsRef.current, event]
+    if (!chatFlushTimerRef.current) {
+      chatFlushTimerRef.current = setTimeout(() => {
+        setChatEventsVersion(v => v + 1)
+        chatFlushTimerRef.current = null
+      }, 50)
+    }
+  }, [])
+
+  useEffect(() => () => {
+    if (chatFlushTimerRef.current) clearTimeout(chatFlushTimerRef.current)
+  }, [])
+
+  // Hydrate chat events via useStreamEvents
   const playgroundSessionMessages = useMemo(() => chatSession?.messages || [], [chatSession?.messages])
-  const { activityEvents: hydratedChatEvents } = useChatActivityEvents(
+  const { activityEvents: hydratedChatEvents } = useStreamEvents(
     chatSession?.id,
-    playgroundSessionMessages,
-    isChatStreaming,
+    { legacySessionMessages: playgroundSessionMessages },
   )
 
-  // Merge: live store events > local ref events > hydrated events.
-  // Dedup: activity events from the execution stream and chat events from the session
-  // stream can overlap when catch-up hydration re-delivers events after the SSE bridge
-  // closes. We deduplicate by seq when available, falling back to (type, timestamp, content) fingerprint.
+  // Merge: live store events > local ref events > hydrated events
   const allActivityEvents: TaskActivityEvent[] = useMemo(() => {
     void chatEventsVersion
     const chatEvents = liveChatEvents.length > 0
@@ -392,12 +394,10 @@ export function Playground() {
         ? chatEventsRef.current
         : hydratedChatEvents
 
-    // Fast path: no overlap possible if either side is empty
     if (activityEvents.length === 0) return chatEvents
     if (chatEvents.length === 0) return activityEvents
 
-    // Deduplicate: prefer seq-based dedup (definitive), fall back to fingerprint heuristic.
-    // Always register fingerprint too, so seq'd activity events can block seq-less chat duplicates.
+    // Deduplicate by seq or fingerprint
     const seenSeqs = new Set<number>()
     const seenFingerprints = new Set<string>()
     for (const e of activityEvents) {
@@ -412,18 +412,11 @@ export function Playground() {
     })
 
     return [...activityEvents, ...dedupedChat]
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- chatEventsRef is a stable ref
   }, [activityEvents, chatEventsVersion, liveChatEvents, hydratedChatEvents])
 
   const displayBlocks = useMemo(() => {
     const blocks = groupActivityEvents(allActivityEvents)
-    // Deduplicate executive summary text blocks — catch-up hydration can deliver
-    // the same "## Executive Summary" text multiple times for old sessions.
-    // Keep only the last occurrence; remove earlier duplicates.
-    const summaryIndices = findSummaryBlockIndices(blocks)
-    if (summaryIndices.length <= 1) return blocks
-    const toRemove = new Set(summaryIndices.slice(0, -1))
-    return blocks.filter((_, i) => !toRemove.has(i))
+    return blocks
   }, [allActivityEvents])
 
   const pendingApprovals = useMemo(() => {

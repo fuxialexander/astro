@@ -132,6 +132,11 @@ async function streamChatViaRelay(
     })
   }
 
+  // Persist user message BEFORE starting the relay stream (unified streaming pipeline Phase 1)
+  if ((opts.type === 'chat' || opts.type === 'plan') && opts.prompt) {
+    await streamingEventLog.append(persistId, 'chat_user', { message: opts.prompt })
+  }
+
   // Emit task:init to global SSE so the frontend realtime store can track this
   // execution (enables dashboard/active-tasks to show it after page refresh).
   // The realtime store handler is idempotent (skips if execution entry exists).
@@ -201,6 +206,18 @@ async function streamChatViaRelay(
           }),
         }).catch(() => {})
         alive = false
+      }
+
+      // Persist metrics as a separate event for clean querying (unified streaming pipeline Phase 1)
+      if (metrics) {
+        await streamingEventLog.append(persistId, 'metrics', {
+          durationMs: metrics.durationMs,
+          inputTokens: metrics.inputTokens,
+          outputTokens: metrics.outputTokens,
+          totalCost: metrics.totalCost,
+          model: metrics.model,
+          numTurns: metrics.numTurns,
+        })
       }
 
       // Create taskExecutions record for cost tracking (chat pathways)
@@ -399,6 +416,12 @@ async function streamChatViaRelay(
     if (opts.preStreamEvents) {
       for (const evt of opts.preStreamEvents) {
         await stream.writeSSE({ event: evt.event, data: evt.data }).catch(() => { alive = false })
+        // Persist compaction events to streaming_events (unified streaming pipeline Phase 1)
+        if (evt.event === 'compaction') {
+          try {
+            await streamingEventLog.append(persistId, 'compaction', JSON.parse(evt.data))
+          } catch { /* ignore parse errors for malformed compaction data */ }
+        }
       }
     }
 
@@ -924,6 +947,19 @@ agentRoute.post('/abort', async (c) => {
 
   // Cancel via relay — forward abort to the agent runner
   relayServer.cancelTask(id, '')
+
+  // Insert a synthetic terminal event so the frontend sees the abort immediately,
+  // even if the relay/agent never responds. If the agent later sends its own
+  // terminal event, deriveStreamStatus() returns the first terminal state
+  // encountered (scanning backwards), so the abort wins.
+  streamingEventLog.append(id, 'result', {
+    status: 'aborted',
+    synthetic: true,
+    output: 'Aborted by user',
+  }).catch((err) => {
+    console.warn('[agent/abort] Failed to persist synthetic abort event:', (err as Error).message)
+  })
+
   return c.json({ aborted: true })
 })
 

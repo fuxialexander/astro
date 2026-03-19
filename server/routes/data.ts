@@ -29,6 +29,8 @@ import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.
 import { isServerMode } from '../lib/app-mode.js'
 import { getServiceClient } from '../lib/supabase.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
+import { streamingEventLog } from '../lib/streaming-event-log.js'
+import { redisPubSub } from '../lib/redis-pubsub.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import { startLoop } from '../lib/loop-controller.js'
 import { extractRepoInfo } from '../lib/git-url-utils.js'
@@ -800,6 +802,47 @@ app.put('/plan/:projectId', async (c) => {
       })
     }
   })
+
+  // If the CLI passed an executionId (from ASTRO_EXECUTION_ID env), emit a
+  // plan_result streaming event. This links the plan creation to the execution's
+  // SSE pipeline so the frontend renders PlanGraphBlock inline and YOLO
+  // auto-dispatch can trigger immediately (plan nodes already in DB above).
+  const executionId = (body as Record<string, unknown>).executionId as string | undefined
+  if (executionId && typeof executionId === 'string') {
+    const planResultData = {
+      nodes: uniqueNodes.map((n) => ({
+        id: n.id as string,
+        title: n.title as string,
+        type: (n.type as string) || 'task',
+        status: (n.status as string) || 'planned',
+      })),
+      edges: newEdges.map((e) => ({
+        source: e.source as string,
+        target: e.target as string,
+      })),
+      projectName: (body as Record<string, unknown>).projectName as string | undefined,
+    }
+    streamingEventLog.append(executionId, 'plan_result', planResultData).then((seq) => {
+      // Broadcast via Redis pub/sub for cross-instance real-time delivery.
+      // The SSE handler in events.ts picks this up and sends to the browser.
+      redisPubSub.publishStreamingEvent({
+        eventType: 'plan_result',
+        taskId: executionId,
+        userId: user.id,
+        data: { ...planResultData, projectId },
+        dbSeq: seq,
+      }).catch(() => {})
+      // Also emit locally for single-instance mode (no Redis).
+      executionEventBus.emit('task:plan_result', {
+        taskId: executionId,
+        projectId,
+        data: planResultData,
+        dbSeq: seq,
+      })
+    }).catch((err) => {
+      console.warn('[data/plan] Failed to emit plan_result event:', (err as Error).message)
+    })
+  }
 
   return c.json({ ok: true, numbers })
 })

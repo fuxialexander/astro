@@ -23,7 +23,7 @@ import { PrStatusCard } from "@/components/task-detail/pr-status-card"
 import { statusBadgeVariants } from "@/lib/status-config"
 import { formatDuration } from "@/lib/date-utils"
 import { cn, getShortId } from "@/lib/utils"
-import { useRestoredExecution } from "@/hooks/use-restored-execution"
+import { useStreamEvents } from "@/hooks/use-stream-events"
 
 export type PanelSize = 'default' | 'three-quarter' | 'full'
 
@@ -77,13 +77,11 @@ export function TaskDetail() {
   const isRunning = !!node && (node.status === "in_progress" || node.status === "dispatched")
     && execution?.status !== "success" && execution?.status !== "failure" && execution?.status !== "cancelled"
 
-  // Get file changes from live execution or restored observations
+  // Get file changes from unified stream events hook
   // Hook must be called before any early returns (Rules of Hooks)
-  const { fileChanges: restoredFileChanges } = useRestoredExecution(
-    executionId,
-    execution,
-    taskStream,
-    isRunning,
+  const { fileChanges: restoredFileChanges } = useStreamEvents(
+    executionId || undefined,
+    { execution },
   )
 
   if (!node || !projectId) {

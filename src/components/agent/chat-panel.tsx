@@ -16,15 +16,14 @@ import { TypingIndicator } from "@/components/ui/typing-indicator"
 import { fetchSlashCommands, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
 import { useSettingsStore, resolveModel } from "@/stores/settings-store"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
-import { useRealtimeStore } from "@/stores/realtime-store"
+
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore, getSessionTitle } from "@/stores/session-store"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { useProjectMachineId } from "@/hooks/use-project-machine"
-import { useChatActivityEvents } from "@/hooks/use-chat-activity-events"
+import { useStreamEvents } from "@/hooks/use-stream-events"
 import {
-  groupActivityEvents,
   TextBlock,
   ToolBlock,
   ToolGroupBlock,
@@ -226,10 +225,9 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
   // Activity view: hydrate events from streaming_events or session messages
   const sessionMessages = useMemo(() => currentSession?.messages || [], [currentSession?.messages])
-  const { displayBlocks: sessionDisplayBlocks, isRestoring } = useChatActivityEvents(
+  const { displayBlocks: sessionDisplayBlocks, isHydrating: isRestoring } = useStreamEvents(
     currentSession?.id,
-    sessionMessages,
-    isStreaming,
+    { legacySessionMessages: sessionMessages, projectId },
   )
 
   // Plan gen execution events — when viewing a plan gen session, also load
@@ -237,30 +235,18 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   const isPlanSession = currentSession?.nodeId?.startsWith("plan-")
   const planExecutionId = isPlanSession ? planExecution?.executionId : undefined
 
-  const hydrateFromCatchUp = useRealtimeStore((s) => s.hydrateFromCatchUp)
-  const planHydratedRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (!planExecutionId) return
-    if (planHydratedRef.current === planExecutionId) return
-    planHydratedRef.current = planExecutionId
-    hydrateFromCatchUp([planExecutionId], 0)
-  }, [planExecutionId, hydrateFromCatchUp])
-
-  const planStream = useRealtimeStore(
-    useCallback((s) => planExecutionId ? s.taskStreams.get(planExecutionId) : undefined, [planExecutionId])
+  const { displayBlocks: planBlocks } = useStreamEvents(
+    planExecutionId,
   )
-  const planGenEvents = useMemo(() => planStream?.activityEvents ?? [], [planStream?.activityEvents])
 
   // Combine plan gen execution events + session chat events
   const displayBlocks = useMemo(() => {
-    if (planGenEvents.length === 0) return sessionDisplayBlocks
-    const planBlocks = groupActivityEvents(planGenEvents)
-    // If session also has events, merge them after plan gen events
+    if (planBlocks.length === 0) return sessionDisplayBlocks
     if (sessionDisplayBlocks.length > 0) {
       return [...planBlocks, ...sessionDisplayBlocks]
     }
     return planBlocks
-  }, [planGenEvents, sessionDisplayBlocks])
+  }, [planBlocks, sessionDisplayBlocks])
 
   // Plan store — read nodes/edges for context
   const rawPlanNodes = usePlanStore((s) => s.nodes)

@@ -32,6 +32,7 @@ export type RealtimeEventType =
   | 'approval:requested'
   | 'approval:responded'
   | 'task:ready'
+  | 'task:plan_result'
   | 'merge_queue:failed'
   | 'merge_queue:succeeded'
   | 'project:completed'
@@ -190,6 +191,7 @@ export class RealtimeClient {
       'approval:requested',
       'approval:responded',
       'task:ready',
+      'task:plan_result',
       'merge_queue:failed',
       'merge_queue:succeeded',
       'project:completed',

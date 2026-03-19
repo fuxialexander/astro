@@ -702,6 +702,18 @@ eventsRoute.get('/stream', async (c) => {
           stream.writeSSE({ id, event: 'task:ready', data }).catch(() => { alive = false })
           break
         }
+        case 'plan_result': {
+          // Plan created via CLI — broadcast to frontend for real-time PlanGraphBlock rendering
+          const prProjectId = msg.data.projectId as string | undefined
+          if (!prProjectId || !await isProjectOwnedByUser(prProjectId)) break
+          const prData = JSON.stringify({
+            taskId: msg.taskId,
+            ...msg.data,
+          })
+          const prId = msg.dbSeq ? String(msg.dbSeq) : eventBuffer.push('task:plan_result', prData)
+          stream.writeSSE({ id: prId, event: 'task:plan_result', data: prData }).catch(() => { alive = false })
+          break
+        }
         default:
           // Unknown event type from Redis — ignore silently.
           // New event types should be added as explicit cases above.
@@ -738,6 +750,15 @@ eventsRoute.get('/stream', async (c) => {
       stream.writeSSE({ id, event: 'node:status_changed', data }).catch(() => { alive = false })
     }
 
+    // Plan result from data API (local-instance fallback when Redis is unavailable)
+    const onPlanResult = async (msg: { taskId: string; projectId: string; data: Record<string, unknown>; dbSeq?: number }) => {
+      if (!alive) return
+      if (!await isProjectOwnedByUser(msg.projectId)) return
+      const data = JSON.stringify({ taskId: msg.taskId, ...msg.data, projectId: msg.projectId })
+      const id = msg.dbSeq ? String(msg.dbSeq) : eventBuffer.push('task:plan_result', data)
+      stream.writeSSE({ id, event: 'task:plan_result', data }).catch(() => { alive = false })
+    }
+
     // Subscribe to execution events (bridged from relay by dispatch.ts)
     executionEventBus.on('node:status_changed', onNodeStatusChanged)
     executionEventBus.on('task:init', onTaskInit)
@@ -749,6 +770,7 @@ eventsRoute.get('/stream', async (c) => {
     executionEventBus.on('task:file_change', onTaskFileChange)
     executionEventBus.on('task:session_init', onTaskSessionInit)
     executionEventBus.on('task:steer_ack', onTaskSteerAck)
+    executionEventBus.on('task:plan_result', onPlanResult)
     executionEventBus.on('merge_queue:failed', onMergeQueueFailed)
     executionEventBus.on('merge_queue:succeeded', onMergeQueueSucceeded)
 
@@ -848,6 +870,7 @@ eventsRoute.get('/stream', async (c) => {
       executionEventBus.off('task:file_change', onTaskFileChange)
       executionEventBus.off('task:session_init', onTaskSessionInit)
       executionEventBus.off('task:steer_ack', onTaskSteerAck)
+      executionEventBus.off('task:plan_result', onPlanResult)
       executionEventBus.off('merge_queue:failed', onMergeQueueFailed)
       executionEventBus.off('merge_queue:succeeded', onMergeQueueSucceeded)
 

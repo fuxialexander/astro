@@ -301,21 +301,19 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       get().reconcileRunningTasks()
 
       const { taskStreams, hydrateFromCatchUp } = get()
-      // Collect execution IDs from all active task execution streams.
+      // Collect execution IDs from all non-chat task streams that have events.
       // Skip chat-session streams — they self-manage via useChatActivityEvents.
-      // The global reconnect must not update them or it would add current-turn
-      // events to hydratedChatEvents that are already in chatEventsRef, causing
-      // duplication in the merged activity feed. Chat streams are identified by
-      // deriving from the DB-backed session type (project-chat / task-chat).
+      // Catch up ALL streams (not just running ones) so that transitions that
+      // occurred while the tab was hidden (e.g., task completed) are recovered.
       const activeIds: string[] = []
       for (const [execId, stream] of taskStreams) {
         if (isChatSessionStream(execId)) continue
-        if (stream.status === 'running' || stream.status === 'in_progress') {
+        if (stream.activityEvents.length > 0 || stream.status === 'running' || stream.status === 'in_progress') {
           activeIds.push(execId)
         }
       }
       if (activeIds.length > 0) {
-        console.log('[realtime] SSE reconnected, catching up', activeIds.length, 'active executions from seq', realtimeClient.lastSeq)
+        console.log('[realtime] SSE reconnected, catching up', activeIds.length, 'streams from seq', realtimeClient.lastSeq)
         hydrateFromCatchUp(activeIds, realtimeClient.lastSeq)
       }
     }
@@ -2076,6 +2074,37 @@ function handleRealtimeEvent(
     case 'task:ready': {
       addActivity(set, 'info', `Downstream task dispatching server-side`)
       // Server handles dispatch — frontend just tracks status via SSE
+      break
+    }
+
+    case 'task:plan_result': {
+      // Plan created via CLI — push plan_result activity event into the task stream
+      // so PlanGraphBlock renders inline, and trigger plan store refresh from DB.
+      const execId = data.taskId as string
+      const nodes = data.nodes as Array<{ id: string; title: string; type: string; status?: string }>
+      const edges = data.edges as Array<{ source: string; target: string }>
+      const projectName = data.projectName as string | undefined
+      const timestamp = new Date()
+
+      set((state) => {
+        const streams = new Map(state.taskStreams)
+        const stream = streams.get(execId) || createEmptyTaskStream(execId)
+        streams.set(execId, {
+          ...stream,
+          activityEvents: [
+            ...stream.activityEvents,
+            { type: 'plan_result' as const, nodes, edges, projectName, timestamp },
+          ],
+        })
+        return { taskStreams: streams }
+      })
+
+      // Refresh plan store from DB (plan nodes were already created by the CLI)
+      import('@/stores/plan-store').then(({ usePlanStore }) => {
+        usePlanStore.getState().load()
+      })
+
+      addActivity(set, 'info', `Plan created: ${nodes.length} nodes`)
       break
     }
   }

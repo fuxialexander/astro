@@ -1338,7 +1338,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     useWorktree,
     images,
     skipSafetyCheck: isBuiltinTemplate || (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && safetyDecision !== null) || !workingDirectory,
-    ...(isInteractivePlan ? { type: 'plan' as const, useWorktree: false, deliveryMode: 'direct' as const } : {}),
+    ...(isInteractivePlan ? { useWorktree: false, deliveryMode: 'direct' as const } : {}),
     ...(nodeId.startsWith('playground-') && !isInteractivePlan ? { type: 'playground' as const } : {}),
     ...(relaySystemPrompt ? { systemPrompt: relaySystemPrompt } : {}),
     ...(astroBaseUrl && { astroBaseUrl }),
