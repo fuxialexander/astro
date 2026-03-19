@@ -130,6 +130,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     return map
   }, [planNodes])
 
+  // Build project ID set for fast orphan detection
+  const projectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects])
+
   // Count total active tasks + generations + chat streams, and which projects have running work
   const { activeCount, projectsWithRunning } = useMemo(() => {
     let count = 0
@@ -141,6 +144,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
         const node = planNodesById.get(nodeId)
         // Skip stale executions: node has terminal status but execution still shows running
         if (node && TERMINAL_NODE_STATUSES.has(node.status)) continue
+        // Skip orphaned plan/playground executions whose project was deleted
+        const projectId = exec.projectId || node?.projectId
+        if (!node && projectId && !projectIds.has(projectId)) continue
         count++
         if (node?.projectId) running.add(node.projectId)
         if (exec.projectId) running.add(exec.projectId)
@@ -170,7 +176,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     }
 
     return { activeCount: count, projectsWithRunning: running }
-  }, [executions, planNodes, planNodesById, batchExecutions, streamingSessions, allSessions])
+  }, [executions, planNodes, planNodesById, batchExecutions, streamingSessions, allSessions, projectIds])
 
   // Count pending plan approvals for the Plan nav badge
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)

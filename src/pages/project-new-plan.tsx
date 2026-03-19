@@ -1148,7 +1148,18 @@ export function ProjectNewPlan() {
                             setActiveProjectId(null)
                             setSearchParams({})
                           }
-                          allExecutions.delete(`plan-${p.id}`)
+                          // Cancel any running generation first, then clean up via store
+                          const execStore = useExecutionStore.getState()
+                          const exec = execStore.executions.get(`plan-${p.id}`)
+                          if (exec?.status === 'pending' || exec?.status === 'running') {
+                            execStore.cancelPlanGeneration(p.id)
+                          }
+                          // Remove execution entry through Zustand set() (not direct Map mutation)
+                          useExecutionStore.setState((state) => {
+                            const next = new Map(state.executions)
+                            next.delete(`plan-${p.id}`)
+                            return { executions: next }
+                          })
                           deleteProject(p.id)
                         }}
                         className="p-0.5 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 [@media(hover:none)]:opacity-60 hover:bg-destructive/10 transition-all text-destructive"
