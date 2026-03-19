@@ -197,7 +197,7 @@ schedulesRoute.get('/', async (c) => {
 
   const result = await db.select()
     .from(schedules)
-    .where(eq(schedules.projectId, projectId))
+    .where(and(eq(schedules.projectId, projectId), isNull(schedules.deletedAt)))
     .orderBy(desc(schedules.createdAt))
 
   return c.json({ success: true, data: result })
@@ -317,7 +317,7 @@ schedulesRoute.delete('/:id', async (c) => {
     return c.json({ success: false, error: 'Schedule not found' }, 404)
   }
 
-  await db.delete(schedules).where(eq(schedules.id, id))
+  await db.update(schedules).set({ deletedAt: new Date() }).where(eq(schedules.id, id))
 
   return c.json({ success: true })
 })

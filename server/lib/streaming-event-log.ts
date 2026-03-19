@@ -9,7 +9,7 @@
 
 import { db } from './db/index.js'
 import { streamingEvents } from './db/schema.js'
-import { eq, gt, and, inArray, lt, sql } from 'drizzle-orm'
+import { eq, gt, and, inArray, lt, sql, isNull } from 'drizzle-orm'
 
 export interface StreamingEvent {
   seq: number
@@ -106,6 +106,7 @@ class StreamingEventLog {
           and(
             inArray(streamingEvents.executionId, executionIds),
             gt(streamingEvents.seq, afterSeq),
+            isNull(streamingEvents.deletedAt),
           ),
         )
         .orderBy(streamingEvents.seq)
@@ -160,6 +161,7 @@ class StreamingEventLog {
             eq(streamingEvents.executionId, executionId),
             eq(streamingEvents.eventType, 'steer_message'),
             sql`${streamingEvents.data}->>'status' = 'pending'`,
+            isNull(streamingEvents.deletedAt),
           ),
         )
         .orderBy(streamingEvents.seq)

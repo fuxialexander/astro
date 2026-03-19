@@ -346,7 +346,7 @@ app.delete('/projects/:id', async (c) => {
 app.get('/initiatives', async (c) => {
   const user = c.get('user')! as AuthUser
   const rows = await db.select().from(initiatives).where(
-    eq(initiatives.teamId, user.teamId)
+    and(eq(initiatives.teamId, user.teamId), isNull(initiatives.deletedAt))
   )
   return c.json(rows)
 })
@@ -446,7 +446,7 @@ app.delete('/initiatives/:id', async (c) => {
       .set({ initiativeId: null })
       .where(eq(projects.initiativeId, initiativeId))
 
-    await db.delete(initiatives).where(
+    await db.update(initiatives).set({ deletedAt: new Date() }).where(
       and(eq(initiatives.id, initiativeId), teamFilter)
     )
     return c.json({ ok: true })
@@ -1215,11 +1215,12 @@ app.delete('/plan/nodes/:id', async (c) => {
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
-  // Delete edges referencing this node first
-  await db.delete(planEdges).where(
+  // Soft-delete edges referencing this node first
+  const now = new Date()
+  await db.update(planEdges).set({ deletedAt: now }).where(
     or(eq(planEdges.sourceClientId, id), eq(planEdges.targetClientId, id))
   )
-  await db.delete(planNodes).where(eq(planNodes.clientId, id))
+  await db.update(planNodes).set({ deletedAt: now }).where(eq(planNodes.clientId, id))
   return c.json({ ok: true })
 })
 
@@ -1257,7 +1258,7 @@ app.delete('/plan/edges/:id', async (c) => {
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
-  await db.delete(planEdges).where(eq(planEdges.clientId, id))
+  await db.update(planEdges).set({ deletedAt: new Date() }).where(eq(planEdges.clientId, id))
   return c.json({ ok: true })
 })
 
@@ -1464,7 +1465,7 @@ app.post('/usage/project-costs', async (c) => {
     totalCost: sql<number>`coalesce(sum(${taskExecutions.estimatedCostUsd}), 0)`,
   })
     .from(taskExecutions)
-    .where(inArray(taskExecutions.projectId, accessibleIds))
+    .where(and(inArray(taskExecutions.projectId, accessibleIds), isNull(taskExecutions.deletedAt)))
     .groupBy(taskExecutions.projectId)
 
   const result: Record<string, number> = {}
@@ -1516,7 +1517,7 @@ app.get('/chat', async (c) => {
   // via GET /chat/:nodeId. This eliminates the N+1 query loop and reduces
   // egress from fetching all messages for all chats on every page load.
   const chatSessions = await db.select().from(taskChatSessions).where(
-    and(eq(taskChatSessions.userId, user.id), inArray(taskChatSessions.projectId, projectIds))
+    and(eq(taskChatSessions.userId, user.id), inArray(taskChatSessions.projectId, projectIds), isNull(taskChatSessions.deletedAt))
   )
 
   const result: Record<string, { session: typeof chatSessions[0]; messages: Array<typeof taskChatMessages.$inferSelect>; messageCount: number }> = {}
@@ -1549,7 +1550,7 @@ app.get('/chat', async (c) => {
 app.get('/chat/:nodeId', async (c) => {
   const nodeId = c.req.param('nodeId')
   const [session] = await db.select().from(taskChatSessions).where(
-    and(eq(taskChatSessions.nodeId, nodeId), eq(taskChatSessions.userId, c.get('user')!.id))
+    and(eq(taskChatSessions.nodeId, nodeId), eq(taskChatSessions.userId, c.get('user')!.id), isNull(taskChatSessions.deletedAt))
   )
   if (!session) return c.json(null)
 
@@ -1639,8 +1640,8 @@ app.delete('/chat/:nodeId', async (c) => {
   )
 
   if (session) {
-    // Messages will cascade delete via foreign key
-    await db.delete(taskChatSessions).where(eq(taskChatSessions.id, session.id))
+    // Soft-delete: mark as deleted instead of removing (messages remain in DB)
+    await db.update(taskChatSessions).set({ deletedAt: new Date() }).where(eq(taskChatSessions.id, session.id))
   }
 
   return c.json({ ok: true })
@@ -1682,7 +1683,7 @@ app.get('/sessions', async (c) => {
       LIMIT 1
     )`,
   }).from(sessions).where(
-    and(eq(sessions.userId, user.id), inArray(sessions.projectId, projectIds))
+    and(eq(sessions.userId, user.id), inArray(sessions.projectId, projectIds), isNull(sessions.deletedAt))
   )
   return c.json(userSessions)
 })
@@ -1691,7 +1692,7 @@ app.get('/sessions/:sessionId', async (c) => {
   const sessionId = c.req.param('sessionId')
   const userId = c.get('user')!.id
   const [session] = await db.select().from(sessions).where(
-    and(eq(sessions.id, sessionId), eq(sessions.userId, userId))
+    and(eq(sessions.id, sessionId), eq(sessions.userId, userId), isNull(sessions.deletedAt))
   )
   return c.json(session || null)
 })
@@ -1742,7 +1743,7 @@ app.delete('/sessions/:sessionId', async (c) => {
   const sessionId = c.req.param('sessionId')
   const userId = c.get('user')!.id
 
-  await db.delete(sessions).where(
+  await db.update(sessions).set({ deletedAt: new Date() }).where(
     and(eq(sessions.id, sessionId), eq(sessions.userId, userId))
   )
 
@@ -1816,7 +1817,7 @@ app.get('/executions', async (c) => {
     summary: taskExecutions.summary,
   }
 
-  const filtered = await db.select(columns).from(taskExecutions).where(inArray(taskExecutions.projectId, ids))
+  const filtered = await db.select(columns).from(taskExecutions).where(and(inArray(taskExecutions.projectId, ids), isNull(taskExecutions.deletedAt)))
 
   // Convert to map keyed by nodeClientId.
   const result: Record<string, unknown> = {}
@@ -1919,7 +1920,7 @@ app.get('/executions/:nodeId', async (c) => {
     startedAt: taskExecutions.startedAt,
     completedAt: taskExecutions.completedAt,
   }).from(taskExecutions)
-    .where(eq(taskExecutions.nodeClientId, nodeId))
+    .where(and(eq(taskExecutions.nodeClientId, nodeId), isNull(taskExecutions.deletedAt)))
     .orderBy(desc(taskExecutions.createdAt))
     .limit(1)
 
@@ -1963,12 +1964,13 @@ app.delete('/executions/:nodeId', async (c) => {
 
   const executionIds = nodeExecutions.map(e => e.executionId)
 
-  // Delete streaming events first (references execution_id)
-  await db.delete(streamingEvents)
+  // Soft-delete streaming events (references execution_id)
+  const now = new Date()
+  await db.update(streamingEvents).set({ deletedAt: now })
     .where(inArray(streamingEvents.executionId, executionIds))
 
-  // Delete execution records
-  await db.delete(taskExecutions)
+  // Soft-delete execution records
+  await db.update(taskExecutions).set({ deletedAt: now })
     .where(eq(taskExecutions.nodeClientId, nodeId))
 
   return c.json({ ok: true })
@@ -2078,6 +2080,7 @@ app.get('/search', async (c) => {
     .innerJoin(projects, eq(taskExecutions.projectId, projects.id))
     .where(and(
       allTeamsScopeFilter(projects, user),
+      isNull(taskExecutions.deletedAt),
       or(
         sql`${taskExecutions.executionId} ILIKE ${pattern}`,
         sql`${taskExecutions.streamText} ILIKE ${pattern}`
@@ -2179,7 +2182,7 @@ app.get('/activities', async (c) => {
   const projectId = c.req.query('projectId')
   const limit = parseInt(c.req.query('limit') || '100', 10)
 
-  const conditions = [eq(activityEvents.userId, c.get('user')!.id)]
+  const conditions = [eq(activityEvents.userId, c.get('user')!.id), isNull(activityEvents.deletedAt)]
   if (projectId) {
     conditions.push(eq(activityEvents.projectId, projectId))
   }
@@ -2209,7 +2212,7 @@ app.post('/activities', async (c) => {
 
 app.delete('/activities/:projectId', async (c) => {
   const projectId = c.req.param('projectId')
-  await db.delete(activityEvents).where(
+  await db.update(activityEvents).set({ deletedAt: new Date() }).where(
     and(eq(activityEvents.userId, c.get('user')!.id), eq(activityEvents.projectId, projectId))
   )
   return c.json({ ok: true })
@@ -2264,7 +2267,7 @@ app.get('/blobs/:id', async (c) => {
 
   // Ownership check: blob must belong to the same team or be owned by the user
   const [row] = await db.select().from(blobs).where(
-    and(eq(blobs.id, id), allTeamsScopeFilter(blobs, user))
+    and(eq(blobs.id, id), allTeamsScopeFilter(blobs, user), isNull(blobs.deletedAt))
   )
   if (!row) return c.json({ error: 'Blob not found' }, 404)
 
@@ -2289,7 +2292,7 @@ app.delete('/blobs/:id', async (c) => {
   if (!row) return c.json({ error: 'Blob not found' }, 404)
   if (row.ownerId !== user.id) return c.json({ error: 'Not authorized' }, 403)
 
-  await db.delete(blobs).where(eq(blobs.id, id))
+  await db.update(blobs).set({ deletedAt: new Date() }).where(eq(blobs.id, id))
   return c.json({ ok: true })
 })
 
@@ -2309,7 +2312,7 @@ app.get('/comments', async (c) => {
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
   const rows = await db.select().from(nodeComments)
-    .where(eq(nodeComments.nodeId, nodeId))
+    .where(and(eq(nodeComments.nodeId, nodeId), isNull(nodeComments.deletedAt)))
     .orderBy(nodeComments.createdAt)
 
   return c.json(rows)
@@ -2351,7 +2354,7 @@ app.delete('/comments/:id', async (c) => {
   if (!row) return c.json({ error: 'Comment not found' }, 404)
   if (row.authorId !== user.id) return c.json({ error: 'Not authorized' }, 403)
 
-  await db.delete(nodeComments).where(eq(nodeComments.id, id))
+  await db.update(nodeComments).set({ deletedAt: new Date() }).where(eq(nodeComments.id, id))
   return c.json({ ok: true })
 })
 
@@ -2360,10 +2363,13 @@ app.delete('/comments/:id', async (c) => {
 app.get('/environment-configs', async (c) => {
   const user = c.get('user')! as AuthUser
   const rows = await db.select().from(environmentConfigs).where(
-    or(
-      eq(environmentConfigs.userId, user.id),
-      user.teamId ? eq(environmentConfigs.teamId, user.teamId) : undefined
-    )!
+    and(
+      or(
+        eq(environmentConfigs.userId, user.id),
+        user.teamId ? eq(environmentConfigs.teamId, user.teamId) : undefined
+      )!,
+      isNull(environmentConfigs.deletedAt)
+    )
   )
   return c.json(rows)
 })
@@ -2450,7 +2456,7 @@ app.delete('/environment-configs/:id', async (c) => {
   if (!row) return c.json({ error: 'Config not found' }, 404)
   if (row.userId !== user.id) return c.json({ error: 'Not authorized' }, 403)
 
-  await db.delete(environmentConfigs).where(eq(environmentConfigs.id, id))
+  await db.update(environmentConfigs).set({ deletedAt: new Date() }).where(eq(environmentConfigs.id, id))
   return c.json({ ok: true })
 })
 
@@ -2495,7 +2501,7 @@ app.get('/knowledge', async (c) => {
   if (!project) return c.json({ error: 'Not found' }, 404)
 
   const rows = await db.select().from(projectKnowledge)
-    .where(eq(projectKnowledge.projectId, projectId))
+    .where(and(eq(projectKnowledge.projectId, projectId), isNull(projectKnowledge.deletedAt)))
     .orderBy(desc(projectKnowledge.updatedAt))
 
   return c.json(rows)
@@ -2557,7 +2563,7 @@ app.delete('/knowledge/:id', async (c) => {
   )
   if (!project) return c.json({ error: 'Not authorized' }, 403)
 
-  await db.delete(projectKnowledge).where(eq(projectKnowledge.id, id))
+  await db.update(projectKnowledge).set({ deletedAt: new Date() }).where(eq(projectKnowledge.id, id))
   return c.json({ ok: true })
 })
 
