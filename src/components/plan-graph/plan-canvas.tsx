@@ -8,6 +8,7 @@ import {
   BackgroundVariant,
   useReactFlow,
   ConnectionLineType,
+  MarkerType,
   type Node,
   type Edge,
   type Connection,
@@ -32,7 +33,7 @@ import { calculateChildPosition, calculateParentPosition, computeEdgeHandles, co
 import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
-import { getMilestoneColor, STATUS_DOT_COLOR, PRIORITY_PIP_COLOR, GRAPH_EDGE_COLOR } from "@/components/plan-graph/plan-node-shared"
+import { getMilestoneColor, STATUS_DOT_COLOR, PRIORITY_PIP_COLOR } from "@/components/plan-graph/plan-node-shared"
 
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -182,14 +183,14 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
 
   const projectEdges = useMemo(() => {
     const nodeIds = new Set(projectNodes.map((n) => n.id))
+    // Identify milestone nodes — task→milestone edges are hidden (visual grouping is enough)
+    const milestoneIds = new Set(projectNodes.filter((n) => n.type === 'milestone').map((n) => n.id))
     const allProjectNodeIds = new Set(planNodes.filter((n) => n.projectId === projectId).map((n) => n.id))
     const allProjectEdges = planEdges.filter((e) =>
       allProjectNodeIds.has(e.source) || allProjectNodeIds.has(e.target)
     )
 
-    // Direct edges where both endpoints are visible (tasks or milestones).
-    // Milestones are gate nodes: edges go task→milestone→task. Since milestones
-    // are rendered as visible nodes, draw edges to/from them directly.
+    // Direct edges where both endpoints are visible.
     const directEdges = allProjectEdges.filter((e) =>
       nodeIds.has(e.source) && nodeIds.has(e.target)
     )
@@ -230,10 +231,14 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
       }
     }
 
-    // Deduplicate by source→target pair (keep first occurrence)
+    // Deduplicate by source→target pair (keep first occurrence).
+    // Filter out task→milestone membership edges (too noisy — tasks are already
+    // visually grouped under their milestone column). Keep milestone→milestone
+    // ordering edges and milestone→task prerequisite edges.
     const all = [...directEdges, ...bridgeEdges]
     const seen = new Set<string>()
     return all.filter((e) => {
+      if (milestoneIds.has(e.target) && !milestoneIds.has(e.source)) return false
       const key = `${e.source}->${e.target}`
       if (seen.has(key)) return false
       seen.add(key)
@@ -549,15 +554,11 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   const rfEdges: Edge[] = useMemo(
     () =>
       projectEdges.filter((e) => !redundantEdgeIds.has(e.id)).map((e) => {
-          // Determine edge color based on target node status
+          // Edge color: green for completed targets, neutral for everything else.
+          // #94A3B8 (slate-400) is visible in both light and dark themes.
           const targetNode = projectNodes.find((n) => n.id === e.target)
-          const edgeColor = (() => {
-            if (!targetNode) return "#94A3B8"
-            const status = targetNode.status
-            if (status === "completed" || status === "auto_verified") return "#22C55E"
-            if (status === "in_progress" || status === "dispatched") return "#F97316"
-            return "#94A3B8"
-          })()
+          const isCompleted = targetNode && (targetNode.status === "completed" || targetNode.status === "auto_verified")
+          const edgeColor = isCompleted ? "#22C55E" : "#94A3B8"
 
           // Pick optimal handle pair based on relative node positions
           const { sourceHandle, targetHandle } = computeEdgeHandles(
@@ -578,7 +579,12 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
               strokeWidth: 2.5,
               strokeLinecap: "round" as const,
             },
-            animated: e.type === "branch",
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color: edgeColor,
+              width: 12,
+              height: 12,
+            },
           }
         }),
     [projectEdges, projectNodes, nodePositionMap, handleEdgeDelete, readOnly, redundantEdgeIds]
@@ -861,20 +867,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
             <span className="text-[9px] text-muted-foreground/70">{label}</span>
           </span>
         ))}
-        <div className="w-px h-3 bg-border shrink-0" />
-        <span className="flex items-center gap-1 shrink-0">
-          <svg width="18" height="6" className="shrink-0">
-            <line x1="0" y1="3" x2="18" y2="3" stroke={GRAPH_EDGE_COLOR} strokeWidth="1.5" strokeDasharray="4 3" opacity="0.8" />
-          </svg>
-          <span className="text-[9px] text-muted-foreground/70">active dep</span>
-        </span>
-        <span className="flex items-center gap-1 shrink-0">
-          <svg width="18" height="6" className="shrink-0">
-            <line x1="0" y1="3" x2="14" y2="3" stroke={GRAPH_EDGE_COLOR} strokeWidth="1.5" opacity="0.7" />
-            <polygon points="14,0 18,3 14,6" fill={GRAPH_EDGE_COLOR} opacity="0.7" />
-          </svg>
-          <span className="text-[9px] text-muted-foreground/70">depends on</span>
-        </span>
       </div>
 
       <div ref={canvasRef} className="relative flex-1">
@@ -888,7 +880,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
         onConnect={readOnly ? undefined : onConnect}
         onConnectStart={readOnly ? undefined : onConnectStart}
         onConnectEnd={readOnly ? undefined : onConnectEnd}
-        connectionLineType={ConnectionLineType.Bezier}
+        connectionLineType={ConnectionLineType.SmoothStep}
         connectionLineStyle={{
           stroke: "var(--primary)",
           strokeWidth: 3,
