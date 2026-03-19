@@ -427,9 +427,9 @@ dispatchRoute.post('/task', async (c) => {
   let loopStatus: string | null | undefined
   let loopCurrentIteration: number | null | undefined
   try {
-    // Fetch plan node
+    // Fetch plan node (exclude soft-deleted)
     const [dbNode] = await db.select().from(planNodes)
-      .where(eq(planNodes.clientId, nodeId)).limit(1)
+      .where(and(eq(planNodes.clientId, nodeId), isNull(planNodes.deletedAt))).limit(1)
     // Fetch project (team-scoped: verify the user has access)
     const [dbProject] = await db.select().from(projects)
       .where(and(
@@ -477,7 +477,7 @@ dispatchRoute.post('/task', async (c) => {
           prNumber: planNodes.prNumber,
           branchName: planNodes.branchName,
         }).from(planNodes)
-          .where(eq(planNodes.projectId, projectId))
+          .where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
 
         for (const depId of dependencies) {
           const depNode = allProjectNodes.find(n => n.clientId === depId)
@@ -2798,10 +2798,10 @@ dispatchRoute.post('/prune', async (c) => {
     }
   }
 
-  // 1. Look up the node
+  // 1. Look up the node (exclude soft-deleted)
   const [node] = await db.select()
     .from(planNodes)
-    .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+    .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
     .limit(1)
 
   if (!node) {
@@ -3164,8 +3164,8 @@ dispatchRoute.post('/reset', async (c) => {
   const user = c.get('user') as AuthUser | undefined
   const userId = user?.id || LOCAL_USER_ID
 
-  // Load the node to get current PR/branch data
-  const [node] = await db.select().from(planNodes).where(eq(planNodes.clientId, nodeId)).limit(1)
+  // Load the node to get current PR/branch data (exclude soft-deleted)
+  const [node] = await db.select().from(planNodes).where(and(eq(planNodes.clientId, nodeId), isNull(planNodes.deletedAt))).limit(1)
   if (!node) {
     return c.json({ success: false, error: 'Node not found' }, 404)
   }
@@ -3361,8 +3361,8 @@ dispatchRoute.post('/bulk-reset', async (c) => {
   const userId = user?.id || LOCAL_USER_ID
   const errors: string[] = []
 
-  // 1. Load all referenced plan nodes in a single query
-  const nodes = await db.select().from(planNodes).where(inArray(planNodes.clientId, nodeIds))
+  // 1. Load all referenced plan nodes in a single query (exclude soft-deleted)
+  const nodes = await db.select().from(planNodes).where(and(inArray(planNodes.clientId, nodeIds), isNull(planNodes.deletedAt)))
   if (nodes.length === 0) {
     return c.json({ success: false, error: 'No matching nodes found' }, 404)
   }
