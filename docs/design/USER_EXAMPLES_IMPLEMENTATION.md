@@ -4,13 +4,42 @@
 > Status: READY TO IMPLEMENT
 > Design doc: [USER_EXAMPLES_AND_PROMPT_TEMPLATES.md](./USER_EXAMPLES_AND_PROMPT_TEMPLATES.md)
 
-This document contains the concrete, file-by-file implementation plan. Each phase is a self-contained PR.
+This document contains the concrete, file-by-file implementation plan. Each phase is a self-contained PR that delivers a **vertical slice** (backend + frontend together) behind the `user-examples` feature flag.
+
+## CRITICAL: Feature Flag Discipline
+
+The server is deployed and live. **Every new endpoint, UI section, store load, and page modification must be gated behind the `user-examples` feature flag.** External users must see zero changes until GA.
+
+### Flag Enforcement Checklist (applies to ALL phases)
+
+| Layer | How to Gate |
+|-------|-------------|
+| **Backend routes** | Feature-gate middleware: `if (!hasFeature(team?.featureFlags, 'user-examples')) return c.json({ error: 'Feature not enabled' }, 403)` on every new route group |
+| **Existing route changes** | `GET /api/examples` response shape must NOT change for unflagged teams — only add `custom` field when flag is on |
+| **Frontend sections** | `const userExamplesEnabled = useFeatureFlag('user-examples')` — wrap all new UI in `{userExamplesEnabled && (...)}` |
+| **Store loading** | Do NOT call `load()` for custom-example-store or prompt-template-store unless flag is on — avoids 403 errors for unflagged users |
+| **Data loader** | Gate the new store loads: `if (hasFeature) { loadCustomExamples(); loadPromptTemplates(); }` |
+| **Dispatch schema** | New optional field `promptTemplateContent` — harmless if unused, but the UI that sends it must be gated |
+
+### Implementation Order (Revised)
+
+The phases are now **vertical slices** — each delivers a testable end-to-end feature behind the flag, not horizontal layers.
+
+| Phase | What | Delivers |
+|-------|------|----------|
+| **1** | Foundation | DB tables + feature flag + route stubs. Zero UI. Zero risk. |
+| **2** | Custom Examples E2E | Backend CRUD + store + examples page with "My Examples" section + launch flow. Internal users can create/edit/delete/launch custom examples. |
+| **3** | AI Example Generator | AI generation endpoint + generator dialog. Internal users can describe a workflow and AI creates the template. |
+| **4** | Save Project as Example | Save-from-project endpoint + dialog + project page menu item. Internal users can save completed projects as reusable examples. |
+| **5** | Prompt Templates E2E | Backend CRUD + store + examples page section + editor dialog. Internal users can create/manage prompt templates. |
+| **6** | Prompt Templates at Launch | Dispatch integration + plan page selector. Internal users can apply prompt templates when creating projects or dispatching tasks. |
+| **7** | Polish | View prompts on built-ins, clone action, badge refinements. |
 
 ---
 
-## Phase 1: Database & Feature Flag
+## Phase 1: Foundation (DB + Flag + Route Stubs)
 
-**Goal**: Create tables, Drizzle schema, migrations, feature flag. No UI yet.
+**Goal**: Create tables, Drizzle schema, migrations, feature flag, empty route files. No UI, no risk. Deploy this first — the flag defaults to `false` so nothing is visible.
 
 ### Step 1.1: Feature Flag
 
@@ -247,11 +276,11 @@ npm run build && npm run lint && npm test
 
 ---
 
-## Phase 2: Backend API Routes
+## Phase 2: Custom Examples End-to-End
 
-**Goal**: CRUD endpoints for both tables + AI generation endpoint + save-from-project endpoint.
+**Goal**: Backend CRUD + shared launch logic + store + examples page with "My Examples" section. After this phase, internal users can create, edit, delete, and launch custom examples.
 
-### Step 2.1: Custom Examples Routes
+### Step 2.1: Custom Examples Routes (Backend)
 
 **New file: `server/routes/custom-examples.ts`**
 
@@ -391,22 +420,535 @@ customExamplesRoute.delete('/:id', async (c) => {
 
 // ── LAUNCH (same flow as built-in) ──────────────────────────────────
 // POST /api/examples/custom/:id/launch
-// Reuses the same launch logic from server/routes/examples.ts
-// but reads the template from DB instead of BUILTIN_TEMPLATES
+// Uses shared launchTemplate() from server/lib/example-launcher.ts
 customExamplesRoute.post('/:id/launch', async (c) => {
   // 1. Fetch custom example from DB
-  // 2. Convert DB row to UseCaseTemplate shape
-  // 3. Validate parameters (reuse validateParameters from examples.ts)
-  // 4. Interpolate prompts (reuse interpolatePrompt)
-  // 5. Create project with source: { type: 'custom-template', templateId: id }
-  // 6. Return LaunchExampleResult
-  // (Extract the launch logic from server/routes/examples.ts into a shared function)
+  // 2. Convert DB row to LaunchableTemplate shape
+  // 3. Call launchTemplate() — same function used by built-in examples
+  // 4. Return LaunchExampleResult
 })
 
 export { customExamplesRoute }
 ```
 
-### Step 2.2: Prompt Templates Routes
+### Step 2.2: Extract Shared Launch Logic
+
+Move the launch logic from `server/routes/examples.ts` (lines 518-668) into a shared function so both built-in and custom examples use the same code.
+
+**New file: `server/lib/example-launcher.ts`**
+
+```typescript
+import { interpolatePrompt } from '../../packages/core/src/templates/interpolate.js'
+
+export interface LaunchableTemplate {
+  id: string
+  name: string
+  version?: string
+  requiredParameters: unknown[]
+  optionalParameters: unknown[]
+  prompts: { planGeneration: string; taskExecution?: string; sharedContext?: string }
+  execution?: unknown
+  parallelization?: unknown
+  planHints?: unknown
+}
+
+export async function launchTemplate(
+  template: LaunchableTemplate,
+  params: Record<string, unknown>,
+  projectName: string,
+  opts: { workingDirectory?: string; targetMachineId?: string; visionDoc?: string; model?: string; preferredProvider?: string },
+  user: { id: string },
+  team: { id: string },
+): Promise<LaunchExampleResult> {
+  // 1. Validate parameters against template schema
+  // 2. Interpolate prompts using interpolatePrompt()
+  // 3. Create project with source metadata
+  // 4. Return result
+  // (Move existing logic from server/routes/examples.ts POST /:id/launch here)
+}
+```
+
+Then both `server/routes/examples.ts` and `server/routes/custom-examples.ts` call `launchTemplate()`.
+
+### Step 2.3: Update Existing Examples Route (BACKWARD-COMPATIBLE)
+
+**File: `server/routes/examples.ts`** — Modify `GET /api/examples` to include custom examples **only when the flag is on**.
+
+**CRITICAL**: The response shape for unflagged teams must NOT change. The `custom` field is only added when the flag is enabled. The existing `templates` array stays identical.
+
+```typescript
+// At the top of the GET / handler, after fetching builtins:
+const team = c.get('team')
+const user = c.get('user')
+
+// Base response — identical shape to before for unflagged teams
+const response: Record<string, unknown> = {
+  templates: builtinTemplates,
+  count: builtinTemplates.length,
+  categories,
+}
+
+// Only add custom field when flag is enabled
+if (hasFeature(team?.featureFlags, 'user-examples')) {
+  const customRows = await db.select().from(customExamples).where(
+    or(
+      eq(customExamples.authorId, user.id),
+      and(eq(customExamples.visibility, 'team'), eq(customExamples.teamId, team.id))
+    )
+  )
+  response.custom = customRows
+  response.count = builtinTemplates.length + customRows.length
+}
+
+return c.json(response)
+```
+
+This way:
+- **Unflagged teams**: get `{ templates, count, categories }` — exactly as before
+- **Flagged teams**: get `{ templates, custom, count, categories }` — the frontend checks for the `custom` field
+
+### Step 2.4: Register Routes
+
+**File: `server/index.ts`** — Add:
+```typescript
+import { customExamplesRoute } from './routes/custom-examples.js'
+app.route('/api/examples/custom', customExamplesRoute)
+```
+
+### Step 2.5: Frontend Types
+
+**New file: `src/types/examples.ts`**
+
+```typescript
+export interface CustomExample {
+  id: string
+  name: string
+  description: string
+  category: string
+  icon?: string
+  tags: string[]
+  requiredParameters: unknown[]
+  optionalParameters: unknown[]
+  prompts: {
+    planGeneration: string
+    taskExecution?: string
+    planRefinement?: string
+    sharedContext?: string
+  }
+  execution?: unknown
+  parallelization?: unknown
+  planHints?: unknown
+  recommendedSkills: string[]
+  source: 'user' | 'project' | 'ai-generated'
+  sourceProjectId?: string
+  visibility: 'personal' | 'team'
+  authorId: string
+  teamId?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PromptTemplate {
+  id: string
+  name: string
+  description: string
+  scope: 'project' | 'task'
+  content: string
+  parameters: Array<{ name: string; description: string; default?: string }>
+  tags: string[]
+  visibility: 'personal' | 'team'
+  authorId: string
+  teamId?: string
+  createdAt: string
+  updatedAt: string
+}
+```
+
+### Step 2.6: API Client Functions (Custom Examples only)
+
+**File: `src/lib/api-client.ts`** — Add:
+
+```typescript
+// ── Custom Examples ─────────────────────────────────────────────────
+export async function getCustomExamples(category?: string) {
+  const params = category ? `?category=${category}` : ''
+  return fetchApi<{ examples: CustomExample[]; count: number }>(`/api/examples/custom${params}`)
+}
+
+export async function getCustomExample(id: string) {
+  return fetchApi<{ example: CustomExample }>(`/api/examples/custom/${id}`)
+}
+
+export async function createCustomExample(data: CreateCustomExampleInput) {
+  return fetchApi<{ example: CustomExample }>('/api/examples/custom', { method: 'POST', body: data })
+}
+
+export async function updateCustomExample(id: string, data: Partial<CreateCustomExampleInput>) {
+  return fetchApi<{ example: CustomExample }>(`/api/examples/custom/${id}`, { method: 'PATCH', body: data })
+}
+
+export async function deleteCustomExample(id: string) {
+  return fetchApi<{ success: boolean }>(`/api/examples/custom/${id}`, { method: 'DELETE' })
+}
+
+export async function launchCustomExample(id: string, params: LaunchExampleParams) {
+  return fetchApi<LaunchExampleResult>(`/api/examples/custom/${id}/launch`, { method: 'POST', body: params })
+}
+```
+
+### Step 2.7: Custom Example Store
+
+**New file: `src/stores/custom-example-store.ts`**
+
+```typescript
+import { create } from 'zustand'
+import * as api from '@/lib/api-client'
+import type { CustomExample } from '@/types/examples'
+
+interface CustomExampleStore {
+  examples: CustomExample[]
+  isLoading: boolean
+  loaded: boolean
+  error: string | null
+
+  load: () => Promise<void>
+  create: (data: Parameters<typeof api.createCustomExample>[0]) => Promise<CustomExample | null>
+  update: (id: string, data: Partial<CustomExample>) => Promise<void>
+  remove: (id: string) => Promise<void>
+  saveFromProject: (projectId: string, name: string, description?: string) => Promise<CustomExample | null>
+}
+
+export const useCustomExampleStore = create<CustomExampleStore>((set, get) => ({
+  examples: [],
+  isLoading: false,
+  loaded: false,
+  error: null,
+
+  load: async () => {
+    if (get().loaded) return
+    set({ isLoading: true, error: null })
+    try {
+      const result = await api.getCustomExamples()
+      set({ examples: result.examples, loaded: true })
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : 'Failed to load' })
+    } finally {
+      set({ isLoading: false })
+    }
+  },
+
+  create: async (data) => {
+    try {
+      const result = await api.createCustomExample(data)
+      set((s) => ({ examples: [...s.examples, result.example] }))
+      return result.example
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : 'Failed to create' })
+      return null
+    }
+  },
+
+  update: async (id, data) => {
+    const result = await api.updateCustomExample(id, data)
+    set((s) => ({
+      examples: s.examples.map((ex) => (ex.id === id ? result.example : ex)),
+    }))
+  },
+
+  remove: async (id) => {
+    await api.deleteCustomExample(id)
+    set((s) => ({ examples: s.examples.filter((ex) => ex.id !== id) }))
+  },
+
+  saveFromProject: async (projectId, name, description) => {
+    try {
+      const result = await api.saveProjectAsExample({ projectId, name, description })
+      set((s) => ({ examples: [...s.examples, result.example] }))
+      return result.example
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : 'Failed to save' })
+      return null
+    }
+  },
+}))
+```
+
+### Step 2.8: Examples Page — "My Examples" Section
+
+**File: `src/pages/examples.tsx`** — Add "My Examples" section wrapped in feature flag:
+
+```tsx
+export function Examples() {
+  const builtInTemplates = useExampleStore((s) => s.templates)
+  const customExamples = useCustomExampleStore((s) => s.examples)
+  const userExamplesEnabled = useFeatureFlag('user-examples')
+
+  return (
+    <div className="flex flex-1 flex-col min-w-0 h-full">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
+        <h1 className="text-xl font-primary font-semibold">{t('title')}</h1>
+        {userExamplesEnabled && (
+          <Button onClick={() => setGeneratorOpen(true)}>Create Example</Button>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-auto p-6 space-y-8">
+        {/* Section 1: Built-in Examples */}
+        <section>
+          <h2 className="text-sm font-semibold text-muted-foreground mb-3">BUILT-IN EXAMPLES</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {builtInTemplates.map((t) => (
+              <ExampleCard key={t.id} template={t} badge="Built-in" onClick={...} />
+            ))}
+          </div>
+        </section>
+
+        {/* Section 2: My Examples (feature-gated) */}
+        {userExamplesEnabled && (
+          <section>
+            <h2 className="text-sm font-semibold text-muted-foreground mb-3">MY EXAMPLES</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {customExamples.map((ex) => (
+                <ExampleCard key={ex.id} template={ex}
+                  badge={ex.source === 'project' ? 'Saved' : 'Custom'}
+                  onEdit={...} onDelete={...} onClick={...} />
+              ))}
+              {/* "+" card to create new */}
+              <Card className="p-5 cursor-pointer border-dashed hover:border-primary/40"
+                onClick={() => setGeneratorOpen(true)}>
+                <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                  <Plus className="h-8 w-8 mb-2" />
+                  <span>New Example</span>
+                </div>
+              </Card>
+            </div>
+          </section>
+        )}
+      </div>
+    </div>
+  )
+}
+```
+
+### Step 2.9: Example Card Component
+
+**File: `src/components/examples/example-card.tsx`** — Add badge prop:
+
+```tsx
+interface ExampleCardProps {
+  template: UseCaseTemplateSummary | CustomExample
+  badge?: 'Built-in' | 'Saved' | 'Custom'
+  onClick: () => void
+  onEdit?: () => void
+  onDelete?: () => void
+}
+```
+
+The badge renders as a small colored chip in the top-right corner of the card.
+
+### Step 2.10: Data Loader (Feature-Gated)
+
+**File: `src/components/data-loader.tsx`** — Load custom example store ONLY when flag is on:
+
+```typescript
+// Inside the data loader effect:
+if (hasFeatureFlag('user-examples')) {
+  useCustomExampleStore.getState().load()
+}
+```
+
+If the flag is off, the store never calls the API — no 403 errors for external users.
+
+---
+
+## Phase 3: AI Example Generator
+
+**Goal**: AI generation endpoint + 2-step generator dialog. Internal users can describe a workflow and AI produces a full example template.
+
+**Depends on**: Phase 2 (store + CRUD must work to save the generated example).
+
+### Step 3.1: AI Generation Endpoint
+
+**File: `server/routes/custom-examples.ts`** — Add to the existing route file (already behind feature-gate middleware from Phase 2):
+
+```typescript
+// POST /api/examples/generate
+// Streams AI-generated example template as SSE
+customExamplesRoute.post('/generate', async (c) => {
+  const body = z.object({
+    description: z.string().min(10).max(5000),
+    inputs: z.string().max(2000).optional(),
+    deliverables: z.string().max(2000).optional(),
+  }).parse(await c.req.json())
+
+  const systemPrompt = buildExampleGenerationPrompt()
+  const userMessage = [
+    `## Workflow Description\n${body.description}`,
+    body.inputs ? `## Expected Inputs\n${body.inputs}` : '',
+    body.deliverables ? `## Expected Deliverables\n${body.deliverables}` : '',
+  ].filter(Boolean).join('\n\n')
+
+  // Stream AI response as SSE (same pattern as agent chat)
+  // The AI returns a JSON object matching the CreateCustomExample schema
+  // Frontend parses the JSON from the streamed text
+})
+```
+
+### Step 3.2: Generation System Prompt
+
+**File: `packages/core/src/prompt-templates.ts`** — Add `buildExampleGenerationPrompt()`:
+
+```typescript
+export function buildExampleGenerationPrompt(): string {
+  return `You are a template designer for Astro, an AI planning platform.
+Given a workflow description, generate a reusable project template as a JSON object.
+
+The JSON must have this structure:
+{
+  "name": "Short template name",
+  "description": "1-2 sentence description",
+  "category": "analysis|development|research|writing|custom",
+  "icon": "emoji",
+  "tags": ["tag1", "tag2"],
+  "requiredParameters": [
+    { "name": "param_name", "label": "Human Label", "type": "text|textarea|select", "description": "What this param is for" }
+  ],
+  "optionalParameters": [...],
+  "prompts": {
+    "planGeneration": "The main prompt that describes what to plan. Use {{param_name}} for parameters.",
+    "taskExecution": "Optional per-task guidance. Use {{param_name}} for parameters.",
+    "sharedContext": "Optional background context injected into all tasks."
+  }
+}
+
+Rules:
+- Plan generation prompt should be detailed (200-500 words) and describe the full workflow
+- Use {{param_name}} syntax for user-provided values
+- Include 1-3 required parameters for the most important inputs
+- Optional parameters for nice-to-have customization
+- Return ONLY valid JSON, no markdown fences`
+}
+```
+
+### Step 3.3: Generator Dialog
+
+**New file: `src/components/examples/example-generator-dialog.tsx`**
+
+```tsx
+// 2-step dialog:
+//
+// Step 1: "Describe Your Workflow"
+//   - Description textarea (required): "What does this workflow do?"
+//   - Inputs textarea (optional): "What inputs does it need?"
+//   - Deliverables textarea (optional): "What should it produce?"
+//   - "Generate" button → POST /api/examples/generate (SSE stream)
+//
+// Step 2: "Review & Edit"
+//   - AI response parsed as JSON → populated into editable form:
+//     - Name, description, icon, category (editable text/select)
+//     - Parameters list (editable, add/remove)
+//     - Plan Generation Prompt (textarea)
+//     - Task Execution Prompt (textarea)
+//     - Shared Context (textarea)
+//   - "Regenerate" button → back to SSE stream
+//   - "Save Example" button → useCustomExampleStore.create()
+//
+// Loading state: show streamed text in a code block while generating
+```
+
+### Step 3.4: Wire to Examples Page
+
+The "Create Example" button in the header and the "+" card from Phase 2 both open `ExampleGeneratorDialog`. Both are already gated behind `userExamplesEnabled`.
+
+### Step 3.5: Save-from-Project API Client
+
+**File: `src/lib/api-client.ts`** — Add:
+
+```typescript
+export async function generateExample(data: { description: string; inputs: string; deliverables: string }) {
+  // Returns SSE stream — use parseChatSSE pattern
+  return fetchSSE('/api/examples/generate', { method: 'POST', body: data })
+}
+
+export async function saveProjectAsExample(data: { projectId: string; name: string; description?: string; visibility?: string }) {
+  return fetchApi<{ example: CustomExample }>('/api/examples/save-from-project', { method: 'POST', body: data })
+}
+```
+
+---
+
+## Phase 4: Save Project as Example
+
+**Goal**: Save-from-project endpoint + dialog + project page menu item. Internal users can save completed projects as reusable examples.
+
+**Depends on**: Phase 2 (store + CRUD).
+
+### Step 4.1: Save-from-Project Endpoint
+
+**File: `server/routes/custom-examples.ts`** — Add:
+
+```typescript
+// POST /api/examples/save-from-project
+customExamplesRoute.post('/save-from-project', async (c) => {
+  const user = c.get('user')
+  const team = c.get('team')
+
+  const body = z.object({
+    projectId: z.string().uuid(),
+    name: z.string().min(1).max(200),
+    description: z.string().max(2000).optional(),
+    visibility: z.enum(['personal', 'team']).default('team'),
+  }).parse(await c.req.json())
+
+  // 1. Fetch project + plan nodes
+  // 2. Extract visionDoc as planGeneration prompt
+  // 3. Extract task patterns as taskExecution prompt
+  // 4. Build parameter schema from detected variables
+  // 5. Insert into custom_examples with source: 'project'
+  // 6. Return the created example
+})
+```
+
+### Step 4.2: Save-as-Example Dialog
+
+**New file: `src/components/examples/save-as-example-dialog.tsx`**
+
+```tsx
+// Props: projectId, open, onOpenChange
+//
+// On open: fetch project data, pre-fill form
+//
+// Form fields:
+//   - Name (pre-filled from project name)
+//   - Description (editable textarea)
+//   - Plan prompt (pre-filled from visionDoc, read-only or editable)
+//   - Visibility toggle (personal / team)
+//
+// On save: call useCustomExampleStore.saveFromProject()
+```
+
+### Step 4.3: Project Page Integration
+
+Add "Save as Example" to the project page dropdown/menu. **Feature-gated**:
+
+```tsx
+{useFeatureFlag('user-examples') && (
+  <DropdownMenuItem onClick={() => setSaveAsExampleOpen(true)}>
+    Save as Example
+  </DropdownMenuItem>
+)}
+```
+
+---
+
+## Phase 5: Prompt Templates End-to-End
+
+**Goal**: Backend CRUD + store + examples page section + editor dialog. Internal users can create and manage prompt templates.
+
+**Depends on**: Phase 1 (DB table).
+
+### Step 5.1: Prompt Templates Routes
 
 **New file: `server/routes/prompt-templates.ts`**
 
@@ -527,322 +1069,19 @@ promptTemplatesRoute.delete('/:id', async (c) => {
 export { promptTemplatesRoute }
 ```
 
-### Step 2.3: Register Routes
+### Step 5.2: Register Routes
 
-**File: `server/index.ts`** — Add to route registration:
+**File: `server/index.ts`** — Add:
 ```typescript
-import { customExamplesRoute } from './routes/custom-examples.js'
 import { promptTemplatesRoute } from './routes/prompt-templates.js'
-
-// Inside route setup:
-app.route('/api/examples/custom', customExamplesRoute)
 app.route('/api/prompt-templates', promptTemplatesRoute)
 ```
 
-### Step 2.4: AI Example Generation Endpoint
-
-**File: `server/routes/custom-examples.ts`** — Add to the route file:
-
-```typescript
-// POST /api/examples/generate
-// SSE stream — AI generates a UseCaseTemplate from user description
-const generateSchema = z.object({
-  description: z.string().min(10).max(5000),
-  inputs: z.string().min(5).max(3000),
-  deliverables: z.string().min(5).max(3000),
-  model: z.string().optional(),
-  preferredProvider: z.string().optional(),
-})
-
-customExamplesRoute.post('/generate', async (c) => {
-  const user = c.get('user')
-  const body = generateSchema.parse(await c.req.json())
-
-  const systemPrompt = buildExampleGenerationPrompt()
-  const userMessage = [
-    `## Workflow Description\n${body.description}`,
-    `## User Inputs\n${body.inputs}`,
-    `## Deliverables\n${body.deliverables}`,
-  ].join('\n\n')
-
-  // Use the same relay-based chat pattern as /api/agent/chat
-  // but with structured output (JSON response, no tools)
-  return streamChatViaRelay(c, {
-    taskId: `example-gen-${Date.now()}`,
-    projectId: 'system',
-    nodeId: 'example-gen',
-    prompt: userMessage,
-    systemPrompt,
-    maxTurns: 1, // Single-turn, no tools
-    type: 'chat',
-    model: body.model,
-    preferredProvider: body.preferredProvider,
-  })
-})
-```
-
-The `buildExampleGenerationPrompt()` function returns the system prompt from Section 6.3 of the design doc (instructs AI to output a `UseCaseTemplate` JSON).
-
-**File: `packages/core/src/prompt-templates.ts`** — Add:
-
-```typescript
-export function buildExampleGenerationPrompt(): string {
-  return `You are an expert at designing reusable project templates for Astro,
-a planning platform that decomposes complex goals into task DAGs.
-
-The user will describe a type of project they want to templatize.
-Generate a complete example definition as JSON.
-
-## Output Format
-
-Return ONLY valid JSON (no markdown fences, no explanation) matching this structure:
-
-{
-  "name": "Short Display Name",
-  "description": "1-2 sentence description",
-  "icon": "single emoji",
-  "category": "one of: software-development, data-science, machine-learning, devops-infrastructure, research-analysis, documentation, testing-qa, security, computational-biology, custom",
-  "requiredParameters": [...],
-  "optionalParameters": [...],
-  "prompts": {
-    "planGeneration": "System prompt for creating the plan DAG. Use {{paramName}} placeholders.",
-    "taskExecution": "System prompt for executing individual tasks.",
-    "sharedContext": "Domain knowledge, rubrics, standards."
-  },
-  "planHints": {
-    "targetNodeCount": { "min": 6, "max": 12 },
-    "suggestedMilestones": [{ "title": "...", "description": "..." }],
-    "preferParallelTasks": true
-  }
-}
-
-## Parameter Schema
-
-Each parameter:
-{
-  "id": "camelCaseId",
-  "name": "Display Name",
-  "description": "Help text",
-  "type": "string | number | boolean | select | multi-select | file-path",
-  "required": true/false,
-  "default": "sensible default",
-  "placeholder": "placeholder text",
-  "options": [{ "label": "Display", "value": "value" }],
-  "validation": { "min": 0, "max": 100, "pattern": "regex" }
-}
-
-## Guidelines
-
-- planGeneration: Describe how to DECOMPOSE the project into tasks, not how to execute them
-- taskExecution: Give domain-specific guidance for individual task execution
-- sharedContext: Reference material, scoring rubrics, quality standards
-- Keep required parameters to 1-3 (low friction)
-- Provide sensible defaults for all optional parameters
-- Use {{paramName}} placeholders throughout prompts`
-}
-```
-
-### Step 2.5: Save-from-Project Endpoint
-
-**File: `server/routes/custom-examples.ts`** — Add:
-
-```typescript
-// POST /api/examples/save-from-project
-const saveFromProjectSchema = z.object({
-  projectId: z.string().uuid(),
-  name: z.string().min(1).max(200),
-  description: z.string().max(2000).default(''),
-  visibility: z.enum(['personal', 'team']).default('team'),
-})
-
-customExamplesRoute.post('/save-from-project', async (c) => {
-  const user = c.get('user')
-  const team = c.get('team')
-  const body = saveFromProjectSchema.parse(await c.req.json())
-
-  // 1. Fetch the project
-  const [project] = await db.select().from(projects)
-    .where(eq(projects.id, body.projectId))
-  if (!project) return c.json({ error: 'Project not found' }, 404)
-
-  // 2. Extract template data from the project
-  const prompts = {
-    planGeneration: project.visionDoc || project.description || '',
-    taskExecution: undefined as string | undefined,
-    sharedContext: undefined as string | undefined,
-  }
-
-  // If project was launched from a template, carry over its params
-  let requiredParameters: unknown[] = []
-  let optionalParameters: unknown[] = []
-  let recommendedSkills: string[] = []
-  const projectSource = project.source as Record<string, unknown> | null
-
-  if (projectSource?.type === 'template' && projectSource.templateId) {
-    // Look up original template to get parameter schema
-    const originalTemplate = getTemplateById(projectSource.templateId as string)
-    if (originalTemplate) {
-      // Clone params but update defaults to the values actually used
-      const usedParams = (projectSource.parameters || {}) as Record<string, unknown>
-      requiredParameters = originalTemplate.requiredParameters.map(p => ({
-        ...p,
-        default: usedParams[p.id] ?? p.default,
-      }))
-      optionalParameters = originalTemplate.optionalParameters.map(p => ({
-        ...p,
-        default: usedParams[p.id] ?? p.default,
-      }))
-      if (originalTemplate.prompts.taskExecution) {
-        prompts.taskExecution = originalTemplate.prompts.taskExecution
-      }
-      if (originalTemplate.prompts.sharedContext) {
-        prompts.sharedContext = originalTemplate.prompts.sharedContext
-      }
-      recommendedSkills = originalTemplate.recommendedSkills || []
-    }
-  }
-
-  // 3. Count plan nodes for hints
-  const planNodes = await db.select().from(planNodesTable)
-    .where(eq(planNodesTable.projectId, body.projectId))
-  const nodeCount = planNodes.length
-
-  // 4. Create the custom example
-  const [row] = await db.insert(customExamples).values({
-    name: body.name,
-    description: body.description,
-    category: 'custom',
-    icon: '📋',
-    requiredParameters,
-    optionalParameters,
-    prompts,
-    recommendedSkills,
-    planHints: nodeCount > 0 ? {
-      targetNodeCount: { min: Math.max(3, nodeCount - 2), max: nodeCount + 3 },
-    } : undefined,
-    source: 'project',
-    sourceProjectId: body.projectId,
-    visibility: body.visibility,
-    authorId: user.id,
-    teamId: team.id,
-  }).returning()
-
-  return c.json({ example: row }, 201)
-})
-```
-
-### Step 2.6: Update Existing Examples Route
-
-**File: `server/routes/examples.ts`** — Modify `GET /api/examples` to include custom:
-
-```typescript
-// At the top of the GET / handler, after fetching builtins:
-const team = c.get('team')
-const user = c.get('user')
-let customRows: typeof customExamples.$inferSelect[] = []
-
-if (hasFeature(team?.featureFlags, 'user-examples')) {
-  customRows = await db.select().from(customExamples).where(
-    or(
-      eq(customExamples.authorId, user.id),
-      and(eq(customExamples.visibility, 'team'), eq(customExamples.teamId, team.id))
-    )
-  )
-}
-
-return c.json({
-  templates: builtinTemplates,  // existing
-  custom: customRows,           // new
-  count: builtinTemplates.length + customRows.length,
-  categories,
-})
-```
-
-### Step 2.7: Extract Shared Launch Logic
-
-The launch logic in `server/routes/examples.ts` (lines 518-668) should be extracted into a shared function so both built-in and custom examples use the same code:
-
-**File: `server/lib/example-launcher.ts`** (new)
-
-```typescript
-import { interpolatePrompt } from '../../packages/core/src/templates/interpolate.js'
-
-export interface LaunchableTemplate {
-  id: string
-  name: string
-  version?: string
-  requiredParameters: unknown[]
-  optionalParameters: unknown[]
-  prompts: { planGeneration: string; taskExecution?: string; sharedContext?: string }
-  execution?: unknown
-  parallelization?: unknown
-  planHints?: unknown
-}
-
-export async function launchTemplate(
-  template: LaunchableTemplate,
-  params: Record<string, unknown>,
-  projectName: string,
-  opts: { workingDirectory?: string; targetMachineId?: string; visionDoc?: string; model?: string; preferredProvider?: string },
-  user: { id: string },
-  team: { id: string },
-): Promise<LaunchExampleResult> {
-  // 1. Validate parameters
-  // 2. Interpolate prompts
-  // 3. Create project
-  // 4. Return result
-  // (Move existing logic from server/routes/examples.ts POST /:id/launch here)
-}
-```
-
-Then both `server/routes/examples.ts` and `server/routes/custom-examples.ts` call `launchTemplate()`.
-
----
-
-## Phase 3: Frontend Stores & API Client
-
-**Goal**: Zustand stores + API client functions for custom examples and prompt templates.
-
-### Step 3.1: API Client Functions
+### Step 5.3: API Client Functions (Prompt Templates)
 
 **File: `src/lib/api-client.ts`** — Add:
 
 ```typescript
-// ── Custom Examples ─────────────────────────────────────────────────
-export async function getCustomExamples(category?: string) {
-  const params = category ? `?category=${category}` : ''
-  return fetchApi<{ examples: CustomExample[]; count: number }>(`/api/examples/custom${params}`)
-}
-
-export async function getCustomExample(id: string) {
-  return fetchApi<{ example: CustomExample }>(`/api/examples/custom/${id}`)
-}
-
-export async function createCustomExample(data: CreateCustomExampleInput) {
-  return fetchApi<{ example: CustomExample }>('/api/examples/custom', { method: 'POST', body: data })
-}
-
-export async function updateCustomExample(id: string, data: Partial<CreateCustomExampleInput>) {
-  return fetchApi<{ example: CustomExample }>(`/api/examples/custom/${id}`, { method: 'PATCH', body: data })
-}
-
-export async function deleteCustomExample(id: string) {
-  return fetchApi<{ success: boolean }>(`/api/examples/custom/${id}`, { method: 'DELETE' })
-}
-
-export async function generateExample(data: { description: string; inputs: string; deliverables: string }) {
-  // Returns SSE stream — use parseChatSSE pattern
-  return fetchSSE('/api/examples/generate', { method: 'POST', body: data })
-}
-
-export async function saveProjectAsExample(data: { projectId: string; name: string; description?: string; visibility?: string }) {
-  return fetchApi<{ example: CustomExample }>('/api/examples/save-from-project', { method: 'POST', body: data })
-}
-
-export async function launchCustomExample(id: string, params: LaunchExampleParams) {
-  return fetchApi<LaunchExampleResult>(`/api/examples/custom/${id}/launch`, { method: 'POST', body: params })
-}
-
 // ── Prompt Templates ────────────────────────────────────────────────
 export async function getPromptTemplates(scope?: 'project' | 'task') {
   const params = scope ? `?scope=${scope}` : ''
@@ -862,317 +1101,91 @@ export async function deletePromptTemplate(id: string) {
 }
 ```
 
-### Step 3.2: Types
+### Step 5.4: Prompt Template Store
 
-**File: `src/types/examples.ts`** (new)
+**New file: `src/stores/prompt-template-store.ts`**
+
+Same Zustand pattern as `custom-example-store.ts`. Exposes `load(scope?)`, `create()`, `update()`, `remove()`.
+
+### Step 5.5: Data Loader
+
+**File: `src/components/data-loader.tsx`** — Add alongside custom examples load:
 
 ```typescript
-export interface CustomExample {
-  id: string
-  name: string
-  description: string
-  category: string
-  icon?: string
-  tags: string[]
-  requiredParameters: unknown[]
-  optionalParameters: unknown[]
-  prompts: {
-    planGeneration: string
-    taskExecution?: string
-    planRefinement?: string
-    sharedContext?: string
-  }
-  execution?: unknown
-  parallelization?: unknown
-  planHints?: unknown
-  recommendedSkills: string[]
-  source: 'user' | 'project' | 'ai-generated'
-  sourceProjectId?: string
-  visibility: 'personal' | 'team'
-  authorId: string
-  teamId?: string
-  createdAt: string
-  updatedAt: string
-}
-
-export interface PromptTemplate {
-  id: string
-  name: string
-  description: string
-  scope: 'project' | 'task'
-  content: string
-  parameters: Array<{ name: string; description: string; default?: string }>
-  tags: string[]
-  visibility: 'personal' | 'team'
-  authorId: string
-  teamId?: string
-  createdAt: string
-  updatedAt: string
+if (hasFeatureFlag('user-examples')) {
+  useCustomExampleStore.getState().load()   // from Phase 2
+  usePromptTemplateStore.getState().load()  // new
 }
 ```
 
-### Step 3.3: Custom Example Store
+### Step 5.6: Prompt Template Editor Dialog
 
-**File: `src/stores/custom-example-store.ts`** (new)
+**New file: `src/components/examples/prompt-template-editor-dialog.tsx`**
 
-```typescript
-import { create } from 'zustand'
-import * as api from '@/lib/api-client'
-import type { CustomExample } from '@/types/examples'
+Form fields: name, description, scope (project/task radio), content textarea, tags. "Create" / "Save" button calls store.
 
-interface CustomExampleStore {
-  examples: CustomExample[]
-  isLoading: boolean
-  loaded: boolean
-  error: string | null
+### Step 5.7: Examples Page — "Prompt Templates" Section
 
-  load: () => Promise<void>
-  create: (data: Parameters<typeof api.createCustomExample>[0]) => Promise<CustomExample | null>
-  update: (id: string, data: Partial<CustomExample>) => Promise<void>
-  remove: (id: string) => Promise<void>
-  saveFromProject: (projectId: string, name: string, description?: string) => Promise<CustomExample | null>
-}
-
-export const useCustomExampleStore = create<CustomExampleStore>((set, get) => ({
-  examples: [],
-  isLoading: false,
-  loaded: false,
-  error: null,
-
-  load: async () => {
-    if (get().loaded) return
-    set({ isLoading: true, error: null })
-    try {
-      const result = await api.getCustomExamples()
-      set({ examples: result.examples, loaded: true })
-    } catch (e) {
-      set({ error: e instanceof Error ? e.message : 'Failed to load' })
-    } finally {
-      set({ isLoading: false })
-    }
-  },
-
-  create: async (data) => {
-    try {
-      const result = await api.createCustomExample(data)
-      set((s) => ({ examples: [...s.examples, result.example] }))
-      return result.example
-    } catch (e) {
-      set({ error: e instanceof Error ? e.message : 'Failed to create' })
-      return null
-    }
-  },
-
-  update: async (id, data) => {
-    const result = await api.updateCustomExample(id, data)
-    set((s) => ({
-      examples: s.examples.map((ex) => (ex.id === id ? result.example : ex)),
-    }))
-  },
-
-  remove: async (id) => {
-    await api.deleteCustomExample(id)
-    set((s) => ({ examples: s.examples.filter((ex) => ex.id !== id) }))
-  },
-
-  saveFromProject: async (projectId, name, description) => {
-    try {
-      const result = await api.saveProjectAsExample({ projectId, name, description })
-      set((s) => ({ examples: [...s.examples, result.example] }))
-      return result.example
-    } catch (e) {
-      set({ error: e instanceof Error ? e.message : 'Failed to save' })
-      return null
-    }
-  },
-}))
-```
-
-### Step 3.4: Prompt Template Store
-
-**File: `src/stores/prompt-template-store.ts`** (new)
-
-Same pattern as above but for `PromptTemplate`. Exposes `load(scope?)`, `create()`, `update()`, `remove()`.
-
----
-
-## Phase 4: Examples Page Redesign
-
-**Goal**: Three-section layout, badges, "Create" buttons.
-
-### Step 4.1: Modify Examples Page
-
-**File: `src/pages/examples.tsx`** — Restructure:
+Add the third section to `src/pages/examples.tsx`. Gated with `{userExamplesEnabled && (...)}`:
 
 ```tsx
-export function Examples() {
-  const builtInTemplates = useExampleStore((s) => s.templates)
-  const customExamples = useCustomExampleStore((s) => s.examples)
-  const promptTemplates = usePromptTemplateStore((s) => s.templates)
-  const userExamplesEnabled = useFeatureFlag('user-examples')
-
-  return (
-    <div className="flex flex-1 flex-col min-w-0 h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
-        <h1 className="text-xl font-primary font-semibold">{t('title')}</h1>
-        {userExamplesEnabled && (
-          <div className="flex gap-2">
-            <Button onClick={() => setGeneratorOpen(true)}>Create Example</Button>
-            <Button variant="outline" onClick={() => setPromptEditorOpen(true)}>Create Prompt Template</Button>
-          </div>
-        )}
-      </div>
-
-      <div className="flex-1 overflow-auto p-6 space-y-8">
-        {/* Section 1: Built-in Examples */}
-        <section>
-          <h2 className="text-sm font-semibold text-muted-foreground mb-3">BUILT-IN EXAMPLES</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {builtInTemplates.map((t) => (
-              <ExampleCard key={t.id} template={t} badge="Built-in" onClick={...} />
-            ))}
-          </div>
-        </section>
-
-        {/* Section 2: My Examples (feature-gated) */}
-        {userExamplesEnabled && (
-          <section>
-            <h2 className="text-sm font-semibold text-muted-foreground mb-3">MY EXAMPLES</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {customExamples.map((ex) => (
-                <ExampleCard key={ex.id} template={ex}
-                  badge={ex.source === 'project' ? 'Saved' : 'Custom'}
-                  onEdit={...} onDelete={...} onClick={...} />
-              ))}
-              {/* "+" card to create new */}
-              <Card className="p-5 cursor-pointer border-dashed hover:border-primary/40"
-                onClick={() => setGeneratorOpen(true)}>
-                <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                  <Plus className="h-8 w-8 mb-2" />
-                  <span>New Example</span>
-                </div>
-              </Card>
-            </div>
-          </section>
-        )}
-
-        {/* Section 3: Prompt Templates (feature-gated) */}
-        {userExamplesEnabled && promptTemplates.length > 0 && (
-          <section>
-            <h2 className="text-sm font-semibold text-muted-foreground mb-3">PROMPT TEMPLATES</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Project prompts */}
-              <div>
-                <h3 className="text-xs font-medium text-muted-foreground mb-2">Project Prompts</h3>
-                {promptTemplates.filter(t => t.scope === 'project').map(t => (
-                  <PromptTemplateCard key={t.id} template={t} onEdit={...} onDelete={...} />
-                ))}
-              </div>
-              {/* Task prompts */}
-              <div>
-                <h3 className="text-xs font-medium text-muted-foreground mb-2">Task Prompts</h3>
-                {promptTemplates.filter(t => t.scope === 'task').map(t => (
-                  <PromptTemplateCard key={t.id} template={t} onEdit={...} onDelete={...} />
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
-      </div>
-
-      {/* Dialogs */}
-      <ExampleGeneratorDialog open={generatorOpen} onOpenChange={setGeneratorOpen} />
-      <PromptTemplateEditorDialog open={promptEditorOpen} onOpenChange={setPromptEditorOpen} />
-      <ExamplePickerDialog open={pickerOpen} ... />
+{/* Section 3: Prompt Templates (feature-gated) */}
+{userExamplesEnabled && (
+  <section>
+    <div className="flex items-center justify-between mb-3">
+      <h2 className="text-sm font-semibold text-muted-foreground">PROMPT TEMPLATES</h2>
+      <Button variant="outline" size="sm" onClick={() => setPromptEditorOpen(true)}>
+        Create Prompt Template
+      </Button>
     </div>
-  )
-}
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Project prompts */}
+      <div>
+        <h3 className="text-xs font-medium text-muted-foreground mb-2">Project Prompts</h3>
+        {promptTemplates.filter(t => t.scope === 'project').map(t => (
+          <PromptTemplateCard key={t.id} template={t} onEdit={...} onDelete={...} />
+        ))}
+      </div>
+      {/* Task prompts */}
+      <div>
+        <h3 className="text-xs font-medium text-muted-foreground mb-2">Task Prompts</h3>
+        {promptTemplates.filter(t => t.scope === 'task').map(t => (
+          <PromptTemplateCard key={t.id} template={t} onEdit={...} onDelete={...} />
+        ))}
+      </div>
+    </div>
+  </section>
+)}
 ```
-
-### Step 4.2: Example Card Component
-
-**File: `src/components/examples/example-card.tsx`** — Add badge prop:
-
-```tsx
-interface ExampleCardProps {
-  template: UseCaseTemplateSummary | CustomExample
-  badge?: 'Built-in' | 'Saved' | 'Custom'
-  onClick: () => void
-  onEdit?: () => void
-  onDelete?: () => void
-}
-```
-
-The badge renders as a small colored chip in the top-right corner of the card.
 
 ---
 
-## Phase 5: AI Example Generator Dialog
+## Phase 6: Prompt Templates at Launch Time
 
-**Goal**: 2-step dialog — describe workflow, then review/edit AI output.
+**Goal**: Users can select prompt templates when creating projects or dispatching tasks. This is the phase that touches existing dispatch infrastructure.
 
-### Step 5.1: Generator Dialog
+**Depends on**: Phase 5 (prompt templates must exist to select from).
 
-**New file: `src/components/examples/example-generator-dialog.tsx`**
+### Step 6.1: Prompt Template Selector Component
 
-```tsx
-// Step 1: Three textareas (description, inputs, deliverables) + "Generate" button
-// Step 2: Parsed JSON displayed as editable form:
-//   - Name, description, icon, category (editable text/select)
-//   - Parameters list (editable, add/remove)
-//   - Plan Generation Prompt (textarea)
-//   - Task Execution Prompt (textarea)
-//   - Shared Context (textarea)
-//   - "Regenerate" and "Save Example" buttons
-//
-// On "Generate": POST /api/examples/generate, parse SSE stream,
-// extract JSON from the AI response, populate Step 2 form.
-//
-// On "Save": call useCustomExampleStore.create() with form data.
-```
-
-### Step 5.2: Save-as-Example Dialog
-
-**New file: `src/components/examples/save-as-example-dialog.tsx`**
-
-```tsx
-// Props: projectId
-// On open: fetch project data, pre-fill form
-// Form: name (pre-filled from project name), description (editable),
-//   plan prompt (pre-filled from visionDoc, read-only or editable),
-//   visibility toggle (personal/team)
-// On save: call useCustomExampleStore.saveFromProject()
-```
-
-**Integration point**: Add "Save as Example" to the project page dropdown menu (e.g., in the project header or settings menu). Only shown when `useFeatureFlag('user-examples')` is true.
-
----
-
-## Phase 6: Prompt Template Integration at Launch Time
-
-**Goal**: Users can select prompt templates when creating projects or dispatching tasks.
-
-### Step 6.1: Project Prompt Template Selector
-
-**Where**: Plan page new-project form, or the project description textarea.
-
-**New component: `src/components/examples/prompt-template-selector.tsx`**
+**New file: `src/components/examples/prompt-template-selector.tsx`**
 
 ```tsx
 // A popover/dropdown that lists available prompt templates for the given scope.
-// On select: calls onSelect(content) -> parent pre-fills the textarea.
+// On select: calls onSelect(content) → parent pre-fills the textarea.
 interface PromptTemplateSelectorProps {
   scope: 'project' | 'task'
   onSelect: (content: string) => void
 }
 ```
 
-**Integration in Plan page** — wherever the project description / vision doc textarea lives, add a small "Load Template" button next to it that opens the selector.
+### Step 6.2: Project Prompt Template Integration
 
-### Step 6.2: Task Prompt Template at Dispatch
+**Where**: Plan page new-project form, or the project description textarea.
 
-**Where**: The dispatch confirmation flow when user clicks "Run" on a node.
+Wherever the project description / vision doc textarea lives, add a small "Load Template" button next to it that opens the selector. **Feature-gated**.
+
+### Step 6.3: Task Prompt Template at Dispatch
 
 **File: `server/routes/dispatch.ts`** — Add to `dispatchTaskSchema`:
 
@@ -1180,9 +1193,14 @@ interface PromptTemplateSelectorProps {
 promptTemplateContent: z.string().max(50000).optional(),
 ```
 
-**File: `packages/core/src/prompt-templates.ts`** — Modify `buildTaskExecutionPrompt()`:
+**File: `packages/core/src/prompt-templates.ts`** — Modify `TaskExecutionContext` and `buildTaskExecutionPrompt()`:
 
 ```typescript
+export interface TaskExecutionContext {
+  // ... existing fields
+  promptTemplateContent?: string  // NEW
+}
+
 export function buildTaskExecutionPrompt(context: TaskExecutionContext): string {
   const parts: string[] = []
 
@@ -1202,16 +1220,9 @@ export function buildTaskExecutionPrompt(context: TaskExecutionContext): string 
 }
 ```
 
-**File: `packages/core/src/prompt-templates.ts`** — Add to `TaskExecutionContext`:
+### Step 6.4: Frontend Dispatch Flow
 
-```typescript
-export interface TaskExecutionContext {
-  // ... existing fields
-  promptTemplateContent?: string  // NEW
-}
-```
-
-**Frontend dispatch flow** — wherever the dispatch confirmation UI is (the component that calls `POST /api/dispatch/task`), add the `PromptTemplateSelector` for `scope: 'task'`. The selected content goes into `body.promptTemplateContent`.
+Wherever the dispatch confirmation UI is (the component that calls `POST /api/dispatch/task`), add the `PromptTemplateSelector` for `scope: 'task'`. The selected content goes into `body.promptTemplateContent`. **Feature-gated**.
 
 ---
 
@@ -1225,21 +1236,17 @@ Add a "View Prompts" button/action to built-in example cards. Opens a read-only 
 
 Add a "Clone" action on any example card (built-in or custom). Copies all fields into a new custom example with the name suffixed "(Copy)". Opens the edit form.
 
-### 7.3: Load Data on App Startup
+### 7.3: Badge Refinements
 
-**File: `src/components/data-loader.tsx`** (or equivalent) — Add:
+Polish the badge colors and styles:
+- Built-in: neutral/grey
+- Custom: blue
+- Saved (from project): green
+- AI-generated: purple
 
-```typescript
-const loadCustomExamples = useCustomExampleStore((s) => s.load)
-const loadPromptTemplates = usePromptTemplateStore((s) => s.load)
+### 7.4: Empty States
 
-useEffect(() => {
-  if (useFeatureFlag('user-examples')) {
-    loadCustomExamples()
-    loadPromptTemplates()
-  }
-}, [])
-```
+Add helpful empty states for "My Examples" and "Prompt Templates" sections when there are no items yet. Include a call-to-action button pointing to the generator dialog or editor.
 
 ---
 
@@ -1247,37 +1254,37 @@ useEffect(() => {
 
 ### New Files
 
-| File | Purpose |
-|------|---------|
-| `server/routes/custom-examples.ts` | CRUD + generate + save-from-project API |
-| `server/routes/prompt-templates.ts` | CRUD API for prompt templates |
-| `server/lib/example-launcher.ts` | Shared launch logic (extracted) |
-| `src/stores/custom-example-store.ts` | Zustand store for custom examples |
-| `src/stores/prompt-template-store.ts` | Zustand store for prompt templates |
-| `src/types/examples.ts` | TypeScript types |
-| `src/components/examples/example-generator-dialog.tsx` | AI generator 2-step dialog |
-| `src/components/examples/save-as-example-dialog.tsx` | Save project as example |
-| `src/components/examples/prompt-template-editor-dialog.tsx` | Create/edit prompt template |
-| `src/components/examples/prompt-template-selector.tsx` | Dropdown selector at launch |
-| `supabase/migrations/YYYYMMDDHHMMSS_add_custom_examples_and_prompt_templates.sql` | DB migration |
+| File | Phase | Purpose |
+|------|-------|---------|
+| `server/routes/custom-examples.ts` | 2 | CRUD + generate + save-from-project API |
+| `server/routes/prompt-templates.ts` | 5 | CRUD API for prompt templates |
+| `server/lib/example-launcher.ts` | 2 | Shared launch logic (extracted) |
+| `src/stores/custom-example-store.ts` | 2 | Zustand store for custom examples |
+| `src/stores/prompt-template-store.ts` | 5 | Zustand store for prompt templates |
+| `src/types/examples.ts` | 2 | TypeScript types |
+| `src/components/examples/example-generator-dialog.tsx` | 3 | AI generator 2-step dialog |
+| `src/components/examples/save-as-example-dialog.tsx` | 4 | Save project as example |
+| `src/components/examples/prompt-template-editor-dialog.tsx` | 5 | Create/edit prompt template |
+| `src/components/examples/prompt-template-selector.tsx` | 6 | Dropdown selector at launch |
+| `supabase/migrations/YYYYMMDDHHMMSS_add_custom_examples_and_prompt_templates.sql` | 1 | DB migration |
 
 ### Modified Files
 
-| File | Change |
-|------|--------|
-| `packages/core/src/db/schema.ts` | Add `customExamples` + `promptTemplates` tables |
-| `server/lib/db/schema.ts` | Re-export new tables |
-| `server/index.ts` | Register new routes |
-| `server/routes/examples.ts` | Return custom examples in list, extract launch logic |
-| `server/routes/dispatch.ts` | Add `promptTemplateContent` to dispatch schema |
-| `server/lib/feature-flags.ts` | Add `user-examples` flag |
-| `src/hooks/use-feature-flag.ts` | Add `user-examples` flag |
-| `scripts/sync-feature-flags.ts` | Add `user-examples` to `INTERNAL_FLAGS` |
-| `packages/core/src/prompt-templates.ts` | Add `buildExampleGenerationPrompt()`, modify `buildTaskExecutionPrompt()` + `TaskExecutionContext` |
-| `src/pages/examples.tsx` | Three-section layout, badges, create buttons |
-| `src/components/examples/example-card.tsx` | Add badge prop, edit/delete actions |
-| `src/lib/api-client.ts` | Add all new API functions |
-| `src/components/data-loader.tsx` | Load custom examples + prompt templates on startup |
-| Project page component | Add "Save as Example" menu item |
-| Dispatch confirmation component | Add prompt template selector |
-| Plan page / new project form | Add "Load Prompt Template" button |
+| File | Phase | Change |
+|------|-------|--------|
+| `packages/core/src/db/schema.ts` | 1 | Add `customExamples` + `promptTemplates` tables |
+| `server/lib/db/schema.ts` | 1 | Re-export new tables |
+| `server/index.ts` | 2, 5 | Register new routes |
+| `server/routes/examples.ts` | 2 | Return custom examples in list (flag-gated), extract launch logic |
+| `server/routes/dispatch.ts` | 6 | Add `promptTemplateContent` to dispatch schema |
+| `server/lib/feature-flags.ts` | 1 | Add `user-examples` flag |
+| `src/hooks/use-feature-flag.ts` | 1 | Add `user-examples` flag |
+| `scripts/sync-feature-flags.ts` | 1 | Add `user-examples` to `INTERNAL_FLAGS` |
+| `packages/core/src/prompt-templates.ts` | 3, 6 | Add `buildExampleGenerationPrompt()`, modify `buildTaskExecutionPrompt()` + `TaskExecutionContext` |
+| `src/pages/examples.tsx` | 2, 5 | Three-section layout, badges, create buttons |
+| `src/components/examples/example-card.tsx` | 2 | Add badge prop, edit/delete actions |
+| `src/lib/api-client.ts` | 2, 3, 5 | Add all new API functions |
+| `src/components/data-loader.tsx` | 2, 5 | Load custom examples + prompt templates on startup (flag-gated) |
+| Project page component | 4 | Add "Save as Example" menu item |
+| Dispatch confirmation component | 6 | Add prompt template selector |
+| Plan page / new project form | 6 | Add "Load Prompt Template" button |
