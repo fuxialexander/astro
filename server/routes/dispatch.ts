@@ -924,7 +924,7 @@ async function dispatchViaRelay(
 
     // Inject project knowledge entries (capped at 16000 chars, most recent first)
     try {
-      const knowledgeRows = await db.select().from(projectKnowledge).where(eq(projectKnowledge.projectId, projectId))
+      const knowledgeRows = await db.select().from(projectKnowledge).where(and(eq(projectKnowledge.projectId, projectId), isNull(projectKnowledge.deletedAt)))
       if (knowledgeRows.length > 0) {
         const capped = capKnowledgeEntries(knowledgeRows, 16000)
         if (capped.length > 0) {
@@ -1235,7 +1235,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         filename: blobs.filename,
       }).from(blobs).where(and(
         inArray(blobs.id, imageRefs),
-        inArray(blobs.teamId, user.teamIds)
+        inArray(blobs.teamId, user.teamIds),
+        isNull(blobs.deletedAt)
       ))
 
       if (blobRows.length > 0) {
@@ -2920,6 +2921,7 @@ async function tryRecoverApproval(
         and(
           eq(streamingEvents.eventType, 'approval.requested'),
           sql`${streamingEvents.data}->>'approvalId' = ${approvalId}`,
+          isNull(streamingEvents.deletedAt),
         )
       )
       .limit(1)
@@ -3292,23 +3294,24 @@ dispatchRoute.post('/reset', async (c) => {
 
   // 5. Delete task execution records from DB so they don't reappear after page refresh
   try {
-    // Find execution records for this node
+    // Find non-deleted execution records for this node
     const nodeExecutions = await db.select({ executionId: taskExecutions.executionId })
       .from(taskExecutions)
-      .where(eq(taskExecutions.nodeClientId, nodeId))
+      .where(and(eq(taskExecutions.nodeClientId, nodeId), isNull(taskExecutions.deletedAt)))
 
     if (nodeExecutions.length > 0) {
       const executionIds = nodeExecutions.map(e => e.executionId)
 
-      // Delete streaming events for these executions first (FK constraint)
-      await db.delete(streamingEvents)
+      // Soft-delete streaming events for these executions
+      const now = new Date()
+      await db.update(streamingEvents).set({ deletedAt: now })
         .where(inArray(streamingEvents.executionId, executionIds))
 
-      // Delete the execution records themselves
-      await db.delete(taskExecutions)
+      // Soft-delete the execution records themselves
+      await db.update(taskExecutions).set({ deletedAt: now })
         .where(eq(taskExecutions.nodeClientId, nodeId))
 
-      console.log(`[dispatch/reset] Deleted ${nodeExecutions.length} execution record(s) and associated streaming events for node ${nodeId}`)
+      console.log(`[dispatch/reset] Soft-deleted ${nodeExecutions.length} execution record(s) and associated streaming events for node ${nodeId}`)
     }
   } catch (dbErr) {
     // Non-fatal: log but don't fail the reset — the node is already reset
@@ -3450,19 +3453,20 @@ dispatchRoute.post('/bulk-reset', async (c) => {
 
   // 4. Bulk-delete streaming_events for all node IDs
   try {
-    // Find all execution IDs for these nodes
+    // Find all non-deleted execution IDs for these nodes
     const nodeExecutions = await db.select({ executionId: taskExecutions.executionId })
       .from(taskExecutions)
-      .where(inArray(taskExecutions.nodeClientId, nodeIds))
+      .where(and(inArray(taskExecutions.nodeClientId, nodeIds), isNull(taskExecutions.deletedAt)))
 
     if (nodeExecutions.length > 0) {
       const executionIds = nodeExecutions.map(e => e.executionId)
 
-      // Delete streaming events for these executions (FK constraint requires this first)
-      await db.delete(streamingEvents)
+      // Soft-delete streaming events for these executions
+      const now = new Date()
+      await db.update(streamingEvents).set({ deletedAt: now })
         .where(inArray(streamingEvents.executionId, executionIds))
 
-      console.log(`[dispatch/bulk-reset] Deleted streaming events for ${executionIds.length} execution(s)`)
+      console.log(`[dispatch/bulk-reset] Soft-deleted streaming events for ${executionIds.length} execution(s)`)
     }
   } catch (dbErr) {
     const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
@@ -3472,9 +3476,9 @@ dispatchRoute.post('/bulk-reset', async (c) => {
 
   // 5. Bulk-delete taskExecutions for all node IDs
   try {
-    await db.delete(taskExecutions)
+    await db.update(taskExecutions).set({ deletedAt: new Date() })
       .where(inArray(taskExecutions.nodeClientId, nodeIds))
-    console.log(`[dispatch/bulk-reset] Deleted task executions for ${nodeIds.length} node(s)`)
+    console.log(`[dispatch/bulk-reset] Soft-deleted task executions for ${nodeIds.length} node(s)`)
   } catch (dbErr) {
     const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
     console.warn(`[dispatch/bulk-reset] Failed to delete task executions: ${msg}`)

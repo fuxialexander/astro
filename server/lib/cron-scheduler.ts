@@ -571,6 +571,7 @@ async function runCronTick(): Promise<void> {
       .where(and(
         eq(schedules.enabled, true),
         lte(schedules.nextRunAt, now),
+        isNull(schedules.deletedAt),
       ))
 
     if (dueSchedules.length === 0) {

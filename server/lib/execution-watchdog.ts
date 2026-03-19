@@ -80,6 +80,7 @@ async function isTaskTrulyStale(
         and(
           eq(streamingEvents.executionId, executionId),
           gt(streamingEvents.createdAt, cutoffTime),
+          isNull(streamingEvents.deletedAt),
         )
       )
       .limit(1)

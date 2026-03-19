@@ -19,7 +19,7 @@ import { redisPubSub, type StreamingEventMessage } from '../lib/redis-pubsub.js'
 import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, ProviderType, ImageAttachment } from '../types/relay.js'
 import { db } from '../lib/db/index.js'
 import { projects, taskExecutions, registeredMachines, machineInstructions, blobs } from '../lib/db/schema.js'
-import { eq, and, inArray } from 'drizzle-orm'
+import { eq, and, inArray, isNull } from 'drizzle-orm'
 
 /** Verify the user has access to the given project (team-scoped). */
 async function verifyProjectAccess(projectId: string, user: AuthUser): Promise<boolean> {
@@ -590,7 +590,8 @@ async function fetchImageBlobs(imageRefs: string[], user: AuthUser): Promise<{ i
       filename: blobs.filename,
     }).from(blobs).where(and(
       inArray(blobs.id, imageRefs),
-      inArray(blobs.teamId, user.teamIds)
+      inArray(blobs.teamId, user.teamIds),
+      isNull(blobs.deletedAt)
     ))
     const images = blobRows.map(row => ({
       blobId: row.id,

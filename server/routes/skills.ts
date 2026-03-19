@@ -167,7 +167,7 @@ skillsRoute.get('/', async (c) => {
   try {
     const user = c.get('user')! as AuthUser
 
-    const rows = await db.select().from(skills).where(skillTeamScopeFilter(user))
+    const rows = await db.select().from(skills).where(and(skillTeamScopeFilter(user), isNull(skills.deletedAt)))
 
     const result = rows.map((s) => ({
       id: s.id,
@@ -206,7 +206,7 @@ skillsRoute.get('/:id', async (c) => {
     const id = c.req.param('id')
 
     const [row] = await db.select().from(skills).where(
-      and(eq(skills.id, id), skillTeamScopeFilter(user))
+      and(eq(skills.id, id), skillTeamScopeFilter(user), isNull(skills.deletedAt))
     )
 
     if (!row) {
@@ -247,7 +247,7 @@ skillsRoute.post('/register', async (c) => {
 
       const [existing] = await db.select({ id: skills.id, source: skills.source })
         .from(skills)
-        .where(and(eq(skills.name, skill.name), skillTeamScopeFilter(user)))
+        .where(and(eq(skills.name, skill.name), skillTeamScopeFilter(user), isNull(skills.deletedAt)))
         .limit(1)
 
       if (existing) {
@@ -441,7 +441,7 @@ skillsRoute.put('/:id', async (c) => {
 
     // Verify skill exists and user has access
     const [existing] = await db.select().from(skills).where(
-      and(eq(skills.id, id), skillTeamScopeFilter(user))
+      and(eq(skills.id, id), skillTeamScopeFilter(user), isNull(skills.deletedAt))
     )
 
     if (!existing) {
@@ -562,7 +562,7 @@ skillsRoute.delete('/:id', async (c) => {
 
     // Verify skill exists and user has access
     const [existing] = await db.select().from(skills).where(
-      and(eq(skills.id, id), skillTeamScopeFilter(user))
+      and(eq(skills.id, id), skillTeamScopeFilter(user), isNull(skills.deletedAt))
     )
 
     if (!existing) {
@@ -576,7 +576,7 @@ skillsRoute.delete('/:id', async (c) => {
       return c.json({ error: 'Cannot delete catalog skills. Use the collection toggle to disable them.' }, 403)
     }
 
-    await db.delete(skills).where(eq(skills.id, id))
+    await db.update(skills).set({ deletedAt: new Date() }).where(eq(skills.id, id))
 
     // Sync in-memory skill-manager for prompt injection (best-effort)
     let syncWarning: string | null = null
@@ -604,7 +604,7 @@ skillsRoute.put('/:id/toggle', async (c) => {
 
     // Verify skill exists and user has access
     const [existing] = await db.select().from(skills).where(
-      and(eq(skills.id, id), skillTeamScopeFilter(user))
+      and(eq(skills.id, id), skillTeamScopeFilter(user), isNull(skills.deletedAt))
     )
 
     if (!existing) {

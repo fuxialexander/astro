@@ -15,7 +15,7 @@ import {
   projects,
   userAchievements,
 } from './db/schema.js'
-import { eq, and, sql, desc, gte, count } from 'drizzle-orm'
+import { eq, and, sql, desc, gte, count, isNull } from 'drizzle-orm'
 import {
   type LifetimeStats,
   checkAchievements,
@@ -181,7 +181,8 @@ export async function computeLifetimeStats(userId: string): Promise<LifetimeStat
         and(
           eq(streamingEvents.eventType, 'file_change'),
           sql`${taskExecutions.projectId} IN (SELECT id FROM projects WHERE owner_id = ${userId})`,
-          sql`${streamingEvents.data}->>'linesAdded' IS NOT NULL`
+          sql`${streamingEvents.data}->>'linesAdded' IS NOT NULL`,
+          isNull(streamingEvents.deletedAt),
         )
       ),
 
