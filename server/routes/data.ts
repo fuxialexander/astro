@@ -1942,13 +1942,13 @@ app.delete('/executions/:nodeId', async (c) => {
   const user = c.get('user')! as AuthUser
   const nodeId = c.req.param('nodeId')
 
-  // Find execution records for this node
+  // Find execution records for this node (only non-deleted ones)
   const nodeExecutions = await db.select({
     executionId: taskExecutions.executionId,
     projectId: taskExecutions.projectId,
   })
     .from(taskExecutions)
-    .where(eq(taskExecutions.nodeClientId, nodeId))
+    .where(and(eq(taskExecutions.nodeClientId, nodeId), isNull(taskExecutions.deletedAt)))
 
   if (nodeExecutions.length === 0) {
     return c.json({ ok: true }) // Nothing to delete
@@ -1986,7 +1986,7 @@ app.get('/tool-traces', async (c) => {
   // Verify user has access to this execution via project team scope
   const [execution] = await db.select({ projectId: taskExecutions.projectId })
     .from(taskExecutions)
-    .where(eq(taskExecutions.executionId, executionId))
+    .where(and(eq(taskExecutions.executionId, executionId), isNull(taskExecutions.deletedAt)))
     .limit(1)
   if (execution?.projectId) {
     const [project] = await db.select({ id: projects.id }).from(projects)
@@ -2011,7 +2011,7 @@ app.get('/file-changes', async (c) => {
   // Verify user has access to this execution via project team scope
   const [execution] = await db.select({ projectId: taskExecutions.projectId })
     .from(taskExecutions)
-    .where(eq(taskExecutions.executionId, executionId))
+    .where(and(eq(taskExecutions.executionId, executionId), isNull(taskExecutions.deletedAt)))
     .limit(1)
   if (execution?.projectId) {
     const [project] = await db.select({ id: projects.id }).from(projects)
@@ -2116,7 +2116,7 @@ app.get('/export', async (c) => {
       for (const projectId of projectIds) {
         const projectNodes = await db.select().from(planNodes).where(eq(planNodes.projectId, projectId))
         const projectEdges = await db.select().from(planEdges).where(eq(planEdges.projectId, projectId))
-        const projectExecutions = await db.select().from(taskExecutions).where(eq(taskExecutions.projectId, projectId))
+        const projectExecutions = await db.select().from(taskExecutions).where(and(eq(taskExecutions.projectId, projectId), isNull(taskExecutions.deletedAt)))
         nodes = [...nodes, ...projectNodes]
         edges = [...edges, ...projectEdges]
         executions = [...executions, ...projectExecutions]

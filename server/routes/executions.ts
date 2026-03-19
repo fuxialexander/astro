@@ -10,7 +10,7 @@
 import { Hono } from 'hono'
 import { db } from '../lib/db/index.js'
 import { taskExecutions, projects, teamMembers } from '../lib/db/schema.js'
-import { eq, count } from 'drizzle-orm'
+import { eq, and, count, isNull } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { randomUUID } from 'crypto'
 
@@ -28,7 +28,7 @@ async function getAuthorizedExecution(executionId: string, user: AuthUser) {
   const [execution] = await db
     .select()
     .from(taskExecutions)
-    .where(eq(taskExecutions.executionId, executionId))
+    .where(and(eq(taskExecutions.executionId, executionId), isNull(taskExecutions.deletedAt)))
 
   if (!execution) return null
 
