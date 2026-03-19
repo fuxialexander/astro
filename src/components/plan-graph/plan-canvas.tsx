@@ -576,7 +576,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
             data: { onDelete: readOnly ? undefined : handleEdgeDelete, readOnly },
             style: {
               stroke: edgeColor,
-              strokeWidth: 1.5,
+              strokeWidth: 2.5,
               strokeLinecap: "round" as const,
             },
             markerEnd: {
