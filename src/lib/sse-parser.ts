@@ -97,6 +97,7 @@ export async function parseChatSSE(
   response: Response,
   handlers: {
     onText?: (text: string) => void
+    onOperational?: (data: { message: string; source: 'astro' | 'git' | 'delivery' }) => void
     onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
     onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
     onSessionInit?: (data: { sessionId: string; model?: string }) => void
@@ -127,6 +128,9 @@ export async function parseChatSSE(
       switch (event) {
         case "text":
           handlers.onText?.(data)
+          break
+        case "operational":
+          try { handlers.onOperational?.(JSON.parse(data)) } catch { /* ignore */ }
           break
         case "tool_use":
           try { handlers.onToolUse?.(JSON.parse(data)) } catch { /* ignore */ }
@@ -182,6 +186,7 @@ export async function parseExecutionSSE(
     onInit?: (data: { executionId: string; nodeId: string; providerId: string; providerName: string }) => void
     onSessionInit?: (data: { sessionId: string; model?: string }) => void
     onText?: (text: string) => void
+    onOperational?: (data: { message: string; source: 'astro' | 'git' | 'delivery' }) => void
     onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
     onToolResult?: (data: { toolName: string; success: boolean; result: unknown; duration?: number }) => void
     onFileChange?: (data: { path: string; action: string; diff?: string; linesAdded?: number; linesRemoved?: number }) => void
@@ -215,6 +220,9 @@ export async function parseExecutionSSE(
           break
         case "text":
           handlers.onText?.(data)
+          break
+        case "operational":
+          try { handlers.onOperational?.(JSON.parse(data)) } catch { /* ignore */ }
           break
         case "tool_use":
           try { handlers.onToolUse?.(JSON.parse(data)) } catch { /* ignore */ }

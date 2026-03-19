@@ -91,6 +91,19 @@ export function useStreamEvents(
   // Track hydration state
   const hydratedRef = useRef<string | null>(null)
   const [catchUpCompletedId, setCatchUpCompletedId] = useState<string | null>(null)
+  const latestPersistedSeq = useMemo(() => {
+    let maxSeq = 0
+    for (const event of taskStream?.activityEvents ?? []) {
+      if (event.seq != null && event.seq > maxSeq) maxSeq = event.seq
+    }
+    for (const trace of taskStream?.toolTraces ?? []) {
+      if (trace.seq != null && trace.seq > maxSeq) maxSeq = trace.seq
+    }
+    for (const change of taskStream?.fileChanges ?? []) {
+      if (change.seq != null && change.seq > maxSeq) maxSeq = change.seq
+    }
+    return maxSeq
+  }, [taskStream?.activityEvents, taskStream?.toolTraces, taskStream?.fileChanges])
 
   // Hydrate from streaming_events on mount / streamId change
   useEffect(() => {
@@ -105,6 +118,22 @@ export function useStreamEvents(
         setCatchUpCompletedId(streamId)
       })
   }, [streamId, hydrateFromCatchUp])
+
+  // When the tab becomes visible again, catch up just this mounted stream.
+  // This covers chat streams that aren't part of the global SSE reconnect sweep.
+  useEffect(() => {
+    if (!streamId || typeof document === "undefined") return
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return
+      hydrateFromCatchUp([streamId], latestPersistedSeq).catch((err) => {
+        console.warn('[useStreamEvents] visibility catch-up failed for', streamId, err)
+      })
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange)
+  }, [streamId, latestPersistedSeq, hydrateFromCatchUp])
 
   // Build activity events — merge taskStream with execution store and legacy fallback
   const activityEvents: TaskActivityEvent[] = useMemo(() => {

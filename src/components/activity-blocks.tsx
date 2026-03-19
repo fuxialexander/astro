@@ -90,7 +90,7 @@ function sanitizeHtmlContent(html: string): string {
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface DisplayBlock {
-  type: 'text' | 'tool' | 'tool_group' | 'visual' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment' | 'branch_linked' | 'system_message' | 'system_prompt' | 'plan_result' | 'json_render_spec'
+  type: 'text' | 'operational' | 'tool' | 'tool_group' | 'visual' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment' | 'branch_linked' | 'system_message' | 'system_prompt' | 'plan_result' | 'json_render_spec'
   events: TaskActivityEvent[]
   /** For 'visual' blocks: the extracted HTML/SVG content to render */
   visualContent?: string
@@ -108,6 +108,7 @@ export interface DisplayBlock {
 export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[] {
   const blocks: DisplayBlock[] = []
   let currentTextEvents: TaskActivityEvent[] = []
+  let currentOperationalEvents: TaskActivityEvent[] = []
   let currentToolEvents: TaskActivityEvent[] = []
 
   function flushText() {
@@ -213,17 +214,31 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
     currentToolEvents = []
   }
 
+  function flushOperational() {
+    if (currentOperationalEvents.length === 0) return
+    blocks.push({ type: 'operational', events: [...currentOperationalEvents] })
+    currentOperationalEvents = []
+  }
+
   for (const event of events) {
     switch (event.type) {
       case 'text':
+        flushOperational()
         flushTools()
         currentTextEvents.push(event)
         break
+      case 'operational':
+        flushText()
+        flushTools()
+        currentOperationalEvents.push(event)
+        break
       case 'tool_use':
+        flushOperational()
         flushText()
         currentToolEvents.push(event)
         break
       case 'tool_result': {
+        flushOperational()
         flushText()
         // If the matching tool_use was already flushed into a previous block,
         // inject this result into that block instead of the current batch.
@@ -246,76 +261,91 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
         break
       }
       case 'steer':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'steer', events: [event] })
         break
       case 'file_change':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'file_change', events: [event] })
         break
       case 'error':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'error', events: [event] })
         break
       case 'chat_user':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'chat_user', events: [event] })
         break
       case 'chat_assistant':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'chat_assistant', events: [event] })
         break
       case 'approval_request':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'approval_request', events: [event] })
         break
       case 'approval_response':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'approval_response', events: [event] })
         break
       case 'mutation':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'mutation', events: [event] })
         break
       case 'pr_status':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'pr_status', events: [event] })
         break
       case 'github_comment':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'github_comment', events: [event] })
         break
       case 'branch_linked':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'branch_linked', events: [event] })
         break
       case 'system_message':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'system_message', events: [event] })
         break
       case 'system_prompt':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'system_prompt', events: [event] })
         break
       case 'plan_result':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'plan_result', events: [event] })
         break
       case 'json_render_spec':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'json_render_spec', events: [event] })
@@ -324,6 +354,7 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
   }
 
   flushText()
+  flushOperational()
   flushTools()
 
   // ── Deduplicate text blocks ──────────────────────────────────────────
@@ -452,24 +483,34 @@ export function TextBlock({ events, isStreaming, onLinkClick, onSendPrompt, prep
   if (!text) return null
   if (preprocessContent) text = preprocessContent(text)
 
-  // Operational messages (── [Astro], [Git], [Delivery]) are system-level status lines,
-  // not AI-generated markdown. Render them as styled pre-formatted lines.
-  if (/──\s*\[/.test(text)) {
-    const lines = text.split('\n').filter(l => l.trim())
-    return (
-      <div className="px-4 py-1 space-y-0.5">
-        {lines.map((line, i) => (
-          <div key={i} className="text-xs font-mono text-blue-400 dark:text-blue-400/80">
-            {line}
-          </div>
-        ))}
-      </div>
-    )
-  }
-
   return (
     <div className="px-4 py-1">
       <StreamingMarkdown content={text} isStreaming={isStreaming} className="text-xs leading-relaxed" onLinkClick={onLinkClick} onSendPrompt={onSendPrompt} />
+    </div>
+  )
+}
+
+export function OperationalBlock({ events }: { events: TaskActivityEvent[] }) {
+  const operationalEvents = events.filter(
+    (event): event is Extract<TaskActivityEvent, { type: 'operational' }> => event.type === 'operational'
+  )
+
+  if (operationalEvents.length === 0) return null
+
+  return (
+    <div className="px-4 py-1 space-y-0.5">
+      {operationalEvents.map((event, index) => {
+        const prefix = event.source === 'astro'
+          ? 'Astro'
+          : event.source === 'git'
+            ? 'Git'
+            : 'Delivery'
+        return (
+          <div key={`${event.source}-${index}`} className="text-xs font-mono text-blue-400 dark:text-blue-400/80">
+            {`── [${prefix}] ${event.message}`}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -656,8 +697,10 @@ export function VisualBlock({ block, onSendPrompt }: { block: DisplayBlock; onSe
 export function SteerBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'steer' }> }) {
   // Pending steers (accepted === undefined) show a clock indicator.
   // Failed/rejected steers (accepted === false) show error indicator.
+  // Delivered steers (accepted === true) show a checkmark.
   const isPending = event.accepted === undefined
   const isFailed = event.accepted === false
+  const isDelivered = event.accepted === true
 
   return (
     <div className="flex flex-col items-end gap-1 px-4 py-1.5">
@@ -674,6 +717,11 @@ export function SteerBlock({ event }: { event: Extract<TaskActivityEvent, { type
           <>
             <Clock className="h-3 w-3 text-muted-foreground animate-pulse" />
             <span className="text-[10px] text-muted-foreground">Queued — will deliver when agent is ready</span>
+          </>
+        ) : isDelivered ? (
+          <>
+            <CheckCircle2 className="h-3 w-3 text-success" />
+            <span className="text-[10px] text-muted-foreground">{event.ackMessage || "Delivered"}</span>
           </>
         ) : (
           <>

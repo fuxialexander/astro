@@ -11,6 +11,7 @@
 import React, { lazy, Suspense } from "react"
 import {
   TextBlock,
+  OperationalBlock,
   ToolBlock,
   ToolGroupBlock,
   VisualBlock,
@@ -59,8 +60,15 @@ export interface ActivityBlockRendererProps {
   githubContext?: { owner: string; repo: string; number: number }
   /** Map of answered approval request IDs */
   answeredApprovals?: Set<string>
+  /** Approval responses keyed by requestId for rendering answered cards */
+  approvalResponses?: Map<string, Extract<TaskActivityEvent, { type: 'approval_response' }>>
   /** Whether this is a running execution (affects tool block display) */
   isRunning?: boolean
+  /** Optional helpers for mutation blocks */
+  getNodeTitle?: (nodeId: string) => string
+  onNodeSelect?: (nodeId: string) => void
+  /** Optional pathway-owned PR renderer */
+  renderPrStatus?: (block: Extract<DisplayBlock, { type: 'pr_status' }>, key: string) => React.ReactNode
 }
 
 /**
@@ -79,7 +87,11 @@ export function ActivityBlockRenderer({
   preprocessContent,
   githubContext,
   answeredApprovals,
+  approvalResponses,
   isRunning,
+  getNodeTitle,
+  onNodeSelect,
+  renderPrStatus,
 }: ActivityBlockRendererProps) {
   return (
     <>
@@ -99,6 +111,9 @@ export function ActivityBlockRenderer({
                 preprocessContent={preprocessContent}
               />
             )
+
+          case 'operational':
+            return <OperationalBlock key={key} events={block.events} />
 
           case 'tool':
             return <ToolBlock key={key} events={block.events} isRunning={isRunning} />
@@ -145,6 +160,7 @@ export function ActivityBlockRenderer({
           case 'approval_request': {
             const approvalEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'approval_request' }>
             const isAnswered = answeredApprovals?.has(approvalEvent.requestId) ?? false
+            const response = approvalResponses?.get(approvalEvent.requestId)
             return (
               <Suspense key={key} fallback={null}>
                 <InlineApprovalCard
@@ -152,6 +168,8 @@ export function ActivityBlockRenderer({
                   question={approvalEvent.question}
                   options={approvalEvent.options}
                   answered={isAnswered}
+                  answer={response?.answer}
+                  autoApproved={response?.autoApproved}
                   onRespond={onApprovalResponse
                     ? async (reqId: string, answer: string) => { onApprovalResponse(reqId, answer) }
                     : async () => {}}
@@ -166,7 +184,7 @@ export function ActivityBlockRenderer({
 
           case 'mutation': {
             const mutationEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'mutation' }>
-            return <MutationBlock key={key} event={mutationEvent} />
+            return <MutationBlock key={key} event={mutationEvent} getNodeTitle={getNodeTitle} onNodeSelect={onNodeSelect} />
           }
 
           case 'github_comment': {
@@ -206,9 +224,7 @@ export function ActivityBlockRenderer({
           }
 
           case 'pr_status':
-            // PR status is rendered by the pathway view (task-detail) using PrStatusCard
-            // since it needs additional API data beyond what's in the event
-            return null
+            return renderPrStatus ? renderPrStatus(block as Extract<DisplayBlock, { type: 'pr_status' }>, key) : null
 
           default:
             return null

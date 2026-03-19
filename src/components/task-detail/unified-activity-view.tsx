@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import { stripHtml } from "@/lib/html-utils"
 import {
   Send,
-  Loader2,
+  Square,
   CheckCircle2,
   XCircle,
   ArrowDown,
@@ -10,6 +10,7 @@ import {
   FolderOpen,
   Paperclip,
 } from "lucide-react"
+import { TypingIndicator } from "@/components/ui/typing-indicator"
 import { apiUrl } from "@/lib/api-url"
 import { authHeaders } from "@/lib/auth-headers"
 import { Button } from "@/components/ui/button"
@@ -23,30 +24,16 @@ import { useExecutionStore } from "@/stores/execution-store"
 import { useUsageStore } from "@/stores/usage-store"
 import { chatWithTask, fetchStreamingEventsCatchUp, replayChatCatchUpEvents } from "@/lib/api-client"
 import { parseSSEStream } from "@/lib/sse-parser"
+import { getStreamingRowReplayData } from "@/lib/streaming-event-replay"
 import { cn } from "@/lib/utils"
 import type { PlanNode, TaskExecution, TaskActivityEvent } from "@/types"
 import {
-  groupActivityEvents,
-  TextBlock,
-  ToolBlock,
-  ToolGroupBlock,
-  VisualBlock,
-  SteerBlock,
-  FileChangeBlock,
-  ErrorBlock,
-  ChatUserBlock,
-  ChatAssistantBlock,
   SummaryCard,
-  GitHubCommentBlock,
   NewCommentComposer,
-  BranchLinkedBlock,
-  SystemPromptBlock,
-  PlanGraphBlock,
 } from "@/components/activity-blocks"
+import { groupActivityEvents } from "@/components/activity-blocks"
+import { ActivityBlockRenderer } from "@/components/activity-block-renderer"
 import { useGitHubCommentsStore } from "@/stores/github-comments-store"
-import { JsonRenderView } from "@/components/ui/json-render-view"
-import type { Spec } from "@json-render/core"
-import { InlineApprovalCard } from "@/components/plan-generation/inline-approval-card"
 import { PrStatusCard } from "@/components/pr-status-card"
 import type { PrData, PrCheckRun, PrReview } from "@/components/pr-status-card"
 import { PRReviewThreads } from "@/components/pr-review-threads"
@@ -171,6 +158,9 @@ export function UnifiedActivityView({
   const addSteerMessage = useRealtimeStore((s) => s.addSteerMessage)
   const updateSteerMessage = useRealtimeStore((s) => s.updateSteerMessage)
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
+  const pushActivityEvent = useRealtimeStore((s) => s.pushActivityEvent)
+  const hydrateFromCatchUp = useRealtimeStore((s) => s.hydrateFromCatchUp)
+  const cancelExecution = useExecutionStore((s) => s.cancelExecution)
   const model = useSettingsStore((s) => s.model)
 
   // Session store actions
@@ -208,69 +198,20 @@ export function UnifiedActivityView({
     }
   }, [chatSession?.id, chatSession?.messages.length, isChatStreaming, ensureFullSession])
 
-  // Unified stream events — replaces useRestoredExecution + useChatStreamEvents
+  // Unified stream events for the execution activity timeline.
   const { activityEvents, isHydrating: isRestoring } = useStreamEvents(
     executionId || undefined,
     { execution, projectId },
   )
-
-  // Chat stream events: local accumulation for live task-chat SSE
-  const chatEventsRef = useRef<TaskActivityEvent[]>([])
-  const [chatEventsVersion, setChatEventsVersion] = useState(0)
-  const chatFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const chatToolCounterRef = useRef(0)
-
-  const pushChatEvent = useCallback((event: TaskActivityEvent) => {
-    chatEventsRef.current = [...chatEventsRef.current, event]
-    if (!chatFlushTimerRef.current) {
-      chatFlushTimerRef.current = setTimeout(() => {
-        setChatEventsVersion(v => v + 1)
-        chatFlushTimerRef.current = null
-      }, 50)
-    }
-  }, [])
-
-  const flushChatEvents = useCallback(() => {
-    if (chatFlushTimerRef.current) {
-      clearTimeout(chatFlushTimerRef.current)
-      chatFlushTimerRef.current = null
-    }
-    setChatEventsVersion(v => v + 1)
-  }, [])
-
-  useEffect(() => () => {
-    if (chatFlushTimerRef.current) clearTimeout(chatFlushTimerRef.current)
-  }, [])
-
-  // Restore chat events from persisted session messages after page refresh.
-  useEffect(() => {
-    if (!sessionsLoaded) return
-    if (!chatSession) return
-    if (chatEventsRef.current.length > 0) return
-    const messages = chatSession.messages
-    if (!messages || messages.length === 0) return
-
-    const restoredChatEvents: TaskActivityEvent[] = messages
-      .filter((m) => m.role === 'user' || m.role === 'assistant')
-      .map((m) => {
-        const ts = m.timestamp instanceof Date ? m.timestamp : new Date(m.timestamp)
-        if (m.role === 'user') {
-          return { type: 'chat_user' as const, message: m.content, timestamp: ts }
-        } else {
-          return { type: 'chat_assistant' as const, content: m.content, timestamp: ts }
-        }
-      })
-
-    if (restoredChatEvents.length > 0) {
-      chatEventsRef.current = restoredChatEvents
-      flushChatEvents()
-    }
-  }, [sessionsLoaded, chatSession, flushChatEvents])
+  const taskChatMessages = useMemo(() => chatSession?.messages || [], [chatSession?.messages])
+  const { activityEvents: chatActivityEvents } = useStreamEvents(
+    chatSession?.id,
+    { legacySessionMessages: taskChatMessages },
+  )
 
   const allActivityEvents: TaskActivityEvent[] = useMemo(() => {
-    void chatEventsVersion
-    return [...activityEvents, ...chatEventsRef.current]
-  }, [activityEvents, chatEventsVersion])
+    return [...activityEvents, ...chatActivityEvents]
+  }, [activityEvents, chatActivityEvents])
 
   // Group events for display
   const displayBlocks = useMemo(() => {
@@ -298,7 +239,7 @@ export function UnifiedActivityView({
 
   // Fallback: if no activity events, render plain text
   const outputText = execution?.streamText || taskStream?.stdout || node.executionOutput || ""
-  const hasFallback = activityEvents.length === 0 && outputText.length > 0
+  const hasFallback = allActivityEvents.length === 0 && outputText.length > 0
 
   // Auto-scroll
   const eventsLength = allActivityEvents.length
@@ -484,7 +425,7 @@ export function UnifiedActivityView({
                   lastSeq,
                 )
                 for (const row of events) {
-                  const data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+                  const data = getStreamingRowReplayData(row)
                   replayEvent(row.eventType, data)
                 }
                 if (events.length > 0) {
@@ -529,13 +470,13 @@ export function UnifiedActivityView({
     const sid = chatSession.id
 
     // Add user event for display
-    pushChatEvent({ type: 'chat_user', message: text, timestamp: new Date() })
+    pushActivityEvent(sid, { type: 'chat_user', message: text, timestamp: new Date() })
 
     // Store in session for conversation history (sent to backend on subsequent turns)
     addMessage(sid, { role: "user", content: text })
 
-    // Generate a stable per-turn streamId for event persistence and catch-up
-    const turnStreamId = `task-chat-${node.id}-${Date.now()}`
+    // Use the stable session ID so all task-chat turns share one activity stream.
+    const turnStreamId = sid
     chatStreamRef.current = { streamId: turnStreamId, lastSeq: 0 }
 
     setIsChatStreaming(true)
@@ -546,41 +487,13 @@ export function UnifiedActivityView({
       .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
 
-    // Shared callback helpers for both live stream and catch-up replay
-    const handleToolUse = (data: { toolName: string; toolInput: unknown }) => {
-      const id = `chat-tool-${++chatToolCounterRef.current}`
-      pushChatEvent({
-        type: 'tool_use',
-        id,
-        toolName: data.toolName,
-        toolInput: data.toolInput,
-        timestamp: new Date(),
-      })
-    }
-    const handleToolResult = (data: { toolName: string; success: boolean; result: unknown }) => {
-      const events = chatEventsRef.current
-      let matchId = `chat-tool-result-${++chatToolCounterRef.current}`
-      for (let i = events.length - 1; i >= 0; i--) {
-        const e = events[i]
-        if (e.type === 'tool_use' && e.toolName === data.toolName) {
-          const hasResult = events.some(r => r.type === 'tool_result' && r.id === e.id)
-          if (!hasResult) {
-            matchId = e.id
-            break
-          }
-        }
-      }
-      pushChatEvent({
-        type: 'tool_result',
-        id: matchId,
-        toolName: data.toolName,
-        toolResult: data.result,
-        success: data.success,
-        timestamp: new Date(),
-      })
-    }
-
     let rawText = ""
+    const finalizeChatTurn = (assistantText: string, newSessionId?: string) => {
+      if (newSessionId) setProviderSessionId(sid, newSessionId)
+      addMessage(sid, { role: "assistant", content: assistantText })
+      chatStreamRef.current = { streamId: '', lastSeq: 0 }
+      setIsChatStreaming(false)
+    }
     try {
       // For the first chat turn, resume the execution's Claude session if available.
       // Subsequent turns use the chat session's own provider session ID.
@@ -607,25 +520,20 @@ export function UnifiedActivityView({
         {
           onText: (chunk) => {
             rawText += chunk
-            pushChatEvent({ type: 'text', content: chunk, timestamp: new Date() })
           },
-          onToolUse: handleToolUse,
-          onToolResult: handleToolResult,
+          onOperational: () => {},
+          onToolUse: () => {},
+          onToolResult: () => {},
           onDone: (newSessionId) => {
-            if (newSessionId) setProviderSessionId(sid, newSessionId)
-            chatStreamRef.current = { streamId: '', lastSeq: 0 }
             // Store raw text only — tool context is already in taskOutput
-            addMessage(sid, { role: "assistant", content: rawText })
-            flushChatEvents()
-            setIsChatStreaming(false)
+            finalizeChatTurn(rawText, newSessionId)
           },
           onSeq: (seq) => {
             chatStreamRef.current.lastSeq = seq
           },
           onError: (error) => {
             chatStreamRef.current = { streamId: '', lastSeq: 0 }
-            pushChatEvent({ type: 'error', error, timestamp: new Date() })
-            flushChatEvents()
+            pushActivityEvent(sid, { type: 'error', error, timestamp: new Date() })
             setIsChatStreaming(false)
           },
           onMetrics: (m) => {
@@ -646,35 +554,33 @@ export function UnifiedActivityView({
       const { streamId: catchUpStreamId, lastSeq } = chatStreamRef.current
       if (catchUpStreamId) {
         try {
+          await hydrateFromCatchUp([catchUpStreamId], lastSeq)
           const { events } = await fetchStreamingEventsCatchUp([catchUpStreamId], lastSeq)
           if (events.length > 0) {
             const { completed } = replayChatCatchUpEvents(events, {
               onText: (chunk) => {
                 rawText += chunk
-                pushChatEvent({ type: 'text', content: chunk, timestamp: new Date() })
               },
-              onToolUse: handleToolUse,
-              onToolResult: handleToolResult,
+              onToolUse: () => {},
+              onToolResult: () => {},
               onDone: (newSessionId) => {
-                if (newSessionId) setProviderSessionId(sid, newSessionId)
-                addMessage(sid, { role: "assistant", content: rawText })
+                finalizeChatTurn(rawText, newSessionId)
               },
             })
             if (completed) {
               chatStreamRef.current = { streamId: '', lastSeq: 0 }
             }
           } else {
-            pushChatEvent({ type: 'error', error: 'Connection lost during chat', timestamp: new Date() })
+            pushActivityEvent(sid, { type: 'error', error: 'Connection lost during chat', timestamp: new Date() })
           }
         } catch {
           chatStreamRef.current = { streamId: '', lastSeq: 0 }
-          pushChatEvent({ type: 'error', error: 'Connection lost — unable to recover', timestamp: new Date() })
+          pushActivityEvent(sid, { type: 'error', error: 'Connection lost — unable to recover', timestamp: new Date() })
         }
       } else {
-        pushChatEvent({ type: 'error', error: 'Connection lost', timestamp: new Date() })
+        pushActivityEvent(sid, { type: 'error', error: 'Connection lost', timestamp: new Date() })
       }
 
-      flushChatEvents()
       setIsChatStreaming(false)
     }
   }
@@ -730,6 +636,46 @@ export function UnifiedActivityView({
     setFileBrowserOpen(true)
   }, [fileBrowserDir])
 
+  const renderPrStatus = useCallback((block: import("@/components/activity-blocks").DisplayBlock, key: string) => {
+    const prEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'pr_status' }>
+    const prDataFromEvent: PrData = {
+      title: prEvent.title || `PR #${prEvent.prNumber}`,
+      number: prEvent.prNumber,
+      state: prEvent.state || 'open',
+      htmlUrl: prEvent.prUrl,
+      branchName: prEvent.branchName,
+      baseBranch: prEvent.baseBranch,
+      additions: prEvent.additions,
+      deletions: prEvent.deletions,
+      changedFiles: prEvent.changedFiles,
+      draft: prEvent.draft,
+      checks: (prEvent.checks || []).map(c => ({
+        name: c.name,
+        status: c.status as PrCheckRun["status"],
+        conclusion: c.conclusion as PrCheckRun["conclusion"],
+        startedAt: c.startedAt,
+        completedAt: c.completedAt,
+        htmlUrl: c.htmlUrl,
+      })),
+      reviews: (prEvent.reviews || []).map(r => ({
+        user: r.user,
+        state: r.state as PrReview["state"],
+        submittedAt: r.submittedAt,
+      })),
+    }
+    return (
+      <PrStatusCard
+        key={key}
+        node={node}
+        prData={prDataFromEvent}
+        owner={githubOwner}
+        repo={githubRepo}
+        reviewCommentCount={reviewCommentCount}
+        onReviewCommentsClick={handleReviewCommentsClick}
+      />
+    )
+  }, [node, githubOwner, githubRepo, reviewCommentCount, handleReviewCommentsClick])
+
   return (
     <div className="flex h-full">
     <div className="flex flex-col flex-1 min-w-0 relative">
@@ -780,9 +726,14 @@ export function UnifiedActivityView({
         {/* Empty state */}
         {!hasFallback && displayBlocks.length === 0 && (
           <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-            {isRunning ? "Waiting for output..." : isRestoring ? (
+            {isRunning ? (
+              <span className="flex items-center gap-2 text-muted-foreground">
+                <TypingIndicator className="text-muted-foreground" />
+                Waiting for output...
+              </span>
+            ) : isRestoring ? (
               <span className="flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <TypingIndicator className="text-muted-foreground" />
                 Loading activity...
               </span>
             ) : "No output available"}
@@ -790,105 +741,19 @@ export function UnifiedActivityView({
         )}
 
         {/* Activity event blocks */}
-        {displayBlocks.map((block, i) => {
-          switch (block.type) {
-            case 'text':
-              return <TextBlock key={i} events={block.events} onSendPrompt={handleSendPrompt} />
-            case 'tool':
-              return <ToolBlock key={i} events={block.events} isRunning={isRunning || isChatStreaming} />
-            case 'tool_group':
-              return <ToolGroupBlock key={i} events={block.events} isRunning={isRunning || isChatStreaming} />
-            case 'visual':
-              return <VisualBlock key={i} block={block} onSendPrompt={handleSendPrompt} />
-            case 'steer':
-              return <SteerBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'steer' }>} />
-            case 'file_change':
-              return <FileChangeBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'file_change' }>} onFileSelect={machineId && fileBrowserDir ? handleFileSelect : undefined} />
-            case 'error':
-              return <ErrorBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'error' }>} />
-            case 'chat_user':
-              return <ChatUserBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_user' }>} onEdit={!isRunning && !isChatStreaming ? (msg) => setInput(msg) : undefined} />
-            case 'chat_assistant':
-              return <ChatAssistantBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_assistant' }>} onSendPrompt={handleSendPrompt} />
-            case 'approval_request': {
-              const event = block.events[0] as Extract<TaskActivityEvent, { type: 'approval_request' }>
-              const isAnswered = answeredRequestIds.has(event.requestId)
-              const responseEvent = approvalResponseMap.get(event.requestId)
-              return (
-                <InlineApprovalCard
-                  key={i}
-                  requestId={event.requestId}
-                  question={event.question}
-                  options={event.options}
-                  answered={isAnswered}
-                  answer={responseEvent?.answer}
-                  autoApproved={responseEvent?.autoApproved}
-                  onRespond={handleApprovalResponse}
-                />
-              )
-            }
-            case 'approval_response':
-              // Already rendered inline with the request
-              return null
-            case 'pr_status': {
-              const prEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'pr_status' }>
-              const prDataFromEvent: PrData = {
-                title: prEvent.title || `PR #${prEvent.prNumber}`,
-                number: prEvent.prNumber,
-                state: prEvent.state || 'open',
-                htmlUrl: prEvent.prUrl,
-                branchName: prEvent.branchName,
-                baseBranch: prEvent.baseBranch,
-                additions: prEvent.additions,
-                deletions: prEvent.deletions,
-                changedFiles: prEvent.changedFiles,
-                draft: prEvent.draft,
-                checks: (prEvent.checks || []).map(c => ({
-                  name: c.name,
-                  status: c.status as PrCheckRun["status"],
-                  conclusion: c.conclusion as PrCheckRun["conclusion"],
-                  startedAt: c.startedAt,
-                  completedAt: c.completedAt,
-                  htmlUrl: c.htmlUrl,
-                })),
-                reviews: (prEvent.reviews || []).map(r => ({
-                  user: r.user,
-                  state: r.state as PrReview["state"],
-                  submittedAt: r.submittedAt,
-                })),
-              }
-              return (
-                <PrStatusCard
-                  key={i}
-                  node={node}
-                  prData={prDataFromEvent}
-                  owner={githubOwner}
-                  repo={githubRepo}
-                  reviewCommentCount={reviewCommentCount}
-                  onReviewCommentsClick={handleReviewCommentsClick}
-                />
-              )
-            }
-            case 'github_comment':
-              return <GitHubCommentBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'github_comment' }>} githubContext={githubContext} />
-            case 'branch_linked':
-              return <BranchLinkedBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'branch_linked' }>} />
-            case 'system_prompt':
-              return <SystemPromptBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'system_prompt' }>} />
-            case 'plan_result':
-              return <PlanGraphBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'plan_result' }>} />
-            case 'json_render_spec': {
-              const specEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'json_render_spec' }>
-              return (
-                <div key={i} className="px-4 py-2">
-                  <JsonRenderView spec={specEvent.spec as unknown as Spec} componentDefs={block.componentDefs} />
-                </div>
-              )
-            }
-            default:
-              return null
-          }
-        })}
+        <ActivityBlockRenderer
+          blocks={displayBlocks}
+          isStreaming={isRunning || isChatStreaming}
+          isRunning={isRunning || isChatStreaming}
+          onSendPrompt={handleSendPrompt}
+          onFileSelect={machineId && fileBrowserDir ? handleFileSelect : undefined}
+          onEditMessage={!isRunning && !isChatStreaming ? (msg) => setInput(msg) : undefined}
+          onApprovalResponse={handleApprovalResponse}
+          githubContext={githubContext}
+          answeredApprovals={answeredRequestIds}
+          approvalResponses={approvalResponseMap}
+          renderPrStatus={renderPrStatus}
+        />
 
         {/* Streaming cursor */}
         {isRunning && activityEvents.length > 0 && (
@@ -901,8 +766,7 @@ export function UnifiedActivityView({
         {/* Chat streaming indicator (post-completion thinking) */}
         {isChatStreaming && (
           <div className="flex items-center gap-2 px-4 py-2">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-            <span className="text-xs text-muted-foreground">Thinking...</span>
+            <TypingIndicator className="text-muted-foreground" />
           </div>
         )}
 
@@ -1041,19 +905,41 @@ export function UnifiedActivityView({
               <Paperclip className="h-4 w-4" />
             </Button>
           )}
-          <Button
-            size="icon"
-            className="h-9 w-9"
-            onClick={(e) => handleSend(e.shiftKey)}
-            disabled={(!input.trim() && (canSteer || taskImages.length === 0)) || isInputDisabled}
-            title="Send (⌘+Enter)"
-          >
-            {sending || isChatStreaming ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
-          </Button>
+          {isRunning ? (
+            <Button
+              size="icon"
+              variant="destructive"
+              className="h-9 w-9"
+              onClick={() => cancelExecution(node.id)}
+              title="Stop execution"
+            >
+              <Square className="h-3.5 w-3.5" />
+            </Button>
+          ) : isChatStreaming ? (
+            <Button
+              size="icon"
+              variant="destructive"
+              className="h-9 w-9"
+              onClick={() => { abortRef.current?.abort(); setIsChatStreaming(false) }}
+              title="Stop response"
+            >
+              <Square className="h-3.5 w-3.5" />
+            </Button>
+          ) : (
+            <Button
+              size="icon"
+              className="h-9 w-9"
+              onClick={(e) => handleSend(e.shiftKey)}
+              disabled={(!input.trim() && (canSteer || taskImages.length === 0)) || isInputDisabled}
+              title="Send (⌘+Enter)"
+            >
+              {sending ? (
+                <TypingIndicator className="text-current scale-75" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+            </Button>
+          )}
         </div>
       </div>
       </div>

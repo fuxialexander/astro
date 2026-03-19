@@ -1,3 +1,7 @@
+import type { webcrypto } from 'node:crypto';
+
+type JsonWebKey = webcrypto.JsonWebKey;
+
 /**
  * Relay Server WebSocket Protocol Types
  *
@@ -330,6 +334,8 @@ export interface TaskDispatch {
   dispatchSignature?: string;
   /** The signed payload for verification by the agent runner */
   dispatchSigningPayload?: DispatchSigningPayload;
+  /** Additional trusted browser public keys for shared-machine dispatch verification */
+  dispatchTrustedKeys?: JsonWebKey[];
 
   /**
    * Resume an existing Claude Code session by ID.
@@ -419,6 +425,16 @@ export interface TaskTextMessage extends BaseMessage {
   taskId: string;
   text: string;
   sequence: number;
+}
+
+/** Structured operational status line */
+export interface TaskOperationalMessage extends BaseMessage {
+  type: 'task.operational';
+  taskId: string;
+  message: string;
+  source: 'astro' | 'git' | 'delivery';
+  /** DB sequence number assigned by relay-server on persist (used as SSE event id) */
+  _dbSeq?: number;
 }
 
 /** Session initialization info */
@@ -992,6 +1008,7 @@ export type AgentToRelayMessage =
   | TaskProgressMessage
   | TaskSteerAckMessage
   | TaskToolTraceMessage
+  | TaskOperationalMessage
   | TaskFileChangeMessage
   | TaskApprovalRequestMessage
   | HeartbeatPongMessage

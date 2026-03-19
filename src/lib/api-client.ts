@@ -77,6 +77,7 @@ export async function projectChatWithAgent(
   params: { message: string; sessionId?: string; streamId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; selectedBackends?: string[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }>; taskType?: 'plan' | 'execution'; imageRefs?: string[] },
   callbacks: {
     onText: (text: string) => void
+    onOperational?: (data: { message: string; source: 'astro' | 'git' | 'delivery' }) => void
     onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
     onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
     onDone: (sessionId: string) => void
@@ -107,6 +108,7 @@ export async function projectChatWithAgent(
   let terminated = false
   await parseChatSSE(res, {
     onText: callbacks.onText,
+    onOperational: callbacks.onOperational,
     onToolUse: callbacks.onToolUse,
     onToolResult: callbacks.onToolResult,
     onDone: (sessionId) => { terminated = true; callbacks.onDone(sessionId) },
@@ -159,6 +161,7 @@ export async function chatWithTask(
   params: TaskChatParams,
   callbacks: {
     onText: (text: string) => void
+    onOperational?: (data: { message: string; source: 'astro' | 'git' | 'delivery' }) => void
     onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
     onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
     onDone: (sessionId: string) => void
@@ -187,6 +190,7 @@ export async function chatWithTask(
   let terminated = false
   await parseChatSSE(res, {
     onText: callbacks.onText,
+    onOperational: callbacks.onOperational,
     onToolUse: callbacks.onToolUse,
     onToolResult: callbacks.onToolResult,
     onDone: (sessionId) => { terminated = true; callbacks.onDone(sessionId) },

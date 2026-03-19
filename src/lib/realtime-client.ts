@@ -13,8 +13,10 @@ export type RealtimeEventType =
   | 'node:status_changed'
   | 'task:init'
   | 'task:result'
+  | 'task:error'
   | 'task:stdout'
   | 'task:text'
+  | 'task:operational'
   | 'task:progress'
   | 'task:steer_ack'
   | 'task:tool_trace'
@@ -172,8 +174,10 @@ export class RealtimeClient {
       'node:status_changed',
       'task:init',
       'task:result',
+      'task:error',
       'task:stdout',
       'task:text',
+      'task:operational',
       'task:progress',
       'task:steer_ack',
       'task:tool_trace',

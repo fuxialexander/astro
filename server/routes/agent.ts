@@ -11,12 +11,11 @@ import { dispatchEngine } from '../lib/dispatch/index.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
-import { activeDispatchStreams } from '../lib/execution-context-store.js'
 import { incrementChatSSE, decrementChatSSE } from '../lib/sse-connection-tracker.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { redisPubSub, type StreamingEventMessage } from '../lib/redis-pubsub.js'
-import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, ProviderType, ImageAttachment } from '../types/relay.js'
+import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskOperationalMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, ProviderType, ImageAttachment } from '../types/relay.js'
 import { db } from '../lib/db/index.js'
 import { projects, taskExecutions, registeredMachines, machineInstructions, blobs } from '../lib/db/schema.js'
 import { eq, and, inArray } from 'drizzle-orm'
@@ -169,7 +168,17 @@ async function streamChatViaRelay(
       // relay-server is the single persistence authority for relay-originated events.
       // Do not call streamingEventLog here — relay-server already persisted this.
       stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
-      executionEventBus.emit('task:stdout', { output: { taskId: opts.taskId, data: msg.text, stream: 'stdout', timestamp: new Date() } })
+    }
+
+    const onOperational = (msg: TaskOperationalMessage) => {
+      if (!alive || msg.taskId !== opts.taskId) return
+      lastActivity = Date.now()
+      const seq = msg._dbSeq ?? 0
+      stream.writeSSE({
+        event: 'operational',
+        data: JSON.stringify({ message: msg.message, source: msg.source }),
+        id: String(seq),
+      }).catch(() => { alive = false })
     }
 
     const onResult = async (msg: TaskResultMessage) => {
@@ -183,14 +192,23 @@ async function streamChatViaRelay(
       if (msg.result.status === 'failed') {
         const errorMsg = msg.result.error || 'Agent runner task failed'
         console.error(`[chat] Task ${opts.taskId} failed: ${errorMsg}`)
-        await streamingEventLog.append(persistId, 'result', { sessionId: resolvedSessionId, error: errorMsg, metrics })
+        await streamingEventLog.appendTerminalIfAbsent(persistId, 'result', {
+          sessionId: resolvedSessionId,
+          status: 'failed',
+          error: errorMsg,
+          metrics,
+        })
         stream.writeSSE({
           event: 'error',
           data: errorMsg,
         }).catch(() => {})
         alive = false
       } else {
-        await streamingEventLog.append(persistId, 'result', { sessionId: resolvedSessionId, metrics })
+        await streamingEventLog.appendTerminalIfAbsent(persistId, 'result', {
+          sessionId: resolvedSessionId,
+          status: 'completed',
+          metrics,
+        })
         stream.writeSSE({
           event: 'done',
           data: JSON.stringify({
@@ -257,14 +275,12 @@ async function streamChatViaRelay(
         data: JSON.stringify({ toolName: msg.toolName, toolInput: msg.toolInput, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) }),
         id: String(seq),
       }).catch(() => { alive = false })
-      executionEventBus.emit('task:tool_trace', { taskId: opts.taskId, toolName: msg.toolName, toolInput: msg.toolInput, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) })
       if (msg.toolResult !== undefined) {
         stream.writeSSE({
           event: 'tool_result',
           data: JSON.stringify({ toolName: msg.toolName, success: msg.success, result: msg.toolResult, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) }),
           id: String(seq),
         }).catch(() => { alive = false })
-        executionEventBus.emit('task:tool_trace', { taskId: opts.taskId, toolName: msg.toolName, toolResult: typeof msg.toolResult === 'string' ? msg.toolResult.slice(0, 100000) : msg.toolResult, success: msg.success ?? true, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) })
       }
     }
 
@@ -288,7 +304,6 @@ async function streamChatViaRelay(
         data: JSON.stringify(data),
         id: String(seq),
       }).catch(() => { alive = false })
-      executionEventBus.emit('task:file_change', { taskId: opts.taskId, path: msg.path, action: msg.action })
     }
 
     const onSessionInit = (msg: TaskSessionInitMessage) => {
@@ -302,7 +317,6 @@ async function streamChatViaRelay(
         data: JSON.stringify({ sessionId: msg.sessionId, model: msg.model }),
         id: String(seq),
       }).catch(() => { alive = false })
-      executionEventBus.emit('task:session_init', { taskId: opts.taskId, sessionId: msg.sessionId, model: msg.model || 'unknown' })
     }
 
     const onMachineDisconnected = (disconnectedMachineId: string) => {
@@ -315,8 +329,19 @@ async function streamChatViaRelay(
       alive = false
     }
 
+    const onTaskError = (msg: { taskId: string; error: string }) => {
+      if (!alive || msg.taskId !== opts.taskId) return
+      stream.writeSSE({
+        event: 'error',
+        data: msg.error,
+      }).catch(() => {})
+      alive = false
+    }
+
     relayServer.on('task:text', onText)
+    relayServer.on('task:operational', onOperational)
     relayServer.on('task:result', onResult)
+    relayServer.on('task:error', onTaskError)
     relayServer.on('task:tool_trace', onToolTrace)
     relayServer.on('task:file_change', onFileChange)
     relayServer.on('task:session_init', onSessionInit)
@@ -336,8 +361,16 @@ async function streamChatViaRelay(
       switch (msg.eventType) {
         case 'text':
           stream.writeSSE({ event: 'text', data: msg.data.text as string }).catch(() => { alive = false })
-          executionEventBus.emit('task:stdout', { output: { taskId: opts.taskId, data: msg.data.text as string, stream: 'stdout', timestamp: new Date() } })
           break
+        case 'operational': {
+          const seq = msg.dbSeq ?? 0
+          stream.writeSSE({
+            event: 'operational',
+            data: JSON.stringify(msg.data),
+            id: String(seq),
+          }).catch(() => { alive = false })
+          break
+        }
         case 'tool_use':
         case 'tool_result': {
           const seq = msg.dbSeq ?? 0
@@ -385,13 +418,23 @@ async function streamChatViaRelay(
           alive = false
           break
         }
+        case 'error': {
+          stream.writeSSE({
+            event: 'error',
+            data: (msg.data.error as string) || 'Task failed',
+          }).catch(() => { alive = false })
+          alive = false
+          break
+        }
       }
     }
     redisPubSub.on('task:streaming', onRedisStreaming)
 
     const cleanup = () => {
       relayServer.off('task:text', onText)
+      relayServer.off('task:operational', onOperational)
       relayServer.off('task:result', onResult)
+      relayServer.off('task:error', onTaskError)
       relayServer.off('task:tool_trace', onToolTrace)
       relayServer.off('task:file_change', onFileChange)
       relayServer.off('task:session_init', onSessionInit)
@@ -402,14 +445,8 @@ async function streamChatViaRelay(
     // Extract authenticated user for machine ownership filtering
     const user = c.get('user') as { id: string } | undefined
 
-    // Track active stream to prevent double-persistence from events.ts
-    activeDispatchStreams.add(opts.taskId)
-    if (persistId !== opts.taskId) activeDispatchStreams.add(persistId)
-
     const cleanupAll = () => {
       cleanup()
-      activeDispatchStreams.delete(opts.taskId)
-      if (persistId !== opts.taskId) activeDispatchStreams.delete(persistId)
     }
 
     // Emit pre-stream events (e.g. compaction notice) before dispatch
@@ -468,9 +505,13 @@ async function streamChatViaRelay(
         const mins = Math.floor(elapsedSec / 60)
         const secs = elapsedSec % 60
         const elapsed = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`
-        const elapsedText = `\n── [Astro] Working... (${elapsed} elapsed)\n`
-        const seq = await streamingEventLog.append(persistId, 'text', { text: elapsedText }).catch(() => null)
-        stream.writeSSE({ id: seq ? String(seq) : undefined, event: 'text', data: elapsedText }).catch(() => {})
+        const payload = { message: `Working... (${elapsed} elapsed)`, source: 'astro' as const }
+        const seq = await streamingEventLog.append(persistId, 'operational', payload).catch(() => null)
+        stream.writeSSE({
+          id: seq ? String(seq) : undefined,
+          event: 'operational',
+          data: JSON.stringify(payload),
+        }).catch(() => {})
         lastElapsedMsg = Date.now()
       }
     }, 15000)
@@ -561,7 +602,7 @@ async function executeViaRelay(opts: {
 
       // Persist result event for one-shot observability (fire-and-forget)
       if (opts.pathwayType) {
-        streamingEventLog.append(opts.taskId, 'result', {
+        streamingEventLog.appendTerminalIfAbsent(opts.taskId, 'result', {
           status: isSuccess ? 'success' : 'failure',
           error: msg.result.error,
           metrics,
@@ -869,23 +910,12 @@ agentRoute.post('/task-chat', async (c) => {
       console.warn('[agent/task-chat] Failed to fetch machine instruction:', err instanceof Error ? err.message : String(err))
     }
   }
-  // Fallback: use built-in default compute guide (loaded from skills/machine_instruction_presets/)
+  // Task-chat is post-execution analysis — skip machine instructions (Docker/K8s/Slurm
+  // commands are irrelevant for reviewing results) and skip GENERATIVE_UI_HINT (no
+  // structured rendering needed in this conversational context).
   if (!tcSkills) {
-    tcSkills = DEFAULT_MACHINE_INSTRUCTION_FORMATTED
+    tcSkills = undefined  // no fallback — keep prompt lean for analysis chat
   }
-
-  // Inject platform skills (visualise, etc.) from skill manager
-  {
-    const { skillManager } = await import('../lib/skill-manager.js')
-    const tcTeamId = (c.get('user') as AuthUser).teamId
-    const tcPlatformSkills = skillManager.getSkillPromptInjection(tcTeamId)
-    if (tcPlatformSkills) {
-      tcSkills = tcSkills + '\n\n' + tcPlatformSkills
-    }
-  }
-
-  // Inject lightweight generative UI hint
-  tcSkills = (tcSkills || '') + '\n\n' + GENERATIVE_UI_HINT
 
   const systemPrompt = buildTaskChatSystemPrompt({
     taskTitle,
@@ -1294,27 +1324,20 @@ const GENERATIVE_UI_HINT = `## Generative UI
 
 You can render interactive UI components using \`\`\`yaml-spec code fences. These render as native React components — not HTML iframes. Content persists across sessions (no expiry).
 
-**NEVER use \`\`\`visualizer**. ALWAYS use \`\`\`yaml-spec (with \`\`\`component for custom visuals). yaml-spec components match the app theme, persist forever, and support interactivity (send_chat_message, state). For custom charts/SVG/canvas, define a \`\`\`component fence with React.createElement — do NOT fall back to \`\`\`visualizer.
+**NEVER use \`\`\`visualizer**. ALWAYS use \`\`\`yaml-spec (with \`\`\`component for custom visuals).
 
 **Available components**: Card, Stack, Separator, Text, Heading, Badge, Alert, Table, List, KeyValue, CodeBlock, OptionCard, Timeline, Accordion, TabView, TodoList, CardCarousel, Metric, StepIndicator, Progress, Button
 
-**Actions**: send_chat_message (continues conversation), copy_to_clipboard, navigate_to_node, setState (built-in)
+**Actions**: send_chat_message (continues conversation), copy_to_clipboard, navigate_to_node, setState
 
-**Format** (YAML — much more token-efficient than JSON):
-\`\`\`yaml-spec
-root: table-1
-elements:
-  table-1:
-    type: Table
-    props:
-      headers: [Name, Status, Cost]
-      rows:
-        - [Redis, Active, "$12/mo"]
-        - [PGlite, Active, Free]
-    children: []
-\`\`\`
+**Data-prop components** — data goes in \`props\`, NOT as children. Set \`children: []\`:
+- **CardCarousel**: \`props.cards: [{title, description, content, badge, badgeVariant}]\`
+- **Timeline**: \`props.entries: [{label, title, description}]\`
+- **Accordion**: \`props.items: [{title, content}]\`
+- **TodoList**: \`props.items: [{id, content, status, priority}]\`
+- **Table**: \`props.headers\` + \`props.rows\` arrays
 
-**Interactive cards**: Use OptionCard with on.press.action: send_chat_message to create clickable options:
+**Example** (Table + interactive OptionCards):
 \`\`\`yaml-spec
 root: opts
 elements:
@@ -1340,62 +1363,8 @@ elements:
     children: []
 \`\`\`
 
-**IMPORTANT — data-prop components** (data goes in props, NOT as children):
-- **CardCarousel**: \`props.cards\` is an array — \`cards: [{title, description, content, badge, badgeVariant}]\`
-- **Timeline**: \`props.entries\` array — \`entries: [{label, title, description}]\`
-- **Accordion**: \`props.items\` array — \`items: [{title, content}]\`
-- **TodoList**: \`props.items\` array — \`items: [{id, content, status, priority}]\`
-- **Table**: \`props.headers\` + \`props.rows\` arrays
-These components do NOT use children for their data. Set \`children: []\`.
+**Custom components**: Use \`\`\`component Name fences with React.createElement (no JSX) before the yaml-spec. Available: React, cn (tailwind utility).
 
-**CardCarousel example** (all data in the cards prop):
-\`\`\`yaml-spec
-root: carousel
-elements:
-  carousel:
-    type: CardCarousel
-    props:
-      cards:
-        - title: Option A
-          description: First approach
-          content: Detailed explanation of option A with pros and cons.
-          badge: Recommended
-          badgeVariant: success
-        - title: Option B
-          description: Second approach
-          content: Detailed explanation of option B.
-        - title: Option C
-          description: Third approach
-          content: Detailed explanation of option C.
-          badge: New
-          badgeVariant: info
-    children: []
-\`\`\`
-
-**Custom components**: Define custom components with \`\`\`component Name fences BEFORE the yaml-spec that uses them. The code must use React.createElement (no JSX). Available in scope: React, cn (tailwind utility).
-\`\`\`component HeatCell
-({ props }) => {
-  const v = Number(props.value) || 0
-  const bg = v > 75 ? 'bg-success/20' : v > 50 ? 'bg-warning/20' : v > 25 ? 'bg-muted' : 'bg-error/20'
-  return React.createElement('div', { className: cn('px-3 py-2 text-center text-xs font-mono rounded', bg) }, v + '%')
-}
-\`\`\`
-
-\`\`\`yaml-spec
-root: grid
-elements:
-  grid:
-    type: Table
-    props:
-      headers: [Metric, Q1, Q2, Q3]
-      rows: []
-    children: [r1]
-  r1:
-    type: HeatCell
-    props: { value: 85 }
-    children: []
-\`\`\`
-
-Default to markdown for conversational text. Use yaml-spec when content is structured. Use custom components for visualizations that built-in components can't express (charts, heat maps, gauges, custom layouts).`
+Default to markdown for conversational text. Use yaml-spec when content is structured or interactive.`
 
 export { agentRoute }

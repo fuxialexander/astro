@@ -34,6 +34,7 @@ import { redisPubSub } from '../lib/redis-pubsub.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import { startLoop } from '../lib/loop-controller.js'
 import { extractRepoInfo } from '../lib/git-url-utils.js'
+import { isYoloMode } from '../lib/yolo-mode.js'
 
 // Fallback icon/color pools for projects created without explicit icon/color
 const FALLBACK_COLORS = ['#4A6D8A', '#5F8D6B', '#A07D4F', '#7B6B9A', '#9A6878', '#A8785E', '#5B7F9A', '#8A7A6E', '#71717A']
@@ -841,6 +842,42 @@ app.put('/plan/:projectId', async (c) => {
       })
     }).catch((err) => {
       console.warn('[data/plan] Failed to emit plan_result event:', (err as Error).message)
+    })
+
+    isYoloMode(user.id, executionId).then((yoloEnabled) => {
+      if (!yoloEnabled) return
+
+      const completedStatuses = new Set(['completed', 'auto_verified'])
+      const nodeStatus = new Map(uniqueNodes.map((n) => [n.id as string, ((n.status as string) || 'planned')]))
+      const incomingEdges = new Map<string, string[]>()
+      for (const edge of newEdges) {
+        const target = edge.target as string
+        const source = edge.source as string
+        const deps = incomingEdges.get(target) || []
+        deps.push(source)
+        incomingEdges.set(target, deps)
+      }
+
+      const readyTasks = uniqueNodes.filter((node) => {
+        if ((node.type as string) !== 'task') return false
+        if (((node.status as string) || 'planned') !== 'planned') return false
+        const deps = incomingEdges.get(node.id as string) || []
+        return deps.every((depId) => completedStatuses.has(nodeStatus.get(depId) || 'planned'))
+      })
+
+      if (readyTasks.length === 0) {
+        console.log(`[data/plan] YOLO: no ready tasks to auto-dispatch for project ${projectId}`)
+        return
+      }
+
+      for (const task of readyTasks) {
+        serverSideDispatch(task.id as string, projectId).catch((err) => {
+          console.error(`[data/plan] YOLO auto-dispatch failed for ${task.id}:`, err)
+        })
+      }
+      console.log(`[data/plan] YOLO auto-dispatched ${readyTasks.length} ready task(s) for project ${projectId}`)
+    }).catch((err) => {
+      console.warn('[data/plan] Failed to resolve YOLO mode for plan auto-dispatch:', (err as Error).message)
     })
   }
 

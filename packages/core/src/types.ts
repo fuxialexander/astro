@@ -373,6 +373,7 @@ export interface FileChange {
 // used for reliable deduplication when merging hydrated and live events.
 export type TaskActivityEvent =
   | { type: 'text'; content: string; timestamp: Date; seq?: number }
+  | { type: 'operational'; message: string; source: 'astro' | 'git' | 'delivery'; timestamp: Date; seq?: number }
   | { type: 'tool_use'; id: string; toolName: string; toolInput: unknown; timestamp: Date; seq?: number }
   | { type: 'tool_result'; id: string; toolName: string; toolResult?: unknown; success?: boolean; duration?: number; timestamp: Date; seq?: number }
   | { type: 'steer'; message: string; accepted?: boolean; ackMessage?: string; interrupted?: boolean; timestamp: Date; seq?: number }

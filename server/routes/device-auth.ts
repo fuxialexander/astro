@@ -67,6 +67,7 @@ import { registeredMachines } from '../lib/db/schema.js';
 import { eq } from 'drizzle-orm';
 import { getServiceClient } from '../lib/supabase.js'
 import { isServerMode } from '../lib/app-mode.js';
+import { storeUserDispatchPublicKey } from '../lib/user-dispatch-public-keys.js';
 import { requireAuth } from '../middleware/auth.js';
 import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.js';
 
@@ -651,6 +652,14 @@ deviceAuthRoute.post('/code/:code/authorize', requireAuth, async (c) => {
 
   if (!success) {
     return c.json({ error: 'Failed to authorize device code' }, 400);
+  }
+
+  if (body.dispatchPublicKey) {
+    try {
+      await storeUserDispatchPublicKey(user.id, body.dispatchPublicKey);
+    } catch (err) {
+      console.warn('[device-auth] Failed to persist user dispatch public key:', err);
+    }
   }
 
   return c.json({

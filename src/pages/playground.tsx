@@ -16,6 +16,7 @@ import {
   Terminal,
   Loader2,
   Send,
+  Square,
   ArrowDown,
   Clock,
   Sparkles,
@@ -23,6 +24,7 @@ import {
   Pencil,
   Zap,
 } from "lucide-react"
+import { TypingIndicator } from "@/components/ui/typing-indicator"
 import { Button } from "@/components/ui/button"
 import { MachineWorkdirSelector } from "@/components/machine-workdir-selector"
 import { Badge } from "@/components/ui/badge"
@@ -38,20 +40,8 @@ import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { PlaygroundHeader } from "@/components/playground/playground-header"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { FileBrowser } from "@/components/file-browser"
-import { InlineApprovalCard } from "@/components/plan-generation/inline-approval-card"
-import {
-  groupActivityEvents,
-  TextBlock,
-  ToolBlock,
-  ToolGroupBlock,
-  VisualBlock,
-  SteerBlock,
-  FileChangeBlock,
-  ErrorBlock,
-  ChatUserBlock,
-  ChatAssistantBlock,
-  type DisplayBlock,
-} from "@/components/activity-blocks"
+import { groupActivityEvents } from "@/components/activity-blocks"
+import { ActivityBlockRenderer } from "@/components/activity-block-renderer"
 import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
 import { useClaudeSessionsStore, type ClaudeCodeSession } from "@/stores/claude-sessions-store"
 import { useSessionStore } from "@/stores/session-store"
@@ -64,8 +54,6 @@ import { InstructionPicker } from "@/components/execution/instruction-picker"
 import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
 import type { TaskActivityEvent } from "@/types"
 import { useStreamEvents } from "@/hooks/use-stream-events"
-import { JsonRenderView } from "@/components/ui/json-render-view"
-import type { Spec } from "@json-render/core"
 
 // Identify playground projects by the projectType field (persisted) or execution key (in-memory fallback)
 function isPlaygroundProject(project: { projectType?: string; id: string }, executions: Map<string, unknown>): boolean {
@@ -163,6 +151,7 @@ export function Playground() {
   const createSessionAction = useSessionStore((s) => s.createSession)
   const addMessage = useSessionStore((s) => s.addMessage)
   const sendPlaygroundChat = useSessionStore((s) => s.sendPlaygroundChat)
+  const abortChatStream = useSessionStore((s) => s.abortChatStream)
   const streamingSessions = useSessionStore((s) => s.streamingSessions)
   const registerMounted = useSessionStore((s) => s.registerMounted)
   const unregisterMounted = useSessionStore((s) => s.unregisterMounted)
@@ -349,70 +338,22 @@ export function Playground() {
     return () => unregisterMounted(chatSessionId)
   }, [chatSessionId, registerMounted, unregisterMounted])
 
-  // Unified stream events — replaces useRestoredExecution + useChatStreamEvents + useChatActivityEvents
+  // Unified stream events for the execution activity timeline.
   const { activityEvents, isHydrating: isRestoring } = useStreamEvents(
     executionId || undefined,
     { execution },
   )
 
-  // Chat stream events — live events from store-owned SSE land in realtime store
-  const chatTaskStream = useRealtimeStore(useCallback((s) => s.taskStreams.get(chatSessionId), [chatSessionId]))
-  const liveChatEvents = useMemo(() => chatTaskStream?.activityEvents || [], [chatTaskStream?.activityEvents])
-
-  // Local pushChatEvent for immediate user events (before store takes over)
-  const chatEventsRef = useRef<TaskActivityEvent[]>([])
-  const [chatEventsVersion, setChatEventsVersion] = useState(0)
-  const chatFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const pushChatEvent = useCallback((event: TaskActivityEvent) => {
-    chatEventsRef.current = [...chatEventsRef.current, event]
-    if (!chatFlushTimerRef.current) {
-      chatFlushTimerRef.current = setTimeout(() => {
-        setChatEventsVersion(v => v + 1)
-        chatFlushTimerRef.current = null
-      }, 50)
-    }
-  }, [])
-
-  useEffect(() => () => {
-    if (chatFlushTimerRef.current) clearTimeout(chatFlushTimerRef.current)
-  }, [])
-
   // Hydrate chat events via useStreamEvents
   const playgroundSessionMessages = useMemo(() => chatSession?.messages || [], [chatSession?.messages])
-  const { activityEvents: hydratedChatEvents } = useStreamEvents(
+  const { activityEvents: chatActivityEvents } = useStreamEvents(
     chatSession?.id,
     { legacySessionMessages: playgroundSessionMessages },
   )
 
-  // Merge: live store events > local ref events > hydrated events
   const allActivityEvents: TaskActivityEvent[] = useMemo(() => {
-    void chatEventsVersion
-    const chatEvents = liveChatEvents.length > 0
-      ? liveChatEvents
-      : chatEventsRef.current.length > 0
-        ? chatEventsRef.current
-        : hydratedChatEvents
-
-    if (activityEvents.length === 0) return chatEvents
-    if (chatEvents.length === 0) return activityEvents
-
-    // Deduplicate by seq or fingerprint
-    const seenSeqs = new Set<number>()
-    const seenFingerprints = new Set<string>()
-    for (const e of activityEvents) {
-      if (e.seq != null) seenSeqs.add(e.seq)
-      const content = ('content' in e && typeof e.content === 'string') ? e.content.slice(0, 40) : ''
-      seenFingerprints.add(`${e.type}|${new Date(e.timestamp).getTime()}|${content}`)
-    }
-    const dedupedChat = chatEvents.filter((e) => {
-      if (e.seq != null) return !seenSeqs.has(e.seq)
-      const content = ('content' in e && typeof e.content === 'string') ? e.content.slice(0, 40) : ''
-      return !seenFingerprints.has(`${e.type}|${new Date(e.timestamp).getTime()}|${content}`)
-    })
-
-    return [...activityEvents, ...dedupedChat]
-  }, [activityEvents, chatEventsVersion, liveChatEvents, hydratedChatEvents])
+    return [...activityEvents, ...chatActivityEvents]
+  }, [activityEvents, chatActivityEvents])
 
   const displayBlocks = useMemo(() => {
     const blocks = groupActivityEvents(allActivityEvents)
@@ -426,14 +367,16 @@ export function Playground() {
     )
   }, [dynamicApprovalsMap, execution?.executionId])
 
-  const answeredRequestIds = useMemo(() => {
+  const { answeredRequestIds, approvalResponseMap } = useMemo(() => {
     const ids = new Set<string>()
+    const responses = new Map<string, Extract<TaskActivityEvent, { type: 'approval_response' }>>()
     for (const event of allActivityEvents) {
       if (event.type === 'approval_response') {
         ids.add(event.requestId)
+        responses.set(event.requestId, event)
       }
     }
-    return ids
+    return { answeredRequestIds: ids, approvalResponseMap: responses }
   }, [allActivityEvents])
 
   const headerStatus = execution?.status === "cancelled"
@@ -568,9 +511,6 @@ export function Playground() {
 
     const sid = chatSession.id
 
-    // Add user event for display
-    pushChatEvent({ type: 'chat_user', message: text, timestamp: new Date() })
-
     // Store user message + empty assistant placeholder in session for conversation history.
     // The placeholder is streamed into by sendPlaygroundChat's onText callback.
     addMessage(sid, { role: "user", content: text })
@@ -608,7 +548,7 @@ export function Playground() {
       providerId: activeProvider || undefined,
       messages: historyMessages,
     })
-  }, [isChatStreaming, chatSession, activeProjectId, playgroundNodeId, project, activeProvider, activityEvents, addMessage, pushChatEvent, sendPlaygroundChat])
+  }, [isChatStreaming, chatSession, activeProjectId, playgroundNodeId, project, activeProvider, activityEvents, addMessage, sendPlaygroundChat])
 
   // Route: steer during execution, chat after completion
   const handleSend = useCallback(() => {
@@ -646,63 +586,6 @@ export function Playground() {
     }, 0)
   }, [activeProjectId, isRunning, handleSteer, handleChat])
 
-  // Render a display block
-  const renderBlock = useCallback((block: DisplayBlock, index: number) => {
-    const isLastBlock = index === displayBlocks.length - 1
-    switch (block.type) {
-      case 'text':
-        return <TextBlock key={index} events={block.events} isStreaming={isRunning && isLastBlock} onSendPrompt={handleSendPrompt} />
-      case 'tool':
-        return <ToolBlock key={index} events={block.events} isRunning={isRunning || isChatStreaming} />
-      case 'tool_group':
-        return <ToolGroupBlock key={index} events={block.events} isRunning={isRunning || isChatStreaming} />
-      case 'visual':
-        return <VisualBlock key={index} block={block} onSendPrompt={handleSendPrompt} />
-      case 'steer':
-        return <SteerBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'steer' }>} />
-      case 'file_change':
-        return <FileChangeBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'file_change' }>} onFileSelect={() => setFileSidebarOpen(true)} />
-      case 'error':
-        return <ErrorBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'error' }>} />
-      case 'chat_user':
-        return <ChatUserBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_user' }>} onEdit={!isRunning && !isChatStreaming ? (msg) => { setInput(msg); inputRef.current?.focus() } : undefined} />
-      case 'chat_assistant':
-        return <ChatAssistantBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_assistant' }>} onSendPrompt={handleSendPrompt} />
-      case 'approval_request': {
-        const event = block.events[0] as Extract<TaskActivityEvent, { type: 'approval_request' }>
-        const isAnswered = answeredRequestIds.has(event.requestId)
-        const responseEvent = allActivityEvents.find(
-          (e): e is Extract<TaskActivityEvent, { type: 'approval_response' }> =>
-            e.type === 'approval_response' && e.requestId === event.requestId
-        )
-        return (
-          <InlineApprovalCard
-            key={index}
-            requestId={event.requestId}
-            question={event.question}
-            options={event.options}
-            answered={isAnswered}
-            answer={responseEvent?.answer}
-            autoApproved={responseEvent?.autoApproved}
-            onRespond={handleApprovalResponse}
-          />
-        )
-      }
-      case 'approval_response':
-        return null
-      case 'json_render_spec': {
-        const specEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'json_render_spec' }>
-        return (
-          <div key={index} className="px-4 py-2">
-            <JsonRenderView spec={specEvent.spec as unknown as Spec} componentDefs={block.componentDefs} />
-          </div>
-        )
-      }
-      default:
-        return null
-    }
-  }, [displayBlocks.length, isRunning, isChatStreaming, answeredRequestIds, allActivityEvents, handleApprovalResponse, handleSendPrompt])
-
   // Go back to landing phase — clean slate (no pre-filled prompt)
   const handleBack = useCallback(() => {
     backingRef.current = true
@@ -717,9 +600,7 @@ export function Playground() {
     setInput("")
     setFileSidebarOpen(false)
     setEditingPrompt(null)
-    // Clear accumulated chat events so the next session starts clean
-    chatEventsRef.current = []
-  }, [setSearchParams, chatEventsRef])
+  }, [setSearchParams])
 
   // Edit & Retry: enter inline edit mode on the prompt bubble
   const handleRetry = useCallback(() => {
@@ -833,7 +714,7 @@ export function Playground() {
                 {isRunning ? (
                   <>
                     <span className="flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <TypingIndicator className="text-muted-foreground" />
                       Starting session...
                     </span>
                     {showTimeout && (
@@ -847,7 +728,7 @@ export function Playground() {
                   </>
                 ) : isRestoring ? (
                   <span className="flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <TypingIndicator className="text-muted-foreground" />
                     Loading activity...
                   </span>
                 ) : "No activity yet"}
@@ -911,7 +792,17 @@ export function Playground() {
               </div>
             )}
 
-            {displayBlocks.map((block, i) => renderBlock(block, i))}
+            <ActivityBlockRenderer
+              blocks={displayBlocks}
+              isStreaming={isRunning || isChatStreaming}
+              isRunning={isRunning || isChatStreaming}
+              onSendPrompt={handleSendPrompt}
+              onFileSelect={() => setFileSidebarOpen(true)}
+              onEditMessage={!isRunning && !isChatStreaming ? (msg) => { setInput(msg); inputRef.current?.focus() } : undefined}
+              onApprovalResponse={handleApprovalResponse}
+              answeredApprovals={answeredRequestIds}
+              approvalResponses={approvalResponseMap}
+            />
 
             {/* Pending steer bubble removed: addSteerMessage now adds pending
                 events directly to activityEvents, rendered inline above */}
@@ -922,8 +813,7 @@ export function Playground() {
             {/* Chat streaming indicator */}
             {isChatStreaming && (
               <div className="flex items-center gap-2 px-4 py-2">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">Thinking...</span>
+                <TypingIndicator className="text-muted-foreground" />
               </div>
             )}
           </div>
@@ -966,19 +856,41 @@ export function Playground() {
                 rows={1}
                 className="flex-1 rounded-lg border border-border/20 bg-muted/30 px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/50 focus:bg-muted/40 transition-colors resize-none"
               />
-              <Button
-                size="icon"
-                className="h-9 w-9 shrink-0"
-                onClick={handleSend}
-                disabled={!input.trim() || sending || isChatStreaming}
-                title="Send (⌘+Enter)"
-              >
-                {sending || isChatStreaming ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-              </Button>
+              {isRunning ? (
+                <Button
+                  size="icon"
+                  variant="destructive"
+                  className="h-9 w-9 shrink-0"
+                  onClick={() => cancelPlaygroundSession(activeProjectId!)}
+                  title="Stop session"
+                >
+                  <Square className="h-3.5 w-3.5" />
+                </Button>
+              ) : isChatStreaming ? (
+                <Button
+                  size="icon"
+                  variant="destructive"
+                  className="h-9 w-9 shrink-0"
+                  onClick={() => chatSession && abortChatStream(chatSession.id)}
+                  title="Stop response"
+                >
+                  <Square className="h-3.5 w-3.5" />
+                </Button>
+              ) : (
+                <Button
+                  size="icon"
+                  className="h-9 w-9 shrink-0"
+                  onClick={handleSend}
+                  disabled={!input.trim() || sending}
+                  title="Send (⌘+Enter)"
+                >
+                  {sending ? (
+                    <TypingIndicator className="text-current scale-75" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                </Button>
+              )}
             </div>
           </div>
         </div>

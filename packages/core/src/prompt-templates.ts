@@ -237,11 +237,11 @@ export function buildChatSystemPrompt(visionDoc?: string, planNodes?: ChatPlanNo
   const preamble = isPlanMode
     ? `You are a project planning assistant for Astro in **plan mode**. Help the user refine their project plan through conversation. You can modify any task property, manage dependencies/edges between nodes, and restructure the plan graph.
 
-**Plan mode is active.** You MUST NOT directly edit, write, or otherwise modify any files in the codebase. Your only way to make changes is through \`astro-cli\` commands via Bash. Do not run any other commands in Bash — only \`astro-cli\`.
+**Plan mode is active.** You MUST NOT directly edit, write, or otherwise modify any files in the codebase. Your only way to make changes is through \`astro-cli\` commands via Bash. NEVER run any other Bash commands — ONLY \`astro-cli\`.
 
 You have access to these tools:
 - Read-only file tools (Read, Grep, Glob): Explore the project codebase to understand context
-- Shell (Bash): Run \`astro-cli\` commands ONLY — no other shell commands
+- Shell (Bash): Run \`astro-cli\` commands ONLY — DO NOT run any other shell commands
 - Web (WebSearch, WebFetch): Look up technologies, best practices, or documentation
 
 Use file tools freely to understand the codebase when the user's question needs more context than the plan provides. Then use \`astro-cli\` to apply plan changes.`
@@ -311,10 +311,10 @@ astro-cli plan tree --json --project-id <PROJECT_ID>
 Review the tree output. If anything is missing or wrong, apply additional commands to fix it.
 
 ### Rules
-- Run one command per change. Do not batch into a single command.
-- Always run \`plan tree --json\` after all changes to confirm the result. The JSON output is rendered as a visual tree in the UI for user inspection.
+- Run one command per change. Do NOT batch multiple changes into a single command.
+- ALWAYS run \`plan tree --json\` after all changes to confirm the result. The JSON output is rendered as a visual tree in the UI for user inspection.
 - Node IDs are shown in brackets \`[id]\` in the plan above — use those exact IDs.
-- Do NOT output JSON mutation blocks — they no longer apply changes.
+- NEVER output raw JSON or attempt to mutate the plan through chat text — the only way to change the plan is through \`astro-cli\` commands.
 - If a command fails (non-zero exit), show the error and fix it before continuing.`
 }
 
@@ -593,12 +593,13 @@ The "keyFindings" field should contain 2-5 concise bullet points (under 100 char
  *
  * Unlike buildPlanSystemPrompt (which is a one-shot JSON generator), this prompt
  * instructs Claude to explore the codebase, ask the user questions via the native
- * AskUserQuestion tool, share reasoning as it goes, and produce a final plan JSON
- * only after sufficient exploration and user alignment.
+ * AskUserQuestion tool, share reasoning as it goes, and create the final plan via
+ * `astro-cli plan create` only after sufficient exploration and user alignment.
  */
 export function buildInteractivePlanPrompt(
   description: string,
   options?: {
+    projectId?: string
     visionDoc?: string
     /** Whether the project has a local working directory (enables codebase exploration approach) */
     hasWorkingDirectory?: boolean
@@ -630,15 +631,18 @@ export function buildInteractivePlanPrompt(
 This project is connected to GitHub repository \`${ghOwner}/${ghRepo}\`.
 The final step must open a pull request that merges all completed work into the \`${target}\` branch.
 
-You MUST include a final task node titled "Push to GitHub" that:
-- Depends on ALL other task nodes (it is the very last step in the plan)
-- type: "task" (not milestone — an agent will execute this)
-- verification: "auto"
-- estimate: "XS"
-- labelIds: ["l4"] (Infrastructure)
-- milestoneId: set to the last milestone in the plan (the one this final task contributes toward)
-- description: "Open a pull request on ${ghOwner}/${ghRepo} that merges the project branch into \`${target}\`. Before creating the PR, ensure the project branch is rebased onto the latest \`${target}\`: run git fetch origin ${target} && git rebase origin/${target}. If the rebase has conflicts, resolve each conflicting file, then git add the resolved files and git rebase --continue. After resolving, force-push with git push --force-with-lease origin <project-branch>. The PR description should include a comprehensive summary of every completed task, link to per-task PRs where available, and list key changes. After creating the PR, if GitHub reports merge conflicts, rebase onto the latest \`${target}\`, resolve conflicts, and force-push with --force-with-lease. Then wait for CI checks (tests, lint, type checks, AI code review) to finish. If any check fails or a reviewer requests changes, read the feedback, fix the issues, push to the project branch, and re-check — up to 3 retry cycles. The task succeeds when all required checks pass."
-- acceptanceCriteria: [{ id: "ci-pass", description: "All CI checks pass on the final PR", type: "command", command: "gh pr checks --required", autoVerifiable: true }]
+After running \`astro-cli plan create\`, add the GitHub push task with the dedicated CLI command:
+\`\`\`bash
+astro-cli plan add-github-push-task --json \\
+  --project-id <PROJECT_ID> \\
+  --repo ${ghOwner}/${ghRepo} \\
+  --base-branch ${target} \\
+  --milestone-id <lastMilestoneId> \\
+  --depends-on <nodeId1> \\
+  --depends-on <nodeId2>
+\`\`\`
+Pass ALL leaf task nodes (nodes with no downstream dependencies) as \`--depends-on\` arguments.
+The command returns \`{ ok, id, edgesAdded }\` on success.
 `
     }
   }
@@ -681,6 +685,9 @@ You MUST include a final task node titled "Push to GitHub" that:
   }
 
   const hasCodebase = !!options?.hasWorkingDirectory
+  const projectIdSection = options?.projectId
+    ? `\n## Project ID\nUse this exact project ID when calling Astro CLI: \`${options.projectId}\`\n`
+    : ""
 
   let approachSection: string
   if (hasCodebase) {
@@ -698,7 +705,17 @@ You MUST include a final task node titled "Push to GitHub" that:
 
 4. **Share your reasoning** — Think out loud as you explore. Explain what you're finding, what patterns you see, and how they inform the plan.
 
-5. **Produce the final plan** — Once you have enough information, output the complete plan as a JSON object in a \`\`\`json code fence. After the JSON, list any assumptions and open questions.`
+5. **Create the final plan with Astro CLI** — Once you have enough information, build the complete plan JSON in memory, then pipe it to:
+\`\`\`bash
+cat <<'EOF' | astro-cli plan create --project-id <PROJECT_ID> --json
+{ ...full plan JSON... }
+EOF
+\`\`\`
+After that, run:
+\`\`\`bash
+astro-cli plan tree --json --project-id <PROJECT_ID>
+\`\`\`
+Review the tree output and fix anything wrong before finishing.`
   } else {
     approachSection = `
 1. **Ask clarifying questions** — If you have a tool to ask the user questions (e.g., AskUserQuestion or an MCP equivalent), use it to clarify:
@@ -710,116 +727,50 @@ You MUST include a final task node titled "Push to GitHub" that:
 
 3. **Share your reasoning** — Think out loud. Explain your thought process, what tradeoffs you see, and how they inform the plan.
 
-4. **Produce the final plan** — Output the complete plan as a JSON object in a \`\`\`json code fence. After the JSON, list any assumptions and open questions.`
+4. **Create the final plan with Astro CLI** — Once the plan is ready, pipe the complete JSON to:
+\`\`\`bash
+cat <<'EOF' | astro-cli plan create --project-id <PROJECT_ID> --json
+{ ...full plan JSON... }
+EOF
+\`\`\`
+Then run:
+\`\`\`bash
+astro-cli plan tree --json --project-id <PROJECT_ID>
+\`\`\`
+Verify the tree output and correct any mistakes before finishing.`
   }
 
   const importantSection = `## Important
 - Do NOT write code, create files, or build anything. Your only job is to plan — the tasks you create will be executed later by agents.
 - Your text output is visible to the user in real-time as a chat conversation.
-- The JSON plan MUST be wrapped in a \`\`\`json code fence.
-- After the JSON, you may list assumptions and open questions so the user can refine the plan.
-- **CRITICAL — YOU MUST OUTPUT JSON:** Every response that creates or modifies a plan MUST include the complete plan JSON in a \`\`\`json code fence. This applies to the FIRST plan generation AND all follow-up revisions. The JSON is the ONLY way changes are applied to the graph — without it, nothing happens. Never just describe what the plan should be without emitting the JSON block. Always output the full plan JSON (all nodes and edges, not just the changed ones) so it can replace the current plan entirely. Do not end your response without the JSON block.`
+- The plan is created only by a successful \`astro-cli plan create --project-id <PROJECT_ID> --json\` command.
+- Do NOT print raw JSON in the chat as the final answer. Use the CLI command instead.
+- When you revise the plan, replace the entire plan with a new full JSON document through \`astro-cli plan create\`.
+- After each create/update cycle, run \`astro-cli plan tree --json --project-id <PROJECT_ID>\` and inspect the result before finishing.`
 
   return `You are an interactive project planning assistant. Your goal is to help the user create a detailed, actionable project plan through exploration and discussion.
 
-**You MUST produce a complete plan JSON in a \`\`\`json code fence before finishing.** Without the JSON, no plan is created. Everything else (exploration, questions, reasoning) is preparation for the JSON output.
+**You MUST create the plan by running \`astro-cli plan create\` before finishing.** Everything else (exploration, questions, reasoning) is preparation for that CLI call.
 
 ## User's Goal
 <user_goal>
 ${description}
 </user_goal>
-${visionSection}${replanSection}${skillsSection}${githubSection}
+${projectIdSection}${visionSection}${replanSection}${skillsSection}${githubSection}
 ## Your Approach
 ${approachSection}
 
 ## Plan Output Format
 
-When ready, output a single JSON object with this structure:
-\`\`\`json
-{
-  "projectName": "Short Project Name",
-  "nodes": [
-    {
-      "id": "n1",
-      "type": "task",
-      "title": "Setup infrastructure",
-      "description": "Concrete developer brief: what to build, which files to modify, constraints to follow, and what done looks like. This is the prompt sent to the AI agent.",
-      "status": "planned",
-      "parentId": null,
-      "dependencies": [],
-      "verification": "auto",
-      "position": {"x": 40, "y": 40},
-      "priority": "medium",
-      "estimate": "M",
-      "milestoneId": "m1",
-      "labelIds": ["l2"]
-    },
-    {
-      "id": "n2",
-      "type": "task",
-      "title": "Create data models",
-      "description": "...",
-      "status": "planned",
-      "parentId": null,
-      "dependencies": [],
-      "verification": "auto",
-      "position": {"x": 300, "y": 40},
-      "priority": "medium",
-      "estimate": "M",
-      "milestoneId": "m1",
-      "labelIds": ["l2"]
-    },
-    {
-      "id": "m1",
-      "type": "milestone",
-      "title": "Foundation Complete",
-      "description": "Infrastructure and data models ready",
-      "status": "planned",
-      "parentId": null,
-      "dependencies": ["n1", "n2"],
-      "verification": "human",
-      "position": {"x": 40, "y": 240},
-      "startDate": "2026-03-01",
-      "endDate": "2026-03-01"
-    },
-    {
-      "id": "n3",
-      "type": "task",
-      "title": "Build API endpoints",
-      "description": "...",
-      "status": "planned",
-      "parentId": null,
-      "dependencies": ["m1"],
-      "verification": "auto",
-      "position": {"x": 40, "y": 340},
-      "priority": "medium",
-      "estimate": "L",
-      "milestoneId": "m2",
-      "labelIds": ["l2"]
-    },
-    {
-      "id": "m2",
-      "type": "milestone",
-      "title": "MVP Complete",
-      "description": "All API endpoints working",
-      "status": "planned",
-      "parentId": null,
-      "dependencies": ["n3"],
-      "verification": "human",
-      "position": {"x": 40, "y": 440},
-      "startDate": "2026-03-05",
-      "endDate": "2026-03-05"
-    }
-  ],
-  "edges": [
-    {"id": "e1", "source": "n1", "target": "m1", "type": "dependency"},
-    {"id": "e2", "source": "n2", "target": "m1", "type": "dependency"},
-    {"id": "e3", "source": "m1", "target": "n3", "type": "dependency"},
-    {"id": "e4", "source": "n3", "target": "m2", "type": "dependency"}
-  ]
-}
+Pipe a \`{ projectName, nodes[], edges[] }\` JSON object to \`astro-cli plan create\`:
+\`\`\`bash
+cat <<'EOF' | astro-cli plan create --project-id <PROJECT_ID> --json
+{ "projectName": "...", "nodes": [...], "edges": [...] }
+EOF
 \`\`\`
-Note the pattern: n1,n2 have milestoneId "m1" and edges flow INTO m1. n3 depends ON m1 (edge from m1) but belongs to m2 (milestoneId "m2"). A task must NEVER depend on the same milestone it belongs to.
+The CLI validates the schema and returns \`{ ok, nodeCount, edgeCount, idMapping }\`. If validation fails, fix the reported field and retry. Do NOT print the JSON in chat.
+
+Key milestone/task pattern: tasks have a \`milestoneId\` pointing to the milestone they feed INTO (not the one they depend on via edges). n1 → m1 (edge) + n1.milestoneId = "m1" (membership). n2.milestoneId = "m2" + n2.dependencies = ["m1"] (waits for m1, belongs to m2). A task that belongs to milestone M MUST NOT also have an incoming edge from M — that is a deadlock.
 
 ## Task Description Quality
 
@@ -856,7 +807,7 @@ Parallel tasks (no dependency edge between them) run as separate agents in isola
 ${importantSection}
 
 ## Reminder
-After exploration, reasoning, and any clarifying questions, you MUST output the complete plan as a \`\`\`json code fence. This is not optional — it is the primary deliverable of this conversation.`
+After exploration, reasoning, and any clarifying questions, you MUST call \`astro-cli plan create --project-id <PROJECT_ID> --json\` with the complete plan JSON piped to stdin. This is not optional — the CLI call is the only way to persist the plan. Do NOT output raw JSON in the chat.`
 }
 
 // ─── Compaction ──────────────────────────────────────────────────────

@@ -754,38 +754,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         imageRefs,
       },
       {
-        // Push streaming events to realtime store for live display.
-        // yaml-spec fences stream through as text (rendered as code blocks).
-        // They're extracted and replaced with json_render_spec events in onDone.
+        // Live rendering comes from the unified global SSE stream. These direct
+        // callbacks only maintain session message state and plan-refresh side effects.
         onText: (chunk) => {
           rawAssistantText += chunk
           get().appendToLastAssistantMessage(sid, chunk)
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'text',
-            content: chunk,
-            timestamp: new Date(),
-          })
         },
+        onOperational: () => {},
         onToolUse: (data) => {
           if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'tool_use',
-            id: `tool-${Date.now()}`,
-            toolName: data.toolName,
-            toolInput: data.toolInput,
-            timestamp: new Date(),
-          })
         },
         onToolResult: (data) => {
           if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'tool_result',
-            id: `tool-${Date.now()}`,
-            toolName: data.toolName,
-            toolResult: data.result,
-            success: data.success,
-            timestamp: new Date(),
-          })
         },
         onDone: async (newProviderSessionId) => {
           if (newProviderSessionId) {
@@ -822,8 +802,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             }
           }
 
-          // yaml-spec parsing is handled by use-chat-activity-events.ts which
-          // concatenates text events and extracts specs when isStreaming becomes false.
+          // yaml-spec parsing now happens in the unified activity pipeline.
 
           get().updateLastAssistantMessage(sid, rawAssistantText)
 
@@ -992,38 +971,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         imageRefs,
       },
       {
-        // Push streaming events to realtime store for live display.
-        // The global SSE suppresses events for tasks with an active direct SSE
-        // (activeDispatchStreams), so we must push events here for the UI to
-        // show streaming output during playground chat.
+        // Live rendering comes from the unified global SSE stream. These direct
+        // callbacks only maintain session message state.
         onText: (chunk) => {
           rawAssistantText += chunk
           get().appendToLastAssistantMessage(sid, chunk)
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'text',
-            content: chunk,
-            timestamp: new Date(),
-          })
         },
-        onToolUse: (data) => {
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'tool_use',
-            id: `tool-${Date.now()}`,
-            toolName: data.toolName,
-            toolInput: data.toolInput,
-            timestamp: new Date(),
-          })
-        },
-        onToolResult: (data) => {
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'tool_result',
-            id: `tool-${Date.now()}`,
-            toolName: data.toolName,
-            toolResult: data.result,
-            success: data.success,
-            timestamp: new Date(),
-          })
-        },
+        onOperational: () => {},
+        onToolUse: () => {},
+        onToolResult: () => {},
         onDone: (newSessionId) => {
           if (newSessionId) get().setProviderSessionId(sid, newSessionId, providerId)
 

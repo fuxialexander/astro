@@ -218,6 +218,13 @@
       "when": 1773907200000,
       "tag": "0030_backfill_team_id_not_null",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1773993600000,
+      "tag": "0031_add_plan_edges_unique_index",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { stripHtml } from "@/lib/html-utils"
-import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2, Clock, Sparkles, Paperclip, Square } from "lucide-react"
+import { Send, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2, Clock, Sparkles, Paperclip, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -23,20 +23,7 @@ import { useSessionStore, getSessionTitle } from "@/stores/session-store"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { useProjectMachineId } from "@/hooks/use-project-machine"
 import { useStreamEvents } from "@/hooks/use-stream-events"
-import {
-  TextBlock,
-  ToolBlock,
-  ToolGroupBlock,
-  SteerBlock,
-  FileChangeBlock,
-  ErrorBlock,
-  ChatUserBlock,
-  ChatAssistantBlock,
-  MutationBlock,
-  SystemMessageBlock,
-} from "@/components/activity-blocks"
-import { JsonRenderView } from "@/components/ui/json-render-view"
-import type { Spec } from "@json-render/core"
+import { ActivityBlockRenderer } from "@/components/activity-block-renderer"
 import { deriveAvailableProviders } from "@/components/execution/provider-utils"
 import type { AppliedMutations } from "@/lib/plan-mutations"
 import type { ProviderStatus, Session, TaskActivityEvent } from "@/types"
@@ -225,7 +212,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
   // Activity view: hydrate events from streaming_events or session messages
   const sessionMessages = useMemo(() => currentSession?.messages || [], [currentSession?.messages])
-  const { displayBlocks: sessionDisplayBlocks, isHydrating: isRestoring } = useStreamEvents(
+  const { activityEvents: sessionActivityEvents, displayBlocks: sessionDisplayBlocks, isHydrating: isRestoring } = useStreamEvents(
     currentSession?.id,
     { legacySessionMessages: sessionMessages, projectId },
   )
@@ -247,6 +234,17 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     }
     return planBlocks
   }, [planBlocks, sessionDisplayBlocks])
+  const answeredApprovals = useMemo(() => {
+    const ids = new Set<string>()
+    const responses = new Map<string, Extract<TaskActivityEvent, { type: 'approval_response' }>>()
+    for (const event of sessionActivityEvents) {
+      if (event.type === 'approval_response') {
+        ids.add(event.requestId)
+        responses.set(event.requestId, event)
+      }
+    }
+    return { answeredApprovals: ids, approvalResponses: responses }
+  }, [sessionActivityEvents])
 
   // Plan store — read nodes/edges for context
   const rawPlanNodes = usePlanStore((s) => s.nodes)
@@ -716,7 +714,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
           <div className="flex items-center justify-center h-full">
             {isRestoring ? (
               <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <TypingIndicator className="text-muted-foreground" />
                 Loading activity...
               </span>
             ) : (
@@ -729,82 +727,25 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
           </div>
         )}
 
-        {displayBlocks.map((block, i) => {
-          const isLastBlock = i === displayBlocks.length - 1
-          switch (block.type) {
-            case 'text':
-              return (
-                <TextBlock
-                  key={i}
-                  events={block.events}
-                  isStreaming={isStreaming && isLastBlock}
-                  preprocessContent={preprocessTextContent}
-                  onSendPrompt={sendMessage}
-                  onLinkClick={(href) => {
-                    const match = href.match(/^astro:node:(.+)$/)
-                    if (match) {
-                      onNodeSelect?.(match[1])
-                      return true
-                    }
-                  }}
-                />
-              )
-            case 'tool':
-              return <ToolBlock key={i} events={block.events} isRunning={isStreaming} />
-            case 'tool_group':
-              return <ToolGroupBlock key={i} events={block.events} isRunning={isStreaming} />
-            case 'steer':
-              return <SteerBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'steer' }>} />
-            case 'file_change':
-              return <FileChangeBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'file_change' }>} />
-            case 'error':
-              return <ErrorBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'error' }>} />
-            case 'chat_user':
-              return <ChatUserBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_user' }>} onEdit={!isStreaming ? (msg) => setInput(msg) : undefined} />
-            case 'chat_assistant':
-              return (
-                <ChatAssistantBlock
-                  key={i}
-                  event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_assistant' }>}
-                  isStreaming={isStreaming && isLastBlock}
-                  onSendPrompt={sendMessage}
-                  onLinkClick={(href) => {
-                    const match = href.match(/^astro:node:(.+)$/)
-                    if (match) {
-                      onNodeSelect?.(match[1])
-                      return true
-                    }
-                  }}
-                />
-              )
-            case 'mutation':
-              return (
-                <MutationBlock
-                  key={i}
-                  event={block.events[0] as Extract<TaskActivityEvent, { type: 'mutation' }>}
-                  getNodeTitle={getNodeTitle}
-                  onNodeSelect={onNodeSelect}
-                />
-              )
-            case 'system_message':
-              return (
-                <SystemMessageBlock
-                  key={i}
-                  event={block.events[0] as Extract<TaskActivityEvent, { type: 'system_message' }>}
-                />
-              )
-            case 'json_render_spec': {
-              const specEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'json_render_spec' }>
-              return (
-                <div key={i} className="px-4 py-2">
-                  <JsonRenderView spec={specEvent.spec as unknown as Spec} componentDefs={block.componentDefs} />
-                </div>
-              )
+        <ActivityBlockRenderer
+          blocks={displayBlocks}
+          isStreaming={isStreaming}
+          isRunning={isStreaming}
+          onSendPrompt={sendMessage}
+          onLinkClick={(href) => {
+            const match = href.match(/^astro:node:(.+)$/)
+            if (match) {
+              onNodeSelect?.(match[1])
+              return true
             }
-            default:
-              return null
-          }
-        })}
+          }}
+          onEditMessage={!isStreaming ? (msg) => setInput(msg) : undefined}
+          preprocessContent={preprocessTextContent}
+          answeredApprovals={answeredApprovals.answeredApprovals}
+          approvalResponses={answeredApprovals.approvalResponses}
+          getNodeTitle={getNodeTitle}
+          onNodeSelect={onNodeSelect}
+        />
 
         {/* Typing indicator when streaming starts but no events yet */}
         {isStreaming && displayBlocks.length === 0 && (
@@ -903,7 +844,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
               >
                 {isBusy ? (
                   pendingMessage ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <TypingIndicator className="text-current scale-75" />
                   ) : (
                     <Clock className="h-4 w-4" />
                   )

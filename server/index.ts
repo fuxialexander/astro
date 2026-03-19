@@ -705,8 +705,8 @@ async function start() {
   if (!isTest()) {
     startExecutionWatchdog({
       enabled: true,
-      intervalMs: 5 * 60 * 1000,           // 5 minutes
-      staleThresholdMs: 2 * 60 * 60 * 1000, // 2 hours
+      intervalMs: 60 * 1000,
+      resetThresholdMs: 2 * 60 * 60 * 1000,
     })
     console.log('[watchdog] Execution watchdog started')
   }

@@ -6,8 +6,9 @@
  * Renders activity blocks, inline approvals, and plan result card.
  */
 
-import { useState, useRef, useEffect, useMemo, useCallback } from "react"
-import { Send, Loader2, ArrowDown, Sparkles, AlertCircle, Monitor, Clock, Pencil } from "lucide-react"
+import { useState, useRef, useEffect, useMemo } from "react"
+import { Send, Square, ArrowDown, Sparkles, AlertCircle, Monitor, Clock, Pencil } from "lucide-react"
+import { TypingIndicator } from "@/components/ui/typing-indicator"
 import { useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -21,30 +22,13 @@ import { useSessionStore } from "@/stores/session-store"
 import { useUsageStore } from "@/stores/usage-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { projectChatWithAgent, fetchStreamingEventsCatchUp, replayChatCatchUpEvents, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
-import { applyPlanFromText } from "@/lib/plan-extraction"
-import {
-  groupActivityEvents,
-  TextBlock,
-  ToolBlock,
-  ToolGroupBlock,
-  SteerBlock,
-  FileChangeBlock,
-  ErrorBlock,
-  ChatUserBlock,
-  ChatAssistantBlock,
-  GitHubCommentBlock,
-  SystemPromptBlock,
-  PlanGraphBlock,
-  type DisplayBlock,
-} from "@/components/activity-blocks"
-import { InlineApprovalCard } from "./inline-approval-card"
+import { groupActivityEvents } from "@/components/activity-blocks"
+import { ActivityBlockRenderer } from "@/components/activity-block-renderer"
 import { PlanResultCard } from "./plan-result-card"
 import { PlanGenerationHeader } from "./plan-generation-header"
 import type { TaskActivityEvent } from "@/types"
 import { useStreamEvents } from "@/hooks/use-stream-events"
 import { Link } from "react-router"
-import { JsonRenderView } from "@/components/ui/json-render-view"
-import type { Spec } from "@json-render/core"
 
 interface PlanGenerationProps {
   projectId: string
@@ -90,6 +74,8 @@ export function PlanGeneration({
   const dynamicApprovalsMap = useRealtimeStore((s) => s.dynamicApprovals)
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
   const addSteerMessage = useRealtimeStore((s) => s.addSteerMessage)
+  const pushActivityEvent = useRealtimeStore((s) => s.pushActivityEvent)
+  const hydrateFromCatchUp = useRealtimeStore((s) => s.hydrateFromCatchUp)
 
   // Session store for post-completion chat (messages stored for conversation history only)
   const sessionsLoaded = useSessionStore((s) => s.loaded)
@@ -165,7 +151,7 @@ export function PlanGeneration({
     }
   }, [chatSession?.id, chatSession?.messages.length, isChatStreaming, ensureFullSession])
 
-  // Unified stream events — replaces 3-hook composition (useRestoredExecution + useChatStreamEvents + useChatActivityEvents)
+  // Unified stream events for the execution activity timeline.
   // Execution events come from taskStreams keyed by executionId.
   // Chat events come from taskStreams keyed by chatSession.id.
   const sessionMessages = useMemo(() => chatSession?.messages || [], [chatSession?.messages])
@@ -178,44 +164,9 @@ export function PlanGeneration({
     { legacySessionMessages: sessionMessages },
   )
 
-  // Local chat events for current-mount live streaming (pushed via pushChatEvent below)
-  // These are frontend-only events (chat_user, plan_result, error) not yet in the DB
-  const chatEventsRef = useRef<TaskActivityEvent[]>([])
-  const [chatEventsVersion, setChatEventsVersion] = useState(0)
-  const chatFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const pushChatEvent = useCallback((event: TaskActivityEvent) => {
-    chatEventsRef.current = [...chatEventsRef.current, event]
-    if (!chatFlushTimerRef.current) {
-      chatFlushTimerRef.current = setTimeout(() => {
-        setChatEventsVersion(v => v + 1)
-        chatFlushTimerRef.current = null
-      }, 50)
-    }
-  }, [])
-
-  const flushChatEvents = useCallback(() => {
-    if (chatFlushTimerRef.current) {
-      clearTimeout(chatFlushTimerRef.current)
-      chatFlushTimerRef.current = null
-    }
-    setChatEventsVersion(v => v + 1)
-  }, [])
-
-  // Cleanup flush timer
-  useEffect(() => () => {
-    if (chatFlushTimerRef.current) clearTimeout(chatFlushTimerRef.current)
-  }, [])
-
-  // Merge: execution events + hydrated chat events + live chat events
   const allActivityEvents: TaskActivityEvent[] = useMemo(() => {
-    void chatEventsVersion
-    const liveChatEvents = chatEventsRef.current
-    const chatEvents = liveChatEvents.length > 0
-      ? [...chatActivityEvents, ...liveChatEvents]
-      : chatActivityEvents
-    return [...execActivityEvents, ...chatEvents]
-  }, [execActivityEvents, chatEventsVersion, chatActivityEvents])
+    return [...execActivityEvents, ...chatActivityEvents]
+  }, [execActivityEvents, chatActivityEvents])
 
   // Group events for display
   const displayBlocks = useMemo(() => groupActivityEvents(allActivityEvents), [allActivityEvents])
@@ -229,14 +180,16 @@ export function PlanGeneration({
   }, [dynamicApprovalsMap, execution?.executionId])
 
   // Answered approvals (from activity events)
-  const answeredRequestIds = useMemo(() => {
+  const { answeredRequestIds, approvalResponseMap } = useMemo(() => {
     const ids = new Set<string>()
+    const responses = new Map<string, Extract<TaskActivityEvent, { type: 'approval_response' }>>()
     for (const event of allActivityEvents) {
       if (event.type === 'approval_response') {
         ids.add(event.requestId)
+        responses.set(event.requestId, event)
       }
     }
-    return ids
+    return { answeredRequestIds: ids, approvalResponseMap: responses }
   }, [allActivityEvents])
 
   // Check if plan was extracted
@@ -416,7 +369,7 @@ export function PlanGeneration({
     chatStreamRef.current = { streamId: turnStreamId, lastSeq: 0 }
 
     // Add user message as activity event for display
-    pushChatEvent({ type: 'chat_user', message: text, timestamp: new Date() })
+    pushActivityEvent(sid, { type: 'chat_user', message: text, timestamp: new Date() })
 
     // Store in session for conversation history (sent to backend on subsequent turns)
     addMessage(sid, { role: "user", content: text })
@@ -442,6 +395,37 @@ export function PlanGeneration({
     // Track whether astro-cli MCP tools mutated the plan (same pattern as ChatPanel)
     const PLAN_MUTATING_TOOLS = new Set(["create_task", "update_task", "delete_task", "create_dependency", "Bash"])
     let needsPlanRefresh = false
+    const finalizeChatTurn = async (assistantText: string, newSessionId?: string) => {
+      if (newSessionId) setProviderSessionId(sid, newSessionId)
+
+      // If astro-cli MCP tools mutated the plan, reload from server
+      if (needsPlanRefresh) {
+        console.log(`[plan-chat] Plan mutating tools detected, refreshing plan from server`)
+        await usePlanStore.getState().load()
+      }
+
+      if (needsPlanRefresh) {
+        const updatedNodes = usePlanStore.getState().nodes.filter((n) => n.projectId === projectId)
+        const updatedEdgeSet = new Set(updatedNodes.map((n) => n.id))
+        const updatedEdges = usePlanStore.getState().edges.filter(
+          (e) => updatedEdgeSet.has(e.source) || updatedEdgeSet.has(e.target)
+        )
+        if (updatedNodes.length > 0) {
+          pushActivityEvent(sid, {
+            type: 'plan_result',
+            nodes: updatedNodes.map((n) => ({ id: n.id, title: n.title, type: n.type, status: n.status })),
+            edges: updatedEdges.map((e) => ({ source: e.source, target: e.target })),
+            projectName,
+            timestamp: new Date(),
+          })
+        }
+      }
+
+      // Store full text in session message for conversation history
+      addMessage(sid, { role: "assistant", content: assistantText })
+      chatStreamRef.current = { streamId: '', lastSeq: 0 }
+      setIsChatStreaming(false)
+    }
     try {
       await projectChatWithAgent(
         {
@@ -456,14 +440,10 @@ export function PlanGeneration({
           taskType: 'plan',
         },
         {
-          // Text/tool events are NOT pushed to chatEventsRef — they arrive via
-          // the global SSE → realtime store → taskStreams path (DB-authoritative,
-          // multi-device consistent). chatEventsRef is only for frontend-only
-          // events (chat_user, plan_result, error) that don't go through the relay.
-          // rawText is still accumulated here for plan JSON extraction in onDone.
           onText: (chunk) => {
             rawText += chunk
           },
+          onOperational: () => {},
           onToolUse: (data) => {
             if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
           },
@@ -471,49 +451,11 @@ export function PlanGeneration({
             if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
           },
           onDone: async (newSessionId) => {
-            if (newSessionId) setProviderSessionId(sid, newSessionId)
-
-            // If astro-cli MCP tools mutated the plan, reload from server
-            if (needsPlanRefresh) {
-              console.log(`[plan-chat] Plan mutating tools detected, refreshing plan from server`)
-              await usePlanStore.getState().load()
-            }
-
-            // Fallback: try full plan JSON extraction from text (handles initial plan generation
-            // where the agent produces structured plan JSON in the response)
-            if (!needsPlanRefresh) {
-              const planResult = applyPlanFromText(projectId, rawText)
-              if (planResult.applied) {
-                console.log(`[plan-chat] Full plan extracted from text: ${planResult.nodeCount} nodes`)
-              }
-            }
-
-            // Push plan_result event so the activity feed shows the updated graph
-            const updatedNodes = usePlanStore.getState().nodes.filter((n) => n.projectId === projectId)
-            const updatedEdgeSet = new Set(updatedNodes.map((n) => n.id))
-            const updatedEdges = usePlanStore.getState().edges.filter(
-              (e) => updatedEdgeSet.has(e.source) || updatedEdgeSet.has(e.target)
-            )
-            if (updatedNodes.length > 0) {
-              pushChatEvent({
-                type: 'plan_result',
-                nodes: updatedNodes.map((n) => ({ id: n.id, title: n.title, type: n.type, status: n.status })),
-                edges: updatedEdges.map((e) => ({ source: e.source, target: e.target })),
-                projectName: projectName,
-                timestamp: new Date(),
-              })
-            }
-
-            // Store full text in session message for conversation history
-            addMessage(sid, { role: "assistant", content: rawText })
-            chatStreamRef.current = { streamId: '', lastSeq: 0 }
-            flushChatEvents()
-            setIsChatStreaming(false)
+            await finalizeChatTurn(rawText, newSessionId)
           },
           onError: (error) => {
-            pushChatEvent({ type: 'error', error, timestamp: new Date() })
+            pushActivityEvent(sid, { type: 'error', error, timestamp: new Date() })
             chatStreamRef.current = { streamId: '', lastSeq: 0 }
-            flushChatEvents()
             setIsChatStreaming(false)
           },
           onSeq: (seq) => {
@@ -538,7 +480,6 @@ export function PlanGeneration({
     } catch (e: unknown) {
       // User-initiated abort — no catch-up needed
       if (e instanceof Error && e.name === 'AbortError') {
-        flushChatEvents()
         setIsChatStreaming(false)
         return
       }
@@ -550,6 +491,7 @@ export function PlanGeneration({
       const { streamId: catchUpStreamId, lastSeq } = chatStreamRef.current
       if (catchUpStreamId) {
         try {
+          await hydrateFromCatchUp([catchUpStreamId], lastSeq)
           const { events } = await fetchStreamingEventsCatchUp([catchUpStreamId], lastSeq)
           if (events.length > 0) {
             // Roll back rawText to last checkpoint — text after that seq is in
@@ -559,48 +501,34 @@ export function PlanGeneration({
               onText: (chunk) => {
                 rawText += chunk
               },
-              onToolUse: () => {},
-              onToolResult: () => {},
+              onToolUse: (data) => {
+                if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
+              },
+              onToolResult: (data) => {
+                if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
+              },
               onDone: (newSessionId) => {
-                if (newSessionId) setProviderSessionId(sid, newSessionId)
-                // Try full plan extraction first, fall back to mutations
-                const catchUpPlanResult = applyPlanFromText(projectId, rawText)
-                if (catchUpPlanResult.applied) {
-                  const updatedNodes = usePlanStore.getState().nodes.filter((n) => n.projectId === projectId)
-                  const updatedEdgeSet = new Set(updatedNodes.map((n) => n.id))
-                  const updatedEdges = usePlanStore.getState().edges.filter(
-                    (e) => updatedEdgeSet.has(e.source) || updatedEdgeSet.has(e.target)
-                  )
-                  pushChatEvent({
-                    type: 'plan_result',
-                    nodes: updatedNodes.map((n) => ({ id: n.id, title: n.title, type: n.type, status: n.status })),
-                    edges: updatedEdges.map((e) => ({ source: e.source, target: e.target })),
-                    projectName: projectName,
-                    timestamp: new Date(),
-                  })
-                }
-                addMessage(sid, { role: "assistant", content: rawText })
+                void finalizeChatTurn(rawText, newSessionId)
               },
               onError: (error) => {
-                pushChatEvent({ type: 'error', error, timestamp: new Date() })
+                pushActivityEvent(sid, { type: 'error', error, timestamp: new Date() })
               },
             })
             if (completed) {
               chatStreamRef.current = { streamId: '', lastSeq: 0 }
             }
           } else {
-            pushChatEvent({ type: 'error', error: 'Connection lost during chat', timestamp: new Date() })
+            pushActivityEvent(sid, { type: 'error', error: 'Connection lost during chat', timestamp: new Date() })
           }
         } catch {
           // Catch-up also failed — surface the connection error
           chatStreamRef.current = { streamId: '', lastSeq: 0 }
-          pushChatEvent({ type: 'error', error: 'Connection lost — unable to recover', timestamp: new Date() })
+          pushActivityEvent(sid, { type: 'error', error: 'Connection lost — unable to recover', timestamp: new Date() })
         }
       } else {
-        pushChatEvent({ type: 'error', error: 'Connection lost', timestamp: new Date() })
+        pushActivityEvent(sid, { type: 'error', error: 'Connection lost', timestamp: new Date() })
       }
 
-      flushChatEvents()
       setIsChatStreaming(false)
     }
   }
@@ -624,69 +552,6 @@ export function PlanGeneration({
   async function handleApprovalResponse(requestId: string, answer: string) {
     if (!execution?.executionId) return
     await respondToDynamicApproval(execution.executionId, requestId, answer)
-  }
-
-  // Render a display block
-  function renderBlock(block: DisplayBlock, index: number) {
-    const isLastBlock = index === displayBlocks.length - 1
-    const isActivelyStreaming = isRunning || isChatStreaming
-    switch (block.type) {
-      case 'text':
-        return <TextBlock key={index} events={block.events} isStreaming={isActivelyStreaming && isLastBlock} />
-      case 'tool':
-        return <ToolBlock key={index} events={block.events} isRunning={isActivelyStreaming} />
-      case 'tool_group':
-        return <ToolGroupBlock key={index} events={block.events} isRunning={isActivelyStreaming} />
-      case 'steer':
-        return <SteerBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'steer' }>} />
-      case 'file_change':
-        return <FileChangeBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'file_change' }>} />
-      case 'error':
-        return <ErrorBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'error' }>} />
-      case 'chat_user':
-        return <ChatUserBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_user' }>} onEdit={!isRunning && !isChatStreaming ? (msg) => { setInput(msg); inputRef.current?.focus() } : undefined} />
-      case 'chat_assistant':
-        return <ChatAssistantBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_assistant' }>} />
-      case 'approval_request': {
-        const event = block.events[0] as Extract<TaskActivityEvent, { type: 'approval_request' }>
-        const isAnswered = answeredRequestIds.has(event.requestId)
-        const responseEvent = allActivityEvents.find(
-          (e): e is Extract<TaskActivityEvent, { type: 'approval_response' }> =>
-            e.type === 'approval_response' && e.requestId === event.requestId
-        )
-        return (
-          <InlineApprovalCard
-            key={index}
-            requestId={event.requestId}
-            question={event.question}
-            options={event.options}
-            answered={isAnswered}
-            answer={responseEvent?.answer}
-            autoApproved={responseEvent?.autoApproved}
-            onRespond={handleApprovalResponse}
-          />
-        )
-      }
-      case 'approval_response':
-        // Already rendered inline with the request
-        return null
-      case 'github_comment':
-        return <GitHubCommentBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'github_comment' }>} />
-      case 'system_prompt':
-        return <SystemPromptBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'system_prompt' }>} />
-      case 'plan_result':
-        return <PlanGraphBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'plan_result' }>} />
-      case 'json_render_spec': {
-        const specEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'json_render_spec' }>
-        return (
-          <div key={index} className="px-4 py-2">
-            <JsonRenderView spec={specEvent.spec as unknown as Spec} componentDefs={block.componentDefs} />
-          </div>
-        )
-      }
-      default:
-        return null
-    }
   }
 
   return (
@@ -781,9 +646,14 @@ export function PlanGeneration({
         {/* Empty state */}
         {displayBlocks.length === 0 && execution?.status !== "failure" && (
           <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-            {isRunning ? "Starting planning session..." : isRestoring ? (
+            {isRunning ? (
               <span className="flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <TypingIndicator className="text-muted-foreground" />
+                Starting planning session...
+              </span>
+            ) : isRestoring ? (
+              <span className="flex items-center gap-2">
+                <TypingIndicator className="text-muted-foreground" />
                 Loading activity...
               </span>
             ) : "No activity yet"}
@@ -791,7 +661,15 @@ export function PlanGeneration({
         )}
 
         {/* Activity blocks */}
-        {displayBlocks.map((block, i) => renderBlock(block, i))}
+        <ActivityBlockRenderer
+          blocks={displayBlocks}
+          isStreaming={isRunning || isChatStreaming}
+          isRunning={isRunning || isChatStreaming}
+          onEditMessage={!isRunning && !isChatStreaming ? (msg) => { setInput(msg); inputRef.current?.focus() } : undefined}
+          onApprovalResponse={handleApprovalResponse}
+          answeredApprovals={answeredRequestIds}
+          approvalResponses={approvalResponseMap}
+        />
 
         {/* Pending steer bubble removed: addSteerMessage now adds pending
             events directly to activityEvents, rendered inline above */}
@@ -799,8 +677,7 @@ export function PlanGeneration({
         {/* Chat streaming indicator */}
         {isChatStreaming && (
           <div className="flex items-center gap-2 px-4 py-2">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-            <span className="text-xs text-muted-foreground">Thinking...</span>
+            <TypingIndicator className="text-muted-foreground" />
           </div>
         )}
 
@@ -881,18 +758,30 @@ export function PlanGeneration({
             className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none overflow-y-auto"
             style={{ maxHeight: '50vh' }}
           />
-          <Button
-            size="icon"
-            className="h-9 w-9 shrink-0"
-            onClick={handleSend}
-            disabled={!input.trim() || sending || isChatStreaming || !!pendingSteer}
-          >
-            {sending || isChatStreaming ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
-          </Button>
+          {isChatStreaming ? (
+            <Button
+              size="icon"
+              variant="destructive"
+              className="h-9 w-9 shrink-0"
+              onClick={() => { abortRef.current?.abort() }}
+              title="Stop response"
+            >
+              <Square className="h-3.5 w-3.5" />
+            </Button>
+          ) : (
+            <Button
+              size="icon"
+              className="h-9 w-9 shrink-0"
+              onClick={handleSend}
+              disabled={!input.trim() || sending || !!pendingSteer}
+            >
+              {sending ? (
+                <TypingIndicator className="text-current scale-75" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+            </Button>
+          )}
         </div>
       </div>
     </div>

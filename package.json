@@ -143,6 +143,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@opencode-ai/sdk": "^1.2.22",
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/vite": "^4.2.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/d3": "^7.4.3",

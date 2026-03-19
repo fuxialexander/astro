@@ -17,32 +17,11 @@ import { dataClient } from '@/lib/data-client'
 import { useProjectStore } from './project-store'
 import { useExecutionStore } from './execution-store'
 import { useMachinesStore } from './machines-store'
-import { applyPlanFromText, planNodeIdToProjectId } from '@/lib/plan-extraction'
+import { planNodeIdToProjectId } from '@/lib/plan-extraction'
 import type { TaskActivityEvent } from '@/types'
 import { useToastStore } from './toast-store'
 import { useNotificationStore } from './notification-store'
 import { buildServerCompletionMessage, buildClientCompletionMessage } from '@/lib/completion-messages'
-import { useSessionStore } from './session-store'
-
-/**
- * Derive from DB-backed session type whether this stream is a chat session.
- * Chat sessions push events via direct SSE callbacks (sendPlaygroundChat /
- * sendChatMessage); the global SSE handler must skip them to prevent
- * double-delivery. Falls back to streamingSessions for the edge case where
- * a chat starts (createSession + sendPlaygroundChat) before the session
- * store's initial load() from the API has completed.
- */
-function isChatSessionStream(streamId: string): boolean {
-  const sessionState = useSessionStore.getState()
-  const session = sessionState.sessions.get(streamId)
-  if (session) {
-    return session.type === 'project-chat' || session.type === 'task-chat'
-  }
-  // Fallback: if session store hasn't loaded yet (load() still in-flight),
-  // check if the session store is actively streaming this ID
-  // (streamingSessions is set synchronously before SSE starts).
-  return sessionState.streamingSessions.has(streamId)
-}
 
 // Per-node fetch generation counter to prevent out-of-order getNode() responses
 // from overwriting newer state (e.g., rapid dispatched → in_progress → completed).
@@ -146,6 +125,7 @@ export interface TaskStream {
     success?: boolean
     duration?: number
     timestamp: Date
+    seq?: number
   }>
   fileChanges: Array<{
     path: string
@@ -154,6 +134,7 @@ export interface TaskStream {
     linesRemoved?: number
     diff?: string
     timestamp: Date
+    seq?: number
   }>
   steerMessages: Array<{
     message: string
@@ -301,13 +282,10 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       get().reconcileRunningTasks()
 
       const { taskStreams, hydrateFromCatchUp } = get()
-      // Collect execution IDs from all non-chat task streams that have events.
-      // Skip chat-session streams — they self-manage via useChatActivityEvents.
       // Catch up ALL streams (not just running ones) so that transitions that
       // occurred while the tab was hidden (e.g., task completed) are recovered.
       const activeIds: string[] = []
       for (const [execId, stream] of taskStreams) {
-        if (isChatSessionStream(execId)) continue
         if (stream.activityEvents.length > 0 || stream.status === 'running' || stream.status === 'in_progress') {
           activeIds.push(execId)
         }
@@ -980,30 +958,20 @@ function reconcileResultFromCatchUp(
     })
   }
 
-  // If this is a plan session, extract plan nodes from caught-up stdout.
-  // Skip if the project already has plan nodes in the store — on page refresh,
-  // load() fetches authoritative nodes from DB; re-applying plan_result from
-  // streaming events would create nodes with new UUIDs and cause duplicates.
-  for (const [nid, exec] of execStore.executions) {
-    if (exec.executionId === executionId && nid.startsWith('plan-')) {
-      const planProjectId = planNodeIdToProjectId(nid)!
-      const existingProjectNodes = usePlanStore.getState().nodes.filter(n => n.projectId === planProjectId)
-      if (existingProjectNodes.length > 0) {
-        console.log(`[realtime] Skipping plan catch-up for project ${planProjectId} — ${existingProjectNodes.length} nodes already loaded from DB`)
-        break
+      for (const [nid, exec] of execStore.executions) {
+        if (exec.executionId === executionId && nid.startsWith('plan-')) {
+          const planProjectId = planNodeIdToProjectId(nid)!
+          const existingProjectNodes = usePlanStore.getState().nodes.filter(n => n.projectId === planProjectId)
+          if (existingProjectNodes.length > 0) {
+            console.log(`[realtime] Skipping plan catch-up for project ${planProjectId} — ${existingProjectNodes.length} nodes already loaded from DB`)
+            break
+          }
+          if (hydrated.planResult) {
+            void usePlanStore.getState().load()
+          }
+          break
+        }
       }
-      // Prefer pre-extracted plan_result from hydrator; fall back to regex extraction from stdout
-      const result = hydrated.planResult
-        ? applyPlanFromText(planProjectId, '', executionId, false, hydrated.planResult)
-        : hydrated.stdout
-          ? applyPlanFromText(planProjectId, hydrated.stdout, executionId)
-          : null
-      if (result?.applied) {
-        console.log('[realtime] Plan extracted from catch-up:', result.nodeCount, 'nodes')
-      }
-      break
-    }
-  }
 }
 
 function addActivity(
@@ -1101,9 +1069,6 @@ function handleRealtimeEvent(
     case 'task:stdout':
     case 'task:text': {
       const execId = data.taskId as string
-      // Skip chat-session streams — they receive text via direct SSE callbacks
-      // (sendPlaygroundChat.onText / sendChatMessage.onText) to avoid double-delivery.
-      if (isChatSessionStream(execId)) break
       const text = data.data as string
       // Batch text chunks — flush every 50ms for smooth ~20fps rendering
       realtimeTextBatch.set(execId, (realtimeTextBatch.get(execId) || '') + text)
@@ -1113,6 +1078,26 @@ function handleRealtimeEvent(
           flushRealtimeText(execId, set)
         }, 50))
       }
+      break
+    }
+
+    case 'task:operational': {
+      const execId = data.taskId as string
+      const message = data.message as string
+      const source = ((data.source as string) || 'astro') as 'astro' | 'git' | 'delivery'
+      const seq = event.id ? parseInt(event.id, 10) : undefined
+      set((state) => {
+        const streams = new Map(state.taskStreams)
+        const existing = streams.get(execId) || createEmptyTaskStream(execId)
+        streams.set(execId, {
+          ...existing,
+          activityEvents: [
+            ...existing.activityEvents,
+            { type: 'operational' as const, message, source, timestamp: new Date(), ...(seq && !isNaN(seq) ? { seq } : {}) },
+          ],
+        })
+        return { taskStreams: streams }
+      })
       break
     }
 
@@ -1148,13 +1133,51 @@ function handleRealtimeEvent(
       break
     }
 
+    case 'task:error': {
+      const execId = data.taskId as string
+      const error = (data.error as string) || 'Unknown error'
+
+      set((state) => {
+        const streams = new Map(state.taskStreams)
+        const existing = streams.get(execId) || createEmptyTaskStream(execId)
+        streams.set(execId, {
+          ...existing,
+          status: 'error',
+          error,
+        })
+        return { taskStreams: streams }
+      })
+
+      useRealtimeStore.getState().pushActivityEvent(execId, {
+        type: 'error',
+        error,
+        timestamp: new Date(),
+      })
+      addActivity(set, 'failure', `Task failed: ${execId}`, { taskId: execId })
+
+      const execStore = useExecutionStore.getState()
+      const newExecs = new Map(execStore.executions)
+      for (const [nid, exec] of execStore.executions) {
+        if (exec.executionId !== execId) continue
+        newExecs.set(nid, {
+          ...exec,
+          status: 'failure',
+          completedAt: new Date(),
+          error,
+        })
+        useExecutionStore.setState({ executions: newExecs })
+        execStore.persist()
+        break
+      }
+      break
+    }
+
     case 'task:result': {
       const execId = data.taskId as string
       const status = data.status as string
       const isSuccess = status === 'success' || status === 'completed'
 
-      // yaml-spec parsing is handled by use-chat-activity-events.ts which
-      // concatenates text events and extracts specs when isStreaming becomes false.
+      // yaml-spec parsing is handled in the unified activity pipeline.
 
       set((state) => {
         const streams = new Map(state.taskStreams)
@@ -1189,8 +1212,7 @@ function handleRealtimeEvent(
         { taskId: execId }
       )
 
-      // Guard: skip side-effects if execution already completed (duplicate delivery
-      // now possible since activeDispatchStreams no longer suppresses task:result)
+      // Guard: skip side-effects if execution already completed.
       const execStore = useExecutionStore.getState()
       {
         let alreadyCompleted = false
@@ -1242,33 +1264,11 @@ function handleRealtimeEvent(
         }
       }
 
-      // If this is a plan session result, extract plan nodes from accumulated stdout.
-      // Skip if the project already has nodes — prevents UUID duplication on refresh.
-      for (const [nid, exec] of execStore.executions) {
-        if (exec.executionId === execId && nid.startsWith('plan-')) {
-          const planProjectId = planNodeIdToProjectId(nid)!
-          const existingNodes = usePlanStore.getState().nodes.filter(n => n.projectId === planProjectId)
-          if (existingNodes.length > 0) break
-          // Get accumulated stdout from task stream — use executionId for idempotency
-          // to prevent race duplication with the SSE path in execution-store
-          const stream = useRealtimeStore.getState().taskStreams.get(execId)
-          if (stream?.stdout) {
-            const result = applyPlanFromText(planProjectId, stream.stdout, execId)
-            if (result.applied) {
-              console.log('[realtime] Plan extracted from live SSE result:', result.nodeCount, 'nodes')
-            }
-          }
-          break
-        }
-      }
       break
     }
 
     case 'task:tool_trace': {
       const execId = data.taskId as string
-      // Skip chat-session streams — they receive tool events via direct SSE callbacks
-      // (sendPlaygroundChat / sendChatMessage) to avoid double-delivery.
-      if (isChatSessionStream(execId)) break
       const now = new Date()
       const toolName = data.toolName as string
       const hasInput = data.toolInput !== undefined

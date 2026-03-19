@@ -43,44 +43,6 @@ function prune(): void {
 const cleanupTimer = setInterval(prune, CLEANUP_INTERVAL_MS)
 cleanupTimer.unref() // Don't prevent process exit
 
-/**
- * Tracks executionIds with an active dispatch SSE bridge (POST /api/dispatch/task)
- * or an active chat SSE stream (agent.ts).
- *
- * Purpose: DELIVERY DEDUP ONLY. Prevents double-delivery of ephemeral events
- * (text, tool_trace, file_change, session_init, progress) through the global SSE
- * (GET /api/events/stream) while a dedicated dispatch or chat SSE bridge is already
- * forwarding those events directly to the browser.
- *
- * Persistence: relay-server.ts is the SINGLE persistence authority for all
- * relay-originated events (text, tool_use, tool_result, file_change, session_init).
- * Route handlers (dispatch.ts, agent.ts) forward events to the browser SSE but do
- * NOT write to streaming_events for relay-originated events. This means:
- *   - Persistence continues through browser disconnect/reconnect (relay-server is
- *     always running, independent of browser connection lifecycle)
- *   - No conditional guards needed in route handlers for relay-originated events
- *   - Route handlers remain the sole writers for their own generated events
- *     (init, result, error, aborted, progress, approval_request, steer_message)
- *
- * Lifecycle:
- *   - Added when dispatch SSE starts (dispatch.ts, inside streamSSE callback)
- *   - Added by agent.ts when chat SSE starts
- *   - Removed on stream close/cleanup
- *   - Skipped for server-side dispatch (X-Server-Dispatch: 'true'): no browser
- *     SSE consumer, so events.ts must forward relay events to the frontend
- *
- * When dispatch SSE dies (page refresh, network drop):
- *   1. activeDispatchStreams entry is removed on close
- *   2. Global SSE relay-direct handlers (events.ts) resume delivery
- *   3. Frontend processSSEStreamWithReconnect catches up from streaming_events
- *   4. node:status_changed delivers authoritative status regardless
- *
- * Multi-instance note: IN-MEMORY Set. Cross-instance registration in Redis
- * (redisPubSub.registerActiveDispatchStream) is used only for this delivery-dedup
- * path, not for persistence decisions (relay-server always persists regardless).
- */
-export const activeDispatchStreams = new Set<string>()
-
 export const executionContextStore = {
   register(ctx: Omit<ExecutionContext, 'createdAt'>): void {
     const entry = { ...ctx, createdAt: Date.now() }

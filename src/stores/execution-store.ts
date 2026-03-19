@@ -10,13 +10,14 @@ import { getAccessToken } from "@/lib/supabase-client"
 import type { ApprovalRequest } from "@/components/approval-card"
 import { dataClient } from "@/lib/data-client"
 import { hydrateStreamingEvents } from '@/lib/streaming-event-hydrator'
+import { getStreamingRowReplayData } from "@/lib/streaming-event-replay"
 import { stripHtml, extractBlobUrls } from "@/lib/html-utils"
 import { apiUrl } from "@/lib/api-url"
 import { getColorForName, getProjectIconForName } from "@/lib/color-icon-utils"
 import { useTaskChatStore } from "./task-chat-store"
 import { useSessionStore } from "./session-store"
 import { resolveWorkingDirectory, buildDependencyOutputs } from "@astro/core/dispatch"
-import { applyPlanFromText, planNodeIdToProjectId, clearPlanFingerprint } from "@/lib/plan-extraction"
+import { planNodeIdToProjectId } from "@/lib/plan-extraction"
 import { getSigningPrivateKey, signDispatchIntent, generateNonce, type DispatchSigningPayload } from "@/lib/dispatch-signing"
 import { useAuthStore } from "./auth-store"
 import { showBatchCompleteNotification } from "@/lib/notifications"
@@ -1088,7 +1089,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   startPlanGeneration: async (description, projectName, options) => {
     // 1. Create project
     const projectId = crypto.randomUUID()
-    clearPlanFingerprint(projectId)
     const displayName = projectName || "New Project"
     await useProjectStore.getState().addProject({
       id: projectId,
@@ -1187,34 +1187,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
         // 6. Process SSE stream using existing infrastructure (with reconnection)
         const planStore = usePlanStore.getState()
-        await processSSEStreamWithReconnect(response, nodeId, set, get, planStore, (event) => {
-          // On result, extract plan JSON
-          if (event === "result") {
-            try {
-              const exec = get().executions.get(nodeId)
-              if (exec?.streamText) {
-                const result = applyPlanFromText(projectId, exec.streamText, exec.executionId || undefined)
-                if (result.applied) {
-                  console.log(`[plan-generation] Plan extracted: ${result.nodeCount} nodes`)
-                } else {
-                  console.warn("[plan-generation] Plan extraction returned no result — model output may not contain valid JSON")
-                  useToastStore.getState().add({
-                    type: "warning",
-                    title: "Plan extraction failed",
-                    description: "The AI's response didn't contain a valid plan JSON. Try regenerating the plan or refining your description.",
-                  })
-                }
-              }
-            } catch (e) {
-              console.error("[plan-generation] Failed to extract plan:", e)
-              useToastStore.getState().add({
-                type: "error",
-                title: "Plan extraction error",
-                description: e instanceof Error ? e.message : "Unknown error extracting plan",
-              })
-            }
-          }
-        }, abortController.signal)
+        await processSSEStreamWithReconnect(response, nodeId, set, get, planStore, undefined, abortController.signal)
       } catch (error) {
         // Only update if entry still exists (cancelPlanGeneration/cleanupPlanGeneration may have already handled it)
         if (!get().executions.has(nodeId)) return
@@ -1351,8 +1324,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   startPlanGenerationForProject: async (projectId, description, options) => {
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
     if (!project) throw new Error(`Project ${projectId} not found`)
-    clearPlanFingerprint(projectId)
-
     const nodeId = `plan-${projectId}`
 
     // Update project if options provide new values
@@ -1440,25 +1411,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
         // Process SSE stream (with reconnection)
         const planStore = usePlanStore.getState()
-        await processSSEStreamWithReconnect(response, nodeId, set, get, planStore, (event) => {
-          if (event === "result") {
-            try {
-              const exec = get().executions.get(nodeId)
-              if (exec?.streamText) {
-                if (!exec.executionId) {
-                  console.warn(`[plan-generation-forProject] Skipping plan extraction — executionId missing for node ${nodeId}`)
-                } else {
-                  const result = applyPlanFromText(projectId, exec.streamText, exec.executionId)
-                  if (result.applied) {
-                    console.log(`[plan-generation-forProject] Plan extracted: ${result.nodeCount} nodes`)
-                  }
-                }
-              }
-            } catch (e) {
-              console.error("[plan-generation-forProject] Failed to extract plan:", e)
-            }
-          }
-        }, abortController.signal)
+        await processSSEStreamWithReconnect(response, nodeId, set, get, planStore, undefined, abortController.signal)
       } catch (error) {
         if (!get().executions.has(nodeId)) return
         if (error instanceof Error && error.name === "AbortError") {
@@ -1499,8 +1452,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   startReplanSession: async (projectId, changeDescription, lessons, previousPlanSummary, options) => {
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
     if (!project) throw new Error(`Project ${projectId} not found`)
-    clearPlanFingerprint(projectId)
-
     const nodeId = `plan-${projectId}`
 
     // Cancel any active plan session first
@@ -1580,25 +1531,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
         // Process SSE stream (with reconnection)
         const planStore = usePlanStore.getState()
-        await processSSEStreamWithReconnect(response, nodeId, set, get, planStore, (event) => {
-          if (event === "result") {
-            try {
-              const exec = get().executions.get(nodeId)
-              if (exec?.streamText) {
-                if (!exec.executionId) {
-                  console.warn(`[replan] Skipping plan extraction — executionId missing for node ${nodeId}`)
-                } else {
-                  const result = applyPlanFromText(projectId, exec.streamText, exec.executionId)
-                  if (result.applied) {
-                    console.log(`[replan] Plan extracted: ${result.nodeCount} nodes`)
-                  }
-                }
-              }
-            } catch (e) {
-              console.error("[replan] Failed to extract plan:", e)
-            }
-          }
-        }, abortController.signal)
+        await processSSEStreamWithReconnect(response, nodeId, set, get, planStore, undefined, abortController.signal)
       } catch (error) {
         if (!get().executions.has(nodeId)) return
         if (error instanceof Error && error.name === "AbortError") {
@@ -2141,12 +2074,7 @@ function processCatchUpEvents(
   if (onResult && !wasAlreadyCompleted) {
     for (const row of events) {
       try {
-        let data: string
-        if (row.eventType === 'text' && typeof row.data === 'object' && row.data !== null && 'text' in row.data) {
-          data = (row.data as { text: string }).text
-        } else {
-          data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
-        }
+        const data = getStreamingRowReplayData(row)
         onResult(row.eventType, data)
       } catch (err) {
         console.error(`[sse-catchup] Failed to process callback for ${row.eventType}:`, err)
@@ -2405,7 +2333,7 @@ async function processSSEStreamWithReconnect(
           // Non-terminal events — process incrementally
           for (const row of events) {
             try {
-              const data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+              const data = getStreamingRowReplayData(row)
               handleSSEEvent(row.eventType, data, nodeId, set, get, planStore)
               onEventCallback?.(row.eventType, data)
             } catch (eventErr) {
@@ -2673,6 +2601,32 @@ function handleSSEEvent(
       break
     }
 
+    case "operational": {
+      try {
+        const parsed = JSON.parse(data)
+        const now = new Date()
+        set((state) => {
+          const newExecutions = new Map(state.executions)
+          const exec = newExecutions.get(nodeId)
+          if (exec) {
+            newExecutions.set(nodeId, {
+              ...exec,
+              activityEvents: [...exec.activityEvents, {
+                type: 'operational' as const,
+                message: parsed.message,
+                source: parsed.source,
+                timestamp: now,
+              }],
+            })
+          }
+          return { executions: newExecutions }
+        })
+      } catch {
+        // Ignore parse errors
+      }
+      break
+    }
+
     case "tool_use": {
       try {
         const parsed = JSON.parse(data)
@@ -2836,8 +2790,7 @@ function handleSSEEvent(
         if (parsed.nodes && Array.isArray(parsed.nodes)) {
           const planProjectId = planNodeIdToProjectId(nodeId)
           if (planProjectId) {
-            const exec = get().executions.get(nodeId)
-            applyPlanFromText(planProjectId, '', exec?.executionId || undefined, false, parsed)
+            void usePlanStore.getState().load()
 
             // Emit plan_result activity event for inline graph rendering
             set((state) => {
@@ -3409,5 +3362,3 @@ function dispatchNextBatchWave(projectId: string) {
 
 // Helper: Extract plan JSON from streaming text output
 // Looks for JSON in ```json code fences or raw JSON with projectName/nodes/edges
-
-

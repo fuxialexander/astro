@@ -37,7 +37,6 @@ const KEYS = {
   TASK_MACHINE: 'relay:task:machine:', // + taskId
   INSTANCE_ID: 'relay:instance:', // + instanceId
   EXEC_CONTEXT: 'relay:exec:context:', // + executionId
-  ACTIVE_DISPATCH_STREAMS: 'relay:dispatch:active:', // + executionId → instanceId
   EXECUTION_COST: 'relay:exec:cost:', // + executionId → cumulative cost (USD float)
   LEADER: 'relay:leader:', // + operationName → instanceId (leader election)
   TASK_DIR: 'relay:task:dir:', // + taskId → workingDirectory
@@ -122,8 +121,8 @@ export interface RedisExecutionContext {
 
 /** Streaming event types bridged via Redis */
 export type StreamingEventType =
-  | 'text' | 'tool_use' | 'tool_result' | 'file_change'
-  | 'session_init' | 'progress' | 'result'
+  | 'text' | 'operational' | 'tool_use' | 'tool_result' | 'file_change'
+  | 'session_init' | 'progress' | 'result' | 'error'
   | 'node_status_changed' | 'task_init' | 'task_ready'
   | 'plan_result';
 
@@ -577,41 +576,6 @@ export class RedisPubSub extends EventEmitter {
   async removeExecutionContext(executionId: string): Promise<void> {
     if (!this.publisher) return;
     await this.publisher.del(`${KEYS.EXEC_CONTEXT}${executionId}`);
-  }
-
-  // =========================================================================
-  // Active Dispatch Streams (cross-instance SSE bridge tracking)
-  // =========================================================================
-
-  /**
-   * Register an active dispatch SSE stream. The value is the instance ID
-   * so other instances know which instance owns the dispatch bridge.
-   */
-  async registerActiveDispatchStream(executionId: string): Promise<void> {
-    if (!this.publisher) return;
-    await this.publisher.set(
-      `${KEYS.ACTIVE_DISPATCH_STREAMS}${executionId}`,
-      this.instanceId,
-      'EX',
-      3600 // 1 hour TTL (tasks rarely run longer)
-    );
-  }
-
-  /**
-   * Remove an active dispatch stream registration.
-   */
-  async removeActiveDispatchStream(executionId: string): Promise<void> {
-    if (!this.publisher) return;
-    await this.publisher.del(`${KEYS.ACTIVE_DISPATCH_STREAMS}${executionId}`);
-  }
-
-  /**
-   * Check if a dispatch stream is active on any instance.
-   */
-  async isDispatchStreamActive(executionId: string): Promise<boolean> {
-    if (!this.publisher) return false;
-    const val = await this.publisher.get(`${KEYS.ACTIVE_DISPATCH_STREAMS}${executionId}`);
-    return val !== null;
   }
 
   // =========================================================================
