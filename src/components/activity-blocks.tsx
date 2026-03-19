@@ -475,8 +475,10 @@ export function TextBlock({ events, isStreaming, onLinkClick, onSendPrompt, prep
 
   // Operational messages (── [Astro], [Git], [Delivery]) are system-level status lines,
   // not AI-generated markdown. Render them as styled pre-formatted lines.
+  // Split on both newlines AND the ── [ pattern (lookahead) to handle messages
+  // that arrive as separate text events without trailing newlines.
   if (/──\s*\[/.test(text)) {
-    const lines = text.split('\n').filter(l => l.trim())
+    const lines = text.split(/\n|(?=──\s*\[)/).filter(l => l.trim())
     return (
       <div className="px-4 py-1 space-y-0.5">
         {lines.map((line, i) => (

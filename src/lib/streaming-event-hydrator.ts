@@ -10,6 +10,26 @@ import type { TaskActivityEvent } from '@/types'
 import type { StreamingEventRow } from '@/lib/api-client'
 import type { PlanJsonResult } from '@astro/core'
 
+/**
+ * Extract the correct string data from a streaming event DB row.
+ *
+ * Text events are stored as `{ text: "..." }` objects in the DB.
+ * Live SSE handlers expect a plain string for text events.
+ * This utility normalizes the format so ALL catch-up/replay paths
+ * produce consistent output — preventing `'{"text":"..."}'` corruption.
+ */
+export function extractStreamingEventData(row: StreamingEventRow): string {
+  if (
+    row.eventType === 'text' &&
+    typeof row.data === 'object' &&
+    row.data !== null &&
+    'text' in row.data
+  ) {
+    return (row.data as { text: string }).text
+  }
+  return typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+}
+
 export interface PendingApproval {
   executionId: string
   requestId: string

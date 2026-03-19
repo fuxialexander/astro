@@ -9,7 +9,7 @@ import { useToastStore } from "./toast-store"
 import { getAccessToken } from "@/lib/supabase-client"
 import type { ApprovalRequest } from "@/components/approval-card"
 import { dataClient } from "@/lib/data-client"
-import { hydrateStreamingEvents } from '@/lib/streaming-event-hydrator'
+import { hydrateStreamingEvents, extractStreamingEventData } from '@/lib/streaming-event-hydrator'
 import { stripHtml, extractBlobUrls } from "@/lib/html-utils"
 import { apiUrl } from "@/lib/api-url"
 import { getColorForName, getProjectIconForName } from "@/lib/color-icon-utils"
@@ -2141,12 +2141,7 @@ function processCatchUpEvents(
   if (onResult && !wasAlreadyCompleted) {
     for (const row of events) {
       try {
-        let data: string
-        if (row.eventType === 'text' && typeof row.data === 'object' && row.data !== null && 'text' in row.data) {
-          data = (row.data as { text: string }).text
-        } else {
-          data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
-        }
+        const data = extractStreamingEventData(row)
         onResult(row.eventType, data)
       } catch (err) {
         console.error(`[sse-catchup] Failed to process callback for ${row.eventType}:`, err)
@@ -2405,7 +2400,7 @@ async function processSSEStreamWithReconnect(
           // Non-terminal events — process incrementally
           for (const row of events) {
             try {
-              const data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+              const data = extractStreamingEventData(row)
               handleSSEEvent(row.eventType, data, nodeId, set, get, planStore)
               onEventCallback?.(row.eventType, data)
             } catch (eventErr) {

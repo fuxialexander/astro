@@ -22,6 +22,7 @@ import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useUsageStore } from "@/stores/usage-store"
 import { chatWithTask, fetchStreamingEventsCatchUp, replayChatCatchUpEvents } from "@/lib/api-client"
+import { extractStreamingEventData } from "@/lib/streaming-event-hydrator"
 import { parseSSEStream } from "@/lib/sse-parser"
 import { cn } from "@/lib/utils"
 import type { PlanNode, TaskExecution, TaskActivityEvent } from "@/types"
@@ -487,7 +488,7 @@ export function UnifiedActivityView({
                   lastSeq,
                 )
                 for (const row of events) {
-                  const data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
+                  const data = extractStreamingEventData(row)
                   replayEvent(row.eventType, data)
                 }
                 if (events.length > 0) {
