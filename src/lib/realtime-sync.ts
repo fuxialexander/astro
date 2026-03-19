@@ -214,6 +214,8 @@ function subscribeToPlanNodes(supabase: ReturnType<typeof getSupabase>) {
         switch (payload.eventType) {
           case 'INSERT':
             if (payload.new) {
+              // Skip soft-deleted nodes
+              if (payload.new.deleted_at) break
               const node = mapNode(payload.new)
               const store = usePlanStore.getState()
               // Only add if not already present (avoid duplicates from optimistic updates)
@@ -226,6 +228,15 @@ function subscribeToPlanNodes(supabase: ReturnType<typeof getSupabase>) {
             break
           case 'UPDATE':
             if (payload.new) {
+              // If the node was soft-deleted, remove it from the store
+              if (payload.new.deleted_at) {
+                const nodeId = payload.new.client_id as string
+                const store = usePlanStore.getState()
+                const filteredNodes = store.nodes.filter(n => n.id !== nodeId)
+                const filteredEdges = store.edges.filter(e => e.source !== nodeId && e.target !== nodeId)
+                usePlanStore.setState({ nodes: filteredNodes, edges: filteredEdges })
+                break
+              }
               const node = mapNode(payload.new)
               const store = usePlanStore.getState()
               // Directly update state without triggering API call
@@ -280,6 +291,8 @@ function subscribeToPlanEdges(supabase: ReturnType<typeof getSupabase>) {
         switch (payload.eventType) {
           case 'INSERT':
             if (payload.new) {
+              // Skip soft-deleted edges
+              if (payload.new.deleted_at) break
               const edge = mapEdge(payload.new)
               const store = usePlanStore.getState()
               // Only add if not already present (avoid duplicates from optimistic updates)
@@ -293,7 +306,15 @@ function subscribeToPlanEdges(supabase: ReturnType<typeof getSupabase>) {
             break
           case 'UPDATE':
             if (payload.new) {
-              // Edges are typically immutable; if needed, implement update logic
+              // If the edge was soft-deleted, remove it from the store
+              if (payload.new.deleted_at) {
+                const source = payload.new.source_client_id as string
+                const target = payload.new.target_client_id as string
+                const store = usePlanStore.getState()
+                const filtered = store.edges.filter(e => !(e.source === source && e.target === target))
+                usePlanStore.setState({ edges: filtered })
+                break
+              }
               console.log('[realtime-sync] plan_edges UPDATE not implemented')
             }
             break

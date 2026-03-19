@@ -15,7 +15,7 @@
 import { createHmac } from 'crypto'
 import { db } from './db/index.js'
 import { projects, planNodes, teamMembers } from './db/schema.js'
-import { eq } from 'drizzle-orm'
+import { eq, and, isNull } from 'drizzle-orm'
 import { isLocalMode } from './app-mode.js'
 import { LOCAL_TEAM_ID } from './db/bootstrap-local.js'
 
@@ -37,9 +37,9 @@ export interface ServerSideDispatchOptions {
  * the dispatch handler via StreamingEventLog.
  */
 export async function serverSideDispatch(nodeId: string, projectId: string, options?: ServerSideDispatchOptions): Promise<void> {
-  // Check node status — skip if already dispatched/in_progress/completed
+  // Check node status — skip if already dispatched/in_progress/completed or deleted
   const [node] = await db.select({ status: planNodes.status })
-    .from(planNodes).where(eq(planNodes.clientId, nodeId)).limit(1)
+    .from(planNodes).where(and(eq(planNodes.clientId, nodeId), isNull(planNodes.deletedAt))).limit(1)
   if (!node || node.status !== 'planned') {
     console.log(`[server-dispatch] Skipping ${nodeId}: status=${node?.status ?? 'not found'}`)
     return

@@ -539,8 +539,8 @@ app.get('/plan/:projectId', async (c) => {
   )
   if (!project) return c.json({ error: 'Project not found' }, 404)
 
-  const rawNodes = await db.select().from(planNodes).where(eq(planNodes.projectId, projectId))
-  const nodes = rawNodes.filter(n => !n.deletedAt).map(n => ({
+  const rawNodes = await db.select().from(planNodes).where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
+  const nodes = rawNodes.map(n => ({
     id: n.clientId, // Use clientId as frontend ID
     projectId: n.projectId,
     number: n.number,
@@ -583,8 +583,8 @@ app.get('/plan/:projectId', async (c) => {
     updatedAt: n.updatedAt,
   }))
 
-  const rawEdges = await db.select().from(planEdges).where(eq(planEdges.projectId, projectId))
-  const edges = rawEdges.filter(e => !e.deletedAt).map(e => ({
+  const rawEdges = await db.select().from(planEdges).where(and(eq(planEdges.projectId, projectId), isNull(planEdges.deletedAt)))
+  const edges = rawEdges.map(e => ({
     id: e.clientId,
     source: e.sourceClientId,
     target: e.targetClientId,
@@ -873,8 +873,8 @@ app.patch('/plan/nodes/:id', async (c) => {
   const user = c.get('user')! as AuthUser
   const id = c.req.param('id')
 
-  // Get the node to verify project access
-  const [node] = await db.select().from(planNodes).where(eq(planNodes.clientId, id))
+  // Get the node to verify project access (exclude soft-deleted)
+  const [node] = await db.select().from(planNodes).where(and(eq(planNodes.clientId, id), isNull(planNodes.deletedAt)))
   if (!node) return c.json({ error: 'Node not found' }, 404)
 
   // Verify project access — user may belong to multiple teams
@@ -1205,8 +1205,8 @@ app.delete('/plan/nodes/:id', async (c) => {
   const user = c.get('user')! as AuthUser
   const id = c.req.param('id')
 
-  // Get the node to verify project access
-  const [node] = await db.select().from(planNodes).where(eq(planNodes.clientId, id))
+  // Get the node to verify project access (exclude already-deleted)
+  const [node] = await db.select().from(planNodes).where(and(eq(planNodes.clientId, id), isNull(planNodes.deletedAt)))
   if (!node) return c.json({ error: 'Node not found' }, 404)
 
   // Verify project access — user may belong to multiple teams
@@ -1248,8 +1248,8 @@ app.delete('/plan/edges/:id', async (c) => {
   const user = c.get('user')! as AuthUser
   const id = c.req.param('id')
 
-  // Get the edge to verify project access
-  const [edge] = await db.select().from(planEdges).where(eq(planEdges.clientId, id))
+  // Get the edge to verify project access (exclude already-deleted)
+  const [edge] = await db.select().from(planEdges).where(and(eq(planEdges.clientId, id), isNull(planEdges.deletedAt)))
   if (!edge) return c.json({ error: 'Edge not found' }, 404)
 
   // Verify project access — user may belong to multiple teams
@@ -2114,8 +2114,8 @@ app.get('/export', async (c) => {
 
     if (projectIds.length > 0) {
       for (const projectId of projectIds) {
-        const projectNodes = await db.select().from(planNodes).where(eq(planNodes.projectId, projectId))
-        const projectEdges = await db.select().from(planEdges).where(eq(planEdges.projectId, projectId))
+        const projectNodes = await db.select().from(planNodes).where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
+        const projectEdges = await db.select().from(planEdges).where(and(eq(planEdges.projectId, projectId), isNull(planEdges.deletedAt)))
         const projectExecutions = await db.select().from(taskExecutions).where(and(eq(taskExecutions.projectId, projectId), isNull(taskExecutions.deletedAt)))
         nodes = [...nodes, ...projectNodes]
         edges = [...edges, ...projectEdges]
