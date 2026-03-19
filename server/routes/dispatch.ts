@@ -924,7 +924,7 @@ async function dispatchViaRelay(
 
     // Inject project knowledge entries (capped at 16000 chars, most recent first)
     try {
-      const knowledgeRows = await db.select().from(projectKnowledge).where(eq(projectKnowledge.projectId, projectId))
+      const knowledgeRows = await db.select().from(projectKnowledge).where(and(eq(projectKnowledge.projectId, projectId), isNull(projectKnowledge.deletedAt)))
       if (knowledgeRows.length > 0) {
         const capped = capKnowledgeEntries(knowledgeRows, 16000)
         if (capped.length > 0) {
@@ -1235,7 +1235,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         filename: blobs.filename,
       }).from(blobs).where(and(
         inArray(blobs.id, imageRefs),
-        inArray(blobs.teamId, user.teamIds)
+        inArray(blobs.teamId, user.teamIds),
+        isNull(blobs.deletedAt)
       ))
 
       if (blobRows.length > 0) {
@@ -3293,10 +3294,10 @@ dispatchRoute.post('/reset', async (c) => {
 
   // 5. Delete task execution records from DB so they don't reappear after page refresh
   try {
-    // Find execution records for this node
+    // Find non-deleted execution records for this node
     const nodeExecutions = await db.select({ executionId: taskExecutions.executionId })
       .from(taskExecutions)
-      .where(eq(taskExecutions.nodeClientId, nodeId))
+      .where(and(eq(taskExecutions.nodeClientId, nodeId), isNull(taskExecutions.deletedAt)))
 
     if (nodeExecutions.length > 0) {
       const executionIds = nodeExecutions.map(e => e.executionId)
@@ -3452,10 +3453,10 @@ dispatchRoute.post('/bulk-reset', async (c) => {
 
   // 4. Bulk-delete streaming_events for all node IDs
   try {
-    // Find all execution IDs for these nodes
+    // Find all non-deleted execution IDs for these nodes
     const nodeExecutions = await db.select({ executionId: taskExecutions.executionId })
       .from(taskExecutions)
-      .where(inArray(taskExecutions.nodeClientId, nodeIds))
+      .where(and(inArray(taskExecutions.nodeClientId, nodeIds), isNull(taskExecutions.deletedAt)))
 
     if (nodeExecutions.length > 0) {
       const executionIds = nodeExecutions.map(e => e.executionId)

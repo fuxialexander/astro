@@ -212,7 +212,7 @@ schedulesRoute.get('/:id', async (c) => {
 
   const [schedule] = await db.select()
     .from(schedules)
-    .where(eq(schedules.id, id))
+    .where(and(eq(schedules.id, id), isNull(schedules.deletedAt)))
     .limit(1)
 
   if (!schedule || !await verifyProjectAccess(schedule.projectId, user.id)) {
@@ -261,7 +261,7 @@ schedulesRoute.patch('/:id', async (c) => {
   // Fetch current schedule to compute nextRunAt
   const [current] = await db.select()
     .from(schedules)
-    .where(eq(schedules.id, id))
+    .where(and(eq(schedules.id, id), isNull(schedules.deletedAt)))
     .limit(1)
 
   if (!current || !await verifyProjectAccess(current.projectId, user.id)) {
@@ -311,7 +311,7 @@ schedulesRoute.delete('/:id', async (c) => {
 
   // Verify ownership before deletion
   const [schedule] = await db.select({ projectId: schedules.projectId })
-    .from(schedules).where(eq(schedules.id, id)).limit(1)
+    .from(schedules).where(and(eq(schedules.id, id), isNull(schedules.deletedAt))).limit(1)
 
   if (!schedule || !await verifyProjectAccess(schedule.projectId, user.id)) {
     return c.json({ success: false, error: 'Schedule not found' }, 404)
@@ -331,7 +331,7 @@ schedulesRoute.post('/:id/trigger', async (c) => {
 
   const [schedule] = await db.select()
     .from(schedules)
-    .where(eq(schedules.id, id))
+    .where(and(eq(schedules.id, id), isNull(schedules.deletedAt)))
     .limit(1)
 
   if (!schedule || !await verifyProjectAccess(schedule.projectId, user.id)) {
@@ -413,7 +413,7 @@ schedulesRoute.get('/:id/runs', async (c) => {
 
   // Verify access
   const [schedule] = await db.select({ projectId: schedules.projectId })
-    .from(schedules).where(eq(schedules.id, id)).limit(1)
+    .from(schedules).where(and(eq(schedules.id, id), isNull(schedules.deletedAt))).limit(1)
 
   if (!schedule || !await verifyProjectAccess(schedule.projectId, user.id)) {
     return c.json({ success: false, error: 'Schedule not found' }, 404)

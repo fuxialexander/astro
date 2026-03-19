@@ -1565,9 +1565,9 @@ app.post('/chat/:nodeId/session', async (c) => {
   const body = await c.req.json()
   const now = new Date()
 
-  // Upsert session
+  // Upsert session (only match non-deleted sessions)
   const [existing] = await db.select().from(taskChatSessions).where(
-    and(eq(taskChatSessions.nodeId, nodeId), eq(taskChatSessions.userId, c.get('user')!.id))
+    and(eq(taskChatSessions.nodeId, nodeId), eq(taskChatSessions.userId, c.get('user')!.id), isNull(taskChatSessions.deletedAt))
   )
 
   if (existing) {
@@ -1595,7 +1595,7 @@ app.post('/chat/:nodeId/messages', async (c) => {
 
   // Get or create session first
   const [session] = await db.select().from(taskChatSessions).where(
-    and(eq(taskChatSessions.nodeId, nodeId), eq(taskChatSessions.userId, c.get('user')!.id))
+    and(eq(taskChatSessions.nodeId, nodeId), eq(taskChatSessions.userId, c.get('user')!.id), isNull(taskChatSessions.deletedAt))
   )
 
   if (!session) {
@@ -1636,7 +1636,7 @@ app.delete('/chat/:nodeId', async (c) => {
 
   // Get session first to find its ID
   const [session] = await db.select().from(taskChatSessions).where(
-    and(eq(taskChatSessions.nodeId, nodeId), eq(taskChatSessions.userId, c.get('user')!.id))
+    and(eq(taskChatSessions.nodeId, nodeId), eq(taskChatSessions.userId, c.get('user')!.id), isNull(taskChatSessions.deletedAt))
   )
 
   if (session) {
@@ -1757,7 +1757,7 @@ app.post('/sessions/:sessionId/messages', async (c) => {
 
   // Get current session
   const [session] = await db.select().from(sessions).where(
-    and(eq(sessions.id, sessionId), eq(sessions.userId, userId))
+    and(eq(sessions.id, sessionId), eq(sessions.userId, userId), isNull(sessions.deletedAt))
   )
 
   if (!session) {

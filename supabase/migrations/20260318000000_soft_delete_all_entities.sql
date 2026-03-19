@@ -3,37 +3,37 @@
 -- and filtered out of SELECT queries via WHERE deleted_at IS NULL.
 
 -- initiatives
-ALTER TABLE initiatives ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE initiatives ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
 
 -- sessions (unified)
-ALTER TABLE sessions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
 
 -- task_chat_sessions (legacy)
-ALTER TABLE task_chat_sessions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE task_chat_sessions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
 
 -- task_executions
-ALTER TABLE task_executions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE task_executions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
 
 -- streaming_events
-ALTER TABLE streaming_events ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE streaming_events ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
 
 -- activity_events
-ALTER TABLE activity_events ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE activity_events ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
 
 -- blobs
-ALTER TABLE blobs ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE blobs ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
 
 -- node_comments
-ALTER TABLE node_comments ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE node_comments ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
 
 -- environment_configs
-ALTER TABLE environment_configs ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE environment_configs ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
 
 -- project_knowledge
-ALTER TABLE project_knowledge ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE project_knowledge ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
 
 -- skills
-ALTER TABLE skills ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE skills ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
 
 -- schedules
-ALTER TABLE schedules ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE schedules ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
