@@ -38,8 +38,9 @@ interface Session {
   projectId: string
 }
 
+// Must match src/lib/status-config.ts TERMINAL_NODE_STATUSES
 const TERMINAL_NODE_STATUSES = new Set([
-  'completed', 'auto_verified', 'pruned', 'awaiting_judgment',
+  'completed', 'auto_verified', 'awaiting_judgment', 'awaiting_approval', 'pruned',
 ])
 
 // ============================================================================

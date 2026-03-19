@@ -259,6 +259,9 @@ export function ActiveTasks() {
   const allSessions = useSessionStore((s) => s.sessions)
   const workspaceFilter = useWorkspaceFilterStore((s) => s.workspaceFilter)
 
+  // Build project ID set for fast orphan detection (O(1) vs O(n) per lookup)
+  const projectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects])
+
   // Build active task list from executions + streaming sessions
   const groupedTasks = useMemo(() => {
     const taskMap = new Map<string, ActiveTask[]>()
@@ -287,7 +290,7 @@ export function ActiveTasks() {
       if (!projectId) continue
 
       // Skip orphaned plan/playground executions whose project was deleted
-      if ((isPlanSession || isPlayground) && projectsLoaded && !projects.some((p) => p.id === projectId)) continue
+      if ((isPlanSession || isPlayground) && projectsLoaded && !projectIds.has(projectId)) continue
 
       // Resolve a readable title for special session types
       const resolveTitle = () => {
@@ -374,7 +377,7 @@ export function ActiveTasks() {
     }
 
     return taskMap
-  }, [executions, rawNodes, nodes, projects, projectsLoaded, nodesLoaded, streamingSessions, allSessions])
+  }, [executions, rawNodes, nodes, projects, projectIds, projectsLoaded, nodesLoaded, streamingSessions, allSessions])
 
   // Sort projects: those with more active tasks first
   const sortedProjects = useMemo(() => {

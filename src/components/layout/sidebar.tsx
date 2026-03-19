@@ -76,6 +76,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const profile = useUserProfileStore((s) => s.profile)
   const authUser = useAuthStore((s) => s.user)
   const projects = useProjectStore((s) => s.projects)
+  const projectsLoaded = useProjectStore((s) => s.loaded)
   const updateProject = useProjectStore((s) => s.updateProject)
   const rawPlanNodes = usePlanStore((s) => s.nodes)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
@@ -144,9 +145,10 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
         const node = planNodesById.get(nodeId)
         // Skip stale executions: node has terminal status but execution still shows running
         if (node && TERMINAL_NODE_STATUSES.has(node.status)) continue
-        // Skip orphaned plan/playground executions whose project was deleted
+        // Skip orphaned plan/playground executions whose project was deleted.
+        // Only check after projects have loaded to avoid false negatives on startup.
         const projectId = exec.projectId || node?.projectId
-        if (!node && projectId && !projectIds.has(projectId)) continue
+        if (!node && projectId && projectsLoaded && !projectIds.has(projectId)) continue
         count++
         if (node?.projectId) running.add(node.projectId)
         if (exec.projectId) running.add(exec.projectId)
@@ -176,7 +178,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     }
 
     return { activeCount: count, projectsWithRunning: running }
-  }, [executions, planNodes, planNodesById, batchExecutions, streamingSessions, allSessions, projectIds])
+  }, [executions, planNodes, planNodesById, batchExecutions, streamingSessions, allSessions, projectIds, projectsLoaded])
 
   // Count pending plan approvals for the Plan nav badge
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
