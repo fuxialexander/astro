@@ -742,7 +742,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
     // Dispatch ready nodes with a short staggered delay between each to avoid
     // overwhelming the system when many tasks become ready simultaneously
-    const STAGGER_DELAY_MS = 5_000
+    const STAGGER_DELAY_MS = 10_000
     readyNodes.forEach((node, index) => {
       if (index === 0) {
         get().startExecution(node.id, projectId, options)
