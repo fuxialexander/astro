@@ -374,86 +374,19 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   const orderedMilestoneIds = useMemo(
     () => projectNodes
       .filter(n => n.type === 'milestone')
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
       .map(n => n.id),
     [projectNodes]
   )
 
-
-  // Compute milestone positions dynamically: centered above their member tasks.
-  // Overlapping milestones are placed in additional rows stacking upward.
-  const milestonePositions = useMemo(() => {
-    const MILESTONE_WIDTH = 200
-    const MILESTONE_HEIGHT = 40
-    const GAP = 16            // min horizontal gap between milestones
-    const ROW_STRIDE = MILESTONE_HEIGHT + 8  // vertical distance between rows (stacks upward)
-    // Base Y: just above the topmost task node so the gap stays ~8px regardless of layout
-    const taskNodesWithPos = projectNodes.filter(n => n.type !== 'milestone' && n.position)
-    const topmostTaskY = taskNodesWithPos.length > 0
-      ? Math.min(...taskNodesWithPos.map(t => t.position!.y))
-      : 40
-    const MILESTONE_ROW_BASE_Y = topmostTaskY - MILESTONE_HEIGHT - 8
-    const positions = new Map<string, { x: number; y: number }>()
-
-    // Pass 1: compute ideal x for milestones anchored to member tasks
-    const idealX = new Map<string, number>()
-    for (const msId of orderedMilestoneIds) {
-      const memberTasks = projectNodes.filter(n => n.type !== 'milestone' && n.milestoneId === msId && n.position)
-      if (memberTasks.length > 0) {
-        const cx = memberTasks.reduce((sum, t) => sum + (t.position?.x ?? 0), 0) / memberTasks.length
-        idealX.set(msId, cx - MILESTONE_WIDTH / 2 + 82)
-      }
-    }
-
-    // Pass 2: place orphan milestones to the right of all anchored ones
-    let fallbackX = 0
-    for (const x of idealX.values()) {
-      const right = x + MILESTONE_WIDTH + GAP
-      if (right > fallbackX) fallbackX = right
-    }
-    for (const msId of orderedMilestoneIds) {
-      if (!idealX.has(msId)) {
-        idealX.set(msId, fallbackX)
-        fallbackX += MILESTONE_WIDTH + GAP
-      }
-    }
-
-    // Pass 3: assign rows — milestones sorted by x, each placed in the first row
-    // where it doesn't overlap any already-placed milestone.
-    // Extra rows stack upward (more negative y).
-    const rowOccupancy: Array<Array<{ x: number }>> = []  // rowOccupancy[rowIdx] = list of placed {x}
-
-    const sortedIds = [...orderedMilestoneIds].sort((a, b) => (idealX.get(a) ?? 0) - (idealX.get(b) ?? 0))
-
-    for (const msId of sortedIds) {
-      const x = idealX.get(msId) ?? 0
-      let placed = false
-      for (let row = 0; row < rowOccupancy.length; row++) {
-        const overlaps = rowOccupancy[row].some(p => Math.abs(p.x - x) < MILESTONE_WIDTH + GAP)
-        if (!overlaps) {
-          rowOccupancy[row].push({ x })
-          positions.set(msId, { x, y: MILESTONE_ROW_BASE_Y - row * ROW_STRIDE })
-          placed = true
-          break
-        }
-      }
-      if (!placed) {
-        const row = rowOccupancy.length
-        rowOccupancy.push([{ x }])
-        positions.set(msId, { x, y: MILESTONE_ROW_BASE_Y - row * ROW_STRIDE })
-      }
-    }
-
-    return positions
-  }, [projectNodes, orderedMilestoneIds])
-
   const handleCreateMilestone = useCallback((title: string) => {
     const now = new Date()
-    // Place to the right of the rightmost existing milestone position
-    const MILESTONE_WIDTH = 200
+    // Place to the right of the rightmost existing milestone
+    const MILESTONE_WIDTH = 240
+    const milestoneNodes = projectNodes.filter(n => n.type === 'milestone' && n.position)
     let rightmostX = 40
-    for (const pos of milestonePositions.values()) {
-      const right = pos.x + MILESTONE_WIDTH
+    for (const m of milestoneNodes) {
+      const right = (m.position?.x ?? 0) + MILESTONE_WIDTH
       if (right > rightmostX) rightmostX = right
     }
     addNode({
@@ -470,15 +403,13 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
       createdAt: now,
       updatedAt: now,
     })
-  }, [addNode, projectId, milestonePositions])
+  }, [addNode, projectId, projectNodes])
 
   const rfNodes: Node[] = useMemo(() => {
     const taskNodes = projectNodes.map((n) => ({
       id: n.id,
       type: "task",
-      position: n.type === 'milestone'
-        ? (milestonePositions.get(n.id) ?? { x: 0, y: -8 })
-        : (n.position || { x: 0, y: 0 }),
+      position: n.position || { x: 0, y: 0 },
       data: {
         title: n.title,
         number: n.number,
@@ -520,25 +451,27 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
     }))
 
     if (!readOnly) {
-      // Add a dashed "add milestone" placeholder to the right of ALL milestones (any row)
-      const MILESTONE_WIDTH = 200
-      const MILESTONE_ROW_Y = -8
+      // Add a dashed "add milestone" placeholder to the right of ALL milestones
+      const MILESTONE_WIDTH = 240
+      const milestoneNodes = projectNodes.filter(n => n.type === 'milestone' && n.position)
       let rightmostX = 0
-      for (const pos of milestonePositions.values()) {
-        if (pos.x + MILESTONE_WIDTH > rightmostX) rightmostX = pos.x + MILESTONE_WIDTH
+      for (const m of milestoneNodes) {
+        const right = (m.position?.x ?? 0) + MILESTONE_WIDTH
+        if (right > rightmostX) rightmostX = right
       }
-      const addX = milestonePositions.size > 0 ? rightmostX + 16 : 40
+      const addX = milestoneNodes.length > 0 ? rightmostX + 16 : 40
+      const addY = milestoneNodes.length > 0 ? (milestoneNodes[0].position?.y ?? 40) : 40
       taskNodes.push({
         id: '__add_milestone__',
         type: 'addMilestone',
-        position: { x: addX, y: MILESTONE_ROW_Y },
+        position: { x: addX, y: addY },
         data: { onCreate: handleCreateMilestone } as unknown as typeof taskNodes[0]['data'],
         selected: false,
       })
     }
 
     return taskNodes
-  }, [projectNodes, orderedMilestoneIds, milestonePositions, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy, readOnly, loopNodesEnabled, handleCreateMilestone, graphDisplaySettings.fastEdit, updateNode])
+  }, [projectNodes, orderedMilestoneIds, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy, readOnly, loopNodesEnabled, handleCreateMilestone, graphDisplaySettings.fastEdit, updateNode])
 
   // Build a position lookup for edge handle routing
   const nodePositionMap = useMemo(() => {
