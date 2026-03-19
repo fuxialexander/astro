@@ -230,8 +230,23 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
       }
     }
 
+    // Synthetic edges: tasks with a milestoneId get a visual edge to their milestone.
+    // The milestone-task relationship is stored via milestoneId field (not dependency edges),
+    // so without this, milestones appear disconnected in the graph.
+    const milestoneEdges: typeof directEdges = []
+    for (const n of projectNodes) {
+      if (n.milestoneId && nodeIds.has(n.milestoneId)) {
+        milestoneEdges.push({
+          id: `ms-${n.id}-${n.milestoneId}`,
+          source: n.id,
+          target: n.milestoneId,
+          type: 'dependency',
+        })
+      }
+    }
+
     // Deduplicate by source→target pair (keep first occurrence)
-    const all = [...directEdges, ...bridgeEdges]
+    const all = [...directEdges, ...bridgeEdges, ...milestoneEdges]
     const seen = new Set<string>()
     return all.filter((e) => {
       const key = `${e.source}->${e.target}`
@@ -244,6 +259,13 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   const updateNode = usePlanStore((s) => s.updateNode)
 
   const handleEdgeDelete = useCallback((source: string, target: string) => {
+    // Synthetic milestone edges: deleting clears milestoneId instead of removing a stored edge
+    const sourceNode = planNodes.find((n) => n.id === source)
+    if (sourceNode?.milestoneId === target) {
+      updateNode(source, { milestoneId: undefined })
+      return
+    }
+
     removeEdge(source, target)
     // Sync: remove source from target node's dependencies array
     const targetNode = planNodes.find((n) => n.id === target)
