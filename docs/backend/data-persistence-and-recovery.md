@@ -54,7 +54,7 @@ flowchart TD
 
 **Recovery**: Events persisted to `streaming_events` table. On reconnect, client fetches missed events via the catch-up API.
 
-**Key files**: `src/lib/sse-parser.ts` → `server/routes/events.ts` → `server/lib/streaming-event-log.ts`
+**Key files**: `src/hooks/use-stream-events.ts` → `server/routes/events.ts` → `server/lib/streaming-event-log.ts`
 
 ### Channel 3: WebSocket (Machine Relay)
 
@@ -118,15 +118,15 @@ Frontend: hydrateStreamingEvents(events)
 ### Page Refresh (F5)
 
 1. Page loads → `DataLoader` fetches all stores via REST (projects, plan nodes, executions, chat)
-2. `useRestoredExecution()` hook detects `executionId` on nodes but no live SSE data
-3. Calls catch-up API → hydrates full execution timeline from `streaming_events`
+2. `useStreamEvents()` hook mounts → calls `hydrateFromCatchUp()` to load persisted events from `streaming_events`
+3. Hydrated events merge into `realtime-store` taskStreams, grouped into DisplayBlocks
 4. UI renders as if the user never left
-5. If task is still running: re-opens SSE stream for live events
+5. If task is still running: global SSE stream delivers live events into the same taskStreams
 
 ### Network Hiccup
 
 1. SSE `EventSource` fires error event
-2. `execution-store` tracks reconnect attempts with exponential backoff
+2. `realtime-store` tracks reconnect attempts with exponential backoff
 3. On reconnect: sends `afterSeq` from last received event
 4. Backend responds with only the missed events
 5. No duplicates (seq is monotonically increasing)

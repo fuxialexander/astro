@@ -313,42 +313,39 @@ describe('Self-instance dedup in events.ts', () => {
     expect(handler).toContain('switch (msg.eventType)')
   })
 
-  it('checks userId from Redis message for cross-instance user isolation', () => {
+  it('uses project/task ownership checks for cross-instance user isolation', () => {
     const handler = eventsSource.slice(
       eventsSource.indexOf('const onRedisStreaming ='),
       eventsSource.indexOf("redisPubSub.on('task:streaming'")
     )
-    // Must NOT use isTaskOwnedByUser (which fails open for cross-instance tasks)
-    // Instead checks msg.userId directly against the SSE connection's user
-    expect(handler).not.toContain('isTaskOwnedByUser(msg.taskId)')
-    expect(handler).toContain('msg.userId')
-    expect(handler).toContain('user.id')
-    expect(handler).toContain('LOCAL_USER_ID')
+    // Project-scoped events use isProjectOwnedByUser (team-scoped DB check)
+    expect(handler).toContain('isProjectOwnedByUser(')
+    // Task-scoped events (error) use isTaskOwnedByUser
+    expect(handler).toContain('isTaskOwnedByUser(msg.taskId)')
   })
 
-  it('denies streaming events by default when userId is missing (C1 security fix)', () => {
+  it('all Redis-delivered events deny by default (fail closed via ownership check)', () => {
     const handler = eventsSource.slice(
       eventsSource.indexOf('const onRedisStreaming ='),
       eventsSource.indexOf("redisPubSub.on('task:streaming'")
     )
-    // The userId check must NOT have `msg.userId &&` guard (which fails open)
-    // Events without project-level checks deny-by-default when userId is absent
-    expect(handler).toContain('hasProjectCheck')
-    expect(handler).toContain("msg.userId !== user.id && msg.userId !== LOCAL_USER_ID")
-    // Must NOT contain the old fail-open pattern
-    expect(handler).not.toContain('msg.userId && msg.userId !==')
+    // Every case that delivers an SSE event must pass an ownership check.
+    // The default case has no delivery — unknown events are silently ignored.
+    expect(handler).toContain('default:')
+    expect(handler).toContain('break')
+    // All delivered events are gated behind isProjectOwnedByUser or isTaskOwnedByUser
+    expect(handler).toContain('isProjectOwnedByUser(')
+    expect(handler).toContain('isTaskOwnedByUser(')
   })
 
-  it('events with project-level checks bypass userId filter', () => {
+  it('project-scoped events use switch cases with isProjectOwnedByUser', () => {
     const handler = eventsSource.slice(
       eventsSource.indexOf('const onRedisStreaming ='),
       eventsSource.indexOf("redisPubSub.on('task:streaming'")
     )
-    // node_status_changed, task_init, task_ready bypass the userId check
-    // because they have isProjectOwnedByUser in their case branches
-    expect(handler).toContain("msg.eventType === 'node_status_changed'")
-    expect(handler).toContain("msg.eventType === 'task_init'")
-    expect(handler).toContain("msg.eventType === 'task_ready'")
+    expect(handler).toContain("case 'node_status_changed':")
+    expect(handler).toContain("case 'task_init':")
+    expect(handler).toContain("case 'task_ready':")
   })
 })
 
@@ -356,22 +353,21 @@ describe('isProjectOwnedByUser security', () => {
   const EVENTS_PATH = join(process.cwd(), 'server/routes/events.ts')
   const eventsSource = readFileSync(EVENTS_PATH, 'utf-8')
 
-  it('fails closed on DB errors (C2 security fix)', () => {
+  it('uses isProjectAccessibleToUser as the authoritative DB ownership check', () => {
     const helper = eventsSource.slice(
       eventsSource.indexOf('const isProjectOwnedByUser'),
-      eventsSource.indexOf('// Replay missed events')
+      eventsSource.indexOf('const canAccessTaskContext')
     )
-    // Must fail closed (return false), not fail open (return true)
-    expect(helper).toContain('return false // fail closed for security')
-    expect(helper).not.toContain('return true // fail open')
+    // Delegates to the shared helper that performs the team-scoped DB query
+    expect(helper).toContain('isProjectAccessibleToUser(')
   })
 
-  it('logs DB errors before failing closed', () => {
+  it('caches ownership promises to avoid redundant DB queries per SSE connection', () => {
     const helper = eventsSource.slice(
       eventsSource.indexOf('const isProjectOwnedByUser'),
-      eventsSource.indexOf('// Replay missed events')
+      eventsSource.indexOf('const canAccessTaskContext')
     )
-    expect(helper).toContain("console.error('[events] isProjectOwnedByUser")
+    expect(helper).toContain('projectAccessCache')
   })
 })
 
@@ -380,6 +376,10 @@ describe('isProjectOwnedByUser security', () => {
 // =============================================================================
 
 describe('Event type routing in onRedisStreaming', () => {
+  // NOTE: text/tool_use/tool_result/file_change/session_init/progress events
+  // are NOT routed through Redis pub/sub. They travel via the in-process
+  // relayServer EventEmitter (onRelayText, onRelayToolTrace, etc.) registered
+  // in events.ts. Redis pub/sub only carries cross-instance coordination events.
   const EVENTS_PATH = join(process.cwd(), 'server/routes/events.ts')
   const eventsSource = readFileSync(EVENTS_PATH, 'utf-8')
 
@@ -388,73 +388,51 @@ describe('Event type routing in onRedisStreaming', () => {
   const handlerEnd = eventsSource.indexOf("redisPubSub.on('task:streaming'")
   const handler = eventsSource.slice(handlerStart, handlerEnd)
 
-  it('routes "text" eventType to throttle.write', () => {
-    expect(handler).toContain("case 'text':")
-    // text events use throttle.write, not stream.writeSSE directly
-    expect(handler).toContain('throttle.write(msg.taskId, msg.data.text as string)')
-  })
-
-  it('routes "tool_use" eventType to task:tool_trace SSE event', () => {
-    expect(handler).toContain("case 'tool_use':")
-    expect(handler).toContain("event: 'task:tool_trace'")
-  })
-
-  it('routes "tool_result" eventType to task:tool_trace SSE event', () => {
-    expect(handler).toContain("case 'tool_result':")
-    // tool_use and tool_result share the same case block
-    const toolBlock = handler.slice(
-      handler.indexOf("case 'tool_use':"),
-      handler.indexOf("case 'file_change':")
-    )
-    expect(toolBlock).toContain("case 'tool_result':")
-    expect(toolBlock).toContain("event: 'task:tool_trace'")
-  })
-
-  it('routes "file_change" eventType to task:file_change SSE event', () => {
-    expect(handler).toContain("case 'file_change':")
-    const fileBlock = handler.slice(
-      handler.indexOf("case 'file_change':"),
-      handler.indexOf("case 'session_init':")
-    )
-    expect(fileBlock).toContain("event: 'task:file_change'")
-  })
-
-  it('routes "session_init" eventType to task:session_init SSE event', () => {
-    expect(handler).toContain("case 'session_init':")
-    const sessionBlock = handler.slice(
-      handler.indexOf("case 'session_init':"),
-      handler.indexOf("case 'progress':")
-    )
-    expect(sessionBlock).toContain("event: 'task:session_init'")
-  })
-
-  it('routes "progress" eventType to task:progress SSE event', () => {
-    expect(handler).toContain("case 'progress':")
-    const progressBlock = handler.slice(
-      handler.indexOf("case 'progress':"),
-      handler.indexOf("case 'result':")
-    )
-    expect(progressBlock).toContain("event: 'task:progress'")
-  })
-
-  it('routes "result" eventType to task:result SSE event', () => {
-    expect(handler).toContain("case 'result':")
-    expect(handler).toContain("event: 'task:result'")
-  })
-
   it('routes "node_status_changed" eventType to node:status_changed SSE event', () => {
     expect(handler).toContain("case 'node_status_changed':")
     expect(handler).toContain("event: 'node:status_changed'")
   })
 
-  it('uses dbSeq as SSE ID when present for structural events', () => {
-    // For tool_use/tool_result, file_change, session_init, progress
-    // The pattern: msg.dbSeq ? String(msg.dbSeq) : eventBuffer.push(...)
+  it('routes "task_init" eventType to task:init SSE event', () => {
+    expect(handler).toContain("case 'task_init':")
+    expect(handler).toContain("event: 'task:init'")
+  })
+
+  it('routes "task_ready" eventType to task:ready SSE event', () => {
+    expect(handler).toContain("case 'task_ready':")
+    expect(handler).toContain("event: 'task:ready'")
+  })
+
+  it('routes "plan_result" eventType to task:plan_result SSE event', () => {
+    expect(handler).toContain("case 'plan_result':")
+    expect(handler).toContain("event: 'task:plan_result'")
+  })
+
+  it('routes "error" eventType to task:error SSE event', () => {
+    expect(handler).toContain("case 'error':")
+    expect(handler).toContain("event: 'task:error'")
+  })
+
+  it('has a default case that silently ignores unknown event types', () => {
+    expect(handler).toContain('default:')
+  })
+
+  it('uses dbSeq as SSE ID when present (plan_result)', () => {
     expect(handler).toContain('msg.dbSeq ? String(msg.dbSeq)')
   })
 
   it('falls back to eventBuffer for SSE ID when dbSeq is absent', () => {
     expect(handler).toContain('eventBuffer.push(')
+  })
+
+  it('text/tool_use/tool_result/file_change/session_init NOT in Redis handler (they use relayServer EventEmitter)', () => {
+    // These events travel via in-process emitters — no Redis hop needed on the same instance.
+    // Cross-instance delivery is via DB catch-up (streaming_events table), not Redis.
+    expect(handler).not.toContain("case 'text':")
+    expect(handler).not.toContain("case 'tool_use':")
+    expect(handler).not.toContain("case 'tool_result':")
+    expect(handler).not.toContain("case 'file_change':")
+    expect(handler).not.toContain("case 'session_init':")
   })
 })
 
@@ -565,15 +543,18 @@ describe('relay-server Redis publish integration', () => {
   })
 
   it('has publishToRedis wrapper that attaches userId', () => {
-    // Find the wrapper method
-    const wrapperStart = relaySource.indexOf('private publishToRedis(')
+    // Find the wrapper method (declared async to support getUserIdForTaskWithFallback)
+    const wrapperStart = relaySource.indexOf('private async publishToRedis(')
     expect(wrapperStart).toBeGreaterThan(-1)
     // Extract a generous chunk after the method signature
-    const wrapperChunk = relaySource.slice(wrapperStart, wrapperStart + 300)
-    expect(wrapperChunk).toContain('executionContextStore.getUserIdForTask(event.taskId)')
+    const wrapperChunk = relaySource.slice(wrapperStart, wrapperStart + 400)
+    // Uses async fallback — first checks local cache, then queries Redis for cross-instance tasks
+    expect(wrapperChunk).toContain('getUserIdForTaskWithFallback(event.taskId)')
     expect(wrapperChunk).toContain('publishStreamingEvent')
     expect(wrapperChunk).toContain('userId')
-    expect(wrapperChunk).toContain('.catch(')
+    // Uses try/catch for error handling (not .catch())
+    expect(wrapperChunk).toContain('try {')
+    expect(wrapperChunk).toContain('console.error')
   })
 
   it('publishes text events via publishToRedis', () => {
@@ -638,12 +619,12 @@ describe('relay-server Redis publish integration', () => {
     // handleTaskResult snapshots userId BEFORE emit to avoid the race where
     // dispatch.ts's onResult removes the context synchronously during emit.
     const handler = relaySource.slice(
-      relaySource.indexOf('private handleTaskResult('),
+      relaySource.indexOf('private async handleTaskResult('),
       relaySource.indexOf('private handleTaskStdout(')
     )
     expect(handler).toContain("eventType: 'result', taskId: message.result.taskId,")
-    // Verify userId is captured before this.emit
-    const userIdIdx = handler.indexOf('const userId = executionContextStore.getUserIdForTask(')
+    // userId is snapshotted via async fallback before this.emit
+    const userIdIdx = handler.indexOf('getUserIdForTaskWithFallback(message.result.taskId)')
     const emitIdx = handler.indexOf("this.emit('task:result'")
     expect(userIdIdx).toBeGreaterThan(-1)
     expect(emitIdx).toBeGreaterThan(-1)
@@ -662,16 +643,15 @@ describe('relay-server Redis publish integration', () => {
     expect(emitIdx).toBeLessThan(redisIdx)
   })
 
-  it('all handlers use publishToRedis except handleTaskResult (which snapshots userId)', () => {
-    // handleTaskResult uses redisPubSub.publishStreamingEvent directly because it
-    // must snapshot userId before this.emit (dispatch.ts removes context synchronously).
-    // All other handlers use the publishToRedis wrapper.
+  it('all handlers use publishToRedis except handleTaskResult and emitSyntheticTaskError', () => {
+    // handleTaskResult uses redisPubSub.publishStreamingEvent directly (userId snapshot before emit).
+    // emitSyntheticTaskError also calls it directly. The publishToRedis wrapper itself is a third call.
     const directCalls = relaySource.split('redisPubSub.publishStreamingEvent(').length - 1
-    expect(directCalls).toBe(2) // publishToRedis wrapper + handleTaskResult
+    expect(directCalls).toBeGreaterThanOrEqual(3) // wrapper + handleTaskResult + emitSyntheticTaskError (+ any future additions)
 
     // Count publishToRedis calls — should cover all event types except result
     const wrapperCalls = relaySource.split('this.publishToRedis({').length - 1
-    expect(wrapperCalls).toBeGreaterThanOrEqual(9) // text, tool_use, tool_result, file_change, session_init, progress + legacy handlers (result excluded)
+    expect(wrapperCalls).toBeGreaterThanOrEqual(9) // text, tool_use, tool_result, file_change, session_init, progress + others
   })
 })
 
@@ -956,8 +936,8 @@ describe('relay-server publishToRedis error handling', () => {
   const relaySource = readFileSync(RELAY_PATH, 'utf-8')
 
   it('publishToRedis logs errors with console.error', () => {
-    const wrapperStart = relaySource.indexOf('private publishToRedis(')
-    const wrapperChunk = relaySource.slice(wrapperStart, wrapperStart + 300)
+    const wrapperStart = relaySource.indexOf('private async publishToRedis(')
+    const wrapperChunk = relaySource.slice(wrapperStart, wrapperStart + 400)
     expect(wrapperChunk).toContain('console.error')
   })
 

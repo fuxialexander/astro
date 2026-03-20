@@ -8,6 +8,7 @@
 import { create } from 'zustand'
 import { getAccessToken } from '@/lib/supabase-client'
 import { apiUrl } from '@/lib/api-url'
+import { getActiveTeamId } from '@/lib/api-client'
 import { useRealtimeStore } from './realtime-store'
 
 export interface ProviderConfig {
@@ -61,6 +62,10 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }
+  const teamId = getActiveTeamId()
+  if (teamId) {
+    headers['X-Team-Id'] = teamId
+  }
   return headers
 }
 
@@ -89,8 +94,13 @@ export const useMachinesStore = create<MachinesState>((set) => ({
 
   fetchTeamMachines: async () => {
     try {
+      const teamId = getActiveTeamId()
+      if (!teamId) {
+        set({ teamMachines: [] })
+        return
+      }
       const headers = await getAuthHeaders()
-      const response = await fetch(apiUrl('/api/device/team-machines'), { headers })
+      const response = await fetch(apiUrl(`/api/device/team-machines?teamId=${encodeURIComponent(teamId)}`), { headers })
       if (!response.ok) throw new Error('Failed to fetch team machines')
       const data = await response.json()
       set({ teamMachines: data.machines || [] })
@@ -101,18 +111,23 @@ export const useMachinesStore = create<MachinesState>((set) => ({
 
   shareMachine: async (machineId: string, shared: boolean): Promise<boolean> => {
     try {
+      const teamId = getActiveTeamId()
+      if (shared && !teamId) {
+        throw new Error('Select a workspace before sharing a machine')
+      }
       const headers = await getAuthHeaders()
       headers['Content-Type'] = 'application/json'
       const response = await fetch(apiUrl(`/api/device/machines/${machineId}/share`), {
         method: 'PATCH',
         headers,
-        body: JSON.stringify({ shared }),
+        body: JSON.stringify({ shared, teamId: shared ? teamId : null }),
       })
       if (!response.ok) throw new Error('Failed to update machine sharing')
+      const data = await response.json()
       // Update local state — reflect new teamId
       set((state) => ({
         machines: state.machines.map((m) =>
-          m.id === machineId ? { ...m, teamId: shared ? 'team' : null } : m
+          m.id === machineId ? { ...m, teamId: (data.teamId as string | null) ?? null } : m
         ),
       }))
       return true

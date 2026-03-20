@@ -163,9 +163,9 @@ Agent Runner (via relay)
   └─ Outputs final plan JSON in ```json fence
         │
         ▼
-Frontend SSE processing            ← processSSEStreamWithReconnect()
-  ├─ text events → accumulate in streamText
-  ├─ tool_use/tool_result events → activity timeline
+Frontend: useStreamEvents() hook    ← unified streaming pipeline
+  ├─ text events → accumulate via realtime-store taskStreams
+  ├─ tool_use/tool_result events → activity timeline (DisplayBlocks)
   └─ result/done event → trigger extraction
         │
         ▼
@@ -411,7 +411,8 @@ The replan flow:
 | `packages/core/src/prompt-templates.ts` | All prompt builders: plan generation, chat, task execution |
 | `packages/core/src/plan-extraction.ts` | Plan JSON extraction from streaming text |
 | `src/lib/plan-mutations.ts` | Mutation extraction (shape-based + legacy fallback) and store application |
-| `src/stores/execution-store.ts` | Plan generation orchestration, SSE processing, plan application |
+| `src/stores/execution-store.ts` | Plan generation orchestration, plan application |
+| `src/hooks/use-stream-events.ts` | Unified streaming hook (replaces old SSE processing paths) |
 | `src/stores/plan-store.ts` | Plan graph state: nodes, edges, CRUD, archive, reorganize |
 | `src/components/plan-generation/plan-generation.tsx` | Plan generation UI, activity timeline, post-plan chat |
 | `src/components/agent/chat-panel.tsx` | Project sidebar chat, mutation extraction on done |

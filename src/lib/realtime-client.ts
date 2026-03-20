@@ -13,8 +13,10 @@ export type RealtimeEventType =
   | 'node:status_changed'
   | 'task:init'
   | 'task:result'
+  | 'task:error'
   | 'task:stdout'
   | 'task:text'
+  | 'task:operational'
   | 'task:progress'
   | 'task:steer_ack'
   | 'task:tool_trace'
@@ -32,6 +34,7 @@ export type RealtimeEventType =
   | 'approval:requested'
   | 'approval:responded'
   | 'task:ready'
+  | 'task:plan_result'
   | 'merge_queue:failed'
   | 'merge_queue:succeeded'
   | 'project:completed'
@@ -171,8 +174,10 @@ export class RealtimeClient {
       'node:status_changed',
       'task:init',
       'task:result',
+      'task:error',
       'task:stdout',
       'task:text',
+      'task:operational',
       'task:progress',
       'task:steer_ack',
       'task:tool_trace',
@@ -190,6 +195,7 @@ export class RealtimeClient {
       'approval:requested',
       'approval:responded',
       'task:ready',
+      'task:plan_result',
       'merge_queue:failed',
       'merge_queue:succeeded',
       'project:completed',

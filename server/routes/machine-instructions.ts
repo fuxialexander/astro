@@ -3,7 +3,8 @@
  *
  * CRUD for machine instruction documents — shared markdown documents
  * that tell AI agents how to run computation on specific environments.
- * Instructions are team-scoped (visible to owner + team members).
+ * Instructions are team-owned standalone resources. Reads use the current
+ * team context as a filter; writes accept an explicit teamId payload.
  */
 
 import { Hono } from 'hono'
@@ -13,6 +14,7 @@ import { machineInstructions, registeredMachines } from '../lib/db/schema.js'
 import { errorMessage } from '../lib/error-utils.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { MACHINE_INSTRUCTION_PRESETS } from '../lib/machine-instruction-presets.js'
+import { resolveWritableTeamId } from '../lib/team-utils.js'
 
 const machineInstructionsRoute = new Hono()
 
@@ -78,6 +80,8 @@ machineInstructionsRoute.post('/', async (c) => {
   try {
     const user = c.get('user')! as AuthUser
     const body = await c.req.json()
+    const teamTarget = resolveWritableTeamId(user, body.teamId)
+    if ('error' in teamTarget) return c.json({ error: teamTarget.error }, 400)
 
     if (!body.name || typeof body.name !== 'string' || !body.name.trim()) {
       return c.json({ error: 'name is required' }, 400)
@@ -101,7 +105,7 @@ machineInstructionsRoute.post('/', async (c) => {
     const now = new Date()
     const [row] = await db.insert(machineInstructions).values({
       ownerId: user.id,
-      teamId: user.teamId ?? null,
+      teamId: teamTarget.teamId,
       name: body.name.trim(),
       content: body.content ?? '',
       tags: body.tags ?? [],
@@ -138,11 +142,18 @@ machineInstructionsRoute.put('/assign/:machineId', async (c) => {
 
     // If setting an instruction, verify it exists and user has access
     if (instructionId) {
-      const [instruction] = await db.select({ id: machineInstructions.id })
-        .from(machineInstructions).where(
-          and(eq(machineInstructions.id, instructionId), scopeFilter(user))
-        ).limit(1)
-      if (!instruction) return c.json({ error: 'Instruction not found' }, 404)
+      // Builtin presets (e.g. "builtin:local-with-slurm") are not stored in DB
+      const isBuiltin = instructionId.startsWith('builtin:')
+      if (isBuiltin) {
+        const validPreset = MACHINE_INSTRUCTION_PRESETS.find((p) => p.id === instructionId)
+        if (!validPreset) return c.json({ error: 'Unknown builtin preset' }, 404)
+      } else {
+        const [instruction] = await db.select({ id: machineInstructions.id })
+          .from(machineInstructions).where(
+            and(eq(machineInstructions.id, instructionId), scopeFilter(user))
+          ).limit(1)
+        if (!instruction) return c.json({ error: 'Instruction not found' }, 404)
+      }
     }
 
     await db.update(registeredMachines)
@@ -200,6 +211,11 @@ machineInstructionsRoute.put('/:id', async (c) => {
       }
       patch.tags = body.tags
     }
+    if (body.teamId !== undefined) {
+      const teamTarget = resolveWritableTeamId(user, body.teamId)
+      if ('error' in teamTarget) return c.json({ error: teamTarget.error }, 400)
+      patch.teamId = teamTarget.teamId
+    }
 
     await db.update(machineInstructions).set(patch).where(eq(machineInstructions.id, id))
     const [updated] = await db.select().from(machineInstructions).where(eq(machineInstructions.id, id))
@@ -249,6 +265,8 @@ machineInstructionsRoute.post('/auto-generate', async (c) => {
     const user = c.get('user')! as AuthUser
     const body = await c.req.json()
     const { backendId } = body
+    const teamTarget = resolveWritableTeamId(user, body.teamId)
+    if ('error' in teamTarget) return c.json({ error: teamTarget.error }, 400)
 
     const BACKEND_TEMPLATES: Record<string, { name: string; dir: string; tags: string[] }> = {
       'k8s-exec': { name: 'Kubernetes Execution', dir: 'k8s-exec', tags: ['kubernetes', 'k8s'] },
@@ -281,7 +299,7 @@ machineInstructionsRoute.post('/auto-generate', async (c) => {
     const now = new Date()
     const [row] = await db.insert(machineInstructions).values({
       ownerId: user.id,
-      teamId: user.teamId ?? null,
+      teamId: teamTarget.teamId,
       name: template.name,
       content,
       tags: template.tags,

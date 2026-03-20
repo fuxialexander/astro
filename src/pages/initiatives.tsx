@@ -591,6 +591,7 @@ export default function InitiativesPage() {
         id: crypto.randomUUID(),
         name: formData.name,
         description: formData.description || "",
+        teamId: activeTeamId || useTeamStore.getState().getPersonalTeamId(),
         goal: formData.goal,
         status: formData.status || "active",
         startDate: formData.startDate,

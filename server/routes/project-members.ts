@@ -1,6 +1,10 @@
 /**
  * Project Members Routes — Per-project member management
  *
+ * Note: This route is currently not mounted in server/index.ts.
+ * Project authorization is team-based; these endpoints do not create
+ * cross-team sharing exceptions if they are mounted in the future.
+ *
  * Endpoints:
  *   GET    /api/projects/:projectId/members          — List project members
  *   POST   /api/projects/:projectId/members          — Add a member (owner only)
@@ -10,7 +14,7 @@
 
 import { Hono } from 'hono'
 import { db } from '../lib/db/index.js'
-import { projects, projectMembers, userProfiles } from '../lib/db/schema.js'
+import { projects, projectMembers, teamMembers, userProfiles } from '../lib/db/schema.js'
 import { eq, and, sql } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 
@@ -29,7 +33,7 @@ projectMembersRoute.use('*', requireAuth)
  */
 async function verifyProjectOwner(projectId: string, userId: string) {
   const [project] = await db
-    .select({ id: projects.id, ownerId: projects.ownerId })
+    .select({ id: projects.id, ownerId: projects.ownerId, teamId: projects.teamId })
     .from(projects)
     .where(eq(projects.id, projectId))
 
@@ -41,8 +45,7 @@ async function verifyProjectOwner(projectId: string, userId: string) {
 /**
  * GET /api/projects/:projectId/members
  *
- * List all members of a project. Accessible to project owner, team members
- * with project visibility, or existing project members.
+ * List all members of a project. Accessible to project owner or same-team members.
  */
 projectMembersRoute.get('/:projectId/members', async (c) => {
   const user = c.get('user')! as AuthUser
@@ -59,20 +62,10 @@ projectMembersRoute.get('/:projectId/members', async (c) => {
     return c.json({ error: 'Project not found' }, 404)
   }
 
-  // Access check: project owner, same team, or project member
+  // Access check: project owner or same team only.
   const isOwner = project.ownerId === user.id
   const isSameTeam = project.teamId != null && user.teamIds.includes(project.teamId)
-
-  let isMember = false
   if (!isOwner && !isSameTeam) {
-    const [membership] = await db
-      .select({ userId: projectMembers.userId })
-      .from(projectMembers)
-      .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, user.id)))
-    isMember = !!membership
-  }
-
-  if (!isOwner && !isSameTeam && !isMember) {
     return c.json({ error: 'Forbidden' }, 403)
   }
 
@@ -145,6 +138,9 @@ projectMembersRoute.post('/:projectId/members', async (c) => {
   if (!VALID_ROLES.includes(role)) {
     return c.json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` }, 400)
   }
+  if (!project.teamId) {
+    return c.json({ error: 'Projects without a team do not support project members' }, 400)
+  }
 
   // Verify target user exists
   const [targetUser] = await db
@@ -154,6 +150,15 @@ projectMembersRoute.post('/:projectId/members', async (c) => {
 
   if (!targetUser) {
     return c.json({ error: 'User not found' }, 404)
+  }
+
+  const [targetMembership] = await db
+    .select({ userId: teamMembers.userId })
+    .from(teamMembers)
+    .where(and(eq(teamMembers.teamId, project.teamId), eq(teamMembers.userId, body.userId)))
+
+  if (!targetMembership) {
+    return c.json({ error: 'Only members of the project team can be added as project members' }, 400)
   }
 
   // Insert (or ignore if already exists)

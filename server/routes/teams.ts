@@ -19,6 +19,12 @@ import { sendInvitationEmail } from '../lib/email-service.js'
 import { db } from '../lib/db/index.js'
 import { teams, teamMembers, userProfiles, inviteTokens } from '../lib/db/schema.js'
 import { eq, and, sql, gt, isNull, count } from 'drizzle-orm'
+import {
+  countBlockingTeamResources,
+  getTeamById,
+  isPersonalWorkspaceDescription,
+  isPersonalWorkspaceTeam,
+} from '../lib/team-utils.js'
 
 const teamsRoute = new Hono()
 
@@ -51,6 +57,14 @@ teamsRoute.post('/invite', async (c) => {
 
     if (!teamId || !email) {
       return c.json({ error: 'teamId and email are required' }, 400)
+    }
+
+    const team = await getTeamById(teamId)
+    if (!team) {
+      return c.json({ error: 'Team not found' }, 404)
+    }
+    if (isPersonalWorkspaceTeam(team)) {
+      return c.json({ error: 'Personal workspaces cannot have invited members' }, 400)
     }
 
     // Validate email format
@@ -112,11 +126,6 @@ teamsRoute.post('/invite', async (c) => {
       expiresAt,
     }).returning()
 
-    // Get team details for email
-    const [team] = await db.select({ name: teams.name })
-      .from(teams)
-      .where(eq(teams.id, teamId))
-
     // Get inviter details
     const [inviter] = await db.select({ name: userProfiles.name, email: userProfiles.email })
       .from(userProfiles)
@@ -127,7 +136,7 @@ teamsRoute.post('/invite', async (c) => {
 
     const emailSent = await sendInvitationEmail({
       to: email,
-      teamName: team?.name || 'Unknown Team',
+      teamName: team.name,
       inviterName: inviter?.name || 'Team Admin',
       inviterEmail: inviter?.email || (process.env.ASTRO_NOREPLY_EMAIL || 'noreply@astro.app'),
       inviteUrl,
@@ -141,7 +150,7 @@ teamsRoute.post('/invite', async (c) => {
 
     console.log('[teams] Invitation created:', {
       email,
-      team: team?.name,
+      team: team.name,
       inviter: inviter?.name || inviter?.email,
       url: inviteUrl,
       expiresAt,
@@ -297,10 +306,10 @@ teamsRoute.get('/invite/:token', async (c) => {
       return c.json({ error: 'Invalid or expired invitation' }, 404)
     }
 
-    // Get team name
-    const [team] = await db.select({ name: teams.name })
-      .from(teams)
-      .where(eq(teams.id, invite.teamId))
+    const team = await getTeamById(invite.teamId)
+    if (isPersonalWorkspaceTeam(team)) {
+      return c.json({ error: 'Personal workspaces cannot accept invited members' }, 400)
+    }
 
     // Check if user already exists with this email
     const [existingUser] = await db.select({ id: userProfiles.id })
@@ -360,6 +369,11 @@ teamsRoute.post('/accept/:token', async (c) => {
 
     if (!invite) {
       return c.json({ error: 'Invalid or expired invitation' }, 404)
+    }
+
+    const inviteTeam = await getTeamById(invite.teamId)
+    if (isPersonalWorkspaceTeam(inviteTeam)) {
+      return c.json({ error: 'Personal workspaces cannot accept invited members' }, 400)
     }
 
     // Check if already a member
@@ -478,6 +492,11 @@ teamsRoute.delete('/:teamId/members/:memberId', async (c) => {
     const teamId = c.req.param('teamId')
     const memberId = c.req.param('memberId')
 
+    const team = await getTeamById(teamId)
+    if (isPersonalWorkspaceTeam(team)) {
+      return c.json({ error: 'Personal workspaces cannot remove members' }, 400)
+    }
+
     // Check if removing self
     const isSelfRemoval = user.id === memberId
 
@@ -574,6 +593,7 @@ teamsRoute.get('/', async (c) => {
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
       memberRole: r.role,
+      isPersonal: isPersonalWorkspaceDescription(r.description),
       members: (membersByTeam[r.id] ?? []).map((m) => ({
         teamId: m.teamId,
         userId: m.userId,
@@ -612,7 +632,7 @@ teamsRoute.post('/', async (c) => {
     await db.insert(teams).values({
       id: teamId,
       name: body.name.trim(),
-      description: body.description?.trim() ?? null,
+      description: body.description?.trim() ?? '',
       createdAt: now,
       updatedAt: now,
     })
@@ -627,11 +647,12 @@ teamsRoute.post('/', async (c) => {
     return c.json({
       id: teamId,
       name: body.name.trim(),
-      description: body.description?.trim() ?? null,
+      description: body.description?.trim() ?? '',
       feature_flags: {},
       createdAt: now,
       updatedAt: now,
       memberRole: 'owner',
+      isPersonal: false,
     }, 201)
   } catch (err) {
     console.error('[teams] Create team error:', err)
@@ -692,6 +713,11 @@ teamsRoute.delete('/:teamId', async (c) => {
     const user = c.get('user') as AuthUser
     const teamId = c.req.param('teamId')
 
+    const team = await getTeamById(teamId)
+    if (isPersonalWorkspaceTeam(team)) {
+      return c.json({ error: 'Personal workspaces cannot be deleted' }, 400)
+    }
+
     // Check ownership
     const [membership] = await db
       .select({ role: teamMembers.role })
@@ -709,6 +735,14 @@ teamsRoute.delete('/:teamId', async (c) => {
       .where(eq(teamMembers.userId, user.id))
     if (userTeamCount <= 1) {
       return c.json({ error: 'Cannot delete your last team' }, 400)
+    }
+
+    const blockingResources = await countBlockingTeamResources(teamId)
+    if (blockingResources.length > 0) {
+      return c.json({
+        error: 'Cannot delete a team that still owns resources',
+        resources: blockingResources,
+      }, 409)
     }
 
     // Delete members first, then team
@@ -738,6 +772,11 @@ teamsRoute.patch('/:teamId/members/:userId', async (c) => {
     const teamId = c.req.param('teamId')
     const targetUserId = c.req.param('userId')
     const body = await c.req.json<{ role: 'owner' | 'admin' | 'member' }>()
+
+    const team = await getTeamById(teamId)
+    if (isPersonalWorkspaceTeam(team)) {
+      return c.json({ error: 'Personal workspaces do not support member role changes' }, 400)
+    }
 
     if (!['owner', 'admin', 'member'].includes(body.role)) {
       return c.json({ error: 'Invalid role. Must be owner, admin, or member' }, 400)

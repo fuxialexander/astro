@@ -33,9 +33,11 @@ export function InstructionPicker({
   const instructions = useMachineInstructionStore((s) => s.instructions)
   const presets = useMachineInstructionStore((s) => s.presets)
 
-  const currentInstruction = instructions.find((i) => i.id === currentInstructionId)
-  const currentPreset = presets.find((p) => p.id === currentInstructionId)
-  const hasOverride = !!currentInstructionId
+  const DEFAULT_PRESET_ID = 'builtin:default'
+  const effectiveId = currentInstructionId ?? DEFAULT_PRESET_ID
+  const currentInstruction = instructions.find((i) => i.id === effectiveId)
+  const currentPreset = presets.find((p) => p.id === effectiveId)
+  const hasOverride = !!currentInstructionId && currentInstructionId !== DEFAULT_PRESET_ID
 
   const handleSelect = (id: string | null) => {
     onSelect(id)
@@ -79,7 +81,7 @@ export function InstructionPicker({
         <InstructionPickerContent
           instructions={instructions}
           presets={presets}
-          currentInstructionId={currentInstructionId}
+          currentInstructionId={effectiveId}
           onSelect={handleSelect}
           onCreateNew={onCreateNew}
         />
@@ -89,7 +91,7 @@ export function InstructionPicker({
 
   // Expanded mode — shows instruction name in button
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen} modal={false}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -139,23 +141,9 @@ function InstructionPickerContent({
         Compute Instruction
       </p>
 
-      {/* "None / Default" option */}
-      <button
-        type="button"
-        className={cn(
-          "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted transition-colors",
-          !currentInstructionId && "bg-accent/50",
-        )}
-        onClick={() => onSelect(null)}
-      >
-        <span className="flex-1 text-left text-muted-foreground">None (Default Compute Guide)</span>
-        {!currentInstructionId && <Check className="h-3.5 w-3.5 text-primary" />}
-      </button>
-
       {/* Built-in presets */}
       {presets.length > 0 && (
         <>
-          <div className="my-0.5 h-px bg-border" />
           <p className="px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
             Built-in
           </p>

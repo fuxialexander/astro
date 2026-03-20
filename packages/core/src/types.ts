@@ -99,6 +99,7 @@ export interface Initiative {
   id: string;
   name: string;
   description: string;
+  teamId?: string;
   goal?: string;
   status: 'active' | 'on_hold' | 'completed' | 'cancelled';
   startDate?: string;     // ISO YYYY-MM-DD
@@ -115,6 +116,7 @@ export interface Team {
   name: string;
   description: string;
   featureFlags: Record<string, boolean>;
+  isPersonal?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -373,10 +375,11 @@ export interface FileChange {
 // used for reliable deduplication when merging hydrated and live events.
 export type TaskActivityEvent =
   | { type: 'text'; content: string; timestamp: Date; seq?: number }
+  | { type: 'operational'; message: string; source: 'astro' | 'git' | 'delivery'; timestamp: Date; seq?: number }
   | { type: 'tool_use'; id: string; toolName: string; toolInput: unknown; timestamp: Date; seq?: number }
   | { type: 'tool_result'; id: string; toolName: string; toolResult?: unknown; success?: boolean; duration?: number; timestamp: Date; seq?: number }
   | { type: 'steer'; message: string; accepted?: boolean; ackMessage?: string; interrupted?: boolean; timestamp: Date; seq?: number }
-  | { type: 'chat_user'; message: string; timestamp: Date; seq?: number }
+  | { type: 'chat_user'; message: string; queued?: boolean; timestamp: Date; seq?: number }
   | { type: 'chat_assistant'; content: string; timestamp: Date; seq?: number }
   | { type: 'file_change'; path: string; action: string; diff?: string; linesAdded?: number; linesRemoved?: number; timestamp: Date; seq?: number }
   | { type: 'error'; error: string; timestamp: Date; seq?: number }

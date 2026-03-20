@@ -17,7 +17,7 @@ import { usePlanStore } from "./plan-store"
 import { useExecutionStore } from "./execution-store"
 import { useProjectStore } from "./project-store"
 import { useRealtimeStore } from "./realtime-store"
-import { useUsageStore } from "./usage-store"
+import { watchStream } from "@/lib/stream-watcher"
 import { useToastStore } from "./toast-store"
 import { showChatCompleteNotification } from "@/lib/notifications"
 import type {
@@ -38,6 +38,41 @@ import type {
 // survive component unmounts (same pattern as execution-store.ts).
 const chatAbortControllers = new Map<string, AbortController>()
 
+// Queue of pending chat messages per session (sessionId → params[]).
+// Lives outside React so it survives component unmounts.
+// When a message is sent while already streaming, it is queued here
+// and automatically drained when the current stream completes.
+type QueuedChatMessage =
+  | { kind: 'project'; params: SendChatMessageParams }
+  | { kind: 'playground'; params: SendPlaygroundChatParams }
+const chatMessageQueues = new Map<string, QueuedChatMessage[]>()
+
+/** Drain the next queued message for a session. Called after onComplete/onError. */
+function drainChatQueue(sid: string, get: () => SessionState, set: (partial: Partial<SessionState> | ((state: SessionState) => Partial<SessionState>)) => void) {
+  const queue = chatMessageQueues.get(sid)
+  if (!queue || queue.length === 0) return
+  const [next, ...rest] = queue
+  if (rest.length > 0) {
+    chatMessageQueues.set(sid, rest)
+  } else {
+    chatMessageQueues.delete(sid)
+  }
+  set((state) => {
+    const d = new Map(state.chatQueueDepths)
+    const newDepth = (d.get(sid) || 1) - 1
+    if (newDepth <= 0) d.delete(sid); else d.set(sid, newDepth)
+    return { chatQueueDepths: d }
+  })
+  // Defer to avoid re-entering the same onComplete callback stack
+  queueMicrotask(() => {
+    if (next.kind === 'project') {
+      get().sendChatMessage({ ...next.params, _fromQueue: true })
+    } else {
+      get().sendPlaygroundChat({ ...next.params, _fromQueue: true })
+    }
+  })
+}
+
 // Plan-mutating MCP tools that should trigger a plan refresh
 const PLAN_MUTATING_TOOLS = new Set(["create_task", "update_task", "delete_task", "create_dependency", "Bash"])
 
@@ -54,6 +89,8 @@ export interface SendChatMessageParams {
   messages?: Array<{ role: 'user' | 'assistant'; content: string }>
   /** Blob IDs for attached images (multimodal chat) */
   imageRefs?: string[]
+  /** @internal Set by queue drain — skips duplicate chat_user event push */
+  _fromQueue?: boolean
 }
 
 /** Parameters for sendPlaygroundChat (playground post-completion chat) */
@@ -73,6 +110,8 @@ export interface SendPlaygroundChatParams {
   prUrl?: string
   /** Blob IDs for attached images (multimodal chat) */
   imageRefs?: string[]
+  /** @internal Set by queue drain — skips duplicate chat_user event push */
+  _fromQueue?: boolean
 }
 
 interface SessionState {
@@ -84,6 +123,8 @@ interface SessionState {
   streamingSessions: Set<string>
   // Session IDs whose components are currently mounted
   mountedSessionIds: Set<string>
+  // Reactive queue depth per session for UI indicators
+  chatQueueDepths: Map<string, number>
 
   // Lifecycle
   load: () => Promise<void>
@@ -109,6 +150,14 @@ interface SessionState {
   getSession: (sessionId: string) => Session | undefined
   getSessionsForNode: (nodeId: string, type?: SessionType) => Session[]
   getSessionsForProject: (projectId: string, type?: SessionType) => Session[]
+  getOrCreateSession: (params: {
+    type: SessionType
+    projectId: string
+    nodeId?: string
+    providerId?: string
+    model?: string
+    metadata?: Record<string, unknown>
+  }) => Session
 
   // Active session tracking
   getActiveSessionId: (projectId: string, type: SessionType) => string | undefined
@@ -139,11 +188,12 @@ interface SessionState {
   addSteerMessage: (sessionId: string, message: string, interrupted?: boolean) => void
   updateSteerMessage: (sessionId: string, index: number, update: { accepted?: boolean; ackMessage?: string }) => void
 
-  // Store-owned chat streaming
+  // Store-owned chat streaming (with unified message queue)
   sendChatMessage: (params: SendChatMessageParams) => void
   sendPlaygroundChat: (params: SendPlaygroundChatParams) => void
   abortChatStream: (sessionId: string) => void
   isStreaming: (sessionId: string) => boolean
+  getChatQueueDepth: (sessionId: string) => number
   registerMounted: (sessionId: string) => void
   unregisterMounted: (sessionId: string) => void
 
@@ -169,6 +219,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   activeSessionIds: new Map(),
   streamingSessions: new Set(),
   mountedSessionIds: new Set(),
+  chatQueueDepths: new Map(),
 
   load: async () => {
     try {
@@ -303,6 +354,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
     }
     return result.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+  },
+
+  getOrCreateSession: (params) => {
+    // Atomically find an existing session matching projectId + type, or create one.
+    // This prevents duplicate sessions when multiple components mount simultaneously.
+    for (const session of get().sessions.values()) {
+      if (
+        session.projectId === params.projectId &&
+        session.type === params.type &&
+        session.status === "active"
+      ) {
+        return session
+      }
+    }
+    return get().createSession(params)
   },
 
   getActiveSessionId: (projectId, type) => {
@@ -680,12 +746,34 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // No DB write — steer messages are persisted via streaming_events / realtime-store.
   },
 
-  // ─── Store-owned chat streaming ──────────────────────────────────
+  // ─── Store-owned chat streaming (with unified message queue) ─────
+
+  getChatQueueDepth: (sessionId) => {
+    return get().chatQueueDepths.get(sessionId) || 0
+  },
 
   sendChatMessage: (params) => {
-    const { sessionId: sid, projectId, message, visionDoc, model, providerId, planNodes, planEdges, messages, imageRefs } = params
+    const { sessionId: sid, projectId, message, visionDoc, model, providerId, planNodes, planEdges, messages, imageRefs, _fromQueue } = params
     const session = get().sessions.get(sid)
     if (!session) return
+
+    // If already streaming, enqueue and show queued user message in feed
+    if (get().streamingSessions.has(sid)) {
+      const queue = chatMessageQueues.get(sid) || []
+      chatMessageQueues.set(sid, [...queue, { kind: 'project', params }])
+      useRealtimeStore.getState().pushActivityEvent(sid, {
+        type: 'chat_user',
+        message,
+        queued: true,
+        timestamp: new Date(),
+      })
+      set((state) => {
+        const d = new Map(state.chatQueueDepths)
+        d.set(sid, (d.get(sid) || 0) + 1)
+        return { chatQueueDepths: d }
+      })
+      return
+    }
 
     // Mark streaming
     set((state) => {
@@ -714,12 +802,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // which render as code blocks). On completion, we extract specs and emit
     // json_render_spec events. This avoids complex chunk-level fence detection.
 
-    // Push user event to realtime store
-    useRealtimeStore.getState().pushActivityEvent(sid, {
-      type: 'chat_user',
-      message,
-      timestamp: new Date(),
-    })
+    // Push user event to realtime store (skip if from queue — already pushed with queued indicator)
+    if (!_fromQueue) {
+      useRealtimeStore.getState().pushActivityEvent(sid, {
+        type: 'chat_user',
+        message,
+        timestamp: new Date(),
+      })
+    }
 
     // Only send providerSessionId if session has completed exchanges
     // and the provider hasn't changed (resume on a different provider would fail)
@@ -738,7 +828,114 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // if the resume fails (e.g. Codex session expired, different machine).
     // The agent runner only uses messages when falling back to fresh execution.
 
-    // Fire-and-forget — stream runs in background
+    // Subscribe to stream events via the global SSE bus (Phase 3.4: POST + subscribe)
+    const unwatchStream = watchStream(sid, {
+      onTextChunk: (chunk) => {
+        rawAssistantText += chunk
+        get().appendToLastAssistantMessage(sid, chunk)
+      },
+      onToolUse: (toolName) => {
+        if (PLAN_MUTATING_TOOLS.has(toolName)) needsPlanRefresh = true
+      },
+      onToolResult: (toolName) => {
+        if (PLAN_MUTATING_TOOLS.has(toolName)) needsPlanRefresh = true
+      },
+      onComplete: async (info) => {
+        if (info.sessionId) {
+          get().setProviderSessionId(sid, info.sessionId, providerId)
+        }
+
+        // Refresh plan from server if Bash/MCP tools modified the plan
+        if (needsPlanRefresh) {
+          await usePlanStore.getState().load()
+
+          // Push a plan_result event so the user sees an updated graph in the activity feed
+          const updatedNodes = usePlanStore.getState().nodes.filter((n) => n.projectId === projectId)
+          const updatedEdgeSet = new Set(updatedNodes.map((n) => n.id))
+          const updatedEdges = usePlanStore.getState().edges.filter(
+            (e) => updatedEdgeSet.has(e.source) || updatedEdgeSet.has(e.target)
+          )
+          const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
+          useRealtimeStore.getState().pushActivityEvent(sid, {
+            type: 'plan_result',
+            nodes: updatedNodes.map((n) => ({ id: n.id, title: n.title, type: n.type, status: n.status })),
+            edges: updatedEdges.map((e) => ({ source: e.source, target: e.target })),
+            projectName: project?.name ?? '',
+            timestamp: new Date(),
+          })
+
+          // Warn user if YOLO batch is active — tasks created via CLI won't auto-dispatch
+          if (useExecutionStore.getState().isBatchActive(projectId)) {
+            useToastStore.getState().add({
+              type: 'info',
+              title: 'Plan updated from chat',
+              description: 'New tasks were created while auto-execution is active. They will not be auto-dispatched — review and dispatch manually if needed.',
+              duration: 8000,
+            })
+          }
+        }
+
+        get().updateLastAssistantMessage(sid, rawAssistantText)
+
+        // Clear chat mutation flag and streaming state
+        useExecutionStore.getState().setChatMutationActive(projectId, false)
+        chatAbortControllers.delete(sid)
+        set((state) => {
+          const ss = new Set(state.streamingSessions)
+          ss.delete(sid)
+          return { streamingSessions: ss }
+        })
+
+        // Auto-generate title after first conversation round completes.
+        const updatedSession = get().sessions.get(sid)
+        const isFirstExchange = updatedSession && !updatedSession.title &&
+          rawAssistantText.length > 0 &&
+          updatedSession.messages.filter((m) => m.role === 'assistant' && m.content.length > 0).length <= 1
+        if (isFirstExchange && message.length > 0) {
+          const titleInput = message.length > 200
+            ? message.slice(0, 200)
+            : `${message}\n---\n${rawAssistantText.slice(0, 300)}`
+          generateTitle(titleInput).then((aiTitle) => {
+            if (aiTitle) get().renameSession(sid, aiTitle)
+          }).catch(() => {}) // silent — auto-generated title is optional
+        }
+
+        // Notify if component is not mounted
+        if (!get().mountedSessionIds.has(sid)) {
+          const proj = get().sessions.get(sid)
+          const projectName = proj?.metadata?.projectName as string || "Project"
+          showChatCompleteNotification(projectName)
+          useToastStore.getState().add({
+            type: "info",
+            title: "Chat response ready",
+            description: `Response for "${projectName}" is ready.`,
+          })
+        }
+
+        // Drain next queued message (unified queue)
+        drainChatQueue(sid, get, set)
+      },
+      onError: (error) => {
+        get().appendToLastAssistantMessage(sid, `\nError: ${error}`)
+        useRealtimeStore.getState().pushActivityEvent(sid, {
+          type: 'error',
+          error,
+          timestamp: new Date(),
+        })
+        useExecutionStore.getState().setChatMutationActive(projectId, false)
+        chatAbortControllers.delete(sid)
+        set((state) => {
+          const ss = new Set(state.streamingSessions)
+          ss.delete(sid)
+          return { streamingSessions: ss }
+        })
+
+        // Drain next queued message even on error (avoid permanently blocked queue)
+        drainChatQueue(sid, get, set)
+      },
+    })
+
+    // Fire-and-forget — POST returns JSON, events arrive via global SSE bus
     projectChatWithAgent(
       {
         message,
@@ -753,153 +950,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         messages,
         imageRefs,
       },
-      {
-        // Push streaming events to realtime store for live display.
-        // yaml-spec fences stream through as text (rendered as code blocks).
-        // They're extracted and replaced with json_render_spec events in onDone.
-        onText: (chunk) => {
-          rawAssistantText += chunk
-          get().appendToLastAssistantMessage(sid, chunk)
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'text',
-            content: chunk,
-            timestamp: new Date(),
-          })
-        },
-        onToolUse: (data) => {
-          if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'tool_use',
-            id: `tool-${Date.now()}`,
-            toolName: data.toolName,
-            toolInput: data.toolInput,
-            timestamp: new Date(),
-          })
-        },
-        onToolResult: (data) => {
-          if (PLAN_MUTATING_TOOLS.has(data.toolName)) needsPlanRefresh = true
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'tool_result',
-            id: `tool-${Date.now()}`,
-            toolName: data.toolName,
-            toolResult: data.result,
-            success: data.success,
-            timestamp: new Date(),
-          })
-        },
-        onDone: async (newProviderSessionId) => {
-          if (newProviderSessionId) {
-            get().setProviderSessionId(sid, newProviderSessionId, providerId)
-          }
-
-          // Refresh plan from server if Bash/MCP tools modified the plan
-          if (needsPlanRefresh) {
-            await usePlanStore.getState().load()
-
-            // Push a plan_result event so the user sees an updated graph in the activity feed
-            const updatedNodes = usePlanStore.getState().nodes.filter((n) => n.projectId === projectId)
-            const updatedEdgeSet = new Set(updatedNodes.map((n) => n.id))
-            const updatedEdges = usePlanStore.getState().edges.filter(
-              (e) => updatedEdgeSet.has(e.source) || updatedEdgeSet.has(e.target)
-            )
-            const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
-            useRealtimeStore.getState().pushActivityEvent(sid, {
-              type: 'plan_result',
-              nodes: updatedNodes.map((n) => ({ id: n.id, title: n.title, type: n.type, status: n.status })),
-              edges: updatedEdges.map((e) => ({ source: e.source, target: e.target })),
-              projectName: project?.name ?? '',
-              timestamp: new Date(),
-            })
-
-            // Warn user if YOLO batch is active — tasks created via CLI won't auto-dispatch
-            if (useExecutionStore.getState().isBatchActive(projectId)) {
-              useToastStore.getState().add({
-                type: 'info',
-                title: 'Plan updated from chat',
-                description: 'New tasks were created while auto-execution is active. They will not be auto-dispatched — review and dispatch manually if needed.',
-                duration: 8000,
-              })
-            }
-          }
-
-          // yaml-spec parsing is handled by use-chat-activity-events.ts which
-          // concatenates text events and extracts specs when isStreaming becomes false.
-
-          get().updateLastAssistantMessage(sid, rawAssistantText)
-
-          // Clear chat mutation flag and streaming state
-          useExecutionStore.getState().setChatMutationActive(projectId, false)
-          chatAbortControllers.delete(sid)
-          set((state) => {
-            const ss = new Set(state.streamingSessions)
-            ss.delete(sid)
-            return { streamingSessions: ss }
-          })
-
-          // Auto-generate title after first conversation round completes.
-          // Use rawAssistantText (synchronous) instead of relying solely on
-          // store messages to avoid timing issues with throttled flush.
-          const updatedSession = get().sessions.get(sid)
-          const isFirstExchange = updatedSession && !updatedSession.title &&
-            rawAssistantText.length > 0 &&
-            updatedSession.messages.filter((m) => m.role === 'assistant' && m.content.length > 0).length <= 1
-          if (isFirstExchange && message.length > 0) {
-            const titleInput = message.length > 200
-              ? message.slice(0, 200)
-              : `${message}\n---\n${rawAssistantText.slice(0, 300)}`
-            generateTitle(titleInput).then((aiTitle) => {
-              if (aiTitle) get().renameSession(sid, aiTitle)
-            }).catch(() => {}) // silent — auto-generated title is optional
-          }
-
-          // Notify if component is not mounted
-          if (!get().mountedSessionIds.has(sid)) {
-            const proj = get().sessions.get(sid)
-            const projectName = proj?.metadata?.projectName as string || "Project"
-            showChatCompleteNotification(projectName)
-            useToastStore.getState().add({
-              type: "info",
-              title: "Chat response ready",
-              description: `Response for "${projectName}" is ready.`,
-            })
-          }
-        },
-        onError: (error) => {
-          get().appendToLastAssistantMessage(sid, `\nError: ${error}`)
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'error',
-            error,
-            timestamp: new Date(),
-          })
-          useExecutionStore.getState().setChatMutationActive(projectId, false)
-          chatAbortControllers.delete(sid)
-          set((state) => {
-            const ss = new Set(state.streamingSessions)
-            ss.delete(sid)
-            return { streamingSessions: ss }
-          })
-        },
-        onCompaction: (data) => {
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'system_message',
-            message: `Context compacted: ${data.originalCount} messages → ${data.compactedCount}`,
-            timestamp: new Date(),
-          })
-        },
-        onMetrics: (m) => {
-          useUsageStore.getState().addTaskMetrics({
-            durationMs: m.durationMs,
-            inputTokens: m.inputTokens,
-            outputTokens: m.outputTokens,
-            estimatedCostUsd: m.totalCost,
-            model: m.model,
-            turnsUsed: m.numTurns,
-          }, true)
-        },
-      },
       abortController.signal,
     ).catch((err) => {
-      // Stream errored at fetch level — surface error so the user sees it.
+      unwatchStream()
+      // Fetch-level error — surface error so the user sees it.
       // Guard: if this controller was replaced by a newer stream, skip cleanup
       // to avoid clearing the newer stream's state (race on rapid re-send).
       const isAbort = err?.name === 'AbortError'
@@ -921,14 +975,33 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           ss.delete(sid)
           return { streamingSessions: ss }
         })
+        drainChatQueue(sid, get, set)
       }
     })
   },
 
   sendPlaygroundChat: (params) => {
-    const { sessionId: sid, projectId, nodeId, message, taskTitle, taskDescription, taskOutput, visionDoc, model, providerId, messages, branchName, prUrl, imageRefs } = params
+    const { sessionId: sid, projectId, nodeId, message, taskTitle, taskDescription, taskOutput, visionDoc, model, providerId, messages, branchName, prUrl, imageRefs, _fromQueue } = params
     const session = get().sessions.get(sid)
     if (!session) return
+
+    // If already streaming, enqueue and show queued user message in feed
+    if (get().streamingSessions.has(sid)) {
+      const queue = chatMessageQueues.get(sid) || []
+      chatMessageQueues.set(sid, [...queue, { kind: 'playground', params }])
+      useRealtimeStore.getState().pushActivityEvent(sid, {
+        type: 'chat_user',
+        message,
+        queued: true,
+        timestamp: new Date(),
+      })
+      set((state) => {
+        const d = new Map(state.chatQueueDepths)
+        d.set(sid, (d.get(sid) || 0) + 1)
+        return { chatQueueDepths: d }
+      })
+      return
+    }
 
     // Mark streaming
     set((state) => {
@@ -946,12 +1019,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // Track raw text outside React state for synchronous access in onDone
     let rawAssistantText = ""
 
-    // Push user event
-    useRealtimeStore.getState().pushActivityEvent(sid, {
-      type: 'chat_user',
-      message,
-      timestamp: new Date(),
-    })
+    // Push user event (skip if from queue — already pushed with queued indicator)
+    if (!_fromQueue) {
+      useRealtimeStore.getState().pushActivityEvent(sid, {
+        type: 'chat_user',
+        message,
+        timestamp: new Date(),
+      })
+    }
 
     // Determine if we should resume a provider session.
     // A valid resume requires: (1) a completed assistant exchange, AND
@@ -973,6 +1048,83 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // messages when falling back to fresh execution, not during the resume itself.
     const resumeSessionId = hasRealProviderSession ? session.providerSessionId : undefined
 
+    // Subscribe to stream events via the global SSE bus (Phase 3.4: POST + subscribe)
+    const unwatchStream = watchStream(sid, {
+      onTextChunk: (chunk) => {
+        rawAssistantText += chunk
+        get().appendToLastAssistantMessage(sid, chunk)
+      },
+      onComplete: (info) => {
+        if (info.sessionId) get().setProviderSessionId(sid, info.sessionId, providerId)
+
+        // Finalize the assistant message
+        const currentSession = get().sessions.get(sid)
+        const lastMsg = currentSession?.messages[currentSession.messages.length - 1]
+        if (lastMsg?.role === 'assistant') {
+          if (rawAssistantText.length > 0) {
+            get().updateLastAssistantMessage(sid, rawAssistantText)
+          }
+        } else if (rawAssistantText.length > 0) {
+          get().addMessage(sid, { role: "assistant", content: rawAssistantText })
+        }
+
+        chatAbortControllers.delete(sid)
+        set((state) => {
+          const ss = new Set(state.streamingSessions)
+          ss.delete(sid)
+          return { streamingSessions: ss }
+        })
+
+        // Auto-generate title after first conversation round completes.
+        const updatedSession = get().sessions.get(sid)
+        const isFirstExchange = updatedSession && !updatedSession.title &&
+          rawAssistantText.length > 0 &&
+          updatedSession.messages.filter((m) => m.role === 'assistant' && m.content.length > 0).length <= 1
+        if (isFirstExchange && message.length > 0) {
+          const projectBefore = useProjectStore.getState().projects.find((p) => p.id === projectId)
+          const projectNameBefore = projectBefore?.name
+          const titleInput = message.length > 200
+            ? message.slice(0, 200)
+            : `${message}\n---\n${rawAssistantText.slice(0, 300)}`
+          generateTitle(titleInput).then((aiTitle) => {
+            if (aiTitle) {
+              get().renameSession(sid, aiTitle)
+              const projectNow = useProjectStore.getState().projects.find((p) => p.id === projectId)
+              if (projectNow && projectNow.name === projectNameBefore) {
+                useProjectStore.getState().updateProject(projectId, { name: aiTitle })
+              }
+            }
+          }).catch(() => {})
+        }
+
+        // Notify if component is not mounted
+        if (!get().mountedSessionIds.has(sid)) {
+          showChatCompleteNotification("Playground")
+        }
+
+        // Drain next queued message (unified queue)
+        drainChatQueue(sid, get, set)
+      },
+      onError: (error) => {
+        get().appendToLastAssistantMessage(sid, `\nError: ${error}`)
+        useRealtimeStore.getState().pushActivityEvent(sid, {
+          type: 'error',
+          error,
+          timestamp: new Date(),
+        })
+        chatAbortControllers.delete(sid)
+        set((state) => {
+          const ss = new Set(state.streamingSessions)
+          ss.delete(sid)
+          return { streamingSessions: ss }
+        })
+
+        // Drain next queued message even on error (avoid permanently blocked queue)
+        drainChatQueue(sid, get, set)
+      },
+    })
+
+    // Fire-and-forget — POST returns JSON, events arrive via global SSE bus
     chatWithTask(
       {
         message,
@@ -991,129 +1143,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         prUrl,
         imageRefs,
       },
-      {
-        // Push streaming events to realtime store for live display.
-        // The global SSE suppresses events for tasks with an active direct SSE
-        // (activeDispatchStreams), so we must push events here for the UI to
-        // show streaming output during playground chat.
-        onText: (chunk) => {
-          rawAssistantText += chunk
-          get().appendToLastAssistantMessage(sid, chunk)
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'text',
-            content: chunk,
-            timestamp: new Date(),
-          })
-        },
-        onToolUse: (data) => {
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'tool_use',
-            id: `tool-${Date.now()}`,
-            toolName: data.toolName,
-            toolInput: data.toolInput,
-            timestamp: new Date(),
-          })
-        },
-        onToolResult: (data) => {
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'tool_result',
-            id: `tool-${Date.now()}`,
-            toolName: data.toolName,
-            toolResult: data.result,
-            success: data.success,
-            timestamp: new Date(),
-          })
-        },
-        onDone: (newSessionId) => {
-          if (newSessionId) get().setProviderSessionId(sid, newSessionId, providerId)
-
-          // Finalize the assistant message. If a placeholder was added by the
-          // caller (handleChat), update it in place. Otherwise add a new message
-          // (backward compat for callers that don't add the placeholder).
-          // Guard: don't overwrite partial streamed content with empty string
-          // (e.g., on abort where onDone fires with no accumulated text).
-          const currentSession = get().sessions.get(sid)
-          const lastMsg = currentSession?.messages[currentSession.messages.length - 1]
-          if (lastMsg?.role === 'assistant') {
-            if (rawAssistantText.length > 0) {
-              get().updateLastAssistantMessage(sid, rawAssistantText)
-            }
-          } else if (rawAssistantText.length > 0) {
-            get().addMessage(sid, { role: "assistant", content: rawAssistantText })
-          }
-
-          chatAbortControllers.delete(sid)
-          set((state) => {
-            const ss = new Set(state.streamingSessions)
-            ss.delete(sid)
-            return { streamingSessions: ss }
-          })
-
-          // Auto-generate title after first conversation round completes.
-          // Only fires when session has no custom title yet and this is the
-          // first completed exchange (user msg + non-empty assistant response).
-          // Use rawText (synchronous) instead of relying solely on store
-          // messages to avoid timing issues with throttled flush.
-          const updatedSession = get().sessions.get(sid)
-          const isFirstExchange = updatedSession && !updatedSession.title &&
-            rawAssistantText.length > 0 &&
-            updatedSession.messages.filter((m) => m.role === 'assistant' && m.content.length > 0).length <= 1
-          if (isFirstExchange && message.length > 0) {
-            // Snapshot project name before async title generation so we can
-            // detect if the user manually renamed it while we were waiting.
-            const projectBefore = useProjectStore.getState().projects.find((p) => p.id === projectId)
-            const projectNameBefore = projectBefore?.name
-            const titleInput = message.length > 200
-              ? message.slice(0, 200)
-              : `${message}\n---\n${rawAssistantText.slice(0, 300)}`
-            generateTitle(titleInput).then((aiTitle) => {
-              if (aiTitle) {
-                // Update session title
-                get().renameSession(sid, aiTitle)
-                // Also update the playground project name so the history list
-                // reflects it — but only if the user hasn't manually renamed it.
-                const projectNow = useProjectStore.getState().projects.find((p) => p.id === projectId)
-                if (projectNow && projectNow.name === projectNameBefore) {
-                  useProjectStore.getState().updateProject(projectId, { name: aiTitle })
-                }
-              }
-            }).catch(() => {}) // silent — auto-generated title is optional
-          }
-
-          // Notify if component is not mounted
-          if (!get().mountedSessionIds.has(sid)) {
-            showChatCompleteNotification("Playground")
-          }
-        },
-        onError: (error) => {
-          // Fill the assistant placeholder with the error so it isn't left as
-          // a blank ghost message after page refresh (matches sendChatMessage).
-          get().appendToLastAssistantMessage(sid, `\nError: ${error}`)
-          useRealtimeStore.getState().pushActivityEvent(sid, {
-            type: 'error',
-            error,
-            timestamp: new Date(),
-          })
-          chatAbortControllers.delete(sid)
-          set((state) => {
-            const ss = new Set(state.streamingSessions)
-            ss.delete(sid)
-            return { streamingSessions: ss }
-          })
-        },
-        onMetrics: (m) => {
-          useUsageStore.getState().addTaskMetrics({
-            durationMs: m.durationMs,
-            inputTokens: m.inputTokens,
-            outputTokens: m.outputTokens,
-            estimatedCostUsd: m.totalCost,
-            model: m.model,
-            turnsUsed: m.numTurns,
-          }, true)
-        },
-      },
       abortController.signal,
     ).catch((err) => {
+      unwatchStream()
       const isAbort = err?.name === 'AbortError'
       const isStale = chatAbortControllers.get(sid) !== abortController
       if (!isAbort && !isStale) {
@@ -1132,6 +1164,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           ss.delete(sid)
           return { streamingSessions: ss }
         })
+        drainChatQueue(sid, get, set)
       }
     })
   },
@@ -1147,10 +1180,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     if (session?.projectId) {
       useExecutionStore.getState().setChatMutationActive(session.projectId, false)
     }
+    // Clear the message queue so stale queued messages don't fire after abort
+    chatMessageQueues.delete(sessionId)
     set((state) => {
       const ss = new Set(state.streamingSessions)
       ss.delete(sessionId)
-      return { streamingSessions: ss }
+      const d = new Map(state.chatQueueDepths)
+      d.delete(sessionId)
+      return { streamingSessions: ss, chatQueueDepths: d }
     })
   },
 

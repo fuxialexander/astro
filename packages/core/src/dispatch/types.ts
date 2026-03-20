@@ -68,7 +68,7 @@ export interface VerificationHints {
 
 /** Stream event interface (formerly from providers/types.ts) */
 export interface StreamEvent {
-  type: 'init' | 'text' | 'tool_use' | 'tool_result' | 'file_change' | 'progress' | 'result' | 'error' | 'aborted'
+  type: 'init' | 'text' | 'operational' | 'tool_use' | 'tool_result' | 'file_change' | 'progress' | 'result' | 'error' | 'aborted'
   [key: string]: unknown
 }
 
@@ -494,7 +494,7 @@ export const DEFAULT_DISPATCH_CONFIG: DispatchEngineConfig = {
   retryDelayBase: 5000,
   retryDelayMax: 60000,
   dryRunMode: false,
-  maxDependencyOutputSize: 20000,
+  maxDependencyOutputSize: 4000,
   maxKnowledgeSize: 16000,
   pollIntervalMs: 2000,
   machineSelectionPolicy: 'priority',

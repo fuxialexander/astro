@@ -1,54 +1,36 @@
 import { create } from "zustand"
-import type { TaskExecution, ProviderStatus, PlanNode, PlanEdge, ToolTrace, FileChange, UsageMetrics, Project, ProjectSource, ExecutionSummary, ReplanContext } from "@/types"
-import { parseSSEStream } from "@/lib/sse-parser"
-import { fetchStreamingEventsCatchUp, type StreamingEventRow } from "@/lib/api-client"
+import type { TaskExecution, ProviderStatus, PlanNode, PlanEdge, ToolTrace, FileChange, Project, ProjectSource, ExecutionSummary, ReplanContext } from "@/types"
 import { usePlanStore, isLive } from "./plan-store"
 import { useProjectStore } from "./project-store"
-import { useUsageStore } from "./usage-store"
 import { useToastStore } from "./toast-store"
-import { getAccessToken } from "@/lib/supabase-client"
 import type { ApprovalRequest } from "@/components/approval-card"
 import { dataClient } from "@/lib/data-client"
-import { hydrateStreamingEvents } from '@/lib/streaming-event-hydrator'
 import { stripHtml, extractBlobUrls } from "@/lib/html-utils"
 import { apiUrl } from "@/lib/api-url"
 import { getColorForName, getProjectIconForName } from "@/lib/color-icon-utils"
 import { useTaskChatStore } from "./task-chat-store"
 import { useSessionStore } from "./session-store"
 import { resolveWorkingDirectory, buildDependencyOutputs } from "@astro/core/dispatch"
-import { applyPlanFromText, planNodeIdToProjectId, clearPlanFingerprint } from "@/lib/plan-extraction"
 import { getSigningPrivateKey, signDispatchIntent, generateNonce, type DispatchSigningPayload } from "@/lib/dispatch-signing"
 import { useAuthStore } from "./auth-store"
 import { showBatchCompleteNotification } from "@/lib/notifications"
 import { deriveDeliveryMode } from "@/lib/project-source"
 import { useSettingsStore } from "./settings-store"
+import { authHeaders } from "@/lib/auth-headers"
+import { useTeamStore } from "./team-store"
+import { useWorkspaceFilterStore } from "./workspace-filter-store"
 
-// ─── Page Unload Detection ────────────────────────────────────────────
-// `document.visibilityState` is unreliable during page refresh — it may
-// still be 'visible' when the fetch connection is dropped, causing the
-// SSE error handler to falsely mark running tasks as failed.
-// `beforeunload` fires deterministically BEFORE fetch connections die,
-// so this flag is always set in time.
-let isPageUnloading = false
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => { isPageUnloading = true })
-}
-
-/** True if the page is unloading or the tab is hidden — SSE errors in this state are not real failures. */
-function isPageUnloadingOrHidden(): boolean {
-  return isPageUnloading || (typeof document !== 'undefined' && document.visibilityState === 'hidden')
+/** Returns true for regular task execution node IDs (not ephemeral playground sessions). */
+function isExecutionNodeId(nodeId: string): boolean {
+  return !nodeId.startsWith('playground-')
 }
 
 // Helper: Create auth headers for API requests
 async function getAuthHeaders(): Promise<HeadersInit> {
-  const token = await getAccessToken()
-  const headers: HeadersInit = {
+  return {
     "Content-Type": "application/json",
+    ...(await authHeaders()),
   }
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`
-  }
-  return headers
 }
 
 // Helper: Resolve working directory from project config (delegates to @astro/core)
@@ -56,6 +38,13 @@ export function getProjectWorkingDir(
   project: Project | undefined,
 ) {
   return resolveWorkingDirectory(project)
+}
+
+function resolveDispatchMachineId(
+  project: Project | undefined,
+  requestedMachineId?: string,
+): string | undefined {
+  return requestedMachineId ?? project?.defaultMachineId
 }
 
 // Helper: Check if a project is locked to a specific machine
@@ -423,7 +412,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     }
 
     // Machine selection is handled server-side via project.defaultMachineId fallback
-    const effectiveTargetMachineId = options?.targetMachineId
+    const effectiveTargetMachineId = resolveDispatchMachineId(project, options?.targetMachineId)
 
     // Resolve working directory (may be undefined for auto-workspace)
     const dirCheck = getProjectWorkingDir(project)
@@ -519,8 +508,18 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
       }
 
-      // Process SSE stream
-      await processExecutionStream(response, nodeId, set, get, planStore, abortController.signal)
+      // Parse JSON response — events arrive via global SSE bus → realtime-store → useStreamEvents
+      const result = await response.json()
+      if (result.executionId) {
+        set((state) => {
+          const newExecutions = new Map(state.executions)
+          const exec = newExecutions.get(nodeId)
+          if (exec) {
+            newExecutions.set(nodeId, { ...exec, executionId: result.executionId, status: 'running' })
+          }
+          return { executions: newExecutions }
+        })
+      }
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         // Cancelled by user
@@ -534,15 +533,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         })
         planStore.updateNode(nodeId, { status: "planned" })
       } else {
-        // Don't mark as failure if the page is unloading (refresh/navigate away)
-        // — the task is still running server-side, catch-up will reconcile on reload.
-        // Check `isPageUnloading` first: `beforeunload` fires before fetch connections
-        // are dropped, so this flag is reliable. `visibilityState` is a fallback but
-        // can still be 'visible' when the fetch errors out during refresh.
-        if (isPageUnloadingOrHidden()) {
-          console.log('[execution] SSE interrupted by page unload, skipping failure marking')
-          return
-        }
         // Error occurred
         const message = error instanceof Error ? error.message : "Unknown error"
         set((state) => {
@@ -1088,13 +1078,15 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   startPlanGeneration: async (description, projectName, options) => {
     // 1. Create project
     const projectId = crypto.randomUUID()
-    clearPlanFingerprint(projectId)
     const displayName = projectName || "New Project"
+    const wf = useWorkspaceFilterStore.getState().workspaceFilter
+    const teamId = wf !== 'all' ? wf : useTeamStore.getState().getPersonalTeamId()
     await useProjectStore.getState().addProject({
       id: projectId,
       name: displayName,
       description,
       status: 'active',
+      teamId,
       color: getColorForName(displayName),
       icon: getProjectIconForName(displayName),
       visionDoc: options?.visionDoc || "",
@@ -1152,7 +1144,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // gets { projectId, nodeId } immediately and can transition the UI.
     getAuthHeaders().then(async (headers) => {
       try {
-        const signing = await buildDispatchSignature(nodeId, projectId, options?.targetMachineId)
+        const effectiveTargetMachineId = options?.targetMachineId
+        const signing = await buildDispatchSignature(nodeId, projectId, effectiveTargetMachineId)
         const safeDescription = truncateDispatchField(description, MAX_DESCRIPTION_LENGTH, "Plan description")
         const planSettings = useSettingsStore.getState()
         const planProvider = options?.preferredProvider || planSettings.defaultProvider || undefined
@@ -1168,7 +1161,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             dependencies: [],
             verification: "human",
             visionDoc: options?.visionDoc ? truncateDispatchField(options.visionDoc, MAX_VISIONDOC_LENGTH, "Vision doc") : undefined,
-            targetMachineId: options?.targetMachineId,
+            targetMachineId: effectiveTargetMachineId,
             model: planModel,
             preferredProvider: planProvider,
             workingDirectory: options?.workingDirectory,
@@ -1185,36 +1178,20 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 
-        // 6. Process SSE stream using existing infrastructure (with reconnection)
-        const planStore = usePlanStore.getState()
-        await processSSEStreamWithReconnect(response, nodeId, set, get, planStore, (event) => {
-          // On result, extract plan JSON
-          if (event === "result") {
-            try {
-              const exec = get().executions.get(nodeId)
-              if (exec?.streamText) {
-                const result = applyPlanFromText(projectId, exec.streamText, exec.executionId || undefined)
-                if (result.applied) {
-                  console.log(`[plan-generation] Plan extracted: ${result.nodeCount} nodes`)
-                } else {
-                  console.warn("[plan-generation] Plan extraction returned no result — model output may not contain valid JSON")
-                  useToastStore.getState().add({
-                    type: "warning",
-                    title: "Plan extraction failed",
-                    description: "The AI's response didn't contain a valid plan JSON. Try regenerating the plan or refining your description.",
-                  })
-                }
-              }
-            } catch (e) {
-              console.error("[plan-generation] Failed to extract plan:", e)
-              useToastStore.getState().add({
-                type: "error",
-                title: "Plan extraction error",
-                description: e instanceof Error ? e.message : "Unknown error extracting plan",
-              })
+        // 6. Parse JSON response — events arrive via global SSE bus → realtime-store → useStreamEvents
+        const result = await response.json()
+        if (result.executionId) {
+          set((state) => {
+            const newExecutions = new Map(state.executions)
+            const exec = newExecutions.get(nodeId)
+            if (exec) {
+              newExecutions.set(nodeId, { ...exec, executionId: result.executionId, status: 'running' })
             }
-          }
-        }, abortController.signal)
+            return { executions: newExecutions }
+          })
+          // Persist so execution survives page refresh (approval state depends on hydration)
+          get().persist()
+        }
       } catch (error) {
         // Only update if entry still exists (cancelPlanGeneration/cleanupPlanGeneration may have already handled it)
         if (!get().executions.has(nodeId)) return
@@ -1228,12 +1205,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             return { executions: newExecutions }
           })
         } else {
-          // Don't mark as failure if the page is unloading (refresh/navigate away)
-          // — the task is still running server-side, catch-up will reconcile on reload
-          if (isPageUnloadingOrHidden()) {
-            console.log('[plan-generation] SSE interrupted by page unload, skipping failure marking')
-            return
-          }
           const message = error instanceof Error ? error.message : "Unknown error"
           set((state) => {
             const newExecutions = new Map(state.executions)
@@ -1243,7 +1214,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             }
             return { executions: newExecutions }
           })
-          // Toast tracking disabled — plan UI handles errors via execution store
         }
       } finally {
         abortControllers.delete(nodeId)
@@ -1351,8 +1321,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   startPlanGenerationForProject: async (projectId, description, options) => {
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
     if (!project) throw new Error(`Project ${projectId} not found`)
-    clearPlanFingerprint(projectId)
-
     const nodeId = `plan-${projectId}`
 
     // Update project if options provide new values
@@ -1405,7 +1373,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // Dispatch via POST /api/dispatch/task (fire-and-forget SSE processing)
     getAuthHeaders().then(async (headers) => {
       try {
-        const signing = await buildDispatchSignature(nodeId, projectId, options?.targetMachineId)
+        const effectiveTargetMachineId = resolveDispatchMachineId(project, options?.targetMachineId)
+        const signing = await buildDispatchSignature(nodeId, projectId, effectiveTargetMachineId)
         const safeDescription = truncateDispatchField(description, MAX_DESCRIPTION_LENGTH, "Plan description")
         const addSettings = useSettingsStore.getState()
         const addProvider = options?.preferredProvider || addSettings.defaultProvider || undefined
@@ -1421,7 +1390,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             dependencies: [],
             verification: "human",
             visionDoc: options?.visionDoc ? truncateDispatchField(options.visionDoc, MAX_VISIONDOC_LENGTH, "Vision doc") : undefined,
-            targetMachineId: options?.targetMachineId,
+            targetMachineId: effectiveTargetMachineId,
             model: addModel,
             preferredProvider: addProvider,
             workingDirectory: options?.workingDirectory || project.workingDirectory || undefined,
@@ -1438,27 +1407,20 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 
-        // Process SSE stream (with reconnection)
-        const planStore = usePlanStore.getState()
-        await processSSEStreamWithReconnect(response, nodeId, set, get, planStore, (event) => {
-          if (event === "result") {
-            try {
-              const exec = get().executions.get(nodeId)
-              if (exec?.streamText) {
-                if (!exec.executionId) {
-                  console.warn(`[plan-generation-forProject] Skipping plan extraction — executionId missing for node ${nodeId}`)
-                } else {
-                  const result = applyPlanFromText(projectId, exec.streamText, exec.executionId)
-                  if (result.applied) {
-                    console.log(`[plan-generation-forProject] Plan extracted: ${result.nodeCount} nodes`)
-                  }
-                }
-              }
-            } catch (e) {
-              console.error("[plan-generation-forProject] Failed to extract plan:", e)
+        // Parse JSON response — events arrive via global SSE bus → realtime-store → useStreamEvents
+        const result = await response.json()
+        if (result.executionId) {
+          set((state) => {
+            const newExecutions = new Map(state.executions)
+            const exec = newExecutions.get(nodeId)
+            if (exec) {
+              newExecutions.set(nodeId, { ...exec, executionId: result.executionId, status: 'running' })
             }
-          }
-        }, abortController.signal)
+            return { executions: newExecutions }
+          })
+          // Persist so execution survives page refresh
+          get().persist()
+        }
       } catch (error) {
         if (!get().executions.has(nodeId)) return
         if (error instanceof Error && error.name === "AbortError") {
@@ -1471,11 +1433,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             return { executions: newExecutions }
           })
         } else {
-          // Don't mark as failure if the page is unloading (refresh/navigate away)
-          if (isPageUnloadingOrHidden()) {
-            console.log('[plan-generation-forProject] SSE interrupted by page unload, skipping failure marking')
-            return
-          }
           const message = error instanceof Error ? error.message : "Unknown error"
           set((state) => {
             const newExecutions = new Map(state.executions)
@@ -1499,8 +1456,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   startReplanSession: async (projectId, changeDescription, lessons, previousPlanSummary, options) => {
     const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
     if (!project) throw new Error(`Project ${projectId} not found`)
-    clearPlanFingerprint(projectId)
-
     const nodeId = `plan-${projectId}`
 
     // Cancel any active plan session first
@@ -1546,7 +1501,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // Dispatch via POST /api/dispatch/task with replanContext
     getAuthHeaders().then(async (headers) => {
       try {
-        const signing = await buildDispatchSignature(nodeId, projectId, options?.targetMachineId)
+        const effectiveTargetMachineId = resolveDispatchMachineId(project, options?.targetMachineId)
+        const signing = await buildDispatchSignature(nodeId, projectId, effectiveTargetMachineId)
         const replanSettings = useSettingsStore.getState()
         const replanProvider = options?.preferredProvider || replanSettings.defaultProvider || undefined
         const replanModel = options?.model || replanSettings.getModelForProvider(replanProvider) || undefined
@@ -1561,7 +1517,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             dependencies: [],
             verification: "human",
             visionDoc: options?.visionDoc,
-            targetMachineId: options?.targetMachineId,
+            targetMachineId: effectiveTargetMachineId,
             model: replanModel,
             preferredProvider: replanProvider,
             workingDirectory: project.workingDirectory,
@@ -1578,27 +1534,18 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 
-        // Process SSE stream (with reconnection)
-        const planStore = usePlanStore.getState()
-        await processSSEStreamWithReconnect(response, nodeId, set, get, planStore, (event) => {
-          if (event === "result") {
-            try {
-              const exec = get().executions.get(nodeId)
-              if (exec?.streamText) {
-                if (!exec.executionId) {
-                  console.warn(`[replan] Skipping plan extraction — executionId missing for node ${nodeId}`)
-                } else {
-                  const result = applyPlanFromText(projectId, exec.streamText, exec.executionId)
-                  if (result.applied) {
-                    console.log(`[replan] Plan extracted: ${result.nodeCount} nodes`)
-                  }
-                }
-              }
-            } catch (e) {
-              console.error("[replan] Failed to extract plan:", e)
+        // Parse JSON response — events arrive via global SSE bus → realtime-store → useStreamEvents
+        const result = await response.json()
+        if (result.executionId) {
+          set((state) => {
+            const newExecutions = new Map(state.executions)
+            const exec = newExecutions.get(nodeId)
+            if (exec) {
+              newExecutions.set(nodeId, { ...exec, executionId: result.executionId, status: 'running' })
             }
-          }
-        }, abortController.signal)
+            return { executions: newExecutions }
+          })
+        }
       } catch (error) {
         if (!get().executions.has(nodeId)) return
         if (error instanceof Error && error.name === "AbortError") {
@@ -1611,10 +1558,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             return { executions: newExecutions }
           })
         } else {
-          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-            console.log('[replan] SSE interrupted by page unload, skipping failure marking')
-            return
-          }
           const message = error instanceof Error ? error.message : "Unknown error"
           set((state) => {
             const newExecutions = new Map(state.executions)
@@ -1639,11 +1582,14 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // 1. Create project for this playground session
     const projectId = crypto.randomUUID()
     const displayName = description.slice(0, 60) || "Playground Session"
+    // Playground sessions are always personal — not shared with team
+    const pgTeamId = useTeamStore.getState().getPersonalTeamId()
     await useProjectStore.getState().addProject({
       id: projectId,
       name: displayName,
       description,
       status: 'active',
+      teamId: pgTeamId,
       color: getColorForName(displayName),
       icon: getProjectIconForName(displayName),
       visionDoc: "",
@@ -1718,9 +1664,18 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           throw new Error(`Server error: ${response.status}${detail ? ` - ${detail}` : ''}`)
         }
 
-        // 5. Process SSE stream (with reconnection)
-        const planStore = usePlanStore.getState()
-        await processSSEStreamWithReconnect(response, nodeId, set, get, planStore, undefined, abortController.signal)
+        // 5. Parse JSON response — events arrive via global SSE bus → realtime-store → useStreamEvents
+        const result = await response.json()
+        if (result.executionId) {
+          set((state) => {
+            const newExecutions = new Map(state.executions)
+            const exec = newExecutions.get(nodeId)
+            if (exec) {
+              newExecutions.set(nodeId, { ...exec, executionId: result.executionId, status: 'running' })
+            }
+            return { executions: newExecutions }
+          })
+        }
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
           set((state) => {
@@ -1732,12 +1687,6 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             return { executions: newExecutions }
           })
         } else {
-          // Don't mark as failure if the page is unloading (refresh/navigate away)
-          // — the task is still running server-side, catch-up will reconcile on reload
-          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-            console.log('[playground] SSE interrupted by page unload, skipping failure marking')
-            return
-          }
           const message = error instanceof Error ? error.message : "Unknown error"
           set((state) => {
             const newExecutions = new Map(state.executions)
@@ -1852,7 +1801,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         // Note: In slim mode, streamText is empty so this loop is effectively a no-op.
         // It remains for correctness if slim mode is ever disabled.
         for (const [nodeId, exec] of executions) {
-          if (!exec.summary && exec.streamText && (exec.status === 'success' || exec.status === 'failure')) {
+          if (!exec.summary && exec.streamText && (exec.status === 'success' || exec.status === 'failure') && isExecutionNodeId(nodeId)) {
             const parsed = parseExecutiveSummary(exec.streamText)
             if (parsed?.status && parsed?.workCompleted) {
               executions.set(nodeId, {
@@ -1890,9 +1839,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       const executionsRecord = await dataClient.getExecutions({ projectId })
       const fullExecs = new Map<string, TaskExecution>(Object.entries(executionsRecord))
 
-      // Backfill summaries for completed executions in this project
+      // Backfill summaries for completed executions in this project (skip playground sessions)
       for (const [nodeId, exec] of fullExecs) {
-        if (!exec.summary && exec.streamText && (exec.status === 'success' || exec.status === 'failure')) {
+        if (!exec.summary && exec.streamText && (exec.status === 'success' || exec.status === 'failure') && isExecutionNodeId(nodeId)) {
           const parsed = parseExecutiveSummary(exec.streamText)
           if (parsed?.status && parsed?.workCompleted) {
             fullExecs.set(nodeId, {
@@ -1952,484 +1901,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   },
 }))
 
-// Helper: Process SSE stream from dispatch endpoint using unified parser
-async function processExecutionStream(
-  response: Response,
-  nodeId: string,
-  set: (fn: (state: ExecutionState) => Partial<ExecutionState>) => void,
-  get: () => ExecutionState,
-  planStore: ReturnType<typeof usePlanStore.getState>,
-  signal?: AbortSignal
-) {
-  await processSSEStreamWithReconnect(response, nodeId, set, get, planStore, undefined, signal)
-}
-
-// ─── SSE Reconnection Infrastructure ────────────────────────────────
-
-const MAX_RECONNECT_RETRIES = 5
-const RECONNECT_BACKOFF_BASE_MS = 1000
-const POLL_INTERVAL_MS = 5000
-
-/** Update connectionState on an execution entry */
-function setConnectionState(
-  nodeId: string,
-  connectionState: 'connected' | 'reconnecting' | 'polling' | undefined,
-  set: (fn: (state: ExecutionState) => Partial<ExecutionState>) => void,
-) {
-  set((state) => {
-    const newExecutions = new Map(state.executions)
-    const exec = newExecutions.get(nodeId)
-    if (exec) {
-      newExecutions.set(nodeId, { ...exec, connectionState })
-    }
-    return { executions: newExecutions }
-  })
-}
-
-/** Check if caught-up events contain a terminal event (result/done/error/aborted) */
-function hasTerminalEvent(events: StreamingEventRow[]): boolean {
-  return events.some(e =>
-    e.eventType === 'result' ||
-    e.eventType === 'done' ||
-    e.eventType === 'error' ||
-    e.eventType === 'aborted'
-  )
-}
-
-/**
- * Process caught-up events using hydrate-and-replace strategy.
- *
- * Instead of replaying events through handleSSEEvent (which unconditionally
- * appends text/activity and causes duplication on reconnect), we hydrate all
- * DB events into canonical state via hydrateStreamingEvents and replace the
- * execution's accumulated fields. The DB is the single source of truth.
- *
- * Terminal event side effects (toasts, metrics, summary) are handled
- * separately after state replacement.
- */
-function processCatchUpEvents(
-  events: StreamingEventRow[],
-  nodeId: string,
-  set: (fn: (state: ExecutionState) => Partial<ExecutionState>) => void,
-  get: () => ExecutionState,
-  planStore: ReturnType<typeof usePlanStore.getState>,
-  onResult?: (event: string, data: string) => void,
-) {
-  if (events.length === 0) return
-
-  // 1. Was the execution already completed before this catch-up?
-  const execBefore = get().executions.get(nodeId)
-  const wasAlreadyCompleted = execBefore != null && (
-    execBefore.status === 'success' || execBefore.status === 'failure' || execBefore.status === 'cancelled'
-  )
-
-  // 2. Clear pending text batch to avoid stale data
-  clearTextBatch(nodeId)
-
-  // 3. Hydrate DB events into canonical state (stateless, no side effects)
-  const hydrated = hydrateStreamingEvents(events)
-
-  // 4. Replace execution state with hydrated canonical data.
-  //    Status is NOT set here — terminal event side effects in step 5 need
-  //    the pre-completion status to pass the alreadyCompleted guard.
-  set((state) => {
-    const newExecutions = new Map(state.executions)
-    const exec = newExecutions.get(nodeId)
-    if (!exec) return state
-
-    newExecutions.set(nodeId, {
-      ...exec,
-      streamText: hydrated.stdout,
-      activityEvents: hydrated.activityEvents,
-      toolTraces: hydrated.toolTraces.map((t, i) => ({
-        id: t.seq != null ? `tool-seq-${t.seq}` : `tool-hydrated-${i}`,
-        ...t,
-      } as ToolTrace)),
-      fileChanges: hydrated.fileChanges.map(f => ({
-        ...f,
-        action: f.action as FileChange['action'],
-      })),
-      ...(hydrated.sessionId ? { sessionId: hydrated.sessionId } : {}),
-      ...(hydrated.machineId ? { machineId: hydrated.machineId } : {}),
-    })
-    return { executions: newExecutions }
-  })
-
-  // 5. Process terminal events for side effects.
-  //    - result: delegate to handleSSEEvent which sets status, fires toasts,
-  //      metrics, summary generation, etc. Safe because the result handler
-  //      does not append to activityEvents (uses ...exec spread).
-  //    - error/aborted: handle directly to avoid handleSSEEvent appending
-  //      duplicate error activity events to the already-hydrated array.
-  if (!wasAlreadyCompleted) {
-    const resultEvent = events.find(e => e.eventType === 'result')
-    if (resultEvent) {
-      const data = typeof resultEvent.data === 'string'
-        ? resultEvent.data
-        : JSON.stringify(resultEvent.data)
-      handleSSEEvent('result', data, nodeId, set, get, planStore)
-    } else {
-      const errorEvent = events.find(e => e.eventType === 'error')
-      if (errorEvent) {
-        const errorData = errorEvent.data as Record<string, unknown>
-        const errorMessage = (errorData.error as string) || 'Unknown error'
-        set((state) => {
-          const newExecs = new Map(state.executions)
-          const exec = newExecs.get(nodeId)
-          if (exec) {
-            newExecs.set(nodeId, {
-              ...exec,
-              status: 'failure',
-              error: errorMessage,
-              completedAt: new Date(errorEvent.createdAt),
-            })
-          }
-          return { executions: newExecs }
-        })
-        // Fire summary generation for failed tasks (matches handleSSEEvent error path)
-        const execution = get().executions.get(nodeId)
-        const node = planStore.nodes.find((n) => n.id === nodeId)
-        if (execution) {
-          requestExecutionSummary(nodeId, execution, node)
-        }
-        useExecutionStore.getState().persist()
-      } else {
-        const abortedEvent = events.find(e => e.eventType === 'aborted')
-        if (abortedEvent) {
-          set((state) => {
-            const newExecs = new Map(state.executions)
-            const exec = newExecs.get(nodeId)
-            if (exec) {
-              newExecs.set(nodeId, {
-                ...exec,
-                status: 'cancelled',
-                completedAt: new Date(abortedEvent.createdAt),
-              })
-            }
-            return { executions: newExecs }
-          })
-          useExecutionStore.getState().persist()
-        }
-      }
-    }
-  }
-
-  // 5b. Plan-node status update when wasAlreadyCompleted (handleSSEEvent was
-  //     skipped in step 5). The global events SSE task:result handler may have
-  //     set the execution to 'success' (causing wasAlreadyCompleted=true) without
-  //     updating the plan node. Extract finalStatus from the result event and
-  //     apply it directly so the plan node transitions out of "in_progress".
-  if (wasAlreadyCompleted) {
-    const resultEvent = events.find(e => e.eventType === 'result')
-    if (resultEvent) {
-      try {
-        const data = typeof resultEvent.data === 'string'
-          ? resultEvent.data
-          : JSON.stringify(resultEvent.data)
-        const parsed = JSON.parse(data)
-        const validFinalStatuses = new Set(['auto_verified', 'awaiting_judgment', 'completed', 'pruned'])
-        if (parsed.finalStatus && validFinalStatuses.has(parsed.finalStatus)) {
-          planStore.updateNode(nodeId, { status: parsed.finalStatus })
-        }
-      } catch (err) { console.warn("[sse-catchup] Failed to parse result event for plan-node status update:", err) }
-    }
-  }
-
-  // 6. Fire onResult callbacks for downstream processing (plan extraction, etc.)
-  //    Guard with wasAlreadyCompleted to prevent duplicate plan extraction
-  //    on subsequent reconnections after the execution already completed.
-  if (onResult && !wasAlreadyCompleted) {
-    for (const row of events) {
-      try {
-        let data: string
-        if (row.eventType === 'text' && typeof row.data === 'object' && row.data !== null && 'text' in row.data) {
-          data = (row.data as { text: string }).text
-        } else {
-          data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
-        }
-        onResult(row.eventType, data)
-      } catch (err) {
-        console.error(`[sse-catchup] Failed to process callback for ${row.eventType}:`, err)
-      }
-    }
-  }
-}
-
-/**
- * Reusable SSE stream processor with automatic reconnection via catch-up.
- *
- * Flow:
- * 1. Stream SSE normally, tracking lastSeq from `id:` fields
- * 2. On normal completion (result/done): exit cleanly
- * 3. On stream error (network drop):
- *    a. If page hidden (unload): skip
- *    b. Set connectionState: 'reconnecting'
- *    c. Catch up via fetchStreamingEventsCatchUp
- *    d. If caught-up events include terminal event: reconcile and exit
- *    e. If task still running: exponential backoff retry
- *    f. After MAX_RECONNECT_RETRIES: switch to polling mode
- */
-async function processSSEStreamWithReconnect(
-  response: Response,
-  nodeId: string,
-  set: (fn: (state: ExecutionState) => Partial<ExecutionState>) => void,
-  get: () => ExecutionState,
-  planStore: ReturnType<typeof usePlanStore.getState>,
-  /** Optional per-event callback for plan/chat sessions that need extra processing */
-  onEventCallback?: (event: string, data: string) => void,
-  /** Optional AbortSignal to cancel reconnection/polling loops */
-  signal?: AbortSignal,
-): Promise<void> {
-  let lastSeq = 0
-  let streamCompleted = false
-
-  // Set initial connection state
-  setConnectionState(nodeId, 'connected', set)
-
-  // 1. Stream normally, tracking lastSeq
-  try {
-    await parseSSEStream(response, {
-      onEvent: ({ event, data }) => {
-        handleSSEEvent(event, data, nodeId, set, get, planStore)
-        onEventCallback?.(event, data)
-        // Terminal events mean the stream completed normally
-        if (event === 'result' || event === 'done') {
-          streamCompleted = true
-        }
-      },
-      onId: (id) => {
-        const seq = parseInt(id, 10)
-        if (!isNaN(seq) && seq > lastSeq) {
-          lastSeq = seq
-          // Flush any pending text batch immediately — the heartbeat seq
-          // covers all text persisted up to this point. After the flush,
-          // activityEvents contains exactly the events ≤ lastSeq.
-          flushTextBatch(nodeId, set)
-        }
-      },
-    })
-  } catch (streamError) {
-    // Stream errored — fall through to reconnection logic
-    if (streamCompleted) return // Already got the result, ignore trailing error
-    console.warn(`[sse-reconnect] Stream error for ${nodeId}:`, streamError)
-  }
-
-  // 2. If stream completed normally, clear connection state and exit
-  if (streamCompleted) {
-    setConnectionState(nodeId, undefined, set)
-    return
-  }
-
-  // 3. Check if we have an executionId to reconnect with
-  const execution = get().executions.get(nodeId)
-  if (!execution?.executionId) {
-    // No executionId means init event never arrived — can't catch up yet.
-    // The task may still be initializing server-side (worktree creation,
-    // machine connection, etc.). Poll the database (ground truth) to check
-    // if the server has created a task_execution record for this node.
-    // Once we find the executionId, hand off to the normal catch-up loop.
-    if (isPageUnloadingOrHidden()) {
-      console.log(`[sse-reconnect] No executionId for ${nodeId}, page hidden — skipping`)
-      setConnectionState(nodeId, undefined, set)
-      return
-    }
-
-    console.log(`[sse-reconnect] No executionId for ${nodeId}, polling DB for execution record...`)
-    setConnectionState(nodeId, 'reconnecting', set)
-
-    const MAX_EXEC_POLL_ATTEMPTS = 10
-    const EXEC_POLL_INTERVAL_MS = 3000
-
-    for (let attempt = 0; attempt < MAX_EXEC_POLL_ATTEMPTS; attempt++) {
-      if (signal?.aborted) {
-        setConnectionState(nodeId, undefined, set)
-        return
-      }
-
-      // Check if execution was cancelled/completed while polling
-      const currentExec = get().executions.get(nodeId)
-      if (!currentExec || currentExec.status === 'success' || currentExec.status === 'failure' || currentExec.status === 'cancelled') {
-        setConnectionState(nodeId, undefined, set)
-        return
-      }
-
-      try {
-        const dbExec = await dataClient.getExecutionByNodeId(nodeId)
-        if (dbExec?.executionId) {
-          console.log(`[sse-reconnect] Found executionId ${dbExec.executionId} for ${nodeId} from DB (attempt ${attempt + 1})`)
-          // Update the in-memory execution with the executionId from DB
-          set((state) => {
-            const newExecutions = new Map(state.executions)
-            const exec = newExecutions.get(nodeId)
-            if (exec && !exec.executionId) {
-              newExecutions.set(nodeId, { ...exec, executionId: dbExec.executionId })
-            }
-            return { executions: newExecutions }
-          })
-          // Now we have the executionId — break out and fall through to
-          // the normal catch-up/reconnection loop below.
-          break
-        }
-      } catch (pollError) {
-        console.warn(`[sse-reconnect] DB poll failed for ${nodeId} (attempt ${attempt + 1}):`, pollError)
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, EXEC_POLL_INTERVAL_MS))
-    }
-
-    // Re-check: did we find the executionId?
-    const updatedExec = get().executions.get(nodeId)
-    if (!updatedExec?.executionId) {
-      console.warn(`[sse-reconnect] No execution record found in DB for ${nodeId} after ${MAX_EXEC_POLL_ATTEMPTS} attempts`)
-      setConnectionState(nodeId, undefined, set)
-      return
-    }
-  }
-
-  // 3a. If page is hidden (unload/navigate away), skip reconnection
-  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-    console.log(`[sse-reconnect] Page hidden, skipping reconnection for ${nodeId}`)
-    return
-  }
-
-  // Re-read execution from store (may have been updated by the polling loop above)
-  const executionId = get().executions.get(nodeId)?.executionId
-  if (!executionId) {
-    setConnectionState(nodeId, undefined, set)
-    return
-  }
-
-  // 3b. Start reconnection loop
-  console.log(`[sse-reconnect] Starting reconnection for ${nodeId} (executionId: ${executionId}, lastSeq: ${lastSeq})`)
-  setConnectionState(nodeId, 'reconnecting', set)
-
-  let retryCount = 0
-
-  while (retryCount < MAX_RECONNECT_RETRIES) {
-    // Check if aborted
-    if (signal?.aborted) {
-      console.log(`[sse-reconnect] Reconnection aborted for ${nodeId}`)
-      setConnectionState(nodeId, undefined, set)
-      return
-    }
-
-    // Check if execution was cancelled/reset while we're reconnecting
-    const currentExec = get().executions.get(nodeId)
-    if (!currentExec || currentExec.status === 'cancelled') {
-      setConnectionState(nodeId, undefined, set)
-      return
-    }
-
-    try {
-      // Fetch all events from seq 0 so hydrateStreamingEvents can build
-      // complete canonical state (e.g. pairing tool_use ↔ tool_result,
-      // computing pending approvals). Data volume is small (<100 rows).
-      const { events, lastSeq: newLastSeq } = await fetchStreamingEventsCatchUp(
-        [executionId],
-        0,
-      )
-
-      if (events.length > 0 && newLastSeq > lastSeq) {
-        console.log(`[sse-reconnect] Caught up ${events.length} events for ${nodeId} (seq ${lastSeq} → ${newLastSeq})`)
-        processCatchUpEvents(events, nodeId, set, get, planStore, onEventCallback)
-        lastSeq = newLastSeq
-
-        // Check if task completed while disconnected
-        if (hasTerminalEvent(events)) {
-          console.log(`[sse-reconnect] Task completed during disconnect for ${nodeId}`)
-          setConnectionState(nodeId, undefined, set)
-          return
-        }
-
-        // Got non-terminal events — task still running, don't increment retry count
-        // (but don't reset to 0 either, to avoid infinite reconnection on flaky streams)
-      } else {
-        retryCount++
-      }
-    } catch (catchUpError) {
-      console.warn(`[sse-reconnect] Catch-up fetch failed for ${nodeId}:`, catchUpError)
-      retryCount++
-    }
-
-    // Exponential backoff: 1s, 2s, 4s, 8s, 16s
-    // Use max(retryCount, 1) - 1 to ensure minimum backoff is 1000ms (not 500ms)
-    const backoffMs = RECONNECT_BACKOFF_BASE_MS * Math.pow(2, Math.min(Math.max(retryCount, 1) - 1, 4))
-    await new Promise((resolve) => setTimeout(resolve, backoffMs))
-  }
-
-  // 3f. Switch to polling mode after exhausting retries
-  console.log(`[sse-reconnect] Switching to polling mode for ${nodeId}`)
-  setConnectionState(nodeId, 'polling', set)
-
-  // Poll until terminal event or execution is removed/cancelled.
-  // Use incremental fetch (from lastSeq) to avoid re-downloading all events
-  // every poll cycle. Process new events individually via handleSSEEvent.
-  // Fall back to full hydration only if we detect a terminal event.
-  const pollLoop = async () => {
-    while (true) {
-      // Check if aborted
-      if (signal?.aborted) {
-        console.log(`[sse-reconnect] Polling aborted for ${nodeId}`)
-        setConnectionState(nodeId, undefined, set)
-        return
-      }
-
-      const currentExec = get().executions.get(nodeId)
-      if (!currentExec || currentExec.status === 'cancelled' || currentExec.status === 'success' || currentExec.status === 'failure') {
-        setConnectionState(nodeId, undefined, set)
-        return
-      }
-
-      try {
-        // Incremental fetch: only get events after lastSeq
-        const { events, lastSeq: newLastSeq } = await fetchStreamingEventsCatchUp(
-          [executionId],
-          lastSeq,
-        )
-
-        if (events.length > 0 && newLastSeq > lastSeq) {
-          // Check for terminal event first
-          if (hasTerminalEvent(events)) {
-            // Terminal event found — do full hydration for final state consistency
-            const { events: allEvents, lastSeq: finalSeq } = await fetchStreamingEventsCatchUp(
-              [executionId],
-              0,
-            )
-            processCatchUpEvents(allEvents, nodeId, set, get, planStore, onEventCallback)
-            lastSeq = finalSeq
-            console.log(`[sse-reconnect] Task completed via polling for ${nodeId}`)
-            setConnectionState(nodeId, undefined, set)
-            return
-          }
-
-          // Non-terminal events — process incrementally
-          for (const row of events) {
-            try {
-              const data = typeof row.data === 'string' ? row.data : JSON.stringify(row.data)
-              handleSSEEvent(row.eventType, data, nodeId, set, get, planStore)
-              onEventCallback?.(row.eventType, data)
-            } catch (eventErr) {
-              console.warn(`[sse-reconnect] Failed to process polled event ${row.eventType}:`, eventErr)
-            }
-          }
-          lastSeq = newLastSeq
-        }
-      } catch (pollError) {
-        console.warn(`[sse-reconnect] Polling fetch failed for ${nodeId}:`, pollError)
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
-    }
-  }
-
-  await pollLoop()
-}
-
-// ─── Text Batching for Smooth Streaming ────────────────────────────
-// Accumulates text chunks in a module-level buffer and flushes to
-// Zustand every 50ms (~20fps), preventing per-token re-renders.
-const textBatchPending = new Map<string, string>()
-const textBatchTimers = new Map<string, ReturnType<typeof setTimeout>>()
+// ─── Cleanup Utilities ──────────────────────────────────────────────
 
 /**
  * Clean up all Zustand state associated with a node/execution.
@@ -2443,9 +1915,6 @@ export async function cleanupNodeZustandState(nodeId: string, executionId?: stri
   // Also clear activeSessionIds that point to deleted sessions
   const sessionStore = useSessionStore.getState()
   sessionStore.clearSessionsForNode(nodeId)
-
-  // Clear module-level text batch buffers (execution-store)
-  clearTextBatch(nodeId)
 
   // Clear realtime store state (taskStream, text batches, approvals, safety prompts, attached sessions)
   if (executionId) {
@@ -2514,647 +1983,18 @@ export async function cleanupNodeZustandState(nodeId: string, executionId?: stri
   }
 }
 
-/** Clear text-batch state for a given nodeId (used by resetExecution). */
-export function clearTextBatch(nodeId: string) {
-  const timer = textBatchTimers.get(nodeId)
-  if (timer) clearTimeout(timer)
-  textBatchTimers.delete(nodeId)
-  textBatchPending.delete(nodeId)
-}
 
-function flushTextBatch(
-  nodeId: string,
-  set: (fn: (state: ExecutionState) => Partial<ExecutionState>) => void,
-) {
-  const timer = textBatchTimers.get(nodeId)
-  if (timer) {
-    clearTimeout(timer)
-    textBatchTimers.delete(nodeId)
-  }
 
-  const text = textBatchPending.get(nodeId)
-  textBatchPending.delete(nodeId)
-
-  if (!text) return
-
-  set((state) => {
-    const newExecutions = new Map(state.executions)
-    const exec = newExecutions.get(nodeId)
-    if (exec) {
-      // Deduplicate: skip if this batch is identical to the last text activity event.
-      // This catches live SSE duplicates from agent SDK retries or reconnect overlaps.
-      const trimmed = text.trim()
-      if (trimmed.length > 50) {
-        for (let i = exec.activityEvents.length - 1; i >= 0; i--) {
-          const ev = exec.activityEvents[i]
-          if (ev.type === 'text') {
-            if ('content' in ev && (ev.content as string).trim() === trimmed) {
-              return state // skip duplicate
-            }
-            break // found most-recent text event but content differs — not a dup
-          }
-        }
-      }
-      // Spread to create a new object reference so Zustand selectors detect the change
-      newExecutions.set(nodeId, {
-        ...exec,
-        streamText: exec.streamText + text,
-        activityEvents: [...exec.activityEvents, {
-          type: 'text' as const,
-          content: text,
-          timestamp: new Date(),
-        }],
-      })
-    }
-    return { executions: newExecutions }
-  })
-}
-
-// Helper: Handle individual SSE events
-function handleSSEEvent(
-  event: string,
-  data: string,
-  nodeId: string,
-  set: (fn: (state: ExecutionState) => Partial<ExecutionState>) => void,
-  get: () => ExecutionState,
-  planStore: ReturnType<typeof usePlanStore.getState>
-) {
-  // Flush pending text before non-text events to preserve timeline ordering
-  if (event !== 'text' && event !== 'heartbeat') {
-    flushTextBatch(nodeId, set)
-  }
-
-  switch (event) {
-    case "init": {
-      try {
-        const parsed = JSON.parse(data)
-        set((state) => {
-          const newExecutions = new Map(state.executions)
-          const exec = newExecutions.get(nodeId)
-          if (exec) {
-            newExecutions.set(nodeId, {
-              ...exec,
-              executionId: parsed.executionId,
-              status: "running",
-              machineId: parsed.machineId,
-              providerId: parsed.providerId,
-              providerName: parsed.providerName,
-              ...(parsed.computeBackend ? { computeBackend: parsed.computeBackend } : {}),
-            })
-          }
-          return { executions: newExecutions }
-        })
-        // Plan-node status update is now handled by node:status_changed SSE event
-        // (DB-authoritative: server writes status, emits notification, frontend re-reads from DB)
-
-        // Emit system_prompt activity event so the activity feed can render it
-        if (parsed.systemPrompt) {
-          set((state) => {
-            const newExecutions = new Map(state.executions)
-            const exec = newExecutions.get(nodeId)
-            if (exec) {
-              newExecutions.set(nodeId, {
-                ...exec,
-                activityEvents: [...exec.activityEvents, {
-                  type: 'system_prompt' as const,
-                  content: parsed.systemPrompt,
-                  pathwayType: parsed.pathwayType,
-                  timestamp: new Date(),
-                }],
-              })
-            }
-            return { executions: newExecutions }
-          })
-        }
-
-        // Persist running execution to DB so it survives page refresh
-        const freshExec = get().executions.get(nodeId)
-        if (freshExec?.executionId) {
-          dataClient.saveExecution(freshExec).catch((err) => {
-            console.warn('[execution-store] Failed to persist running execution:', err)
-          })
-        }
-      } catch {
-        // Ignore parse errors
-      }
-      break
-    }
-
-    case "session_init": {
-      try {
-        const parsed = JSON.parse(data)
-        set((state) => {
-          const newExecutions = new Map(state.executions)
-          const exec = newExecutions.get(nodeId)
-          if (exec) {
-            newExecutions.set(nodeId, {
-              ...exec,
-              sessionId: parsed.sessionId,
-            })
-          }
-          return { executions: newExecutions }
-        })
-      } catch {
-        // Ignore parse errors
-      }
-      break
-    }
-
-    case "text": {
-      // Batch text chunks — flush every 50ms for smooth ~20fps rendering
-      textBatchPending.set(nodeId, (textBatchPending.get(nodeId) || '') + data)
-
-      if (!textBatchTimers.has(nodeId)) {
-        textBatchTimers.set(nodeId, setTimeout(() => {
-          textBatchTimers.delete(nodeId)
-          flushTextBatch(nodeId, set)
-        }, 50))
-      }
-      break
-    }
-
-    case "tool_use": {
-      try {
-        const parsed = JSON.parse(data)
-        const now = new Date()
-        // Use toolUseId from Claude API if available for exact matching
-        const traceId = parsed.toolUseId || `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
-        const trace: ToolTrace = {
-          id: traceId,
-          toolName: parsed.toolName,
-          toolInput: parsed.toolInput,
-          timestamp: now,
-        }
-        set((state) => {
-          const newExecutions = new Map(state.executions)
-          const exec = newExecutions.get(nodeId)
-          if (exec) {
-            newExecutions.set(nodeId, {
-              ...exec,
-              toolTraces: [...exec.toolTraces, trace],
-              activityEvents: [...exec.activityEvents, {
-                type: 'tool_use' as const,
-                id: traceId,
-                toolName: parsed.toolName,
-                toolInput: parsed.toolInput,
-                timestamp: now,
-              }],
-            })
-          }
-          return { executions: newExecutions }
-        })
-      } catch {
-        // Ignore parse errors
-      }
-      break
-    }
-
-    case "tool_result": {
-      try {
-        const parsed = JSON.parse(data)
-        const now = new Date()
-        set((state) => {
-          const newExecutions = new Map(state.executions)
-          const exec = newExecutions.get(nodeId)
-          if (exec && exec.toolTraces.length > 0) {
-            // Match by toolUseId first (exact), then fall back to toolName (best-effort)
-            const matchingTrace = parsed.toolUseId
-              ? exec.toolTraces.find(t => t.id === parsed.toolUseId && !t.toolResult)
-              : undefined
-            const fallbackTrace = !matchingTrace
-              ? ([...exec.toolTraces].reverse().find(
-                  t => t.toolName === parsed.toolName && !t.toolResult
-                ) || exec.toolTraces[exec.toolTraces.length - 1])
-              : undefined
-            const matched = matchingTrace || fallbackTrace!
-
-            const updatedToolTraces = matched.toolName === parsed.toolName
-              ? exec.toolTraces.map(t => t === matched
-                  ? { ...t, toolResult: parsed.result, success: parsed.success, duration: parsed.duration }
-                  : t)
-              : exec.toolTraces
-
-            newExecutions.set(nodeId, {
-              ...exec,
-              toolTraces: updatedToolTraces,
-              activityEvents: [...exec.activityEvents, {
-                type: 'tool_result' as const,
-                id: matched.id,
-                toolName: parsed.toolName,
-                toolResult: parsed.result,
-                success: parsed.success,
-                duration: parsed.duration,
-                timestamp: now,
-              }],
-            })
-          }
-          return { executions: newExecutions }
-        })
-      } catch {
-        // Ignore parse errors
-      }
-      break
-    }
-
-    case "file_change": {
-      try {
-        const parsed = JSON.parse(data)
-        const now = new Date()
-        const change: FileChange = {
-          path: parsed.path,
-          action: parsed.action || 'modify',
-          linesAdded: parsed.linesAdded,
-          linesRemoved: parsed.linesRemoved,
-          diff: parsed.diff,
-          timestamp: now,
-        }
-        set((state) => {
-          const newExecutions = new Map(state.executions)
-          const exec = newExecutions.get(nodeId)
-          if (exec) {
-            newExecutions.set(nodeId, {
-              ...exec,
-              fileChanges: [...exec.fileChanges, change],
-              activityEvents: [...exec.activityEvents, {
-                type: 'file_change' as const,
-                path: parsed.path,
-                action: parsed.action || 'modify',
-                diff: parsed.diff,
-                linesAdded: parsed.linesAdded,
-                linesRemoved: parsed.linesRemoved,
-                timestamp: now,
-              }],
-            })
-          }
-          return { executions: newExecutions }
-        })
-      } catch {
-        // Ignore parse errors
-      }
-      break
-    }
-
-    case "progress": {
-      try {
-        const parsed = JSON.parse(data)
-        console.log(`[execution] Progress for ${nodeId}:`, parsed.message, parsed.percentage)
-      } catch {
-        // Ignore parse errors
-      }
-      break
-    }
-
-    case "subroutine_progress": {
-      try {
-        const parsed = JSON.parse(data)
-        set((state) => {
-          const newExecutions = new Map(state.executions)
-          const exec = newExecutions.get(nodeId)
-          if (exec) {
-            newExecutions.set(nodeId, {
-              ...exec,
-              subroutineProgress: {
-                name: parsed.name,
-                index: parsed.index,
-                total: parsed.total,
-                status: parsed.status,
-              },
-            })
-          }
-          return { executions: newExecutions }
-        })
-      } catch {
-        // Ignore parse errors
-      }
-      break
-    }
-
-    // plan_result is only emitted for interactive planning sessions (nodeId: 'plan-<projectId>')
-    case "plan_result": {
-      try {
-        const parsed = JSON.parse(data)
-        if (parsed.nodes && Array.isArray(parsed.nodes)) {
-          const planProjectId = planNodeIdToProjectId(nodeId)
-          if (planProjectId) {
-            const exec = get().executions.get(nodeId)
-            applyPlanFromText(planProjectId, '', exec?.executionId || undefined, false, parsed)
-
-            // Emit plan_result activity event for inline graph rendering
-            set((state) => {
-              const newExecutions = new Map(state.executions)
-              const existingExec = newExecutions.get(nodeId)
-              if (existingExec) {
-                newExecutions.set(nodeId, {
-                  ...existingExec,
-                  activityEvents: [...existingExec.activityEvents, {
-                    type: 'plan_result' as const,
-                    nodes: (parsed.nodes as Array<Record<string, unknown>>).map((n: Record<string, unknown>) => ({
-                      id: (n.id as string) || '',
-                      title: (n.title as string) || '',
-                      type: (n.type as string) || 'task',
-                      status: (n.status as string) || undefined,
-                    })),
-                    edges: ((parsed.edges as Array<Record<string, unknown>>) || []).map((e: Record<string, unknown>) => ({
-                      source: (e.source as string) || '',
-                      target: (e.target as string) || '',
-                    })),
-                    projectName: (parsed.projectName as string) || undefined,
-                    timestamp: new Date(),
-                  }],
-                })
-              }
-              return { executions: newExecutions }
-            })
-          } else {
-            console.warn(`[execution-store] plan_result received for non-plan node ${nodeId} — ignoring`)
-          }
-        }
-      } catch { /* fallback extraction on result event will handle it */ }
-      break
-    }
-
-    case "result": {
-      try {
-        const parsed = JSON.parse(data)
-        const isSuccess = parsed.status === "success" || parsed.status === "completed"
-        const execution = get().executions.get(nodeId)
-
-        // Guard: skip duplicate side-effects if this result was already processed
-        // (can happen when SSE reconnection replays caught-up events through handleSSEEvent)
-        const alreadyCompleted = execution?.status === 'success' || execution?.status === 'failure' || execution?.status === 'cancelled'
-
-        // Extract metrics from result event
-        const metrics: UsageMetrics | undefined = parsed.metrics ? {
-          durationMs: parsed.metrics.durationMs,
-          inputTokens: parsed.metrics.inputTokens,
-          outputTokens: parsed.metrics.outputTokens,
-          tokensUsed: parsed.metrics.tokensUsed,
-          estimatedCostUsd: parsed.metrics.estimatedCostUsd,
-          model: parsed.metrics.model,
-          turnsUsed: parsed.metrics.turnsUsed,
-        } : undefined
-
-        set((state) => {
-          const newExecutions = new Map(state.executions)
-          const exec = newExecutions.get(nodeId)
-          if (exec) {
-            newExecutions.set(nodeId, {
-              ...exec,
-              status: isSuccess ? "success" : "failure",
-              completedAt: new Date(),
-              ...(!isSuccess && parsed.error ? { error: parsed.error } : {}),
-              ...(parsed.sessionId ? { sessionId: parsed.sessionId } : {}),
-              ...(metrics ? { metrics } : {}),
-              ...(parsed.branchName ? { branchName: parsed.branchName } : {}),
-              ...(parsed.prUrl ? { prUrl: parsed.prUrl } : {}),
-              ...(parsed.prNumber ? { prNumber: parsed.prNumber } : {}),
-              ...(parsed.deliveryStatus ? { deliveryStatus: parsed.deliveryStatus } : {}),
-              ...(parsed.deliveryError ? { deliveryError: parsed.deliveryError } : {}),
-            })
-          }
-          return { executions: newExecutions }
-        })
-
-        // Skip toasts and metrics accumulation on duplicate result events
-        // (SSE reconnection catch-up replays events through handleSSEEvent)
-        if (!alreadyCompleted) {
-          // Notify when a planning session finishes
-          if (nodeId.startsWith('plan-')) {
-            const planProjectId = planNodeIdToProjectId(nodeId)
-            const planProject = planProjectId ? useProjectStore.getState().projects.find((p) => p.id === planProjectId) : null
-            useToastStore.getState().add({
-              type: isSuccess ? 'success' : 'error',
-              title: isSuccess ? 'Planning complete' : 'Planning failed',
-              description: planProject
-                ? (isSuccess ? `Plan for "${planProject.name}" is ready.` : `Plan for "${planProject.name}" failed.`)
-                : (isSuccess ? 'Plan generation has finished.' : 'Plan generation failed.'),
-              duration: 6000,
-            })
-
-            // Auto-execute all tasks if YOLO mode was enabled for this project
-            if (isSuccess && planProjectId && get().autoExecuteProjectIds.has(planProjectId)) {
-              const autoExecOptions = get().autoExecuteProjectIds.get(planProjectId)
-              get().setAutoExecute(planProjectId, false) // consume the flag
-              // Small delay to let plan nodes settle in the store
-              setTimeout(() => {
-                console.log(`[execution] YOLO mode: auto-executing all tasks for project ${planProjectId}`)
-                get().executeAllProject(planProjectId, autoExecOptions)
-              }, 1000)
-            }
-          }
-
-          // Accumulate metrics in usage store
-          if (metrics) {
-            useUsageStore.getState().addTaskMetrics(metrics, isSuccess)
-          }
-
-          // Show notification if task used more than 500 turns
-          if (metrics?.turnsUsed && metrics.turnsUsed > 500) {
-            useToastStore.getState().add({
-              type: 'warning',
-              title: 'High Turn Count',
-              description: `Task used ${metrics.turnsUsed} turns. This may indicate a complex task or potential issue.`,
-              duration: 8000,
-            })
-          }
-        }
-
-        // Plan-node status update is primarily handled by node:status_changed SSE event
-        // (DB-authoritative: server writes status, emits notification, frontend re-reads from DB).
-        // Fallback: if the result event carries finalStatus, update plan node directly.
-        // This prevents nodes from staying "in_progress" if the global events SSE misses
-        // the node:status_changed event (connection drop, auth failure, etc.).
-        //
-        // NOT gated by alreadyCompleted: the global events SSE task:result handler
-        // sets execution status to 'success' but does NOT update the plan node
-        // (it defers to node:status_changed). If task:result races ahead of this
-        // handler, alreadyCompleted would be true and the plan node would never
-        // transition out of "in_progress". Since this is idempotent (setting a
-        // terminal status), running it twice is harmless.
-        const validFinalStatuses = new Set(['auto_verified', 'awaiting_judgment', 'completed', 'pruned'])
-        if (parsed.finalStatus && validFinalStatuses.has(parsed.finalStatus)) {
-          planStore.updateNode(nodeId, { status: parsed.finalStatus })
-
-          // Trigger batch cascade: the dispatch SSE result often arrives before
-          // node:status_changed. When that happens, the plan node is already at
-          // the terminal status by the time node:status_changed fires, so its
-          // prevStatus === freshNode.status check skips triggerBatchWave. Calling
-          // it here ensures downstream tasks are dispatched regardless of event ordering.
-          if (!nodeId.startsWith('plan-') && !nodeId.startsWith('playground-')) {
-            const projectId = get().executions.get(nodeId)?.projectId
-            if (projectId) {
-              get().triggerBatchWave(projectId)
-            }
-          }
-        }
-
-        // Auto-assign defaultMachineId on the project if not set
-        if (isSuccess && execution?.machineId && execution?.projectId) {
-          const proj = useProjectStore.getState().projects.find((p) => p.id === execution.projectId)
-          if (proj && !proj.defaultMachineId) {
-            useProjectStore.getState().updateProject(proj.id, { defaultMachineId: execution.machineId })
-          }
-        }
-
-        // Refresh file tree cache after task completion (skip on duplicate replay)
-        if (!alreadyCompleted) {
-          const projectForRefresh = useProjectStore.getState().projects.find(
-            (p) => p.id === execution?.projectId
-          )
-          if (projectForRefresh?.workingDirectory) {
-            fetch(apiUrl(`/api/repo/file-tree?workingDirectory=${encodeURIComponent(projectForRefresh.workingDirectory)}`))
-              .then((r) => r.json())
-              .then((data) => {
-                if (data.files?.length) {
-                  useProjectStore.getState().updateFileTree(projectForRefresh.id, data.files)
-                }
-              })
-              .catch(() => {})
-          }
-        }
-
-        // Batch execution dispatch moved to node:status_changed handler in realtime-store
-        // (runs after mergeNodeFromDB so node status in store is fresh)
-
-        // Summary generation: use structured summary from agent result if available,
-        // otherwise fall back to parsing from stream text, then relay-based /api/agent/summarize.
-        // Always generate summaries — the node:status_changed handler now handles
-        // plan-node status, but summaries are execution-level data stored here.
-        if (execution) {
-          const freshExec = get().executions.get(nodeId)
-
-          if (parsed.summary?.status && parsed.summary?.workCompleted) {
-            // Primary path: structured summary from agent follow-up turn — guaranteed valid JSON
-            const summary: ExecutionSummary = {
-              workCompleted: parsed.summary.workCompleted,
-              executiveSummary: parsed.summary.executiveSummary,
-              keyFindings: parsed.summary.keyFindings || [],
-              filesChanged: parsed.summary.filesChanged || freshExec?.fileChanges?.map((f: { path: string }) => f.path) || [],
-              status: parsed.summary.status,
-              followUps: parsed.summary.followUps || [],
-            }
-            useExecutionStore.setState((state) => {
-              const newExecs = new Map(state.executions)
-              const ex = newExecs.get(nodeId)
-              if (ex) newExecs.set(nodeId, { ...ex, summary })
-              return { executions: newExecs }
-            })
-          } else {
-            // Fallback: try parsing from stream text (regex-based)
-            const parsedSummary = freshExec?.streamText ? parseExecutiveSummary(freshExec.streamText) : null
-
-            if (parsedSummary?.status && parsedSummary?.workCompleted) {
-              const summary: ExecutionSummary = {
-                workCompleted: parsedSummary.workCompleted,
-                keyFindings: parsedSummary.keyFindings || [],
-                filesChanged: freshExec?.fileChanges?.map((f) => f.path) ?? [],
-                status: parsedSummary.status,
-                followUps: parsedSummary.followUps || [],
-              }
-              useExecutionStore.setState((state) => {
-                const newExecs = new Map(state.executions)
-                const ex = newExecs.get(nodeId)
-                if (ex) newExecs.set(nodeId, { ...ex, summary })
-                return { executions: newExecs }
-              })
-            } else {
-              // Last resort: try relay-based summarization
-              const summaryNode = usePlanStore.getState().nodes.find((n) => n.id === nodeId)
-              requestExecutionSummary(nodeId, freshExec || execution, summaryNode)
-            }
-          }
-        }
-
-        // Persist completed execution to database
-        useExecutionStore.getState().persist()
-      } catch {
-        // Ignore parse errors
-      }
-      break
-    }
-
-    case "error": {
-      try {
-        const parsed = JSON.parse(data)
-        const errorMessage = typeof parsed === 'string' ? parsed : parsed.error || 'Unknown error'
-        const errorTime = new Date()
-        const execution = get().executions.get(nodeId)
-        const node = planStore.nodes.find((n) => n.id === nodeId)
-
-        // Guard: ignore late error events if the result has already been processed
-        // (prevents race condition where result + error SSE events arrive close together)
-        if (execution && (execution.status === "success" || execution.status === "failure")) {
-          console.warn(`[execution-store] Ignoring late error for ${nodeId} (status already ${execution.status})`)
-          break
-        }
-
-        set((state) => {
-          const newExecutions = new Map(state.executions)
-          const exec = newExecutions.get(nodeId)
-          if (exec) {
-            newExecutions.set(nodeId, {
-              ...exec,
-              status: "failure",
-              error: errorMessage,
-              completedAt: errorTime,
-              activityEvents: [...exec.activityEvents, { type: 'error' as const, error: errorMessage, timestamp: errorTime }],
-            })
-          }
-          return { executions: newExecutions }
-        })
-        // Plan-node status update is now handled by node:status_changed SSE event
-
-        // Fire async summary generation for failed tasks (non-blocking)
-        if (execution) {
-          requestExecutionSummary(nodeId, execution, node)
-        }
-
-        // Persist failed execution to database
-        useExecutionStore.getState().persist()
-      } catch {
-        // Ignore parse errors
-      }
-      break
-    }
-
-    case "aborted": {
-      set((state) => {
-        const newExecutions = new Map(state.executions)
-        const exec = newExecutions.get(nodeId)
-        if (exec) {
-          newExecutions.set(nodeId, {
-            ...exec,
-            status: "cancelled",
-            completedAt: new Date(),
-          })
-        }
-        return { executions: newExecutions }
-      })
-      // Plan-node status update is now handled by node:status_changed SSE event
-
-      // Persist cancelled execution to database
-      useExecutionStore.getState().persist()
-      break
-    }
-
-    case "heartbeat":
-    case "done":
-      // Heartbeat and done events are informational, no action needed
-      break
-  }
-}
-
-// Helper: Fire-and-forget summary generation after execution completes
-async function requestExecutionSummary(
+/**
+ * Fire-and-forget: request AI summary generation for a completed execution.
+ * Called from realtime-store when task:result arrives.
+ */
+export async function requestExecutionSummary(
   nodeId: string,
   execution: TaskExecution,
-  node: PlanNode | undefined,
+  node: { title: string; content?: string | null; description?: string | null } | undefined,
 ) {
-  if (!node || !execution.streamText) {
-    console.log(`[execution-store] Skipping summary generation for ${nodeId}: node=${!!node}, streamText=${!!execution.streamText}`)
-    return
-  }
-  console.log(`[execution-store] Requesting summary generation for task: ${node.title} (status: ${execution.status})`)
+  if (!node || !execution.streamText) return
   try {
     const headers = await getAuthHeaders()
     const response = await fetch(apiUrl("/api/agent/summarize"), {
@@ -3168,18 +2008,14 @@ async function requestExecutionSummary(
         status: execution.status === "success" ? "success" : "failure",
       }),
     })
-    console.log(`[execution-store] Summary generation response status: ${response.status}`)
     if (response.ok) {
       const data = await response.json()
       if (data.summary) {
-        console.log(`[execution-store] Successfully received summary for ${nodeId}`)
-        // Ensure keyFindings is always present (backward compat)
         const raw = data.summary as ExecutionSummary
         const summary: ExecutionSummary = {
           ...raw,
           keyFindings: raw.keyFindings || [],
         }
-        // If API didn't return keyFindings, try parsing from stream text
         if (summary.keyFindings.length === 0 && execution.streamText) {
           const parsed = parseExecutiveSummary(execution.streamText)
           if (parsed?.keyFindings) summary.keyFindings = parsed.keyFindings
@@ -3192,21 +2028,11 @@ async function requestExecutionSummary(
           }
           return { executions: newExecutions }
         })
-        // Persist the newly-generated summary to DB
         useExecutionStore.getState().persist()
-      } else {
-        console.warn(`[execution-store] Summary response missing 'summary' field for ${nodeId}`)
-        setFallbackSummary(nodeId, execution)
       }
-    } else {
-      const errorText = await response.text()
-      console.error(`[execution-store] Summary generation failed for ${nodeId}:`, errorText)
-      setFallbackSummary(nodeId, execution)
     }
   } catch (error) {
-    // Non-critical — log but don't fail the execution
     console.error(`[execution-store] Summary generation error for ${nodeId}:`, error)
-    setFallbackSummary(nodeId, execution)
   }
 }
 
@@ -3254,29 +2080,6 @@ export function parseExecutiveSummary(streamText: string): Partial<ExecutionSumm
   }
 }
 
-/** Set a fallback summary so the UI doesn't show "Generating summary..." forever. */
-function setFallbackSummary(nodeId: string, execution: TaskExecution) {
-  // Try to parse executive summary from the stream text first
-  const parsed = execution.streamText ? parseExecutiveSummary(execution.streamText) : null
-
-  useExecutionStore.setState((state) => {
-    const newExecutions = new Map(state.executions)
-    const exec = newExecutions.get(nodeId)
-    if (exec && !exec.summary) {
-      newExecutions.set(nodeId, {
-        ...exec,
-        summary: {
-          workCompleted: parsed?.workCompleted || exec.error || 'Summary generation unavailable. Check execution output for details.',
-          keyFindings: parsed?.keyFindings || [],
-          filesChanged: exec.fileChanges?.map((f) => f.path) ?? [],
-          status: parsed?.status || (execution.status === 'success' ? 'success' : 'failure'),
-          followUps: parsed?.followUps || [],
-        },
-      })
-    }
-    return { executions: newExecutions }
-  })
-}
 
 // Helper: Check if a node's dependencies are met
 interface CanExecuteResult {
@@ -3409,5 +2212,3 @@ function dispatchNextBatchWave(projectId: string) {
 
 // Helper: Extract plan JSON from streaming text output
 // Looks for JSON in ```json code fences or raw JSON with projectName/nodes/edges
-
-

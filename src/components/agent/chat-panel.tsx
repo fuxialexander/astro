@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
-import { stripHtml } from "@/lib/html-utils"
-import { Send, Loader2, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2, Clock, Sparkles, Paperclip, Square } from "lucide-react"
+import { Send, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2, Sparkles, Paperclip, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -13,32 +12,19 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { FileCompletionTextarea, type MentionItem, type SlashCommand, type ChatImageAttachment } from "@/components/ui/file-completion-textarea"
 import { TypingIndicator } from "@/components/ui/typing-indicator"
-import { fetchSlashCommands, type ChatPlanNodeContext, type ChatPlanEdgeContext } from "@/lib/api-client"
+import { fetchSlashCommands } from "@/lib/api-client"
 import { useSettingsStore, resolveModel } from "@/stores/settings-store"
 import { useExecutionStore, type MachineInfo } from "@/stores/execution-store"
-import { useRealtimeStore } from "@/stores/realtime-store"
-import { usePlanStore, isLive } from "@/stores/plan-store"
+
 import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore, getSessionTitle } from "@/stores/session-store"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { useProjectMachineId } from "@/hooks/use-project-machine"
-import { useChatActivityEvents } from "@/hooks/use-chat-activity-events"
-import {
-  groupActivityEvents,
-  TextBlock,
-  ToolBlock,
-  ToolGroupBlock,
-  SteerBlock,
-  FileChangeBlock,
-  ErrorBlock,
-  ChatUserBlock,
-  ChatAssistantBlock,
-  MutationBlock,
-  SystemMessageBlock,
-} from "@/components/activity-blocks"
-import { JsonRenderView } from "@/components/ui/json-render-view"
-import type { Spec } from "@json-render/core"
+import { useStreamEvents } from "@/hooks/use-stream-events"
+import { ActivityBlockRenderer } from "@/components/activity-block-renderer"
 import { deriveAvailableProviders } from "@/components/execution/provider-utils"
+import { usePlanContext } from "@/hooks/use-plan-context"
+import { useAutoScroll } from "@/hooks/use-auto-scroll"
 import type { AppliedMutations } from "@/lib/plan-mutations"
 import type { ProviderStatus, Session, TaskActivityEvent } from "@/types"
 
@@ -71,15 +57,13 @@ interface ChatPanelProps {
 
 export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, headerActions }: ChatPanelProps) {
   const [input, setInput] = useState("")
-  const [autoScroll, setAutoScroll] = useState(true)
-  const [pendingMessage, setPendingMessage] = useState<string | null>(null)
-  const pendingImagesRef = useRef<ChatImageAttachment[]>([])
   const [chatImages, setChatImages] = useState<ChatImageAttachment[]>([])
   const filePickerRef = useRef<(() => void) | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const initialMessageSent = useRef(false)
   // Session store for persistent chat
   const createSession = useSessionStore((s) => s.createSession)
+  const getOrCreateSession = useSessionStore((s) => s.getOrCreateSession)
   const addMessage = useSessionStore((s) => s.addMessage)
   const sendChatMessage = useSessionStore((s) => s.sendChatMessage)
   const abortChatStream = useSessionStore((s) => s.abortChatStream)
@@ -95,6 +79,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   const clearActiveSessionId = useSessionStore((s) => s.clearActiveSessionId)
   // Subscribe to sessions and activeSessionIds so memos recompute on changes
   const sessions = useSessionStore((s) => s.sessions)
+  const sessionsLoaded = useSessionStore((s) => s.loaded)
   const activeSessionIds = useSessionStore((s) => s.activeSessionIds)
 
   // State for session dropdown and inline rename
@@ -132,16 +117,19 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     return projectChatSessions[projectChatSessions.length - 1]
   }, [activeSessionId, getSession, projectChatSessions, projectId])
 
-  // Ensure session exists and track as active
+  // Ensure session exists and track as active — wait for sessions to load first
+  // to avoid creating duplicates before existing sessions are fetched from DB.
+  // Uses getOrCreateSession for idempotent session creation (safe when multiple
+  // components mount simultaneously, e.g. chat-panel + plan-generation).
   useEffect(() => {
+    if (!sessionsLoaded) return
     if (!currentSession) {
-      const newSession = createSession({ type: "project-chat", projectId })
-      setActiveSessionId(projectId, "project-chat", newSession.id)
+      const session = getOrCreateSession({ type: "project-chat", projectId })
+      setActiveSessionId(projectId, "project-chat", session.id)
     } else if (!activeSessionId || activeSessionId !== currentSession.id) {
-      // If the current session exists but isn't marked as active, mark it
       setActiveSessionId(projectId, "project-chat", currentSession.id)
     }
-  }, [currentSession, createSession, projectId, activeSessionId, setActiveSessionId])
+  }, [sessionsLoaded, currentSession, getOrCreateSession, projectId, activeSessionId, setActiveSessionId])
 
   // Derive streaming state from store
   const isStreaming = currentSession ? streamingSessions.has(currentSession.id) : false
@@ -187,7 +175,14 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
 
   // Handler for session delete
+  // The first (oldest) session is the "Planning" session — it shows plan generation
+  // history and is protected from deletion.
+  const planningSessionId = projectChatSessions[0]?.id
+
   const handleDeleteSession = useCallback((sessionId: string) => {
+    // Protect the planning session from deletion
+    if (sessionId === planningSessionId) return
+
     const isActiveSession = currentSession?.id === sessionId
 
     // Delete the session
@@ -207,15 +202,21 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
         clearActiveSessionId(projectId, "project-chat")
       }
     }
-  }, [currentSession?.id, deleteSession, projectChatSessions, projectId, setActiveSessionId, clearActiveSessionId])
+  }, [currentSession?.id, deleteSession, projectChatSessions, projectId, setActiveSessionId, clearActiveSessionId, planningSessionId])
 
-  // Handler to clear all sessions
+  // Handler to clear all sessions (preserves the planning session)
   const handleClearAllSessions = useCallback(() => {
     for (const session of projectChatSessions) {
+      if (session.id === planningSessionId) continue
       deleteSession(session.id)
     }
-    clearActiveSessionId(projectId, "project-chat")
-  }, [projectChatSessions, deleteSession, projectId, clearActiveSessionId])
+    // Switch back to the planning session
+    if (planningSessionId) {
+      setActiveSessionId(projectId, "project-chat", planningSessionId)
+    } else {
+      clearActiveSessionId(projectId, "project-chat")
+    }
+  }, [projectChatSessions, deleteSession, projectId, clearActiveSessionId, setActiveSessionId, planningSessionId])
 
   const messages: (Message & { id: string })[] = (currentSession?.messages || []).map((m) => ({
     id: m.id,
@@ -226,91 +227,59 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
   // Activity view: hydrate events from streaming_events or session messages
   const sessionMessages = useMemo(() => currentSession?.messages || [], [currentSession?.messages])
-  const { displayBlocks: sessionDisplayBlocks, isRestoring } = useChatActivityEvents(
+  const { activityEvents: sessionActivityEvents, displayBlocks: sessionDisplayBlocks, isHydrating: isRestoring } = useStreamEvents(
     currentSession?.id,
-    sessionMessages,
-    isStreaming,
+    { legacySessionMessages: sessionMessages, projectId },
   )
 
-  // Plan gen execution events — when viewing a plan gen session, also load
-  // the plan generation execution events so the planning conversation is visible
-  const isPlanSession = currentSession?.nodeId?.startsWith("plan-")
-  const planExecutionId = isPlanSession ? planExecution?.executionId : undefined
+  // Plan gen execution events — only show in the first (original) session that was
+  // created alongside plan generation. When the user creates a "New Session", it
+  // should start clean without inheriting plan generation history.
+  const isFirstSession = projectChatSessions.length > 0 && currentSession?.id === projectChatSessions[0]?.id
+  const planExecutionId = isFirstSession ? planExecution?.executionId : undefined
 
-  const hydrateFromCatchUp = useRealtimeStore((s) => s.hydrateFromCatchUp)
-  const planHydratedRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (!planExecutionId) return
-    if (planHydratedRef.current === planExecutionId) return
-    planHydratedRef.current = planExecutionId
-    hydrateFromCatchUp([planExecutionId], 0)
-  }, [planExecutionId, hydrateFromCatchUp])
-
-  const planStream = useRealtimeStore(
-    useCallback((s) => planExecutionId ? s.taskStreams.get(planExecutionId) : undefined, [planExecutionId])
+  const { activityEvents: planActivityEvents, displayBlocks: planBlocks } = useStreamEvents(
+    planExecutionId,
   )
-  const planGenEvents = useMemo(() => planStream?.activityEvents ?? [], [planStream?.activityEvents])
 
   // Combine plan gen execution events + session chat events
   const displayBlocks = useMemo(() => {
-    if (planGenEvents.length === 0) return sessionDisplayBlocks
-    const planBlocks = groupActivityEvents(planGenEvents)
-    // If session also has events, merge them after plan gen events
+    if (planBlocks.length === 0) return sessionDisplayBlocks
     if (sessionDisplayBlocks.length > 0) {
       return [...planBlocks, ...sessionDisplayBlocks]
     }
     return planBlocks
-  }, [planGenEvents, sessionDisplayBlocks])
-
-  // Plan store — read nodes/edges for context
-  const rawPlanNodes = usePlanStore((s) => s.nodes)
-  const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
-  const rawPlanEdges = usePlanStore((s) => s.edges)
-  const planEdges = useMemo(() => rawPlanEdges.filter(isLive), [rawPlanEdges])
+  }, [planBlocks, sessionDisplayBlocks])
+  const answeredApprovals = useMemo(() => {
+    const ids = new Set<string>()
+    const responses = new Map<string, Extract<TaskActivityEvent, { type: 'approval_response' }>>()
+    // Scan both session events AND plan execution events (approvals during plan
+    // generation are persisted under the execution ID, not the chat session ID)
+    for (const event of [...sessionActivityEvents, ...planActivityEvents]) {
+      if (event.type === 'approval_response') {
+        ids.add(event.requestId)
+        responses.set(event.requestId, event)
+      }
+    }
+    return { answeredApprovals: ids, approvalResponses: responses }
+  }, [sessionActivityEvents, planActivityEvents])
 
   // Project store — for file tree and working directory
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const resolvedMachineId = useProjectMachineId(project)
 
-  // Build lean plan context for the API (only nodes in this project)
-  const planNodeContext: ChatPlanNodeContext[] = useMemo(() => {
-    return planNodes
-      .filter((n) => n.projectId === projectId)
-      .map((n) => ({
-        id: n.id,
-        title: n.title,
-        description: n.content ? stripHtml(n.content) : (n.description ?? ''),
-        status: n.status,
-        type: n.type,
-        priority: n.priority,
-        estimate: n.estimate,
-        verification: n.verification,
-        milestoneId: n.milestoneId,
-        dependencies: n.dependencies,
-        dueDate: n.dueDate,
-        startDate: n.startDate,
-        endDate: n.endDate,
-      }))
-  }, [planNodes, projectId])
-
-  // Build edge context for the API
-  const planEdgeContext: ChatPlanEdgeContext[] = useMemo(() => {
-    const projectNodeIds = new Set(planNodes.filter((n) => n.projectId === projectId).map((n) => n.id))
-    return planEdges
-      .filter((e) => projectNodeIds.has(e.source) || projectNodeIds.has(e.target))
-      .map((e) => ({ source: e.source, target: e.target, type: e.type }))
-  }, [planNodes, planEdges, projectId])
+  // Plan context — shared hook
+  const { planNodes, planNodeContext, planEdgeContext } = usePlanContext(projectId)
 
   // Build @mention items for the chat input (task/milestone references)
   const mentionItems: MentionItem[] = useMemo(() => {
-    const projectNodes = planNodes.filter((n) => n.projectId === projectId)
-    return projectNodes.map((n) => ({
+    return planNodes.map((n) => ({
       id: n.id,
       label: n.title,
       detail: n.type,
       kind: n.type === "milestone" ? "milestone" as const : "task" as const,
     }))
-  }, [planNodes, projectId])
+  }, [planNodes])
 
   // Slash commands from connected machine
   const [slashCmds, setSlashCmds] = useState<SlashCommand[]>([])
@@ -333,8 +302,8 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     return deriveAvailableProviders(machine?.providers, globalProviders)
   }, [resolvedMachineId, executionMachines, globalProviders])
 
-  // Local overrides (empty string = use default)
-  const [selectedProvider, setSelectedProvider] = useState("")
+  // Use project-level provider from settings (shared with workdir bar)
+  const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider)
   const [selectedModel, setSelectedModel] = useState("")
 
   // Load providers on mount if not already loaded
@@ -342,18 +311,11 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     if (!providersLoaded) loadProviders()
   }, [providersLoaded, loadProviders])
 
-  // Sync defaults from settings on first load
-  useEffect(() => {
-    if (providersLoaded && !selectedProvider && defaultProvider) {
-      setSelectedProvider(defaultProvider)
-    }
-  }, [providersLoaded, defaultProvider, selectedProvider])
-
   // Resolve the effective provider object, model, and providerId for the API call
   const selectedProviderObj: ProviderStatus | undefined =
-    selectedProvider ? providers.find((p) => p.id === selectedProvider) : undefined
+    defaultProvider ? providers.find((p) => p.id === defaultProvider) : undefined
 
-  const effectiveProviderId = selectedProvider || defaultProvider || undefined
+  const effectiveProviderId = defaultProvider || undefined
 
   const customModelMap = useSettingsStore((s) => s.customModelMap)
   const modelTier = useSettingsStore((s) => s.modelTier)
@@ -364,52 +326,25 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
 
   // No unmount abort needed — SSE is owned by session-store, survives navigation
 
-  useEffect(() => {
-    if (autoScroll && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-    }
-  }, [displayBlocks.length, isStreaming, autoScroll])
+  // Auto-scroll
+  const { autoScroll, handleScroll, scrollToBottom } = useAutoScroll(
+    scrollRef,
+    [displayBlocks.length, isStreaming],
+  )
 
-  const handleScroll = useCallback(() => {
-    if (!scrollRef.current) return
-    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
-    setAutoScroll(scrollHeight - scrollTop - clientHeight < 50)
-  }, [])
-
-  const sendMessage = useCallback(async (text: string, imageOverrides?: ChatImageAttachment[]) => {
+  // Send message — delegates to store-owned SSE which handles queuing when streaming.
+  // No local queue needed: the store's chatMessageQueues auto-drain on stream completion.
+  const sendMessage = useCallback((text: string) => {
     // Read session fresh from store — never use stale ref
     const store = useSessionStore.getState()
     const activeId = store.activeSessionIds.get(`${projectId}:project-chat`)
     const session = activeId ? store.sessions.get(activeId) : undefined
     if (!text || !session) return
 
-    // If busy (streaming or plan generating), queue the message for auto-send later
-    const busy = useSessionStore.getState().streamingSessions.has(session.id) ||
-      (() => {
-        const pe = useExecutionStore.getState().executions.get(`plan-${projectId}`)
-        return !!pe && !['success', 'failure', 'cancelled'].includes(pe.status)
-      })()
-
-    // Use explicit overrides (from pending queue) or current UI state
-    const currentImages = imageOverrides ?? chatImages
-
-    if (busy) {
-      // Only queue if no message is already pending (avoid silent overwrite).
-      // Use functional update to read current state without adding pendingMessage to deps.
-      setPendingMessage((prev) => {
-        if (prev) return prev // keep existing queued message
-        setInput("")
-        // Capture images alongside the pending message
-        pendingImagesRef.current = currentImages
-        setChatImages([])
-        return text
-      })
-      return
-    }
-
-    setPendingMessage(null)
+    const currentImages = chatImages
     setInput("")
     setChatImages([])
+
     const sid = session.id
     addMessage(sid, { role: "user", content: text })
     addMessage(sid, { role: "assistant", content: "" })
@@ -422,7 +357,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
 
-    // Delegate to store-owned SSE — survives navigation
     sendChatMessage({
       sessionId: sid,
       projectId,
@@ -442,20 +376,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     if (!text && chatImages.length === 0) return
     sendMessage(text || "(See attached images)")
   }
-
-  // Auto-send pending message when busy state clears
-  useEffect(() => {
-    if (!isBusy && pendingMessage) {
-      const timer = setTimeout(() => {
-        const msg = pendingMessage
-        const imgs = pendingImagesRef.current
-        setPendingMessage(null)
-        pendingImagesRef.current = []
-        sendMessage(msg, imgs)
-      }, 300) // Brief delay to ensure session state is settled
-      return () => clearTimeout(timer)
-    }
-  }, [isBusy, pendingMessage, sendMessage])
 
   // Listen for send_chat_message events from json-render interactive specs
   useEffect(() => {
@@ -535,7 +455,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       {/* Header with session switcher and model/provider picker */}
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4 border-b border-border/60">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold">Plan Chat</span>
+          <span className="text-sm font-semibold">Project Chat</span>
           {/* Session metadata */}
           {messages.length > 0 && (
             <span className="text-[10px] text-muted-foreground tabular-nums">
@@ -577,8 +497,8 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                 <DropdownMenuSeparator />
                 {[...projectChatSessions].reverse().map((session) => {
                   const messageCount = session.messageCount ?? session.messages.length
-                  const isPlanGen = session.nodeId?.startsWith("plan-")
-                  const sessionTitle = isPlanGen ? "Planning" : getSessionTitle(session)
+                  const isPlanningSession = session.id === planningSessionId
+                  const sessionTitle = isPlanningSession ? "Planning" : getSessionTitle(session)
                   const isActive = currentSession?.id === session.id
                   return (
                     <div
@@ -587,8 +507,8 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                       className="flex flex-col items-start gap-0.5 py-2 px-2 rounded-sm cursor-pointer hover:bg-accent transition-colors"
                     >
                       <div className="flex items-center gap-2 w-full">
-                        {isPlanGen ? <Sparkles className="h-3 w-3 shrink-0 text-primary" /> : <MessageSquare className="h-3 w-3 shrink-0" />}
-                        {renamingSessionId === session.id ? (
+                        {isPlanningSession ? <Sparkles className="h-3 w-3 shrink-0 text-primary" /> : <MessageSquare className="h-3 w-3 shrink-0" />}
+                        {!isPlanningSession && renamingSessionId === session.id ? (
                           <div className="flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
                             <InlineRenameInput
                               value={sessionTitle}
@@ -603,9 +523,9 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                           </div>
                         ) : (
                           <span
-                            className="text-xs truncate flex-1"
+                            className={`text-xs truncate flex-1 ${isPlanningSession ? "font-medium" : ""}`}
                             title={sessionTitle}
-                            onDoubleClick={(e) => {
+                            onDoubleClick={isPlanningSession ? undefined : (e) => {
                               e.stopPropagation()
                               setRenamingSessionId(session.id)
                             }}
@@ -616,7 +536,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                         {isActive && renamingSessionId !== session.id && (
                           <CheckCircle2 className="h-3 w-3 text-primary shrink-0" />
                         )}
-                        {renamingSessionId !== session.id && (
+                        {!isPlanningSession && renamingSessionId !== session.id && (
                           <button
                             onClick={(e) => { e.stopPropagation(); setRenamingSessionId(session.id) }}
                             className="p-1.5 hover:bg-accent rounded opacity-60 [@media(hover:hover)]:opacity-40 hover:opacity-100 transition-opacity"
@@ -625,16 +545,18 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
                         )}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.id) }}
-                          className="p-1.5 hover:bg-destructive/10 rounded opacity-60 [@media(hover:hover)]:opacity-40 hover:opacity-100 transition-opacity text-destructive"
-                          title="Delete session"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        {!isPlanningSession && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.id) }}
+                            className="p-1.5 hover:bg-destructive/10 rounded opacity-60 [@media(hover:hover)]:opacity-40 hover:opacity-100 transition-opacity text-destructive"
+                            title="Delete session"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
                       <span className="text-[10px] text-muted-foreground truncate w-full pl-5">
-                        {messageCount} messages
+                        {isPlanningSession ? "Plan generation history" : `${messageCount} messages`}
                       </span>
                     </div>
                   )
@@ -658,19 +580,19 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
             <DropdownMenuContent align="end" className="w-[240px]">
               <DropdownMenuLabel>Agent</DropdownMenuLabel>
               <DropdownMenuItem
-                onClick={() => { setSelectedProvider(""); setSelectedModel("") }}
+                onClick={() => { setDefaultProvider(""); setSelectedModel("") }}
                 className="gap-2"
               >
                 <Bot className="h-3.5 w-3.5" />
                 <span>Auto</span>
-                {!selectedProvider && (
+                {!defaultProvider && (
                   <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />
                 )}
               </DropdownMenuItem>
               {providers.map((provider) => (
                 <DropdownMenuItem
                   key={provider.id}
-                  onClick={() => { setSelectedProvider(provider.id); setSelectedModel("") }}
+                  onClick={() => { setDefaultProvider(provider.id); setSelectedModel("") }}
                   className="gap-2"
                   disabled={!provider.available}
                 >
@@ -683,7 +605,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                       </span>
                     )}
                   </div>
-                  {selectedProvider === provider.id && (
+                  {defaultProvider === provider.id && (
                     <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />
                   )}
                 </DropdownMenuItem>
@@ -730,7 +652,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
           <div className="flex items-center justify-center h-full">
             {isRestoring ? (
               <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <TypingIndicator className="text-muted-foreground" />
                 Loading activity...
               </span>
             ) : (
@@ -743,82 +665,25 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
           </div>
         )}
 
-        {displayBlocks.map((block, i) => {
-          const isLastBlock = i === displayBlocks.length - 1
-          switch (block.type) {
-            case 'text':
-              return (
-                <TextBlock
-                  key={i}
-                  events={block.events}
-                  isStreaming={isStreaming && isLastBlock}
-                  preprocessContent={preprocessTextContent}
-                  onSendPrompt={sendMessage}
-                  onLinkClick={(href) => {
-                    const match = href.match(/^astro:node:(.+)$/)
-                    if (match) {
-                      onNodeSelect?.(match[1])
-                      return true
-                    }
-                  }}
-                />
-              )
-            case 'tool':
-              return <ToolBlock key={i} events={block.events} isRunning={isStreaming} />
-            case 'tool_group':
-              return <ToolGroupBlock key={i} events={block.events} isRunning={isStreaming} />
-            case 'steer':
-              return <SteerBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'steer' }>} />
-            case 'file_change':
-              return <FileChangeBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'file_change' }>} />
-            case 'error':
-              return <ErrorBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'error' }>} />
-            case 'chat_user':
-              return <ChatUserBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_user' }>} onEdit={!isStreaming ? (msg) => setInput(msg) : undefined} />
-            case 'chat_assistant':
-              return (
-                <ChatAssistantBlock
-                  key={i}
-                  event={block.events[0] as Extract<TaskActivityEvent, { type: 'chat_assistant' }>}
-                  isStreaming={isStreaming && isLastBlock}
-                  onSendPrompt={sendMessage}
-                  onLinkClick={(href) => {
-                    const match = href.match(/^astro:node:(.+)$/)
-                    if (match) {
-                      onNodeSelect?.(match[1])
-                      return true
-                    }
-                  }}
-                />
-              )
-            case 'mutation':
-              return (
-                <MutationBlock
-                  key={i}
-                  event={block.events[0] as Extract<TaskActivityEvent, { type: 'mutation' }>}
-                  getNodeTitle={getNodeTitle}
-                  onNodeSelect={onNodeSelect}
-                />
-              )
-            case 'system_message':
-              return (
-                <SystemMessageBlock
-                  key={i}
-                  event={block.events[0] as Extract<TaskActivityEvent, { type: 'system_message' }>}
-                />
-              )
-            case 'json_render_spec': {
-              const specEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'json_render_spec' }>
-              return (
-                <div key={i} className="px-4 py-2">
-                  <JsonRenderView spec={specEvent.spec as unknown as Spec} componentDefs={block.componentDefs} />
-                </div>
-              )
+        <ActivityBlockRenderer
+          blocks={displayBlocks}
+          isStreaming={isStreaming}
+          isRunning={isStreaming}
+          onSendPrompt={sendMessage}
+          onLinkClick={(href) => {
+            const match = href.match(/^astro:node:(.+)$/)
+            if (match) {
+              onNodeSelect?.(match[1])
+              return true
             }
-            default:
-              return null
-          }
-        })}
+          }}
+          onEditMessage={!isStreaming ? (msg) => setInput(msg) : undefined}
+          preprocessContent={preprocessTextContent}
+          answeredApprovals={answeredApprovals.answeredApprovals}
+          approvalResponses={answeredApprovals.approvalResponses}
+          getNodeTitle={getNodeTitle}
+          onNodeSelect={onNodeSelect}
+        />
 
         {/* Typing indicator when streaming starts but no events yet */}
         {isStreaming && displayBlocks.length === 0 && (
@@ -827,28 +692,6 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
           </div>
         )}
 
-        {/* Pending message indicator — shown when user queued a message during streaming/plan-gen */}
-        {pendingMessage && (
-          <div className="mx-3 my-2 flex items-start gap-2 rounded-lg border border-border/40 bg-muted/30 px-3 py-2 text-sm">
-            <Clock className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground animate-pulse" />
-            <div className="min-w-0 flex-1">
-              <p className="text-xs text-muted-foreground mb-0.5">Queued — will send when current response finishes</p>
-              <p className="text-foreground whitespace-pre-wrap break-words">{pendingMessage}</p>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
-              onClick={() => {
-                setInput(pendingMessage)
-                setPendingMessage(null)
-              }}
-              title="Edit message"
-            >
-              <Pencil className="h-3 w-3" />
-            </Button>
-          </div>
-        )}
       </div>
 
       {/* Scroll to bottom button */}
@@ -857,10 +700,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
           variant="secondary"
           size="sm"
           className="absolute bottom-16 right-4 h-8 gap-1.5 shadow-md z-10"
-          onClick={() => {
-            setAutoScroll(true)
-            scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })
-          }}
+          onClick={scrollToBottom}
         >
           <ChevronDown className="h-3.5 w-3.5" />
           Bottom
@@ -887,7 +727,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
             onImagesChange={setChatImages}
             filePickerRef={filePickerRef}
           />
-          <div className="flex flex-col gap-1 shrink-0">
+          <div className="flex flex-row items-end gap-1 shrink-0">
             <Button
               size="icon"
               variant="ghost"
@@ -897,7 +737,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
             >
               <Paperclip className="h-4 w-4" />
             </Button>
-            {isStreaming ? (
+            {isStreaming && (
               <Button
                 size="icon"
                 variant="destructive"
@@ -907,25 +747,16 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
               >
                 <Square className="h-3.5 w-3.5" />
               </Button>
-            ) : (
-              <Button
-                size="icon"
-                className="h-9 w-9"
-                onClick={handleSend}
-                disabled={(!input.trim() && chatImages.length === 0) || !!pendingMessage}
-                title={isBusy ? "Queue message (⌘+Enter)" : "Send (⌘+Enter)"}
-              >
-                {isBusy ? (
-                  pendingMessage ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Clock className="h-4 w-4" />
-                  )
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-              </Button>
             )}
+            <Button
+              size="icon"
+              className="h-9 w-9"
+              onClick={handleSend}
+              disabled={!input.trim() && chatImages.length === 0}
+              title={isBusy ? "Queue message (⌘+Enter)" : "Send (⌘+Enter)"}
+            >
+              <Send className="h-4 w-4" />
+            </Button>
           </div>
         </div>
       </div>

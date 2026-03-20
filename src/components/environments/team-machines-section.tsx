@@ -15,6 +15,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { EmptyState } from "@/components/ui/empty-state"
 import { useMachinesStore, type RegisteredMachine } from "@/stores/machines-store"
 import { useToastStore } from "@/stores/toast-store"
+import { useTeamStore } from "@/stores/team-store"
 import { formatRelativeTime } from "@/lib/date-utils"
 
 // ─── My Machine Row ─────────────────────────────────────────────────────────
@@ -88,10 +89,11 @@ export function TeamMachinesSection() {
   const fetchTeamMachines = useMachinesStore((s) => s.fetchTeamMachines)
   const shareMachine = useMachinesStore((s) => s.shareMachine)
   const addToast = useToastStore((s) => s.add)
+  const activeTeamId = useTeamStore((s) => s.activeTeamId)
 
   useEffect(() => {
     fetchTeamMachines()
-  }, [fetchTeamMachines])
+  }, [fetchTeamMachines, activeTeamId])
 
   const handleShare = async (machineId: string, shared: boolean) => {
     const ok = await shareMachine(machineId, shared)

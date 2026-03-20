@@ -139,7 +139,7 @@ Use `Glob` and `Read` to explore the full directory tree as needed.
 4. Plan nodes/edges stored in Zustand → rendered in React Flow graph
 5. AI generates `startDate`/`endDate` for each plan node; timeline uses topological sort fallback for legacy data
 6. All state persisted via `dataClient` → `POST /api/data/*` → Drizzle ORM (PGlite local / Postgres server)
-7. On page refresh: `useRestoredExecution` hydrates activity from `streaming_events` table → same UI as live streaming
+7. On page refresh: `useStreamEvents` hydrates activity from `streaming_events` table via `streaming-event-hydrator.ts` → same UI as live streaming
 
 ### Lazy Loading Discipline
 
@@ -163,7 +163,7 @@ If you add a new column to `plan_nodes` or `task_executions` that could hold lar
 - **Context assembler** injects vision doc + dependency context into each task
 - **Streaming events (execution)**: `init`, `session_init`, `text`, `tool_use`, `tool_result`, `file_change`, `progress`, `result`, `error`, `aborted`, `heartbeat`, `done`
 - **Streaming events (chat)**: `text`, `tool_use`, `tool_result`, `session_init`, `plan_result`, `done`, `error`, `aborted`, `heartbeat`
-- **Streaming event persistence**: All events persisted to `streaming_events` table (append-only, seq-based). On page refresh, `useRestoredExecution` hydrates from DB via `streaming-event-hydrator.ts`. Catch-up on SSE reconnect via `fetchStreamingEventsCatchUp()`.
+- **Streaming event persistence**: All events persisted to `streaming_events` table (append-only, seq-based). On page refresh, `useStreamEvents` hydrates from DB via `streaming-event-hydrator.ts`. Catch-up on SSE reconnect via `fetchStreamingEventsCatchUp()`. Stream health monitored by `stream-watcher.ts`.
 - **Usage metrics**: Execution results include `UsageMetrics` (cost, tokens, model, turns); accumulated in `usage-store` per session
 - **Device auth flow**: OAuth2 Device Authorization Grant (RFC 8628) for machine registration
 
@@ -176,7 +176,7 @@ If you add a new column to `plan_nodes` or `task_executions` that could hold lar
 - **Branch pruning**: Killing a branch auto-cancels all downstream tasks
 - **Agent-agnostic execution**: Wraps existing agents (e.g., Claude Code), does not build custom agents
 - **Data flywheel**: Planning traces (decomposition, overrides, pruning decisions, outcomes) improve future plans via context engineering, not model retraining
-- **Streaming Event Persistence**: All SSE events persisted to `streaming_events` table (append-only, seq-indexed). Enables page-refresh recovery via hydration (`streaming-event-hydrator.ts`) and SSE reconnect catch-up (`fetchStreamingEventsCatchUp`). Three-layer architecture: live SSE → `streaming_events` DB → observation fallback.
+- **Unified Streaming Pipeline**: All SSE events flow through a single pipeline: global SSE bus → `realtime-store` taskStreams → `useStreamEvents` hook. Persisted to `streaming_events` table (append-only, seq-indexed). On page refresh, `streaming-event-hydrator.ts` hydrates from DB; `stream-status.ts` derives status; `stream-watcher.ts` monitors health. `useActivityFeed` merges execution + chat streams with deduplication.
 - **Activity Blocks**: Centralized activity rendering system (`activity-blocks.tsx`). `TaskActivityEvent` union type covers text, tool_use, tool_result, file_change, steer, error, chat_user, chat_assistant, approval_request, approval_response, mutation. `groupActivityEvents()` groups into `DisplayBlock[]` for UI.
 - **Activity Feed**: Real-time activity tracking system, captures all project/task events
 - **Approval System**: Dynamic tool-based approvals (`ask_user_question`) + procedure-level approvals with SSE notifications
@@ -205,9 +205,8 @@ If you add a new column to `plan_nodes` or `task_executions` that could hold lar
 - Zustand stores: use `(s) => s.field` selectors, persist via `dataClient` → `/api/data/*`
 - React Flow: define node data type as `type TaskNodeData = Node<{ ... }>`, use `NodeProps<TaskNodeData>`, cast `nodeTypes` to `any`; wrap in `ReactFlowProvider` when using `useReactFlow()` hooks
 - Task creation: use `TaskCreationForm` component with `mode="inline"|"popover"|"dialog"`; creates nodes via `usePlanStore.addNode()` + `addEdge()`
-- SSE streaming: use `parseChatSSE()` or `parseExecutionSSE()` from `sse-parser.ts` (type-safe wrappers around `parseSSEStream`)
-- Activity rendering: use `groupActivityEvents()` from `activity-blocks.tsx` to group `TaskActivityEvent[]` into `DisplayBlock[]`, then render with `TextBlock`, `ToolBlock`, `ToolGroupBlock`, `FileChangeBlock`, etc.
-- Execution restoration: use `useRestoredExecution()` hook — merges live SSE data with hydrated `streaming_events` for seamless page-refresh recovery
+- SSE streaming: use `useStreamEvents()` from `use-stream-events.ts` — unified hook for both chat and execution streaming. For merged execution + chat feeds, use `useActivityFeed()`. Chat session management via `useChatSession()`. Auto-scroll via `useAutoScroll()`.
+- Activity rendering: use `groupActivityEvents()` from `activity-blocks.tsx` to group `TaskActivityEvent[]` into `DisplayBlock[]`, then render with `activity-block-renderer.tsx` (`TextBlock`, `ToolBlock`, `ToolGroupBlock`, `FileChangeBlock`, etc.)
 - Status types: `planned | dispatched | in_progress | auto_verified | awaiting_approval | awaiting_judgment | completed | pruned`
 - PlanNode dates: optional `startDate`/`endDate` as ISO `YYYY-MM-DD` strings; AI generates them, timeline assigns defaults via topological sort for legacy nodes
 - PlanNode execution fields: `executionId`, `executionOutput`, `executionError`, `executionStartedAt`, `executionCompletedAt`

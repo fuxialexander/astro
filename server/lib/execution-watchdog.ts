@@ -15,32 +15,99 @@
  */
 
 import { db } from './db/index.js'
-import { planNodes, streamingEvents } from './db/schema.js'
-import { and, eq, gt, inArray, isNull, lt } from 'drizzle-orm'
+import { planNodes, streamingEvents, taskExecutions } from './db/schema.js'
+import { and, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm'
 import { dispatchEngine } from './dispatch/index.js'
 import { executionEventBus } from './execution-event-bus.js'
 import { redisPubSub } from './redis-pubsub.js'
+import { streamingEventLog } from './streaming-event-log.js'
 
 interface WatchdogConfig {
   enabled: boolean
   /** How often to run the watchdog check (ms) */
   intervalMs: number
-  /** How long a task must be inactive before it's considered stale (ms) */
-  staleThresholdMs: number
+  /** How long a stream can be inactive before it is closed with a synthetic error (ms) */
+  streamTimeoutMs: number
+  /** How long a plan node can remain stale before it is reset for re-execution (ms) */
+  resetThresholdMs: number
 }
 
 const DEFAULT_WATCHDOG_CONFIG: WatchdogConfig = {
   enabled: true,
-  intervalMs: 5 * 60 * 1000,           // 5 minutes
-  staleThresholdMs: 2 * 60 * 60 * 1000, // 2 hours
+  intervalMs: 60 * 1000, // 60 seconds
+  streamTimeoutMs: parseInt(process.env.STREAM_WATCHDOG_TIMEOUT_MS || '', 10) || 15 * 60 * 1000,
+  resetThresholdMs: 2 * 60 * 60 * 1000, // 2 hours
 }
 
 const LEADER_NAME = 'execution-watchdog'
-/** Leader lock TTL — slightly longer than check interval for overlap safety */
-const LEADER_TTL_SECONDS = 600 // 10 minutes (2× the 5-minute interval)
+/** Leader lock TTL — 3× the check interval for overlap safety */
+const LEADER_TTL_SECONDS = 180 // 3 minutes (3× the 60-second interval)
 
 let watchdogTimer: ReturnType<typeof setInterval> | null = null
 let config: WatchdogConfig = DEFAULT_WATCHDOG_CONFIG
+
+async function hasPendingApproval(executionId: string): Promise<boolean> {
+  // Check 1: pending approval pauses the watchdog.
+  // Check local dispatch engine first (fast-path), then Redis (cross-instance).
+  if (dispatchEngine.hasPendingApprovalForExecution(executionId)) {
+    console.log(`[watchdog] Task ${executionId} has pending approval (local) — skipping`)
+    return true
+  }
+  try {
+    if (await redisPubSub.hasPendingApproval(executionId)) {
+      console.log(`[watchdog] Task ${executionId} has pending approval (cross-instance) — skipping`)
+      return true
+    }
+  } catch {
+    // Redis check failed — err on the side of caution, treat as pending
+    return true
+  }
+  return false
+}
+
+async function hasRecentEvents(executionId: string, cutoffTime: Date): Promise<boolean> {
+  try {
+    const recentEvents = await db.select({ seq: streamingEvents.seq })
+      .from(streamingEvents)
+      .where(
+        and(
+          eq(streamingEvents.executionId, executionId),
+          gt(streamingEvents.createdAt, cutoffTime),
+          isNull(streamingEvents.deletedAt),
+        )
+      )
+      .limit(1)
+
+    if (recentEvents.length > 0) {
+      console.log(`[watchdog] Task ${executionId} has recent streaming events — skipping`)
+      return true
+    }
+  } catch (err) {
+    console.warn(`[watchdog] Failed to check streaming events for ${executionId}:`, (err as Error).message)
+    // If we can't check events, err on the side of caution — assume activity.
+    return true
+  }
+  return false
+}
+
+async function hasTerminalEvent(executionId: string): Promise<boolean> {
+  try {
+    const rows = await db.select({ seq: streamingEvents.seq })
+      .from(streamingEvents)
+      .where(
+        and(
+          eq(streamingEvents.executionId, executionId),
+          inArray(streamingEvents.eventType, ['result', 'error']),
+          isNull(streamingEvents.deletedAt),
+        ),
+      )
+      .limit(1)
+    return rows.length > 0
+  } catch (err) {
+    console.warn(`[watchdog] Failed to check terminal events for ${executionId}:`, (err as Error).message)
+    return true
+  }
+}
 
 /**
  * Check if a task is truly stale by verifying:
@@ -56,46 +123,69 @@ async function isTaskTrulyStale(
     return true
   }
 
-  // Check 1: pending approval pauses the watchdog.
-  // Check local dispatch engine first (fast-path), then Redis (cross-instance).
-  if (dispatchEngine.hasPendingApprovalForExecution(executionId)) {
-    console.log(`[watchdog] Task ${executionId} has pending approval (local) — skipping`)
-    return false
-  }
-  try {
-    if (await redisPubSub.hasPendingApproval(executionId)) {
-      console.log(`[watchdog] Task ${executionId} has pending approval (cross-instance) — skipping`)
-      return false
-    }
-  } catch {
-    // Redis check failed — err on the side of caution, don't reset
-    return false
-  }
-
-  // Check 2: recent streaming events indicate the task is still active
-  try {
-    const recentEvents = await db.select({ seq: streamingEvents.seq })
-      .from(streamingEvents)
-      .where(
-        and(
-          eq(streamingEvents.executionId, executionId),
-          gt(streamingEvents.createdAt, cutoffTime),
-          isNull(streamingEvents.deletedAt),
-        )
-      )
-      .limit(1)
-
-    if (recentEvents.length > 0) {
-      console.log(`[watchdog] Task ${executionId} has recent streaming events — skipping`)
-      return false
-    }
-  } catch (err) {
-    console.warn(`[watchdog] Failed to check streaming events for ${executionId}:`, (err as Error).message)
-    // If we can't check events, err on the side of caution — don't reset
-    return false
-  }
-
+  if (await hasPendingApproval(executionId)) return false
+  if (await hasRecentEvents(executionId, cutoffTime)) return false
   return true
+}
+
+async function publishSyntheticError(
+  executionId: string,
+  error: string,
+  recoverable: boolean,
+): Promise<number> {
+  const seq = await streamingEventLog.appendTerminalIfAbsent(executionId, 'error', {
+    error,
+    synthetic: true,
+    recoverable,
+  })
+  executionEventBus.emit('task:error', { taskId: executionId, error, synthetic: true, recoverable, seq })
+  redisPubSub.publishStreamingEvent({
+    eventType: 'error',
+    taskId: executionId,
+    data: { error, synthetic: true, recoverable },
+    dbSeq: seq,
+  }).catch((err) => {
+    console.error(`[watchdog] Failed to publish synthetic error for ${executionId}:`, err)
+  })
+  return seq
+}
+
+async function closeTimedOutStreams(cutoffTime: Date): Promise<number> {
+  const rows = await db.execute(sql`
+    SELECT execution_id AS "executionId"
+    FROM streaming_events
+    WHERE deleted_at IS NULL
+    GROUP BY execution_id
+    HAVING MAX(created_at) < ${cutoffTime}
+      AND BOOL_OR(event_type IN ('result', 'error')) = FALSE
+  `)
+
+  let closed = 0
+  const timeoutMinutes = Math.round(config.streamTimeoutMs / 60_000)
+
+  for (const row of rows.rows as Array<{ executionId: string }>) {
+    const executionId = row.executionId
+    if (!executionId) continue
+    if (await hasPendingApproval(executionId)) continue
+
+    const error =
+      `Stream timed out — no events received for ${timeoutMinutes} minutes`
+
+    await publishSyntheticError(executionId, error, true)
+
+    await db.update(taskExecutions)
+      .set({ status: 'failure', error, completedAt: new Date() })
+      .where(eq(taskExecutions.executionId, executionId))
+      .execute()
+      .catch((err) => {
+        console.error(`[watchdog] Failed to update taskExecution on timeout for ${executionId}:`, err)
+      })
+
+    console.warn(`[watchdog] Closed stale stream ${executionId} after ${timeoutMinutes} minutes of inactivity`)
+    closed++
+  }
+
+  return closed
 }
 
 /**
@@ -106,9 +196,12 @@ async function runWatchdogCheck(): Promise<void> {
   console.log('[watchdog] Running execution watchdog check...')
 
   try {
-    const cutoffTime = new Date(Date.now() - config.staleThresholdMs)
+    const streamCutoffTime = new Date(Date.now() - config.streamTimeoutMs)
+    const resetCutoffTime = new Date(Date.now() - config.resetThresholdMs)
 
-    // Find plan_nodes stuck in in_progress/dispatched with updatedAt older than threshold
+    const closedStreams = await closeTimedOutStreams(streamCutoffTime)
+
+    // Find plan_nodes stuck in in_progress/dispatched with updatedAt older than reset threshold
     const staleNodes = await db.select({
       id: planNodes.id,
       clientId: planNodes.clientId,
@@ -121,14 +214,14 @@ async function runWatchdogCheck(): Promise<void> {
       .where(
         and(
           inArray(planNodes.status, ['in_progress', 'dispatched']),
-          lt(planNodes.updatedAt, cutoffTime),
+          lt(planNodes.updatedAt, resetCutoffTime),
           isNull(planNodes.deletedAt),
         )
       )
 
     if (staleNodes.length === 0) {
       const duration = Date.now() - startTime
-      console.log(`[watchdog] Check completed in ${duration}ms — no stale tasks found`)
+      console.log(`[watchdog] Check completed in ${duration}ms — closed ${closedStreams} stale stream(s), no stale tasks found`)
       return
     }
 
@@ -137,12 +230,23 @@ async function runWatchdogCheck(): Promise<void> {
     let resetCount = 0
     for (const node of staleNodes) {
       try {
-        const isStale = await isTaskTrulyStale(node.executionId, cutoffTime)
+        const isStale = await isTaskTrulyStale(node.executionId, resetCutoffTime)
         if (isStale) {
-          const thresholdHours = Math.round(config.staleThresholdMs / 3_600_000)
+          const thresholdHours = Math.round(config.resetThresholdMs / 3_600_000)
           const errorMsg =
             `Execution watchdog: task stuck in '${node.status}' with no activity ` +
             `for over ${thresholdHours} hours. Reset for re-execution.`
+
+          if (node.executionId && !await hasTerminalEvent(node.executionId)) {
+            await publishSyntheticError(node.executionId, errorMsg, true)
+            await db.update(taskExecutions)
+              .set({ status: 'failure', error: errorMsg, completedAt: new Date() })
+              .where(eq(taskExecutions.executionId, node.executionId))
+              .execute()
+              .catch((err) => {
+                console.error(`[watchdog] Failed to update taskExecution for ${node.executionId}:`, err)
+              })
+          }
 
           // Clear executionId to prevent stale task_result from overwriting the reset
           await db.update(planNodes)
@@ -174,7 +278,7 @@ async function runWatchdogCheck(): Promise<void> {
     }
 
     const duration = Date.now() - startTime
-    console.log(`[watchdog] Check completed in ${duration}ms — reset ${resetCount} of ${staleNodes.length} stale task(s)`)
+    console.log(`[watchdog] Check completed in ${duration}ms — closed ${closedStreams} stale stream(s), reset ${resetCount} of ${staleNodes.length} stale task(s)`)
   } catch (error) {
     console.error('[watchdog] Watchdog check failed:', error)
   }
@@ -244,6 +348,18 @@ export async function reconcileOnStartup(): Promise<void> {
         const isStale = await isTaskTrulyStale(node.executionId, cutoffTime)
         if (!isStale) continue
 
+        if (node.executionId && !await hasTerminalEvent(node.executionId)) {
+          const error = `Server restart: task was stuck in '${node.status}' with no activity. Reset for re-execution.`
+          await publishSyntheticError(node.executionId, error, true)
+          await db.update(taskExecutions)
+            .set({ status: 'failure', error, completedAt: new Date() })
+            .where(eq(taskExecutions.executionId, node.executionId))
+            .execute()
+            .catch((err) => {
+              console.error(`[watchdog/startup] Failed to update taskExecution for ${node.executionId}:`, err)
+            })
+        }
+
         await db.update(planNodes)
           .set({
             status: 'planned',
@@ -290,8 +406,11 @@ export function startExecutionWatchdog(customConfig?: Partial<WatchdogConfig>): 
   stopExecutionWatchdog()
 
   const intervalMin = Math.round(config.intervalMs / 60_000)
-  const thresholdHours = Math.round(config.staleThresholdMs / 3_600_000)
-  console.log(`[watchdog] Starting execution watchdog (interval: ${intervalMin}min, threshold: ${thresholdHours}h)`)
+  const streamTimeoutMin = Math.round(config.streamTimeoutMs / 60_000)
+  const resetThresholdHours = Math.round(config.resetThresholdMs / 3_600_000)
+  console.log(
+    `[watchdog] Starting execution watchdog (interval: ${intervalMin}min, stream timeout: ${streamTimeoutMin}min, reset threshold: ${resetThresholdHours}h)`,
+  )
 
   // Run immediately on start to catch any tasks stuck from a previous crash
   runWatchdogCheckIfLeader().catch((err) => {

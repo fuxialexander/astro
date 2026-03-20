@@ -175,6 +175,8 @@ function ConnectedMachineCard({ machine, onRemove, onMachineClick, onAssignInstr
   const loadColor = loadPercent > 75 ? "bg-warning" : "bg-info"
   const resourceSummary = formatResourceSummary(machine.resources)
   const registeredMachine = useMachinesStore((s) => s.machines.find((m) => m.id === machine.machineId))
+  const presets = useMachineInstructionStore((s) => s.presets)
+  const miInstructions = useMachineInstructionStore((s) => s.instructions)
   const editingRef = useRef(false)
   const justFinishedEditingRef = useRef(false)
 
@@ -207,7 +209,7 @@ function ConnectedMachineCard({ machine, onRemove, onMachineClick, onAssignInstr
             <div className="h-2 w-2 rounded-full bg-teal-500 shrink-0" />
             <InlineMachineName machineId={machine.machineId} name={machine.name} fallback={machine.machineId} onEditingChange={handleEditingChange} />
             {onAssignInstruction && (
-              <div className="relative shrink-0">
+              <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
                 <InstructionPicker
                   currentInstructionId={registeredMachine?.defaultInstructionId}
                   onSelect={(id) => onAssignInstruction(machine.machineId, id)}
@@ -229,6 +231,23 @@ function ConnectedMachineCard({ machine, onRemove, onMachineClick, onAssignInstr
             </Button>
           )}
         </div>
+
+        {/* Compute instruction indicator */}
+        {onAssignInstruction && registeredMachine?.defaultInstructionId && (
+          <div className="flex items-center gap-1.5">
+            <ScrollText className="h-3 w-3 text-muted-foreground shrink-0" />
+            <span className="text-[11px] text-muted-foreground truncate">
+              {(() => {
+                const id = registeredMachine.defaultInstructionId
+                const preset = presets.find((p: { id: string }) => p.id === id)
+                if (preset) return preset.name
+                const instr = miInstructions.find((i: { id: string }) => i.id === id)
+                if (instr) return instr.name
+                return id
+              })()}
+            </span>
+          </div>
+        )}
 
         {/* Resources */}
         {resourceSummary && (
@@ -580,12 +599,10 @@ export function Environments() {
     }
   }, [realtimeConnected, connectRealtime])
 
-  // Fetch registered machines on mount (multi-tenant only)
+  // Fetch registered machines on mount
   useEffect(() => {
-    if (isMultiTenant) {
-      fetchMachines()
-    }
-  }, [isMultiTenant, fetchMachines])
+    fetchMachines()
+  }, [fetchMachines])
 
   // Load machine instructions
   useEffect(() => {
@@ -624,7 +641,7 @@ export function Environments() {
 
   const handleRefresh = () => {
     if (!realtimeConnected) connectRealtime()
-    if (isMultiTenant) fetchMachines()
+    fetchMachines()
   }
 
   const handleMachineClick = (liveMachine: MachineEntry) => {
@@ -846,10 +863,12 @@ export function Environments() {
                   const isExpanded = expandedInstructionId === preset.id
                   return (
                     <div key={preset.id} className="flex flex-col">
-                      <button
-                        type="button"
-                        className="flex items-center gap-3 p-4 w-full text-left hover:bg-muted/50 transition-colors"
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className="flex items-center gap-3 p-4 w-full text-left hover:bg-muted/50 transition-colors cursor-pointer"
                         onClick={() => setExpandedInstructionId(isExpanded ? null : preset.id)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') setExpandedInstructionId(isExpanded ? null : preset.id) }}
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
@@ -865,7 +884,7 @@ export function Environments() {
                           </Button>
                           {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                         </div>
-                      </button>
+                      </div>
                       {isExpanded && (
                         <div className="px-4 pb-4">
                           <div className="rounded-lg bg-muted/50 p-3 text-sm leading-relaxed max-h-[300px] overflow-y-auto">
@@ -895,10 +914,12 @@ export function Environments() {
                   const isDeleting = deletingInstructionId === instruction.id
                   return (
                     <div key={instruction.id} className="flex flex-col">
-                      <button
-                        type="button"
-                        className="flex items-center gap-3 p-4 w-full text-left hover:bg-muted/50 transition-colors"
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className="flex items-center gap-3 p-4 w-full text-left hover:bg-muted/50 transition-colors cursor-pointer"
                         onClick={() => setExpandedInstructionId(isExpanded ? null : instruction.id)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') setExpandedInstructionId(isExpanded ? null : instruction.id) }}
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
@@ -946,7 +967,7 @@ export function Environments() {
                           )}
                           {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                         </div>
-                      </button>
+                      </div>
                       {isExpanded && (
                         <div className="px-4 pb-4">
                           <div className="rounded-lg bg-muted/50 p-3 text-sm leading-relaxed max-h-[300px] overflow-y-auto">

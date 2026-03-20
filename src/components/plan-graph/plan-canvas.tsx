@@ -33,7 +33,7 @@ import { calculateChildPosition, calculateParentPosition, computeEdgeHandles, co
 import { cn } from "@/lib/utils"
 import type { PlanNode } from "@/types"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
-import { getMilestoneColor, STATUS_DOT_COLOR, PRIORITY_PIP_COLOR } from "@/components/plan-graph/plan-node-shared"
+import { getMilestoneColor, STATUS_DOT_COLOR, PRIORITY_PIP_COLOR, GRAPH_EDGE_COLOR } from "@/components/plan-graph/plan-node-shared"
 
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -105,6 +105,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const updateProject = useProjectStore((s) => s.updateProject)
   const graphDisplaySettings = useDisplaySettingsStore((s) => s.get("plan-graph"))
+  const globalFastEdit = useDisplaySettingsStore((s) => s.fastEdit)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
 
@@ -379,6 +380,32 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
     [projectNodes]
   )
 
+
+  // Compute milestone positions: laid out sequentially in a row above all task nodes.
+  const milestonePositions = useMemo(() => {
+    const MILESTONE_WIDTH = 200
+    const MILESTONE_HEIGHT = 40
+    const GAP = 16
+    // Base Y: just above the topmost task node
+    const taskNodesWithPos = projectNodes.filter(n => n.type !== 'milestone' && n.position)
+    const topmostTaskY = taskNodesWithPos.length > 0
+      ? Math.min(...taskNodesWithPos.map(t => t.position!.y))
+      : 40
+    const leftmostTaskX = taskNodesWithPos.length > 0
+      ? Math.min(...taskNodesWithPos.map(t => t.position!.x))
+      : 40
+    const MILESTONE_ROW_Y = topmostTaskY - MILESTONE_HEIGHT - 8
+    const positions = new Map<string, { x: number; y: number }>()
+
+    let x = leftmostTaskX
+    for (const msId of orderedMilestoneIds) {
+      positions.set(msId, { x, y: MILESTONE_ROW_Y })
+      x += MILESTONE_WIDTH + GAP
+    }
+
+    return positions
+  }, [projectNodes, orderedMilestoneIds])
+
   const handleCreateMilestone = useCallback((title: string) => {
     const now = new Date()
     // Place to the right of the rightmost existing milestone
@@ -444,7 +471,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
         onDecompose: readOnly ? undefined : onDecomposeNode,
         onToggleSelect: readOnly ? undefined : handleToggleSelect,
         readOnly,
-        fastEdit: !readOnly && (graphDisplaySettings.fastEdit ?? false),
+        fastEdit: !readOnly && (globalFastEdit ?? false),
         onFastEdit: !readOnly ? (nodeId: string, title: string) => updateNode(nodeId, { title }) : undefined,
       },
       selected: n.id === selectedId,
@@ -471,7 +498,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
     }
 
     return taskNodes
-  }, [projectNodes, orderedMilestoneIds, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy, readOnly, loopNodesEnabled, handleCreateMilestone, graphDisplaySettings.fastEdit, updateNode])
+  }, [projectNodes, orderedMilestoneIds, milestonePositions, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy, readOnly, loopNodesEnabled, handleCreateMilestone, globalFastEdit, updateNode])
 
   // Build a position lookup for edge handle routing
   const nodePositionMap = useMemo(() => {
@@ -646,11 +673,11 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
       setSelectedId(node.id)
       // In fast edit mode, clicking activates inline title editing in the node itself;
       // do not navigate to the detail page.
-      if (graphDisplaySettings.fastEdit) return
+      if (globalFastEdit) return
       const planNode = projectNodes.find((n) => n.id === node.id)
       onNodeSelect?.(planNode ?? null)
     },
-    [projectNodes, onNodeSelect, graphDisplaySettings.fastEdit]
+    [projectNodes, onNodeSelect, globalFastEdit]
   )
 
   const handlePaneClick = useCallback(() => {
@@ -784,7 +811,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
           { color: STATUS_DOT_COLOR.pruned,             label: 'pruned' },
         ] as const).map(({ color, label }) => (
           <span key={label} className="flex items-center gap-1 shrink-0">
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+            <span className="h-1.5 w-1.5" style={{ background: color }} />
             <span className="text-[9px] text-muted-foreground/70">{label}</span>
           </span>
         ))}
@@ -796,10 +823,18 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
           { color: PRIORITY_PIP_COLOR.low,    label: 'low' },
         ] as const).map(({ color, label }) => (
           <span key={label} className="flex items-center gap-1 shrink-0">
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+            <span className="h-1.5 w-1.5" style={{ background: color }} />
             <span className="text-[9px] text-muted-foreground/70">{label}</span>
           </span>
         ))}
+        <div className="w-px h-3 bg-border shrink-0" />
+        <span className="flex items-center gap-1 shrink-0">
+          <svg width="18" height="6" className="shrink-0">
+            <line x1="0" y1="3" x2="14" y2="3" stroke={GRAPH_EDGE_COLOR} strokeWidth="1.5" opacity="0.7" />
+            <polygon points="14,0 18,3 14,6" fill={GRAPH_EDGE_COLOR} opacity="0.7" />
+          </svg>
+          <span className="text-[9px] text-muted-foreground/70">depends on</span>
+        </span>
       </div>
 
       <div ref={canvasRef} className="relative flex-1">

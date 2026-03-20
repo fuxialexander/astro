@@ -634,7 +634,8 @@ message and allow the user to retry.
 Implementation:
   server/lib/execution-watchdog.ts — standalone module (cleanup-scheduler pattern)
   startExecutionWatchdog() / stopExecutionWatchdog() — started in server/index.ts
-  5-minute interval, 2-hour stale threshold
+  5-minute interval, 2-hour stale threshold (configurable via WatchdogConfig)
+  Uses Redis leader election for multi-instance safety (only one instance runs the watchdog)
 
 Flow:
   1. Query plan_nodes WHERE status IN ('in_progress', 'dispatched')
@@ -643,10 +644,16 @@ Flow:
      a. dispatchEngine.hasPendingApprovalForExecution() — skip if approval pending
      b. streaming_events for any recent events — skip if activity found
   3. If truly stale: reset to 'planned' with descriptive error message
+
+Also provides stream-level timeout: if a dispatch SSE stream has no activity
+for streamTimeoutMs, the watchdog emits a synthetic error event and closes
+the stream (prevents silent stream death).
 ```
 
 Cross-references against `streaming_events` — if no recent events and no pending
 approval, reset to `planned`. Handles server restarts and dead internal SSE connections.
+
+**Key file**: `server/lib/execution-watchdog.ts`
 
 ---
 

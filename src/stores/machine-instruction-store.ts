@@ -7,17 +7,11 @@
  */
 
 import { create } from 'zustand'
-import { getAccessToken } from '@/lib/supabase-client'
 import { apiUrl } from '@/lib/api-url'
+import { authHeaders } from '@/lib/auth-headers'
 import { useMachinesStore } from '@/stores/machines-store'
+import { useTeamStore } from '@/stores/team-store'
 import type { MachineInstruction } from '@/types'
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  const token = await getAccessToken()
-  if (token) headers['Authorization'] = `Bearer ${token}`
-  return headers
-}
 
 function toDate(v: unknown): Date {
   if (v instanceof Date) return v
@@ -90,11 +84,12 @@ export const useMachineInstructionStore = create<MachineInstructionState>((set, 
   },
 
   async create(params) {
-    const headers = await authHeaders()
+    const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) }
+    const teamId = useTeamStore.getState().getDefaultTeamId()
     const res = await fetch(apiUrl('/api/machine-instructions'), {
       method: 'POST',
       headers,
-      body: JSON.stringify(params),
+      body: JSON.stringify({ ...params, teamId }),
     })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
@@ -107,11 +102,13 @@ export const useMachineInstructionStore = create<MachineInstructionState>((set, 
   },
 
   async update(id, patch) {
-    const headers = await authHeaders()
+    const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) }
+    const existing = get().instructions.find((instruction) => instruction.id === id)
+    const teamId = existing?.teamId ?? useTeamStore.getState().getDefaultTeamId()
     const res = await fetch(apiUrl(`/api/machine-instructions/${id}`), {
       method: 'PUT',
       headers,
-      body: JSON.stringify(patch),
+      body: JSON.stringify({ ...patch, teamId }),
     })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
@@ -144,7 +141,7 @@ export const useMachineInstructionStore = create<MachineInstructionState>((set, 
   },
 
   async assignToMachine(machineId, instructionId) {
-    const headers = await authHeaders()
+    const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) }
     const res = await fetch(apiUrl(`/api/machine-instructions/assign/${machineId}`), {
       method: 'PUT',
       headers,

@@ -33,7 +33,7 @@ export const useUIStore = create<UIState>((set, get) => ({
       return Number.isFinite(n) ? Math.max(200, Math.min(480, n)) : 260
     } catch { return 260 /* localStorage unavailable */ }
   })(),
-  chatPanelPosition: "bottom",
+  chatPanelPosition: "right",
   chatPanelVisible: true,
   commandPaletteOpen: false,
   commandHistory: [],

@@ -21,6 +21,15 @@ vi.mock('@/lib/api-url', () => ({
   apiUrl: vi.fn((path: string) => `http://localhost:3001${path}`),
 }))
 
+// Mock api-client active team tracking (used by auth-headers helper)
+let activeTeamId: string | undefined
+vi.mock('@/lib/api-client', () => ({
+  setActiveTeamId: vi.fn((teamId: string | undefined) => {
+    activeTeamId = teamId
+  }),
+  getActiveTeamId: vi.fn(() => activeTeamId),
+}))
+
 // Mock data-client
 vi.mock('@/lib/data-client', () => ({
   dataClient: {
@@ -77,6 +86,9 @@ import { useSettingsStore } from '@/stores/settings-store'
 import { useExecutionStore } from '@/stores/execution-store'
 import { usePlanStore } from '@/stores/plan-store'
 import { useProjectStore } from '@/stores/project-store'
+import { useAuthStore } from '@/stores/auth-store'
+import { setActiveTeamId } from '@/lib/api-client'
+import { getSigningPrivateKey } from '@/lib/dispatch-signing'
 import type { PlanNode, Project } from '@/types'
 
 /** Helper: find the dispatch/task fetch call in the spy's call log */
@@ -89,6 +101,8 @@ function findDispatchCall(spy: ReturnType<typeof vi.fn>) {
 describe('dispatch provider fallback', () => {
   beforeEach(() => {
     fetchSpy.mockClear()
+    activeTeamId = undefined
+    vi.mocked(getSigningPrivateKey).mockResolvedValue(null)
 
     // Reset stores
     useSettingsStore.setState({
@@ -96,6 +110,12 @@ describe('dispatch provider fallback', () => {
       modelTier: 'medium',
       model: 'sonnet',
       customModelMap: {},
+    })
+    useAuthStore.setState({
+      user: { id: 'user-1' } as never,
+      session: null,
+      loading: false,
+      initialized: true,
     })
   })
 
@@ -210,6 +230,44 @@ describe('dispatch provider fallback', () => {
       const body = JSON.parse(dispatchCall![1].body)
       expect(body.preferredProvider).toBe('codex')
       expect(body.model).toBe('gpt-5.3-codex')
+    })
+
+    it('uses the project default machine for signing and includes the active team header', async () => {
+      usePlanStore.setState({
+        nodes: [{
+          id: 'node-shared',
+          projectId: 'proj-shared',
+          title: 'Shared Machine Task',
+          description: 'Dispatch to team machine',
+          status: 'planned',
+          dependencies: [],
+          type: 'task',
+        } as PlanNode],
+        edges: [],
+      })
+      useProjectStore.setState({
+        projects: [{
+          id: 'proj-shared',
+          name: 'Shared Project',
+          defaultMachineId: 'team-machine-1',
+          workingDirectory: '/tmp/shared-project',
+        } as Project],
+      })
+      setActiveTeamId('team-123')
+      vi.mocked(getSigningPrivateKey).mockResolvedValue({} as CryptoKey)
+
+      await useExecutionStore.getState().startExecution('node-shared', 'proj-shared')
+
+      const dispatchCall = findDispatchCall(fetchSpy)
+      expect(dispatchCall).toBeDefined()
+
+      const init = dispatchCall![1] as RequestInit
+      expect((init.headers as Record<string, string>)['X-Team-Id']).toBe('team-123')
+
+      const body = JSON.parse(String(init.body))
+      expect(body.targetMachineId).toBe('team-machine-1')
+      expect(body.dispatchSignature).toBe('test-sig')
+      expect(body.dispatchSigningPayload.machineId).toBe('team-machine-1')
     })
 
     it('sends claude-sdk model alias when provider is claude-sdk', async () => {

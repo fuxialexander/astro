@@ -206,7 +206,7 @@ All task execution flows through this function, which dispatches through the Rel
 
 Key features:
 - **Image attachments**: Resolves `imageRefs` (blob UUIDs) to base64-encoded images and includes them in the dispatch payload for multimodal agent input.
-- **Execution tracking**: Stores execution context in `executionContextStore` for user-scoped SSE filtering and ownership validation.
+- **Execution tracking**: Stores execution context in Redis (`relay:exec:context:<executionId>`) for user-scoped SSE filtering and ownership validation.
 - **Environment config injection**: If the target machine has custom environment configuration (conda envs, module loads, etc.), it is injected into the dispatch payload.
 - **Heartbeat timeout**: An activity timer (configurable, default 12 minutes) detects stalled executions. The timer pauses when the agent is waiting for a user approval response via `ask_user_question`.
 
@@ -744,7 +744,8 @@ The channel system is integrated via the `channel-notification-hook` on the even
 | `repo-setup.ts` | Repository setup utilities |
 | `error-utils.ts` | Error handling utilities |
 | `execution-event-bus.ts` | Singleton event emitter for task execution events |
-| `execution-context-store.ts` | Maps executionId to user/project/machine for SSE scoping |
+| `streaming-event-log.ts` | Persist-then-notify streaming event log for SSE catch-up (text buffering, structural event persistence) |
+| `execution-watchdog.ts` | Server-side watchdog scanning for stuck tasks; resets after configurable inactivity timeout; Redis leader election for multi-instance |
 | `skill-manager.ts` | Skill registry and prompt injection |
 | `challenge-store.ts` | WebAuthn challenge storage with TTL |
 

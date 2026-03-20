@@ -26,7 +26,6 @@ const CLIENT_ID = `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)
 // Track active subscriptions
 let activeChannels: RealtimeChannel[] = []
 let realtimeSyncEnabled = false
-let currentTeamId: string | undefined
 
 /**
  * Helper to normalize timestamps from Supabase
@@ -129,18 +128,18 @@ function mapProfile(row: Record<string, unknown>): UserProfile {
 // }
 
 /**
- * Subscribe to projects table changes
+ * Subscribe to projects table changes.
+ * Project reads are cross-team, so this subscription intentionally does not
+ * scope to a single active workspace.
  */
-function subscribeToProjects(supabase: ReturnType<typeof getSupabase>, teamId?: string) {
+function subscribeToProjects(supabase: ReturnType<typeof getSupabase>) {
   if (!supabase) return null
-
-  const pgFilter = teamId ? `team_id=eq.${teamId}` : undefined
 
   const channel = supabase
     .channel('projects-changes')
     .on<Record<string, unknown>>(
       'postgres_changes',
-      { event: '*', schema: 'public', table: 'projects', ...(pgFilter ? { filter: pgFilter } : {}) },
+      { event: '*', schema: 'public', table: 'projects' },
       (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
         console.log('[realtime-sync] projects change:', payload.eventType)
 
@@ -549,10 +548,8 @@ function subscribeToTaskChatMessages(supabase: ReturnType<typeof getSupabase>) {
 
 /**
  * Setup all realtime subscriptions.
- * Pass teamId to scope the projects subscription server-side.
- * If called again with a different teamId, tears down and re-subscribes.
  */
-export function setupRealtimeSync(teamId?: string) {
+export function setupRealtimeSync() {
   // Only setup if Supabase is configured
   if (isLocalMode()) {
     console.log('[realtime-sync] Skipping setup - local mode')
@@ -565,25 +562,16 @@ export function setupRealtimeSync(teamId?: string) {
     return
   }
 
-  // If already enabled with same teamId, skip
-  if (realtimeSyncEnabled && currentTeamId === teamId) {
-    console.log('[realtime-sync] Already enabled with same teamId, skipping setup')
+  if (realtimeSyncEnabled) {
+    console.log('[realtime-sync] Already enabled, skipping setup')
     return
   }
 
-  // If team changed, teardown first then re-setup
-  if (realtimeSyncEnabled && currentTeamId !== teamId) {
-    console.log('[realtime-sync] Team changed, re-subscribing with new teamId')
-    teardownRealtimeSyncInternal(supabase)
-  }
-
-  currentTeamId = teamId
-
-  console.log(`[realtime-sync] Setting up subscriptions (teamId: ${teamId ?? 'none'})...`)
+  console.log('[realtime-sync] Setting up subscriptions...')
 
   // Create all subscriptions
   const channels = [
-    subscribeToProjects(supabase, teamId),
+    subscribeToProjects(supabase),
     subscribeToPlanNodes(supabase),
     subscribeToPlanEdges(supabase),
     subscribeToUserProfiles(supabase),
@@ -599,7 +587,7 @@ export function setupRealtimeSync(teamId?: string) {
 }
 
 /**
- * Internal sync teardown (used when re-subscribing with a new teamId)
+ * Internal sync teardown.
  */
 function teardownRealtimeSyncInternal(supabase: NonNullable<ReturnType<typeof getSupabase>>) {
   for (const channel of activeChannels) {
@@ -627,7 +615,6 @@ export async function teardownRealtimeSync() {
   }
 
   teardownRealtimeSyncInternal(supabase)
-  currentTeamId = undefined
 
   console.log('[realtime-sync] All subscriptions removed')
 }

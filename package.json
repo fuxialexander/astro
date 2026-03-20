@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n fe,be,agent -c blue,green,yellow \"vite\" \"tsx watch --env-file-if-exists=.env --env-file-if-exists=.env.local server/index.ts\" \"sleep 2 && npm run dev:agent\"",
+    "dev": "concurrently -n fe,be,cli,agent -c blue,green,cyan,yellow \"vite\" \"tsx watch --env-file-if-exists=.env --env-file-if-exists=.env.local server/index.ts\" \"npm run --prefix packages/cli watch\" \"sleep 4 && npm run dev:agent\"",
     "dev:local": "bash scripts/switch-env.sh local && npm run dev",
     "dev:dev": "bash scripts/switch-env.sh dev && bash ./scripts/dev-with-tunnel.sh",
     "dev:agent": "tsx packages/agent-runner/src/cli.ts start --foreground --relay ws://localhost:3002 --max-tasks 4 --log-level info",
@@ -143,6 +143,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@opencode-ai/sdk": "^1.2.22",
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/vite": "^4.2.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/d3": "^7.4.3",

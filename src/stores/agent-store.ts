@@ -1,6 +1,5 @@
 import { create } from "zustand"
 import { fetchStreamingEventsCatchUp } from "@/lib/api-client"
-import { applyPlanFromText } from "@/lib/plan-extraction"
 import { usePlanStore } from "@/stores/plan-store"
 import { useToastStore } from "@/stores/toast-store"
 
@@ -221,77 +220,35 @@ async function performCatchUp(
       if (event.eventType === 'plan_result') {
         try {
           const planData = typeof event.data === 'string' ? JSON.parse(event.data) : event.data
-          const result = applyPlanFromText(projectId, '', `catchup-${session.streamId}`, false, planData)
-          if (result.applied) {
-            console.log(`[plan-gen] Catch-up recovered plan from plan_result event for ${projectId}: ${result.nodeCount} nodes`)
-            set((s) => ({
-              sessions: updateSession(s.sessions, projectId, {
-                planReceived: true,
-                status: 'generated',
-                error: null,
-                phase: 'idle',
-                completedAt: Date.now(),
-              }),
-            }))
-            // Persist to localStorage so the session survives another refresh
-            const updatedSessions = get().sessions
-            persistGeneratedSessions(updatedSessions)
-            useToastStore.getState().add({
-              type: "success",
-              title: "Plan ready",
-              description: `Plan recovered — ${result.nodeCount} tasks. Review and start execution.`,
-            })
-            return true
-          }
+          const nodeCount = Array.isArray((planData as Record<string, unknown>).nodes)
+            ? ((planData as Record<string, unknown>).nodes as unknown[]).length
+            : 0
+          await usePlanStore.getState().load()
+          set((s) => ({
+            sessions: updateSession(s.sessions, projectId, {
+              planReceived: true,
+              status: 'generated',
+              error: null,
+              phase: 'idle',
+              completedAt: Date.now(),
+            }),
+          }))
+          // Persist to localStorage so the session survives another refresh
+          const updatedSessions = get().sessions
+          persistGeneratedSessions(updatedSessions)
+          useToastStore.getState().add({
+            type: "success",
+            title: "Plan ready",
+            description: `Plan recovered — ${nodeCount} tasks. Review and start execution.`,
+          })
+          return true
         } catch {
           console.warn(`[plan-gen] Failed to parse plan_result event data for ${projectId}`)
         }
       }
     }
 
-    // Fallback: rebuild streamText from text events and try plan extraction
-    let catchUpText = ''
-    for (const event of events) {
-      if (event.eventType === 'text') {
-        // streaming-event-log persists text as { text: "..." }
-        const d = event.data as Record<string, unknown> | string
-        catchUpText += typeof d === 'string' ? d : ((d as Record<string, unknown>)?.text as string) || ''
-      }
-    }
-
-    if (!catchUpText) {
-      console.log(`[plan-gen] No text events in catch-up for ${projectId}`)
-      return false
-    }
-
-    // Combine with existing streamText (events before the disconnect)
-    const fullText = (session.streamText || '') + catchUpText
-
-    // Update streamText in session
-    set((s) => ({
-      sessions: updateSession(s.sessions, projectId, { streamText: fullText }),
-    }))
-
-    // Try to extract plan from the full rebuilt text
-    const result = applyPlanFromText(projectId, fullText, `catchup-text-${session.streamId}`)
-    if (result.applied) {
-      console.log(`[plan-gen] Catch-up recovered plan from text for ${projectId}: ${result.nodeCount} nodes`)
-      set((s) => ({
-        sessions: updateSession(s.sessions, projectId, {
-          planReceived: true,
-          status: 'generated',
-          error: null,
-          phase: 'idle',
-          completedAt: Date.now(),
-        }),
-      }))
-      // Persist to localStorage
-      const updatedSessions = get().sessions
-      persistGeneratedSessions(updatedSessions)
-      return true
-    }
-
-    console.log(`[plan-gen] Catch-up could not extract plan from ${fullText.length} chars of text for ${projectId}`)
+    console.log(`[plan-gen] Catch-up found no plan_result event for ${projectId}`)
     return false
   } catch (error) {
     console.error(`[plan-gen] Catch-up failed for ${projectId}:`, error)

@@ -23,7 +23,7 @@ import { PrStatusCard } from "@/components/task-detail/pr-status-card"
 import { statusBadgeVariants } from "@/lib/status-config"
 import { formatDuration } from "@/lib/date-utils"
 import { cn, getShortId } from "@/lib/utils"
-import { useRestoredExecution } from "@/hooks/use-restored-execution"
+import { useStreamEvents } from "@/hooks/use-stream-events"
 
 export type PanelSize = 'default' | 'three-quarter' | 'full'
 
@@ -77,13 +77,11 @@ export function TaskDetail() {
   const isRunning = !!node && (node.status === "in_progress" || node.status === "dispatched")
     && execution?.status !== "success" && execution?.status !== "failure" && execution?.status !== "cancelled"
 
-  // Get file changes from live execution or restored observations
+  // Get file changes from unified stream events hook
   // Hook must be called before any early returns (Rules of Hooks)
-  const { fileChanges: restoredFileChanges } = useRestoredExecution(
-    executionId,
-    execution,
-    taskStream,
-    isRunning,
+  const { fileChanges: restoredFileChanges } = useStreamEvents(
+    executionId || undefined,
+    { execution },
   )
 
   if (!node || !projectId) {
@@ -227,15 +225,29 @@ export function TaskDetail() {
         <div className="flex-1 min-w-[20px]" />
         {/* Action buttons */}
         {isRunning && (
-          <Button
-            variant="destructive"
-            size="sm"
-            className="h-8 shrink-0"
-            onClick={() => nodeId && cancelExecution(nodeId)}
-          >
-            <Square className="h-3 w-3 md:h-3.5 md:w-3.5" />
-            <span className="hidden sm:inline ml-1.5">Stop</span>
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="destructive"
+              size="sm"
+              className="h-8 shrink-0"
+              onClick={() => nodeId && cancelExecution(nodeId)}
+            >
+              <Square className="h-3 w-3 md:h-3.5 md:w-3.5" />
+              <span className="hidden sm:inline ml-1.5">Stop</span>
+            </Button>
+            {isExecuting && (
+              <div className="flex items-center gap-1.5 text-info shrink-0">
+                <Loader2 className="h-3 w-3 md:h-3.5 md:w-3.5 animate-spin" />
+                <span className="text-[10px] md:text-xs font-medium">Running</span>
+              </div>
+            )}
+          </div>
+        )}
+        {!isRunning && isExecuting && (
+          <div className="flex items-center gap-1.5 text-info shrink-0">
+            <Loader2 className="h-3 w-3 md:h-3.5 md:w-3.5 animate-spin" />
+            <span className="text-[10px] md:text-xs font-medium">Running</span>
+          </div>
         )}
         {!isRunning && node.executionId && (
           <Button
@@ -258,12 +270,6 @@ export function TaskDetail() {
             <RotateCcw className={cn("h-3 w-3 md:h-3.5 md:w-3.5", isResetting && "animate-spin")} />
             <span className="hidden sm:inline ml-1.5">{isResetting ? "Resetting..." : "Reset"}</span>
           </Button>
-        )}
-        {isExecuting && (
-          <div className="flex items-center gap-1.5 text-info shrink-0">
-            <Loader2 className="h-3 w-3 md:h-3.5 md:w-3.5 animate-spin" />
-            <span className="text-[10px] md:text-xs font-medium">Running</span>
-          </div>
         )}
       </div>
       )}

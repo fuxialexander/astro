@@ -90,45 +90,23 @@ function sanitizeHtmlContent(html: string): string {
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface DisplayBlock {
-  type: 'text' | 'tool' | 'tool_group' | 'visual' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment' | 'branch_linked' | 'system_message' | 'system_prompt' | 'plan_result' | 'json_render_spec'
+  type: 'text' | 'operational' | 'tool' | 'tool_group' | 'visual' | 'steer' | 'file_change' | 'error' | 'chat_user' | 'chat_assistant' | 'approval_request' | 'approval_response' | 'mutation' | 'pr_status' | 'github_comment' | 'branch_linked' | 'system_message' | 'system_prompt' | 'plan_result' | 'json_render_spec'
   events: TaskActivityEvent[]
   /** For 'visual' blocks: the extracted HTML/SVG content to render */
   visualContent?: string
   /** For 'visual' blocks: the source file name */
   visualLabel?: string
-  /** For 'visual' blocks: true if content is not saved to disk (will expire) */
-  visualEphemeral?: boolean
   /** For 'json_render_spec' blocks: custom component definitions (code strings) to eval at render time */
   componentDefs?: Record<string, string>
 }
 
 // ─── Grouping ───────────────────────────────────────────────────────
 
-/**
- * Find indices of text blocks that contain an "## Executive Summary" heading.
- * Used by display-layer dedup to remove duplicates from catch-up hydration.
- */
-// eslint-disable-next-line react-refresh/only-export-components
-export function findSummaryBlockIndices(blocks: DisplayBlock[]): number[] {
-  const indices: number[] = []
-  for (let i = 0; i < blocks.length; i++) {
-    if (blocks[i].type === 'text') {
-      const text = blocks[i].events
-        .filter((e): e is Extract<TaskActivityEvent, { type: 'text' }> => e.type === 'text')
-        .map(e => e.content)
-        .join('')
-      if (text.toLowerCase().includes('## executive summary')) {
-        indices.push(i)
-      }
-    }
-  }
-  return indices
-}
-
 // eslint-disable-next-line react-refresh/only-export-components
 export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[] {
   const blocks: DisplayBlock[] = []
   let currentTextEvents: TaskActivityEvent[] = []
+  let currentOperationalEvents: TaskActivityEvent[] = []
   let currentToolEvents: TaskActivityEvent[] = []
 
   function flushText() {
@@ -211,7 +189,6 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
             events: pair,
             visualContent: sanitizeHtmlContent(vizInput.content),
             visualLabel: vizInput.title,
-            visualEphemeral: true,
           })
         }
         continue
@@ -234,17 +211,31 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
     currentToolEvents = []
   }
 
+  function flushOperational() {
+    if (currentOperationalEvents.length === 0) return
+    blocks.push({ type: 'operational', events: [...currentOperationalEvents] })
+    currentOperationalEvents = []
+  }
+
   for (const event of events) {
     switch (event.type) {
       case 'text':
+        flushOperational()
         flushTools()
         currentTextEvents.push(event)
         break
+      case 'operational':
+        flushText()
+        flushTools()
+        currentOperationalEvents.push(event)
+        break
       case 'tool_use':
+        flushOperational()
         flushText()
         currentToolEvents.push(event)
         break
       case 'tool_result': {
+        flushOperational()
         flushText()
         // If the matching tool_use was already flushed into a previous block,
         // inject this result into that block instead of the current batch.
@@ -267,76 +258,91 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
         break
       }
       case 'steer':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'steer', events: [event] })
         break
       case 'file_change':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'file_change', events: [event] })
         break
       case 'error':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'error', events: [event] })
         break
       case 'chat_user':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'chat_user', events: [event] })
         break
       case 'chat_assistant':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'chat_assistant', events: [event] })
         break
       case 'approval_request':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'approval_request', events: [event] })
         break
       case 'approval_response':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'approval_response', events: [event] })
         break
       case 'mutation':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'mutation', events: [event] })
         break
       case 'pr_status':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'pr_status', events: [event] })
         break
       case 'github_comment':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'github_comment', events: [event] })
         break
       case 'branch_linked':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'branch_linked', events: [event] })
         break
       case 'system_message':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'system_message', events: [event] })
         break
       case 'system_prompt':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'system_prompt', events: [event] })
         break
       case 'plan_result':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'plan_result', events: [event] })
         break
       case 'json_render_spec':
+        flushOperational()
         flushText()
         flushTools()
         blocks.push({ type: 'json_render_spec', events: [event] })
@@ -345,6 +351,7 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
   }
 
   flushText()
+  flushOperational()
   flushTools()
 
   // ── Deduplicate text blocks ──────────────────────────────────────────
@@ -473,21 +480,6 @@ export function TextBlock({ events, isStreaming, onLinkClick, onSendPrompt, prep
   if (!text) return null
   if (preprocessContent) text = preprocessContent(text)
 
-  // Operational messages (── [Astro], [Git], [Delivery]) are system-level status lines,
-  // not AI-generated markdown. Render them as styled pre-formatted lines.
-  if (/──\s*\[/.test(text)) {
-    const lines = text.split('\n').filter(l => l.trim())
-    return (
-      <div className="px-4 py-1 space-y-0.5">
-        {lines.map((line, i) => (
-          <div key={i} className="text-xs font-mono text-blue-400 dark:text-blue-400/80">
-            {line}
-          </div>
-        ))}
-      </div>
-    )
-  }
-
   return (
     <div className="px-4 py-1">
       <StreamingMarkdown content={text} isStreaming={isStreaming} className="text-xs leading-relaxed" onLinkClick={onLinkClick} onSendPrompt={onSendPrompt} />
@@ -495,10 +487,51 @@ export function TextBlock({ events, isStreaming, onLinkClick, onSendPrompt, prep
   )
 }
 
+export function OperationalBlock({ events }: { events: TaskActivityEvent[] }) {
+  const operationalEvents = events.filter(
+    (event): event is Extract<TaskActivityEvent, { type: 'operational' }> => event.type === 'operational'
+  )
+
+  if (operationalEvents.length === 0) return null
+
+  return (
+    <div className="px-4 py-1 space-y-0.5">
+      {operationalEvents.map((event, index) => {
+        const prefix = event.source === 'astro'
+          ? 'Astro'
+          : event.source === 'git'
+            ? 'Git'
+            : 'Delivery'
+        return (
+          <div key={`${event.source}-${index}`} className="text-xs font-mono text-blue-400 dark:text-blue-400/80">
+            {`── [${prefix}] ${event.message}`}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function shouldAutoExpand(toolUse: Extract<TaskActivityEvent, { type: 'tool_use' }> | undefined): boolean {
+  if (!toolUse) return false
+  if (toolUse.toolName === 'Bash') {
+    const cmd = (toolUse.toolInput as { command?: string })?.command ?? ''
+    return /plan (tree|verify)/.test(cmd)
+  }
+  return false
+}
+
+function hasRenderableResult(toolResult: Extract<TaskActivityEvent, { type: 'tool_result' }> | undefined): boolean {
+  if (!toolResult?.toolResult) return false
+  return isPlanTreeData(toolResult.toolResult)
+}
+
 export function ToolBlock({ events, isRunning }: { events: TaskActivityEvent[]; isRunning?: boolean }) {
-  const [expanded, setExpanded] = useState(false)
   const toolUse = events.find((e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> => e.type === 'tool_use')
   const toolResult = events.find((e): e is Extract<TaskActivityEvent, { type: 'tool_result' }> => e.type === 'tool_result')
+  const autoExpand = shouldAutoExpand(toolUse) || hasRenderableResult(toolResult)
+  const [manualOverride, setManualOverride] = useState<boolean | null>(null)
+  const expanded = manualOverride !== null ? manualOverride : autoExpand
 
   if (!toolUse) return null
 
@@ -508,7 +541,7 @@ export function ToolBlock({ events, isRunning }: { events: TaskActivityEvent[]; 
   return (
     <div className="mx-4 my-0.5">
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => setManualOverride(!expanded)}
         className="flex items-center gap-1.5 w-full px-2 py-1 text-left hover:bg-muted/30 rounded transition-colors cursor-pointer group"
       >
         <div className={cn("flex h-3.5 w-3.5 items-center justify-center shrink-0", colorClass)}>
@@ -552,8 +585,6 @@ export function ToolBlock({ events, isRunning }: { events: TaskActivityEvent[]; 
 }
 
 export function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEvent[]; isRunning?: boolean }) {
-  const [expanded, setExpanded] = useState(false)
-
   const toolPairs: Array<{
     toolUse: Extract<TaskActivityEvent, { type: 'tool_use' }>
     toolResult?: Extract<TaskActivityEvent, { type: 'tool_result' }>
@@ -578,12 +609,16 @@ export function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEven
     toolPairs.push({ toolUse, toolResult })
   }
 
+  const autoExpand = toolPairs.some((p) => shouldAutoExpand(p.toolUse) || hasRenderableResult(p.toolResult))
+  const [manualOverride, setManualOverride] = useState<boolean | null>(null)
+  const expanded = manualOverride !== null ? manualOverride : autoExpand
+
   if (toolPairs.length === 0) return null
 
   return (
     <div className="mx-4 my-0.5">
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => setManualOverride(!expanded)}
         className="flex items-center gap-1.5 w-full px-2 py-1 text-left hover:bg-muted/30 rounded transition-colors cursor-pointer group"
       >
         <div className="flex items-center gap-1 flex-1 min-w-0">
@@ -669,7 +704,7 @@ export function VisualBlock({ block, onSendPrompt }: { block: DisplayBlock; onSe
       {block.visualLabel && (
         <p className="text-[10px] font-mono text-muted-foreground/60 mb-1">{block.visualLabel}</p>
       )}
-      <VisualWidget code={block.visualContent} onSendPrompt={onSendPrompt} ephemeral={block.visualEphemeral} />
+      <VisualWidget code={block.visualContent} onSendPrompt={onSendPrompt} />
     </div>
   )
 }
@@ -677,8 +712,10 @@ export function VisualBlock({ block, onSendPrompt }: { block: DisplayBlock; onSe
 export function SteerBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'steer' }> }) {
   // Pending steers (accepted === undefined) show a clock indicator.
   // Failed/rejected steers (accepted === false) show error indicator.
+  // Delivered steers (accepted === true) show a checkmark.
   const isPending = event.accepted === undefined
   const isFailed = event.accepted === false
+  const isDelivered = event.accepted === true
 
   return (
     <div className="flex flex-col items-end gap-1 px-4 py-1.5">
@@ -695,6 +732,11 @@ export function SteerBlock({ event }: { event: Extract<TaskActivityEvent, { type
           <>
             <Clock className="h-3 w-3 text-muted-foreground animate-pulse" />
             <span className="text-[10px] text-muted-foreground">Queued — will deliver when agent is ready</span>
+          </>
+        ) : isDelivered ? (
+          <>
+            <CheckCircle2 className="h-3 w-3 text-success" />
+            <span className="text-[10px] text-muted-foreground">{event.ackMessage || "Delivered"}</span>
           </>
         ) : (
           <>
@@ -790,6 +832,11 @@ export function SummaryCard({ summary }: { summary: ExecutionSummary }) {
 }
 
 export function ErrorBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'error' }> }) {
+  // Filter out cancelled parallel tool call errors — these are normal agent behavior, not real errors
+  if (typeof event.error === 'string' && /^Cancelled:?\s/i.test(event.error)) {
+    return null
+  }
+
   return (
     <div className="flex items-start gap-2 mx-4 my-1.5 px-3 py-2 rounded-md bg-error/10 border border-error/20 text-sm text-error">
       <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -804,7 +851,13 @@ export function ChatUserBlock({ event, onEdit }: { event: Extract<TaskActivityEv
       <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">You</span>
       <div className="group/msg relative rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground max-w-[80%]">
         <p className="whitespace-pre-wrap">{event.message}</p>
-        {onEdit && (
+        {event.queued && (
+          <span className="flex items-center gap-1 mt-1 text-[10px] text-primary-foreground/60" title="Queued — will send after current response">
+            <Clock className="h-3 w-3" />
+            Queued
+          </span>
+        )}
+        {onEdit && !event.queued && (
           <button
             onClick={() => onEdit(event.message)}
             className="absolute -left-8 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/msg:opacity-60 hover:!opacity-100 transition-opacity text-muted-foreground hover:text-foreground cursor-pointer"

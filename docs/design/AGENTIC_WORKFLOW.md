@@ -146,9 +146,15 @@ Agent-Runner ──WS──▶ Relay Server ──┬──▶ streamingEventLog
                                               ▼
                                     SSE handler (events.ts)
                                     └──▶ stream.writeSSE() [to browser]
+                                              │
+                                              ▼
+                                    Frontend: useStreamEvents() hook
+                                    └──▶ realtime-store taskStreams → DisplayBlocks
 ```
 
 The SSE handlers in `events.ts` use the DB sequence number (`_dbSeq`) from relay-server persistence as the SSE event ID, ensuring consistency with the catch-up endpoint (`GET /api/events/catch-up`).
+
+The frontend uses a **unified streaming pipeline** (`useStreamEvents()` hook) that replaces the former dual-path SSE consumers (`parseExecutionSSE`, `useRestoredExecution`, `useChatActivityEvents`). All pathways (plan generation, chat, playground, task execution) use this single hook, which reads from `realtime-store` taskStreams and groups events into `DisplayBlock[]` for rendering. See `docs/design/UNIFIED_STREAMING_PIPELINE.md` for full details.
 
 ---
 

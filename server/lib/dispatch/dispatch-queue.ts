@@ -605,7 +605,7 @@ export function createDispatchQueue(config?: Partial<DispatchEngineConfig>): Dis
     retryDelayBase: config?.retryDelayBase ?? 5000,
     retryDelayMax: config?.retryDelayMax ?? 60000,
     dryRunMode: config?.dryRunMode ?? false,
-    maxDependencyOutputSize: config?.maxDependencyOutputSize ?? 20000,
+    maxDependencyOutputSize: config?.maxDependencyOutputSize ?? 4000,
     pollIntervalMs: config?.pollIntervalMs ?? 2000,
     machineSelectionPolicy: config?.machineSelectionPolicy ?? 'priority',
   }

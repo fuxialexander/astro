@@ -548,7 +548,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
               <GitPullRequestCreateArrow className="h-2.5 w-2.5 text-info" />
             )}
             {priorityPipColor && (
-              <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: priorityPipColor }} />
+              <span className="h-1.5 w-1.5 shrink-0" style={{ background: priorityPipColor }} />
             )}
           </div>
         </div>

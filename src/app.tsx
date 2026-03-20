@@ -174,7 +174,8 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   // Track the last user ID to detect user changes (sign-out → sign-in as different user)
   const lastUserIdRef = useRef<string | null>(null)
 
-  // Phase 1: Load teams first (sets X-Team-Id header for all subsequent API calls)
+  // Phase 1: Load teams first so the app has membership data and a default
+  // team context before team-owned settings/resources are loaded.
   useEffect(() => {
     if (!shouldLoadData) return
 
@@ -184,12 +185,12 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     }
     lastUserIdRef.current = userId
 
-    // Teams must load first — they set the X-Team-Id header used by all other API calls
+    // Teams must load first so team-owned writes/settings have the correct default context.
     if (userChanged || !teamsLoaded) loadTeams()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Re-run when auth state or user changes
   }, [shouldLoadData, userId])
 
-  // Phase 2: Load all other stores once teams are loaded (so X-Team-Id is correct)
+  // Phase 2: Load the rest of the app once memberships/default context are ready.
   useEffect(() => {
     if (!shouldLoadData || !teamsLoaded) return
 
@@ -212,10 +213,8 @@ function DataLoader({ children }: { children: React.ReactNode }) {
 
     connectRealtime()
 
-    // Re-subscribe Supabase Realtime with team-scoped filter.
-    // Pass undefined if no teams yet — setupRealtimeSync handles it gracefully.
-    const activeTeamId = useTeamStore.getState().teams[0]?.id
-    setupRealtimeSync(activeTeamId)
+    // Realtime subscriptions follow the user's cross-team read scope.
+    setupRealtimeSync()
 
     // Pre-cache browser hostname for file URL building
     getBrowserHostname().catch((err) => {

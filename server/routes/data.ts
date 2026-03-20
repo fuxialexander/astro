@@ -23,15 +23,19 @@ import {
   projectKnowledge,
   loopIterations,
 } from '../lib/db/schema.js'
-import { eq, and, or, sql, desc, isNull, inArray, notInArray, ne } from 'drizzle-orm'
+import { eq, and, or, sql, desc, isNull, inArray, notInArray, ne, type AnyColumn } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.js'
 import { isServerMode } from '../lib/app-mode.js'
 import { getServiceClient } from '../lib/supabase.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
+import { streamingEventLog } from '../lib/streaming-event-log.js'
+import { redisPubSub } from '../lib/redis-pubsub.js'
 import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import { startLoop } from '../lib/loop-controller.js'
 import { extractRepoInfo } from '../lib/git-url-utils.js'
+import { isYoloMode } from '../lib/yolo-mode.js'
+import { resolveWritableTeamId } from '../lib/team-utils.js'
 
 // Fallback icon/color pools for projects created without explicit icon/color
 const FALLBACK_COLORS = ['#4A6D8A', '#5F8D6B', '#A07D4F', '#7B6B9A', '#9A6878', '#A8785E', '#5B7F9A', '#8A7A6E', '#71717A']
@@ -50,7 +54,7 @@ function pickByNameHash(name: string, arr: readonly string[]): string {
  * Cross-team scope filter: matches all teams the user belongs to.
  * All project/blob access checks use this to support cross-team projects.
  */
-function allTeamsScopeFilter(table: { teamId: typeof projects.teamId }, user: AuthUser) {
+function allTeamsScopeFilter<TTeamColumn extends AnyColumn>(table: { teamId: TTeamColumn }, user: AuthUser) {
   return inArray(table.teamId, user.teamIds)
 }
 
@@ -104,7 +108,13 @@ app.post('/projects', async (c) => {
 
   // Generate UUID if not provided
   const projectId = body.id || crypto.randomUUID()
-  const teamId = user.teamId
+  if (body.teamId !== undefined && body.teamId && !user.teamIds.includes(body.teamId)) {
+    return c.json({ error: 'Invalid teamId' }, 400)
+  }
+
+  const teamId = body.teamId && user.teamIds.includes(body.teamId)
+    ? body.teamId
+    : user.teamId
 
   // Server-authoritative number assignment in a transaction
   let assignedNumber: number | null = null
@@ -215,7 +225,12 @@ app.patch('/projects/:id', async (c) => {
   if (body.lead !== undefined) patch.lead = body.lead || null
   if (body.health !== undefined) patch.health = body.health || null
   if (body.initiativeId !== undefined) patch.initiativeId = body.initiativeId || null
-  if (body.teamId !== undefined && body.teamId && user.teamIds.includes(body.teamId)) patch.teamId = body.teamId
+  if (body.teamId !== undefined) {
+    if (body.teamId && !user.teamIds.includes(body.teamId)) {
+      return c.json({ error: 'Invalid teamId' }, 400)
+    }
+    patch.teamId = body.teamId || existing.teamId
+  }
   if (body.progress !== undefined) patch.progress = body.progress
   if (body.labels !== undefined) patch.labels = body.labels
   if (body.color !== undefined) patch.color = body.color
@@ -346,7 +361,7 @@ app.delete('/projects/:id', async (c) => {
 app.get('/initiatives', async (c) => {
   const user = c.get('user')! as AuthUser
   const rows = await db.select().from(initiatives).where(
-    and(eq(initiatives.teamId, user.teamId), isNull(initiatives.deletedAt))
+    allTeamsScopeFilter(initiatives, user)
   )
   return c.json(rows)
 })
@@ -357,11 +372,18 @@ app.post('/initiatives', async (c) => {
   const now = new Date()
 
   const initiativeId = body.id || crypto.randomUUID()
+  if (body.teamId !== undefined && body.teamId && !user.teamIds.includes(body.teamId)) {
+    return c.json({ error: 'Invalid teamId' }, 400)
+  }
+
+  const teamId = body.teamId && user.teamIds.includes(body.teamId)
+    ? body.teamId
+    : user.teamId
 
   const row = {
     id: initiativeId,
     ownerId: user.id,
-    teamId: user.teamId,
+    teamId,
     name: body.name,
     description: body.description || '',
     goal: body.goal || null,
@@ -386,7 +408,7 @@ app.get('/initiatives/:id', async (c) => {
   const user = c.get('user')! as AuthUser
   const initiativeId = c.req.param('id')
   const [row] = await db.select().from(initiatives).where(
-    and(eq(initiatives.id, initiativeId), eq(initiatives.teamId, user.teamId))
+    and(eq(initiatives.id, initiativeId), allTeamsScopeFilter(initiatives, user))
   )
   if (!row) return c.json({ error: 'Not found' }, 404)
   return c.json(row)
@@ -397,7 +419,7 @@ app.patch('/initiatives/:id', async (c) => {
   const id = c.req.param('id')
 
   try {
-    const teamFilter = eq(initiatives.teamId, user.teamId)
+    const teamFilter = allTeamsScopeFilter(initiatives, user)
 
     const [existing] = await db.select().from(initiatives).where(
       and(eq(initiatives.id, id), teamFilter)
@@ -415,6 +437,12 @@ app.patch('/initiatives/:id', async (c) => {
     if (body.lead !== undefined) patch.lead = body.lead || null
     if (body.color !== undefined) patch.color = body.color
     if (body.icon !== undefined) patch.icon = body.icon
+    if (body.teamId !== undefined) {
+      if (body.teamId && !user.teamIds.includes(body.teamId)) {
+        return c.json({ error: 'Invalid teamId' }, 400)
+      }
+      patch.teamId = body.teamId || existing.teamId
+    }
 
     await db.update(initiatives).set(patch).where(
       and(eq(initiatives.id, id), teamFilter)
@@ -434,7 +462,7 @@ app.delete('/initiatives/:id', async (c) => {
   const initiativeId = c.req.param('id')
 
   try {
-    const teamFilter = eq(initiatives.teamId, user.teamId)
+    const teamFilter = allTeamsScopeFilter(initiatives, user)
 
     const [existing] = await db.select().from(initiatives).where(
       and(eq(initiatives.id, initiativeId), teamFilter)
@@ -800,6 +828,83 @@ app.put('/plan/:projectId', async (c) => {
       })
     }
   })
+
+  // If the CLI passed an executionId (from ASTRO_EXECUTION_ID env), emit a
+  // plan_result streaming event. This links the plan creation to the execution's
+  // SSE pipeline so the frontend renders PlanGraphBlock inline and YOLO
+  // auto-dispatch can trigger immediately (plan nodes already in DB above).
+  const executionId = (body as Record<string, unknown>).executionId as string | undefined
+  if (executionId && typeof executionId === 'string') {
+    const planResultData = {
+      nodes: uniqueNodes.map((n) => ({
+        id: n.id as string,
+        title: n.title as string,
+        type: (n.type as string) || 'task',
+        status: (n.status as string) || 'planned',
+      })),
+      edges: newEdges.map((e) => ({
+        source: e.source as string,
+        target: e.target as string,
+      })),
+      projectName: (body as Record<string, unknown>).projectName as string | undefined,
+    }
+    streamingEventLog.append(executionId, 'plan_result', planResultData).then((seq) => {
+      // Broadcast via Redis pub/sub for cross-instance real-time delivery.
+      // The SSE handler in events.ts picks this up and sends to the browser.
+      redisPubSub.publishStreamingEvent({
+        eventType: 'plan_result',
+        taskId: executionId,
+        userId: user.id,
+        data: { ...planResultData, projectId },
+        dbSeq: seq,
+      }).catch(() => {})
+      // Also emit locally for single-instance mode (no Redis).
+      executionEventBus.emit('task:plan_result', {
+        taskId: executionId,
+        projectId,
+        data: planResultData,
+        dbSeq: seq,
+      })
+    }).catch((err) => {
+      console.warn('[data/plan] Failed to emit plan_result event:', (err as Error).message)
+    })
+
+    isYoloMode(user.id, executionId).then((yoloEnabled) => {
+      if (!yoloEnabled) return
+
+      const completedStatuses = new Set(['completed', 'auto_verified'])
+      const nodeStatus = new Map(uniqueNodes.map((n) => [n.id as string, ((n.status as string) || 'planned')]))
+      const incomingEdges = new Map<string, string[]>()
+      for (const edge of newEdges) {
+        const target = edge.target as string
+        const source = edge.source as string
+        const deps = incomingEdges.get(target) || []
+        deps.push(source)
+        incomingEdges.set(target, deps)
+      }
+
+      const readyTasks = uniqueNodes.filter((node) => {
+        if ((node.type as string) !== 'task') return false
+        if (((node.status as string) || 'planned') !== 'planned') return false
+        const deps = incomingEdges.get(node.id as string) || []
+        return deps.every((depId) => completedStatuses.has(nodeStatus.get(depId) || 'planned'))
+      })
+
+      if (readyTasks.length === 0) {
+        console.log(`[data/plan] YOLO: no ready tasks to auto-dispatch for project ${projectId}`)
+        return
+      }
+
+      for (const task of readyTasks) {
+        serverSideDispatch(task.id as string, projectId).catch((err) => {
+          console.error(`[data/plan] YOLO auto-dispatch failed for ${task.id}:`, err)
+        })
+      }
+      console.log(`[data/plan] YOLO auto-dispatched ${readyTasks.length} ready task(s) for project ${projectId}`)
+    }).catch((err) => {
+      console.warn('[data/plan] Failed to resolve YOLO mode for plan auto-dispatch:', (err as Error).message)
+    })
+  }
 
   return c.json({ ok: true, numbers })
 })
@@ -1709,13 +1814,18 @@ app.post('/sessions', async (c) => {
     }
   }
 
-  await db.insert(sessions).values({
+  // Coerce empty strings to null for UUID columns
+  const values = {
     ...body,
     userId,
+    projectId: body.projectId || null,
+    nodeId: body.nodeId || null,
     createdAt: body.createdAt ? new Date(body.createdAt) : new Date(),
     updatedAt: body.updatedAt ? new Date(body.updatedAt) : new Date(),
     completedAt: body.completedAt ? new Date(body.completedAt) : null,
-  })
+  }
+
+  await db.insert(sessions).values(values)
 
   return c.json(body)
 })
@@ -2246,9 +2356,26 @@ app.post('/blobs', async (c) => {
     return c.json({ error: `File too large. Maximum size is ${MAX_BLOB_SIZE / 1024 / 1024}MB` }, 400)
   }
 
+  let teamId = user.teamId
+
+  if (body.projectId) {
+    const [project] = await db.select({ id: projects.id, teamId: projects.teamId }).from(projects).where(
+      and(eq(projects.id, body.projectId), allTeamsScopeFilter(projects, user))
+    )
+    if (!project) {
+      return c.json({ error: 'Not authorized for project' }, 403)
+    }
+    teamId = project.teamId
+  } else if (body.teamId !== undefined && body.teamId) {
+    if (!user.teamIds.includes(body.teamId)) {
+      return c.json({ error: 'Invalid teamId' }, 400)
+    }
+    teamId = body.teamId
+  }
+
   const [row] = await db.insert(blobs).values({
     ownerId: user.id,
-    teamId: user.teamId,
+    teamId,
     mimeType: body.mimeType,
     size,
     data: body.data,
@@ -2378,6 +2505,8 @@ app.post('/environment-configs', async (c) => {
   const user = c.get('user')! as AuthUser
   const body = await c.req.json()
   const { backendId, machineId, customContext, displayName } = body
+  const teamTarget = resolveWritableTeamId(user, body.teamId)
+  if ('error' in teamTarget) return c.json({ error: teamTarget.error }, 400)
 
   if (!backendId || typeof backendId !== 'string') return c.json({ error: 'backendId is required' }, 400)
   if (backendId.length > 100) return c.json({ error: 'backendId too long' }, 400)
@@ -2404,7 +2533,7 @@ app.post('/environment-configs', async (c) => {
       await db.update(environmentConfigs).set({
         customContext: customContext ?? '',
         displayName: displayName ?? null,
-        teamId: user.teamId,
+        teamId: teamTarget.teamId,
         updatedAt: new Date(),
       }).where(eq(environmentConfigs.id, existing.id))
       const [updated] = await db.select().from(environmentConfigs).where(eq(environmentConfigs.id, existing.id))
@@ -2413,7 +2542,7 @@ app.post('/environment-configs', async (c) => {
 
     const [row] = await db.insert(environmentConfigs).values({
       userId: user.id,
-      teamId: user.teamId,
+      teamId: teamTarget.teamId,
       machineId: machineId ?? null,
       backendId,
       customContext: customContext ?? '',
@@ -2435,7 +2564,7 @@ app.post('/environment-configs', async (c) => {
         await db.update(environmentConfigs).set({
           customContext: customContext ?? '',
           displayName: displayName ?? null,
-          teamId: user.teamId,
+          teamId: teamTarget.teamId,
           updatedAt: new Date(),
         }).where(eq(environmentConfigs.id, existing.id))
         const [updated] = await db.select().from(environmentConfigs).where(eq(environmentConfigs.id, existing.id))

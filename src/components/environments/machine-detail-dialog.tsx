@@ -20,7 +20,7 @@ import { compactGpuName } from "@/lib/utils"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
 import { InstructionPicker } from "@/components/execution/instruction-picker"
-import type { RegisteredMachine } from "@/stores/machines-store"
+import { useMachinesStore, type RegisteredMachine } from "@/stores/machines-store"
 import type { MachineEntry } from "@/stores/realtime-store"
 
 // Re-use the shared AI agent display names
@@ -57,6 +57,8 @@ export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine, 
   const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider)
   const presets = useMachineInstructionStore((s) => s.presets)
   const instructions = useMachineInstructionStore((s) => s.instructions)
+  // Subscribe to store for live defaultInstructionId updates
+  const liveInstructionId = useMachinesStore((s) => s.machines.find((m) => m.id === machine?.id)?.defaultInstructionId)
 
   if (!machine) return null
 
@@ -148,7 +150,7 @@ export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine, 
               <div className="flex-1 min-w-0">
                 <span className="text-sm">
                   {(() => {
-                    const id = machine.defaultInstructionId
+                    const id = liveInstructionId
                     if (!id) return "Default Compute Guide"
                     const instr = instructions.find((i) => i.id === id)
                     if (instr) return instr.name
@@ -160,7 +162,7 @@ export function MachineDetailDialog({ open, onOpenChange, machine, liveMachine, 
               </div>
               <InstructionPicker
                 compact={false}
-                currentInstructionId={machine.defaultInstructionId}
+                currentInstructionId={liveInstructionId}
                 onSelect={(id) => onAssignInstruction(machine.id, id)}
               />
             </div>

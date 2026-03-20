@@ -21,6 +21,10 @@ interface TeamState {
   getUserTeams: (userId: string) => Team[]
   isTeamMember: (teamId: string, userId: string) => boolean
   getTeamMemberRole: (teamId: string, userId: string) => TeamMember['role'] | null
+  /** Returns the user's personal workspace team ID (falls back to first team). */
+  getPersonalTeamId: () => string | undefined
+  /** Returns the current default team context for team-owned writes. */
+  getDefaultTeamId: () => string | undefined
 }
 
 export const useTeamStore = create<TeamState>((set, get) => ({
@@ -108,5 +112,20 @@ export const useTeamStore = create<TeamState>((set, get) => ({
     const members = get().teamMembers[teamId] || []
     const member = members.find((m) => m.userId === userId)
     return member?.role || null
+  },
+
+  getPersonalTeamId: () => {
+    const { teams } = get()
+    const personal = teams.find((t) =>
+      t.isPersonal
+      || t.description === 'Personal workspace'
+      || t.description === 'Auto-created personal workspace'
+    )
+    return personal?.id ?? teams[0]?.id
+  },
+
+  getDefaultTeamId: () => {
+    const { activeTeamId, getPersonalTeamId } = get()
+    return activeTeamId ?? getPersonalTeamId()
   },
 }))

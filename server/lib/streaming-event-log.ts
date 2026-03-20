@@ -9,7 +9,7 @@
 
 import { db } from './db/index.js'
 import { streamingEvents } from './db/schema.js'
-import { eq, gt, and, inArray, lt, sql, isNull } from 'drizzle-orm'
+import { eq, gt, and, inArray, lt, sql, desc, isNull } from 'drizzle-orm'
 
 export interface StreamingEvent {
   seq: number
@@ -71,6 +71,143 @@ class StreamingEventLog {
       return row.seq
     } catch (err) {
       console.warn('[streaming-event-log] Failed to append:', (err as Error).message)
+      return 0
+    }
+  }
+
+  /**
+   * Persist a terminal event exactly once per execution.
+   * If a terminal row already exists ('result' or 'error'), return its seq.
+   */
+  async appendTerminalIfAbsent(
+    executionId: string,
+    eventType: 'result' | 'error',
+    data: unknown,
+  ): Promise<number> {
+    await this.flushText(executionId)
+
+    try {
+      return await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`streaming-terminal:${executionId}`}))`)
+
+        const existing = await tx.select({ seq: streamingEvents.seq })
+          .from(streamingEvents)
+          .where(
+            and(
+              eq(streamingEvents.executionId, executionId),
+              inArray(streamingEvents.eventType, ['result', 'error']),
+            ),
+          )
+          .orderBy(desc(streamingEvents.seq))
+          .limit(1)
+
+        if (existing[0]) return existing[0].seq
+
+        const [row] = await tx.insert(streamingEvents).values({
+          executionId,
+          eventType,
+          data: data as Record<string, unknown>,
+        }).returning({ seq: streamingEvents.seq })
+
+        return row.seq
+      })
+    } catch (err) {
+      console.error('[streaming-event-log] Failed to append terminal event:', (err as Error).message)
+      throw err
+    }
+  }
+
+  /**
+   * Persist an approval_request exactly once per execution/requestId pair.
+   */
+  async appendApprovalRequestIfAbsent(
+    executionId: string,
+    data: {
+      requestId: string
+      question: string
+      options: string[]
+      machineId?: string
+    },
+  ): Promise<number> {
+    await this.flushText(executionId)
+
+    try {
+      return await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`streaming-approval:${executionId}:${data.requestId}`}))`)
+
+        const existing = await tx.select({ seq: streamingEvents.seq })
+          .from(streamingEvents)
+          .where(
+            and(
+              eq(streamingEvents.executionId, executionId),
+              eq(streamingEvents.eventType, 'approval_request'),
+              sql`${streamingEvents.data}->>'requestId' = ${data.requestId}`,
+            ),
+          )
+          .orderBy(desc(streamingEvents.seq))
+          .limit(1)
+
+        if (existing[0]) return existing[0].seq
+
+        const [row] = await tx.insert(streamingEvents).values({
+          executionId,
+          eventType: 'approval_request',
+          data,
+        }).returning({ seq: streamingEvents.seq })
+
+        return row.seq
+      })
+    } catch (err) {
+      console.warn('[streaming-event-log] Failed to append approval_request:', (err as Error).message)
+      return 0
+    }
+  }
+
+  /**
+   * Persist a safety_prompt exactly once per execution/safety prompt tuple.
+   */
+  async appendSafetyPromptIfAbsent(
+    executionId: string,
+    data: {
+      safetyTier: string
+      warning?: string
+      machineId?: string
+      options: Array<{ id: string; label: string; description?: string }>
+    },
+  ): Promise<number> {
+    await this.flushText(executionId)
+
+    try {
+      return await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtext(${`streaming-safety:${executionId}:${data.safetyTier}:${data.warning ?? ''}`}))`,
+        )
+
+        const existing = await tx.select({ seq: streamingEvents.seq })
+          .from(streamingEvents)
+          .where(
+            and(
+              eq(streamingEvents.executionId, executionId),
+              eq(streamingEvents.eventType, 'safety_prompt'),
+              sql`${streamingEvents.data}->>'safetyTier' = ${data.safetyTier}`,
+              sql`coalesce(${streamingEvents.data}->>'warning', '') = ${data.warning ?? ''}`,
+            ),
+          )
+          .orderBy(desc(streamingEvents.seq))
+          .limit(1)
+
+        if (existing[0]) return existing[0].seq
+
+        const [row] = await tx.insert(streamingEvents).values({
+          executionId,
+          eventType: 'safety_prompt',
+          data: data as Record<string, unknown>,
+        }).returning({ seq: streamingEvents.seq })
+
+        return row.seq
+      })
+    } catch (err) {
+      console.warn('[streaming-event-log] Failed to append safety_prompt:', (err as Error).message)
       return 0
     }
   }

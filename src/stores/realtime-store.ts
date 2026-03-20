@@ -17,32 +17,11 @@ import { dataClient } from '@/lib/data-client'
 import { useProjectStore } from './project-store'
 import { useExecutionStore } from './execution-store'
 import { useMachinesStore } from './machines-store'
-import { applyPlanFromText, planNodeIdToProjectId } from '@/lib/plan-extraction'
+import { planNodeIdToProjectId } from '@/lib/plan-extraction'
 import type { TaskActivityEvent } from '@/types'
 import { useToastStore } from './toast-store'
 import { useNotificationStore } from './notification-store'
 import { buildServerCompletionMessage, buildClientCompletionMessage } from '@/lib/completion-messages'
-import { useSessionStore } from './session-store'
-
-/**
- * Derive from DB-backed session type whether this stream is a chat session.
- * Chat sessions push events via direct SSE callbacks (sendPlaygroundChat /
- * sendChatMessage); the global SSE handler must skip them to prevent
- * double-delivery. Falls back to streamingSessions for the edge case where
- * a chat starts (createSession + sendPlaygroundChat) before the session
- * store's initial load() from the API has completed.
- */
-function isChatSessionStream(streamId: string): boolean {
-  const sessionState = useSessionStore.getState()
-  const session = sessionState.sessions.get(streamId)
-  if (session) {
-    return session.type === 'project-chat' || session.type === 'task-chat'
-  }
-  // Fallback: if session store hasn't loaded yet (load() still in-flight),
-  // check if the session store is actively streaming this ID
-  // (streamingSessions is set synchronously before SSE starts).
-  return sessionState.streamingSessions.has(streamId)
-}
 
 // Per-node fetch generation counter to prevent out-of-order getNode() responses
 // from overwriting newer state (e.g., rapid dispatched → in_progress → completed).
@@ -139,6 +118,7 @@ export interface TaskStream {
     success?: boolean
     duration?: number
     timestamp: Date
+    seq?: number
   }>
   fileChanges: Array<{
     path: string
@@ -147,6 +127,7 @@ export interface TaskStream {
     linesRemoved?: number
     diff?: string
     timestamp: Date
+    seq?: number
   }>
   steerMessages: Array<{
     message: string
@@ -294,21 +275,16 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       get().reconcileRunningTasks()
 
       const { taskStreams, hydrateFromCatchUp } = get()
-      // Collect execution IDs from all active task execution streams.
-      // Skip chat-session streams — they self-manage via useChatActivityEvents.
-      // The global reconnect must not update them or it would add current-turn
-      // events to hydratedChatEvents that are already in chatEventsRef, causing
-      // duplication in the merged activity feed. Chat streams are identified by
-      // deriving from the DB-backed session type (project-chat / task-chat).
+      // Catch up ALL streams (not just running ones) so that transitions that
+      // occurred while the tab was hidden (e.g., task completed) are recovered.
       const activeIds: string[] = []
       for (const [execId, stream] of taskStreams) {
-        if (isChatSessionStream(execId)) continue
-        if (stream.status === 'running' || stream.status === 'in_progress') {
+        if (stream.activityEvents.length > 0 || stream.status === 'running' || stream.status === 'in_progress') {
           activeIds.push(execId)
         }
       }
       if (activeIds.length > 0) {
-        console.log('[realtime] SSE reconnected, catching up', activeIds.length, 'active executions from seq', realtimeClient.lastSeq)
+        console.log('[realtime] SSE reconnected, catching up', activeIds.length, 'streams from seq', realtimeClient.lastSeq)
         hydrateFromCatchUp(activeIds, realtimeClient.lastSeq)
       }
     }
@@ -595,12 +571,19 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               if (e.seq != null) existingActivitySeqs.add(e.seq)
             }
 
-            // Keep existing events that are NOT superseded by a hydrated seq'd version
-            // Drop no-seq text events: their content is captured in existing.stdout and
-            // the DB has a batched seq'd version in the hydrated set
+            // Keep existing events that are NOT superseded by a hydrated seq'd version.
+            // For no-seq text events: only drop those whose content is covered by
+            // the hydrated set (timestamps before the last hydrated event).
+            // Keep no-seq text events newer than the last hydrated event — they
+            // haven't been flushed to DB yet, so the hydrated set doesn't cover them.
+            const lastHydratedActivityTime = hydrated.activityEvents.length > 0
+              ? new Date(hydrated.activityEvents[hydrated.activityEvents.length - 1].timestamp).getTime()
+              : 0
             const existingKept = existing.activityEvents.filter(e => {
               if (e.seq != null) return !hydratedActivitySeqs.has(e.seq)
-              return e.type !== 'text'
+              if (e.type !== 'text') return true
+              // Keep no-seq text events newer than the latest hydrated event
+              return new Date(e.timestamp).getTime() > lastHydratedActivityTime
             })
             // Build set of no-seq event types already present in existingKept so that
             // no-seq events from hydrated (e.g. plan_result, which carries no DB seq)
@@ -662,12 +645,19 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       })
 
       // Reconstruct dynamicApprovals from pending approval_request events
-      // and safetyPrompts from pending safety_prompt events
+      // and safetyPrompts from pending safety_prompt events.
+      // Also remove any stale dynamicApprovals that SSE delivered before hydration
+      // confirmed they were already answered in the DB.
       set((state) => {
         const newApprovals = new Map(state.dynamicApprovals)
         const newSafetyPrompts = new Map(state.safetyPrompts)
         for (const [execId] of byExecution) {
           const hydrated = hydratedByExecution.get(execId)!
+          // Remove stale approvals that were already answered (SSE race: approval_request
+          // arrived via SSE before hydration confirmed it was answered in the DB)
+          for (const answeredId of hydrated.answeredApprovals) {
+            newApprovals.delete(answeredId)
+          }
           for (const approval of hydrated.pendingApprovals) {
             newApprovals.set(approval.requestId, {
               taskId: approval.executionId,
@@ -906,16 +896,16 @@ function mergeBySeq<T extends { seq?: number; timestamp: Date }>(
   }
   // For events with seq: skip if already in the hydrated set
   // For events without seq (e.g. text events whose seq is unavailable due
-  // to server-side batching): fall back to timestamp comparison. This is
-  // a known-lossy heuristic — text events within 1s of the last hydrated
-  // event may be dropped. Acceptable because the P0 guard in events.ts
-  // eliminates the primary source of text duplication (double-delivery).
+  // to server-side batching): keep if strictly newer than the last hydrated
+  // event. The text dedup in groupActivityEvents() handles any content
+  // duplicates that slip through. Previous 1s buffer was too aggressive
+  // and dropped the last block of live events when hydration raced with SSE.
   const lastHydratedTime = new Date(hydrated[hydrated.length - 1].timestamp).getTime()
   const newLiveItems = live.filter(e => {
     if (e.seq != null) {
       return !hydratedSeqs.has(e.seq)
     }
-    return new Date(e.timestamp).getTime() > lastHydratedTime + 1000
+    return new Date(e.timestamp).getTime() > lastHydratedTime
   })
 
   return newLiveItems.length > 0
@@ -975,30 +965,20 @@ function reconcileResultFromCatchUp(
     })
   }
 
-  // If this is a plan session, extract plan nodes from caught-up stdout.
-  // Skip if the project already has plan nodes in the store — on page refresh,
-  // load() fetches authoritative nodes from DB; re-applying plan_result from
-  // streaming events would create nodes with new UUIDs and cause duplicates.
-  for (const [nid, exec] of execStore.executions) {
-    if (exec.executionId === executionId && nid.startsWith('plan-')) {
-      const planProjectId = planNodeIdToProjectId(nid)!
-      const existingProjectNodes = usePlanStore.getState().nodes.filter(n => n.projectId === planProjectId)
-      if (existingProjectNodes.length > 0) {
-        console.log(`[realtime] Skipping plan catch-up for project ${planProjectId} — ${existingProjectNodes.length} nodes already loaded from DB`)
-        break
+      for (const [nid, exec] of execStore.executions) {
+        if (exec.executionId === executionId && nid.startsWith('plan-')) {
+          const planProjectId = planNodeIdToProjectId(nid)!
+          const existingProjectNodes = usePlanStore.getState().nodes.filter(n => n.projectId === planProjectId)
+          if (existingProjectNodes.length > 0) {
+            console.log(`[realtime] Skipping plan catch-up for project ${planProjectId} — ${existingProjectNodes.length} nodes already loaded from DB`)
+            break
+          }
+          if (hydrated.planResult) {
+            void usePlanStore.getState().load()
+          }
+          break
+        }
       }
-      // Prefer pre-extracted plan_result from hydrator; fall back to regex extraction from stdout
-      const result = hydrated.planResult
-        ? applyPlanFromText(planProjectId, '', executionId, false, hydrated.planResult)
-        : hydrated.stdout
-          ? applyPlanFromText(planProjectId, hydrated.stdout, executionId)
-          : null
-      if (result?.applied) {
-        console.log('[realtime] Plan extracted from catch-up:', result.nodeCount, 'nodes')
-      }
-      break
-    }
-  }
 }
 
 function addActivity(
@@ -1096,9 +1076,6 @@ function handleRealtimeEvent(
     case 'task:stdout':
     case 'task:text': {
       const execId = data.taskId as string
-      // Skip chat-session streams — they receive text via direct SSE callbacks
-      // (sendPlaygroundChat.onText / sendChatMessage.onText) to avoid double-delivery.
-      if (isChatSessionStream(execId)) break
       const text = data.data as string
       // Batch text chunks — flush every 50ms for smooth ~20fps rendering
       realtimeTextBatch.set(execId, (realtimeTextBatch.get(execId) || '') + text)
@@ -1108,6 +1085,26 @@ function handleRealtimeEvent(
           flushRealtimeText(execId, set)
         }, 50))
       }
+      break
+    }
+
+    case 'task:operational': {
+      const execId = data.taskId as string
+      const message = data.message as string
+      const source = ((data.source as string) || 'astro') as 'astro' | 'git' | 'delivery'
+      const seq = event.id ? parseInt(event.id, 10) : undefined
+      set((state) => {
+        const streams = new Map(state.taskStreams)
+        const existing = streams.get(execId) || createEmptyTaskStream(execId)
+        streams.set(execId, {
+          ...existing,
+          activityEvents: [
+            ...existing.activityEvents,
+            { type: 'operational' as const, message, source, timestamp: new Date(), ...(seq && !isNaN(seq) ? { seq } : {}) },
+          ],
+        })
+        return { taskStreams: streams }
+      })
       break
     }
 
@@ -1143,13 +1140,51 @@ function handleRealtimeEvent(
       break
     }
 
+    case 'task:error': {
+      const execId = data.taskId as string
+      const error = (data.error as string) || 'Unknown error'
+
+      set((state) => {
+        const streams = new Map(state.taskStreams)
+        const existing = streams.get(execId) || createEmptyTaskStream(execId)
+        streams.set(execId, {
+          ...existing,
+          status: 'error',
+          error,
+        })
+        return { taskStreams: streams }
+      })
+
+      useRealtimeStore.getState().pushActivityEvent(execId, {
+        type: 'error',
+        error,
+        timestamp: new Date(),
+      })
+      addActivity(set, 'failure', `Task failed: ${execId}`, { taskId: execId })
+
+      const execStore = useExecutionStore.getState()
+      const newExecs = new Map(execStore.executions)
+      for (const [nid, exec] of execStore.executions) {
+        if (exec.executionId !== execId) continue
+        newExecs.set(nid, {
+          ...exec,
+          status: 'failure',
+          completedAt: new Date(),
+          error,
+        })
+        useExecutionStore.setState({ executions: newExecs })
+        execStore.persist()
+        break
+      }
+      break
+    }
+
     case 'task:result': {
       const execId = data.taskId as string
       const status = data.status as string
       const isSuccess = status === 'success' || status === 'completed'
 
-      // yaml-spec parsing is handled by use-chat-activity-events.ts which
-      // concatenates text events and extracts specs when isStreaming becomes false.
+      // yaml-spec parsing is handled in the unified activity pipeline.
 
       set((state) => {
         const streams = new Map(state.taskStreams)
@@ -1184,8 +1219,7 @@ function handleRealtimeEvent(
         { taskId: execId }
       )
 
-      // Guard: skip side-effects if execution already completed (duplicate delivery
-      // now possible since activeDispatchStreams no longer suppresses task:result)
+      // Guard: skip side-effects if execution already completed.
       const execStore = useExecutionStore.getState()
       {
         let alreadyCompleted = false
@@ -1219,6 +1253,21 @@ function handleRealtimeEvent(
         }
       }
 
+      // Fire-and-forget summary generation for completed task executions
+      {
+        for (const [nid, exec] of useExecutionStore.getState().executions) {
+          if (exec.executionId === execId && (exec.status === 'success' || exec.status === 'failure')) {
+            const node = usePlanStore.getState().nodes.find((n) => n.id === nid)
+            if (node) {
+              import('./execution-store').then(({ requestExecutionSummary }) => {
+                void requestExecutionSummary(nid, exec, node)
+              })
+            }
+            break
+          }
+        }
+      }
+
       // Plan-node status update fallback: if task:result carries finalNodeStatus,
       // update the plan node directly. This prevents "stuck in_progress" when the
       // dispatch SSE drops and node:status_changed is delayed or missed.
@@ -1237,33 +1286,11 @@ function handleRealtimeEvent(
         }
       }
 
-      // If this is a plan session result, extract plan nodes from accumulated stdout.
-      // Skip if the project already has nodes — prevents UUID duplication on refresh.
-      for (const [nid, exec] of execStore.executions) {
-        if (exec.executionId === execId && nid.startsWith('plan-')) {
-          const planProjectId = planNodeIdToProjectId(nid)!
-          const existingNodes = usePlanStore.getState().nodes.filter(n => n.projectId === planProjectId)
-          if (existingNodes.length > 0) break
-          // Get accumulated stdout from task stream — use executionId for idempotency
-          // to prevent race duplication with the SSE path in execution-store
-          const stream = useRealtimeStore.getState().taskStreams.get(execId)
-          if (stream?.stdout) {
-            const result = applyPlanFromText(planProjectId, stream.stdout, execId)
-            if (result.applied) {
-              console.log('[realtime] Plan extracted from live SSE result:', result.nodeCount, 'nodes')
-            }
-          }
-          break
-        }
-      }
       break
     }
 
     case 'task:tool_trace': {
       const execId = data.taskId as string
-      // Skip chat-session streams — they receive tool events via direct SSE callbacks
-      // (sendPlaygroundChat / sendChatMessage) to avoid double-delivery.
-      if (isChatSessionStream(execId)) break
       const now = new Date()
       const toolName = data.toolName as string
       const hasInput = data.toolInput !== undefined
@@ -1827,7 +1854,10 @@ function handleRealtimeEvent(
       // Plan-node status update is now handled by node:status_changed SSE event
       // (DB-authoritative: server writes status, emits notification, frontend re-reads from DB)
 
-      // 1. Create execution entry so ExecutionPanel can render
+      // 1. Create or update execution entry so ExecutionPanel can render.
+      // Always update machineId + executionId — the entry may exist from
+      // startPlaygroundSession (which creates it without machineId) or from
+      // a DB load on another tab.
       const execStore = useExecutionStore.getState()
       if (!execStore.executions.has(initNodeId)) {
         useExecutionStore.setState((state) => {
@@ -1845,6 +1875,22 @@ function handleRealtimeEvent(
             machineId: initMachineId,
           })
           return { executions: newExecs }
+        })
+      } else if (initMachineId) {
+        // Entry exists but may lack machineId (playground sessions, DB-loaded entries)
+        useExecutionStore.setState((state) => {
+          const newExecs = new Map(state.executions)
+          const existing = newExecs.get(initNodeId)!
+          if (!existing.machineId || !existing.executionId) {
+            newExecs.set(initNodeId, {
+              ...existing,
+              machineId: existing.machineId || initMachineId,
+              executionId: existing.executionId || execId,
+              status: 'running',
+            })
+            return { executions: newExecs }
+          }
+          return state
         })
       }
 
@@ -2063,6 +2109,37 @@ function handleRealtimeEvent(
     case 'task:ready': {
       addActivity(set, 'info', `Downstream task dispatching server-side`)
       // Server handles dispatch — frontend just tracks status via SSE
+      break
+    }
+
+    case 'task:plan_result': {
+      // Plan created via CLI — push plan_result activity event into the task stream
+      // so PlanGraphBlock renders inline, and trigger plan store refresh from DB.
+      const execId = data.taskId as string
+      const nodes = data.nodes as Array<{ id: string; title: string; type: string; status?: string }>
+      const edges = data.edges as Array<{ source: string; target: string }>
+      const projectName = data.projectName as string | undefined
+      const timestamp = new Date()
+
+      set((state) => {
+        const streams = new Map(state.taskStreams)
+        const stream = streams.get(execId) || createEmptyTaskStream(execId)
+        streams.set(execId, {
+          ...stream,
+          activityEvents: [
+            ...stream.activityEvents,
+            { type: 'plan_result' as const, nodes, edges, projectName, timestamp },
+          ],
+        })
+        return { taskStreams: streams }
+      })
+
+      // Refresh plan store from DB (plan nodes were already created by the CLI)
+      import('@/stores/plan-store').then(({ usePlanStore }) => {
+        usePlanStore.getState().load()
+      })
+
+      addActivity(set, 'info', `Plan created: ${nodes.length} nodes`)
       break
     }
   }

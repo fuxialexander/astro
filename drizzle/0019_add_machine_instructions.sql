@@ -12,5 +12,5 @@ CREATE TABLE IF NOT EXISTS "machine_instructions" (
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "machine_instructions_owner_id_idx" ON "machine_instructions" USING btree ("owner_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "machine_instructions_team_id_idx" ON "machine_instructions" USING btree ("team_id");--> statement-breakpoint
-ALTER TABLE "registered_machines" ADD COLUMN "default_instruction_id" uuid;--> statement-breakpoint
+ALTER TABLE "registered_machines" ADD COLUMN "default_instruction_id" text;--> statement-breakpoint
 ALTER TABLE "machine_instructions" ADD CONSTRAINT "machine_instructions_team_id_teams_id_fk" FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE set null ON UPDATE no action;

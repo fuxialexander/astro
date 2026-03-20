@@ -19,8 +19,8 @@ AI Planning Session
   ↓
 Backend: Extract plan JSON → Emit plan_result SSE event
   ↓
-Frontend: execution-store.ts
-  ├─ Parse SSE events (plan_result + result)
+Frontend: useStreamEvents() hook
+  ├─ Receive SSE events via global SSE → realtime-store taskStreams
   ├─ Apply plan via plan-extraction.ts → plan-store (nodes + edges)
   └─ Persist via dataClient → /api/data/*
   ↓
@@ -59,19 +59,16 @@ Agent Runner: packages/agent-runner
   ├─ Execute provider (Claude Code SDK, SLURM, etc.)
   └─ Stream events back to relay
   ↓
-Relay → Backend SSE Bridge (dual-path)
-  ├─ Path 1: dispatch.ts SSE stream (active execution, direct)
-  │   └─ Persists to streaming_events table (seq-indexed)
-  ├─ Path 2: /api/events/stream (global SSE, fallback after refresh)
-  │   └─ Deduplication via activeDispatchStreams guard
+Relay → Backend SSE Bridge (unified pipeline)
+  ├─ Relay-server persists to streaming_events table (seq-indexed)
+  ├─ Global SSE via /api/events/stream (project-ownership filtered)
   └─ Event types: init, session_init, text, tool_use, tool_result,
      file_change, progress, result, approval_request, steer_message
   ↓
-Frontend: execution-store.ts
-  ├─ Parses SSE via parseExecutionSSE()
-  ├─ Updates UI (task-output-view, tool-trace-view)
-  ├─ On disconnect: catch-up from streaming_events DB
-  ├─ On page refresh: useRestoredExecution() streaming catch-up
+Frontend: useStreamEvents() hook (unified)
+  ├─ Receives events via global SSE → realtime-store taskStreams
+  ├─ Groups into DisplayBlocks, derives StreamStatus
+  ├─ On disconnect/refresh: hydrateFromCatchUp() from streaming_events DB
   └─ On completion: updates plan-store node status
   ↓
 Backend: Result writeback

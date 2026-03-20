@@ -6,7 +6,6 @@
  */
 
 import { Hono } from 'hono'
-import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
 import {
   dispatchEngine,
@@ -17,25 +16,26 @@ import {
 import { relayServer } from '../lib/relay-server.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { machineRegistry } from '../lib/machine-registry.js'
-import type { ProviderType, ImageAttachment } from '../types/relay.js'
+import { getAvailableMachines } from '../lib/registered-machines-store.js'
+import { getUserDispatchPublicKeys } from '../lib/user-dispatch-public-keys.js'
+import type { ProviderType, ImageAttachment, MachineRegistryEntry } from '../types/relay.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
-import { executionContextStore, activeDispatchStreams } from '../lib/execution-context-store.js'
+import { executionContextStore } from '../lib/execution-context-store.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
-import { projects, planNodes, planEdges, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines, scheduleRuns } from '../lib/db/schema.js'
+import { projects, planNodes, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines, scheduleRuns } from '../lib/db/schema.js'
 import { eq, isNull, and, inArray, sql } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
-import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction } from '../lib/prompt-templates.js'
+import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction, GENERATIVE_UI_HINT } from '../lib/prompt-templates.js'
+import { MACHINE_INSTRUCTION_PRESETS } from '../lib/machine-instruction-presets.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
-import { extractPlanJsonFromText, BUILTIN_TEMPLATE_IDS } from '../../packages/core/src/index.js'
+import { BUILTIN_TEMPLATE_IDS } from '../../packages/core/src/index.js'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
 import { autoDispatchDownstream, cascadePruneDownstream, revertMilestonesOnReset } from './data.js'
-import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 // loop-controller is dynamically imported to avoid circular dependency with data.ts
 import { redisPubSub } from '../lib/redis-pubsub.js'
-import { incrementDispatchSSE, decrementDispatchSSE } from '../lib/sse-connection-tracker.js'
 import { notifyCritical, notifyWarning } from '../lib/monitoring.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup).
@@ -77,6 +77,41 @@ You are running in **autonomous mode**. Proceed independently for all decisions 
  */
 function getShortId(id: string): string {
   return id.replace(/-/g, '').slice(0, 6).toLowerCase()
+}
+
+function pickBestMachineFromCandidates(
+  candidates: MachineRegistryEntry[],
+  preferredProvider?: ProviderType,
+): MachineRegistryEntry | undefined {
+  let filtered = candidates
+
+  if (preferredProvider) {
+    filtered = filtered.filter((machine) =>
+      machine.providers.some((provider) =>
+        provider.type === preferredProvider
+        && provider.status === 'available'
+        && provider.currentTasks < provider.maxConcurrentTasks,
+      ),
+    )
+  }
+
+  filtered = filtered.filter((machine) =>
+    machine.connectionStatus === 'connected'
+    && machine.providers.some((provider) =>
+      provider.status === 'available'
+      && provider.currentTasks < provider.maxConcurrentTasks,
+    ),
+  )
+
+  if (filtered.length === 0) return undefined
+
+  filtered.sort((a, b) => {
+    const scoreA = a.load.cpuPercent + (a.load.activeTasks * 10)
+    const scoreB = b.load.cpuPercent + (b.load.activeTasks * 10)
+    return scoreA - scoreB
+  })
+
+  return filtered[0]
 }
 
 /**
@@ -466,37 +501,62 @@ dispatchRoute.post('/task', async (c) => {
 
       // Build dependency outputs from DB if not provided
       if (dependencyOutputs.length === 0 && dependencies.length > 0) {
+        // Join task_executions to prefer the concise markdownSummary over raw executionOutput.
+        // markdownSummary is ~500-2K chars vs. potentially 50K+ for raw output.
         const allProjectNodes = await db.select({
           clientId: planNodes.clientId,
           title: planNodes.title,
           executionOutput: planNodes.executionOutput,
+          executionId: planNodes.executionId,
           status: planNodes.status,
           type: planNodes.type,
           projectId: planNodes.projectId,
           prUrl: planNodes.prUrl,
           prNumber: planNodes.prNumber,
           branchName: planNodes.branchName,
+          markdownSummary: taskExecutions.markdownSummary,
         }).from(planNodes)
+          .leftJoin(taskExecutions, eq(planNodes.executionId, taskExecutions.executionId))
           .where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
 
+        // Per-dep cap for raw output fallback (chars). markdownSummary is used as-is when present.
+        const DEP_RAW_FALLBACK_CAP = 4000
+        // Total budget across all dep outputs (chars ≈ tokens / 4).
+        const DEP_TOTAL_BUDGET = 20000
+
+        let totalDepChars = 0
+
         for (const depId of dependencies) {
+          if (totalDepChars >= DEP_TOTAL_BUDGET) break
+
           const depNode = allProjectNodes.find(n => n.clientId === depId)
-          if (depNode?.executionOutput) {
-            dependencyOutputs.push({
-              nodeId: depNode.clientId,
-              title: depNode.title,
-              output: depNode.executionOutput,
-              ...(depNode.prUrl && { prUrl: depNode.prUrl }),
-              ...(depNode.prNumber && { prNumber: depNode.prNumber }),
-              ...(depNode.branchName && { branchName: depNode.branchName }),
-            })
-          } else if (depNode && (depNode.status === 'completed' || depNode.status === 'auto_verified')) {
+          if (!depNode) continue
+
+          let output: string | null = null
+          if (depNode.markdownSummary) {
+            // Prefer the LLM-generated summary — already concise and structured
+            output = depNode.markdownSummary
+          } else if (depNode.executionOutput) {
+            // Fallback: take the TAIL of raw output (the end contains the result/summary, not the raw tool calls)
+            const raw = depNode.executionOutput
+            output = raw.length > DEP_RAW_FALLBACK_CAP
+              ? '...[truncated]\n\n' + raw.slice(-DEP_RAW_FALLBACK_CAP)
+              : raw
+          } else if (depNode.status === 'completed' || depNode.status === 'auto_verified') {
             // Milestones and tasks without output but with completed status
-            // still satisfy dependencies
+            output = `[${depNode.type || 'node'} ${depNode.status}]`
+          }
+
+          if (output !== null) {
+            // Enforce total dep budget — trim this entry if it would push us over
+            const remaining = DEP_TOTAL_BUDGET - totalDepChars
+            const trimmed = output.length > remaining ? output.slice(0, remaining) + '\n[budget exceeded — truncated]' : output
+            totalDepChars += trimmed.length
+
             dependencyOutputs.push({
               nodeId: depNode.clientId,
               title: depNode.title,
-              output: `[${depNode.type || 'node'} ${depNode.status}]`,
+              output: trimmed,
               ...(depNode.prUrl && { prUrl: depNode.prUrl }),
               ...(depNode.prNumber && { prNumber: depNode.prNumber }),
               ...(depNode.branchName && { branchName: depNode.branchName }),
@@ -808,6 +868,18 @@ async function dispatchViaRelay(
 
   // Extract user for ownership verification
   const user = c.get('user') as AuthUser | undefined
+  let availableMachinesLoaded = false
+  let accessibleMachinesById = new Map<string, Awaited<ReturnType<typeof getAvailableMachines>>[number]>()
+
+  if (user?.id && !dryRun) {
+    try {
+      const availableMachines = await getAvailableMachines(user.id)
+      accessibleMachinesById = new Map(availableMachines.map((machine) => [machine.id, machine]))
+      availableMachinesLoaded = true
+    } catch (err) {
+      console.warn('[dispatch] Failed to load available machines:', err instanceof Error ? err.message : String(err))
+    }
+  }
 
   // Resolve YOLO mode early — affects prompt assembly (user decision section)
   let yoloEnabled = false
@@ -825,9 +897,20 @@ async function dispatchViaRelay(
 
   // Find target machine (skip for dry runs — prompt assembly doesn't need a machine)
   let machineId = targetMachineId
+  let selectedMachineAccess = machineId ? accessibleMachinesById.get(machineId) : undefined
+  let dispatchTrustedKeys: Awaited<ReturnType<typeof getUserDispatchPublicKeys>> | undefined
   if (!dryRun) {
     if (!machineId) {
-      const bestMachine = machineRegistry.findBestMachine(preferredProvider, user?.id)
+      const bestMachine = availableMachinesLoaded && user?.id
+        ? pickBestMachineFromCandidates(
+            machineRegistry.getAll().filter((machine) =>
+              accessibleMachinesById.has(machine.machineId)
+              || !machine.userId
+              || machine.userId === LOCAL_USER_ID,
+            ),
+            preferredProvider,
+          )
+        : machineRegistry.findBestMachine(preferredProvider, user?.id)
       if (!bestMachine) {
         return c.json(
           {
@@ -838,13 +921,62 @@ async function dispatchViaRelay(
         )
       }
       machineId = bestMachine.machineId
+      selectedMachineAccess = accessibleMachinesById.get(machineId)
     } else {
-      // Verify ownership of explicitly targeted machine
+      // Verify access to explicitly targeted machine (owner or team-shared)
       const targetMachine = machineRegistry.get(machineId)
-      if (targetMachine?.userId && targetMachine.userId !== LOCAL_USER_ID && user?.id && targetMachine.userId !== user.id) {
+      const ownerAllowed = !targetMachine?.userId
+        || targetMachine.userId === LOCAL_USER_ID
+        || targetMachine.userId === user?.id
+      const sharedAllowed = !!selectedMachineAccess
+      if (user?.id && !ownerAllowed && !sharedAllowed) {
         return c.json(
           { success: false, error: `Machine ${machineId} not found or not authorized` },
           403
+        )
+      }
+    }
+
+    if (dispatchSigningPayload && (
+      dispatchSigningPayload.machineId !== machineId
+      || dispatchSigningPayload.nodeId !== nodeId
+      || dispatchSigningPayload.projectId !== projectId
+    )) {
+      return c.json(
+        { success: false, error: 'Dispatch signing payload does not match the requested task or machine' },
+        400,
+      )
+    }
+
+    const isSharedMachine = !!(
+      user?.id
+      && selectedMachineAccess
+      && selectedMachineAccess.userId !== user.id
+      && selectedMachineAccess.teamId
+    )
+
+    if (user?.id && dispatchSignature && dispatchSigningPayload) {
+      try {
+        const trustedKeys = await getUserDispatchPublicKeys(user.id)
+        if (trustedKeys.length > 0) {
+          dispatchTrustedKeys = trustedKeys
+        }
+      } catch (err) {
+        console.warn('[dispatch] Failed to load trusted dispatch keys:', err instanceof Error ? err.message : String(err))
+      }
+    }
+
+    if (isSharedMachine) {
+      if (!dispatchSignature || !dispatchSigningPayload) {
+        return c.json(
+          { success: false, error: 'Shared machine dispatch requires a signed browser intent' },
+          403,
+        )
+      }
+      if (!dispatchTrustedKeys || dispatchTrustedKeys.length === 0) {
+        return c.json(
+          { success: false, error: 'Shared machine dispatch requires a registered browser signing key. Authorize a device from this account first.' },
+          403,
         )
       }
     }
@@ -870,13 +1002,18 @@ async function dispatchViaRelay(
   // Look up machine instruction for prompt injection.
   // Flow: machineId → registeredMachines.defaultInstructionId → machineInstructions.content
   let skillsInjection: string | undefined
+  const DEFAULT_INSTRUCTION_ID = 'builtin:default'
   if (machineId) {
     try {
       const [machine] = await db.select({ defaultInstructionId: registeredMachines.defaultInstructionId })
         .from(registeredMachines).where(eq(registeredMachines.id, machineId)).limit(1)
-      if (machine?.defaultInstructionId) {
+      const instrId = machine?.defaultInstructionId ?? DEFAULT_INSTRUCTION_ID
+      if (instrId.startsWith('builtin:')) {
+        const preset = MACHINE_INSTRUCTION_PRESETS.find((p) => p.id === instrId)
+        if (preset) skillsInjection = formatMachineInstruction(preset.name, preset.content)
+      } else {
         const [instruction] = await db.select({ content: machineInstructions.content, name: machineInstructions.name })
-          .from(machineInstructions).where(eq(machineInstructions.id, machine.defaultInstructionId)).limit(1)
+          .from(machineInstructions).where(eq(machineInstructions.id, instrId)).limit(1)
         if (instruction?.content) {
           skillsInjection = formatMachineInstruction(instruction.name, instruction.content)
         }
@@ -891,22 +1028,14 @@ async function dispatchViaRelay(
     skillsInjection = DEFAULT_MACHINE_INSTRUCTION_FORMATTED
   }
 
-  // Lightweight generative UI hint for playground/task execution (not plan generation)
-  if (!isInteractivePlan) {
-    skillsInjection = (skillsInjection || '') +
-      '\n\n## Generative UI\n\n' +
-      'You can render interactive UI components using ```yaml-spec code fences (YAML format). ' +
-      'NEVER use ```visualizer — ALWAYS use ```yaml-spec (with ```component for custom visuals). ' +
-      'Format: root + elements map with type/props/children per element. ' +
-      'Available components: Card, Stack, Text, Heading, Badge, Alert, Table, List, KeyValue, CodeBlock, ' +
-      'OptionCard, Timeline, Accordion, TabView, TodoList, CardCarousel, Metric, StepIndicator, Progress, Button. ' +
-      'Actions: send_chat_message, copy_to_clipboard, navigate_to_node, setState (built-in).'
-  }
+  // Generative UI hint — shared constant from prompt-templates, injected into ALL pathways
+  skillsInjection = (skillsInjection || '') + '\n\n' + GENERATIVE_UI_HINT
 
   if (isInteractivePlan) {
     // Use the dedicated interactive plan prompt as a system prompt.
     // It includes vision doc, skills, GitHub context, and planning instructions.
     relaySystemPrompt = buildInteractivePlanPrompt(description, {
+      projectId,
       visionDoc: visionDoc || undefined,
       hasWorkingDirectory: !!workingDirectory,
       skillsSummary: skillsInjection,
@@ -1082,7 +1211,7 @@ The worktree is located under \`${effectiveAgentDir}/worktrees/\` in the git roo
 - NEVER cd to or modify files in the original project directory (${workingDirectory})
 - **Before finishing, you MUST \`git add\` and \`git commit\` ALL changed files.** If you skip this step, your work will be lost. Run \`git status\` to verify nothing is left uncommitted.
 - After you finish, the platform will automatically push your branch and create a PR on GitHub
-- Do NOT run \`git push\` or \`gh pr create\` yourself — the platform handles this`)
+- NEVER run \`git push\` or \`gh pr create\` yourself — the platform handles this`)
       } else if (effectiveDelivery === 'push' && usesWorktree) {
         promptParts.push(`## Workspace & Delivery
 
@@ -1095,7 +1224,7 @@ The worktree is located under \`${effectiveAgentDir}/worktrees/\` in the git roo
 - NEVER modify files in the original project directory (${workingDirectory})
 - **Before finishing, you MUST \`git add\` and \`git commit\` ALL changed files.** If you skip this step, your work will be lost. Run \`git status\` to verify nothing is left uncommitted.
 - Your branch will be automatically pushed to the remote (user will create a PR manually)
-- Do NOT run \`git push\` yourself — the platform handles this`)
+- NEVER run \`git push\` yourself — the platform handles this`)
       } else if (effectiveDelivery === 'branch' && usesWorktree) {
         promptParts.push(`## Workspace & Delivery
 
@@ -1133,8 +1262,9 @@ You are working directly in the project directory: ${workingDirectory}
 There is no branch isolation — changes are made in-place.
 
 **IMPORTANT:**
-- Be careful — changes are applied directly to the project files
-- When done, commit all changes with a descriptive commit message`)
+- Changes are applied directly to the project files — there is no undo
+- After making changes, remind the user to review and git commit/push their changes
+- NEVER run \`git commit\` or \`git push\` yourself — let the user decide when and what to commit`)
       }
     }
 
@@ -1149,7 +1279,8 @@ There is no branch isolation — changes are made in-place.
       promptParts.push(iterationContext)
     }
 
-    promptParts.push(`## Current Task\n\n**${title}**\n\n${description}`)
+    // SECURITY (MEDIUM-002): wrap user-provided title and description in delimiters
+    promptParts.push(`## Current Task\n\n<user_task>\n**${title}**\n\n${description}\n</user_task>`)
 
     // Inject available skills so the agent knows what tools are available
     if (skillsInjection) {
@@ -1194,17 +1325,8 @@ If all checks pass, the task will be auto-approved. If any check fails, a human 
       ? AUTONOMOUS_PROMPT
       : ASK_USER_PROMPT
 
-    promptParts.push(`## Instructions
-
-Execute the task described above. Focus on completing the task thoroughly and correctly.
-- Use appropriate tools to accomplish the task
-- Report progress and any issues encountered
-
-${userDecisionPrompt}
-
-### Verification
-
-${verificationSection}
+    const isPlayground = nodeId.startsWith('playground-')
+    const executiveSummarySection = isPlayground ? '' : `
 
 ### Executive Summary
 
@@ -1219,7 +1341,19 @@ ${verificationSection}
 **Follow-ups:**
 - Suggested follow-up action (if any)
 
-This summary is shown to the user for review. Keep each bullet concise (under 100 characters). Include 2-5 key findings. The summary must be the very last thing you output.`)
+This summary is shown to the user for review. Keep each bullet concise (under 100 characters). Include 2-5 key findings. The summary must be the very last thing you output.`
+
+    promptParts.push(`## Instructions
+
+Execute the task described above. Focus on completing the task thoroughly and correctly.
+- Use appropriate tools to accomplish the task
+- Report progress and any issues encountered
+
+${userDecisionPrompt}
+
+### Verification
+
+${verificationSection}${executiveSummarySection}`)
     } // end: else (not isPushToGithub)
   }
 
@@ -1338,13 +1472,15 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     useWorktree,
     images,
     skipSafetyCheck: isBuiltinTemplate || (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && safetyDecision !== null) || !workingDirectory,
-    ...(isInteractivePlan ? { type: 'plan' as const, useWorktree: false, deliveryMode: 'direct' as const } : {}),
+    ...(isInteractivePlan ? { useWorktree: false, deliveryMode: 'direct' as const, type: 'plan' as const } : {}),
+    ...(nodeId.startsWith('playground-') && !isInteractivePlan ? { type: 'playground' as const } : {}),
     ...(relaySystemPrompt ? { systemPrompt: relaySystemPrompt } : {}),
     ...(astroBaseUrl && { astroBaseUrl }),
     ...(githubIssueUrl && { githubIssueUrl }),
     ...(githubIssueNumber !== undefined && { githubIssueNumber }),
     ...(dispatchSignature && { dispatchSignature }),
     ...(dispatchSigningPayload && { dispatchSigningPayload }),
+    ...(dispatchTrustedKeys && dispatchTrustedKeys.length > 0 && { dispatchTrustedKeys }),
     ...(resumeSessionId && { resumeSessionId }),
     ...(forkSession && { forkSession }),
   }
@@ -1357,44 +1493,32 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     })
   }
 
-  // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)
-  c.header('X-Accel-Buffering', 'no')
-
-  return streamSSE(c, async (stream) => {
-    let alive = true
-    incrementDispatchSSE()
-    let lastActivity = Date.now()
+  // ── Background relay listeners ────────────────────────────────────────────
+  // All subsequent relay events (text, tool_use, result, etc.) reach the frontend
+  // exclusively through the global SSE bus (relay-server → executionEventBus → events.ts → realtime-store).
+  // Background handlers here handle server-side DB persistence and lifecycle that must happen
+  // regardless of whether the browser is still connected.
+  {
     let resultSent = false
     let waitingForApproval = false
-    let hasReceivedEvent = false // Whether we've received any event from agent-runner
-    const dispatchStartTime = Date.now() // For elapsed time tracking
-    let lastElapsedMsg = 0 // Last time we sent an elapsed-time message
-
-    // Hono's streamSSE only wires the abort signal for old Bun; on Node.js the
-    // signal fires via @hono/node-server's outgoing.on("close") but the SSE helper
-    // never listens — wire it explicitly so client disconnect sets alive=false.
-    c.req.raw.signal.addEventListener('abort', () => { alive = false }, { once: true })
-    // Accumulated text from `text` events — used for plan extraction in onResult.
-    // msg.result.output is equivalent for completed sessions; accumulatedText is the
-    // fallback when the relay strips output from the result message.
-    let accumulatedText = ''
     // Captured from session_init event — used for server-side taskExecutions persistence
     let capturedSessionId: string | null = null
     let capturedModel: string | null = null
     // Two-tier timeout: short startup period, longer once events are flowing.
-    // If the agent-runner never picks up the task (crash, busy, bad state),
-    // we detect it quickly instead of hanging for days.
-    const STARTUP_TIMEOUT_MS = 3 * 60 * 1000 // 3 minutes — session_init arrives within seconds for all providers
-    const MAX_STARTUP_RETRIES = 10 // Retry dispatch up to 10 times before failing
-    const FINAL_STARTUP_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes — last attempt covers slow machine cold starts
+    const STARTUP_TIMEOUT_MS = 3 * 60 * 1000
+    const MAX_STARTUP_RETRIES = 10
+    const FINAL_STARTUP_TIMEOUT_MS = 10 * 60 * 1000
     let startupRetries = 0
-    // Activity timeout: default 2 hours, but loop nodes can override via iterationTimeoutMinutes
+    let lastActivity = Date.now()
+    const dispatchStartTime = Date.now()
+    let lastElapsedMsg = 0
+    let hasReceivedEvent = false
     const loopTimeoutMinutes = (nodeType === 'loop' && loopConfig)
       ? loopConfig.iterationTimeoutMinutes
       : undefined
     const ACTIVITY_TIMEOUT_MS = loopTimeoutMinutes
       ? loopTimeoutMinutes * 60 * 1000
-      : 2 * 60 * 60 * 1000 // 2 hours default
+      : 2 * 60 * 60 * 1000
 
     const onResult = async (msg: import('../types/relay.js').TaskResultMessage) => {
       if (msg.result.taskId !== executionId) return
@@ -1421,8 +1545,6 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         turnsUsed: relayMetrics.numTurns,  // Alias used by usage-metrics-hook
       } : undefined
 
-      // Compute final node status early so we can include it in the SSE event.
-      // The frontend uses this to set the correct plan node status immediately.
       const isSuccess = msg.result.status === 'completed'
       const deliveryOk = !msg.result.deliveryStatus ||
         msg.result.deliveryStatus === 'success' ||
@@ -1489,90 +1611,8 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         summary: msg.result.summary,
         finalStatus: finalNodeStatus,
       }
-      // Server-side plan extraction for interactive plan sessions
-      if (isInteractivePlan) {
-        const textForExtraction = accumulatedText || msg.result.output || ''
-        const planJson = extractPlanJsonFromText(textForExtraction)
-        if (planJson) {
-          // Regex extraction succeeded — emit plan_result synchronously before result
-          const planSeq = await streamingEventLog.append(executionId, 'plan_result', planJson)
-          if (alive) {
-            stream.writeSSE({ id: String(planSeq), event: 'plan_result', data: JSON.stringify(planJson) }).catch(() => { alive = false })
-          }
-
-          // Server-side YOLO auto-dispatch: when plan generation completes in YOLO mode,
-          // dispatch all root tasks (planned, with all deps met) server-side. This ensures
-          // tasks start even if the browser refreshes or the dispatch SSE drops (G2 fix).
-          //
-          // Plan nodes are persisted to DB by the frontend (via dataClient), not the server.
-          // We poll the DB with retries to wait for nodes to appear, handling both the common
-          // case (browser connected, nodes persist quickly) and slower persistence scenarios.
-          if (isSuccess && yoloEnabled && planJson.nodes?.length > 0) {
-            const YOLO_POLL_INTERVAL_MS = 2_000
-            const YOLO_MAX_ATTEMPTS = 5 // up to ~10 seconds total
-            const expectedTaskCount = planJson.nodes.filter((n: { type?: string }) => n.type === 'task').length
-
-            const pollAndDispatch = async (attempt: number) => {
-              try {
-                const allNodes = await db.select().from(planNodes)
-                  .where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
-                const allEdges = await db.select().from(planEdges)
-                  .where(and(eq(planEdges.projectId, projectId), isNull(planEdges.deletedAt)))
-
-                const plannedTasks = allNodes.filter(n => n.type === 'task' && n.status === 'planned')
-
-                // If no planned tasks found and we haven't exhausted retries, poll again.
-                // The frontend may still be persisting plan nodes to the DB.
-                if (plannedTasks.length === 0 && attempt < YOLO_MAX_ATTEMPTS) {
-                  console.log(`[dispatch] YOLO poll ${attempt}/${YOLO_MAX_ATTEMPTS}: no planned tasks yet, retrying in ${YOLO_POLL_INTERVAL_MS}ms`)
-                  setTimeout(() => pollAndDispatch(attempt + 1), YOLO_POLL_INTERVAL_MS)
-                  return
-                }
-
-                if (plannedTasks.length === 0) {
-                  console.log(`[dispatch] YOLO: no planned tasks found after ${YOLO_MAX_ATTEMPTS} attempts (expected ${expectedTaskCount}), giving up — client-side YOLO will handle on reconnect`)
-                  return
-                }
-
-                // Dispatch all root tasks whose dependencies are met.
-                // serverSideDispatch checks node.status !== 'planned' internally,
-                // so duplicate attempts from the client-side YOLO path are safely rejected.
-                const COMPLETED_STATUSES = ['completed', 'auto_verified']
-                let dispatched = 0
-                for (const pn of plannedTasks) {
-                  const depEdges = allEdges.filter(e => e.targetClientId === pn.clientId)
-                  const allDepsMet = depEdges.every(depEdge => {
-                    const depNode = allNodes.find(n => n.clientId === depEdge.sourceClientId)
-                    return depNode && COMPLETED_STATUSES.includes(depNode.status)
-                  })
-                  if (allDepsMet) {
-                    console.log(`[dispatch] YOLO server-side: dispatching root task ${pn.clientId}`)
-                    serverSideDispatch(pn.clientId, projectId).catch((err) => {
-                      console.error(`[dispatch] YOLO server-side dispatch failed for ${pn.clientId}:`, err)
-                    })
-                    dispatched++
-                  }
-                }
-                console.log(`[dispatch] YOLO server-side: dispatched ${dispatched}/${plannedTasks.length} tasks on attempt ${attempt}`)
-              } catch (err) {
-                console.error('[dispatch] YOLO server-side auto-dispatch error:', err)
-              }
-            }
-            setTimeout(() => pollAndDispatch(1), YOLO_POLL_INTERVAL_MS)
-          }
-        }
-      }
-
       // Persist result event (also flushes any pending text)
-      const seq = await streamingEventLog.append(executionId, 'result', resultData)
-
-      if (alive) {
-        stream.writeSSE({
-          id: String(seq),
-          event: 'result',
-          data: JSON.stringify(resultData),
-        }).catch(() => { alive = false })
-      }
+      await streamingEventLog.appendTerminalIfAbsent(executionId, 'result', resultData)
 
       // Emit task.completed AstroEvent for observability hooks (observation collector, usage metrics)
       const dispatchResult: DispatchTaskResult = {
@@ -1771,45 +1811,30 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         })
       }
 
-      // Note: dispatch SSE `done` fires AFTER `node:status_changed`. The frontend may
-      // process the global SSE notification and re-read from DB before execution-store
-      // cleans up via this `done` event. This is safe because realtime-store's
-      // `alreadyCompleted` guard deduplicates, and mergeNodeFromDB is idempotent.
-      if (alive) {
-        stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
-      }
-      alive = false
       // Clean up result/error listeners now that the result has been processed
       cleanupResult()
     }
 
     const onText = (msg: import('../types/relay.js').TaskTextMessage) => {
-      if (!alive || msg.taskId !== executionId) return
+      if (msg.taskId !== executionId) return
       lastActivity = Date.now()
       hasReceivedEvent = true
       waitingForApproval = false
-      // relay-server is the single persistence authority for relay-originated events.
-      // Do not call streamingEventLog here — relay-server already persisted this.
-      if (isInteractivePlan) accumulatedText += msg.text
-      stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
-      executionEventBus.emit('task:stdout', { output: { taskId: executionId, data: msg.text, stream: 'stdout', timestamp: new Date() } })
+      // relay-server is the single persistence authority — no SSE write needed here.
+    }
+
+    const onOperational = (msg: import('../types/relay.js').TaskOperationalMessage) => {
+      if (msg.taskId !== executionId) return
+      lastActivity = Date.now()
+      hasReceivedEvent = true
     }
 
     const onSessionInit = (msg: import('../types/relay.js').TaskSessionInitMessage) => {
-      if (!alive || msg.taskId !== executionId) return
+      if (msg.taskId !== executionId) return
       lastActivity = Date.now()
       hasReceivedEvent = true
       capturedSessionId = msg.sessionId || null
       capturedModel = msg.model || null
-      const data = { sessionId: msg.sessionId, model: msg.model }
-      // seq comes from relay-server's persist; use it as the SSE event id for catch-up ordering
-      const seq = msg._dbSeq ?? 0
-      stream.writeSSE({
-        id: String(seq),
-        event: 'session_init',
-        data: JSON.stringify(data),
-      }).catch(() => { alive = false })
-      executionEventBus.emit('task:session_init', { taskId: executionId, sessionId: msg.sessionId, model: msg.model || 'unknown' })
 
       // Batch-drain: deliver any pending steer messages that were queued before session_init
       drainPendingSteers(executionId, machineId).catch((err) => {
@@ -1818,72 +1843,23 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     }
 
     const onProgress = async (msg: import('../types/relay.js').TaskProgressMessage) => {
-      if (!alive || msg.taskId !== executionId) return
+      if (msg.taskId !== executionId) return
       lastActivity = Date.now()
       hasReceivedEvent = true
-      const data = { message: msg.message, percentage: msg.progress }
-      const seq = await streamingEventLog.append(executionId, 'progress', data)
-      stream.writeSSE({
-        id: String(seq),
-        event: 'progress',
-        data: JSON.stringify(data),
-      }).catch(() => { alive = false })
-      executionEventBus.emit('task:progress', { taskId: executionId, message: msg.message, progress: msg.progress })
+      // relay-server persists progress events; no SSE write needed here.
     }
 
     const onToolTrace = (msg: import('../types/relay.js').TaskToolTraceMessage) => {
-      if (!alive || msg.taskId !== executionId) return
+      if (msg.taskId !== executionId) return
       lastActivity = Date.now()
       hasReceivedEvent = true
       waitingForApproval = false
-
-      // Only send tool_use SSE when toolInput is present (avoid orphan tool_use
-      // events for result-only traces from relay's separate toolUse/toolResult flow)
-      if (msg.toolInput !== undefined) {
-        const data = { toolName: msg.toolName, toolInput: msg.toolInput, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) }
-        // seq comes from relay-server's persist; use it as the SSE event id for catch-up ordering
-        const seq = msg._dbSeq ?? 0
-        stream.writeSSE({
-          id: String(seq),
-          event: 'tool_use',
-          data: JSON.stringify(data),
-        }).catch(() => { alive = false })
-        executionEventBus.emit('task:tool_trace', { taskId: executionId, toolName: msg.toolName, toolInput: msg.toolInput, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) })
-      }
-      if (msg.toolResult !== undefined) {
-        const resultData = { toolName: msg.toolName, success: msg.success, result: msg.toolResult, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) }
-        const seq = msg._dbSeq ?? 0
-        stream.writeSSE({
-          id: String(seq),
-          event: 'tool_result',
-          data: JSON.stringify(resultData),
-        }).catch(() => { alive = false })
-        executionEventBus.emit('task:tool_trace', { taskId: executionId, toolName: msg.toolName, toolResult: typeof msg.toolResult === 'string' ? msg.toolResult.slice(0, 100000) : msg.toolResult, success: msg.success ?? true, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) })
-      }
     }
 
     const onFileChange = (msg: import('../types/relay.js').TaskFileChangeMessage) => {
-      if (!alive || msg.taskId !== executionId) return
+      if (msg.taskId !== executionId) return
       lastActivity = Date.now()
       hasReceivedEvent = true
-      // Compute line counts from diff when not provided
-      let linesAdded = msg.linesAdded
-      let linesRemoved = msg.linesRemoved
-      if (linesAdded == null && linesRemoved == null && msg.diff) {
-        for (const line of msg.diff.split('\n')) {
-          if (line.startsWith('+') && !line.startsWith('+++')) linesAdded = (linesAdded ?? 0) + 1
-          else if (line.startsWith('-') && !line.startsWith('---')) linesRemoved = (linesRemoved ?? 0) + 1
-        }
-      }
-      const data = { path: msg.path, action: msg.action, linesAdded, linesRemoved }
-      // seq comes from relay-server's persist; use it as the SSE event id for catch-up ordering
-      const seq = msg._dbSeq ?? 0
-      stream.writeSSE({
-        id: String(seq),
-        event: 'file_change',
-        data: JSON.stringify(data),
-      }).catch(() => { alive = false })
-      executionEventBus.emit('task:file_change', { taskId: executionId, path: msg.path, action: msg.action })
     }
 
     const onMachineDisconnected = async (disconnectedId: string) => {
@@ -1900,15 +1876,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         action: 'Check machine connectivity and agent-runner process',
         errorType: 'machine_disconnect',
       })
-      const seq = await streamingEventLog.append(executionId, 'error', errorData)
-      if (alive) {
-        stream.writeSSE({
-          id: String(seq),
-          event: 'error',
-          data: JSON.stringify(errorData),
-        }).catch(() => {})
-        stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
-      }
+      await streamingEventLog.appendTerminalIfAbsent(executionId, 'error', errorData)
 
       // DB-authoritative: update plan node status + notify frontend (all node types)
       const errorTime = new Date()
@@ -1950,7 +1918,6 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           })
       }
 
-      alive = false
       cleanupResult()
     }
 
@@ -1975,7 +1942,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
             console.log(`[dispatch] YOLO auto-approved relay approval: execution=${executionId} requestId=${msg.requestId} answer="${autoAnswer}"`)
             relayServer.sendApprovalResponse(executionId, targetMachineId, msg.requestId, true, autoAnswer)
             // Persist both request and response so hydration shows it as answered
-            streamingEventLog.append(executionId, 'approval_request', { requestId: msg.requestId, question: msg.question, options: msg.options, machineId: targetMachineId }).catch(() => {})
+            streamingEventLog.appendApprovalRequestIfAbsent(executionId, { requestId: msg.requestId, question: msg.question, options: msg.options, machineId: targetMachineId }).catch(() => {})
             streamingEventLog.append(executionId, 'approval_response', { requestId: msg.requestId, answer: autoAnswer, answered: true }).catch(() => {})
             return
           }
@@ -1987,7 +1954,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       waitingForApproval = true
       // Persist approval_request so it survives page refresh
       const approvalData = { requestId: msg.requestId, question: msg.question, options: msg.options, machineId: msg.machineId || machineId }
-      streamingEventLog.append(executionId, 'approval_request', approvalData).catch(() => {})
+      streamingEventLog.appendApprovalRequestIfAbsent(executionId, approvalData).catch(() => {})
     }
 
     // P3: Listen for task:stdout to reset activity timer (fixes SLURM output tailing + blocking Bash commands)
@@ -2004,10 +1971,10 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       waitingForApproval = true
       // Persist safety_prompt so it survives page refresh
       const safetyData = { safetyTier: msg.safetyTier, warning: msg.warning, options: msg.options, machineId: msg.machineId || machineId }
-      streamingEventLog.append(executionId, 'safety_prompt', safetyData).catch(() => {})
+      streamingEventLog.appendSafetyPromptIfAbsent(executionId, safetyData).catch(() => {})
     }
 
-    // P2: Handle dead job detection — terminate this SSE stream when relay detects task is dead
+    // P2: Handle dead job detection
     const onTaskDead = async (data: { taskId: string; machineId: string; reason: string }) => {
       if (data.taskId !== executionId || resultSent) return
       console.log(`[dispatch] Task ${executionId} declared dead by heartbeat cross-ref: ${data.reason}`)
@@ -2022,19 +1989,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         action: 'Task status reset to planned — re-execute when ready',
         errorType: 'dead_job',
       })
-      try {
-        const seq = await streamingEventLog.append(executionId, 'error', errorData)
-        if (alive) {
-          stream.writeSSE({ id: String(seq), event: 'error', data: JSON.stringify(errorData) }).catch(() => {})
-        }
-      } catch {
-        if (alive) {
-          stream.writeSSE({ event: 'error', data: JSON.stringify(errorData) }).catch(() => {})
-        }
-      }
-      if (alive) {
-        stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
-      }
+      await streamingEventLog.appendTerminalIfAbsent(executionId, 'error', errorData).catch(() => {})
 
       // DB-authoritative: update plan node status + notify frontend (all node types)
       const errorTime = new Date()
@@ -2080,24 +2035,19 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           })
       }
 
-      alive = false
       cleanupResult()
     }
 
-    // Mark this task as having an active dispatch stream so events.ts
-    // relay-direct handlers skip it (avoiding duplicate SSE events).
-    // Skip for server-side dispatch: no browser SSE consumer, so events.ts
-    // must forward relay events to the frontend's realtime SSE.
-    const isServerSideDispatch = c.req.header('X-Server-Dispatch') === 'true'
-    if (!isServerSideDispatch) {
-      activeDispatchStreams.add(executionId)
-      redisPubSub.registerActiveDispatchStream(executionId).catch((err) => {
-        notifyWarning(`Redis registerActiveDispatchStream failed for ${executionId}: ${err instanceof Error ? err.message : String(err)}`)
-      })
+    const onTaskError = (msg: { taskId: string; error: string }) => {
+      if (msg.taskId !== executionId || resultSent) return
+      // relay-server persists task errors; DB is updated by onResult/onMachineDisconnected.
+      cleanupResult()
     }
 
     relayServer.on('task:result', onResult)
+    relayServer.on('task:error', onTaskError)
     relayServer.on('task:text', onText)
+    relayServer.on('task:operational', onOperational)
     relayServer.on('task:session_init', onSessionInit)
     relayServer.on('task:progress', onProgress)
     relayServer.on('task:tool_trace', onToolTrace)
@@ -2108,16 +2058,17 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
     relayServer.on('task:safety_prompt', onSafetyPrompt)
     relayServer.on('task:dead', onTaskDead)
 
-    // cleanupSSE removes only SSE-forwarding listeners (text, progress, etc.)
-    // and tracking state. Does NOT remove result/error listeners.
-    const cleanupSSE = () => {
-      if (!isServerSideDispatch) {
-        activeDispatchStreams.delete(executionId)
-        redisPubSub.removeActiveDispatchStream(executionId).catch((err) => {
-          notifyWarning(`Redis removeActiveDispatchStream failed for ${executionId}: ${err instanceof Error ? err.message : String(err)}`)
-        })
-      }
+    const cleanupResult = () => {
+      relayServer.off('task:result', onResult)
+      relayServer.off('task:error', onTaskError)
+      relayServer.off('machine:disconnected', onMachineDisconnected)
+      relayServer.off('task:dead', onTaskDead)
+    }
+
+    // Full cleanup: remove ALL listeners
+    const cleanup = () => {
       relayServer.off('task:text', onText)
+      relayServer.off('task:operational', onOperational)
       relayServer.off('task:session_init', onSessionInit)
       relayServer.off('task:progress', onProgress)
       relayServer.off('task:tool_trace', onToolTrace)
@@ -2125,19 +2076,6 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       relayServer.off('task:stdout', onStdout)
       relayServer.off('task:approval_request', onApprovalRequest)
       relayServer.off('task:safety_prompt', onSafetyPrompt)
-    }
-
-    // cleanupResult removes result/error listeners — called AFTER result is processed
-    // or when the full cleanup is needed (normal completion).
-    const cleanupResult = () => {
-      relayServer.off('task:result', onResult)
-      relayServer.off('machine:disconnected', onMachineDisconnected)
-      relayServer.off('task:dead', onTaskDead)
-    }
-
-    // Full cleanup: remove ALL listeners
-    const cleanup = () => {
-      cleanupSSE()
       cleanupResult()
     }
 
@@ -2157,13 +2095,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         action: 'Check machine connectivity in the dashboard; re-execute when machine is online',
         errorType: 'dispatch_failure',
       })
-      const seq = await streamingEventLog.append(executionId, 'error', errorData)
-      await stream.writeSSE({
-        id: String(seq),
-        event: 'error',
-        data: JSON.stringify(errorData),
-      })
-      await stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) })
+      await streamingEventLog.appendTerminalIfAbsent(executionId, 'error', errorData)
 
       // DB-authoritative: reset plan node to planned + notify frontend (all node types)
       const errorTime = new Date()
@@ -2187,13 +2119,13 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
         console.error('[dispatch] Failed to update plan_node on dispatch failure:', err)
       }
 
-      return
+      return c.json({ success: false, error: `Failed to dispatch to machine: ${machineId}` }, 503)
     }
 
-    // Send init event (persist first so page-refresh hydration can recover machineId)
+    // Persist init event (page-refresh hydration recovers machineId from this)
     const targetMachine = machineRegistry.get(machineId!)
     const pathwayType = isInteractivePlan ? 'interactive-plan' : (computeBackend === 'slurm' ? 'hpc' : 'execution')
-    const initDataForSSE = {
+    const initData = {
       executionId,
       nodeId,
       machineId,
@@ -2201,30 +2133,18 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       providerName: preferredProvider || targetMachine?.providers[0]?.type,
       computeBackend,
       pathwayType,
-      // For interactive plans, the system prompt is the dedicated planning prompt.
-      // For regular executions, expose the assembled relay prompt (workspace + task +
-      // verification instructions) so the activity feed can show what the agent received.
-      // Cap at 64KB to prevent streaming_events storage bloat from large dependency outputs.
       systemPrompt: (() => {
         const prompt = relaySystemPrompt || relayPrompt
         if (!prompt) return undefined
         return prompt.length > 65536 ? prompt.slice(0, 65536) + '\n\n[… truncated for display]' : prompt
       })(),
     }
-    const initSeq = await streamingEventLog.append(executionId, 'init', {
-      ...initDataForSSE,
+    await streamingEventLog.append(executionId, 'init', {
+      ...initData,
       hasSystemPrompt: !!(relaySystemPrompt || relayPrompt),
-    })
-    await stream.writeSSE({
-      id: String(initSeq),
-      event: 'init',
-      data: JSON.stringify(initDataForSSE),
     })
 
     // Update plan_nodes.status to in_progress server-side (DB-authoritative).
-    // DB-authoritative: update plan node status + notify frontend (all node types).
-    // The DB write is awaited so node:status_changed is only emitted after
-    // the write commits — frontend re-reads from DB on notification.
     {
       const now = new Date()
       try {
@@ -2239,7 +2159,6 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
           .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
           .execute()
 
-        // Notify frontend: DB is committed, safe to re-read
         executionEventBus.emit('node:status_changed', {
           nodeId, projectId, status: 'in_progress', executionId,
         })
@@ -2248,9 +2167,7 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       }
     }
 
-    // Create initial taskExecutions record server-side so it exists in the DB
-    // even if the browser disconnects before the frontend can persist it.
-    // onResult will update this record with final status, metrics, and summary.
+    // Create initial taskExecutions record server-side.
     try {
       await db.insert(taskExecutions).values({
         executionId,
@@ -2267,54 +2184,40 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
       console.error('[dispatch] Error creating initial taskExecution record:', err)
     }
 
-    // Emit task:init via event bus so the global SSE stream (/api/events/stream)
-    // learns the executionId→nodeId mapping and can track live progress.
-    // This is essential for both server-side dispatch (no browser SSE consumer)
-    // and browser-initiated dispatch (so the realtime store bootstraps tracking,
-    // enabling the dashboard/active-tasks to show the task even after page refresh).
-    // The realtime store handler is idempotent (skips if execution entry exists).
+    // Emit task:init via event bus so the global SSE stream learns the executionId→nodeId mapping.
     executionEventBus.emit('task:init', {
       executionId,
       nodeId,
       projectId,
       machineId,
-      providerId: initDataForSSE.providerId,
-      providerName: initDataForSSE.providerName,
+      providerId: initData.providerId,
+      providerName: initData.providerName,
       computeBackend,
     })
 
-    // Keepalive + two-tier activity timeout
-    // Tier 1 (STARTUP_TIMEOUT_MS): 3 min startup, 10 retries + 10 min final = ~40 min worst case.
-    //   If no events at all, agent-runner likely failed (crash, busy, bad state).
-    // Tier 2 (ACTIVITY_TIMEOUT_MS): 2 hours between events during execution.
-    //   Approval pause mechanism resets timer indefinitely while approvals are pending.
-    //   task:stdout listener keeps SLURM/blocking-command sessions alive.
-    const heartbeat = setInterval(async () => {
-      if (!alive) { clearInterval(heartbeat); return }
-      // Use longer timeout on the final startup attempt to cover slow cold starts
+    // Background watchdog: retry dispatch on startup timeout, update DB on activity timeout.
+    // All SSE writes are gone — the frontend receives events exclusively via the global SSE bus.
+    const watchdog = setInterval(async () => {
       const startupTimeout = startupRetries >= MAX_STARTUP_RETRIES ? FINAL_STARTUP_TIMEOUT_MS : STARTUP_TIMEOUT_MS
       const timeoutMs = hasReceivedEvent ? ACTIVITY_TIMEOUT_MS : startupTimeout
       if (Date.now() - lastActivity > timeoutMs) {
-        // Don't timeout if we're waiting for user approval (ask_user_question)
         if (dispatchEngine.hasPendingApprovalForExecution(executionId) || waitingForApproval) {
-          lastActivity = Date.now() // Reset timer while approval is pending
+          lastActivity = Date.now()
         } else if (!resultSent) {
-          // Startup timeout: retry dispatch up to MAX_STARTUP_RETRIES times
           if (!hasReceivedEvent && startupRetries < MAX_STARTUP_RETRIES) {
             startupRetries++
             console.log(`[dispatch] Startup timeout for ${executionId}, retry ${startupRetries}/${MAX_STARTUP_RETRIES}`)
-            // Cancel previous dispatch to prevent duplicate concurrent executions
             relayServer.cancelTask(executionId, machineId || '')
-            lastActivity = Date.now() // Reset timer for next attempt
+            lastActivity = Date.now()
             const retried = relayServer.dispatchTask(taskDispatch, machineId, user?.id)
             if (retried) {
-              stream.writeSSE({
-                event: 'text',
-                data: `\n[Astro] Agent runner did not respond — retrying (attempt ${startupRetries + 1}/${MAX_STARTUP_RETRIES + 1})...\n`,
-              }).catch(() => { alive = false })
-              return // Continue waiting
+              const payload = {
+                message: `Agent runner did not respond — retrying (attempt ${startupRetries + 1}/${MAX_STARTUP_RETRIES + 1})...`,
+                source: 'astro' as const,
+              }
+              streamingEventLog.append(executionId, 'operational', payload).catch(() => {})
+              return
             }
-            // If re-dispatch failed, fall through to error
           }
 
           const errorMsg = hasReceivedEvent
@@ -2337,7 +2240,6 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
             errorType: hasReceivedEvent ? 'activity_timeout' : 'startup_timeout',
           })
 
-          // Update plan_nodes so the node doesn't stay in_progress if browser is disconnected
           try {
             await db.update(planNodes)
               .set({
@@ -2358,7 +2260,6 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
             console.error(`[dispatch] Failed to update plan_node on timeout:`, err)
           }
 
-          // Update taskExecutions so the record doesn't stay 'running' forever
           db.update(taskExecutions)
             .set({ status: 'failure', error: errorMsg, completedAt: new Date() })
             .where(eq(taskExecutions.executionId, executionId))
@@ -2367,7 +2268,6 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
               console.error('[dispatch] Error updating taskExecution on timeout:', err)
             })
 
-          // Update schedule run status so cron concurrency is unblocked
           if (scheduleRunId) {
             db.update(scheduleRuns)
               .set({ status: 'failure', completedAt: new Date(), errorMessage: errorMsg })
@@ -2378,84 +2278,40 @@ This summary is shown to the user for review. Keep each bullet concise (under 10
               })
           }
 
-          const sendDone = () => {
-            stream.writeSSE({ event: 'done', data: JSON.stringify({ executionId, nodeId }) }).catch(() => {})
-          }
-          streamingEventLog.append(executionId, 'error', errorData).then((seq) => {
-            stream.writeSSE({
-              id: String(seq),
-              event: 'error',
-              data: JSON.stringify(errorData),
-            }).catch(() => {})
-            sendDone()
-          }).catch(() => {
-            stream.writeSSE({
-              event: 'error',
-              data: JSON.stringify(errorData),
-            }).catch(() => {})
-            sendDone()
-          })
-          alive = false
-          clearInterval(heartbeat)
+          streamingEventLog.appendTerminalIfAbsent(executionId, 'error', errorData).catch(() => {})
+          clearInterval(watchdog)
+          cleanup()
           return
         }
       }
-      // Flush buffered text to DB and send its seq as the SSE event id.
-      // relay-server.ts is the single persistence authority and owns the text buffer
-      // (via appendText). This flush drains that buffer so the client's lastSeq advances,
-      // preventing a reconnect catch-up from re-fetching text already delivered via SSE.
-      const textSeq = await streamingEventLog.flushText(executionId).catch(() => null)
-      stream.writeSSE({ id: textSeq ? String(textSeq) : undefined, event: 'heartbeat', data: '' }).catch(() => { alive = false; clearInterval(heartbeat) })
+      // Flush buffered text to DB so reconnect catch-up is accurate.
+      streamingEventLog.flushText(executionId).catch(() => {})
 
-      // Periodic elapsed-time message for task execution — shows the user
-      // the task is still alive during long silent phases.
-      // Every 3 minutes (task execution is long-running, don't spam).
+      // Periodic elapsed-time operational message (every 3 minutes while running).
       const TASK_ELAPSED_INTERVAL_MS = 180_000
       const nowMs = Date.now()
-      if (hasReceivedEvent && nowMs - lastElapsedMsg >= TASK_ELAPSED_INTERVAL_MS) {
+      if (hasReceivedEvent && nowMs - dispatchStartTime >= TASK_ELAPSED_INTERVAL_MS && nowMs - lastElapsedMsg >= TASK_ELAPSED_INTERVAL_MS) {
+        lastElapsedMsg = nowMs
         const totalSec = Math.round((nowMs - dispatchStartTime) / 1000)
         const mins = Math.floor(totalSec / 60)
         const secs = totalSec % 60
         const elapsed = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`
-        const elapsedText = `\n── [Astro] Still working... (${elapsed} elapsed)\n`
-        streamingEventLog.append(executionId, 'text', { text: elapsedText }).then((seq) => {
-          stream.writeSSE({ id: seq ? String(seq) : undefined, event: 'text', data: elapsedText }).catch(() => {})
-        }).catch(() => {})
-        lastElapsedMsg = nowMs
+        const payload = { message: `Still working... (${elapsed} elapsed)`, source: 'astro' as const }
+        streamingEventLog.append(executionId, 'operational', payload).catch(() => {})
       }
     }, 15000)
 
-    stream.onAbort(() => {
-      alive = false
-      decrementDispatchSSE()
-      clearInterval(heartbeat)
-      // For server-side dispatches, keep result/error listeners alive so DB updates
-      // (plan node status, schedule run status) still happen when the task completes.
-      // For browser dispatches, full cleanup is safe — results arrive via global SSE.
-      if (isServerSideDispatch && !resultSent) {
-        cleanupSSE()
-      } else {
-        cleanup()
-      }
-      // Flush relay-server's text buffer on disconnect so no text is lost between
-      // the last heartbeat and browser close.
-      streamingEventLog.flushText(executionId).catch((err) => {
-        console.error(`[dispatch] Failed to flush text on disconnect for ${executionId}:`, err)
-      })
-      // Task continues running on the agent runner — results arrive via relay → global SSE → realtime-store
-    })
+    // Stop the watchdog when any terminal event fires.
+    // onResult/onMachineDisconnected/onTaskDead call cleanupResult() which removes result listeners,
+    // but the watchdog interval must also be stopped to avoid firing after cleanup.
+    const stopWatchdog = () => clearInterval(watchdog)
+    relayServer.once('task:result', () => stopWatchdog())
+    relayServer.once('task:dead', (d: { taskId: string }) => { if (d.taskId === executionId) stopWatchdog() })
+    relayServer.once('task:error', (m: { taskId: string }) => { if (m.taskId === executionId) stopWatchdog() })
+    relayServer.once('machine:disconnected', (id: string) => { if (id === machineId) stopWatchdog() })
+  } // end background listeners block
 
-    // Wait for completion
-    await new Promise<void>((resolve) => {
-      const check = setInterval(() => {
-        if (!alive) { clearInterval(check); resolve() }
-      }, 500)
-    })
-
-    // Clean up relay listeners and activeDispatchStreams on normal completion
-    clearInterval(heartbeat)
-    cleanup()
-  })
+  return c.json({ success: true, executionId, nodeId, projectId })
 }
 
 /**
@@ -2504,8 +2360,8 @@ const steerSchema = z.object({
   message: z.string().min(1).max(50000),
   action: z.enum(['guidance', 'redirect', 'pause', 'resume']).optional(),
   interrupt: z.boolean().optional(),
-  sessionId: z.string().max(100).optional(),
-  branchName: z.string().max(500).optional(),
+  sessionId: z.string().max(100).nullish(),
+  branchName: z.string().max(500).nullish(),
 })
 
 dispatchRoute.post('/steer', async (c) => {

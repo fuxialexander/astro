@@ -28,6 +28,7 @@ import {
   type TaskToolTraceMessage,
   type TaskFileChangeMessage,
   type TaskTextMessage,
+  type TaskOperationalMessage,
   type TaskSessionInitMessage,
   type HeartbeatPongMessage,
   type TaskDispatch,
@@ -53,6 +54,7 @@ import { machineRegistry } from './machine-registry.js';
 import { streamingEventLog } from './streaming-event-log.js';
 import { redisPubSub, type StreamingEventMessage } from './redis-pubsub.js';
 import { executionContextStore } from './execution-context-store.js';
+import { executionEventBus } from './execution-event-bus.js';
 import { notifyWarning } from './monitoring.js';
 
 /** Compute line counts from a unified diff string */
@@ -256,6 +258,17 @@ interface AgentRunnerTaskTextMessage {
     taskId: string;
     text: string;
     sequence: number;
+  };
+}
+
+/** Agent runner's structured operational message format */
+interface AgentRunnerTaskOperationalMessage {
+  type: 'task_operational';
+  timestamp: string;
+  payload: {
+    taskId: string;
+    message: string;
+    source: 'astro' | 'git' | 'delivery';
   };
 }
 
@@ -559,8 +572,10 @@ interface AttachedSession {
 /** Events emitted by the relay server */
 export interface RelayServerEvents {
   'task:result': (result: TaskResultMessage) => void;
+  'task:error': (msg: { taskId: string; error: string; recoverable?: boolean; synthetic?: boolean; _dbSeq?: number }) => void;
   'task:stdout': (output: TaskStdoutMessage) => void;
   'task:text': (msg: TaskTextMessage) => void;
+  'task:operational': (msg: TaskOperationalMessage) => void;
   'task:progress': (progress: TaskProgressMessage) => void;
   'task:steer_ack': (ack: TaskSteerAckMessage) => void;
   'task:tool_trace': (trace: TaskToolTraceMessage) => void;
@@ -969,6 +984,10 @@ export class RelayServer extends EventEmitter {
         this.handleAgentRunnerTaskText(message as AgentRunnerTaskTextMessage);
         break;
 
+      case 'task_operational':
+        this.handleAgentRunnerTaskOperational(message as AgentRunnerTaskOperationalMessage);
+        break;
+
       case 'task_tool_use':
         this.handleAgentRunnerTaskToolUse(message as AgentRunnerTaskToolUseMessage);
         break;
@@ -1002,6 +1021,14 @@ export class RelayServer extends EventEmitter {
         const payload = (message as { payload: { taskId: string; safetyTier: string; warning?: string; options: unknown[] } }).payload;
         if (payload?.taskId) {
           const safetyMachineId = this.taskToMachine.get(payload.taskId);
+          streamingEventLog.appendSafetyPromptIfAbsent(payload.taskId, {
+            safetyTier: payload.safetyTier,
+            warning: payload.warning,
+            machineId: safetyMachineId,
+            options: payload.options as Array<{ id: string; label: string; description?: string }>,
+          }).catch((err) => {
+            console.warn(`[relay] Failed to persist safety prompt for ${payload.taskId}:`, err);
+          });
           this.emit('task:safety_prompt', { ...payload, machineId: safetyMachineId });
           console.log(`[relay] Safety prompt for task ${payload.taskId} (tier: ${payload.safetyTier})`);
         }
@@ -1289,6 +1316,28 @@ export class RelayServer extends EventEmitter {
     }
   }
 
+  private async emitSyntheticTaskError(
+    taskId: string,
+    error: string,
+    options?: { recoverable?: boolean; reason?: string },
+  ): Promise<number> {
+    const data = {
+      error,
+      synthetic: true,
+      recoverable: options?.recoverable ?? false,
+      ...(options?.reason ? { reason: options.reason } : {}),
+    }
+    const seq = await streamingEventLog.appendTerminalIfAbsent(taskId, 'error', data)
+    executionEventBus.emit('task:error', { taskId, ...data, seq })
+    await this.publishToRedis({
+      eventType: 'error',
+      taskId,
+      data,
+      dbSeq: seq,
+    })
+    return seq
+  }
+
   /**
    * Handle task result
    */
@@ -1310,15 +1359,24 @@ export class RelayServer extends EventEmitter {
     } catch {
       userId = executionContextStore.getUserIdForTask(message.result.taskId);
     }
+    const resultData = {
+      status: message.result.status,
+      output: message.result.output,
+      error: message.result.error,
+      duration: message.result.duration,
+      branchName: message.result.branchName,
+      prUrl: message.result.prUrl,
+      prNumber: message.result.prNumber,
+      deliveryStatus: message.result.deliveryStatus,
+      deliveryError: message.result.deliveryError,
+      summary: message.result.summary,
+    }
+    const seq = await streamingEventLog.appendTerminalIfAbsent(message.result.taskId, 'result', resultData);
     this.emit('task:result', message);
     redisPubSub.publishStreamingEvent({
       eventType: 'result', taskId: message.result.taskId, userId,
-      data: {
-        status: message.result.status, output: message.result.output,
-        error: message.result.error, duration: message.result.duration,
-        branchName: message.result.branchName, prUrl: message.result.prUrl,
-        prNumber: message.result.prNumber, deliveryStatus: message.result.deliveryStatus,
-      },
+      data: resultData,
+      dbSeq: seq,
     }).catch((err) => {
       console.error(`[relay] Failed to publish result to Redis:`, err);
     });
@@ -1497,6 +1555,7 @@ export class RelayServer extends EventEmitter {
         ...(task.githubIssueNumber !== undefined && { githubIssueNumber: task.githubIssueNumber }),
         ...(task.dispatchSignature && { dispatchSignature: task.dispatchSignature }),
         ...(task.dispatchSigningPayload && { dispatchSigningPayload: task.dispatchSigningPayload }),
+        ...(task.dispatchTrustedKeys && task.dispatchTrustedKeys.length > 0 && { dispatchTrustedKeys: task.dispatchTrustedKeys }),
         // Session resumption
         ...(task.resumeSessionId && { resumeSessionId: task.resumeSessionId }),
       },
@@ -1694,6 +1753,16 @@ export class RelayServer extends EventEmitter {
         case 'text':
           this.emit('task:text', { taskId: msg.taskId, text: msg.data.text as string });
           break;
+        case 'operational':
+          this.emit('task:operational', {
+            type: 'task.operational',
+            timestamp: new Date(),
+            taskId: msg.taskId,
+            message: msg.data.message as string,
+            source: msg.data.source as 'astro' | 'git' | 'delivery',
+            _dbSeq: msg.dbSeq,
+          });
+          break;
         case 'tool_use':
         case 'tool_result': {
           const traceMsg: TaskToolTraceMessage = {
@@ -1748,7 +1817,18 @@ export class RelayServer extends EventEmitter {
               prUrl: msg.data.prUrl as string | undefined,
               prNumber: msg.data.prNumber as number | undefined,
               deliveryStatus: msg.data.deliveryStatus as string | undefined,
+              deliveryError: msg.data.deliveryError as string | undefined,
+              summary: msg.data.summary as ExecutionSummaryResult | undefined,
             },
+          });
+          break;
+        case 'error':
+          this.emit('task:error', {
+            taskId: msg.taskId,
+            error: msg.data.error as string,
+            recoverable: msg.data.recoverable as boolean | undefined,
+            synthetic: msg.data.synthetic as boolean | undefined,
+            _dbSeq: msg.dbSeq,
           });
           break;
       }
@@ -2240,6 +2320,20 @@ export class RelayServer extends EventEmitter {
       this.disconnectGracePeriods.delete(machineId);
       console.log(`[relay] Grace period expired for machine ${machineId} — disconnecting`);
 
+      const affectedTaskIds = Array.from(this.taskToMachine.entries())
+        .filter(([, mId]) => mId === machineId)
+        .map(([taskId]) => taskId);
+
+      for (const taskId of affectedTaskIds) {
+        void this.emitSyntheticTaskError(
+          taskId,
+          'Remote machine disconnected during task execution',
+          { reason, recoverable: false },
+        ).catch((err) => {
+          console.error(`[relay] Failed to persist synthetic disconnect error for ${taskId}:`, err);
+        });
+      }
+
       // Clean up task tracking for disconnected machine to prevent memory leak
       for (const [taskId, mId] of this.taskToMachine) {
         if (mId === machineId) {
@@ -2631,6 +2725,36 @@ export class RelayServer extends EventEmitter {
   }
 
   /**
+   * Handle agent runner's structured operational message.
+   */
+  private async handleAgentRunnerTaskOperational(message: AgentRunnerTaskOperationalMessage): Promise<void> {
+    const { payload } = message;
+    const opMsg: TaskOperationalMessage = {
+      type: 'task.operational',
+      timestamp: new Date(),
+      taskId: payload.taskId,
+      message: payload.message,
+      source: payload.source,
+    };
+    let seq: number | undefined;
+    try {
+      seq = await streamingEventLog.append(payload.taskId, 'operational', {
+        message: payload.message,
+        source: payload.source,
+      });
+    } catch (err) {
+      console.error(`[relay-server] Failed to persist operational event for task ${payload.taskId}:`, err);
+    }
+    this.emit('task:operational', Object.assign(opMsg, { _dbSeq: seq }));
+    this.publishToRedis({
+      eventType: 'operational',
+      taskId: payload.taskId,
+      data: { message: payload.message, source: payload.source },
+      dbSeq: seq,
+    });
+  }
+
+  /**
    * Handle agent runner's structured tool use message
    */
   private async handleAgentRunnerTaskToolUse(message: AgentRunnerTaskToolUseMessage): Promise<void> {
@@ -2836,6 +2960,14 @@ export class RelayServer extends EventEmitter {
     const { payload } = message;
     const machineId = this.taskToMachine.get(payload.taskId);
     console.log(`[relay] Approval request from task ${payload.taskId}: ${payload.question}`);
+    streamingEventLog.appendApprovalRequestIfAbsent(payload.taskId, {
+      requestId: payload.requestId,
+      question: payload.question,
+      options: payload.options,
+      machineId,
+    }).catch((err) => {
+      console.warn(`[relay] Failed to persist approval request for ${payload.taskId}:`, err);
+    });
     this.emit('task:approval_request', {
       taskId: payload.taskId,
       requestId: payload.requestId,
@@ -2896,14 +3028,24 @@ export class RelayServer extends EventEmitter {
         summary,
       },
     };
+    const resultData = {
+      status: resultMsg.result.status,
+      output,
+      error,
+      duration: resultMsg.result.duration,
+      branchName,
+      prUrl,
+      prNumber,
+      deliveryStatus,
+      deliveryError,
+      summary,
+    };
+    const seq = await streamingEventLog.appendTerminalIfAbsent(taskId, 'result', resultData);
     this.emit('task:result', resultMsg);
     redisPubSub.publishStreamingEvent({
       eventType: 'result', taskId, userId,
-      data: {
-        status: resultMsg.result.status, output, error,
-        duration: resultMsg.result.duration,
-        branchName, prUrl, prNumber, deliveryStatus,
-      },
+      data: resultData,
+      dbSeq: seq,
     }).catch((err) => {
       console.error(`[relay] Failed to publish result to Redis:`, err);
     });

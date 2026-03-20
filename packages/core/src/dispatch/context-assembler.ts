@@ -64,25 +64,36 @@ export class ContextAssembler {
    */
   gatherDependencyOutputs(node: PlanNode, allNodes: PlanNode[]): DependencyOutput[] {
     const outputs: DependencyOutput[] = []
+    const perDepCap = this.config.maxDependencyOutputSize
+    // Total budget across all deps to prevent combinatorial blowup (e.g. 20 deps × 4K = 80K)
+    const totalBudget = perDepCap * 5
+    let totalUsed = 0
 
     for (const depId of node.dependencies) {
+      if (totalUsed >= totalBudget) break
+
       const depNode = allNodes.find((n) => n.id === depId)
       if (!depNode) continue
 
       // Skip if no output
       if (!depNode.executionOutput) continue
 
-      // Truncate if needed
-      const maxSize = this.config.maxDependencyOutputSize
-      const output = depNode.executionOutput
-      const truncated = output.length > maxSize
-      const truncatedOutput = truncated ? output.slice(0, maxSize) + '\n\n[Output truncated...]' : output
+      // Take the TAIL of raw output — the end of execution contains the result/summary,
+      // not the noisy raw tool calls at the beginning.
+      const raw = depNode.executionOutput
+      const truncated = raw.length > perDepCap
+      const tail = truncated ? '...[truncated]\n\n' + raw.slice(-perDepCap) : raw
+
+      // Enforce total budget
+      const remaining = totalBudget - totalUsed
+      const final = tail.length > remaining ? tail.slice(0, remaining) + '\n[budget exceeded]' : tail
+      totalUsed += final.length
 
       outputs.push({
         nodeId: depNode.id,
         title: depNode.title,
-        output: truncatedOutput,
-        truncated,
+        output: final,
+        truncated: truncated || final !== tail,
         status: depNode.status,
       })
     }
@@ -445,7 +456,7 @@ export function createContextAssembler(
   config?: Partial<Pick<DispatchEngineConfig, 'maxDependencyOutputSize' | 'maxKnowledgeSize'>>
 ): ContextAssembler {
   return new ContextAssembler({
-    maxDependencyOutputSize: config?.maxDependencyOutputSize ?? 20000,
+    maxDependencyOutputSize: config?.maxDependencyOutputSize ?? 4000,
     maxKnowledgeSize: config?.maxKnowledgeSize ?? 16000,
   })
 }

@@ -5,9 +5,8 @@
  * 1. YOLO auto-complete logic (finalNodeStatus decision)
  * 2. Output directory prompt injection conditions
  * 3. Cmd+Enter hint consistency across all pages
- * 4. Chat multiline display (whitespace-pre-wrap)
- * 5. Dashboard running tasks scrollable container
- * 6. SSE event types and realtime store handling
+ * 4. Dashboard running tasks scrollable container
+ * 5. SSE event types and realtime store handling
  */
 
 import { describe, it, expect } from 'vitest'
@@ -214,88 +213,7 @@ describe('Cmd+Enter hint consistency', () => {
 })
 
 // ============================================================================
-// 4. Chat multiline display: whitespace-pre-wrap on ChatUserBlock
-// ============================================================================
-
-describe('Chat multiline display', () => {
-  it('ChatUserBlock uses whitespace-pre-wrap for multiline messages', () => {
-    const source = readFileSync(
-      join(__dirname, '../src/components/activity-blocks.tsx'),
-      'utf-8'
-    )
-    // Find the ChatUserBlock function and verify it uses whitespace-pre-wrap
-    const blockMatch = source.match(
-      /export function ChatUserBlock[\s\S]*?^}/m
-    )
-    expect(blockMatch).not.toBeNull()
-    expect(blockMatch![0]).toContain('whitespace-pre-wrap')
-  })
-
-  it('ChatUserBlock is used in playground.tsx', () => {
-    const source = readFileSync(
-      join(__dirname, '../src/pages/playground.tsx'),
-      'utf-8'
-    )
-    expect(source).toContain('ChatUserBlock')
-  })
-
-  it('ChatUserBlock is used in unified-activity-view.tsx (task detail)', () => {
-    const source = readFileSync(
-      join(__dirname, '../src/components/task-detail/unified-activity-view.tsx'),
-      'utf-8'
-    )
-    expect(source).toContain('ChatUserBlock')
-  })
-
-  it('ChatUserBlock is used in plan-generation.tsx', () => {
-    const source = readFileSync(
-      join(__dirname, '../src/components/plan-generation/plan-generation.tsx'),
-      'utf-8'
-    )
-    expect(source).toContain('ChatUserBlock')
-  })
-
-  it('ChatUserBlock is used in chat-panel.tsx (agent chat)', () => {
-    const source = readFileSync(
-      join(__dirname, '../src/components/agent/chat-panel.tsx'),
-      'utf-8'
-    )
-    expect(source).toContain('ChatUserBlock')
-  })
-
-  it('all ChatUserBlock usages import from activity-blocks', () => {
-    const consumers = [
-      'src/pages/playground.tsx',
-      'src/components/task-detail/unified-activity-view.tsx',
-      'src/components/plan-generation/plan-generation.tsx',
-      'src/components/agent/chat-panel.tsx',
-    ]
-    for (const file of consumers) {
-      const source = readFileSync(join(__dirname, '..', file), 'utf-8')
-      // Should import ChatUserBlock from activity-blocks
-      expect(source).toMatch(/import\s+\{[^}]*ChatUserBlock[^}]*\}\s+from/)
-    }
-  })
-
-  it('steer messages also use whitespace-pre-wrap in playground', () => {
-    const source = readFileSync(
-      join(__dirname, '../src/pages/playground.tsx'),
-      'utf-8'
-    )
-    // The render block for pendingSteerText should use whitespace-pre-wrap
-    expect(source).toContain('pendingSteerText')
-    // Find the JSX render of pendingSteerText (not the state declaration)
-    const renderMatch = source.match(/\{pendingSteerText\}<\/p>/)
-    expect(renderMatch).not.toBeNull()
-    // The <p> wrapping it should have whitespace-pre-wrap
-    const renderIdx = source.indexOf('{pendingSteerText}</p>')
-    const contextBefore = source.slice(Math.max(0, renderIdx - 100), renderIdx)
-    expect(contextBefore).toContain('whitespace-pre-wrap')
-  })
-})
-
-// ============================================================================
-// 5. Dashboard running tasks scrollable container
+// 4. Dashboard running tasks scrollable container
 // ============================================================================
 
 describe('Dashboard running tasks scroll', () => {

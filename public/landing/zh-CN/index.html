@@ -1,0 +1,3304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png" />
+    <title>摘星 — AI 时代的任务控制中心</title>
+    <meta name="description" content="摘星：为构建者和科学家打造的规划优先平台。将宏大目标分解为协调一致的任务，跨环境并行执行，随时随地做出战略决策。">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&family=Noto+Serif+SC:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-deep: #050510;
+            --bg-card: rgba(255, 255, 255, 0.03);
+            --border-subtle: rgba(255, 255, 255, 0.06);
+            --border-hover: rgba(255, 255, 255, 0.12);
+            --cyan: #5ba3d0;
+            --cyan-glow: rgba(91, 163, 208, 0.4);
+            --orange: #d4a574;
+            --orange-glow: rgba(212, 165, 116, 0.3);
+            --green: #6ec07a;
+            --green-glow: rgba(110, 192, 122, 0.3);
+            --purple: #a78bfa;
+            --purple-glow: rgba(167, 139, 250, 0.3);
+            --rose: #f472b6;
+            --rose-glow: rgba(244, 114, 182, 0.3);
+            --text-primary: #f0f0f0;
+            --text-secondary: rgba(240, 240, 240, 0.55);
+            --text-tertiary: rgba(240, 240, 240, 0.35);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-deep);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            line-height: 1.7;
+            font-weight: 400;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Three.js Canvas */
+        #scene-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .content {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            padding: 1.25rem 3rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+            background: rgba(5, 5, 16, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border-subtle);
+            transform: translateY(-100%);
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        nav.scrolled { transform: translateY(0); }
+
+        .logo {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: 0.15em;
+            color: var(--text-primary);
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        .nav-link {
+            font-size: 0.8125rem;
+            color: var(--text-tertiary);
+            text-decoration: none;
+            font-weight: 400;
+            letter-spacing: 0.02em;
+            transition: color 0.25s ease;
+            cursor: pointer;
+            background: none;
+            border: none;
+            font-family: inherit;
+        }
+
+        .nav-link:hover { color: var(--text-secondary); }
+
+        .nav-cta-group {
+            display: flex;
+            align-items: stretch;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+            transition: all 0.25s ease;
+        }
+
+        .nav-cta-group:hover {
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .nav-cta {
+            font-family: 'Inter', sans-serif;
+            padding: 0.5rem 1.25rem;
+            background: rgba(255, 255, 255, 0.06);
+            border: none;
+            border-right: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 0;
+            color: var(--text-primary);
+            font-size: 0.8125rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.25s ease;
+            letter-spacing: 0.02em;
+            text-decoration: none;
+        }
+
+        .nav-cta:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .nav-install {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            background: rgba(0, 0, 0, 0.2);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .nav-install:hover {
+            background: rgba(0, 0, 0, 0.35);
+            color: var(--text-secondary);
+        }
+
+        .nav-install .prompt { color: var(--cyan); opacity: 0.5; }
+        .nav-install .flag { color: var(--orange); }
+
+        .nav-about {
+            display: flex;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-left: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--text-tertiary);
+            font-size: 0.75rem;
+            font-weight: 400;
+            letter-spacing: 0.02em;
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+
+        .nav-about:hover {
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .nav-install { position: relative; }
+        .nav-install-copied {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--green);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.7rem;
+            font-weight: 500;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .nav-install.copied .nav-install-text { visibility: hidden; }
+        .nav-install.copied .nav-install-copied { opacity: 1; }
+        .nav-install.copied { background: rgba(110, 192, 122, 0.06); }
+
+        /* ==================== HERO ==================== */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 6rem 2rem 4rem;
+            position: relative;
+        }
+
+        .hero-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(5rem, 14vw, 11rem);
+            font-weight: 300;
+            letter-spacing: 0.04em;
+            line-height: 0.9;
+            margin-bottom: 1.5rem;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease forwards 0.2s;
+            background: linear-gradient(135deg, var(--cyan), var(--text-primary) 40%, var(--orange));
+            background-size: 200% 200%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: fadeInUp 0.8s ease forwards 0.2s, gradientShift 8s ease infinite 1s;
+        }
+
+        @keyframes gradientShift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+
+        .hero-subtitle {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(1.125rem, 2.5vw, 1.75rem);
+            font-weight: 300;
+            color: var(--text-secondary);
+            margin-bottom: 2.5rem;
+            letter-spacing: 0.06em;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease forwards 0.4s;
+        }
+
+        .hero-description {
+            max-width: 580px;
+            font-size: 1rem;
+            line-height: 1.8;
+            color: var(--text-secondary);
+            margin-bottom: 3rem;
+            font-weight: 300;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease forwards 0.6s;
+        }
+
+        .hero-ctas {
+            display: flex;
+            gap: 0;
+            align-items: stretch;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease forwards 0.8s;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(91, 163, 208, 0.25);
+        }
+
+        .cta-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.625rem;
+            padding: 0.875rem 2rem;
+            background: linear-gradient(135deg, rgba(91, 163, 208, 0.15), rgba(212, 165, 116, 0.1));
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            font-weight: 500;
+            font-size: 0.9375rem;
+            letter-spacing: 0.02em;
+            border: 1px solid rgba(91, 163, 208, 0.25);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .cta-button:hover {
+            background: linear-gradient(135deg, rgba(91, 163, 208, 0.25), rgba(212, 165, 116, 0.18));
+            border-color: rgba(91, 163, 208, 0.5);
+            transform: translateY(-1px);
+            box-shadow: 0 8px 32px rgba(91, 163, 208, 0.2);
+        }
+
+        .hero-ctas .cta-button {
+            border: none;
+            border-right: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 0;
+            padding: 0.875rem 1.75rem;
+        }
+
+        .hero-ctas .cta-button:hover {
+            transform: none;
+            box-shadow: none;
+        }
+
+        .cta-button .arrow { transition: transform 0.25s ease; }
+        .cta-button:hover .arrow { transform: translateX(3px); }
+
+        .hero-ctas:hover {
+            border-color: rgba(91, 163, 208, 0.5);
+            box-shadow: 0 8px 32px rgba(91, 163, 208, 0.12);
+        }
+
+        .hero-install-inline {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0 0.5rem 0 1.25rem;
+            background: rgba(0, 0, 0, 0.25);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .hero-install-inline:hover {
+            background: rgba(0, 0, 0, 0.35);
+            color: var(--text-primary);
+        }
+
+        .hero-install-inline .prompt { color: var(--cyan); opacity: 0.5; }
+        .hero-install-inline .cmd { color: var(--text-secondary); }
+        .hero-install-inline .flag { color: var(--orange); }
+        .hero-install-inline:hover .cmd { color: var(--text-primary); }
+
+        .hero-install-inline .install-copy-btn {
+            font-size: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+
+        .hero-install-inline .install-copy-btn::before {
+            content: '';
+            width: 13px;
+            height: 13px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(240,240,240,0.4)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='13' height='13' rx='2' ry='2'/%3E%3Cpath d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'/%3E%3C/svg%3E");
+            background-size: contain;
+            background-repeat: no-repeat;
+        }
+
+        .hero-install-inline .install-copy-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .hero-install-inline .install-copy-btn:hover::before {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(240,240,240,0.8)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='13' height='13' rx='2' ry='2'/%3E%3Cpath d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'/%3E%3C/svg%3E");
+        }
+
+        .hero-install-inline .install-copy-btn.copied {
+            font-size: 0.6rem;
+            width: auto;
+            padding: 0 0.5rem;
+            color: var(--green);
+            border-color: rgba(110, 192, 122, 0.25);
+            background: rgba(110, 192, 122, 0.08);
+        }
+
+        .hero-install-inline .install-copy-btn.copied::before {
+            display: none;
+        }
+
+        .hero-scroll-hint {
+            position: absolute;
+            bottom: 2.5rem;
+            left: 0;
+            right: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            opacity: 0;
+            animation: fadeIn 0.8s ease forwards 1.2s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .hero-scroll-hint:hover {
+            opacity: 1 !important;
+        }
+
+        .hero-scroll-hint span {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            letter-spacing: 0.08em;
+            font-weight: 400;
+        }
+
+        .hero-scroll-hint .chevron-wrap {
+            animation: bounceDown 2s ease infinite;
+        }
+
+        .hero-scroll-hint .chevron-down {
+            width: 16px;
+            height: 16px;
+            border-left: 1.5px solid var(--text-secondary);
+            border-bottom: 1.5px solid var(--text-secondary);
+            transform: rotate(-45deg);
+        }
+
+        @keyframes bounceDown {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(6px); }
+        }
+
+        .cta-secondary {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.875rem 1.75rem;
+            background: transparent;
+            color: var(--text-secondary);
+            font-family: 'Inter', sans-serif;
+            font-weight: 400;
+            font-size: 0.9375rem;
+            letter-spacing: 0.02em;
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+        }
+
+        .cta-secondary:hover {
+            color: var(--text-primary);
+            border-color: var(--border-hover);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .feature-pills {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 2.5rem;
+            flex-wrap: wrap;
+            justify-content: center;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease forwards 1s;
+        }
+
+        .pill {
+            padding: 0.4375rem 1rem;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-subtle);
+            border-radius: 100px;
+            font-size: 0.8125rem;
+            color: var(--text-tertiary);
+            font-weight: 400;
+            letter-spacing: 0.02em;
+            transition: all 0.3s ease;
+        }
+
+        .pill:hover {
+            border-color: var(--border-hover);
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        /* ==================== SHARED ==================== */
+        .fade-section {
+            opacity: 0;
+            transform: translateY(40px);
+            transition: opacity 0.7s ease, transform 0.7s ease;
+        }
+
+        .fade-section.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .stagger-child {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.5s ease, transform 0.5s ease;
+        }
+
+        .fade-section.visible .stagger-child {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 4rem;
+        }
+
+        .section-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--cyan);
+            margin-bottom: 1.25rem;
+            font-weight: 500;
+        }
+
+        .section-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(2.25rem, 4.5vw, 3.5rem);
+            font-weight: 400;
+            color: var(--text-primary);
+            margin-bottom: 1.5rem;
+            letter-spacing: 0.02em;
+        }
+
+        .section-description {
+            max-width: 600px;
+            margin: 0 auto;
+            font-size: 1rem;
+            color: var(--text-secondary);
+            line-height: 1.75;
+            font-weight: 300;
+        }
+
+        .section-divider {
+            position: relative;
+        }
+
+        .section-divider::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--border-subtle), transparent);
+        }
+
+        /* ==================== PRODUCT SHOWCASE ==================== */
+        .showcase-section {
+            padding: 2rem 2rem 4rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .showcase-frame {
+            position: relative;
+            border-radius: 20px;
+            border: 1px solid rgba(91, 163, 208, 0.15);
+            background: rgba(5, 5, 16, 0.8);
+            overflow: hidden;
+            box-shadow: 0 0 80px rgba(91, 163, 208, 0.06), 0 0 160px rgba(91, 163, 208, 0.03);
+        }
+
+        .showcase-frame::before {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border-radius: 20px;
+            background: linear-gradient(135deg, rgba(91, 163, 208, 0.2), transparent 40%, transparent 60%, rgba(212, 165, 116, 0.15));
+            z-index: -1;
+            padding: 1px;
+        }
+
+        .showcase-titlebar {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.875rem 1.25rem;
+            background: rgba(255, 255, 255, 0.02);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .showcase-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .showcase-dot:first-child { background: rgba(255, 100, 100, 0.5); }
+        .showcase-dot:nth-child(2) { background: rgba(255, 200, 60, 0.5); }
+        .showcase-dot:nth-child(3) { background: rgba(100, 220, 100, 0.5); }
+
+        .showcase-url {
+            margin-left: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
+            color: var(--text-tertiary);
+            background: rgba(255, 255, 255, 0.03);
+            padding: 0.25rem 0.75rem;
+            border-radius: 6px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .showcase-body {
+            display: grid;
+            grid-template-columns: 220px 1fr;
+            min-height: 420px;
+        }
+
+        /* Mock sidebar */
+        .mock-sidebar {
+            border-right: 1px solid var(--border-subtle);
+            padding: 1.25rem 0;
+            background: rgba(255, 255, 255, 0.01);
+        }
+
+        .mock-sidebar-brand {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1rem;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            color: var(--text-primary);
+            padding: 0 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .mock-nav-item {
+            display: flex;
+            align-items: center;
+            gap: 0.625rem;
+            padding: 0.5rem 1.25rem;
+            font-size: 0.8125rem;
+            color: var(--text-tertiary);
+            transition: all 0.2s ease;
+        }
+
+        .mock-nav-item.active {
+            color: var(--text-primary);
+            background: rgba(91, 163, 208, 0.06);
+            border-right: 2px solid var(--cyan);
+        }
+
+        .mock-nav-icon {
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.06);
+            flex-shrink: 0;
+        }
+
+        .mock-nav-item.active .mock-nav-icon {
+            background: rgba(91, 163, 208, 0.2);
+        }
+
+        .mock-sidebar-section {
+            margin-top: 1.5rem;
+            padding: 0 1.25rem;
+        }
+
+        .mock-sidebar-section-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.5625rem;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            margin-bottom: 0.625rem;
+            opacity: 0.6;
+        }
+
+        .mock-project-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.375rem 0;
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+        }
+
+        .mock-project-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+
+        /* Mock main content */
+        .mock-main {
+            padding: 1.5rem;
+            position: relative;
+        }
+
+        .mock-main-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+        }
+
+        .mock-main-title {
+            font-family: 'Inter', sans-serif;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .mock-view-tabs {
+            display: flex;
+            gap: 0.125rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            padding: 0.1875rem;
+        }
+
+        .mock-view-tab {
+            padding: 0.25rem 0.625rem;
+            font-size: 0.6875rem;
+            color: var(--text-tertiary);
+            border-radius: 6px;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.15s ease;
+        }
+
+        .mock-view-tab:hover {
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .mock-view-tab.active {
+            background: rgba(91, 163, 208, 0.1);
+            color: var(--cyan);
+        }
+
+        .mock-view-tab.active:hover {
+            background: rgba(91, 163, 208, 0.14);
+        }
+
+        /* Showcase view panels */
+        .showcase-view-panel {
+            display: none;
+            position: relative;
+            height: 320px;
+        }
+        .showcase-view-panel.active {
+            display: block;
+            animation: viewFadeIn 0.25s ease-out;
+        }
+
+        /* Mock graph area */
+        .mock-graph {
+            position: relative;
+            height: 320px;
+        }
+
+        .mock-node {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            padding: 0.625rem 0.875rem;
+            min-width: 140px;
+            transition: all 0.3s ease;
+        }
+
+        .mock-node:hover {
+            border-color: var(--border-hover);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .mock-node-status {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 0.375rem;
+        }
+
+        .mock-node-label {
+            font-size: 0.75rem;
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .mock-node-sub {
+            font-size: 0.625rem;
+            color: var(--text-tertiary);
+            margin-top: 0.25rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .mock-edge {
+            position: absolute;
+            background: none;
+        }
+
+        /* Floating annotations */
+        .showcase-annotation {
+            position: absolute;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.625rem;
+            color: var(--cyan);
+            letter-spacing: 0.04em;
+            background: rgba(91, 163, 208, 0.06);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            border: 1px solid rgba(91, 163, 208, 0.15);
+            white-space: nowrap;
+            opacity: 0;
+            animation: annotationFadeIn 0.5s ease forwards;
+            pointer-events: none;
+        }
+
+        @keyframes annotationFadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ==================== BENTO GRID PILLARS ==================== */
+        .pillars-section {
+            padding: 6rem 2rem 7rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .bento-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            grid-auto-rows: 1fr;
+            gap: 1.25rem;
+            align-items: stretch;
+        }
+
+        .bento-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 20px;
+            padding: 1.75rem;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .bento-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 20px;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+            pointer-events: none;
+        }
+
+        .bento-card:hover {
+            border-color: var(--border-hover);
+            background: rgba(255, 255, 255, 0.04);
+            transform: translateY(-2px);
+        }
+
+        .bento-card:hover::before { opacity: 1; }
+
+        /* Plan card */
+        .bento-plan {
+        }
+
+        .bento-plan::before {
+            box-shadow: 0 0 40px rgba(91, 163, 208, 0.1), inset 0 0 40px rgba(91, 163, 208, 0.02);
+        }
+
+        .bento-plan:hover {
+            border-color: rgba(91, 163, 208, 0.2);
+        }
+
+        /* Execute card - top right */
+        .bento-execute::before {
+            box-shadow: 0 0 40px rgba(212, 165, 116, 0.1), inset 0 0 40px rgba(212, 165, 116, 0.02);
+        }
+
+        .bento-execute:hover {
+            border-color: rgba(212, 165, 116, 0.2);
+        }
+
+        /* Approve card - bottom right */
+        .bento-approve::before {
+            box-shadow: 0 0 40px rgba(110, 192, 122, 0.1), inset 0 0 40px rgba(110, 192, 122, 0.02);
+        }
+
+        .bento-approve:hover {
+            border-color: rgba(110, 192, 122, 0.2);
+        }
+
+        .bento-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .bento-icon svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        .bento-number {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.625rem;
+            color: var(--text-tertiary);
+            letter-spacing: 0.1em;
+            margin-bottom: 0.5rem;
+        }
+
+        .bento-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.25rem;
+            font-weight: 400;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+            letter-spacing: 0.02em;
+        }
+
+        .bento-text {
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            font-weight: 300;
+            margin-bottom: 1rem;
+        }
+
+        .bento-visual {
+            margin-top: auto;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+        }
+
+        /* Mini DAG inside bento plan card */
+        .mini-dag {
+            width: 100%;
+            max-width: 100%;
+            margin: 0 auto;
+        }
+
+        /* Mini timeline (Gantt) below DAG */
+        .mini-timeline {
+            width: 100%;
+            max-width: 100%;
+            margin: 0.75rem auto 0;
+        }
+
+        /* View toggle tabs above DAG */
+        .view-toggle {
+            display: flex;
+            gap: 2px;
+            margin: 0 auto 0.5rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 7px;
+            padding: 2px;
+            width: fit-content;
+        }
+
+        .view-toggle-tab {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.5625rem;
+            color: var(--text-tertiary);
+            padding: 3px 7px;
+            border-radius: 5px;
+            letter-spacing: 0.04em;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .view-toggle-tab:hover {
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .view-toggle-tab.active {
+            background: rgba(91, 163, 208, 0.08);
+            color: var(--cyan);
+        }
+
+        .view-toggle-tab.active:hover {
+            background: rgba(91, 163, 208, 0.12);
+        }
+
+        /* Plan view panels — fixed-size container to prevent layout jumps */
+        .plan-view-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 460 / 380;
+        }
+        .plan-view-panel {
+            display: none;
+            position: absolute;
+            inset: 0;
+        }
+        .plan-view-panel.active {
+            display: block;
+        }
+        .plan-view-panel svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Fade-in for view switching */
+        @keyframes viewFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .plan-view-panel.active {
+            animation: viewFadeIn 0.2s ease-out;
+        }
+
+        /* Mini terminal inside bento execute card */
+        .mini-terminal {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            padding: 0.75rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.625rem;
+            line-height: 1.8;
+            overflow: hidden;
+        }
+
+        .term-line {
+            color: var(--text-tertiary);
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .term-prompt { color: var(--orange); opacity: 0.7; }
+        .term-cmd { color: var(--text-secondary); }
+        .term-output { color: var(--text-tertiary); opacity: 0.6; }
+        .term-success { color: var(--green); }
+        .term-info { color: var(--cyan); }
+
+        /* Mini approval card */
+        .mini-approval {
+            background: rgba(110, 192, 122, 0.03);
+            border: 1px solid rgba(110, 192, 122, 0.12);
+            border-radius: 10px;
+            padding: 1rem;
+        }
+
+        .mini-approval-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .mini-approval-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--orange);
+            animation: approvalPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes approvalPulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        .mini-approval-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
+            color: var(--orange);
+            letter-spacing: 0.04em;
+        }
+
+        .mini-approval-question {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.75rem;
+            line-height: 1.5;
+        }
+
+        .mini-approval-buttons {
+            display: flex;
+            gap: 0.625rem;
+        }
+
+        .mini-approval-btn {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.6875rem;
+            font-weight: 500;
+            padding: 0.375rem 1rem;
+            border-radius: 7px;
+            border: 1px solid;
+            cursor: default;
+        }
+
+        .mini-approval-btn.approve {
+            background: rgba(110, 192, 122, 0.1);
+            border-color: rgba(110, 192, 122, 0.25);
+            color: var(--green);
+        }
+
+        .mini-approval-btn.reject {
+            background: rgba(255, 255, 255, 0.03);
+            border-color: var(--border-subtle);
+            color: var(--text-tertiary);
+        }
+
+        .mini-approval-stats {
+            display: flex;
+            gap: 1rem;
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .mini-stat {
+            text-align: center;
+        }
+
+        .mini-stat-value {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.125rem;
+            font-weight: 400;
+            color: var(--text-primary);
+            line-height: 1;
+        }
+
+        .mini-stat-label {
+            font-size: 0.625rem;
+            color: var(--text-tertiary);
+            margin-top: 0.25rem;
+        }
+
+        /* ==================== PERSONAS ==================== */
+        .personas-section {
+            padding: 6rem 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .persona-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.25rem;
+        }
+
+        .persona-grid-bottom {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.25rem;
+            margin-top: 1.25rem;
+            max-width: 810px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .persona-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 2rem 1.75rem;
+            transition: all 0.35s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .persona-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            opacity: 0;
+            transition: opacity 0.35s ease;
+        }
+
+        .persona-card:hover {
+            border-color: var(--border-hover);
+            background: rgba(255, 255, 255, 0.04);
+            transform: translateY(-2px);
+        }
+
+        .persona-card:hover::before { opacity: 1; }
+
+        .persona-card[data-color="cyan"]::before { background: linear-gradient(90deg, transparent, var(--cyan-glow), transparent); }
+        .persona-card[data-color="orange"]::before { background: linear-gradient(90deg, transparent, var(--orange-glow), transparent); }
+        .persona-card[data-color="green"]::before { background: linear-gradient(90deg, transparent, var(--green-glow), transparent); }
+        .persona-card[data-color="purple"]::before { background: linear-gradient(90deg, transparent, var(--purple-glow), transparent); }
+        .persona-card[data-color="rose"]::before { background: linear-gradient(90deg, transparent, var(--rose-glow), transparent); }
+
+        .persona-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .persona-avatar {
+            width: 44px;
+            height: 44px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .persona-avatar svg {
+            width: 22px;
+            height: 22px;
+        }
+
+        .persona-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.625rem;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            margin-bottom: 0.25rem;
+        }
+
+        .persona-name {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.1875rem;
+            font-weight: 400;
+            color: var(--text-primary);
+        }
+
+        .persona-steps {
+            list-style: none;
+        }
+
+        .persona-step {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            padding: 0.4375rem 0;
+        }
+
+        .persona-step + .persona-step {
+            border-top: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .persona-step-num {
+            flex-shrink: 0;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.5625rem;
+            margin-top: 0.125rem;
+        }
+
+        .persona-step-text {
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            font-weight: 300;
+        }
+
+        /* ==================== ENVIRONMENTS ==================== */
+        .environments-section {
+            padding: 6rem 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .env-cards-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.25rem;
+        }
+
+        .env-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 2rem 1.5rem;
+            text-align: center;
+            transition: all 0.35s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .env-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 16px;
+            opacity: 0;
+            transition: opacity 0.35s ease;
+            pointer-events: none;
+        }
+
+        .env-card:hover {
+            border-color: var(--border-hover);
+            background: rgba(255, 255, 255, 0.04);
+            transform: translateY(-3px);
+        }
+
+        .env-card:hover::before { opacity: 1; }
+
+        .env-card:nth-child(1)::before { box-shadow: 0 0 30px rgba(91, 163, 208, 0.08); }
+        .env-card:nth-child(2)::before { box-shadow: 0 0 30px rgba(212, 165, 116, 0.08); }
+        .env-card:nth-child(3)::before { box-shadow: 0 0 30px rgba(110, 192, 122, 0.08); }
+        .env-card:nth-child(4)::before { box-shadow: 0 0 30px rgba(167, 139, 250, 0.08); }
+
+        .env-card-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1.25rem;
+        }
+
+        .env-card-icon svg {
+            width: 26px;
+            height: 26px;
+        }
+
+        .env-card-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.25rem;
+            font-weight: 400;
+            color: var(--text-primary);
+            margin-bottom: 0.625rem;
+        }
+
+        .env-card-text {
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            line-height: 1.7;
+            font-weight: 300;
+            margin-bottom: 1rem;
+        }
+
+        .env-card-stat {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
+            color: var(--text-tertiary);
+            letter-spacing: 0.04em;
+        }
+
+        .env-card-stat .counter {
+            color: var(--cyan);
+            font-weight: 500;
+        }
+
+        /* ==================== SAFETY & PRIVACY ==================== */
+        .safety-section {
+            padding: 8rem 3rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .safety-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+        }
+
+        .safety-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 2.5rem 2rem;
+            transition: all 0.3s ease;
+        }
+
+        .safety-card:hover {
+            border-color: var(--border-hover);
+            transform: translateY(-2px);
+        }
+
+        .safety-card-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .safety-card-icon svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        .safety-card-title {
+            font-family: 'Inter', sans-serif;
+            font-size: 1.125rem;
+            font-weight: 500;
+            margin-bottom: 0.75rem;
+            color: var(--text-primary);
+        }
+
+        .safety-card-text {
+            font-size: 0.9375rem;
+            line-height: 1.7;
+            color: var(--text-secondary);
+            font-weight: 300;
+        }
+
+        /* ==================== STATS BAR ==================== */
+        .stats-section {
+            padding: 5rem 2rem;
+            max-width: 1000px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 2rem;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 1.5rem 1rem;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-subtle);
+            transition: all 0.3s ease;
+        }
+
+        .stat-item:hover {
+            border-color: var(--border-hover);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .stat-number {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(2rem, 3vw, 2.75rem);
+            font-weight: 400;
+            color: var(--text-primary);
+            line-height: 1;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            font-weight: 300;
+        }
+
+        /* ==================== MISSION ==================== */
+        .mission-section {
+            padding: 8rem 2rem;
+            position: relative;
+        }
+
+        .mission-content {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        .mission-statement {
+            font-size: clamp(1rem, 1.5vw, 1.1875rem);
+            line-height: 2;
+            color: var(--text-secondary);
+            font-weight: 300;
+        }
+
+        .mission-statement strong {
+            color: var(--text-primary);
+            font-weight: 500;
+            position: relative;
+        }
+
+        .mission-highlight {
+            position: relative;
+            display: inline;
+        }
+
+        .mission-highlight::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, var(--cyan), var(--orange));
+            opacity: 0.4;
+        }
+
+        /* Why Astro Link */
+        .why-link-section {
+            padding: 3rem 2rem;
+            text-align: center;
+        }
+
+        .why-link {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            text-decoration: none;
+            letter-spacing: 0.15em;
+            padding-bottom: 0.25rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .why-link:hover {
+            color: var(--text-secondary);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        /* ==================== GET STARTED ==================== */
+        .get-started-section {
+            padding: 6rem 2rem 4rem;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .access-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1px;
+            margin-top: 2.5rem;
+            background: var(--border-subtle);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .access-card {
+            background: var(--bg-deep);
+            padding: 2.5rem 2rem;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .access-card-num {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--text-tertiary);
+            letter-spacing: 0.1em;
+            margin-bottom: 1rem;
+        }
+
+        .access-card-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.5rem;
+            font-weight: 400;
+            color: var(--text-primary);
+            margin-bottom: 0.75rem;
+            letter-spacing: 0.01em;
+        }
+
+        .access-card-desc {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            line-height: 1.7;
+            margin-bottom: 1.5rem;
+            flex-grow: 1;
+        }
+
+        .access-card .cta-button {
+            align-self: flex-start;
+            padding: 0.625rem 1.5rem;
+            font-size: 0.8125rem;
+        }
+
+        .access-card .install-command {
+            padding: 0.75rem 1rem;
+            font-size: 0.8125rem;
+            border-radius: 8px;
+        }
+
+        .access-card .install-hint {
+            text-align: left;
+            font-size: 0.7rem;
+            margin-top: 0.5rem;
+        }
+
+        @media (max-width: 768px) {
+            .access-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .install-block {
+            margin-top: 3rem;
+            position: relative;
+        }
+
+        .install-command {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 1.5rem 2rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: clamp(0.9rem, 2vw, 1.15rem);
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            cursor: pointer;
+            transition: border-color 0.25s ease, box-shadow 0.25s ease;
+        }
+
+        .install-command:hover {
+            border-color: var(--border-hover);
+            box-shadow: 0 0 30px rgba(91, 163, 208, 0.06);
+        }
+
+        .install-command .prompt { color: var(--cyan); opacity: 0.6; }
+        .install-command .cmd { color: var(--text-primary); }
+        .install-command .flag { color: var(--orange); }
+
+        .install-copy {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.7rem;
+            color: var(--text-tertiary);
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            padding: 0.35rem 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .install-copy:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-secondary);
+        }
+
+        .install-hint {
+            text-align: center;
+            margin-top: 0.75rem;
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+        }
+
+        .install-steps {
+            margin-top: 3rem;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 0;
+        }
+
+        .install-step {
+            display: flex;
+            gap: 1.25rem;
+            padding: 1.25rem 0;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .install-step:last-child { border-bottom: none; }
+
+        .install-step-num {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--cyan);
+            opacity: 0.5;
+            padding-top: 0.15rem;
+            flex-shrink: 0;
+        }
+
+        .install-step-content {
+            flex: 1;
+        }
+
+        .install-step-title {
+            font-size: 0.875rem;
+            color: var(--text-primary);
+            font-weight: 500;
+            margin-bottom: 0.25rem;
+        }
+
+        .install-step-desc {
+            font-size: 0.8rem;
+            color: var(--text-tertiary);
+            line-height: 1.6;
+        }
+
+        .install-step-desc code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            background: rgba(91, 163, 208, 0.08);
+            color: var(--cyan);
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+        }
+
+        .install-demo {
+            margin-top: 2.5rem;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .install-demo-bar {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .install-demo-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .install-demo-title {
+            font-size: 0.7rem;
+            color: var(--text-tertiary);
+            margin-left: 0.5rem;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .install-demo-body {
+            padding: 1.25rem 1.25rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            line-height: 2;
+        }
+
+        .install-demo-body .term-line {
+            color: var(--text-tertiary);
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .install-demo-body .term-prompt { color: var(--orange); opacity: 0.7; }
+        .install-demo-body .term-cmd { color: var(--text-secondary); }
+        .install-demo-body .term-output { color: var(--text-tertiary); opacity: 0.6; }
+        .install-demo-body .term-success { color: var(--green); }
+        .install-demo-body .term-info { color: var(--cyan); }
+        .install-demo-body .term-link { color: var(--cyan); text-decoration: underline; text-decoration-color: rgba(91, 163, 208, 0.3); }
+        .install-demo-body .term-dim { color: var(--text-tertiary); opacity: 0.4; }
+        .install-demo-body .term-blank { height: 0.5rem; }
+
+        /* ==================== FOOTER CTA ==================== */
+        .footer-cta {
+            padding: 8rem 2rem 6rem;
+            text-align: center;
+            position: relative;
+        }
+
+        .footer-cta-inner {
+            position: relative;
+        }
+
+        .footer-cta-inner::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 400px;
+            height: 400px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(91, 163, 208, 0.06) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .footer-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(2.25rem, 4.5vw, 3.5rem);
+            font-weight: 400;
+            color: var(--text-primary);
+            margin-bottom: 1rem;
+            letter-spacing: 0.02em;
+        }
+
+        .footer-subtitle {
+            font-size: 1rem;
+            color: var(--text-secondary);
+            margin-bottom: 2.5rem;
+            font-weight: 300;
+        }
+
+        .footer-cta .cta-button {
+            position: relative;
+        }
+
+        .footer-cta .cta-button:hover {
+            box-shadow: 0 8px 40px rgba(91, 163, 208, 0.25);
+        }
+
+        .footer-bottom {
+            padding: 3rem 2rem;
+            text-align: center;
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .footer-bottom p {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            letter-spacing: 0.05em;
+        }
+
+        /* ==================== ANIMATIONS ==================== */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(24px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes dagNodePop {
+            0% { r: 0; opacity: 0; }
+            60% { r: 9; opacity: 1; }
+            100% { r: 7; opacity: 1; }
+        }
+
+        @keyframes dagPulse {
+            0% { r: 7; opacity: 0.6; }
+            100% { r: 16; opacity: 0; }
+        }
+
+        @keyframes dagFadeLine {
+            from { opacity: 0; stroke-dashoffset: 100; }
+            to { opacity: 1; stroke-dashoffset: 0; }
+        }
+
+        @keyframes termTyping {
+            from { opacity: 0; transform: translateX(-4px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        /* ==================== WORKSPACE FLOW ==================== */
+        .workspace-flow {
+            margin-top: 3rem;
+            position: relative;
+        }
+
+        .workspace-flow-label {
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .workspace-flow-label span {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            background: rgba(91, 163, 208, 0.04);
+            padding: 0.375rem 1rem;
+            border-radius: 100px;
+            border: 1px solid rgba(91, 163, 208, 0.08);
+        }
+
+        @keyframes flowNodeAppear {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes flowDashMove {
+            from { stroke-dashoffset: 16; }
+            to { stroke-dashoffset: 0; }
+        }
+
+        @keyframes branchGrow {
+            from { stroke-dashoffset: 200; }
+            to { stroke-dashoffset: 0; }
+        }
+
+        @keyframes commitPop {
+            0% { r: 0; opacity: 0; }
+            60% { r: 6; opacity: 1; }
+            100% { r: 4.5; opacity: 1; }
+        }
+
+        @keyframes commitPulse {
+            0% { r: 4.5; opacity: 0.6; }
+            100% { r: 14; opacity: 0; }
+        }
+
+        /* ==================== RESPONSIVE ==================== */
+        @media (max-width: 1024px) {
+            .bento-grid {
+                grid-template-columns: 1fr;
+                grid-auto-rows: auto;
+            }
+
+            .showcase-body {
+                grid-template-columns: 1fr;
+            }
+
+            .mock-sidebar {
+                display: none;
+            }
+
+            .persona-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .persona-grid-bottom {
+                grid-template-columns: 1fr;
+                max-width: 100%;
+            }
+        }
+
+        @media (max-width: 960px) {
+            .env-cards-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .stats-row {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            nav {
+                padding: 1rem 1.5rem;
+            }
+
+            .nav-links {
+                gap: 1rem;
+            }
+
+            .nav-link { display: none; }
+            .nav-install { display: none; }
+
+            .hero {
+                padding: 5rem 1.5rem 3rem;
+            }
+
+            .hero-ctas {
+                flex-direction: column;
+                border-radius: 12px;
+            }
+
+            .hero-ctas .cta-button {
+                border-right: none;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                justify-content: center;
+            }
+
+            .hero-install-inline {
+                padding: 0.75rem 1rem;
+                justify-content: space-between;
+            }
+
+            .hero-scroll-hint {
+                bottom: 1.5rem;
+            }
+
+            .pillars-section,
+            .mission-section,
+            .footer-cta,
+            .environments-section,
+            .safety-section,
+            .personas-section,
+            .stats-section,
+            .showcase-section {
+                padding-left: 1.5rem;
+                padding-right: 1.5rem;
+            }
+
+            .feature-pills { gap: 0.5rem; }
+
+            .pill {
+                font-size: 0.75rem;
+                padding: 0.375rem 0.875rem;
+            }
+
+            .persona-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .env-cards-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .safety-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .safety-section {
+                padding: 4rem 1.5rem;
+            }
+
+            .stats-row {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 1rem;
+            }
+
+            .showcase-frame {
+                border-radius: 14px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .stats-row {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .lang-toggle {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            background: none;
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            padding: 0.25rem 0.625rem;
+            cursor: pointer;
+            font-family: inherit;
+            letter-spacing: 0.04em;
+            transition: all 0.2s ease;
+            text-decoration: none;
+        }
+        .lang-toggle:hover {
+            color: var(--text-secondary);
+            border-color: var(--border-hover);
+        }
+        html[lang="zh-CN"] body { font-family: 'Noto Serif SC', 'PingFang SC', 'Source Han Serif SC', serif; }
+    </style>
+</head>
+<body>
+    <!-- Three.js Background -->
+    <canvas id="scene-canvas"></canvas>
+
+    <div class="content">
+        <!-- Navigation -->
+        <nav>
+            <div class="logo">摘星</div>
+            <div class="nav-links">
+                <button class="nav-link" onclick="document.querySelector('.pillars-section').scrollIntoView({behavior:'smooth'})">工作原理</button>
+                <button class="nav-link" onclick="document.querySelector('.personas-section').scrollIntoView({behavior:'smooth'})">能力展示</button>
+                <button class="nav-link" onclick="document.querySelector('.safety-section').scrollIntoView({behavior:'smooth'})">安全性</button>
+                <button class="nav-link" onclick="document.querySelector('#get-started').scrollIntoView({behavior:'smooth'})">快速开始</button>
+                <a class="lang-toggle" href="/landing/">EN</a>
+                <div class="nav-cta-group">
+                    <a class="nav-cta" href="/login">立即开始</a>
+                    <div class="nav-install" onclick="navigator.clipboard.writeText('npx @astroanywhere/agent@latest launch');this.classList.add('copied');var el=this;setTimeout(function(){el.classList.remove('copied')},1500)">
+                        <span class="nav-install-text"><span class="prompt">$</span> npx @astroanywhere/agent <span class="flag">launch</span></span>
+                        <span class="nav-install-copied">已复制！</span>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- ==================== HERO ==================== -->
+        <section class="hero">
+            <h1 class="hero-title">摘星</h1>
+            <p class="hero-subtitle">AI 时代的任务控制中心</p>
+            <p class="hero-description">
+                阿波罗任务从不在聊天窗口中指挥。摘星将宏大目标转化为协调一致的任务&mdash;&mdash;跨环境并行推进、随时随地在每个关键节点做出战略决策，人类与智能体协同作战。
+            </p>
+            <div class="hero-ctas">
+                <a class="cta-button" href="/login">
+                    <span>立即开始</span>
+                    <span class="arrow">&rarr;</span>
+                </a>
+                <div class="hero-install-inline" onclick="navigator.clipboard.writeText('npx @astroanywhere/agent@latest launch');var btn=this.querySelector('.install-copy-btn');btn.classList.add('copied');btn.textContent='已复制！';setTimeout(function(){btn.classList.remove('copied');btn.textContent=''},2000)">
+                    <span><span class="prompt">$</span> <span class="cmd">npx @astroanywhere/agent</span> <span class="flag">launch</span></span>
+                    <span class="install-copy-btn"></span>
+                </div>
+            </div>
+            <div class="hero-scroll-hint" onclick="document.querySelector('.pillars-section').scrollIntoView({behavior:'smooth'})">
+                <span>了解工作原理</span>
+                <div class="chevron-wrap"><div class="chevron-down"></div></div>
+            </div>
+            <div class="feature-pills">
+                <div class="pill">规划工作</div>
+                <div class="pill">并行执行</div>
+                <div class="pill">随时决策</div>
+                <div class="pill">人机协同</div>
+            </div>
+        </section>
+
+        <!-- Showcase and workspace flow sections removed -->
+        <!-- ==================== THREE PILLARS — BENTO GRID ==================== -->
+        <section class="pillars-section fade-section section-divider">
+            <div class="section-header">
+                <div class="section-label">工作原理</div>
+                <h2 class="section-title">规划、执行、决策</h2>
+                <p class="section-description">
+                    这是逐步执行工具无法提供的工作流：结构化规划、并行执行、随时随地的战略决策。
+                </p>
+            </div>
+
+            <div class="bento-grid">
+                <!-- PLAN — large left column -->
+                <div class="bento-card bento-plan stagger-child" style="transition-delay: 0.1s">
+                    <div class="bento-icon" style="background: rgba(91, 163, 208, 0.08);">
+                        <svg viewBox="0 0 20 20" fill="none" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round">
+                            <circle cx="10" cy="4" r="2.5" /><circle cx="4" cy="14" r="2.5" /><circle cx="16" cy="14" r="2.5" />
+                            <line x1="8.5" y1="6" x2="5.5" y2="12" /><line x1="11.5" y1="6" x2="14.5" y2="12" />
+                        </svg>
+                    </div>
+                    <div class="bento-number">01</div>
+                    <h3 class="bento-title">规划工作</h3>
+                    <p class="bento-text">
+                        将目标分解为依赖关系图，而非简单列表。清晰呈现哪些任务可以并行，哪些需要等待。
+                    </p>
+                    <div class="bento-visual">
+                        <!-- Interactive view toggle tabs -->
+                        <div class="view-toggle" id="planViewToggle">
+                            <div class="view-toggle-tab active" data-view="graph">关系图</div>
+                            <div class="view-toggle-tab" data-view="list">列表</div>
+                            <div class="view-toggle-tab" data-view="timeline">时间线</div>
+                            <div class="view-toggle-tab" data-view="board">看板</div>
+                        </div>
+
+                        <div class="plan-view-container">
+                        <!-- ===== GRAPH VIEW ===== -->
+                        <div class="plan-view-panel active" id="planView-graph">
+                        <svg class="mini-dag" viewBox="0 0 460 380" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <defs>
+                                <pattern id="dag-grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                                    <circle cx="10" cy="10" r="0.5" fill="rgba(255,255,255,0.03)" />
+                                </pattern>
+                            </defs>
+
+                            <rect width="460" height="380" fill="url(#dag-grid)" />
+
+                            <!-- Edges — bezier curves with animated dashes -->
+                            <!-- Root → Backend -->
+                            <path d="M230,52 C230,75 115,75 115,110" stroke="var(--cyan)" stroke-width="1.5" opacity="0.2" stroke-dasharray="5 4">
+                                <animate attributeName="stroke-dashoffset" from="9" to="0" dur="1.5s" repeatCount="indefinite" />
+                            </path>
+                            <!-- Root → Frontend -->
+                            <path d="M230,52 C230,75 345,75 345,110" stroke="var(--cyan)" stroke-width="1.5" opacity="0.2" stroke-dasharray="5 4">
+                                <animate attributeName="stroke-dashoffset" from="9" to="0" dur="1.8s" repeatCount="indefinite" />
+                            </path>
+                            <!-- Backend → DB Schema -->
+                            <path d="M115,158 C115,178 80,178 80,218" stroke="var(--cyan)" stroke-width="1.5" opacity="0.2" stroke-dasharray="5 4">
+                                <animate attributeName="stroke-dashoffset" from="9" to="0" dur="1.5s" repeatCount="indefinite" />
+                            </path>
+                            <!-- Backend → Auth Layer -->
+                            <path d="M115,158 C115,185 230,185 230,218" stroke="var(--cyan)" stroke-width="1.5" opacity="0.2" stroke-dasharray="5 4">
+                                <animate attributeName="stroke-dashoffset" from="9" to="0" dur="2s" repeatCount="indefinite" />
+                            </path>
+                            <!-- Frontend → UI Review -->
+                            <path d="M345,158 C345,178 385,178 385,218" stroke="var(--orange)" stroke-width="1.5" opacity="0.2" stroke-dasharray="5 4">
+                                <animate attributeName="stroke-dashoffset" from="9" to="0" dur="1.8s" repeatCount="indefinite" />
+                            </path>
+                            <!-- Frontend → Auth Layer -->
+                            <path d="M345,158 C345,185 230,185 230,218" stroke="var(--cyan)" stroke-width="1.5" opacity="0.15" stroke-dasharray="5 4">
+                                <animate attributeName="stroke-dashoffset" from="9" to="0" dur="2s" repeatCount="indefinite" />
+                            </path>
+                            <!-- Auth Layer → Integration -->
+                            <path d="M230,268 C230,295 230,295 230,322" stroke="var(--cyan)" stroke-width="1.5" opacity="0.15" stroke-dasharray="5 4">
+                                <animate attributeName="stroke-dashoffset" from="9" to="0" dur="2s" repeatCount="indefinite" />
+                            </path>
+                            <!-- UI Review → Integration -->
+                            <path d="M385,268 C385,295 230,305 230,322" stroke="var(--orange)" stroke-width="1.5" opacity="0.15" stroke-dasharray="5 4">
+                                <animate attributeName="stroke-dashoffset" from="9" to="0" dur="2.2s" repeatCount="indefinite" />
+                            </path>
+
+                            <!-- Edge particles -->
+                            <circle r="2" fill="var(--cyan)">
+                                <animateMotion dur="2s" repeatCount="indefinite" path="M230,52 C230,75 115,75 115,110" />
+                                <animate attributeName="opacity" values="0;0.7;0.7;0" dur="2s" repeatCount="indefinite" />
+                            </circle>
+                            <circle r="2" fill="var(--cyan)">
+                                <animateMotion dur="2.2s" repeatCount="indefinite" path="M230,52 C230,75 345,75 345,110" begin="0.4s" />
+                                <animate attributeName="opacity" values="0;0.7;0.7;0" dur="2.2s" repeatCount="indefinite" begin="0.4s" />
+                            </circle>
+                            <circle r="1.5" fill="var(--orange)">
+                                <animateMotion dur="2s" repeatCount="indefinite" path="M345,158 C345,178 385,178 385,218" begin="0.8s" />
+                                <animate attributeName="opacity" values="0;0.7;0.7;0" dur="2s" repeatCount="indefinite" begin="0.8s" />
+                            </circle>
+
+                            <!-- NODE: Goal (root) -->
+                            <g>
+                                <rect x="155" y="10" width="150" height="42" rx="8" fill="rgba(91, 163, 208, 0.06)" stroke="rgba(91, 163, 208, 0.2)" stroke-width="1" />
+                                <rect x="155" y="10" width="3" height="42" rx="1.5" fill="var(--cyan)" />
+                                <circle cx="172" cy="27" r="3.5" fill="var(--cyan)" />
+                                <text x="182" y="25" fill="var(--text-primary)" font-size="10" font-weight="600" font-family="'Inter', sans-serif">API Redesign</text>
+                                <text x="182" y="38" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">6 tasks · root</text>
+                            </g>
+
+                            <!-- NODE: Backend -->
+                            <g>
+                                <rect x="30" y="110" width="170" height="48" rx="8" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.15)" stroke-width="1" />
+                                <rect x="30" y="110" width="3" height="48" rx="1.5" fill="var(--cyan)" />
+                                <circle cx="47" cy="128" r="3" fill="var(--cyan)" />
+                                <circle cx="47" cy="128" r="3" fill="none" stroke="var(--cyan)" stroke-width="0.8">
+                                    <animate attributeName="r" from="3" to="9" dur="2s" repeatCount="indefinite" />
+                                    <animate attributeName="opacity" from="0.5" to="0" dur="2s" repeatCount="indefinite" />
+                                </circle>
+                                <text x="57" y="127" fill="var(--text-primary)" font-size="9" font-weight="500" font-family="'Inter', sans-serif">Backend Services</text>
+                                <text x="57" y="140" fill="var(--cyan)" font-size="7" font-family="'JetBrains Mono', monospace">in_progress</text>
+                                <rect x="43" y="148" width="144" height="2" rx="1" fill="rgba(91, 163, 208, 0.08)" />
+                                <rect x="43" y="148" height="2" rx="1" fill="var(--cyan)" opacity="0.4">
+                                    <animate attributeName="width" values="30;90;30" dur="4s" repeatCount="indefinite" />
+                                </rect>
+                            </g>
+
+                            <!-- NODE: Frontend -->
+                            <g>
+                                <rect x="260" y="110" width="170" height="48" rx="8" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.15)" stroke-width="1" />
+                                <rect x="260" y="110" width="3" height="48" rx="1.5" fill="var(--cyan)" />
+                                <circle cx="277" cy="128" r="3" fill="var(--cyan)" />
+                                <text x="287" y="127" fill="var(--text-primary)" font-size="9" font-weight="500" font-family="'Inter', sans-serif">Frontend UI</text>
+                                <text x="287" y="140" fill="var(--cyan)" font-size="7" font-family="'JetBrains Mono', monospace">in_progress</text>
+                                <rect x="273" y="148" width="144" height="2" rx="1" fill="rgba(91, 163, 208, 0.08)" />
+                                <rect x="273" y="148" height="2" rx="1" fill="var(--cyan)" opacity="0.4">
+                                    <animate attributeName="width" values="50;110;50" dur="5s" repeatCount="indefinite" />
+                                </rect>
+                            </g>
+
+                            <!-- NODE: DB Schema (done) -->
+                            <g>
+                                <rect x="15" y="218" width="130" height="50" rx="8" fill="rgba(110, 192, 122, 0.04)" stroke="rgba(110, 192, 122, 0.18)" stroke-width="1" />
+                                <rect x="15" y="218" width="3" height="50" rx="1.5" fill="var(--green)" />
+                                <circle cx="31" cy="237" r="3" fill="var(--green)" />
+                                <path d="M29.5 237 L30.5 238.5 L33 235.5" stroke="white" stroke-width="1" fill="none" stroke-linecap="round" />
+                                <text x="40" y="235" fill="var(--text-primary)" font-size="9" font-weight="500" font-family="'Inter', sans-serif">DB Schema</text>
+                                <text x="40" y="248" fill="var(--green)" font-size="7" font-family="'JetBrains Mono', monospace">completed</text>
+                                <rect x="28" y="257" width="104" height="2" rx="1" fill="var(--green)" opacity="0.25" />
+                            </g>
+
+                            <!-- NODE: Auth Layer (running) -->
+                            <g>
+                                <rect x="165" y="218" width="130" height="50" rx="8" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.18)" stroke-width="1" />
+                                <rect x="165" y="218" width="3" height="50" rx="1.5" fill="var(--cyan)" />
+                                <circle cx="181" cy="237" r="3" fill="var(--cyan)" />
+                                <circle cx="181" cy="237" r="3" fill="none" stroke="var(--cyan)" stroke-width="0.8">
+                                    <animate attributeName="r" from="3" to="9" dur="2s" begin="0.3s" repeatCount="indefinite" />
+                                    <animate attributeName="opacity" from="0.5" to="0" dur="2s" begin="0.3s" repeatCount="indefinite" />
+                                </circle>
+                                <text x="190" y="235" fill="var(--text-primary)" font-size="9" font-weight="500" font-family="'Inter', sans-serif">Auth Layer</text>
+                                <text x="190" y="248" fill="var(--cyan)" font-size="7" font-family="'JetBrains Mono', monospace">running</text>
+                                <rect x="178" y="257" width="104" height="2" rx="1" fill="rgba(91, 163, 208, 0.08)" />
+                                <rect x="178" y="257" height="2" rx="1" fill="var(--cyan)" opacity="0.4">
+                                    <animate attributeName="width" values="20;65;20" dur="3.5s" repeatCount="indefinite" />
+                                </rect>
+                            </g>
+
+                            <!-- NODE: UI Review (deciding) -->
+                            <g>
+                                <rect x="315" y="218" width="130" height="50" rx="8" fill="rgba(212, 165, 116, 0.05)" stroke="rgba(212, 165, 116, 0.2)" stroke-width="1" />
+                                <rect x="315" y="218" width="3" height="50" rx="1.5" fill="var(--orange)" />
+                                <circle cx="331" cy="237" r="3" fill="var(--orange)" />
+                                <circle cx="331" cy="237" r="3" fill="none" stroke="var(--orange)" stroke-width="0.8">
+                                    <animate attributeName="r" from="3" to="9" dur="2s" begin="0.6s" repeatCount="indefinite" />
+                                    <animate attributeName="opacity" from="0.5" to="0" dur="2s" begin="0.6s" repeatCount="indefinite" />
+                                </circle>
+                                <text x="340" y="235" fill="var(--text-primary)" font-size="9" font-weight="500" font-family="'Inter', sans-serif">UI Review</text>
+                                <text x="340" y="248" fill="var(--orange)" font-size="7" font-family="'JetBrains Mono', monospace">deciding</text>
+                                <rect x="328" y="257" width="104" height="2" rx="1" fill="rgba(212, 165, 116, 0.08)" />
+                                <rect x="328" y="257" width="55" height="2" rx="1" fill="var(--orange)" opacity="0.35" />
+                            </g>
+
+                            <!-- NODE: Integration (planned, dashed) -->
+                            <g>
+                                <rect x="155" y="322" width="150" height="48" rx="8" fill="rgba(255,255,255,0.015)" stroke="var(--border-subtle)" stroke-width="1" stroke-dasharray="4 3" />
+                                <circle cx="172" cy="340" r="3" fill="var(--text-tertiary)" opacity="0.3" />
+                                <text x="182" y="339" fill="var(--text-tertiary)" font-size="9" font-weight="500" font-family="'Inter', sans-serif">Integration Tests</text>
+                                <text x="182" y="352" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" opacity="0.5">planned</text>
+                                <rect x="168" y="360" width="124" height="2" rx="1" fill="rgba(255, 255, 255, 0.03)" />
+                            </g>
+
+                            <!-- Parallel badge -->
+                            <rect x="130" y="280" width="76" height="18" rx="9" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.08)" stroke-width="0.5" />
+                            <text x="168" y="292" fill="var(--cyan)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle" opacity="0.5">parallel</text>
+
+                            <!-- Critical path label -->
+                            <rect x="250" y="280" width="92" height="18" rx="9" fill="rgba(212, 165, 116, 0.04)" stroke="rgba(212, 165, 116, 0.08)" stroke-width="0.5" />
+                            <text x="296" y="292" fill="var(--orange)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle" opacity="0.5">critical path</text>
+
+                        </svg>
+                        </div>
+
+                        <!-- ===== LIST VIEW ===== -->
+                        <div class="plan-view-panel" id="planView-list">
+                        <svg class="mini-dag" viewBox="0 0 460 380" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <!-- Table header -->
+                            <rect x="0" y="0" width="460" height="24" rx="4" fill="rgba(255,255,255,0.02)" />
+                            <text x="12" y="15" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" letter-spacing="0.05em">名称</text>
+                            <text x="200" y="15" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" letter-spacing="0.05em">状态</text>
+                            <text x="285" y="15" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" letter-spacing="0.05em">优先级</text>
+                            <text x="360" y="15" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" letter-spacing="0.05em">截止</text>
+                            <text x="420" y="15" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" letter-spacing="0.05em">估算</text>
+                            <line x1="0" y1="26" x2="460" y2="26" stroke="var(--border-subtle)" stroke-width="0.5" />
+
+                            <!-- Group header: Backend -->
+                            <g>
+                                <rect x="0" y="32" width="460" height="22" fill="rgba(91, 163, 208, 0.03)" />
+                                <text x="22" y="46" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="600">Backend Services</text>
+                                <text x="130" y="46" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">3 tasks</text>
+                                <!-- Collapse chevron -->
+                                <path d="M10,40 L14,44 L18,40" stroke="var(--text-tertiary)" stroke-width="1" fill="none" stroke-linecap="round" opacity="0.4" />
+                            </g>
+
+                            <!-- Row 1: DB Schema -->
+                            <line x1="0" y1="56" x2="460" y2="56" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <g>
+                                <circle cx="20" cy="72" r="3" fill="var(--green)" />
+                                <path d="M18.8 72 L19.6 73 L21.5 70.8" stroke="white" stroke-width="0.8" fill="none" stroke-linecap="round" />
+                                <text x="30" y="75" fill="var(--text-primary)" font-size="9" font-family="'Inter', sans-serif">DB Schema Migration</text>
+                                <!-- Status badge -->
+                                <rect x="200" y="64" width="52" height="16" rx="4" fill="rgba(110, 192, 122, 0.08)" />
+                                <text x="226" y="75" fill="var(--green)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">completed</text>
+                                <!-- Priority -->
+                                <rect x="290" y="64" width="32" height="16" rx="4" fill="rgba(212, 165, 116, 0.08)" />
+                                <text x="306" y="75" fill="var(--orange)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">high</text>
+                                <!-- Due date -->
+                                <text x="360" y="75" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">Feb 18</text>
+                                <!-- Estimate -->
+                                <text x="425" y="75" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">M</text>
+                            </g>
+
+                            <!-- Row 2: Auth Layer -->
+                            <line x1="0" y1="86" x2="460" y2="86" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <g>
+                                <circle cx="20" cy="102" r="3" fill="var(--cyan)" />
+                                <circle cx="20" cy="102" r="3" fill="none" stroke="var(--cyan)" stroke-width="0.6">
+                                    <animate attributeName="r" from="3" to="7" dur="2s" repeatCount="indefinite" />
+                                    <animate attributeName="opacity" from="0.5" to="0" dur="2s" repeatCount="indefinite" />
+                                </circle>
+                                <text x="30" y="105" fill="var(--text-primary)" font-size="9" font-family="'Inter', sans-serif">Auth Layer Implementation</text>
+                                <rect x="200" y="94" width="52" height="16" rx="4" fill="rgba(91, 163, 208, 0.08)" />
+                                <text x="226" y="105" fill="var(--cyan)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">running</text>
+                                <rect x="290" y="94" width="32" height="16" rx="4" fill="rgba(212, 165, 116, 0.08)" />
+                                <text x="306" y="105" fill="var(--orange)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">high</text>
+                                <text x="360" y="105" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">Feb 21</text>
+                                <text x="425" y="105" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">L</text>
+                            </g>
+
+                            <!-- Row 3: API Routes -->
+                            <line x1="0" y1="116" x2="460" y2="116" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <g>
+                                <circle cx="20" cy="132" r="3" fill="var(--text-tertiary)" opacity="0.3" />
+                                <text x="30" y="135" fill="var(--text-secondary)" font-size="9" font-family="'Inter', sans-serif">API Route Handlers</text>
+                                <rect x="200" y="124" width="42" height="16" rx="4" fill="rgba(255,255,255,0.03)" />
+                                <text x="221" y="135" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">planned</text>
+                                <rect x="290" y="124" width="32" height="16" rx="4" fill="rgba(255,255,255,0.03)" />
+                                <text x="306" y="135" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">med</text>
+                                <text x="360" y="135" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">Feb 24</text>
+                                <text x="425" y="135" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">S</text>
+                            </g>
+
+                            <!-- Group header: Frontend -->
+                            <g>
+                                <rect x="0" y="150" width="460" height="22" fill="rgba(91, 163, 208, 0.03)" />
+                                <text x="22" y="164" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="600">Frontend UI</text>
+                                <text x="100" y="164" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">2 tasks</text>
+                                <path d="M10,158 L14,162 L18,158" stroke="var(--text-tertiary)" stroke-width="1" fill="none" stroke-linecap="round" opacity="0.4" />
+                            </g>
+
+                            <!-- Row 4: UI Review -->
+                            <line x1="0" y1="174" x2="460" y2="174" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <g>
+                                <circle cx="20" cy="190" r="3" fill="var(--orange)" />
+                                <circle cx="20" cy="190" r="3" fill="none" stroke="var(--orange)" stroke-width="0.6">
+                                    <animate attributeName="r" from="3" to="7" dur="2s" begin="0.3s" repeatCount="indefinite" />
+                                    <animate attributeName="opacity" from="0.5" to="0" dur="2s" begin="0.3s" repeatCount="indefinite" />
+                                </circle>
+                                <text x="30" y="193" fill="var(--text-primary)" font-size="9" font-family="'Inter', sans-serif">UI Component Review</text>
+                                <rect x="200" y="182" width="52" height="16" rx="4" fill="rgba(212, 165, 116, 0.08)" />
+                                <text x="226" y="193" fill="var(--orange)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">deciding</text>
+                                <rect x="290" y="182" width="32" height="16" rx="4" fill="rgba(255,255,255,0.03)" />
+                                <text x="306" y="193" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">med</text>
+                                <text x="360" y="193" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">Feb 22</text>
+                                <text x="425" y="193" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">M</text>
+                            </g>
+
+                            <!-- Row 5: Design System -->
+                            <line x1="0" y1="204" x2="460" y2="204" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <g>
+                                <circle cx="20" cy="220" r="3" fill="var(--cyan)" />
+                                <text x="30" y="223" fill="var(--text-primary)" font-size="9" font-family="'Inter', sans-serif">Design System Setup</text>
+                                <rect x="200" y="212" width="52" height="16" rx="4" fill="rgba(91, 163, 208, 0.08)" />
+                                <text x="226" y="223" fill="var(--cyan)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">running</text>
+                                <rect x="290" y="212" width="32" height="16" rx="4" fill="rgba(255,255,255,0.03)" />
+                                <text x="306" y="223" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">low</text>
+                                <text x="360" y="223" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">Feb 25</text>
+                                <text x="425" y="223" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">S</text>
+                            </g>
+
+                            <!-- Group header: Integration -->
+                            <g>
+                                <rect x="0" y="238" width="460" height="22" fill="rgba(255,255,255,0.015)" />
+                                <text x="22" y="252" fill="var(--text-tertiary)" font-size="8" font-family="'Inter', sans-serif" font-weight="600">Integration</text>
+                                <text x="100" y="252" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">1 task</text>
+                                <path d="M10,246 L14,250 L18,246" stroke="var(--text-tertiary)" stroke-width="1" fill="none" stroke-linecap="round" opacity="0.4" />
+                            </g>
+
+                            <!-- Row 6: Integration Tests -->
+                            <line x1="0" y1="262" x2="460" y2="262" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <g>
+                                <circle cx="20" cy="278" r="3" fill="var(--text-tertiary)" opacity="0.3" />
+                                <text x="30" y="281" fill="var(--text-secondary)" font-size="9" font-family="'Inter', sans-serif">Integration Test Suite</text>
+                                <rect x="200" y="270" width="42" height="16" rx="4" fill="rgba(255,255,255,0.03)" />
+                                <text x="221" y="281" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">planned</text>
+                                <rect x="290" y="270" width="32" height="16" rx="4" fill="rgba(212, 165, 116, 0.08)" />
+                                <text x="306" y="281" fill="var(--orange)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">high</text>
+                                <text x="360" y="281" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">Feb 28</text>
+                                <text x="425" y="281" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">L</text>
+                            </g>
+                            <line x1="0" y1="292" x2="460" y2="292" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+
+                            <!-- Add task row -->
+                            <g opacity="0.35">
+                                <text x="20" y="315" fill="var(--cyan)" font-size="10" font-family="'Inter', sans-serif">+</text>
+                                <text x="33" y="315" fill="var(--text-tertiary)" font-size="8" font-family="'Inter', sans-serif">添加任务...</text>
+                            </g>
+
+                            <!-- Summary footer -->
+                            <line x1="0" y1="330" x2="460" y2="330" stroke="var(--border-subtle)" stroke-width="0.5" />
+                            <text x="12" y="348" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">6 tasks</text>
+                            <circle cx="75" cy="345" r="2.5" fill="var(--green)" /><text x="82" y="348" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">1 done</text>
+                            <circle cx="130" cy="345" r="2.5" fill="var(--cyan)" /><text x="137" y="348" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">3 running</text>
+                            <circle cx="200" cy="345" r="2.5" fill="var(--orange)" /><text x="207" y="348" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">1 deciding</text>
+                            <circle cx="278" cy="345" r="2.5" fill="var(--text-tertiary)" opacity="0.3" /><text x="285" y="348" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">1 planned</text>
+                        </svg>
+                        </div>
+
+                        <!-- ===== TIMELINE VIEW ===== -->
+                        <div class="plan-view-panel" id="planView-timeline">
+                        <svg viewBox="0 0 460 380" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <!-- Timeline header with week markers -->
+                            <line x1="100" y1="0" x2="100" y2="360" stroke="var(--border-subtle)" stroke-width="0.5" />
+                            <text x="105" y="14" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" opacity="0.5">第1周</text>
+                            <text x="195" y="14" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" opacity="0.5">第2周</text>
+                            <text x="285" y="14" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" opacity="0.5">第3周</text>
+                            <text x="375" y="14" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" opacity="0.5">第4周</text>
+
+                            <!-- Vertical grid lines -->
+                            <line x1="190" y1="22" x2="190" y2="360" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <line x1="280" y1="22" x2="280" y2="360" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+                            <line x1="370" y1="22" x2="370" y2="360" stroke="rgba(255,255,255,0.02)" stroke-width="0.5" />
+
+                            <!-- Today marker -->
+                            <line x1="235" y1="20" x2="235" y2="360" stroke="var(--cyan)" stroke-width="1" opacity="0.15" stroke-dasharray="3 3" />
+                            <rect x="225" y="20" width="20" height="12" rx="3" fill="rgba(91, 163, 208, 0.12)" />
+                            <text x="235" y="29" fill="var(--cyan)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">今天</text>
+
+                            <!-- Row 1: DB Schema (completed) — y=55 -->
+                            <text x="8" y="58" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="400">DB Schema</text>
+                            <circle cx="90" cy="55" r="2.5" fill="var(--green)" />
+                            <rect x="105" y="48" width="110" height="16" rx="4" fill="rgba(110, 192, 122, 0.08)" stroke="rgba(110, 192, 122, 0.15)" stroke-width="0.5" />
+                            <rect x="105" y="48" width="110" height="16" rx="4" fill="rgba(110, 192, 122, 0.12)" />
+                            <text x="145" y="59" fill="var(--green)" font-size="6.5" font-family="'Inter', sans-serif" text-anchor="middle" opacity="0.8">done</text>
+
+                            <!-- Row 2: Backend Services (in progress) — y=105 -->
+                            <text x="8" y="108" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="400">Backend</text>
+                            <circle cx="90" cy="105" r="2.5" fill="var(--cyan)" />
+                            <rect x="130" y="98" width="160" height="16" rx="4" fill="rgba(91, 163, 208, 0.06)" stroke="rgba(91, 163, 208, 0.12)" stroke-width="0.5" />
+                            <rect x="130" y="98" width="80" height="16" rx="4" fill="rgba(91, 163, 208, 0.15)" />
+                            <rect x="130" y="98" height="16" rx="4" fill="rgba(91, 163, 208, 0.1)">
+                                <animate attributeName="width" values="70;100;70" dur="4s" repeatCount="indefinite" />
+                            </rect>
+
+                            <!-- Row 3: Auth Layer (running) — y=155 -->
+                            <text x="8" y="158" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="400">Auth Layer</text>
+                            <circle cx="90" cy="155" r="2.5" fill="var(--cyan)" />
+                            <rect x="165" y="148" width="140" height="16" rx="4" fill="rgba(91, 163, 208, 0.06)" stroke="rgba(91, 163, 208, 0.12)" stroke-width="0.5" />
+                            <rect x="165" y="148" height="16" rx="4" fill="rgba(91, 163, 208, 0.12)">
+                                <animate attributeName="width" values="40;75;40" dur="3.5s" repeatCount="indefinite" />
+                            </rect>
+
+                            <!-- Row 4: UI Review (deciding, orange) — y=205 -->
+                            <text x="8" y="208" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="400">UI Review</text>
+                            <circle cx="90" cy="205" r="2.5" fill="var(--orange)" />
+                            <rect x="145" y="198" width="115" height="16" rx="4" fill="rgba(212, 165, 116, 0.06)" stroke="rgba(212, 165, 116, 0.12)" stroke-width="0.5" />
+                            <rect x="145" y="198" width="55" height="16" rx="4" fill="rgba(212, 165, 116, 0.12)" />
+                            <circle cx="202" cy="206" r="2" fill="var(--orange)" opacity="0.4">
+                                <animate attributeName="opacity" values="0.2;0.7;0.2" dur="2s" repeatCount="indefinite" />
+                            </circle>
+
+                            <!-- Row 5: Design System (running) — y=255 -->
+                            <text x="8" y="258" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="400">Design Sys</text>
+                            <circle cx="90" cy="255" r="2.5" fill="var(--cyan)" />
+                            <rect x="180" y="248" width="100" height="16" rx="4" fill="rgba(91, 163, 208, 0.06)" stroke="rgba(91, 163, 208, 0.12)" stroke-width="0.5" />
+                            <rect x="180" y="248" height="16" rx="4" fill="rgba(91, 163, 208, 0.1)">
+                                <animate attributeName="width" values="30;60;30" dur="3s" repeatCount="indefinite" />
+                            </rect>
+
+                            <!-- Row 6: Integration Tests (planned, dashed) — y=305 -->
+                            <text x="8" y="308" fill="var(--text-tertiary)" font-size="8" font-family="'Inter', sans-serif" font-weight="400" opacity="0.5">Integration</text>
+                            <circle cx="90" cy="305" r="2.5" fill="var(--text-tertiary)" opacity="0.2" />
+                            <rect x="290" y="298" width="120" height="16" rx="4" fill="none" stroke="var(--border-subtle)" stroke-width="0.5" stroke-dasharray="3 2" />
+                            <text x="340" y="309" fill="var(--text-tertiary)" font-size="6.5" font-family="'Inter', sans-serif" text-anchor="middle" opacity="0.3">planned</text>
+
+                            <!-- Dependency arrows -->
+                            <path d="M215,62 L215,72 C215,80 170,90 170,98" stroke="rgba(91, 163, 208, 0.15)" stroke-width="0.8" fill="none" stroke-linecap="round" />
+                            <path d="M305,162 L305,175 C305,200 330,280 330,298" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.8" fill="none" stroke-linecap="round" />
+                            <path d="M260,212 L260,230 C260,270 310,285 315,298" stroke="rgba(212, 165, 116, 0.1)" stroke-width="0.8" fill="none" stroke-linecap="round" />
+
+                            <!-- Zoom level indicator -->
+                            <g opacity="0.4">
+                                <rect x="105" y="335" width="28" height="12" rx="3" fill="rgba(255,255,255,0.02)" />
+                                <text x="119" y="344" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">D</text>
+                                <rect x="135" y="335" width="28" height="12" rx="3" fill="rgba(91, 163, 208, 0.1)" stroke="rgba(91, 163, 208, 0.15)" stroke-width="0.5" />
+                                <text x="149" y="344" fill="var(--cyan)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">W</text>
+                                <rect x="165" y="335" width="28" height="12" rx="3" fill="rgba(255,255,255,0.02)" />
+                                <text x="179" y="344" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">M</text>
+                                <rect x="195" y="335" width="28" height="12" rx="3" fill="rgba(255,255,255,0.02)" />
+                                <text x="209" y="344" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">Q</text>
+                            </g>
+                        </svg>
+                        </div>
+
+                        <!-- ===== BOARD VIEW ===== -->
+                        <div class="plan-view-panel" id="planView-board">
+                        <svg class="mini-dag" viewBox="0 0 460 380" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <!-- Column backgrounds -->
+                            <rect x="0" y="0" width="108" height="380" rx="6" fill="rgba(110, 192, 122, 0.02)" stroke="rgba(110, 192, 122, 0.06)" stroke-width="0.5" />
+                            <rect x="118" y="0" width="108" height="380" rx="6" fill="rgba(91, 163, 208, 0.02)" stroke="rgba(91, 163, 208, 0.06)" stroke-width="0.5" />
+                            <rect x="236" y="0" width="108" height="380" rx="6" fill="rgba(212, 165, 116, 0.02)" stroke="rgba(212, 165, 116, 0.06)" stroke-width="0.5" />
+                            <rect x="354" y="0" width="106" height="380" rx="6" fill="rgba(255, 255, 255, 0.01)" stroke="rgba(255, 255, 255, 0.04)" stroke-width="0.5" />
+
+                            <!-- Column headers -->
+                            <circle cx="14" cy="16" r="3" fill="var(--green)" />
+                            <text x="22" y="19" fill="var(--green)" font-size="7.5" font-family="'JetBrains Mono', monospace" font-weight="600">已完成</text>
+                            <rect x="82" y="9" width="16" height="14" rx="4" fill="rgba(110, 192, 122, 0.1)" />
+                            <text x="90" y="19" fill="var(--green)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">1</text>
+
+                            <circle cx="132" cy="16" r="3" fill="var(--cyan)" />
+                            <text x="140" y="19" fill="var(--cyan)" font-size="7.5" font-family="'JetBrains Mono', monospace" font-weight="600">进行中</text>
+                            <rect x="200" y="9" width="16" height="14" rx="4" fill="rgba(91, 163, 208, 0.1)" />
+                            <text x="208" y="19" fill="var(--cyan)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">3</text>
+
+                            <circle cx="250" cy="16" r="3" fill="var(--orange)" />
+                            <text x="258" y="19" fill="var(--orange)" font-size="7.5" font-family="'JetBrains Mono', monospace" font-weight="600">待决策</text>
+                            <rect x="314" y="9" width="16" height="14" rx="4" fill="rgba(212, 165, 116, 0.1)" />
+                            <text x="322" y="19" fill="var(--orange)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">1</text>
+
+                            <circle cx="368" cy="16" r="3" fill="var(--text-tertiary)" opacity="0.3" />
+                            <text x="376" y="19" fill="var(--text-tertiary)" font-size="7.5" font-family="'JetBrains Mono', monospace" font-weight="600">已计划</text>
+                            <rect x="428" y="9" width="16" height="14" rx="4" fill="rgba(255, 255, 255, 0.04)" />
+                            <text x="436" y="19" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">2</text>
+
+                            <line x1="0" y1="30" x2="460" y2="30" stroke="rgba(255,255,255,0.03)" stroke-width="0.5" />
+
+                            <!-- Completed column - card 1: DB Schema -->
+                            <g>
+                                <rect x="6" y="38" width="96" height="70" rx="6" fill="rgba(110, 192, 122, 0.04)" stroke="rgba(110, 192, 122, 0.1)" stroke-width="0.5" />
+                                <text x="14" y="54" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">DB Schema</text>
+                                <text x="14" y="66" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Migration</text>
+                                <!-- Priority badge -->
+                                <rect x="14" y="74" width="28" height="11" rx="3" fill="rgba(212, 165, 116, 0.08)" />
+                                <text x="28" y="82" fill="var(--orange)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">high</text>
+                                <!-- Estimate -->
+                                <rect x="47" y="74" width="16" height="11" rx="3" fill="rgba(255, 255, 255, 0.03)" />
+                                <text x="55" y="82" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">M</text>
+                                <!-- Checkmark -->
+                                <circle cx="88" y="98" r="5" fill="none" />
+                                <path d="M83 96 L86 99 L93 92" stroke="var(--green)" stroke-width="1" fill="none" stroke-linecap="round" opacity="0.5" />
+                            </g>
+
+                            <!-- In Progress column - card 1: Auth Layer -->
+                            <g>
+                                <rect x="124" y="38" width="96" height="70" rx="6" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" />
+                                <text x="132" y="54" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Auth Layer</text>
+                                <text x="132" y="66" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Implementation</text>
+                                <rect x="132" y="74" width="28" height="11" rx="3" fill="rgba(212, 165, 116, 0.08)" />
+                                <text x="146" y="82" fill="var(--orange)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">high</text>
+                                <rect x="165" y="74" width="16" height="11" rx="3" fill="rgba(255, 255, 255, 0.03)" />
+                                <text x="173" y="82" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">L</text>
+                                <!-- Progress bar -->
+                                <rect x="132" y="94" width="80" height="2" rx="1" fill="rgba(91, 163, 208, 0.08)" />
+                                <rect x="132" y="94" height="2" rx="1" fill="var(--cyan)" opacity="0.5">
+                                    <animate attributeName="width" values="25;50;25" dur="3s" repeatCount="indefinite" />
+                                </rect>
+                            </g>
+
+                            <!-- In Progress column - card 2: Backend Services -->
+                            <g>
+                                <rect x="124" y="116" width="96" height="60" rx="6" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" />
+                                <text x="132" y="132" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Backend</text>
+                                <text x="132" y="144" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Services</text>
+                                <rect x="132" y="152" width="28" height="11" rx="3" fill="rgba(255, 255, 255, 0.03)" />
+                                <text x="146" y="160" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">med</text>
+                                <rect x="132" y="166" width="80" height="2" rx="1" fill="rgba(91, 163, 208, 0.08)" />
+                                <rect x="132" y="166" height="2" rx="1" fill="var(--cyan)" opacity="0.5">
+                                    <animate attributeName="width" values="40;65;40" dur="4s" repeatCount="indefinite" />
+                                </rect>
+                            </g>
+
+                            <!-- In Progress column - card 3: Design System -->
+                            <g>
+                                <rect x="124" y="186" width="96" height="55" rx="6" fill="rgba(91, 163, 208, 0.04)" stroke="rgba(91, 163, 208, 0.1)" stroke-width="0.5" />
+                                <text x="132" y="202" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Design System</text>
+                                <text x="132" y="214" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Setup</text>
+                                <rect x="132" y="222" width="24" height="11" rx="3" fill="rgba(255, 255, 255, 0.03)" />
+                                <text x="144" y="230" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">low</text>
+                            </g>
+
+                            <!-- Deciding column - card 1: UI Review -->
+                            <g>
+                                <rect x="242" y="38" width="96" height="70" rx="6" fill="rgba(212, 165, 116, 0.04)" stroke="rgba(212, 165, 116, 0.12)" stroke-width="0.5" />
+                                <text x="250" y="54" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">UI Component</text>
+                                <text x="250" y="66" fill="var(--text-primary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Review</text>
+                                <rect x="250" y="74" width="28" height="11" rx="3" fill="rgba(255, 255, 255, 0.03)" />
+                                <text x="264" y="82" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">med</text>
+                                <rect x="283" y="74" width="16" height="11" rx="3" fill="rgba(255, 255, 255, 0.03)" />
+                                <text x="291" y="82" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">M</text>
+                                <!-- Decision icon (pulsing) -->
+                                <circle cx="325" cy="96" r="4" fill="rgba(212, 165, 116, 0.12)">
+                                    <animate attributeName="r" values="4;7;4" dur="2s" repeatCount="indefinite" />
+                                    <animate attributeName="opacity" values="0.3;0;0.3" dur="2s" repeatCount="indefinite" />
+                                </circle>
+                                <text x="323" y="99" fill="var(--orange)" font-size="7" font-family="'Inter', sans-serif" text-anchor="middle">?</text>
+                            </g>
+
+                            <!-- Planned column - card 1: API Routes -->
+                            <g>
+                                <rect x="360" y="38" width="94" height="55" rx="6" fill="rgba(255, 255, 255, 0.015)" stroke="var(--border-subtle)" stroke-width="0.5" stroke-dasharray="3 2" />
+                                <text x="368" y="54" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">API Route</text>
+                                <text x="368" y="66" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Handlers</text>
+                                <rect x="368" y="74" width="28" height="11" rx="3" fill="rgba(255, 255, 255, 0.03)" />
+                                <text x="382" y="82" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">med</text>
+                            </g>
+
+                            <!-- Planned column - card 2: Integration Tests -->
+                            <g>
+                                <rect x="360" y="101" width="94" height="60" rx="6" fill="rgba(255, 255, 255, 0.015)" stroke="var(--border-subtle)" stroke-width="0.5" stroke-dasharray="3 2" />
+                                <text x="368" y="117" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Integration</text>
+                                <text x="368" y="129" fill="var(--text-secondary)" font-size="8" font-family="'Inter', sans-serif" font-weight="500">Test Suite</text>
+                                <rect x="368" y="137" width="28" height="11" rx="3" fill="rgba(212, 165, 116, 0.08)" />
+                                <text x="382" y="145" fill="var(--orange)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">high</text>
+                                <rect x="401" y="137" width="16" height="11" rx="3" fill="rgba(255, 255, 255, 0.03)" />
+                                <text x="409" y="145" fill="var(--text-tertiary)" font-size="6" font-family="'JetBrains Mono', monospace" text-anchor="middle">L</text>
+                            </g>
+
+                            <!-- Drag hint (subtle) -->
+                            <g opacity="0.2">
+                                <text x="168" y="270" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace" text-anchor="middle">drag cards between columns</text>
+                                <!-- Arrow left-right -->
+                                <path d="M138,276 L125,276 M133,272 L125,276 L133,280" stroke="var(--text-tertiary)" stroke-width="0.7" fill="none" stroke-linecap="round" />
+                                <path d="M198,276 L211,276 M203,272 L211,276 L203,280" stroke="var(--text-tertiary)" stroke-width="0.7" fill="none" stroke-linecap="round" />
+                            </g>
+                        </svg>
+                        </div>
+                        </div><!-- /plan-view-container -->
+                    </div>
+                </div>
+
+                <!-- EXECUTE -->
+                <div class="bento-card bento-execute stagger-child" style="transition-delay: 0.2s">
+                    <div class="bento-icon" style="background: rgba(212, 165, 116, 0.08);">
+                        <svg viewBox="0 0 20 20" fill="none" stroke="var(--orange)" stroke-width="1.5" stroke-linecap="round">
+                            <path d="M4 16V4h3l2 3h7v9z" /><line x1="8" y1="10" x2="14" y2="10" /><line x1="8" y1="13" x2="12" y2="13" />
+                        </svg>
+                    </div>
+                    <div class="bento-number">02</div>
+                    <h3 class="bento-title">随处执行</h3>
+                    <p class="bento-text">
+                        跨本地、HPC 集群和云端同时发起任务。独立工作树运行，结果以 PR 形式交付。
+                    </p>
+                    <div class="bento-visual">
+                        <!-- Mini worktree branch visualization -->
+                        <svg viewBox="0 0 280 60" fill="none" xmlns="http://www.w3.org/2000/svg" width="100%" style="margin-bottom: 0.75rem;">
+                            <line x1="20" y1="30" x2="260" y2="30" stroke="var(--orange)" stroke-width="2" stroke-linecap="round" opacity="0.3" />
+                            <path d="M80 30 C80 30, 80 12, 110 12 L200 12" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" opacity="0.3" />
+                            <path d="M160 30 C160 30, 160 48, 190 48 L240 48" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" opacity="0.3" />
+                            <circle cx="20" cy="30" r="3.5" fill="var(--orange)" /><circle cx="80" cy="30" r="3.5" fill="var(--orange)" /><circle cx="160" cy="30" r="3.5" fill="var(--orange)" /><circle cx="220" cy="30" r="3.5" fill="var(--orange)" /><circle cx="260" cy="30" r="3.5" fill="var(--orange)" />
+                            <circle cx="140" cy="12" r="3" fill="var(--green)" /><circle cx="175" cy="12" r="3" fill="var(--green)" />
+                            <circle cx="215" cy="48" r="3" fill="var(--cyan)" /><circle cx="240" cy="48" r="3" fill="var(--cyan)" />
+                            <circle cx="175" cy="12" r="3" fill="none" stroke="var(--green)" stroke-width="0.8"><animate attributeName="r" from="3" to="9" dur="2s" repeatCount="indefinite" /><animate attributeName="opacity" from="0.5" to="0" dur="2s" repeatCount="indefinite" /></circle>
+                            <text x="20" y="46" fill="var(--text-tertiary)" font-size="7" font-family="'JetBrains Mono', monospace">main</text>
+                            <text x="130" y="8" fill="var(--green)" font-size="6.5" font-family="'JetBrains Mono', monospace">task-3</text>
+                            <text x="205" y="44" fill="var(--cyan)" font-size="6.5" font-family="'JetBrains Mono', monospace">task-4</text>
+                        </svg>
+                        <div class="mini-terminal">
+                            <div class="term-line"><span class="term-prompt">$</span><span class="term-cmd">astro dispatch task-3</span></div>
+                            <div class="term-line"><span class="term-info">检测中...</span> <span class="term-output">git 仓库，github 远程</span></div>
+                            <div class="term-line"><span class="term-info">工作树</span> <span class="term-output">astro/task-3 已创建</span></div>
+                            <div class="term-line"><span class="term-info">提供方</span> <span class="term-output">claude-code</span></div>
+                            <div class="term-line"><span class="term-info">运行中</span> <span class="term-output">共 48 次工具调用...</span></div>
+                            <div class="term-line"><span class="term-success">PR #142</span> <span class="term-output">已就绪，等待审查</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- DECIDE -->
+                <div class="bento-card bento-approve stagger-child" style="transition-delay: 0.3s">
+                    <div class="bento-icon" style="background: rgba(110, 192, 122, 0.08);">
+                        <svg viewBox="0 0 20 20" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M16 7l-6 6-3-3" /><circle cx="10" cy="10" r="8" />
+                        </svg>
+                    </div>
+                    <div class="bento-number">03</div>
+                    <h3 class="bento-title">随时决策</h3>
+                    <p class="bento-text">
+                        在任意设备上做出战略决策。无需打开终端，即可批准、调整或剪除任务分支。
+                    </p>
+                    <div class="bento-visual">
+                        <div class="mini-approval">
+                            <div class="mini-approval-header">
+                                <div class="mini-approval-dot"></div>
+                                <div class="mini-approval-label">待决策</div>
+                            </div>
+                            <div class="mini-approval-question">
+                                "OAuth 会增加依赖，但更安全。请选择：OAuth 还是 Session Token？"
+                            </div>
+                            <div class="mini-approval-buttons">
+                                <div class="mini-approval-btn approve">OAuth</div>
+                                <div class="mini-approval-btn reject">Session 令牌</div>
+                            </div>
+                            <div class="mini-approval-stats">
+                                <div class="mini-stat">
+                                    <div class="mini-stat-value">7</div>
+                                    <div class="mini-stat-label">活跃任务</div>
+                                </div>
+                                <div class="mini-stat">
+                                    <div class="mini-stat-value">2</div>
+                                    <div class="mini-stat-label">待决策</div>
+                                </div>
+                                <div class="mini-stat">
+                                    <div class="mini-stat-value">$1.24</div>
+                                    <div class="mini-stat-label">成本</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== A WORKFLOW FOR EVERYONE ==================== -->
+        <section class="personas-section fade-section section-divider">
+            <div class="section-header">
+                <div class="section-label">能力展示</div>
+                <h2 class="section-title">一个平台，覆盖所有工作流。</h2>
+                <p class="section-description">
+                    相同的入口，不同的旅程。描述你的目标，指定一个目录，摘星自动适配你的工作流。
+                </p>
+            </div>
+
+            <!-- Top row: 3 cards -->
+            <div class="persona-grid">
+                <div class="persona-card stagger-child" data-color="cyan" style="transition-delay: 0.1s">
+                    <div class="persona-header">
+                        <div class="persona-avatar" style="background: rgba(91, 163, 208, 0.06); border: 1px solid rgba(91, 163, 208, 0.1);">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="persona-label" style="color: var(--cyan);">开发者</div>
+                            <div class="persona-name">基于 PR 的开发流程</div>
+                        </div>
+                    </div>
+                    <ol class="persona-steps">
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(91, 163, 208, 0.08); color: var(--cyan);">1</span><span class="persona-step-text">指向一个带有 GitHub 远程仓库的 Git 项目</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(91, 163, 208, 0.08); color: var(--cyan);">2</span><span class="persona-step-text">AI 生成含任务依赖关系的规划</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(91, 163, 208, 0.08); color: var(--cyan);">3</span><span class="persona-step-text">每个任务在独立工作树中运行，自动创建 PR</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(91, 163, 208, 0.08); color: var(--cyan);">4</span><span class="persona-step-text">从 GitHub 审查并合并 PR</span></li>
+                    </ol>
+                </div>
+
+                <div class="persona-card stagger-child" data-color="orange" style="transition-delay: 0.2s">
+                    <div class="persona-header">
+                        <div class="persona-avatar" style="background: rgba(212, 165, 116, 0.06); border: 1px solid rgba(212, 165, 116, 0.1);">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="var(--orange)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M10 2v8l-2 2" /><path d="M14 2v8l2 2" /><path d="M6 14a6 6 0 0012 0" /><path d="M12 14v8" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="persona-label" style="color: var(--orange);">科研人员</div>
+                            <div class="persona-name">数据分析流水线</div>
+                        </div>
+                    </div>
+                    <ol class="persona-steps">
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(212, 165, 116, 0.08); color: var(--orange);">1</span><span class="persona-step-text">指向脚本与数据目录</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(212, 165, 116, 0.08); color: var(--orange);">2</span><span class="persona-step-text">分发到 HPC 集群或云端 GPU</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(212, 165, 116, 0.08); color: var(--orange);">3</span><span class="persona-step-text">多条分析路径并行运行</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(212, 165, 116, 0.08); color: var(--orange);">4</span><span class="persona-step-text">查看输出，对比不同方案</span></li>
+                    </ol>
+                </div>
+
+                <div class="persona-card stagger-child" data-color="green" style="transition-delay: 0.3s">
+                    <div class="persona-header">
+                        <div class="persona-avatar" style="background: rgba(110, 192, 122, 0.06); border: 1px solid rgba(110, 192, 122, 0.1);">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="9" y1="21" x2="9" y2="9" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="persona-label" style="color: var(--green);">知识工作者</div>
+                            <div class="persona-name">结构化规划</div>
+                        </div>
+                    </div>
+                    <ol class="persona-steps">
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(110, 192, 122, 0.08); color: var(--green);">1</span><span class="persona-step-text">用自然语言描述复杂目标</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(110, 192, 122, 0.08); color: var(--green);">2</span><span class="persona-step-text">AI 将其分解为依赖关系图</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(110, 192, 122, 0.08); color: var(--green);">3</span><span class="persona-step-text">设定里程碑，追踪进度</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(110, 192, 122, 0.08); color: var(--green);">4</span><span class="persona-step-text">通过任务分配协调团队</span></li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- Bottom row: 2 cards centered -->
+            <div class="persona-grid-bottom">
+                <div class="persona-card stagger-child" data-color="purple" style="transition-delay: 0.4s">
+                    <div class="persona-header">
+                        <div class="persona-avatar" style="background: rgba(167, 139, 250, 0.06); border: 1px solid rgba(167, 139, 250, 0.1);">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="persona-label" style="color: var(--purple);">AI 重度用户</div>
+                            <div class="persona-name">多智能体编排</div>
+                        </div>
+                    </div>
+                    <ol class="persona-steps">
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(167, 139, 250, 0.08); color: var(--purple);">1</span><span class="persona-step-text">跨多个提供方配置多个智能体</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(167, 139, 250, 0.08); color: var(--purple);">2</span><span class="persona-step-text">将任务分发给合适的智能体与机器</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(167, 139, 250, 0.08); color: var(--purple);">3</span><span class="persona-step-text">从统一看板监控所有智能体</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(167, 139, 250, 0.08); color: var(--purple);">4</span><span class="persona-step-text">实时干预和调整决策</span></li>
+                    </ol>
+                </div>
+
+                <div class="persona-card stagger-child" data-color="rose" style="transition-delay: 0.5s">
+                    <div class="persona-header">
+                        <div class="persona-avatar" style="background: rgba(244, 114, 182, 0.06); border: 1px solid rgba(244, 114, 182, 0.1);">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="var(--rose)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="3" /><path d="M12 1v2" /><path d="M12 21v2" /><path d="M4.22 4.22l1.42 1.42" /><path d="M18.36 18.36l1.42 1.42" /><path d="M1 12h2" /><path d="M21 12h2" /><path d="M4.22 19.78l1.42-1.42" /><path d="M18.36 5.64l1.42-1.42" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="persona-label" style="color: var(--rose);">智能体本身</div>
+                            <div class="persona-name">自组织 AI 智能体</div>
+                        </div>
+                    </div>
+                    <ol class="persona-steps">
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">1</span><span class="persona-step-text">通过 CLI 工具查询和更新规划</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">2</span><span class="persona-step-text">创建子任务与新的依赖关系</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">3</span><span class="persona-step-text">通过关系图与其他智能体协调</span></li>
+                        <li class="persona-step"><span class="persona-step-num" style="background: rgba(244, 114, 182, 0.08); color: var(--rose);">4</span><span class="persona-step-text">仅在真正关键时刻寻求人类判断</span></li>
+                    </ol>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== ENVIRONMENTS ==================== -->
+        <section class="environments-section fade-section section-divider">
+            <div class="section-header">
+                <div class="section-label">运行环境</div>
+                <h2 class="section-title">随处运行</h2>
+                <p class="section-description">
+                    任务自动分发到正确的环境。注册一次机器，永久分发。
+                </p>
+            </div>
+
+            <div class="env-cards-grid">
+                <div class="env-card stagger-child" style="transition-delay: 0.1s">
+                    <div class="env-card-icon" style="background: rgba(91, 163, 208, 0.06); border: 1px solid rgba(91, 163, 208, 0.1);">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
+                        </svg>
+                    </div>
+                    <h3 class="env-card-title">本地机器</h3>
+                    <p class="env-card-text">你的笔记本或工作站。无需配置。智能体与你并行运行，拥有完整文件访问权限。</p>
+                    <div class="env-card-stat">已分发任务：<span class="counter" data-target="1247">0</span></div>
+                </div>
+                <div class="env-card stagger-child" style="transition-delay: 0.2s">
+                    <div class="env-card-icon" style="background: rgba(212, 165, 116, 0.06); border: 1px solid rgba(212, 165, 116, 0.1);">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--orange)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="2" width="20" height="8" rx="2" /><rect x="2" y="14" width="20" height="8" rx="2" />
+                            <circle cx="6" cy="6" r="1" fill="var(--orange)" /><circle cx="6" cy="18" r="1" fill="var(--orange)" />
+                        </svg>
+                    </div>
+                    <h3 class="env-card-title">HPC / SLURM</h3>
+                    <p class="env-card-text">提交到计算集群。自动生成 SBATCH 脚本。实时监控作业状态。</p>
+                    <div class="env-card-stat">已提交作业：<span class="counter" data-target="384">0</span></div>
+                </div>
+                <div class="env-card stagger-child" style="transition-delay: 0.3s">
+                    <div class="env-card-icon" style="background: rgba(110, 192, 122, 0.06); border: 1px solid rgba(110, 192, 122, 0.1);">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z" />
+                        </svg>
+                    </div>
+                    <h3 class="env-card-title">云端</h3>
+                    <p class="env-card-text"><strong>Kubernetes</strong>、AWS、GCP 或任意云虚拟机。通过设备授权流程注册一次，远程分发任务。</p>
+                    <div class="env-card-stat">实例数量：<span class="counter" data-target="56">0</span></div>
+                </div>
+                <div class="env-card stagger-child" style="transition-delay: 0.4s">
+                    <div class="env-card-icon" style="background: rgba(167, 139, 250, 0.06); border: 1px solid rgba(167, 139, 250, 0.1);">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
+                        </svg>
+                    </div>
+                    <h3 class="env-card-title">Terminal</h3>
+                    <p class="env-card-text">CLI and TUI apps for your terminal. Plan, dispatch, and monitor without leaving the command line.</p>
+                    <div class="env-card-stat">Interfaces: <span class="counter" data-target="2">0</span></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== SAFETY & PRIVACY ==================== -->
+        <section class="safety-section fade-section section-divider">
+            <div class="section-header">
+                <div class="section-label">Safety &amp; Privacy</div>
+                <h2 class="section-title">Your machines, your keys, your control</h2>
+                <p class="section-description">
+                    Security isn't an afterthought. Every layer of Astro is designed to keep you in control of what runs on your machines.
+                </p>
+            </div>
+
+            <div class="safety-grid">
+                <div class="safety-card stagger-child" style="transition-delay: 0s">
+                    <div class="safety-card-icon" style="background: rgba(212, 165, 116, 0.06); border: 1px solid rgba(212, 165, 116, 0.1);">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--orange)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                        </svg>
+                    </div>
+                    <h3 class="safety-card-title">Your compute, your keys</h3>
+                    <p class="safety-card-text">Agent runners execute on your machines with your API keys. The Astro server never calls AI models directly and never sees your API keys.</p>
+                </div>
+
+                <div class="safety-card stagger-child" style="transition-delay: 0.15s">
+                    <div class="safety-card-icon" style="background: rgba(91, 163, 208, 0.06); border: 1px solid rgba(91, 163, 208, 0.1);">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                            <polyline points="9 12 11 14 15 10" />
+                        </svg>
+                    </div>
+                    <h3 class="safety-card-title">Signed dispatches</h3>
+                    <p class="safety-card-text">Every task dispatch is cryptographically signed by your browser. Your agent runner verifies the signature before executing, so no one can forge tasks on your machines.</p>
+                </div>
+
+                <div class="safety-card stagger-child" style="transition-delay: 0.3s">
+                    <div class="safety-card-icon" style="background: rgba(110, 192, 122, 0.06); border: 1px solid rgba(110, 192, 122, 0.1);">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /><line x1="14" y1="4" x2="10" y2="20" />
+                        </svg>
+                    </div>
+                    <h3 class="safety-card-title">Open source &amp; auditable</h3>
+                    <p class="safety-card-text">The relay protocol, agent runner, and signing implementation are open source. You can inspect exactly what runs on your machine.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== GET ACCESS ==================== -->
+        <section id="get-started" class="get-started-section fade-section section-divider">
+            <div class="section-header">
+                <div class="section-label">Launch Sequence</div>
+            </div>
+
+            <div class="access-grid">
+                <div class="access-card">
+                    <div class="access-card-num">01</div>
+                    <div class="access-card-title">Start planning in Mission Control</div>
+                    <div class="access-card-desc">Create projects, decompose goals into plans, and monitor your agents from anywhere.</div>
+                    <a href="/login" class="cta-button" style="text-decoration: none;">
+                        <span>Open Mission Control</span>
+                        <span class="arrow">&rarr;</span>
+                    </a>
+                </div>
+                <div class="access-card">
+                    <div class="access-card-num">02</div>
+                    <div class="access-card-title">Connect all your machines</div>
+                    <div class="access-card-desc">One command discovers your SSH hosts, authenticates via your browser, creates your account, and starts agents everywhere.</div>
+                    <div class="install-command" onclick="navigator.clipboard.writeText('npx @astroanywhere/agent@latest launch');this.querySelector('.install-copy').textContent='Copied!'">
+                        <span><span class="prompt">$</span> <span class="cmd">npx @astroanywhere/agent</span> <span class="flag">launch</span></span>
+                        <span class="install-copy">Copy</span>
+                    </div>
+                    <p class="install-hint">Requires Node.js 18+. No global install.</p>
+                </div>
+            </div>
+
+            <div style="text-align: center; margin-top: 3rem; margin-bottom: 0.5rem; font-size: 0.75rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace;">The launch includes</div>
+
+            <div class="install-steps">
+                <div class="install-step">
+                    <span class="install-step-num">01</span>
+                    <div class="install-step-content">
+                        <div class="install-step-title">Detects your AI providers</div>
+                        <div class="install-step-desc">Finds Claude SDK, Claude Code, or Codex on your machine automatically.</div>
+                    </div>
+                </div>
+                <div class="install-step">
+                    <span class="install-step-num">02</span>
+                    <div class="install-step-content">
+                        <div class="install-step-title">Discovers your SSH hosts</div>
+                        <div class="install-step-desc">Reads <code>~/.ssh/config</code> and offers to register remote machines (servers, HPC login nodes, cloud VMs).</div>
+                    </div>
+                </div>
+                <div class="install-step">
+                    <span class="install-step-num">03</span>
+                    <div class="install-step-content">
+                        <div class="install-step-title">Authenticates and creates your account</div>
+                        <div class="install-step-desc">Opens your browser directly. Approve the device code to sign in or create your Astro account in one step.</div>
+                    </div>
+                </div>
+                <div class="install-step">
+                    <span class="install-step-num">04</span>
+                    <div class="install-step-content">
+                        <div class="install-step-title">Connects and listens</div>
+                        <div class="install-step-desc">Joins the relay network. Tasks dispatched from the Astro UI land on your machine in seconds.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="install-demo">
+                <div class="install-demo-bar">
+                    <div class="install-demo-dot"></div>
+                    <div class="install-demo-dot"></div>
+                    <div class="install-demo-dot"></div>
+                    <span class="install-demo-title">Terminal</span>
+                </div>
+                <div class="install-demo-body">
+                    <div class="term-line"><span class="term-prompt">$</span> <span class="term-cmd">npx @astroanywhere/agent@latest launch</span></div>
+                    <div class="term-blank"></div>
+                    <div class="term-line"><span class="term-info">providers</span> <span class="term-output">claude-sdk, claude-code</span></div>
+                    <div class="term-line"><span class="term-info">ssh hosts</span> <span class="term-output">found 3: lab-gpu, hpc-login, aws-dev</span></div>
+                    <div class="term-blank"></div>
+                    <div class="term-line"><span class="term-dim">  To authenticate, open:</span></div>
+                    <div class="term-line"><span class="term-link">  https://astroanywhere.com/device?code=ABCD-1234</span></div>
+                    <div class="term-blank"></div>
+                    <div class="term-line"><span class="term-success">  &#10003;</span> <span class="term-output">Authenticated as you@example.com</span></div>
+                    <div class="term-line"><span class="term-success">  &#10003;</span> <span class="term-output">Machine "my_laptop" registered</span></div>
+                    <div class="term-line"><span class="term-success">  &#10003;</span> <span class="term-output">3 remote hosts queued for setup</span></div>
+                    <div class="term-line"><span class="term-success">  &#10003;</span> <span class="term-output">Connected to relay</span></div>
+                    <div class="term-blank"></div>
+                    <div class="term-line"><span class="term-info">  Ready.</span> <span class="term-dim">Listening for tasks...</span></div>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- ==================== FOOTER CTA ==================== -->
+        <section class="footer-cta fade-section section-divider">
+            <div class="footer-cta-inner">
+                <h2 class="footer-title">Ready to launch?</h2>
+                <p class="footer-subtitle">Register your machine in 30 seconds</p>
+                <div class="install-command" style="max-width: 480px; margin: 0 auto; font-size: 1rem;" onclick="navigator.clipboard.writeText('npx @astroanywhere/agent@latest launch');this.querySelector('.install-copy').textContent='Copied!'">
+                    <span><span class="prompt">$</span> <span class="cmd">npx @astroanywhere/agent</span> <span class="flag">launch</span></span>
+                    <span class="install-copy">Copy</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer-bottom">
+            <p><a href="/landing/about" style="color: var(--text-tertiary); text-decoration: none; border-bottom: 1px solid rgba(255,255,255,0.1); transition: color 0.2s;">About</a> &nbsp;&middot;&nbsp; &copy; 2026 Astro</p>
+        </footer>
+    </div>
+
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+    (function() {
+        var canvas = document.getElementById('scene-canvas');
+        var scene = new THREE.Scene();
+        var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        var renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
+
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        camera.position.z = 5;
+
+        var isMobile = window.innerWidth < 768;
+
+        // Star field
+        var starsGeometry = new THREE.BufferGeometry();
+        var starCount = isMobile ? 400 : 800;
+        var positions = new Float32Array(starCount * 3);
+
+        for (var i = 0; i < starCount * 3; i += 3) {
+            positions[i] = (Math.random() - 0.5) * 100;
+            positions[i + 1] = (Math.random() - 0.5) * 100;
+            positions[i + 2] = (Math.random() - 0.5) * 100;
+        }
+
+        starsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        var starsMaterial = new THREE.PointsMaterial({
+            size: 0.03,
+            color: 0xf0f0f0,
+            transparent: true,
+            opacity: 0.5
+        });
+        var stars = new THREE.Points(starsGeometry, starsMaterial);
+        scene.add(stars);
+
+        // Flowing Bezier curves
+        var curves = [];
+        var curveMaterial = new THREE.LineBasicMaterial({
+            color: 0xf0f0f0,
+            transparent: true,
+            opacity: 0.12,
+            linewidth: 1
+        });
+
+        for (var c = 0; c < 5; c++) {
+            var angle = (c / 5) * Math.PI * 2;
+            var radius = 6 + c * 0.5;
+            var curve = new THREE.CubicBezierCurve3(
+                new THREE.Vector3(Math.cos(angle) * radius, Math.sin(angle) * radius, -2),
+                new THREE.Vector3(Math.cos(angle + 1) * (radius + 2), Math.sin(angle + 1) * (radius - 1), 0),
+                new THREE.Vector3(Math.cos(angle + 2) * (radius - 1), Math.sin(angle + 2) * (radius + 2), 1),
+                new THREE.Vector3(Math.cos(angle + 3) * radius, Math.sin(angle + 3) * radius, 2)
+            );
+            var points = curve.getPoints(100);
+            var lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
+            var line = new THREE.Line(lineGeometry, curveMaterial);
+            curves.push({ line: line, speed: 0.0001 + c * 0.00005 });
+            scene.add(line);
+        }
+
+        // Accent points
+        var accentGeometry = new THREE.SphereGeometry(0.02, 16, 16);
+        var accents = [];
+
+        for (var a = 0; a < 8; a++) {
+            var accentMat = new THREE.MeshBasicMaterial({ color: 0xd4a574, transparent: true, opacity: 0.3 });
+            var accent = new THREE.Mesh(accentGeometry, accentMat);
+            var aAngle = (a / 8) * Math.PI * 2;
+            var aRadius = 5 + (a % 3) * 2;
+            accent.position.set(Math.cos(aAngle) * aRadius, Math.sin(aAngle) * aRadius, (a % 3) - 1);
+            accents.push(accent);
+            scene.add(accent);
+        }
+
+        for (var b = 0; b < 5; b++) {
+            var cyanMat = new THREE.MeshBasicMaterial({ color: 0x5ba3d0, transparent: true, opacity: 0.2 });
+            var cyanAccent = new THREE.Mesh(accentGeometry, cyanMat);
+            var bAngle = (b / 5) * Math.PI * 2 + 0.5;
+            var bRadius = 4 + (b % 2) * 3;
+            cyanAccent.position.set(Math.cos(bAngle) * bRadius, Math.sin(bAngle) * bRadius, (b % 3) - 1.5);
+            accents.push(cyanAccent);
+            scene.add(cyanAccent);
+        }
+
+        // Mouse interaction
+        var mouseX = 0, mouseY = 0, targetX = 0, targetY = 0;
+
+        if (!isMobile) {
+            document.addEventListener('mousemove', function(e) {
+                mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+                mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
+            });
+        }
+
+        // Scroll parallax
+        window.addEventListener('scroll', function() {
+            stars.rotation.z = window.pageYOffset * 0.0001;
+        });
+
+        // Resize
+        window.addEventListener('resize', function() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Animate
+        function animate() {
+            requestAnimationFrame(animate);
+
+            targetX += (mouseX - targetX) * 0.05;
+            targetY += (mouseY - targetY) * 0.05;
+
+            stars.rotation.y += 0.00005;
+
+            for (var i = 0; i < curves.length; i++) {
+                curves[i].line.rotation.z += curves[i].speed;
+            }
+
+            for (var j = 0; j < accents.length; j++) {
+                accents[j].material.opacity = 0.15 + Math.sin(Date.now() * 0.001 + j * 0.8) * 0.12;
+            }
+
+            if (!isMobile) {
+                camera.position.x = targetX * 0.5;
+                camera.position.y = targetY * 0.5;
+                camera.lookAt(scene.position);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    })();
+    </script>
+
+    <!-- Scroll animations + counter animations -->
+    <script>
+    (function() {
+        // Nav show on scroll
+        var nav = document.querySelector('nav');
+        window.addEventListener('scroll', function() {
+            if (window.pageYOffset > 100) {
+                nav.classList.add('scrolled');
+            } else {
+                nav.classList.remove('scrolled');
+            }
+        });
+
+        // IntersectionObserver for fade-in sections with stagger
+        var sections = document.querySelectorAll('.fade-section');
+        var sectionObserver = new IntersectionObserver(function(entries) {
+            entries.forEach(function(entry) {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+        sections.forEach(function(s) { sectionObserver.observe(s); });
+
+        // Counter animation
+        function animateCounter(el) {
+            var target = parseInt(el.getAttribute('data-target'), 10);
+            var suffix = el.getAttribute('data-suffix') || '';
+            var duration = 1500;
+            var start = 0;
+            var startTime = null;
+
+            function step(timestamp) {
+                if (!startTime) startTime = timestamp;
+                var progress = Math.min((timestamp - startTime) / duration, 1);
+                var eased = 1 - Math.pow(1 - progress, 3); // easeOutCubic
+                var current = Math.floor(eased * target);
+                el.textContent = current.toLocaleString() + suffix;
+                if (progress < 1) {
+                    requestAnimationFrame(step);
+                } else {
+                    el.textContent = target.toLocaleString() + suffix;
+                }
+            }
+
+            requestAnimationFrame(step);
+        }
+
+        // Observe counters
+        var counters = document.querySelectorAll('.counter');
+        var counterObserver = new IntersectionObserver(function(entries) {
+            entries.forEach(function(entry) {
+                if (entry.isIntersecting && !entry.target.dataset.animated) {
+                    entry.target.dataset.animated = 'true';
+                    animateCounter(entry.target);
+                }
+            });
+        }, { threshold: 0.5 });
+
+        counters.forEach(function(c) { counterObserver.observe(c); });
+
+        // Generic view tab switching function
+        function setupViewSwitcher(toggleId, panelPrefix, urlBar) {
+            var toggle = document.getElementById(toggleId);
+            if (!toggle) return;
+            var tabs = toggle.querySelectorAll('[data-view]');
+            var viewMap = { graph: 'graph', list: 'list', timeline: 'timeline', board: 'board' };
+            tabs.forEach(function(tab) {
+                tab.addEventListener('click', function() {
+                    var view = this.getAttribute('data-view');
+                    // Update active tab
+                    tabs.forEach(function(t) { t.classList.remove('active'); });
+                    this.classList.add('active');
+                    // Update active panel
+                    var panels = document.querySelectorAll('[id^="' + panelPrefix + '"]');
+                    panels.forEach(function(p) { p.classList.remove('active'); });
+                    var target = document.getElementById(panelPrefix + view);
+                    if (target) {
+                        target.classList.add('active');
+                        target.style.animation = 'none';
+                        target.offsetHeight;
+                        target.style.animation = '';
+                    }
+                    // Update URL bar if provided
+                    if (urlBar) {
+                        urlBar.textContent = 'astro.app/project/redesign/' + (viewMap[view] || view);
+                    }
+                });
+            });
+        }
+
+        // Showcase (top mock app) view switching
+        setupViewSwitcher('showcaseViewTabs', 'showcaseView-', document.querySelector('.showcase-url'));
+        // Bento plan card view switching
+        setupViewSwitcher('planViewToggle', 'planView-', null);
+    })();
+    </script>
+</body>
+</html>

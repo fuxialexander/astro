@@ -22,7 +22,7 @@
 2. **Multiple login methods, all equal.** Passkeys, magic link, Google, GitHub. All grant full access. Users choose based on convenience; the system links them to one identity by email.
 3. **Agents are welcome.** Astro is a coordination layer — the backend never calls AI directly. Agents bring their own compute (Claude API keys + machines via the relay). There is no server-side cost to protect, so agents (e.g., OpenClaw) can self-register and use the platform freely. They are a distribution channel: agent discovers Astro → human owner sees value → becomes a user → invites team.
 4. **Passkey is optional, not required.** Passkey provides phishing-resistant login and faster sign-in (biometric), but it is never mandatory. Users can register and operate entirely via magic link or OAuth.
-5. **Teams are first-class.** Every user belongs to at least one team (their personal workspace). All data is team-scoped. Team switching is explicit in the UI.
+5. **Teams are first-class.** Every user belongs to at least one team (their personal workspace). Ownership remains team-scoped, but users may view data across every team they belong to. Team switching sets the default context for creating or sharing team-owned resources.
 
 ---
 
@@ -439,14 +439,14 @@ Personal workspace auto-created
 
 ### 8.4 Team-Scoped Data
 
-All data is scoped to teams. When a user switches teams, they see different:
-- Projects
-- Plans and tasks
-- Execution history
-- Registered machines (machines can be shared within a team)
-- Usage metrics
+Ownership is scoped to teams, but normal read views may aggregate across all teams the user belongs to.
 
-The current schema already has `team_id` on `projects`, `initiatives`, and `registered_machines`. This is sufficient for team-scoped data isolation.
+- Projects, plans, and execution history may be shown cross-team
+- Team-owned writes still require an explicit team context
+- Registered machines can be shared within a specific team
+- Membership, invites, billing, and other admin actions remain team-scoped
+
+The current schema already has `team_id` on `projects`, `initiatives`, and `registered_machines`. This is sufficient for team ownership. The active team in the UI is a filter/default context, not the sole backend read boundary.
 
 ### 8.5 Personal Workspace
 
@@ -571,8 +571,9 @@ The sidebar currently shows the user's avatar and name. Add a team switcher belo
 
 Selecting a team:
 1. Updates `activeTeamId` in a new `team-context-store`
-2. All data-fetching stores re-fetch with the new team scope
-3. URL doesn't change (team context is global, not in the URL)
+2. Re-fetches team-owned views that depend on an explicit team context (for example machine sharing, invites, settings forms)
+3. Sets the default team for new projects, initiatives, and other team-owned writes
+4. URL doesn't change (team context is global, not in the URL)
 
 ### 10.2 Settings → Teams Tab (Enhanced)
 
@@ -826,7 +827,7 @@ interface TeamContextState {
 }
 ```
 
-All data-fetching stores read `activeTeamId` and pass it as a filter parameter to backend APIs.
+`activeTeamId` is the default team context for team-owned writes, team settings, and UI filters. Cross-team project/task reads do not rely on it as an access boundary.
 
 ### 13.4 Invite Acceptance Page
 
@@ -958,7 +959,7 @@ DataLoader (src/app.tsx):
 |---------|-------------|------------|
 | Authentication | Passkeys (optional) + magic link + Google/GitHub OAuth | None |
 | User identity | Supabase `auth.users.id` | Fixed `LOCAL_USER_ID` constant |
-| Team scoping | `X-Team-Id` header on all API calls | Fixed `LOCAL_TEAM_ID` constant |
+| Team scoping | `X-Team-Id` header on team-context-sensitive API calls | Fixed `LOCAL_TEAM_ID` constant |
 | Session management | Supabase JWT + refresh tokens | No sessions |
 | Data isolation | RLS policies per user/team | Single user, no isolation |
 | Store reset on user change | Required (see §18.3) | N/A — user never changes |
@@ -970,7 +971,7 @@ The entire class of authentication bugs stems from **state transitions between u
 
 1. There is no sign-in or sign-out — the app always loads
 2. There is no `session` object — `auth-store` sets `session: null` and stops
-3. The `X-Team-Id` header uses a fixed constant — it can never be stale
+3. The default team context uses a fixed constant — it can never be stale
 4. There is no WebAuthn ceremony — no RP ID to mismatch
 5. DataLoader loads all stores unconditionally — no two-phase team-first requirement
 
@@ -1138,7 +1139,8 @@ This section documents the **actual implemented flow** as of 2026-02-22, includi
 │       → Yes: resetAllStores() — clears ALL Zustand stores +        │
 │         clears _activeTeamId in both data-client and api-client     │
 │    2. loadTeams() → fetches teams → calls setActiveTeamId(id)       │
-│       → This sets X-Team-Id header for all subsequent API calls     │
+│       → This sets the default team context used by team-scoped API  │
+│         calls and create/share actions                              │
 │                                                                     │
 │  Phase 2 (depends on: shouldLoadData, teamsLoaded):                 │
 │    3. Only runs AFTER teamsLoaded === true                           │
@@ -1185,7 +1187,7 @@ server/routes/auth.ts reads these from env:
 1. User A logs in
 2. team-store.load() fetches User A's teams
 3. setActiveTeamId("team-A-id") sets module-level _activeTeamId
-4. All API calls include X-Team-Id: team-A-id
+4. Team-context-sensitive API calls use X-Team-Id: team-A-id
 5. User A signs out (but _activeTeamId is NOT cleared)
 6. User B logs in (or registers)
 7. DataLoader starts loading stores — WITH the stale X-Team-Id: team-A-id
@@ -1207,7 +1209,7 @@ function resetAllStores() {
 
 **Plus two-phase DataLoader:**
 - Phase 1: Load teams (which calls `setActiveTeamId(newTeamId)`)
-- Phase 2: Load everything else (all API calls now use correct `X-Team-Id`)
+- Phase 2: Load everything else (team-context-sensitive API calls now use the correct default team)
 
 **Invariant:** `_activeTeamId` must ALWAYS belong to the currently authenticated user. Any code path that changes the user (login, logout, registration) must clear `_activeTeamId` before any API calls.
 
@@ -1290,7 +1292,7 @@ These invariants must be maintained. Violating any of them produces the bugs des
 
 2. **`_activeTeamId` always matches current user.** Clear it in `resetAllStores()`. Set it only in `team-store.load()` after fetching the current user's teams.
 
-3. **Teams load before everything else.** DataLoader Phase 1 (teams) must complete before Phase 2 (projects, plans, etc.) because all API calls use `X-Team-Id`.
+3. **Teams load before everything else.** DataLoader Phase 1 (teams) must complete before Phase 2 so the app has the correct default team context before team-owned writes or team-scoped settings requests run.
 
 4. **Sign out before new registration.** `login.tsx` calls `supabase.auth.signOut()` at the start of `handleRegister()` to prevent session overlap.
 

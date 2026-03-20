@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>关于摘星 — 我们的理念</title>
+    <meta name="description" content="摘星这个名字来自三件事：一种脑细胞、一件古老的导航仪器，以及探索太空的宇航员。三者共同指向同一个理念——让人类主导复杂工作。">
+    <meta property="og:title" content="关于摘星 — 我们的理念">
+    <meta property="og:description" content="摘星这个名字来自三件事：一种脑细胞、一件古老的导航仪器，以及探索太空的宇航员。三者共同指向同一个理念——让人类主导复杂工作。">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&family=Noto+Serif+SC:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-deep: #050510;
+            --bg-card: rgba(255, 255, 255, 0.03);
+            --border-subtle: rgba(255, 255, 255, 0.06);
+            --border-hover: rgba(255, 255, 255, 0.12);
+            --cyan: #5ba3d0;
+            --cyan-glow: rgba(91, 163, 208, 0.4);
+            --orange: #d4a574;
+            --orange-glow: rgba(212, 165, 116, 0.3);
+            --green: #6ec07a;
+            --green-glow: rgba(110, 192, 122, 0.3);
+            --purple: #a78bfa;
+            --rose: #f472b6;
+            --text-primary: #f0f0f0;
+            --text-secondary: rgba(240, 240, 240, 0.55);
+            --text-tertiary: rgba(240, 240, 240, 0.35);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-deep);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            line-height: 1.7;
+            font-weight: 400;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        html[lang="zh-CN"] body {
+            font-family: 'Noto Serif SC', 'Source Han Serif SC', serif;
+        }
+
+        /* Three.js Canvas */
+        #scene-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .content {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* ==================== NAVIGATION ==================== */
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            padding: 1.25rem 3rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+            background: rgba(5, 5, 16, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .logo {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: 0.15em;
+            color: var(--text-primary);
+            text-decoration: none;
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        .nav-link {
+            font-size: 0.8125rem;
+            color: var(--text-tertiary);
+            text-decoration: none;
+            font-weight: 400;
+            letter-spacing: 0.02em;
+            transition: color 0.25s ease;
+        }
+
+        .nav-link:hover { color: var(--text-secondary); }
+
+        .nav-link.active {
+            color: var(--text-primary);
+        }
+
+        .nav-cta {
+            font-family: 'Inter', sans-serif;
+            padding: 0.5rem 1.25rem;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 0.8125rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            letter-spacing: 0.02em;
+            backdrop-filter: blur(10px);
+            text-decoration: none;
+        }
+
+        .nav-cta:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        /* ==================== HERO ==================== */
+        .hero {
+            min-height: 70vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 8rem 2rem 4rem;
+            position: relative;
+        }
+
+        .hero-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--cyan);
+            margin-bottom: 1.5rem;
+            font-weight: 500;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease forwards 0.2s;
+        }
+
+        .hero-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(3rem, 8vw, 5.5rem);
+            font-weight: 300;
+            letter-spacing: 0.03em;
+            margin-bottom: 2rem;
+            line-height: 1.1;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease forwards 0.3s;
+            background: linear-gradient(135deg, var(--text-primary), var(--cyan));
+            background-size: 200% 200%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-description {
+            max-width: 640px;
+            font-size: 1.0625rem;
+            line-height: 1.85;
+            color: var(--text-secondary);
+            font-weight: 300;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease forwards 0.5s;
+        }
+
+        /* Scroll indicator */
+        .scroll-hint {
+            margin-top: 3rem;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease forwards 0.8s;
+        }
+
+        .scroll-hint svg {
+            width: 20px;
+            height: 20px;
+            animation: scrollBounce 2s ease-in-out infinite;
+        }
+
+        @keyframes scrollBounce {
+            0%, 100% { transform: translateY(0); opacity: 0.3; }
+            50% { transform: translateY(6px); opacity: 0.6; }
+        }
+
+        /* ==================== METAPHOR SECTIONS ==================== */
+        .metaphors {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 0 2rem 6rem;
+        }
+
+        .metaphor {
+            position: relative;
+            padding: 5rem 0;
+            opacity: 0;
+            transform: translateY(40px);
+            transition: opacity 0.7s ease, transform 0.7s ease;
+        }
+
+        .metaphor.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .metaphor + .metaphor {
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .metaphor-header {
+            display: grid;
+            grid-template-columns: 80px 1fr;
+            gap: 2.5rem;
+            align-items: start;
+            margin-bottom: 2.5rem;
+        }
+
+        .metaphor-icon-wrapper {
+            width: 80px;
+            height: 80px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .metaphor-icon-wrapper::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 20px;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+
+        .metaphor:hover .metaphor-icon-wrapper::before {
+            opacity: 1;
+        }
+
+        .metaphor-icon-wrapper svg {
+            width: 36px;
+            height: 36px;
+        }
+
+        .metaphor-number {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            margin-bottom: 0.75rem;
+        }
+
+        .metaphor-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(2rem, 4vw, 2.75rem);
+            font-weight: 400;
+            color: var(--text-primary);
+            letter-spacing: 0.02em;
+            line-height: 1.2;
+        }
+
+        .metaphor-body {
+            padding-left: calc(80px + 2.5rem);
+        }
+
+        .metaphor-text {
+            font-size: 1rem;
+            line-height: 1.85;
+            color: var(--text-secondary);
+            font-weight: 300;
+            margin-bottom: 1.5rem;
+        }
+
+        .metaphor-text strong {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        /* Glassmorphic highlight box */
+        .highlight-box {
+            position: relative;
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 1.75rem 2rem;
+            margin: 2rem 0;
+            overflow: hidden;
+            transition: all 0.35s ease;
+        }
+
+        .highlight-box::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 3px;
+            height: 100%;
+            border-radius: 3px 0 0 3px;
+        }
+
+        .highlight-box:hover {
+            border-color: var(--border-hover);
+            background: rgba(255, 255, 255, 0.04);
+            transform: translateX(4px);
+        }
+
+        .highlight-box p {
+            font-size: 0.9375rem;
+            line-height: 1.8;
+            color: var(--text-secondary);
+            font-weight: 300;
+            font-style: italic;
+        }
+
+        /* Color variations per section */
+        .metaphor-cyan .metaphor-icon-wrapper {
+            background: rgba(91, 163, 208, 0.06);
+            border: 1px solid rgba(91, 163, 208, 0.12);
+        }
+        .metaphor-cyan .metaphor-icon-wrapper::before {
+            box-shadow: 0 0 30px rgba(91, 163, 208, 0.1);
+        }
+        .metaphor-cyan .metaphor-title { color: var(--text-primary); }
+        .metaphor-cyan .highlight-box::before { background: var(--cyan); }
+        .metaphor-cyan .metaphor-number { color: var(--cyan); }
+
+        .metaphor-orange .metaphor-icon-wrapper {
+            background: rgba(212, 165, 116, 0.06);
+            border: 1px solid rgba(212, 165, 116, 0.12);
+        }
+        .metaphor-orange .metaphor-icon-wrapper::before {
+            box-shadow: 0 0 30px rgba(212, 165, 116, 0.1);
+        }
+        .metaphor-orange .highlight-box::before { background: var(--orange); }
+        .metaphor-orange .metaphor-number { color: var(--orange); }
+
+        .metaphor-green .metaphor-icon-wrapper {
+            background: rgba(110, 192, 122, 0.06);
+            border: 1px solid rgba(110, 192, 122, 0.12);
+        }
+        .metaphor-green .metaphor-icon-wrapper::before {
+            box-shadow: 0 0 30px rgba(110, 192, 122, 0.1);
+        }
+        .metaphor-green .highlight-box::before { background: var(--green); }
+        .metaphor-green .metaphor-number { color: var(--green); }
+
+        /* ==================== CLOSING SECTION ==================== */
+        .closing {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 0 2rem 6rem;
+            opacity: 0;
+            transform: translateY(40px);
+            transition: opacity 0.7s ease, transform 0.7s ease;
+        }
+
+        .closing.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .closing-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 20px;
+            padding: 3.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .closing-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--cyan-glow), var(--orange-glow), transparent);
+        }
+
+        .closing-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+            font-weight: 400;
+            color: var(--text-primary);
+            letter-spacing: 0.02em;
+            margin-bottom: 2rem;
+            line-height: 1.2;
+        }
+
+        .closing-text {
+            font-size: 1rem;
+            line-height: 1.85;
+            color: var(--text-secondary);
+            font-weight: 300;
+            margin-bottom: 1.5rem;
+        }
+
+        .closing-text:last-child {
+            margin-bottom: 0;
+        }
+
+        .closing-text strong {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        /* Three pillars summary */
+        .pillars-summary {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin: 2.5rem 0;
+        }
+
+        .pillar-mini {
+            text-align: center;
+            padding: 1.25rem 1rem;
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+            background: rgba(255, 255, 255, 0.02);
+            transition: all 0.3s ease;
+        }
+
+        .pillar-mini:hover {
+            border-color: var(--border-hover);
+            background: rgba(255, 255, 255, 0.04);
+            transform: translateY(-2px);
+        }
+
+        .pillar-mini-icon {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+            line-height: 1;
+        }
+
+        .pillar-mini-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 0.375rem;
+        }
+
+        .pillar-mini-desc {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            line-height: 1.5;
+        }
+
+        /* ==================== FOOTER CTA ==================== */
+        .footer-cta {
+            padding: 6rem 2rem 4rem;
+            text-align: center;
+            position: relative;
+            opacity: 0;
+            transform: translateY(40px);
+            transition: opacity 0.7s ease, transform 0.7s ease;
+        }
+
+        .footer-cta.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .footer-cta::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 40%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--border-subtle), transparent);
+        }
+
+        .footer-cta-inner {
+            position: relative;
+        }
+
+        .footer-cta-inner::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 300px;
+            height: 300px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(91, 163, 208, 0.05) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .cta-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.625rem;
+            padding: 0.875rem 2rem;
+            background: linear-gradient(135deg, rgba(91, 163, 208, 0.15), rgba(212, 165, 116, 0.1));
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            font-weight: 500;
+            font-size: 0.9375rem;
+            letter-spacing: 0.02em;
+            border: 1px solid rgba(91, 163, 208, 0.25);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            text-decoration: none;
+        }
+
+        .cta-button:hover {
+            background: linear-gradient(135deg, rgba(91, 163, 208, 0.25), rgba(212, 165, 116, 0.18));
+            border-color: rgba(91, 163, 208, 0.5);
+            transform: translateY(-1px);
+            box-shadow: 0 8px 40px rgba(91, 163, 208, 0.2);
+        }
+
+        .cta-button .arrow { transition: transform 0.25s ease; }
+        .cta-button:hover .arrow { transform: translateX(3px); }
+
+        .footer-cta-row {
+            display: inline-flex;
+            align-items: stretch;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(91, 163, 208, 0.25);
+            transition: all 0.3s ease;
+        }
+
+        .footer-cta-row:hover {
+            border-color: rgba(91, 163, 208, 0.5);
+            box-shadow: 0 8px 32px rgba(91, 163, 208, 0.12);
+        }
+
+        .footer-cta-row .cta-button {
+            border: none;
+            border-right: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 0;
+        }
+
+        .footer-cta-row .cta-button:hover {
+            transform: none;
+            box-shadow: none;
+        }
+
+        .footer-install {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0 0.5rem 0 1.25rem;
+            background: rgba(0, 0, 0, 0.25);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+            position: relative;
+        }
+
+        .footer-install:hover {
+            background: rgba(0, 0, 0, 0.35);
+            color: var(--text-primary);
+        }
+
+        .footer-install .prompt { color: var(--cyan); opacity: 0.5; }
+        .footer-install .flag { color: var(--orange); }
+        .footer-install:hover .cmd { color: var(--text-primary); }
+
+        .footer-install .copy-btn {
+            font-size: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+
+        .footer-install .copy-btn::before {
+            content: '';
+            width: 13px;
+            height: 13px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(240,240,240,0.4)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='13' height='13' rx='2' ry='2'/%3E%3Cpath d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'/%3E%3C/svg%3E");
+            background-size: contain;
+            background-repeat: no-repeat;
+        }
+
+        .footer-install .copy-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .footer-install .copy-btn:hover::before {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(240,240,240,0.8)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='13' height='13' rx='2' ry='2'/%3E%3Cpath d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'/%3E%3C/svg%3E");
+        }
+
+        .footer-install .copy-btn.copied {
+            font-size: 0.6rem;
+            width: auto;
+            padding: 0 0.5rem;
+            color: var(--green);
+            border-color: rgba(110, 192, 122, 0.25);
+            background: rgba(110, 192, 122, 0.08);
+        }
+
+        .footer-install .copy-btn.copied::before {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .footer-cta-row {
+                flex-direction: column;
+            }
+            .footer-cta-row .cta-button {
+                border-right: none;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                justify-content: center;
+            }
+            .footer-install {
+                padding: 0.75rem 1rem;
+                justify-content: space-between;
+            }
+        }
+
+        .footer-title {
+            font-family: 'Cormorant Garamond', serif;
+            font-size: clamp(2rem, 4vw, 3rem);
+            font-weight: 400;
+            color: var(--text-primary);
+            margin-bottom: 0.75rem;
+            letter-spacing: 0.02em;
+        }
+
+        .footer-subtitle {
+            font-size: 1rem;
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+            font-weight: 300;
+        }
+
+        /* Footer bottom */
+        .footer-bottom {
+            padding: 3rem 2rem;
+            text-align: center;
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .footer-bottom p {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            letter-spacing: 0.05em;
+        }
+
+        /* ==================== ANIMATIONS ==================== */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(24px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ==================== RESPONSIVE ==================== */
+        @media (max-width: 768px) {
+            nav {
+                padding: 1rem 1.5rem;
+            }
+
+            .nav-link:not(.active) { display: none; }
+
+            .hero {
+                padding: 6rem 1.5rem 3rem;
+            }
+
+            .metaphors,
+            .closing {
+                padding-left: 1.5rem;
+                padding-right: 1.5rem;
+            }
+
+            .metaphor {
+                padding: 3.5rem 0;
+            }
+
+            .metaphor-header {
+                grid-template-columns: 1fr;
+                gap: 1.25rem;
+            }
+
+            .metaphor-icon-wrapper {
+                width: 60px;
+                height: 60px;
+                border-radius: 16px;
+            }
+
+            .metaphor-icon-wrapper svg {
+                width: 28px;
+                height: 28px;
+            }
+
+            .metaphor-body {
+                padding-left: 0;
+            }
+
+            .pillars-summary {
+                grid-template-columns: 1fr;
+                gap: 0.75rem;
+            }
+
+            .closing-card {
+                padding: 2.25rem 1.75rem;
+            }
+
+            .footer-cta {
+                padding: 4rem 1.5rem 3rem;
+            }
+        }
+
+        .lang-toggle {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            background: none;
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            padding: 0.25rem 0.625rem;
+            cursor: pointer;
+            font-family: inherit;
+            letter-spacing: 0.04em;
+            transition: all 0.2s ease;
+            text-decoration: none;
+        }
+        .lang-toggle:hover {
+            color: var(--text-secondary);
+            border-color: var(--border-hover);
+        }
+    </style>
+</head>
+<body>
+<script>
+  (function(){var l=localStorage.getItem('astro-lang');if(l&&!l.startsWith('zh'))window.location.replace('/landing/about/');})();
+</script>
+    <!-- Three.js Background -->
+    <canvas id="scene-canvas"></canvas>
+
+    <div class="content">
+        <!-- 导航栏 -->
+        <nav>
+            <a href="/landing" class="logo">摘星</a>
+            <div class="nav-links">
+                <a href="/landing" class="nav-link">&larr; 首页</a>
+                <a href="/landing/about/zh-CN/" class="nav-link active">关于</a>
+                <a href="/landing/about/" class="lang-toggle">English</a>
+                <a href="/login" class="nav-cta">立即开始</a>
+            </div>
+        </nav>
+
+        <!-- ==================== 主视觉区 ==================== -->
+        <section class="hero">
+            <div class="hero-label">我们的理念</div>
+            <h1 class="hero-title">为何叫"摘星"？</h1>
+            <p class="hero-description">
+                这个名字来自三件事：一种脑细胞、一件古老的导航仪器，以及探索太空的宇航员。
+                三者共同指向同一个理念——让人类始终主导复杂工作。
+            </p>
+            <div class="scroll-hint">
+                <svg viewBox="0 0 20 20" fill="none" stroke="var(--text-tertiary)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10 4v12" /><path d="M5 11l5 5 5-5" />
+                </svg>
+            </div>
+        </section>
+
+        <!-- ==================== 三个意象 ==================== -->
+        <div class="metaphors">
+
+            <!-- 星形胶质细胞 -->
+            <div class="metaphor metaphor-cyan">
+                <div class="metaphor-header">
+                    <div class="metaphor-icon-wrapper">
+                        <svg viewBox="0 0 36 36" fill="none" stroke="var(--cyan)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+                            <!-- Star-shaped cell body -->
+                            <circle cx="18" cy="18" r="5" fill="rgba(91, 163, 208, 0.15)" stroke="var(--cyan)" stroke-width="1.2" />
+                            <!-- Processes reaching out -->
+                            <path d="M18 13V5" /><path d="M18 23v8" />
+                            <path d="M13 18H5" /><path d="M23 18h8" />
+                            <path d="M14.5 14.5L9 9" /><path d="M21.5 14.5L27 9" />
+                            <path d="M14.5 21.5L9 27" /><path d="M21.5 21.5L27 27" />
+                            <!-- End feet (synaptic contacts) -->
+                            <circle cx="5" cy="5" r="1.5" fill="rgba(91, 163, 208, 0.3)" />
+                            <circle cx="31" cy="5" r="1.5" fill="rgba(91, 163, 208, 0.3)" />
+                            <circle cx="5" cy="31" r="1.5" fill="rgba(91, 163, 208, 0.3)" />
+                            <circle cx="31" cy="31" r="1.5" fill="rgba(91, 163, 208, 0.3)" />
+                            <circle cx="18" cy="3" r="1.5" fill="rgba(91, 163, 208, 0.3)" />
+                            <circle cx="18" cy="33" r="1.5" fill="rgba(91, 163, 208, 0.3)" />
+                            <circle cx="3" cy="18" r="1.5" fill="rgba(91, 163, 208, 0.3)" />
+                            <circle cx="33" cy="18" r="1.5" fill="rgba(91, 163, 208, 0.3)" />
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="metaphor-number">其一</div>
+                        <h2 class="metaphor-title">星形胶质细胞</h2>
+                    </div>
+                </div>
+                <div class="metaphor-body">
+                    <p class="metaphor-text">
+                        星形胶质细胞是大脑中形如星状的细胞。它们不像神经元那样传递电信号，
+                        而是默默保障神经元运转所需的一切：氧气、营养，以及废物的清除。
+                        <strong>它们是大脑的基础设施团队。</strong>
+                    </p>
+                    <p class="metaphor-text">
+                        摘星做的就是这件事。你的笔记本电脑、HPC 集群、Claude Code——
+                        这些是真正完成工作的神经元。摘星是支撑层，负责追踪依赖关系、
+                        将任务路由到合适的机器，确保每个环节都有它需要的上下文。
+                    </p>
+                    <div class="highlight-box">
+                        <p>
+                            真正的力量不在执行，而在协调。摘星处理好各环节的连接，
+                            让你能同时推进多件事，而不必担心谁依赖谁、谁先谁后。
+                        </p>
+                    </div>
+                    <p class="metaphor-text">
+                        我们从"astrocyte（星形胶质细胞）"中取了"Astro"，正是因为人们往往忽视这一层。
+                        大家都想要更好的智能体，<strong>但你真正需要的是更好的编排能力。</strong>
+                    </p>
+                </div>
+            </div>
+
+            <!-- 星盘 -->
+            <div class="metaphor metaphor-orange">
+                <div class="metaphor-header">
+                    <div class="metaphor-icon-wrapper">
+                        <svg viewBox="0 0 36 36" fill="none" stroke="var(--orange)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+                            <!-- Outer ring -->
+                            <circle cx="18" cy="18" r="14" />
+                            <!-- Inner ring -->
+                            <circle cx="18" cy="18" r="9" opacity="0.5" />
+                            <!-- Cross hairs -->
+                            <line x1="18" y1="4" x2="18" y2="32" opacity="0.3" />
+                            <line x1="4" y1="18" x2="32" y2="18" opacity="0.3" />
+                            <!-- Rete (star pointer) -->
+                            <path d="M18 9l3 5h-6z" fill="rgba(212, 165, 116, 0.2)" stroke="var(--orange)" />
+                            <!-- Degree marks -->
+                            <circle cx="18" cy="4" r="1" fill="var(--orange)" />
+                            <circle cx="32" cy="18" r="1" fill="var(--orange)" />
+                            <circle cx="18" cy="32" r="1" fill="var(--orange)" />
+                            <circle cx="4" cy="18" r="1" fill="var(--orange)" />
+                            <!-- Alidade (sighting arm) -->
+                            <line x1="8" y1="28" x2="28" y2="8" stroke-width="1.5" />
+                            <circle cx="8" cy="28" r="2" fill="rgba(212, 165, 116, 0.15)" stroke="var(--orange)" />
+                            <circle cx="28" cy="8" r="2" fill="rgba(212, 165, 116, 0.15)" stroke="var(--orange)" />
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="metaphor-number">其二</div>
+                        <h2 class="metaphor-title">星盘</h2>
+                    </div>
+                </div>
+                <div class="metaphor-body">
+                    <p class="metaphor-text">
+                        在 GPS 出现之前，在精确地图诞生之前，探险家靠星盘观测星象来导航。
+                        通过测量天体的角度，确定自己的位置，再规划前进的航线。
+                    </p>
+                    <p class="metaphor-text">
+                        <strong>你的规划就是这件仪器。</strong>它本身不做任何工作，
+                        但它告诉你：你现在在哪里，距离目标还有多远。
+                        当你把宏大目标拆解为相互关联、带有依赖关系的任务时，你画出的是一张地图——
+                        一张真正的地图，而不是一份清单。你能看清哪些事可以并行，哪些事被阻塞，
+                        以及整体如何连接。
+                    </p>
+                    <div class="highlight-box">
+                        <p>
+                            星盘不只是提高了精度，更让探险家走得更远。同样的道理——
+                            清晰的规划让你能开展更多并行工作，而不会迷失方向。
+                        </p>
+                    </div>
+                    <p class="metaphor-text">
+                        重点不是死板地遵守计划，而是在事情变得混乱时——
+                        而它一定会变得混乱——你手里还有一个可以参照的坐标系。
+                    </p>
+                </div>
+            </div>
+
+            <!-- 宇航员 -->
+            <div class="metaphor metaphor-green">
+                <div class="metaphor-header">
+                    <div class="metaphor-icon-wrapper">
+                        <svg viewBox="0 0 36 36" fill="none" stroke="var(--green)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+                            <!-- Helmet -->
+                            <circle cx="18" cy="14" r="10" />
+                            <!-- Visor -->
+                            <path d="M11 11a8 8 0 0114 0" fill="rgba(110, 192, 122, 0.1)" stroke="var(--green)" />
+                            <!-- Visor reflection -->
+                            <path d="M14 10a4 4 0 015-1" stroke="var(--green)" opacity="0.4" />
+                            <!-- Body / suit -->
+                            <path d="M10 24c0-3 3.5-5 8-5s8 2 8 5" />
+                            <line x1="10" y1="24" x2="10" y2="32" />
+                            <line x1="26" y1="24" x2="26" y2="32" />
+                            <line x1="10" y1="32" x2="26" y2="32" />
+                            <!-- Antenna -->
+                            <line x1="18" y1="4" x2="18" y2="1" />
+                            <circle cx="18" cy="1" r="1" fill="var(--green)" />
+                            <!-- Star -->
+                            <circle cx="30" cy="6" r="1" fill="var(--green)" opacity="0.5" />
+                            <circle cx="7" cy="4" r="0.8" fill="var(--green)" opacity="0.3" />
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="metaphor-number">其三</div>
+                        <h2 class="metaphor-title">宇航员</h2>
+                    </div>
+                </div>
+                <div class="metaphor-body">
+                    <p class="metaphor-text">
+                        宇航员有一个目的地。北极星。这不是诗意的比喻，而是字面意义上的真实。
+                        当你远离一切熟悉的参照物时，<strong>你必须知道自己正朝哪个方向飞行。</strong>
+                    </p>
+                    <p class="metaphor-text">
+                        你也有自己的北极星。也许是一款你想发布的产品，也许是一个研究问题，
+                        也许是一种尚未存在的技术能力。其他一切——bug、架构争论、选用哪种方案——
+                        都只是导航过程中的调整。
+                    </p>
+                    <p class="metaphor-text">
+                        但问题在于：复杂的工作会把你的北极星遮蔽在眼前的问题背后。
+                        你用一周时间调试，却忘了问：这整个方向还有没有意义？
+                        AI 工具让这个问题更严峻，因为它们擅长完成任务，却对战略毫无判断。
+                    </p>
+                    <div class="highlight-box">
+                        <p>
+                            摘星让你的目的地始终清晰可见。当你遇到决策节点——
+                            是转向还是坚持？是砍掉这个分支还是继续探索？——
+                            你依据的是自己的目标，而不是工具的输出结果。
+                        </p>
+                    </div>
+                    <p class="metaphor-text">
+                        只有你知道你在构建什么。AI 可以出色地执行，甚至生成规划。
+                        但它无法告诉你：方案 A 的初步成果，是否值得放弃方案 B 已完成一半的工作。
+                        <strong>这是判断力，而判断力需要你知道自己要去哪里。</strong>
+                    </p>
+                    <p class="metaphor-text">
+                        还有一点。宇航员不是被绑在任务控制中心的。他们在任何地方都能做决策。
+                        摘星也一样——在手机上查看进度、决定追哪个分支、继续前行。
+                        整个系统的设计目的，就是让你不必守在终端前也能掌控全局。
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== 总结 ==================== -->
+        <div class="closing">
+            <div class="closing-card">
+                <h2 class="closing-title">三个角度，同一件事</h2>
+                <p class="closing-text">
+                    星形胶质细胞、星盘、宇航员。三者共同指向当前 AI 工具中同一个缺口。
+                </p>
+
+                <div class="pillars-summary">
+                    <div class="pillar-mini">
+                        <div class="pillar-mini-icon" style="color: var(--cyan);">&#x2726;</div>
+                        <div class="pillar-mini-label" style="color: var(--cyan);">协调</div>
+                        <div class="pillar-mini-desc">跨机器协同，而不只是在单台机器上更快执行</div>
+                    </div>
+                    <div class="pillar-mini">
+                        <div class="pillar-mini-icon" style="color: var(--orange);">&#x2737;</div>
+                        <div class="pillar-mini-label" style="color: var(--orange);">导航</div>
+                        <div class="pillar-mini-desc">随复杂度扩展的工具，而不是线性清单</div>
+                    </div>
+                    <div class="pillar-mini">
+                        <div class="pillar-mini-icon" style="color: var(--green);">&#x2605;</div>
+                        <div class="pillar-mini-label" style="color: var(--green);">人类判断</div>
+                        <div class="pillar-mini-desc">在正确的高度介入决策循环</div>
+                    </div>
+                </div>
+
+                <p class="closing-text">
+                    <strong>这就是摘星。</strong>我们不替代你的判断力，
+                    而是给你一套基础设施，让你能以过去需要整个团队才能达到的规模来运用判断力。
+                </p>
+            </div>
+        </div>
+
+        <!-- ==================== 底部行动区 ==================== -->
+        <section class="footer-cta">
+            <div class="footer-cta-inner">
+                <h2 class="footer-title">准备好出发了吗？</h2>
+                <p class="footer-subtitle">一条命令，连接你所有的机器</p>
+                <div class="footer-cta-row">
+                    <a href="/login" class="cta-button">
+                        <span>立即开始</span>
+                        <span class="arrow">&rarr;</span>
+                    </a>
+                    <div class="footer-install" onclick="navigator.clipboard.writeText('npx @astroanywhere/agent@latest launch');var btn=this.querySelector('.copy-btn');btn.classList.add('copied');btn.textContent='已复制！';setTimeout(function(){btn.classList.remove('copied');btn.textContent=''},2000)">
+                        <span><span class="prompt">$</span> <span class="cmd">npx @astroanywhere/agent</span> <span class="flag">launch</span></span>
+                        <span class="copy-btn"></span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 页脚 -->
+        <footer class="footer-bottom">
+            <p>&copy; 2026 摘星</p>
+        </footer>
+    </div>
+
+    <!-- Three.js（与首页相同的星空效果） -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+    (function() {
+        var canvas = document.getElementById('scene-canvas');
+        var scene = new THREE.Scene();
+        var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        var renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
+
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        camera.position.z = 5;
+
+        var isMobile = window.innerWidth < 768;
+
+        // Star field
+        var starsGeometry = new THREE.BufferGeometry();
+        var starCount = isMobile ? 300 : 600;
+        var positions = new Float32Array(starCount * 3);
+
+        for (var i = 0; i < starCount * 3; i += 3) {
+            positions[i] = (Math.random() - 0.5) * 100;
+            positions[i + 1] = (Math.random() - 0.5) * 100;
+            positions[i + 2] = (Math.random() - 0.5) * 100;
+        }
+
+        starsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        var starsMaterial = new THREE.PointsMaterial({
+            size: 0.03,
+            color: 0xf0f0f0,
+            transparent: true,
+            opacity: 0.4
+        });
+        var stars = new THREE.Points(starsGeometry, starsMaterial);
+        scene.add(stars);
+
+        // Bezier curves (fewer, subtler for about page)
+        var curves = [];
+        var curveMaterial = new THREE.LineBasicMaterial({
+            color: 0xf0f0f0,
+            transparent: true,
+            opacity: 0.08,
+            linewidth: 1
+        });
+
+        for (var c = 0; c < 3; c++) {
+            var angle = (c / 3) * Math.PI * 2;
+            var radius = 7 + c * 0.5;
+            var curve = new THREE.CubicBezierCurve3(
+                new THREE.Vector3(Math.cos(angle) * radius, Math.sin(angle) * radius, -2),
+                new THREE.Vector3(Math.cos(angle + 1) * (radius + 2), Math.sin(angle + 1) * (radius - 1), 0),
+                new THREE.Vector3(Math.cos(angle + 2) * (radius - 1), Math.sin(angle + 2) * (radius + 2), 1),
+                new THREE.Vector3(Math.cos(angle + 3) * radius, Math.sin(angle + 3) * radius, 2)
+            );
+            var points = curve.getPoints(80);
+            var lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
+            var line = new THREE.Line(lineGeometry, curveMaterial);
+            curves.push({ line: line, speed: 0.00008 + c * 0.00004 });
+            scene.add(line);
+        }
+
+        // Accent points
+        var accentGeometry = new THREE.SphereGeometry(0.02, 16, 16);
+        var accents = [];
+
+        for (var a = 0; a < 6; a++) {
+            var mat = new THREE.MeshBasicMaterial({
+                color: a < 3 ? 0xd4a574 : 0x5ba3d0,
+                transparent: true,
+                opacity: 0.2
+            });
+            var accent = new THREE.Mesh(accentGeometry, mat);
+            var aAngle = (a / 6) * Math.PI * 2;
+            var aRadius = 5 + (a % 3) * 2;
+            accent.position.set(Math.cos(aAngle) * aRadius, Math.sin(aAngle) * aRadius, (a % 3) - 1);
+            accents.push(accent);
+            scene.add(accent);
+        }
+
+        // Mouse interaction
+        var mouseX = 0, mouseY = 0, targetX = 0, targetY = 0;
+
+        if (!isMobile) {
+            document.addEventListener('mousemove', function(e) {
+                mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+                mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
+            });
+        }
+
+        window.addEventListener('scroll', function() {
+            stars.rotation.z = window.pageYOffset * 0.00008;
+        });
+
+        window.addEventListener('resize', function() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            targetX += (mouseX - targetX) * 0.04;
+            targetY += (mouseY - targetY) * 0.04;
+
+            stars.rotation.y += 0.00004;
+
+            for (var i = 0; i < curves.length; i++) {
+                curves[i].line.rotation.z += curves[i].speed;
+            }
+
+            for (var j = 0; j < accents.length; j++) {
+                accents[j].material.opacity = 0.12 + Math.sin(Date.now() * 0.0008 + j * 0.9) * 0.1;
+            }
+
+            if (!isMobile) {
+                camera.position.x = targetX * 0.4;
+                camera.position.y = targetY * 0.4;
+                camera.lookAt(scene.position);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    })();
+    </script>
+
+    <!-- 滚动动画 -->
+    <script>
+    (function() {
+        var elements = document.querySelectorAll('.metaphor, .closing, .footer-cta');
+        var observer = new IntersectionObserver(function(entries) {
+            entries.forEach(function(entry) {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+
+        elements.forEach(function(el) { observer.observe(el); });
+    })();
+    </script>
+</body>
+</html>

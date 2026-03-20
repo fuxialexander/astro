@@ -169,26 +169,28 @@ describe('SSE filter: cross-instance user isolation', () => {
     expect(onRedisStreaming).toContain('msg.instanceId === redisPubSub.getInstanceId()')
   })
 
-  it('bypasses userId filter for project-checked event types', () => {
-    expect(onRedisStreaming).toContain("msg.eventType === 'node_status_changed'")
-    expect(onRedisStreaming).toContain("msg.eventType === 'task_init'")
-    expect(onRedisStreaming).toContain("msg.eventType === 'task_ready'")
-    expect(onRedisStreaming).toContain('!hasProjectCheck')
+  it('handles project-checked event types via switch cases', () => {
+    expect(onRedisStreaming).toContain("case 'node_status_changed'")
+    expect(onRedisStreaming).toContain("case 'task_init'")
+    expect(onRedisStreaming).toContain("case 'task_ready'")
+    expect(onRedisStreaming).toContain("case 'plan_result'")
+    expect(onRedisStreaming).toContain("case 'error'")
   })
 
-  it('drops events when userId is missing (deny-by-default)', () => {
-    // When msg.userId is undefined and user.id is set, the filter drops the event
-    // This is the behavior our fix addresses — by ensuring msg.userId is always set
-    expect(onRedisStreaming).toContain('msg.userId !== user.id')
+  it('uses project ownership checks for authorization (deny-by-default)', () => {
+    // The refactored handler uses isProjectOwnedByUser / isTaskOwnedByUser
+    // instead of simple userId matching — fail closed if projectId is missing
+    expect(onRedisStreaming).toContain('isProjectOwnedByUser')
   })
 
-  it('allows events when userId matches the authenticated user', () => {
-    // The filter passes when msg.userId === user.id
-    expect(onRedisStreaming).toContain('msg.userId !== user.id')
+  it('fails closed when projectId is missing', () => {
+    // Each event type checks for projectId presence before delivering
+    expect(onRedisStreaming).toContain('!projectId')
   })
 
-  it('allows events for LOCAL_USER_ID (local mode)', () => {
-    expect(onRedisStreaming).toContain('msg.userId !== LOCAL_USER_ID')
+  it('checks task ownership for error events', () => {
+    // Error events use isTaskOwnedByUser since they may lack projectId
+    expect(onRedisStreaming).toContain('isTaskOwnedByUser')
   })
 })
 

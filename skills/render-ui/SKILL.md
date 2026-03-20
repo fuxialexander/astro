@@ -1,7 +1,7 @@
 ---
 name: render-ui
 version: "2.0.0"
-description: "Render structured data as rich interactive UI components using json-render specs. Triggers when the user asks to render, display, format, or present data as a table, card, dashboard, summary, or structured view — or when tool results contain arrays/objects that would benefit from component rendering. Also activates for design previews, status dashboards, comparison views, and guided workflows."
+description: "Advanced json-render spec reference with JSON Patch format and detailed component API docs. Only load this skill when the user explicitly asks for help with spec syntax, JSON Patch operations, or advanced rendering patterns beyond what the built-in Generative UI hint covers. Do NOT load for normal yaml-spec rendering — the system prompt already contains everything needed."
 category: tools
 tags: [rendering, ui, table, card, dashboard, structured-data, json-render, preview, design]
 allowedTools: [Read, Glob, Grep, Bash]

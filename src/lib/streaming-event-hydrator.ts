@@ -52,6 +52,8 @@ export interface HydratedStreamData {
   }>
   // Pending approval requests (not yet answered)
   pendingApprovals: PendingApproval[]
+  // Approval request IDs that have been answered (for cleaning up stale SSE-delivered entries)
+  answeredApprovals: Set<string>
   // Pending safety prompts (not yet responded to)
   pendingSafetyPrompts: PendingSafetyPrompt[]
   // Metadata from init, session_init and result events
@@ -73,6 +75,7 @@ export interface HydratedStreamData {
 }
 
 let idCounter = 0
+const LEGACY_OPERATIONAL_LINE_RE = /^──\s*\[(Astro|Git|Delivery)\]\s*(.+)$/
 
 export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStreamData {
   const activityEvents: TaskActivityEvent[] = []
@@ -123,7 +126,17 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
       }
       case 'text': {
         const text = (data.text as string) || ''
-        activityEvents.push({ type: 'text', content: text, timestamp, seq: event.seq })
+        activityEvents.push(...extractLegacyTextEvents(text, timestamp, event.seq))
+        break
+      }
+      case 'operational': {
+        activityEvents.push({
+          type: 'operational',
+          message: (data.message as string) || '',
+          source: ((data.source as string) || 'astro') as 'astro' | 'git' | 'delivery',
+          timestamp,
+          seq: event.seq,
+        })
         break
       }
       case 'tool_use': {
@@ -375,88 +388,44 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
   const pendingSafetyPrompts = Array.from(safetyPromptRequests.values())
     .filter(s => !answeredSafetyPrompts.has(s.executionId))
 
-  // ── Deduplicate text blocks ──────────────────────────────────────────
-  // Text duplication can occur from concurrent flushText() races (before the
-  // synchronous-delete fix), SSE reconnect overlaps, or agent SDK retries.
-  // Group consecutive text events into "text blocks" (separated by non-text
-  // events), hash each block's joined content, and remove blocks whose content
-  // was already seen. This preserves legitimate repeated short tokens while
-  // eliminating full-paragraph duplication (4-14x repetitions).
-  const dedupedActivityEvents = deduplicateTextBlocks(activityEvents)
-
-  // Also rebuild stdout from deduplicated text to stay consistent
-  const dedupedStdout = dedupedActivityEvents
+  const hydratedStdout = activityEvents
     .filter((e): e is typeof e & { type: 'text'; content: string } => e.type === 'text')
     .map(e => e.content)
     .join('')
 
-  return { stdout: dedupedStdout, activityEvents: dedupedActivityEvents, toolTraces, fileChanges, pendingApprovals, pendingSafetyPrompts, machineId, status, output, error, sessionId, model, progress, progressMessage, branchName, prUrl, prNumber, deliveryStatus, finalStatus, summary, planResult }
+  return { stdout: hydratedStdout, activityEvents, toolTraces, fileChanges, pendingApprovals, answeredApprovals, pendingSafetyPrompts, machineId, status, output, error, sessionId, model, progress, progressMessage, branchName, prUrl, prNumber, deliveryStatus, finalStatus, summary, planResult }
 }
 
-/**
- * Deduplicate text blocks in activity events.
- *
- * Groups consecutive text events into "blocks" (separated by non-text events),
- * joins each block's content, and removes blocks whose joined content was
- * already seen earlier in the stream. Only removes blocks with substantial
- * content (>50 chars) to avoid false positives on short repeated tokens.
- */
-function deduplicateTextBlocks(events: TaskActivityEvent[]): TaskActivityEvent[] {
-  // 1. Identify text block boundaries
-  type Segment =
-    | { kind: 'text'; events: TaskActivityEvent[]; content: string }
-    | { kind: 'other'; events: TaskActivityEvent[] }
+function extractLegacyTextEvents(text: string, timestamp: Date, seq?: number): TaskActivityEvent[] {
+  if (!text) return []
 
-  const segments: Segment[] = []
-  let currentTextEvents: TaskActivityEvent[] = []
+  const segments = text.match(/[^\n]*\n?|[^\n]+$/g) ?? [text]
+  const events: TaskActivityEvent[] = []
+  let textBuffer = ''
 
-  function flushText() {
-    if (currentTextEvents.length === 0) return
-    const content = currentTextEvents
-      .filter((e): e is typeof e & { type: 'text'; content: string } => e.type === 'text')
-      .map(e => e.content)
-      .join('')
-    segments.push({ kind: 'text', events: [...currentTextEvents], content })
-    currentTextEvents = []
+  const flushText = () => {
+    if (!textBuffer) return
+    events.push({ type: 'text', content: textBuffer, timestamp, seq })
+    textBuffer = ''
   }
 
-  for (const event of events) {
-    if (event.type === 'text') {
-      currentTextEvents.push(event)
-    } else {
+  for (const segment of segments) {
+    const line = segment.endsWith('\n') ? segment.slice(0, -1) : segment
+    const match = line.match(LEGACY_OPERATIONAL_LINE_RE)
+    if (match) {
       flushText()
-      // Merge consecutive non-text events into one segment for efficiency
-      const last = segments[segments.length - 1]
-      if (last?.kind === 'other') {
-        last.events.push(event)
-      } else {
-        segments.push({ kind: 'other', events: [event] })
-      }
+      events.push({
+        type: 'operational',
+        source: match[1].toLowerCase() as 'astro' | 'git' | 'delivery',
+        message: match[2].trim(),
+        timestamp,
+        seq,
+      })
+      continue
     }
+    textBuffer += segment
   }
+
   flushText()
-
-  // 2. Remove duplicate text blocks (keep first occurrence)
-  const seenTextContent = new Set<string>()
-  const result: TaskActivityEvent[] = []
-
-  for (const seg of segments) {
-    if (seg.kind === 'other') {
-      result.push(...seg.events)
-    } else {
-      const trimmed = seg.content.trim()
-      // Only deduplicate substantial text blocks — short text like newlines,
-      // bullets, or single-word tokens can legitimately repeat.
-      if (trimmed.length > 50 && seenTextContent.has(trimmed)) {
-        // Skip this duplicate text block
-        continue
-      }
-      if (trimmed.length > 50) {
-        seenTextContent.add(trimmed)
-      }
-      result.push(...seg.events)
-    }
-  }
-
-  return result
+  return events
 }
