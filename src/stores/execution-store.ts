@@ -212,7 +212,7 @@ interface ExecutionState {
   hasActiveExecution: () => boolean
 
   // Batch execution actions
-  executeAllProject: (projectId: string, options?: ExecutionOptions) => void
+  executeAllProject: (projectId: string, options?: ExecutionOptions) => boolean
   stopBatchExecution: (projectId: string) => void
   isBatchActive: (projectId: string) => boolean
   getBatchExecution: (projectId: string) => BatchExecution | undefined
@@ -713,7 +713,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       return canExecuteNode(n, liveNodes, projectEdges).ready
     })
 
-    if (readyNodes.length === 0) return
+    if (readyNodes.length === 0) return false
 
     // Register batch execution
     const batch: BatchExecution = {
@@ -745,6 +745,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
         }, index * STAGGER_DELAY_MS)
       }
     })
+
+    return true
   },
 
   stopBatchExecution: (projectId: string) => {
