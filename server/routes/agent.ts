@@ -14,7 +14,7 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, ProviderType, ImageAttachment } from '../types/relay.js'
 import { db } from '../lib/db/index.js'
-import { projects, taskExecutions, registeredMachines, machineInstructions, blobs } from '../lib/db/schema.js'
+import { projects, registeredMachines, machineInstructions, blobs } from '../lib/db/schema.js'
 import { eq, and, inArray, isNull } from 'drizzle-orm'
 
 const DEFAULT_INSTRUCTION_ID = 'builtin:default'
