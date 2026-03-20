@@ -17,9 +17,10 @@ import { useToastStore } from "@/stores/toast-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSessionStore } from "@/stores/session-store"
+import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
 import { useAutoReveal } from "@/hooks/use-auto-reveal"
 import { isServerMode } from "@/lib/app-mode"
-import { TERMINAL_NODE_STATUSES } from "@/lib/status-config"
+import { deriveActiveTasks } from "@/lib/active-tasks"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
@@ -79,6 +80,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const projectsLoaded = useProjectStore((s) => s.loaded)
   const updateProject = useProjectStore((s) => s.updateProject)
   const rawPlanNodes = usePlanStore((s) => s.nodes)
+  const nodesLoaded = usePlanStore((s) => s.loaded)
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const signOut = useAuthStore((s) => s.signOut)
   const setCommandPaletteOpen = useUIStore((s) => s.setCommandPaletteOpen)
@@ -95,6 +97,7 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const navigate = useNavigate()
   const params = useParams()
   const location = useLocation()
+  const workspaceFilter = useWorkspaceFilterStore((s) => s.workspaceFilter)
   const showAuth = isServerMode()
 
   const activeProjectId = params.id
@@ -124,61 +127,20 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
     }
   }, [executions, navigate])
 
-  // O(1) lookup map for plan nodes by ID
-  const planNodesById = useMemo(() => {
-    const map = new Map<string, (typeof planNodes)[number]>()
-    for (const node of planNodes) map.set(node.id, node)
-    return map
-  }, [planNodes])
-
-  // Build project ID set for fast orphan detection
-  const projectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects])
-
-  // Count total active tasks + generations + chat streams, and which projects have running work
-  const { activeCount, projectsWithRunning } = useMemo(() => {
-    let count = 0
-    const running = new Set<string>()
-
-    // Count running executions (filter out stale ones where node is already completed)
-    for (const [nodeId, exec] of executions) {
-      if (exec.status === "pending" || exec.status === "running") {
-        const node = planNodesById.get(nodeId)
-        // Skip stale executions: node has terminal status but execution still shows running
-        if (node && TERMINAL_NODE_STATUSES.has(node.status)) continue
-        // Skip orphaned plan/playground executions whose project was deleted.
-        // Only check after projects have loaded to avoid false negatives on startup.
-        const projectId = exec.projectId || node?.projectId
-        if (!node && projectId && projectsLoaded && !projectIds.has(projectId)) continue
-        count++
-        if (node?.projectId) running.add(node.projectId)
-        if (exec.projectId) running.add(exec.projectId)
-      }
-    }
-
-    // Also check node statuses for running tasks not in execution store
-    for (const node of planNodes) {
-      if ((node.status === "in_progress" || node.status === "dispatched") && !executions.has(node.id)) {
-        count++
-        running.add(node.projectId)
-      }
-    }
-
-    // Include projects with active batch executions
-    for (const [projectId, batch] of batchExecutions) {
-      if (batch.active) running.add(projectId)
-    }
-
-    // Include projects with active chat/playground streaming sessions
-    for (const sessionId of streamingSessions) {
-      const session = allSessions.get(sessionId)
-      if (session?.projectId) {
-        count++
-        running.add(session.projectId)
-      }
-    }
-
-    return { activeCount: count, projectsWithRunning: running }
-  }, [executions, planNodes, planNodesById, batchExecutions, streamingSessions, allSessions, projectIds, projectsLoaded])
+  const { activeCount, projectsWithRunning } = useMemo(() => (
+    deriveActiveTasks({
+      executions,
+      batchExecutions,
+      rawNodes: rawPlanNodes,
+      liveNodes: planNodes,
+      nodesLoaded,
+      projects,
+      projectsLoaded,
+      streamingSessions,
+      allSessions,
+      workspaceFilter,
+    })
+  ), [executions, batchExecutions, rawPlanNodes, planNodes, nodesLoaded, projects, projectsLoaded, streamingSessions, allSessions, workspaceFilter])
 
   // Count pending plan approvals for the Plan nav badge
   const dynamicApprovals = useRealtimeStore((s) => s.dynamicApprovals)
