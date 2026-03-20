@@ -869,6 +869,8 @@ Skills without backend tags are **always included** regardless of backend select
 | Task executor | `packages/agent-runner/src/lib/task-executor.ts` |
 | WebSocket client | `packages/agent-runner/src/lib/websocket-client.ts` |
 | Base adapter interface | `packages/agent-runner/src/providers/base-adapter.ts` |
+| Unified stream events hook | `src/hooks/use-stream-events.ts` |
+| Stream timeout watchdog | `src/lib/stream-watcher.ts` |
 | Frontend execution store | `src/stores/execution-store.ts` |
 | Frontend agent store | `src/stores/agent-store.ts` |
 | Frontend API client | `src/lib/api-client.ts` |

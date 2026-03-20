@@ -467,7 +467,7 @@ Some operations take a long time (generating a plan, executing a task) and produ
 
 All SSE functions accept an `AbortSignal` for cancellation -- this is how the "Cancel" button works. When the user clicks cancel, the AbortSignal tells the browser to drop the connection, and the backend cleans up.
 
-Parsing of the SSE event streams is handled inline within `api-client.ts` using the streaming fetch API and text decoding. SSE responses are parsed line by line as `data:` events arrive.
+SSE event streams are consumed by the unified streaming pipeline. Live events flow through the global SSE bus into `realtime-store` task streams, which `useStreamEvents` reads and groups into `DisplayBlock[]` for rendering. The `api-client.ts` functions handle the HTTP/fetch layer; event routing and hydration are handled by `realtime-store` and `streaming-event-hydrator.ts`.
 
 ### 3.2 REST Endpoints (Request-Response)
 
@@ -1086,7 +1086,10 @@ Custom hooks encapsulate reusable stateful logic across the application. All hoo
 | `use-bar-drag-resize.ts` | Drag-to-resize for panels and sidebars. Provides mouse event handlers and computed sizes. |
 | `use-media-query.ts` | CSS media query hook for responsive behavior (e.g., detecting mobile vs desktop). |
 | `use-auto-reveal.ts` | Computes usage counts across stores (projects, active tasks, executions) and triggers sidebar auto-reveal when thresholds are met (e.g., shows "Active Tasks" sidebar item when tasks start running). |
-| `use-restored-execution.ts` | Returns activity events, tool traces, and file changes for a task execution. During live execution, returns in-memory SSE events. After page refresh, recovers from `streaming_events` DB via `hydrateFromCatchUp()`. See `REFRESH_ROBUSTNESS.md` for the two-layer architecture. |
+| `use-stream-events.ts` | Unified streaming events hook replacing `use-restored-execution.ts`, `use-chat-stream-events.ts`, and `use-chat-activity-events.ts`. All AI pathways (plan generation, chat panel, playground, task execution) use this single hook. Reads from `realtime-store` task streams, hydrates persisted events via `hydrateFromCatchUp()`, groups into `DisplayBlock[]`, derives `StreamStatus`, extracts tool traces / file changes / pending approvals, and detects 20-minute stalls and plan-creating tool calls. |
+| `use-activity-feed.ts` | Shared activity feed composition for AI pathway components. Merges execution events + chat events with deduplication (execution stream is authoritative), groups into `DisplayBlock[]`, and scans for approval responses. Used by plan-generation, unified-activity-view, and playground. |
+| `use-chat-session.ts` | Shared chat session setup logic. Handles session lookup by type/projectId/nodeId, lazy creation via `getOrCreateSession()`, full-session loading on page refresh, and streaming state derivation. Used by plan-generation, unified-activity-view, and playground (chat-panel has its own multi-session switcher). |
+| `use-auto-scroll.ts` | Shared auto-scroll logic for all AI pathway components. Scrolls to bottom when new content arrives and the user has not scrolled up. Configurable pixel threshold (default 50px). |
 
 ---
 
@@ -1104,7 +1107,7 @@ All library utilities live in `src/lib/`. These are non-React utility modules us
 | `realtime-sync.ts` | Supabase Realtime data synchronization for multi-user collaborative editing. |
 | `supabase-client.ts` | Supabase browser client initialization and session management. |
 | `api-url.ts` | API URL resolution -- determines the correct base URL for API calls based on environment (dev/prod). |
-| `sse-parser.ts` | Low-level SSE stream parser for processing `data:` events from fetch responses. |
+| `stream-status.ts` | Derives `StreamStatus` (`idle`, `streaming`, `completed`, `error`) from activity events and task stream state. Used by `useStreamEvents` to provide a single status value for all AI pathways. |
 
 ### Mode and Configuration
 

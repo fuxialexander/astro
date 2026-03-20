@@ -84,8 +84,8 @@ User refreshes page
     → Phase 2: loadExecutions() + connectRealtime() + loadAll()
       → execution-store.load() restores TaskExecution records from DB
         (includes executionId, machineId, status — enough for approval routing)
-      → useRestoredExecution hook fires per active execution
-        → hydrateFromCatchUp([executionId], afterSeq=0)
+      → useStreamEvents hook mounts per active stream
+        → hydrateFromCatchUp([streamId], afterSeq=0)
           → GET /api/events/catch-up?executionIds=X&afterSeq=0
           → hydrateStreamingEvents(rows) → HydratedStreamData
           → Populates taskStream: stdout, activityEvents, toolTraces,
@@ -95,7 +95,7 @@ User refreshes page
         → New live events append to the hydrated base
 ```
 
-**Key detail:** `afterSeq=0` triggers "full hydration" mode — hydrated data is used only when existing in-memory data is empty (preferring live data if any arrived before hydration completed).
+**Key detail:** `afterSeq=0` triggers "full hydration" mode — hydrated data is used only when existing in-memory data is empty (preferring live data if any arrived before hydration completed). The `useStreamEvents` hook also runs a visibility-change catch-up: when the tab returns to foreground and the stream is not actively running, it calls `hydrateFromCatchUp` with the latest persisted `seq` to fill any gap.
 
 ### Flow 2: SSE Disconnect + Reconnect
 
@@ -281,7 +281,7 @@ Exponential backoff: 3s → 6s → 12s → 24s → 48s → 60s cap, resets on su
 **Severity: Low-Medium**
 
 Two independent callers invoke `hydrateFromCatchUp`:
-1. `useRestoredExecution` hook (per-component, `afterSeq=0`)
+1. `useStreamEvents` hook (per-component, `afterSeq=0` on mount, `afterSeq=latestPersistedSeq` on visibility change)
 2. `realtimeClient.onReconnect` callback (all active executions, `afterSeq=lastSeq`)
 
 There is no mutex, no `Set<string>` of in-flight IDs, and no abort. Concurrent calls for the same executionId can race. The full-hydration guard (`existing.activityEvents.length > 0`) prevents duplicate activity events, but metadata fields (`status`, `output`, `error`) are applied unconditionally — a stale full-hydration response arriving after a live `task:result` could temporarily overwrite the correct terminal status.
@@ -316,7 +316,7 @@ The global SSE fan-out stream in `events.ts` buffers text via `streamingEventLog
 
 **Severity: High**
 
-When the page refreshes during task execution, the SSE fetch connection is dropped, causing `parseSSEStream` to throw a `TypeError` (e.g., "Failed to fetch" or "NetworkError when attempting to fetch resource"). The catch block in `execution-store.ts` checked `document.visibilityState === 'hidden'` to detect page unload, but `visibilityState` can still be `'visible'` when the fetch error fires — the `visibilitychange` event fires AFTER `beforeunload` in the navigation lifecycle.
+When the page refreshes during task execution, the SSE fetch connection is dropped, causing the SSE stream parser to throw a `TypeError` (e.g., "Failed to fetch" or "NetworkError when attempting to fetch resource"). The catch block in `execution-store.ts` checked `document.visibilityState === 'hidden'` to detect page unload, but `visibilityState` can still be `'visible'` when the fetch error fires — the `visibilitychange` event fires AFTER `beforeunload` in the navigation lifecycle.
 
 **Symptom:** After every page refresh during execution, the task was falsely marked as `failure` with the network error message, and the node status was set to `awaiting_judgment`. The judgment banner (Approve/Reset/Prune) appeared with the error text, even though the agent runner was still running normally.
 
@@ -474,7 +474,8 @@ When adding a new SSE event type that should survive refresh:
 | Component | File | Key Functions |
 |-----------|------|--------------|
 | Streaming event hydration | `src/lib/streaming-event-hydrator.ts` | `hydrateStreamingEvents()` |
-| Execution restoration hook | `src/hooks/use-restored-execution.ts` | `useRestoredExecution()` |
+| Unified streaming hook | `src/hooks/use-stream-events.ts` | `useStreamEvents()` — SSE streaming with built-in hydration/recovery |
+| Stream status derivation | `src/lib/stream-status.ts` | `deriveStreamStatus()` — stream lifecycle status tracking |
 | Realtime store (catch-up) | `src/stores/realtime-store.ts` | `hydrateFromCatchUp()`, `reconcileResultFromCatchUp()` |
 | Execution store (cleanup) | `src/stores/execution-store.ts` | `resetExecution()`, `cleanupNodeZustandState()` |
 | Streaming event log (server) | `server/lib/events/streaming-event-log.ts` | `StreamingEventLog.append()` |
@@ -506,7 +507,7 @@ Not all frontend state survives refresh. By design, some data is ephemeral:
 | Data | Persisted? | Recovery |
 |------|-----------|----------|
 | Plan nodes, edges, statuses | Yes (DB) | DataLoader on mount |
-| Execution activity events | Yes (streaming_events) | useRestoredExecution catch-up |
+| Execution activity events | Yes (streaming_events) | useStreamEvents catch-up |
 | Chat messages | Yes (streaming_events) | Session hydration |
 | Pending approvals | Yes (streaming_events) | Hydration includes approval_request events |
 | File trees | No (ephemeral cache) | Re-fetched within ~100-300ms |
@@ -529,7 +530,7 @@ The two-layer recovery architecture is **transport-agnostic**. When the frontend
 | `GET /api/events/catch-up` | **None** — HTTP endpoint, used by both SSE and WS reconnect |
 | `hydrateStreamingEvents()` | **None** — converts DB rows to typed state |
 | `mergeHydratedAndLive()` | **None** — timestamp-based merge, transport-agnostic |
-| `useRestoredExecution` | **None** — 2-source fallback works with any live event source |
+| `useStreamEvents` | **None** — unified hook reads from realtime-store taskStreams, transport-agnostic |
 | `RealtimeClient` | **Refactored** — transport abstraction (`WsTransport` primary, `SseTransport` fallback) |
 | Reconnect flow | **Enhanced** — WS `resume` message as fast first-pass, then same DB catch-up as fallback |
 

@@ -173,13 +173,15 @@ Backend: Dispatch Engine
     ├─ EventBuffer.push()          →  in-memory ring buffer (fan-out)
     └─ SSE response.write()        →  HTTP chunked to browser
     ↓
-Browser: EventSource / fetch stream
+Browser: Global SSE bus (single EventSource per session)
     ↓
-SSE Parser (src/lib/sse-parser.ts)
-    ├─ parseExecutionSSE()  →  task execution events
-    └─ parseChatSSE()       →  chat/generation events
+realtime-store: taskStreams (keyed by executionId/sessionId)
     ↓
-Zustand stores (execution-store, realtime-store)
+useStreamEvents(streamId) hook (src/hooks/use-stream-events.ts)
+    ├─ Hydrates from streaming_events on mount (catch-up)
+    ├─ Reads live events from realtime-store taskStreams
+    ├─ Groups into DisplayBlocks via groupActivityEvents()
+    └─ Derives StreamStatus via deriveStreamStatus()
     ↓
 React components render
 ```
@@ -330,11 +332,10 @@ SSE connection drops
     ↓
 Browser detects: EventSource error / fetch stream ends
     ↓
-execution-store: increment reconnectAttempts
+realtime-store: detects SSE drop, reconnects global SSE bus
     ↓
-useRestoredExecution() hook activates:
-  ├─ Check: do we have executionIds with incomplete results?
-  ├─ Yes → call hydrateFromCatchUp(executionIds, lastSeq)
+useStreamEvents() hook: visibility-change catch-up
+  ├─ On tab becoming visible, calls hydrateFromCatchUp(streamId, lastPersistedSeq)
   │         ↓
   │     GET /api/events/catch-up?executionIds=X&afterSeq=123&limit=2000
   │         ↓
@@ -351,12 +352,12 @@ useRestoredExecution() hook activates:
   │       ├─ Identify pending approvals
   │       └─ Return HydratedStreamData
   │         ↓
-  │     Merge with existing execution-store state
-  │     UI renders complete history
+  │     Merge into realtime-store taskStreams
+  │     useStreamEvents() re-derives displayBlocks + status
   │         ↓
   │     If hasMore: paginate (re-call with afterSeq=N)
-  │     If task still running: re-open SSE stream
-  └─ No → page load recovery (see 6.3)
+  │     If task still running: live events continue via global SSE bus
+  └─ Skips catch-up if stream is actively running (avoids race with live SSE)
 ```
 
 **Key: `seq` column** — The auto-incrementing `seq` on `streaming_events` provides a total ordering. The client tracks its `lastSeq` and asks "give me everything after this." No events are lost or duplicated.
@@ -374,15 +375,15 @@ plan-store: loads nodes, sees nodes with executionId set
     ↓
 execution-store: loads execution metadata from /api/data/executions
     ↓
-useRestoredExecution(): detects executionId present but no live SSE events
-    ├─ Calls hydrateFromCatchUp() for each active executionId
-    └─ Reconstructs full activity timeline from streaming_events
+useStreamEvents(streamId): mounts with streamId, triggers hydration
+    ├─ Calls hydrateFromCatchUp(streamId, 0) on mount
+    └─ Reconstructs full activity timeline from streaming_events into realtime-store taskStreams
     ↓
 UI renders exactly as if the user never left
     ├─ Stdout text appears in the activity feed
     ├─ Tool calls show with their results
     ├─ File changes listed
-    └─ If task still running: re-opens SSE stream for live events
+    └─ If task still running: live events continue via global SSE bus
 ```
 
 ### 6.4 Machine Disconnection Recovery
@@ -498,9 +499,9 @@ REST: POST /api/data/projects { name, description }
 ```
 REST: POST /api/generate/plan { projectId, visionDoc, prompt }
   → Backend starts Claude Agent SDK session
-  → SSE: streams text, tool_use, plan_result events
+  → SSE: streams text, tool_use, plan_result events via global SSE bus
   → StreamingEventLog: persists each event
-  → Frontend: parseChatSSE() → plan generation UI
+  → Frontend: useStreamEvents(sessionId) → plan generation UI
   → On plan_result: PUT /api/data/plan/:projectId (bulk upsert)
   → plan-store.setNodes(), plan-store.setEdges()
 ```
@@ -513,8 +514,8 @@ REST: POST /api/dispatch/execute { nodeId, projectId }
   → WebSocket: relay sends to machine
   → Machine: agent-runner executes
   → WebSocket: machine streams results back
-  → Backend: persists to streaming_events + emits SSE
-  → SSE: parseExecutionSSE() → execution-store
+  → Backend: persists to streaming_events + emits SSE via global bus
+  → Frontend: useStreamEvents(executionId) → realtime-store taskStreams
   → On result: PATCH /api/data/plan/nodes/:id { status, executionOutput }
 ```
 
@@ -523,11 +524,11 @@ REST: POST /api/dispatch/execute { nodeId, projectId }
 ```
 Page unloads → SSE connection closes
 Page reloads → DataLoader fetches all stores via REST
-  → useRestoredExecution() detects in-progress execution
+  → useStreamEvents(streamId) hydrates from streaming_events on mount
   → GET /api/events/catch-up → streaming_events table
-  → hydrateStreamingEvents() → full activity timeline
+  → hydrateStreamingEvents() → realtime-store taskStreams
   → UI shows complete execution history
-  → If still running: re-opens SSE stream
+  → If still running: live events continue via global SSE bus
 ```
 
 ---
@@ -537,9 +538,11 @@ Page reloads → DataLoader fetches all stores via REST
 | Component | File | Description |
 |-----------|------|-------------|
 | Frontend data client | `src/lib/data-client.ts` | HTTP client for all REST calls |
-| SSE parser | `src/lib/sse-parser.ts` | RFC-compliant event stream parser |
+| Unified stream hook | `src/hooks/use-stream-events.ts` | Unified SSE streaming hook for chat and execution |
+| Stream status | `src/lib/stream-status.ts` | Stream lifecycle status tracking (deriveStreamStatus) |
+| Stream watcher | `src/lib/stream-watcher.ts` | Stream health monitoring / watchdog |
+| Activity feed hook | `src/hooks/use-activity-feed.ts` | Activity event grouping and rendering |
 | Event hydrator | `src/lib/streaming-event-hydrator.ts` | Reconstructs execution state from DB events |
-| Restored execution hook | `src/hooks/use-restored-execution.ts` | Page refresh recovery logic |
 | Data routes | `server/routes/data.ts` | All CRUD endpoints |
 | Event routes | `server/routes/events.ts` | SSE stream + catch-up endpoint |
 | Dispatch routes | `server/routes/dispatch.ts` | Task dispatch + cancel |
@@ -549,5 +552,5 @@ Page reloads → DataLoader fetches all stores via REST
 | DB dual-driver | `packages/core/src/db/index.ts` | PGlite / postgres-js selection |
 | DB schema | `packages/core/src/db/schema.ts` | All table + index definitions |
 | Plan store | `src/stores/plan-store.ts` | Graph state management |
-| Execution store | `src/stores/execution-store.ts` | Live SSE event accumulation |
-| Realtime store | `src/stores/realtime-store.ts` | Machine list + activity feed |
+| Execution store | `src/stores/execution-store.ts` | Execution metadata storage |
+| Realtime store | `src/stores/realtime-store.ts` | Global SSE bus, taskStreams, machine list |

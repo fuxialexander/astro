@@ -188,9 +188,9 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[Page loads / refresh] --> B[useRestoredExecution hook]
-    B --> C[fetchStreamingEventsCatchUp<br/>GET /api/events/catch-up]
-    C --> D[hydrateStreamingEvents<br/>streaming-event-hydrator.ts]
+    A[Page loads / refresh] --> B[useStreamEvents hook]
+    B --> C[hydrateFromCatchUp<br/>GET /api/events/catch-up]
+    C --> D[realtime-store taskStreams<br/>streaming-event-hydrator.ts]
     D --> E[Activity view restored]
 ```
 
@@ -240,7 +240,7 @@ flowchart LR
     end
 
     subgraph "P5-6 Chat"
-        B1[SSE: done event<br/>with metrics] --> B2[parseChatSSE<br/>onMetrics callback]
+        B1[SSE: done event<br/>with metrics] --> B2[useStreamEvents<br/>onMetrics callback]
         B2 --> B3[addTaskMetrics]
     end
 
@@ -406,9 +406,9 @@ Per-user daily cost totals. Updated incrementally from the frontend.
 
 ### 6.1 Page Refresh Recovery
 
-The `useRestoredExecution` hook tries two paths:
+The `useStreamEvents` hook hydrates on mount:
 
-1. `fetchStreamingEventsCatchUp([executionIds], lastSeq)` → `GET /api/events/catch-up` → hydrate via `hydrateStreamingEvents()`
+1. `hydrateFromCatchUp()` → `GET /api/events/catch-up` → hydrate into `realtime-store` taskStreams via `hydrateStreamingEvents()`
 
 ### 6.2 SSE Disconnect Catch-Up
 
@@ -485,7 +485,7 @@ The backend registers observability hooks on startup via `astroEventTransport`:
 | `server/routes/observations.ts` | Observation query API |
 | `src/stores/execution-store.ts` | Frontend execution state + metrics |
 | `src/stores/usage-store.ts` | Frontend session cost tracking |
-| `src/lib/sse-parser.ts` | SSE parsing with `onMetrics` callback |
-| `src/hooks/use-restored-execution.ts` | Page refresh recovery |
+| `src/hooks/use-stream-events.ts` | Unified streaming hook (replaces useRestoredExecution, parseChatSSE, parseExecutionSSE) |
+| `src/lib/stream-watcher.ts` | Stream timeout watchdog and health monitoring |
 | `src/components/activity-blocks.tsx` | Activity rendering |
 | `packages/core/src/db/schema.ts` | All table schemas |

@@ -496,22 +496,16 @@ flowchart LR
 
 ## Key Files
 
+> **Note:** The unified streaming pipeline (Phase 2) resolved many of the duplication vectors described here. See [`docs/design/UNIFIED_STREAMING_PIPELINE.md`](UNIFIED_STREAMING_PIPELINE.md) for the current architecture. The old dual-path SSE consumers (`src/lib/sse-parser.ts`, `src/hooks/use-restored-execution.ts`, `src/hooks/use-chat-activity-events.ts`, `src/hooks/use-chat-stream-events.ts`) have been removed and replaced by the unified `useStreamEvents()` hook. `server/lib/execution-context-store.ts` has been superseded by project-ownership SSE filtering.
+
 | File | Role |
 |------|------|
-| `server/routes/agent.ts:148-260` | `streamChatViaRelay` -- server-side triple emission of events |
-| `server/routes/events.ts:198-258` | `executionEventBus` handlers -- **missing `activeDispatchStreams` guard** |
-| `server/routes/events.ts:494-543` | Relay-direct handlers -- **have `activeDispatchStreams` guard** |
-| `server/lib/execution-context-store.ts:50` | `activeDispatchStreams` Set definition |
-| `src/stores/realtime-store.ts:765-780` | `mergeByTimestamp` -- fragile 1-second tolerance dedup |
-| `src/stores/realtime-store.ts:537-548` | Full hydration merge using `mergeByTimestamp` |
-| `src/stores/realtime-store.ts:1104-1119` | Live `task:result` handler calling `applyPlanFromText` |
-| `src/stores/realtime-store.ts:848-863` | Catch-up hydration calling `applyPlanFromText` |
-| `src/stores/execution-store.ts:1144,1383,1520` | Three `result` callback sites calling `applyPlanFromText` |
-| `src/stores/execution-store.ts:2420-2434` | `plan_result` SSE handler calling `applyPlanFromText` |
-| `src/stores/agent-store.ts:224,276` | Catch-up recovery calling `applyPlanFromText` |
-| `src/lib/plan-extraction.ts:17-64` | `applyPlanFromText` with fingerprint idempotency guard (PR #750) |
-| `src/components/plan-generation/plan-generation.tsx:177` | Ternary source selection for plan chat |
-| `src/pages/playground.tsx:307-311` | Three-way ternary source selection for playground |
+| `server/routes/agent.ts` | `streamChatViaRelay` -- server-side event emission |
+| `server/routes/events.ts` | SSE endpoint with project-ownership filtering |
+| `src/hooks/use-stream-events.ts` | **Unified hook** -- replaces old dual-path SSE consumers |
+| `src/stores/realtime-store.ts` | Global SSE bus, taskStreams state |
+| `src/stores/execution-store.ts` | Plan generation orchestration |
+| `src/lib/plan-extraction.ts` | `applyPlanFromText` with fingerprint idempotency guard (PR #750) |
 | `src/lib/streaming-event-hydrator.ts` | Hydrates `streaming_events` rows into typed activity events |
 
 ---

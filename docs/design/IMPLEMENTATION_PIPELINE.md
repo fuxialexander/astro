@@ -38,9 +38,9 @@ Overall                                   YES — alpha blockers resolved
 
 **New component directories**: `board/` (kanban), `mobile/`, `sharing/`, `views/`, `environments/`
 
-**New hooks**: use-keyboard-nav, use-bar-drag-resize, use-voice-transcription, use-welcome-form-persistence, use-repo-setup
+**New hooks**: use-keyboard-nav, use-bar-drag-resize, use-voice-transcription, use-welcome-form-persistence, use-repo-setup, use-stream-events (unified streaming)
 
-**New libs**: crypto-utils, git-url-utils, plugin-context, plugin-loader, skill-loader, color-icon-utils, api-url, sse-parser, realtime-sync
+**New libs**: crypto-utils, git-url-utils, plugin-context, plugin-loader, skill-loader, color-icon-utils, api-url, stream-status, realtime-sync
 
 ### 2.2 Backend — 20 route files, 30+ lib files, 28 DB tables
 
@@ -62,7 +62,7 @@ All documented features present plus: SSH discovery/installer, 4-tier safety sys
 
 **`tests/` (root-level, 16 vitest files)**:
 - `relay-protocol-fields.test.ts` — 25 tests (relay protocol extension)
-- `sse-parser.test.ts` — SSE stream parsing
+- `sse-parser.test.ts` — SSE stream parsing (covers streaming event hydration)
 - `chat-api-route.test.ts` — Chat API route tests
 - `chat-hybrid-resume.test.ts` — Chat session resume
 - `chat-mutations.test.ts` — Chat mutation tests

@@ -468,7 +468,7 @@ The core workflow is identical in both modes — only transport security and per
 **HTTP REST**: CRUD operations, configuration, triggering actions.
 
 **SSE (Server-Sent Events)**: Two patterns:
-1. **Action SSE**: POST to `/api/agent/generate-plan`, `/api/dispatch/task`, etc. returns an SSE stream for that operation. Parsed via `parseExecutionSSE()` or `parseChatSSE()`.
+1. **Action SSE**: POST to `/api/agent/generate-plan`, `/api/dispatch/task`, etc. returns an SSE stream for that operation. Frontend consumes all SSE pathways via the unified `useStreamEvents()` hook (`src/hooks/use-stream-events.ts`), which reads from `realtime-store` taskStreams populated by the global SSE bus.
 2. **Event stream**: GET `/api/events/stream` — persistent SSE connection for real-time events (machine state, task progress, approvals). Subscribes to both `ExecutionEventBus` and relay EventEmitter with deduplication via `activeDispatchStreams`.
 
 **Persistence layer** (transport-agnostic): All structural events persist to `streaming_events` table with monotonic `seq`. Enables reconnect catch-up (`GET /api/events/catch-up`), page-refresh recovery (`hydrateStreamingEvents()`), and merge with live events (`mergeHydratedAndLive()`). See [REFRESH_ROBUSTNESS.md](./REFRESH_ROBUSTNESS.md).
@@ -515,9 +515,11 @@ Agent Runner (via Relay)
 
 All events flow from agent runners through the relay to the `executionEventBus`, a Node.js `EventEmitter` singleton (survives tsx watch reloads via `globalThis`). There is no local provider path — all AI execution produces events via the relay.
 
+**Unified streaming pipeline:** All frontend SSE consumption (plan generation, chat, task execution, playground) flows through a single pathway: global SSE bus → `realtime-store` taskStreams → `useStreamEvents()` hook. The `stream-watcher.ts` utility (`watchStream()`) provides a callback-based API for imperative stream observation (terminal status detection, event processing). On the server side, `execution-watchdog.ts` runs periodic scans for stuck tasks (in_progress/dispatched with no recent activity), resetting them after configurable timeouts. Uses Redis leader election for multi-instance safety.
+
 **Streaming event types:** `init`, `session_init`, `text`, `tool_use`, `tool_result`, `structured_output`, `file_change`, `progress`, `result`, `error`, `aborted`, `heartbeat`, `done`, `approval_request`, `approval_response`, `safety_prompt`, `safety_response`, `steer_message`
 
-**Event persistence:** All structural events are appended to the `streaming_events` table (append-only, seq-indexed) before being sent to clients. Text chunks are batched in-memory by `StreamingEventLog` and flushed before each structural event to preserve ordering. This persistence layer is **transport-agnostic** — it works identically whether events are delivered via SSE or WebSocket.
+**Event persistence:** All structural events are appended to the `streaming_events` table (append-only, seq-indexed) before being sent to clients. Text chunks are batched in-memory by `StreamingEventLog` (`server/lib/streaming-event-log.ts`) and flushed before each structural event to preserve ordering. This persistence layer is **transport-agnostic** — it works identically whether events are delivered via SSE or WebSocket.
 
 ### 7.1 Two-Layer Recovery
 
@@ -526,7 +528,7 @@ Streaming events are persisted to the `streaming_events` table (append-only, seq
 1. **Layer 1 — Live SSE**: `EventSource` → `realtime-store` / `execution-store` (in-memory, lost on refresh)
 2. **Layer 2 — `streaming_events` table**: Append-only DB log. Primary recovery path. Events written *before* SSE send, with the DB `seq` as the SSE event `id`.
 
-On page refresh, `useRestoredExecution` hydrates from Layer 2 via `/api/events/catch-up` (paginated, `hasMore` loop). On SSE reconnect, `RealtimeClient` uses exponential backoff (3s→60s cap, visibility-aware) and triggers catch-up hydration via `lastSeq` watermark. `mergeHydratedAndLive()` does timestamp-based merge of DB history with any live events that arrived before hydration completed.
+On page refresh, `useStreamEvents()` hydrates from Layer 2 via `/api/events/catch-up` (paginated, `hasMore` loop). On SSE reconnect, `RealtimeClient` uses exponential backoff (3s→60s cap, visibility-aware) and triggers catch-up hydration via `lastSeq` watermark.
 
 See `REFRESH_ROBUSTNESS.md` for the full persistence contract, invariants, and known gaps.
 
@@ -686,8 +688,8 @@ astro/
 │   ├── pages/                     # 18 route pages
 │   ├── components/                # UI components (shadcn/ui pattern)
 │   ├── stores/                    # 29 Zustand stores
-│   ├── hooks/                     # Reusable hooks (useFileTreeRefresh, useRepoSetup)
-│   ├── lib/                       # Utilities (API client, SSE parser)
+│   ├── hooks/                     # Reusable hooks (useStreamEvents, useFileTreeRefresh, useRepoSetup)
+│   ├── lib/                       # Utilities (API client, stream-watcher)
 │   └── types/                     # TypeScript interfaces
 │
 ├── server/                        # [BACKEND] Hono API Server + [RELAY]
