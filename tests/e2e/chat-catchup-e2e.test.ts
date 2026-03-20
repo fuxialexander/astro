@@ -214,7 +214,7 @@ test.describe('Chat stream catch-up pipeline', () => {
     try {
       // Set up SSE interception on both pages BEFORE navigation
       for (const page of [page1, page2]) {
-        await page.exposeFunction('__pwSSECapture', (_event: string, _data: string) => { /* collected below */ })
+        await page.exposeFunction('__pwSSECapture', () => { /* collected below */ })
         await page.addInitScript(() => {
           const OrigES = window.EventSource
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -266,7 +266,7 @@ test.describe('Chat stream catch-up pipeline', () => {
           projectId,
         }),
       })
-      const chatData = await chatRes.json() as { success: boolean; taskId?: string }
+      await chatRes.json() // consume body
 
       // The taskId used in task:init = streamId (see agent.ts L356)
       const expectedTaskId = streamId
