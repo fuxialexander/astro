@@ -10,22 +10,8 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useUIStore } from "@/stores/ui-store"
 import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
-import { statusBadgeVariants, TERMINAL_NODE_STATUSES } from "@/lib/status-config"
-import { getActiveTasksContentState } from "@/lib/active-tasks"
-import { getShortId } from "@/lib/utils"
-
-interface ActiveTask {
-  nodeId: string
-  projectId: string
-  title: string
-  status: "running" | "pending" | "generating"
-  startedAt?: Date
-  executionId?: string
-  nodeType?: string
-  nodeStatus?: string
-  machineId?: string
-  providerId?: string
-}
+import { statusBadgeVariants } from "@/lib/status-config"
+import { deriveActiveTasks, getActiveTasksContentState, type ActiveTaskEntry } from "@/lib/active-tasks"
 
 function ElapsedTimer({ startedAt }: { startedAt?: Date }) {
   const [now, setNow] = useState(() => Date.now())
@@ -50,7 +36,7 @@ function ElapsedTimer({ startedAt }: { startedAt?: Date }) {
   )
 }
 
-function TaskRow({ task, projectId }: { task: ActiveTask; projectId: string }) {
+function TaskRow({ task, projectId }: { task: ActiveTaskEntry; projectId: string }) {
   const execution = useExecutionStore((s) => s.executions.get(task.nodeId))
   const stream = task.executionId ? useRealtimeStore.getState().taskStreams.get(task.executionId) : undefined
   const progress = stream?.progress ?? 0
@@ -200,7 +186,7 @@ function ProjectGroup({
   projectId: string
   projectName: string
   projectColor?: string
-  tasks: ActiveTask[]
+  tasks: ActiveTaskEntry[]
   defaultExpanded: boolean
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
@@ -263,125 +249,19 @@ export function ActiveTasks() {
   const sessionsLoaded = useSessionStore((s) => s.loaded)
   const workspaceFilter = useWorkspaceFilterStore((s) => s.workspaceFilter)
 
-  // Build project ID set for fast orphan detection (O(1) vs O(n) per lookup)
-  const projectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects])
-
-  // Build active task list from executions + streaming sessions
-  const groupedTasks = useMemo(() => {
-    const taskMap = new Map<string, ActiveTask[]>()
-    // Track nodeIds already added from executions so we don't double-count
-    const addedNodeIds = new Set<string>()
-
-    // Active task executions
-    for (const [nodeId, exec] of executions) {
-      if (exec.status !== "pending" && exec.status !== "running") continue
-      const isPlanSession = nodeId.startsWith("plan-")
-      const isPlayground = nodeId.startsWith("playground-")
-      // Use rawNodes for title resolution (not isLive-filtered) to find nodes that
-      // might be soft-deleted but still have active executions
-      const node = (isPlanSession || isPlayground) ? undefined : rawNodes.find((n) => n.id === nodeId)
-
-      // Filter out stale executions: if the node has a terminal status
-      // (completed, auto_verified, etc.), the execution is no longer active
-      // even if the execution record still says "running" (e.g., after page refresh)
-      if (node && TERMINAL_NODE_STATUSES.has(node.status)) continue
-
-      // Don't filter out orphaned executions when stores haven't loaded yet —
-      // the node may exist in the DB but not yet in the Zustand store
-      if (!isPlanSession && !isPlayground && !node && nodesLoaded) continue
-
-      const projectId = exec.projectId || node?.projectId
-      if (!projectId) continue
-
-      // Skip orphaned plan/playground executions whose project was deleted
-      if ((isPlanSession || isPlayground) && projectsLoaded && !projectIds.has(projectId)) continue
-
-      // Resolve a readable title for special session types
-      const resolveTitle = () => {
-        if (isPlanSession) return "Interactive Planning"
-        if (isPlayground) {
-          const proj = projects.find((p) => p.id === projectId)
-          return proj?.name || "Playground Session"
-        }
-        return node?.title || (nodesLoaded ? `Task ${getShortId(nodeId)}` : "Loading…")
-      }
-
-      const task: ActiveTask = {
-        nodeId,
-        projectId,
-        title: resolveTitle(),
-        status: isPlanSession ? "generating" : (exec.status === "running" ? "running" : "pending"),
-        startedAt: exec.startedAt,
-        executionId: exec.executionId,
-        nodeType: node?.type,
-        nodeStatus: node?.status,
-        machineId: exec.machineId,
-        providerId: exec.providerId,
-      }
-      const list = taskMap.get(projectId) || []
-      list.push(task)
-      taskMap.set(projectId, list)
-      addedNodeIds.add(nodeId)
-    }
-
-    // Also check for nodes with in_progress/dispatched status that might not have execution entries
-    for (const node of nodes) {
-      if (node.status !== "in_progress" && node.status !== "dispatched") continue
-      if (executions.has(node.id)) continue
-      const list = taskMap.get(node.projectId) || []
-      list.push({
-        nodeId: node.id,
-        projectId: node.projectId,
-        title: node.title,
-        status: node.status === "in_progress" ? "running" : "pending",
-        startedAt: node.executionStartedAt ? new Date(node.executionStartedAt) : undefined,
-        nodeType: node.type,
-        nodeStatus: node.status,
-      })
-      taskMap.set(node.projectId, list)
-    }
-
-    // Include streaming chat/playground sessions that aren't already covered by executions.
-    // The sidebar counts these in activeCount, so the active-tasks page must show them too.
-    for (const sessionId of streamingSessions) {
-      const session = allSessions.get(sessionId)
-      if (!session?.projectId) continue
-
-      // Only include playground (task-chat) and project-chat sessions;
-      // other types (plan-generation, skill-create, steer, execution)
-      // are already represented by execution entries or aren't user-facing chat.
-      const isPlayground = session.type === 'task-chat'
-      if (!isPlayground && session.type !== 'project-chat') continue
-
-      // Determine a stable nodeId for dedup — playground sessions use
-      // "playground-{projectId}" as their execution key
-      const stableNodeId = isPlayground
-        ? `playground-${session.projectId}`
-        : `chat-${sessionId}`
-
-      // Skip if already represented by an execution entry
-      if (addedNodeIds.has(stableNodeId)) continue
-
-      const proj = projects.find((p) => p.id === session.projectId)
-      const firstUserMsg = session.titlePreview ?? session.messages.find((m) => m.role === 'user')?.content
-      const title = session.title
-        || (firstUserMsg ? firstUserMsg.slice(0, 50) + (firstUserMsg.length > 50 ? '...' : '') : undefined)
-        || proj?.name
-        || 'Chat Session'
-
-      const list = taskMap.get(session.projectId) || []
-      list.push({
-        nodeId: stableNodeId,
-        projectId: session.projectId,
-        title: isPlayground ? title : `Chat: ${title}`,
-        status: 'running',
-        startedAt: session.updatedAt,
-      })
-      taskMap.set(session.projectId, list)
-    }
-
-    return taskMap
-  }, [executions, rawNodes, nodes, projects, projectIds, projectsLoaded, nodesLoaded, streamingSessions, allSessions])
+  const { groupedTasks, activeCount: filteredCount } = useMemo(() => (
+    deriveActiveTasks({
+      executions,
+      rawNodes,
+      liveNodes: nodes,
+      nodesLoaded,
+      projects,
+      projectsLoaded,
+      streamingSessions,
+      allSessions,
+      workspaceFilter,
+    })
+  ), [executions, rawNodes, nodes, nodesLoaded, projects, projectsLoaded, streamingSessions, allSessions, workspaceFilter])
 
   // Sort projects: those with more active tasks first
   const sortedProjects = useMemo(() => {
@@ -398,20 +278,6 @@ export function ActiveTasks() {
       .sort((a, b) => b.tasks.length - a.tasks.length)
   }, [groupedTasks, projects, projectsLoaded])
 
-  // Apply workspace filter: match projects by teamId
-  const filteredProjects = useMemo(() => {
-    if (workspaceFilter === 'all') return sortedProjects
-    return sortedProjects.filter((group) => {
-      const project = projects.find((p) => p.id === group.projectId)
-      if (!project) return false
-      return project.teamId === workspaceFilter
-    })
-  }, [sortedProjects, workspaceFilter, projects])
-
-  const filteredCount = useMemo(
-    () => filteredProjects.reduce((sum, g) => sum + g.tasks.length, 0),
-    [filteredProjects],
-  )
   const contentState = getActiveTasksContentState(filteredCount, { executionsLoaded, sessionsLoaded })
 
   return (
@@ -459,7 +325,7 @@ export function ActiveTasks() {
           </div>
         ) : (
           <div className="flex flex-col gap-3 max-w-2xl">
-            {filteredProjects.map((group) => (
+            {sortedProjects.map((group) => (
               <ProjectGroup
                 key={group.projectId}
                 projectId={group.projectId}
