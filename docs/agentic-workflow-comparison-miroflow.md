@@ -341,7 +341,11 @@ However, for the `agent` tool (sub-agent for focused investigation), Astro-Assis
 
 ### Priority 1: Richer Completion Summaries
 
-**File:** `src/session/compaction.py` -- add a new `COMPLETION_SUMMARY_PROMPT` distinct from `STRUCTURED_COMPACTION_PROMPT`.
+**The problem:** The current `COMPRESSION_PROMPT` in `src/execution/context.py` asks for an 800-token summary: "key findings, files modified, decisions made, open questions." This is too brief. When an EXPLORE node discovers that the auth module is at `src/auth/login.py`, uses JWT with PyJWT 2.8, has 47 test fixtures in `conftest.py`, and the existing middleware pattern uses decorators -- all of that gets compressed into 2-3 sentences. The downstream IMPLEMENT node then has to re-discover half of it.
+
+**The fix:** Replace `COMPRESSION_PROMPT` with a richer prompt for completed tasks. The summary should be comprehensive because it feeds into both dependency outputs (direct parents) and the project knowledge store (all tasks).
+
+**File:** `src/execution/context.py` -- replace `COMPRESSION_PROMPT`.
 
 ```python
 COMPLETION_SUMMARY_PROMPT = """\
@@ -355,32 +359,118 @@ Include:
 - Any partial results, data, or observations that may help related tasks
 
 Be comprehensive. This report will be decomposed into knowledge entries for other agents.
-Do NOT include tool call syntax or speculative filler. Focus on factual, specific information."""
+Do NOT include tool call syntax or speculative filler. Focus on factual, specific information.
+Task: {task_description}
+Agent output: {final_text}"""
 ```
 
-**Used by:** The `PlanExecutor` after each sub-agent completes a node. The summary feeds into `extractKnowledgeFromSummary()` for the project knowledge store.
+**Token budget change:** The current `TaskSummary.summary` targets 800 tokens. With the richer prompt, target 2000 tokens. This is still well within the 20K-byte dependency output budget from Astro's `KNOWLEDGE_SHARING.md`.
 
-### Priority 2: Structured Failure Reports
+### Priority 2: Structured Failure Reports with Replan Trigger
 
-**File:** `src/session/compaction.py` -- add `FAILURE_REPORT_PROMPT`.
+**The problem today:** When a sub-agent fails, the executor gets `TaskResult(status="failed", error=str(e))`. The `error` field is a raw exception message like `"Tool bash returned non-zero exit code"` or just `"Previous attempt failed"`. The `_compress_result()` call tries to compress the agent's output, but on failure `final_text` is often empty. The replanner then sees:
+
+```
+[Task 3] Implement JWT middleware
+  Status: failed
+  Summary: (empty or generic error)
+```
+
+This gives the replanner almost nothing to work with. It generates a replacement task that may repeat the same mistake.
+
+**The fix:** When a task fails, ask the sub-agent for a structured failure report BEFORE the session ends. This report becomes the `TaskSummary.summary` for the failed task, and the replanner sees it when generating replacement nodes.
+
+**The concrete workflow:**
+
+```
+Sub-agent hits an error or exhausts turns
+    |
+    v
+Executor detects failure (status == "failed")
+    |
+    v
+Executor sends FAILURE_REPORT_PROMPT to the sub-agent's session
+(This is a follow-up message, not a new session -- the agent still
+has its full conversation context with all the work it did)
+    |
+    v
+Sub-agent produces structured failure report:
+  - Failure type: blocked (npm install fails, missing Node.js 20)
+  - What was attempted: tried to install deps, ran npm install
+  - What was learned: package.json requires Node 20, system has Node 18
+  - Suggested next step: install Node 20 first, or use nvm
+    |
+    v
+Executor stores this as TaskSummary(status="failed", summary=report)
+    |
+    v
+At milestone: _reflect() sees the structured failure
+    |
+    v
+If needs_replan: _replan() gets all_summaries_text() which now includes:
+  [Task 3] Implement JWT middleware
+    Status: failed
+    Summary:
+      Failure type: blocked
+      What was attempted: tried to install deps, ran npm install
+      What was learned: package.json requires Node 20, system has Node 18
+      Suggested next step: install Node 20 first, or use nvm
+    |
+    v
+Replanner generates BETTER replacement:
+  - New Task 3a: "Install Node.js 20 via nvm"
+  - New Task 3b: "Implement JWT middleware" (depends on 3a)
+  Instead of just retrying the same task with a bigger model.
+```
+
+**File:** `src/execution/context.py` -- add `FAILURE_REPORT_PROMPT`.
 
 ```python
 FAILURE_REPORT_PROMPT = """\
-This task could not be completed. Produce a structured failure report:
+This task could not be completed. Before ending, produce a structured failure report.
 
-1. **Failure type**: incomplete | blocked | misdirected | error
-2. **What was attempted**: brief description of the approach
-3. **What was learned**: useful findings, file paths, partial results
+1. **Failure type**: one of:
+   - incomplete: ran out of turns or context before finishing
+   - blocked: missing dependency, access, or prerequisite
+   - misdirected: wrong approach, need to try something different
+   - error: tool failure, runtime error, or unexpected exception
+
+2. **What was attempted**: brief description of the approach taken
+
+3. **What was learned**: any useful findings, file paths, partial results,
+   or observations -- even if the task failed, partial work has value
+
 4. **Suggested next step**: what a replacement task should try differently
 
-Be specific. This report will be used by the replanner to generate a better replacement task."""
+Be specific and concrete. This report will be used by the replanner to
+generate a better replacement task. Vague reports produce vague replacements.
+Task: {task_description}
+Error: {error}"""
 ```
 
-**Used by:** The `PlanExecutor` when a node fails. The failure report is passed to the replanner as context for surgical replanning.
+**Where it's called:** In `_run_single_task()`, after `_run_child_with_escalation()` returns a failed result but before `_compress_result()`. The failure report replaces the normal compression for failed tasks:
+
+```python
+# In _run_single_task():
+if task_result.status == "failed":
+    # Ask the sub-agent for a structured failure report
+    failure_report = await self._get_failure_report(task, task_result)
+    summary = TaskSummary(
+        task_id=task.id,
+        task_description=task.title,
+        status="failed",
+        summary=failure_report,
+        key_outputs=[],
+    )
+else:
+    summary = await self._compress_result(task_result, task)
+```
+
+**Key detail:** The failure report prompt is sent to the sub-agent's existing session (not a new LLM call). The sub-agent still has its full conversation context -- it knows what it tried, what errors it saw, what files it read. This is the same pattern as Astro's merge conflict resolution (resume the agent session with a new prompt). If the session is not resumable (e.g., the agent crashed), fall back to a standalone LLM call with just the error message.
 
 ### Priority 3: Richer `agent` Tool Summaries
 
-The existing `agent` tool (sub-agent for focused investigation) should return a complete report, not just raw output. Update the agent tool's post-processing to use `COMPLETION_SUMMARY_PROMPT` before returning results to the parent agent.
+The existing `agent` tool (sub-agent for focused investigation) returns raw output. Update its post-processing to use `COMPLETION_SUMMARY_PROMPT` before returning results to the parent agent. This makes the `agent` tool behave like MiroFlow's `execute_subtask` -- returning a structured report instead of raw text.
 
 ---
 
