@@ -27,6 +27,7 @@ export const DeletableEdge = memo(function DeletableEdge({
   style,
   data,
   animated,
+  markerEnd,
 }: EdgeProps & { data?: DeletableEdgeData }) {
   const [hovered, setHovered] = useState(false)
   const hideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -72,6 +73,7 @@ export const DeletableEdge = memo(function DeletableEdge({
       <BaseEdge
         id={id}
         path={edgePath}
+        markerEnd={markerEnd}
         style={{
           ...style,
           stroke: hovered && !data?.readOnly ? "var(--destructive)" : style?.stroke,

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { Send, ChevronDown, Bot, CheckCircle2, Pencil, MessageSquare, Plus, History, Trash2, Sparkles, Paperclip, Square } from "lucide-react"
+import { Link } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -174,15 +175,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
   }, [createSession, projectId, setActiveSessionId])
 
 
-  // Handler for session delete
-  // The first (oldest) session is the "Planning" session — it shows plan generation
-  // history and is protected from deletion.
-  const planningSessionId = projectChatSessions[0]?.id
-
   const handleDeleteSession = useCallback((sessionId: string) => {
-    // Protect the planning session from deletion
-    if (sessionId === planningSessionId) return
-
     const isActiveSession = currentSession?.id === sessionId
 
     // Delete the session
@@ -202,21 +195,15 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
         clearActiveSessionId(projectId, "project-chat")
       }
     }
-  }, [currentSession?.id, deleteSession, projectChatSessions, projectId, setActiveSessionId, clearActiveSessionId, planningSessionId])
+  }, [currentSession?.id, deleteSession, projectChatSessions, projectId, setActiveSessionId, clearActiveSessionId])
 
-  // Handler to clear all sessions (preserves the planning session)
+  // Handler to clear all project-chat sessions.
   const handleClearAllSessions = useCallback(() => {
     for (const session of projectChatSessions) {
-      if (session.id === planningSessionId) continue
       deleteSession(session.id)
     }
-    // Switch back to the planning session
-    if (planningSessionId) {
-      setActiveSessionId(projectId, "project-chat", planningSessionId)
-    } else {
-      clearActiveSessionId(projectId, "project-chat")
-    }
-  }, [projectChatSessions, deleteSession, projectId, clearActiveSessionId, setActiveSessionId, planningSessionId])
+    clearActiveSessionId(projectId, "project-chat")
+  }, [projectChatSessions, deleteSession, projectId, clearActiveSessionId])
 
   const messages: (Message & { id: string })[] = (currentSession?.messages || []).map((m) => ({
     id: m.id,
@@ -232,37 +219,18 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     { legacySessionMessages: sessionMessages, projectId },
   )
 
-  // Plan gen execution events — only show in the first (original) session that was
-  // created alongside plan generation. When the user creates a "New Session", it
-  // should start clean without inheriting plan generation history.
-  const isFirstSession = projectChatSessions.length > 0 && currentSession?.id === projectChatSessions[0]?.id
-  const planExecutionId = isFirstSession ? planExecution?.executionId : undefined
-
-  const { activityEvents: planActivityEvents, displayBlocks: planBlocks } = useStreamEvents(
-    planExecutionId,
-  )
-
-  // Combine plan gen execution events + session chat events
-  const displayBlocks = useMemo(() => {
-    if (planBlocks.length === 0) return sessionDisplayBlocks
-    if (sessionDisplayBlocks.length > 0) {
-      return [...planBlocks, ...sessionDisplayBlocks]
-    }
-    return planBlocks
-  }, [planBlocks, sessionDisplayBlocks])
+  const displayBlocks = sessionDisplayBlocks
   const answeredApprovals = useMemo(() => {
     const ids = new Set<string>()
     const responses = new Map<string, Extract<TaskActivityEvent, { type: 'approval_response' }>>()
-    // Scan both session events AND plan execution events (approvals during plan
-    // generation are persisted under the execution ID, not the chat session ID)
-    for (const event of [...sessionActivityEvents, ...planActivityEvents]) {
+    for (const event of sessionActivityEvents) {
       if (event.type === 'approval_response') {
         ids.add(event.requestId)
         responses.set(event.requestId, event)
       }
     }
     return { answeredApprovals: ids, approvalResponses: responses }
-  }, [sessionActivityEvents, planActivityEvents])
+  }, [sessionActivityEvents])
 
   // Project store — for file tree and working directory
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
@@ -456,6 +424,14 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4 border-b border-border/60">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold">Project Chat</span>
+          <Link
+            to={`/welcome?projectId=${projectId}`}
+            className="flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors"
+            title="Open planning session"
+          >
+            <Sparkles className="h-3 w-3" />
+            <span>Plan</span>
+          </Link>
           {/* Session metadata */}
           {messages.length > 0 && (
             <span className="text-[10px] text-muted-foreground tabular-nums">
@@ -497,8 +473,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                 <DropdownMenuSeparator />
                 {[...projectChatSessions].reverse().map((session) => {
                   const messageCount = session.messageCount ?? session.messages.length
-                  const isPlanningSession = session.id === planningSessionId
-                  const sessionTitle = isPlanningSession ? "Planning" : getSessionTitle(session)
+                  const sessionTitle = getSessionTitle(session)
                   const isActive = currentSession?.id === session.id
                   return (
                     <div
@@ -507,8 +482,8 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                       className="flex flex-col items-start gap-0.5 py-2 px-2 rounded-sm cursor-pointer hover:bg-accent transition-colors"
                     >
                       <div className="flex items-center gap-2 w-full">
-                        {isPlanningSession ? <Sparkles className="h-3 w-3 shrink-0 text-primary" /> : <MessageSquare className="h-3 w-3 shrink-0" />}
-                        {!isPlanningSession && renamingSessionId === session.id ? (
+                        <MessageSquare className="h-3 w-3 shrink-0" />
+                        {renamingSessionId === session.id ? (
                           <div className="flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
                             <InlineRenameInput
                               value={sessionTitle}
@@ -523,9 +498,9 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                           </div>
                         ) : (
                           <span
-                            className={`text-xs truncate flex-1 ${isPlanningSession ? "font-medium" : ""}`}
+                            className="text-xs truncate flex-1"
                             title={sessionTitle}
-                            onDoubleClick={isPlanningSession ? undefined : (e) => {
+                            onDoubleClick={(e) => {
                               e.stopPropagation()
                               setRenamingSessionId(session.id)
                             }}
@@ -536,7 +511,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                         {isActive && renamingSessionId !== session.id && (
                           <CheckCircle2 className="h-3 w-3 text-primary shrink-0" />
                         )}
-                        {!isPlanningSession && renamingSessionId !== session.id && (
+                        {renamingSessionId !== session.id && (
                           <button
                             onClick={(e) => { e.stopPropagation(); setRenamingSessionId(session.id) }}
                             className="p-1.5 hover:bg-accent rounded opacity-60 [@media(hover:hover)]:opacity-40 hover:opacity-100 transition-opacity"
@@ -545,18 +520,16 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
                         )}
-                        {!isPlanningSession && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.id) }}
-                            className="p-1.5 hover:bg-destructive/10 rounded opacity-60 [@media(hover:hover)]:opacity-40 hover:opacity-100 transition-opacity text-destructive"
-                            title="Delete session"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        )}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.id) }}
+                          className="p-1.5 hover:bg-destructive/10 rounded opacity-60 [@media(hover:hover)]:opacity-40 hover:opacity-100 transition-opacity text-destructive"
+                          title="Delete session"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                       <span className="text-[10px] text-muted-foreground truncate w-full pl-5">
-                        {isPlanningSession ? "Plan generation history" : `${messageCount} messages`}
+                        {`${messageCount} messages`}
                       </span>
                     </div>
                   )

@@ -50,7 +50,7 @@ export function useChatSession({ projectId, type, nodeId }: UseChatSessionOption
         // When nodeId is provided, match on nodeId (task-chat, playground)
         if (session.nodeId !== nodeId) continue
       } else {
-        // When no nodeId, match on projectId (project-chat)
+        // When no nodeId, match on projectId (project-chat, plan-generation)
         if (session.projectId !== projectId) continue
       }
       if (!latest || session.createdAt > latest.createdAt) latest = session
