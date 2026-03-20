@@ -308,7 +308,10 @@ app.patch('/projects/:id', async (c) => {
   await db.update(projects).set(patch).where(
     and(eq(projects.id, id), allTeamsScopeFilter(projects, user))
   )
-  const [updated] = await db.select().from(projects).where(eq(projects.id, id))
+  const [updated] = await db.select().from(projects).where(
+    and(eq(projects.id, id), allTeamsScopeFilter(projects, user))
+  )
+  if (!updated) return c.json({ error: 'Not found' }, 404)
   return c.json(updated)
 })
 

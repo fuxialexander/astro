@@ -112,8 +112,8 @@ class StreamingEventLog {
         return row.seq
       })
     } catch (err) {
-      console.warn('[streaming-event-log] Failed to append terminal event:', (err as Error).message)
-      return 0
+      console.error('[streaming-event-log] Failed to append terminal event:', (err as Error).message)
+      throw err
     }
   }
 

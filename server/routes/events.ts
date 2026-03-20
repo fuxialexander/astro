@@ -67,7 +67,7 @@ async function isProjectAccessibleToUser(
   user: AuthUser | undefined,
   projectId: string,
 ): Promise<boolean> {
-  if (!user?.id) return true
+  if (!user?.id) return false
 
   try {
     const [project] = await db.select({ id: projects.id }).from(projects).where(
@@ -202,7 +202,7 @@ eventsRoute.get('/stream', async (c) => {
     const canAccessTaskContext = async (
       ctx: ResolvedExecutionContext | null,
     ): Promise<boolean> => {
-      if (!user?.id) return true
+      if (!user?.id) return false
       if (!ctx?.projectId) return false
       return isProjectOwnedByUser(ctx.projectId)
     }

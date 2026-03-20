@@ -97,7 +97,8 @@ export function ActivityBlockRenderer({
     <>
       {blocks.map((block, i) => {
         const isLast = i === blocks.length - 1
-        const key = `block-${i}-${block.type}`
+        const key = block.events[0]?.seq?.toString()
+          ?? `block-${i}-${block.type}`
 
         switch (block.type) {
           case 'text':

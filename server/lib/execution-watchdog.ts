@@ -40,8 +40,8 @@ const DEFAULT_WATCHDOG_CONFIG: WatchdogConfig = {
 }
 
 const LEADER_NAME = 'execution-watchdog'
-/** Leader lock TTL — slightly longer than check interval for overlap safety */
-const LEADER_TTL_SECONDS = 600 // 10 minutes (2× the 5-minute interval)
+/** Leader lock TTL — 3× the check interval for overlap safety */
+const LEADER_TTL_SECONDS = 180 // 3 minutes (3× the 60-second interval)
 
 let watchdogTimer: ReturnType<typeof setInterval> | null = null
 let config: WatchdogConfig = DEFAULT_WATCHDOG_CONFIG
@@ -98,6 +98,7 @@ async function hasTerminalEvent(executionId: string): Promise<boolean> {
         and(
           eq(streamingEvents.executionId, executionId),
           inArray(streamingEvents.eventType, ['result', 'error']),
+          isNull(streamingEvents.deletedAt),
         ),
       )
       .limit(1)
@@ -153,6 +154,7 @@ async function closeTimedOutStreams(cutoffTime: Date): Promise<number> {
   const rows = await db.execute(sql`
     SELECT execution_id AS "executionId"
     FROM streaming_events
+    WHERE deleted_at IS NULL
     GROUP BY execution_id
     HAVING MAX(created_at) < ${cutoffTime}
       AND BOOL_OR(event_type IN ('result', 'error')) = FALSE

@@ -275,9 +275,11 @@ export function UnifiedActivityView({
     })
   }
 
-  const resolvedMachineIdForCanSteer = machineId
-    || useExecutionStore.getState().getExecution(node.id)?.machineId
-    || useRealtimeStore.getState().taskStreams.get(executionId)?.machineId
+  const execMachineId = useExecutionStore(s => s.executions.get(node.id)?.machineId)
+  const streamMachineId = useRealtimeStore(s =>
+    executionId ? s.taskStreams.get(executionId)?.machineId : undefined
+  )
+  const resolvedMachineIdForCanSteer = machineId || execMachineId || streamMachineId
   const canSteer = (isRunning || (execution?.status === "success" && !!execution?.sessionId)) && !!resolvedMachineIdForCanSteer
 
   function handleSend(interrupt = false) {
