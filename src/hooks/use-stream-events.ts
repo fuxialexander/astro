@@ -95,6 +95,7 @@ export function useStreamEvents(
   // Track hydration state
   const hydratedRef = useRef<string | null>(null)
   const [catchUpCompletedId, setCatchUpCompletedId] = useState<string | null>(null)
+  const latestPersistedSeqRef = useRef(0)
   const latestPersistedSeq = useMemo(() => {
     let maxSeq = 0
     for (const event of taskStream?.activityEvents ?? []) {
@@ -108,6 +109,7 @@ export function useStreamEvents(
     }
     return maxSeq
   }, [taskStream?.activityEvents, taskStream?.toolTraces, taskStream?.fileChanges])
+  latestPersistedSeqRef.current = latestPersistedSeq
 
   // Hydrate from streaming_events on mount / streamId change
   useEffect(() => {
@@ -125,17 +127,11 @@ export function useStreamEvents(
 
   // When the tab becomes visible again, catch up just this mounted stream.
   // This covers chat streams that aren't part of the global SSE reconnect sweep.
-  // Skip catch-up if the stream is actively running — live SSE is delivering events
-  // and catch-up hydration can race with the SSE bus, dropping the latest unflushed
-  // text events (the "flash and disappear" bug).
   useEffect(() => {
     if (!streamId || typeof document === "undefined") return
 
     const handleVisibilityChange = () => {
       if (document.visibilityState !== "visible") return
-      // Skip if stream is actively running — SSE is current, no need to catch up
-      const stream = useRealtimeStore.getState().taskStreams.get(streamId)
-      if (stream?.status === 'running' || stream?.status === 'in_progress') return
       hydrateFromCatchUp([streamId], latestPersistedSeq).catch((err) => {
         console.warn('[useStreamEvents] visibility catch-up failed for', streamId, err)
       })
@@ -144,6 +140,26 @@ export function useStreamEvents(
     document.addEventListener("visibilitychange", handleVisibilityChange)
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange)
   }, [streamId, latestPersistedSeq, hydrateFromCatchUp])
+
+  // Periodic catch-up hydration while stream is actively running.
+  // Live SSE only updates `stdout`; activityEvents text comes from DB.
+  // Poll every 3s to backfill activity events with persisted text chunks.
+  // The server-side catch-up endpoint flushes pending text before querying,
+  // so each poll picks up recently streamed text.
+  const streamStatus = taskStream?.status
+  useEffect(() => {
+    if (!streamId) return
+    if (streamStatus !== 'running' && streamStatus !== 'in_progress') return
+
+    const interval = setInterval(() => {
+      const seq = latestPersistedSeqRef.current
+      hydrateFromCatchUp([streamId], seq).catch((err) => {
+        console.warn('[useStreamEvents] periodic catch-up failed for', streamId, err)
+      })
+    }, 3000)
+
+    return () => clearInterval(interval)
+  }, [streamId, streamStatus, hydrateFromCatchUp])
 
 
   // Build activity events — merge taskStream with execution store and legacy fallback
