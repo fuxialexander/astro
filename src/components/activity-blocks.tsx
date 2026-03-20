@@ -5,7 +5,7 @@
  * and task detail views can share the same rendering components.
  */
 
-import React, { useState, useRef, useCallback, useEffect } from "react"
+import React, { useState, useRef, useCallback } from "react"
 import {
   Loader2,
   CheckCircle2,
@@ -529,14 +529,9 @@ function hasRenderableResult(toolResult: Extract<TaskActivityEvent, { type: 'too
 export function ToolBlock({ events, isRunning }: { events: TaskActivityEvent[]; isRunning?: boolean }) {
   const toolUse = events.find((e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> => e.type === 'tool_use')
   const toolResult = events.find((e): e is Extract<TaskActivityEvent, { type: 'tool_result' }> => e.type === 'tool_result')
-  const [expanded, setExpanded] = useState(() => shouldAutoExpand(toolUse) || hasRenderableResult(toolResult))
-
-  // Auto-expand once a renderable result arrives (tool was running when mounted)
-  useEffect(() => {
-    if (!expanded && hasRenderableResult(toolResult)) {
-      setExpanded(true)
-    }
-  }, [toolResult, expanded])
+  const autoExpand = shouldAutoExpand(toolUse) || hasRenderableResult(toolResult)
+  const [manualCollapsed, setManualCollapsed] = useState(false)
+  const expanded = manualCollapsed ? false : autoExpand
 
   if (!toolUse) return null
 
@@ -546,7 +541,7 @@ export function ToolBlock({ events, isRunning }: { events: TaskActivityEvent[]; 
   return (
     <div className="mx-4 my-0.5">
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => setManualCollapsed(expanded)}
         className="flex items-center gap-1.5 w-full px-2 py-1 text-left hover:bg-muted/30 rounded transition-colors cursor-pointer group"
       >
         <div className={cn("flex h-3.5 w-3.5 items-center justify-center shrink-0", colorClass)}>
@@ -614,22 +609,16 @@ export function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEven
     toolPairs.push({ toolUse, toolResult })
   }
 
-  const [expanded, setExpanded] = useState(() =>
-    toolPairs.some((p) => shouldAutoExpand(p.toolUse) || hasRenderableResult(p.toolResult))
-  )
-
-  useEffect(() => {
-    if (!expanded && toolPairs.some((p) => hasRenderableResult(p.toolResult))) {
-      setExpanded(true)
-    }
-  }, [toolPairs, expanded])
+  const autoExpand = toolPairs.some((p) => shouldAutoExpand(p.toolUse) || hasRenderableResult(p.toolResult))
+  const [manualCollapsed, setManualCollapsed] = useState(false)
+  const expanded = manualCollapsed ? false : autoExpand
 
   if (toolPairs.length === 0) return null
 
   return (
     <div className="mx-4 my-0.5">
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => setManualCollapsed(expanded)}
         className="flex items-center gap-1.5 w-full px-2 py-1 text-left hover:bg-muted/30 rounded transition-colors cursor-pointer group"
       >
         <div className="flex items-center gap-1 flex-1 min-w-0">
