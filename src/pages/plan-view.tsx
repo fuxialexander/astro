@@ -2307,7 +2307,11 @@ export function PlanView() {
           <span>
             Press <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">I</kbd> to toggle fast edit,{" "}
             <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">Enter</kbd> to confirm,{" "}
-            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">Esc</kbd> to exit
+            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">Esc</kbd> to exit.{" "}
+            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">1</kbd>{" "}
+            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">2</kbd>{" "}
+            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">3</kbd>{" "}
+            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">4</kbd> to switch views
           </span>
           <button
             type="button"
