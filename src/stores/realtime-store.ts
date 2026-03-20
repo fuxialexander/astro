@@ -235,10 +235,12 @@ function flushRealtimeText(
   set((state) => {
     const streams = new Map(state.taskStreams)
     const existing = streams.get(execId) || createEmptyTaskStream(execId)
+    // Only update stdout from live SSE text. Activity events are populated
+    // exclusively from DB hydration (periodic catch-up) to avoid duplication
+    // between live SSE text and DB-persisted text batches.
     const stream = {
       ...existing,
       stdout: existing.stdout + text,
-      activityEvents: [...existing.activityEvents, { type: 'text' as const, content: text, timestamp: new Date() }],
     }
     streams.set(execId, stream)
     return { taskStreams: streams }
@@ -609,10 +611,14 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               .map(e => e.content)
               .join('')
 
+            // Use the longer stdout — live SSE updates stdout ahead of DB flushes,
+            // so existing.stdout may contain unflushed text beyond what's in mergedStdout.
+            const bestStdout = existing.stdout.length >= mergedStdout.length ? existing.stdout : mergedStdout
+
             streams.set(execId, {
               ...existing,
               ...metadata,
-              stdout: mergedStdout || existing.stdout,
+              stdout: bestStdout,
               activityEvents: mergedActivity,
               // Use mergeBySeq to deduplicate toolTraces and fileChanges. When the
               // heartbeat fires with an empty text buffer (textSeq = null), lastSeq is
@@ -631,10 +637,13 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
             const mergedActivity = mergeBySeq(hydrated.activityEvents, existing.activityEvents)
             const mergedToolTraces = mergeBySeq(hydrated.toolTraces, existing.toolTraces)
             const mergedFileChanges = mergeBySeq(hydrated.fileChanges, existing.fileChanges)
+            // Use the longer stdout — live SSE may be ahead of DB-persisted text
+            const bestStdout = existing.stdout.length >= (hydrated.stdout || '').length
+              ? existing.stdout : (hydrated.stdout || existing.stdout)
             streams.set(execId, {
               ...existing,
               ...metadata,
-              stdout: hydrated.stdout || existing.stdout,
+              stdout: bestStdout,
               activityEvents: mergedActivity,
               toolTraces: mergedToolTraces,
               fileChanges: mergedFileChanges,
@@ -1089,22 +1098,8 @@ function handleRealtimeEvent(
     }
 
     case 'task:operational': {
-      const execId = data.taskId as string
-      const message = data.message as string
-      const source = ((data.source as string) || 'astro') as 'astro' | 'git' | 'delivery'
-      const seq = event.id ? parseInt(event.id, 10) : undefined
-      set((state) => {
-        const streams = new Map(state.taskStreams)
-        const existing = streams.get(execId) || createEmptyTaskStream(execId)
-        streams.set(execId, {
-          ...existing,
-          activityEvents: [
-            ...existing.activityEvents,
-            { type: 'operational' as const, message, source, timestamp: new Date(), ...(seq && !isNaN(seq) ? { seq } : {}) },
-          ],
-        })
-        return { taskStreams: streams }
-      })
+      // Operational events are persisted to DB and will appear in activityEvents
+      // via periodic catch-up hydration. No live push to activityEvents needed.
       break
     }
 
@@ -1296,26 +1291,20 @@ function handleRealtimeEvent(
       const hasInput = data.toolInput !== undefined
       const hasResult = data.toolResult !== undefined
 
+      // Activity events (tool_use/tool_result) are populated exclusively from
+      // DB hydration (periodic catch-up) to avoid duplication. Only update
+      // toolTraces and plan metadata from live SSE.
       set((state) => {
         const streams = new Map(state.taskStreams)
         const existing = streams.get(execId) || createEmptyTaskStream(execId)
 
-        // Build new arrays (avoid mutating existing references)
         let newToolTraces = [...existing.toolTraces]
-        let newActivityEvents = [...existing.activityEvents]
         let newPlanTodos = existing.planTodos
         let newPlanQuestions = existing.planQuestions
 
-        // Determine if this is a tool_use event (has input) or tool_result event (has result only).
-        // The relay sends separate task:tool_trace SSE events for tool_use and tool_result.
-        // We need to match them by toolName and reuse the ID from tool_use, same strategy
-        // as execution-store.ts uses for local dispatch.
         const isResultOnly = hasResult && !hasInput
 
-        const toolUseId = data.toolUseId as string | undefined
-
         if (isResultOnly) {
-          // Result-only event: find the last matching trace by toolName and update it
           const lastTraceIdx = [...newToolTraces].reverse().findIndex(t => t.toolName === toolName && !t.toolResult)
           if (lastTraceIdx >= 0) {
             const idx = newToolTraces.length - 1 - lastTraceIdx
@@ -1326,7 +1315,6 @@ function handleRealtimeEvent(
               duration: data.duration as number | undefined,
             }
           } else {
-            // No matching tool_use found — create a standalone trace
             newToolTraces.push({
               toolName,
               toolInput: undefined,
@@ -1336,44 +1324,7 @@ function handleRealtimeEvent(
               timestamp: now,
             })
           }
-
-          // Find the matching tool_use activity event to reuse its ID.
-          // Match by toolUseId first (exact), fall back to toolName (best-effort).
-          let matchingUse: Extract<TaskActivityEvent, { type: 'tool_use' }> | undefined
-          if (toolUseId) {
-            matchingUse = newActivityEvents.find(
-              (e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> =>
-                e.type === 'tool_use' && e.id === toolUseId
-            )
-          }
-          if (!matchingUse) {
-            const pairedResultIds = new Set(
-              newActivityEvents
-                .filter((e): e is Extract<TaskActivityEvent, { type: 'tool_result' }> => e.type === 'tool_result')
-                .map(e => e.id)
-            )
-            matchingUse = [...newActivityEvents].reverse().find(
-              (e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> =>
-                e.type === 'tool_use' && e.toolName === toolName && !pairedResultIds.has(e.id)
-            )
-          }
-          const resultId = matchingUse?.id || `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
-
-          newActivityEvents = [
-            ...newActivityEvents,
-            {
-              type: 'tool_result' as const,
-              id: resultId,
-              toolName,
-              toolResult: data.toolResult,
-              success: data.success as boolean | undefined,
-              duration: data.duration as number | undefined,
-              timestamp: now,
-            },
-          ]
         } else {
-          // Input event (tool_use) or combined event (has both input and result)
-          const traceId = toolUseId || `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
           newToolTraces = [
             ...newToolTraces,
             {
@@ -1384,19 +1335,6 @@ function handleRealtimeEvent(
               duration: data.duration as number | undefined,
               timestamp: now,
             },
-          ]
-          newActivityEvents = [
-            ...newActivityEvents,
-            { type: 'tool_use' as const, id: traceId, toolName, toolInput: data.toolInput, timestamp: now },
-            ...(hasResult ? [{
-              type: 'tool_result' as const,
-              id: traceId,
-              toolName,
-              toolResult: data.toolResult,
-              success: data.success as boolean | undefined,
-              duration: data.duration as number | undefined,
-              timestamp: now,
-            }] : []),
           ]
         }
 
@@ -1426,20 +1364,19 @@ function handleRealtimeEvent(
         streams.set(execId, {
           ...existing,
           toolTraces: newToolTraces,
-          activityEvents: newActivityEvents,
           planTodos: newPlanTodos,
           planQuestions: newPlanQuestions,
         })
         return { taskStreams: streams }
       })
-      // NOTE: No dual-write to execution store - realtime events stay in realtime store only
-      // The UI will use either execution store (for local dispatch) OR realtime store (for relay)
       break
     }
 
     case 'task:file_change': {
       const execId = data.taskId as string
       const now = new Date()
+      // Activity events are populated from DB hydration only.
+      // Only update fileChanges from live SSE.
       set((state) => {
         const streams = new Map(state.taskStreams)
         const existing = streams.get(execId) || createEmptyTaskStream(execId)
@@ -1451,15 +1388,6 @@ function handleRealtimeEvent(
             linesAdded: data.linesAdded as number | undefined,
             linesRemoved: data.linesRemoved as number | undefined,
             diff: data.diff as string | undefined,
-            timestamp: now,
-          }],
-          activityEvents: [...existing.activityEvents, {
-            type: 'file_change' as const,
-            path: data.path as string,
-            action: data.action as string,
-            diff: data.diff as string | undefined,
-            linesAdded: data.linesAdded as number | undefined,
-            linesRemoved: data.linesRemoved as number | undefined,
             timestamp: now,
           }],
         })

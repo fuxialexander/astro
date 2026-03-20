@@ -5,7 +5,11 @@
  * the caller uses watchStream() to react to events arriving via the global SSE bus.
  *
  * Events are delivered by the relay → global SSE bus → realtime-store → taskStreams.
- * This watcher processes new activity events and detects terminal status transitions.
+ * This watcher processes new events and detects terminal status transitions.
+ *
+ * Live SSE only updates specialized fields (stdout, toolTraces, fileChanges, status).
+ * activityEvents are populated from DB hydration only. So this watcher reads from
+ * the specialized fields for real-time callbacks.
  */
 
 import { useRealtimeStore } from "@/stores/realtime-store"
@@ -31,7 +35,8 @@ export function watchStream(
   streamId: string,
   callbacks: StreamWatcherCallbacks,
 ): () => void {
-  let processedEventCount = 0
+  let prevStdoutLen = 0
+  let prevToolTraceCount = 0
   let prevStatus: string | undefined
   let done = false
 
@@ -40,15 +45,21 @@ export function watchStream(
     const stream = state.taskStreams.get(streamId)
     if (!stream) return
 
-    // Process new activity events
-    const events = stream.activityEvents
-    for (let i = processedEventCount; i < events.length; i++) {
-      const e = events[i]
-      if (e.type === "text") callbacks.onTextChunk?.((e as { content: string }).content)
-      if (e.type === "tool_use") callbacks.onToolUse?.((e as { toolName: string }).toolName)
-      if (e.type === "tool_result") callbacks.onToolResult?.((e as { toolName: string }).toolName)
+    // Text: track stdout growth (live SSE updates stdout directly)
+    if (stream.stdout.length > prevStdoutLen) {
+      const newText = stream.stdout.slice(prevStdoutLen)
+      prevStdoutLen = stream.stdout.length
+      callbacks.onTextChunk?.(newText)
     }
-    processedEventCount = events.length
+
+    // Tools: track toolTraces growth (live SSE updates toolTraces directly)
+    const traces = stream.toolTraces
+    for (let i = prevToolTraceCount; i < traces.length; i++) {
+      const t = traces[i]
+      if (t.toolInput !== undefined) callbacks.onToolUse?.(t.toolName)
+      if (t.toolResult !== undefined) callbacks.onToolResult?.(t.toolName)
+    }
+    prevToolTraceCount = traces.length
 
     // Terminal status detection
     if (stream.status && stream.status !== prevStatus) {
