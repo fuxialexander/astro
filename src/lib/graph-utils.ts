@@ -6,6 +6,91 @@ const MILESTONE_WIDTH = 240
 const MILESTONE_HEIGHT = 36
 const VERTICAL_GAP = 60
 const HORIZONTAL_GAP = 40
+const DEFAULT_NUMBER_SORT = Number.MAX_SAFE_INTEGER
+
+function byExecutionOrder(a: Pick<PlanNode, "number" | "createdAt" | "title" | "id">, b: Pick<PlanNode, "number" | "createdAt" | "title" | "id">): number {
+  const numberDiff = (a.number ?? DEFAULT_NUMBER_SORT) - (b.number ?? DEFAULT_NUMBER_SORT)
+  if (numberDiff !== 0) return numberDiff
+
+  const createdAtDiff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  if (createdAtDiff !== 0) return createdAtDiff
+
+  return a.title.localeCompare(b.title) || a.id.localeCompare(b.id)
+}
+
+function orderTasksWithinMilestone(
+  tasks: PlanNode[],
+  edges: PlanEdge[],
+): PlanNode[] {
+  if (tasks.length <= 1) return tasks
+
+  const taskMap = new Map(tasks.map((task) => [task.id, task]))
+  const inDegree = new Map<string, number>()
+  const children = new Map<string, Set<string>>()
+
+  for (const task of tasks) {
+    inDegree.set(task.id, 0)
+    children.set(task.id, new Set())
+  }
+
+  const candidateEdges = new Set<string>()
+
+  for (const edge of edges) {
+    if (taskMap.has(edge.source) && taskMap.has(edge.target)) {
+      candidateEdges.add(`${edge.source}->${edge.target}`)
+    }
+  }
+
+  for (const task of tasks) {
+    for (const dependencyId of task.dependencies) {
+      if (taskMap.has(dependencyId)) {
+        candidateEdges.add(`${dependencyId}->${task.id}`)
+      }
+    }
+  }
+
+  for (const encodedEdge of candidateEdges) {
+    const [sourceId, targetId] = encodedEdge.split("->")
+    const childSet = children.get(sourceId)
+    if (!childSet || childSet.has(targetId)) continue
+
+    childSet.add(targetId)
+    inDegree.set(targetId, (inDegree.get(targetId) ?? 0) + 1)
+  }
+
+  const ready = tasks
+    .filter((task) => (inDegree.get(task.id) ?? 0) === 0)
+    .sort(byExecutionOrder)
+  const ordered: PlanNode[] = []
+
+  while (ready.length > 0) {
+    const current = ready.shift()
+    if (!current) break
+
+    ordered.push(current)
+
+    for (const childId of children.get(current.id) ?? []) {
+      const nextInDegree = (inDegree.get(childId) ?? 0) - 1
+      inDegree.set(childId, nextInDegree)
+
+      if (nextInDegree === 0) {
+        ready.push(taskMap.get(childId)!)
+      }
+    }
+
+    ready.sort(byExecutionOrder)
+  }
+
+  if (ordered.length === tasks.length) {
+    return ordered
+  }
+
+  const remaining = tasks
+    .filter((task) => !ordered.some((orderedTask) => orderedTask.id === task.id))
+    .sort(byExecutionOrder)
+
+  return [...ordered, ...remaining]
+}
 
 /**
  * Check if a proposed position overlaps with any existing node.
@@ -117,15 +202,14 @@ export function layoutGraph(
 
 /**
  * Milestone-column layout: each milestone gets its own vertical column.
- * Milestone sits at the top; tasks stack below with the highest-numbered
- * task just below the milestone and the lowest-numbered task at the bottom.
+ * Milestone sits at the top; tasks stack below in dependency-aware execution order,
+ * with lower-numbered tasks biased earlier when no dependency forces a different order.
  * Columns are ordered left-to-right by milestone number.
  * Tasks without a milestone go in an "orphan" column on the right.
  */
 function layoutGraphMilestoneColumns(
   nodes: PlanNode[],
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _edges: PlanEdge[],
+  edges: PlanEdge[],
 ): Map<string, { x: number; y: number }> {
   const positions = new Map<string, { x: number; y: number }>()
 
@@ -151,9 +235,10 @@ function layoutGraphMilestoneColumns(
     }
   }
 
-  // Sort tasks within each milestone by number ascending
+  // Order tasks within each milestone by dependency flow first, then by execution order.
   for (const [, groupTasks] of tasksByMilestone) {
-    groupTasks.sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
+    const orderedTasks = orderTasksWithinMilestone(groupTasks, edges)
+    groupTasks.splice(0, groupTasks.length, ...orderedTasks)
   }
 
   const COLUMN_STRIDE = MILESTONE_WIDTH + HORIZONTAL_GAP * 2
@@ -170,12 +255,9 @@ function layoutGraphMilestoneColumns(
     // Milestone at the top
     positions.set(milestone.id, { x: colX, y: margin })
 
-    // Tasks below: highest number just below milestone, lowest number at bottom.
-    // columnTasks is sorted ascending by number [1, 2, 3].
-    // We reverse for placement: [3, 2, 1] — index 0 goes just below milestone.
-    const reversed = [...columnTasks].reverse()
-    for (let i = 0; i < reversed.length; i++) {
-      positions.set(reversed[i].id, {
+    // Tasks flow downward in execution order, with dependencies appearing above dependents.
+    for (let i = 0; i < columnTasks.length; i++) {
+      positions.set(columnTasks[i].id, {
         x: colX + taskXOffset,
         y: margin + MILESTONE_HEIGHT + VERTICAL_GAP + i * ROW_HEIGHT,
       })
@@ -186,7 +268,7 @@ function layoutGraphMilestoneColumns(
 
   // Orphan tasks in a column on the right
   if (orphanTasks.length > 0) {
-    orphanTasks.sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
+    orphanTasks.sort(byExecutionOrder)
     const colX = margin + colIndex * COLUMN_STRIDE + taskXOffset
     for (let i = 0; i < orphanTasks.length; i++) {
       positions.set(orphanTasks[i].id, {

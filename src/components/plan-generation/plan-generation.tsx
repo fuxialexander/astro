@@ -69,9 +69,10 @@ export function PlanGeneration({
   const addSteerMessage = useRealtimeStore((s) => s.addSteerMessage)
 
   // ─── Shared Hooks ─────────────────────────────────────────────────
-  // Chat session (post-completion follow-up)
+  // Chat session (post-completion follow-up). This stays in its own
+  // plan-generation session instead of merging into project-chat.
   const { chatSession, isChatStreaming, addMessage, sendChatMessage, abortChatStream } =
-    useChatSession({ projectId, type: "project-chat", nodeId })
+    useChatSession({ projectId, type: "plan-generation" })
 
   // Plan context for API calls
   const { planNodes, planNodeContext, planEdgeContext } = usePlanContext(projectId)
@@ -270,6 +271,7 @@ export function PlanGeneration({
       planNodes: planNodeContext,
       planEdges: planEdgeContext,
       messages: historyMessages,
+      taskType: "plan",
     })
   }
 

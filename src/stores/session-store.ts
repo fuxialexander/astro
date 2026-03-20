@@ -89,6 +89,8 @@ export interface SendChatMessageParams {
   messages?: Array<{ role: 'user' | 'assistant'; content: string }>
   /** Blob IDs for attached images (multimodal chat) */
   imageRefs?: string[]
+  /** Override pathway mode when reusing /api/agent/project-chat */
+  taskType?: 'plan' | 'execution'
   /** @internal Set by queue drain — skips duplicate chat_user event push */
   _fromQueue?: boolean
 }
@@ -753,7 +755,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   sendChatMessage: (params) => {
-    const { sessionId: sid, projectId, message, visionDoc, model, providerId, planNodes, planEdges, messages, imageRefs, _fromQueue } = params
+    const { sessionId: sid, projectId, message, visionDoc, model, providerId, planNodes, planEdges, messages, imageRefs, taskType, _fromQueue } = params
     const session = get().sessions.get(sid)
     if (!session) return
 
@@ -949,6 +951,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         planEdges,
         messages,
         imageRefs,
+        taskType: taskType || (session.type === 'plan-generation' ? 'plan' : undefined),
       },
       abortController.signal,
     ).catch((err) => {
