@@ -14,8 +14,8 @@ import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, ProviderType, ImageAttachment } from '../types/relay.js'
 import { db } from '../lib/db/index.js'
-import { projects, registeredMachines, machineInstructions, blobs } from '../lib/db/schema.js'
-import { eq, and, inArray } from 'drizzle-orm'
+import { projects, taskExecutions, registeredMachines, machineInstructions, blobs } from '../lib/db/schema.js'
+import { eq, and, inArray, isNull } from 'drizzle-orm'
 
 const DEFAULT_INSTRUCTION_ID = 'builtin:default'
 
@@ -311,7 +311,8 @@ async function fetchImageBlobs(imageRefs: string[], user: AuthUser): Promise<{ i
       filename: blobs.filename,
     }).from(blobs).where(and(
       inArray(blobs.id, imageRefs),
-      inArray(blobs.teamId, user.teamIds)
+      inArray(blobs.teamId, user.teamIds),
+      isNull(blobs.deletedAt)
     ))
     const images = blobRows.map(row => ({
       blobId: row.id,

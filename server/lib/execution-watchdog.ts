@@ -73,6 +73,7 @@ async function hasRecentEvents(executionId: string, cutoffTime: Date): Promise<b
         and(
           eq(streamingEvents.executionId, executionId),
           gt(streamingEvents.createdAt, cutoffTime),
+          isNull(streamingEvents.deletedAt),
         )
       )
       .limit(1)

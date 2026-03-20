@@ -462,9 +462,9 @@ dispatchRoute.post('/task', async (c) => {
   let loopStatus: string | null | undefined
   let loopCurrentIteration: number | null | undefined
   try {
-    // Fetch plan node
+    // Fetch plan node (exclude soft-deleted)
     const [dbNode] = await db.select().from(planNodes)
-      .where(eq(planNodes.clientId, nodeId)).limit(1)
+      .where(and(eq(planNodes.clientId, nodeId), isNull(planNodes.deletedAt))).limit(1)
     // Fetch project (team-scoped: verify the user has access)
     const [dbProject] = await db.select().from(projects)
       .where(and(
@@ -517,7 +517,7 @@ dispatchRoute.post('/task', async (c) => {
           markdownSummary: taskExecutions.markdownSummary,
         }).from(planNodes)
           .leftJoin(taskExecutions, eq(planNodes.executionId, taskExecutions.executionId))
-          .where(eq(planNodes.projectId, projectId))
+          .where(and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
 
         // Per-dep cap for raw output fallback (chars). markdownSummary is used as-is when present.
         const DEP_RAW_FALLBACK_CAP = 4000
@@ -1053,7 +1053,7 @@ async function dispatchViaRelay(
 
     // Inject project knowledge entries (capped at 16000 chars, most recent first)
     try {
-      const knowledgeRows = await db.select().from(projectKnowledge).where(eq(projectKnowledge.projectId, projectId))
+      const knowledgeRows = await db.select().from(projectKnowledge).where(and(eq(projectKnowledge.projectId, projectId), isNull(projectKnowledge.deletedAt)))
       if (knowledgeRows.length > 0) {
         const capped = capKnowledgeEntries(knowledgeRows, 16000)
         if (capped.length > 0) {
@@ -1369,7 +1369,8 @@ ${verificationSection}${executiveSummarySection}`)
         filename: blobs.filename,
       }).from(blobs).where(and(
         inArray(blobs.id, imageRefs),
-        inArray(blobs.teamId, user.teamIds)
+        inArray(blobs.teamId, user.teamIds),
+        isNull(blobs.deletedAt)
       ))
 
       if (blobRows.length > 0) {
@@ -2653,10 +2654,10 @@ dispatchRoute.post('/prune', async (c) => {
     }
   }
 
-  // 1. Look up the node
+  // 1. Look up the node (exclude soft-deleted)
   const [node] = await db.select()
     .from(planNodes)
-    .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+    .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt)))
     .limit(1)
 
   if (!node) {
@@ -2776,6 +2777,7 @@ async function tryRecoverApproval(
         and(
           eq(streamingEvents.eventType, 'approval.requested'),
           sql`${streamingEvents.data}->>'approvalId' = ${approvalId}`,
+          isNull(streamingEvents.deletedAt),
         )
       )
       .limit(1)
@@ -3018,8 +3020,8 @@ dispatchRoute.post('/reset', async (c) => {
   const user = c.get('user') as AuthUser | undefined
   const userId = user?.id || LOCAL_USER_ID
 
-  // Load the node to get current PR/branch data
-  const [node] = await db.select().from(planNodes).where(eq(planNodes.clientId, nodeId)).limit(1)
+  // Load the node to get current PR/branch data (exclude soft-deleted)
+  const [node] = await db.select().from(planNodes).where(and(eq(planNodes.clientId, nodeId), isNull(planNodes.deletedAt))).limit(1)
   if (!node) {
     return c.json({ success: false, error: 'Node not found' }, 404)
   }
@@ -3148,23 +3150,24 @@ dispatchRoute.post('/reset', async (c) => {
 
   // 5. Delete task execution records from DB so they don't reappear after page refresh
   try {
-    // Find execution records for this node
+    // Find non-deleted execution records for this node
     const nodeExecutions = await db.select({ executionId: taskExecutions.executionId })
       .from(taskExecutions)
-      .where(eq(taskExecutions.nodeClientId, nodeId))
+      .where(and(eq(taskExecutions.nodeClientId, nodeId), isNull(taskExecutions.deletedAt)))
 
     if (nodeExecutions.length > 0) {
       const executionIds = nodeExecutions.map(e => e.executionId)
 
-      // Delete streaming events for these executions first (FK constraint)
-      await db.delete(streamingEvents)
+      // Soft-delete streaming events for these executions
+      const now = new Date()
+      await db.update(streamingEvents).set({ deletedAt: now })
         .where(inArray(streamingEvents.executionId, executionIds))
 
-      // Delete the execution records themselves
-      await db.delete(taskExecutions)
+      // Soft-delete the execution records themselves
+      await db.update(taskExecutions).set({ deletedAt: now })
         .where(eq(taskExecutions.nodeClientId, nodeId))
 
-      console.log(`[dispatch/reset] Deleted ${nodeExecutions.length} execution record(s) and associated streaming events for node ${nodeId}`)
+      console.log(`[dispatch/reset] Soft-deleted ${nodeExecutions.length} execution record(s) and associated streaming events for node ${nodeId}`)
     }
   } catch (dbErr) {
     // Non-fatal: log but don't fail the reset — the node is already reset
@@ -3214,8 +3217,8 @@ dispatchRoute.post('/bulk-reset', async (c) => {
   const userId = user?.id || LOCAL_USER_ID
   const errors: string[] = []
 
-  // 1. Load all referenced plan nodes in a single query
-  const nodes = await db.select().from(planNodes).where(inArray(planNodes.clientId, nodeIds))
+  // 1. Load all referenced plan nodes in a single query (exclude soft-deleted)
+  const nodes = await db.select().from(planNodes).where(and(inArray(planNodes.clientId, nodeIds), isNull(planNodes.deletedAt)))
   if (nodes.length === 0) {
     return c.json({ success: false, error: 'No matching nodes found' }, 404)
   }
@@ -3306,19 +3309,20 @@ dispatchRoute.post('/bulk-reset', async (c) => {
 
   // 4. Bulk-delete streaming_events for all node IDs
   try {
-    // Find all execution IDs for these nodes
+    // Find all non-deleted execution IDs for these nodes
     const nodeExecutions = await db.select({ executionId: taskExecutions.executionId })
       .from(taskExecutions)
-      .where(inArray(taskExecutions.nodeClientId, nodeIds))
+      .where(and(inArray(taskExecutions.nodeClientId, nodeIds), isNull(taskExecutions.deletedAt)))
 
     if (nodeExecutions.length > 0) {
       const executionIds = nodeExecutions.map(e => e.executionId)
 
-      // Delete streaming events for these executions (FK constraint requires this first)
-      await db.delete(streamingEvents)
+      // Soft-delete streaming events for these executions
+      const now = new Date()
+      await db.update(streamingEvents).set({ deletedAt: now })
         .where(inArray(streamingEvents.executionId, executionIds))
 
-      console.log(`[dispatch/bulk-reset] Deleted streaming events for ${executionIds.length} execution(s)`)
+      console.log(`[dispatch/bulk-reset] Soft-deleted streaming events for ${executionIds.length} execution(s)`)
     }
   } catch (dbErr) {
     const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
@@ -3328,9 +3332,9 @@ dispatchRoute.post('/bulk-reset', async (c) => {
 
   // 5. Bulk-delete taskExecutions for all node IDs
   try {
-    await db.delete(taskExecutions)
+    await db.update(taskExecutions).set({ deletedAt: new Date() })
       .where(inArray(taskExecutions.nodeClientId, nodeIds))
-    console.log(`[dispatch/bulk-reset] Deleted task executions for ${nodeIds.length} node(s)`)
+    console.log(`[dispatch/bulk-reset] Soft-deleted task executions for ${nodeIds.length} node(s)`)
   } catch (dbErr) {
     const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
     console.warn(`[dispatch/bulk-reset] Failed to delete task executions: ${msg}`)

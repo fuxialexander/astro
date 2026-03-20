@@ -8,6 +8,7 @@ import {
   BackgroundVariant,
   useReactFlow,
   ConnectionLineType,
+  MarkerType,
   type Node,
   type Edge,
   type Connection,
@@ -183,14 +184,14 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
 
   const projectEdges = useMemo(() => {
     const nodeIds = new Set(projectNodes.map((n) => n.id))
+    // Identify milestone nodes — task→milestone edges are hidden (visual grouping is enough)
+    const milestoneIds = new Set(projectNodes.filter((n) => n.type === 'milestone').map((n) => n.id))
     const allProjectNodeIds = new Set(planNodes.filter((n) => n.projectId === projectId).map((n) => n.id))
     const allProjectEdges = planEdges.filter((e) =>
       allProjectNodeIds.has(e.source) || allProjectNodeIds.has(e.target)
     )
 
-    // Direct edges where both endpoints are visible (tasks or milestones).
-    // Milestones are gate nodes: edges go task→milestone→task. Since milestones
-    // are rendered as visible nodes, draw edges to/from them directly.
+    // Direct edges where both endpoints are visible.
     const directEdges = allProjectEdges.filter((e) =>
       nodeIds.has(e.source) && nodeIds.has(e.target)
     )
@@ -231,10 +232,14 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
       }
     }
 
-    // Deduplicate by source→target pair (keep first occurrence)
+    // Deduplicate by source→target pair (keep first occurrence).
+    // Filter out task→milestone membership edges (too noisy — tasks are already
+    // visually grouped under their milestone column). Keep milestone→milestone
+    // ordering edges and milestone→task prerequisite edges.
     const all = [...directEdges, ...bridgeEdges]
     const seen = new Set<string>()
     return all.filter((e) => {
+      if (milestoneIds.has(e.target) && !milestoneIds.has(e.source)) return false
       const key = `${e.source}->${e.target}`
       if (seen.has(key)) return false
       seen.add(key)
@@ -370,7 +375,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   const orderedMilestoneIds = useMemo(
     () => projectNodes
       .filter(n => n.type === 'milestone')
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
       .map(n => n.id),
     [projectNodes]
   )
@@ -403,11 +408,12 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
 
   const handleCreateMilestone = useCallback((title: string) => {
     const now = new Date()
-    // Place to the right of the rightmost existing milestone position
-    const MILESTONE_WIDTH = 200
+    // Place to the right of the rightmost existing milestone
+    const MILESTONE_WIDTH = 240
+    const milestoneNodes = projectNodes.filter(n => n.type === 'milestone' && n.position)
     let rightmostX = 40
-    for (const pos of milestonePositions.values()) {
-      const right = pos.x + MILESTONE_WIDTH
+    for (const m of milestoneNodes) {
+      const right = (m.position?.x ?? 0) + MILESTONE_WIDTH
       if (right > rightmostX) rightmostX = right
     }
     addNode({
@@ -424,15 +430,13 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
       createdAt: now,
       updatedAt: now,
     })
-  }, [addNode, projectId, milestonePositions])
+  }, [addNode, projectId, projectNodes])
 
   const rfNodes: Node[] = useMemo(() => {
     const taskNodes = projectNodes.map((n) => ({
       id: n.id,
       type: "task",
-      position: n.type === 'milestone'
-        ? (milestonePositions.get(n.id) ?? { x: 0, y: -8 })
-        : (n.position || { x: 0, y: 0 }),
+      position: n.position || { x: 0, y: 0 },
       data: {
         title: n.title,
         number: n.number,
@@ -474,18 +478,20 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
     }))
 
     if (!readOnly) {
-      // Add a dashed "add milestone" placeholder to the right of ALL milestones (any row)
-      const MILESTONE_WIDTH = 200
-      const MILESTONE_ROW_Y = -8
+      // Add a dashed "add milestone" placeholder to the right of ALL milestones
+      const MILESTONE_WIDTH = 240
+      const milestoneNodes = projectNodes.filter(n => n.type === 'milestone' && n.position)
       let rightmostX = 0
-      for (const pos of milestonePositions.values()) {
-        if (pos.x + MILESTONE_WIDTH > rightmostX) rightmostX = pos.x + MILESTONE_WIDTH
+      for (const m of milestoneNodes) {
+        const right = (m.position?.x ?? 0) + MILESTONE_WIDTH
+        if (right > rightmostX) rightmostX = right
       }
-      const addX = milestonePositions.size > 0 ? rightmostX + 16 : 40
+      const addX = milestoneNodes.length > 0 ? rightmostX + 16 : 40
+      const addY = milestoneNodes.length > 0 ? (milestoneNodes[0].position?.y ?? 40) : 40
       taskNodes.push({
         id: '__add_milestone__',
         type: 'addMilestone',
-        position: { x: addX, y: MILESTONE_ROW_Y },
+        position: { x: addX, y: addY },
         data: { onCreate: handleCreateMilestone } as unknown as typeof taskNodes[0]['data'],
         selected: false,
       })
@@ -508,15 +514,11 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   const rfEdges: Edge[] = useMemo(
     () =>
       projectEdges.filter((e) => !redundantEdgeIds.has(e.id)).map((e) => {
-          // Determine edge color based on target node status
+          // Edge color: green for completed targets, neutral for everything else.
+          // #94A3B8 (slate-400) is visible in both light and dark themes.
           const targetNode = projectNodes.find((n) => n.id === e.target)
-          const edgeColor = (() => {
-            if (!targetNode) return "#94A3B8"
-            const status = targetNode.status
-            if (status === "completed" || status === "auto_verified") return "#22C55E"
-            if (status === "in_progress" || status === "dispatched") return "#F97316"
-            return "#94A3B8"
-          })()
+          const isCompleted = targetNode && (targetNode.status === "completed" || targetNode.status === "auto_verified")
+          const edgeColor = isCompleted ? "#22C55E" : "#94A3B8"
 
           // Pick optimal handle pair based on relative node positions
           const { sourceHandle, targetHandle } = computeEdgeHandles(
@@ -537,7 +539,12 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
               strokeWidth: 2.5,
               strokeLinecap: "round" as const,
             },
-            animated: e.type === "branch",
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color: edgeColor,
+              width: 12,
+              height: 12,
+            },
           }
         }),
     [projectEdges, projectNodes, nodePositionMap, handleEdgeDelete, readOnly, redundantEdgeIds]
@@ -841,7 +848,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
         onConnect={readOnly ? undefined : onConnect}
         onConnectStart={readOnly ? undefined : onConnectStart}
         onConnectEnd={readOnly ? undefined : onConnectEnd}
-        connectionLineType={ConnectionLineType.Bezier}
+        connectionLineType={ConnectionLineType.SmoothStep}
         connectionLineStyle={{
           stroke: "var(--primary)",
           strokeWidth: 3,

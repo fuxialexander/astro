@@ -62,6 +62,7 @@ export const initiatives = pgTable('initiatives', {
   color: text('color').default('#3b82f6'),
   icon: text('icon').default('🎯'),
   teamId: uuid('team_id').notNull(),
+  deletedAt: timestamp('deleted_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (table) => ({
@@ -322,6 +323,7 @@ export const sessions = pgTable('sessions', {
   metrics: jsonb('metrics'),
   steerMessages: jsonb('steer_messages').default([]),
   metadata: jsonb('metadata'),
+  deletedAt: timestamp('deleted_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
   completedAt: timestamp('completed_at'),
@@ -339,6 +341,7 @@ export const taskChatSessions = pgTable('task_chat_sessions', {
   projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   userId: uuid('user_id').notNull(),
   sessionId: text('session_id'),
+  deletedAt: timestamp('deleted_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (table) => ({
@@ -460,6 +463,7 @@ export const taskExecutions = pgTable('task_executions', {
   summary: jsonb('summary'),
   verifiedBy: uuid('verified_by'),
   verificationNote: text('verification_note'),
+  deletedAt: timestamp('deleted_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 }, (table) => ({
   idx_executions_project: index('idx_executions_project').on(table.projectId),
@@ -576,6 +580,7 @@ export const activityEvents = pgTable('activity_events', {
   description: text('description'),
   nodeId: text('node_id'),
   metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+  deletedAt: timestamp('deleted_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 }, (table) => ({
   projectIdIdx: index('idx_activity_events_project_id').on(table.projectId),
@@ -706,6 +711,7 @@ export const blobs = pgTable('blobs', {
   filename: text('filename').notNull(),
   nodeId: text('node_id'),
   projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  deletedAt: timestamp('deleted_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 }, (table) => ({
   ownerIdIdx: index('idx_blobs_owner_id').on(table.ownerId),
@@ -722,6 +728,7 @@ export const nodeComments = pgTable('node_comments', {
   authorType: text('author_type').notNull().default('user'), // 'user' | 'agent'
   content: text('content').notNull(),
   parentCommentId: uuid('parent_comment_id'),
+  deletedAt: timestamp('deleted_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (table) => ({
@@ -799,6 +806,7 @@ export const environmentConfigs = pgTable('environment_configs', {
   backendId: text('backend_id').notNull(), // 'slurm', 'docker', 'ssh:alias'
   customContext: text('custom_context').notNull().default(''),
   displayName: text('display_name'),
+  deletedAt: timestamp('deleted_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
@@ -812,6 +820,7 @@ export const streamingEvents = pgTable('streaming_events', {
   executionId: text('execution_id').notNull(),
   eventType: text('event_type').notNull(), // 'text' | 'tool_use' | 'tool_result' | 'file_change' | 'session_init' | 'progress' | 'result'
   data: jsonb('data').notNull(),
+  deletedAt: timestamp('deleted_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 }, (table) => ({
   idx_streaming_events_exec_seq: index('idx_streaming_events_exec_seq').on(table.executionId, table.seq),
@@ -835,6 +844,7 @@ export const skills = pgTable('skills', {
   allowedTools: text('allowed_tools').array().notNull().default([]),
   config: jsonb('config').$type<Record<string, unknown>>().default({}),
   teamId: uuid('team_id').references(() => teams.id, { onDelete: 'cascade' }),
+  deletedAt: timestamp('deleted_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (table) => [
@@ -953,6 +963,7 @@ export const projectKnowledge = pgTable('project_knowledge', {
   sourceNodeId: text('source_node_id'), // which task wrote this
   sourceTaskTitle: text('source_task_title'),
   milestoneId: text('milestone_id'),
+  deletedAt: timestamp('deleted_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (table) => [
@@ -1009,6 +1020,7 @@ export const schedules = pgTable('schedules', {
   missedRunPolicy: text('missed_run_policy').notNull().default('skip'), // 'skip' | 'retry_on_reconnect'
   retryTtlMinutes: integer('retry_ttl_minutes').notNull().default(60),
   createdBy: uuid('created_by').notNull(),
+  deletedAt: timestamp('deleted_at'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [

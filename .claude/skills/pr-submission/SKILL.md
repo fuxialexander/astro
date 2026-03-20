@@ -146,29 +146,17 @@ Every non-trivial PR MUST include visual elements. Choose the right format for t
 
 ### Mermaid Style
 
-All mermaid diagrams use a consistent low-saturation palette with clean typography.
-Every diagram MUST include the theme init directive and use the classDef palette for
-semantic color-coding.
+All mermaid diagrams use a consistent low-saturation palette with clean typography
+via the `classDef` palette for semantic color-coding.
 
-**Theme init** — include at the top of every mermaid block:
+**GitHub PR rendering limitation:** GitHub's mermaid renderer in PR descriptions
+**cannot** render `%%{init: {'theme': 'base', 'themeVariables': {...}}}%%` directives.
+Including them causes the entire diagram to fail to render. Therefore, **never include
+the `%%{init:...}%%` theme directive in PR mermaid diagrams.** Use only `classDef`
+for styling — this works correctly in GitHub PRs. (The init directive works fine in
+wiki pages and standalone markdown files, just not in PR bodies.)
 
-```
-%%{init: {'theme': 'base', 'themeVariables': {
-  'primaryColor': '#dbeafe',
-  'primaryBorderColor': '#93c5fd',
-  'primaryTextColor': '#1e293b',
-  'lineColor': '#64748b',
-  'textColor': '#334155',
-  'fontSize': '14px',
-  'fontFamily': 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
-  'actorBkg': '#f1f5f9',
-  'actorBorder': '#cbd5e1',
-  'activationBkgColor': '#dbeafe',
-  'activationBorderColor': '#93c5fd'
-}}}%%
-```
-
-**classDef palette** — add after theme init in flowcharts and state diagrams.
+**classDef palette** — add at the top of flowcharts and state diagrams.
 Apply to nodes via `:::className` suffix:
 
 ```
@@ -200,7 +188,6 @@ A["$$T_{total} = \max(T_i)$$"] --> B["$$O(n \log n)$$"]
 **Flowcharts** — for decision trees, branching logic, system flows:
 ````markdown
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#dbeafe', 'primaryBorderColor': '#93c5fd', 'primaryTextColor': '#1e293b', 'lineColor': '#64748b', 'textColor': '#334155', 'fontSize': '14px', 'fontFamily': 'Inter, -apple-system, BlinkMacSystemFont, sans-serif'}}}%%
 flowchart TD
     classDef blue fill:#dbeafe,stroke:#93c5fd,color:#1e293b
     classDef green fill:#dcfce7,stroke:#86efac,color:#1e293b
@@ -215,10 +202,9 @@ flowchart TD
 ```
 ````
 
-**Sequence diagrams** — for multi-component interactions (theme init styles actors and activations):
+**Sequence diagrams** — for multi-component interactions:
 ````markdown
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#dbeafe', 'primaryBorderColor': '#93c5fd', 'primaryTextColor': '#1e293b', 'lineColor': '#64748b', 'textColor': '#334155', 'fontSize': '14px', 'fontFamily': 'Inter, -apple-system, BlinkMacSystemFont, sans-serif', 'actorBkg': '#f1f5f9', 'actorBorder': '#cbd5e1', 'activationBkgColor': '#dbeafe', 'activationBorderColor': '#93c5fd'}}}%%
 sequenceDiagram
     participant A as Component A
     participant B as Component B
@@ -234,7 +220,6 @@ sequenceDiagram
 **State diagrams** — for lifecycle states and transitions:
 ````markdown
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#dbeafe', 'primaryBorderColor': '#93c5fd', 'primaryTextColor': '#1e293b', 'lineColor': '#64748b', 'textColor': '#334155', 'fontSize': '14px', 'fontFamily': 'Inter, -apple-system, BlinkMacSystemFont, sans-serif'}}}%%
 stateDiagram-v2
     classDef blue fill:#dbeafe,stroke:#93c5fd,color:#1e293b
     classDef green fill:#dcfce7,stroke:#86efac,color:#1e293b
@@ -452,7 +437,7 @@ Before submitting, verify the PR description meets these standards:
 - [ ] **Summary** is 1-3 sentences, leads with impact
 - [ ] **Closes #N** included if the PR targets an issue
 - [ ] **Issue Alignment** section maps each issue requirement to the PR's changes
-- [ ] **At least one diagram** (mermaid with theme init + classDef) for non-trivial changes
+- [ ] **At least one diagram** (mermaid with classDef, no `%%{init:...}%%`) for non-trivial changes
 - [ ] **Before/after comparison** for behavioral changes
 - [ ] **Edge cases documented** in a table or list
 - [ ] **Test plan** with actionable items and expected outcomes
@@ -474,4 +459,5 @@ Do NOT write PR descriptions that:
 - **Over-explain obvious changes** — a one-line typo fix doesn't need a mermaid diagram
 - **Guess at implementation** — always read the code first
 - **Ignore the linked issue** — if the PR says Fixes #N, the description must show how
-- **Use unstyled mermaid** — every diagram needs the theme init and classDef palette
+- **Use unstyled mermaid** — every diagram needs the classDef palette (but NOT `%%{init:...}%%` which breaks GitHub PR rendering)
+- **Include `%%{init:...}%%` theme directives** — GitHub PR descriptions cannot render these; diagrams silently fail

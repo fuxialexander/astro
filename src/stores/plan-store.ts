@@ -518,23 +518,11 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { dependencies: _deps, ...dbFields } = dbNode
 
-    // Guard against status regression from stale DB reads.
-    // The SSE sync patch may have already advanced the status (e.g., to auto_verified)
-    // but the async getNode() response still has the old status (e.g., in_progress).
-    // Use a monotonic status ordering to prevent the UI from "blinking" backwards.
-    if (prevNode && dbFields.status && prevNode.status !== dbFields.status) {
-      const STATUS_ORDER: Record<string, number> = {
-        planned: 0, dispatched: 1, in_progress: 2,
-        auto_verified: 3, awaiting_approval: 3, awaiting_judgment: 3,
-        completed: 4, pruned: 4,
-      }
-      const currentRank = STATUS_ORDER[prevNode.status] ?? 0
-      const dbRank = STATUS_ORDER[dbFields.status] ?? 0
-      if (dbRank < currentRank) {
-        // DB has an older status — keep the local (more advanced) status
-        dbFields.status = prevNode.status as typeof dbFields.status
-      }
-    }
+    // DB is authoritative for status — no monotonic guard needed here.
+    // The sync pre-patch in realtime-store provides instant UI feedback;
+    // the async DB read that follows should overwrite with the true status.
+    // A monotonic guard here was causing stale "in_progress" when the DB
+    // correctly had a terminal status (auto_verified, awaiting_judgment).
 
     if (!prevNode) {
       // Node not in local store (e.g., created by another client in multi-user).
@@ -735,43 +723,17 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   reorganizeProject: (projectId) => {
     const allNodes = get().nodes
     const allEdges = get().edges
-    // Exclude milestones from layout — they're hidden in the graph view and
-    // edge bridging connects tasks through them. Including them would leave gaps.
-    const projectNodes = allNodes.filter((n) => n.projectId === projectId && isLive(n) && n.type !== "milestone")
+    // Include all project nodes (milestones + tasks) for the column layout
+    const projectNodes = allNodes.filter((n) => n.projectId === projectId && isLive(n))
     const nodeIds = new Set(projectNodes.map((n) => n.id))
-    // Include bridge edges: if A→M→B where M is a milestone, create A→B
-    const allProjectNodeIds = new Set(allNodes.filter((n) => n.projectId === projectId && isLive(n)).map((n) => n.id))
-    const allProjectEdges = allEdges.filter((e) => allProjectNodeIds.has(e.source) || allProjectNodeIds.has(e.target))
-    const directEdges = allProjectEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
-    const milestoneIds = new Set(allNodes.filter((n) => n.projectId === projectId && isLive(n) && n.type === "milestone").map((n) => n.id))
-    const bridgeEdges: typeof directEdges = []
-    if (milestoneIds.size > 0) {
-      const inMap = new Map<string, string[]>()
-      const outMap = new Map<string, string[]>()
-      for (const e of allProjectEdges) {
-        if (milestoneIds.has(e.target)) {
-          const arr = inMap.get(e.target) ?? []; arr.push(e.source); inMap.set(e.target, arr)
-        }
-        if (milestoneIds.has(e.source)) {
-          const arr = outMap.get(e.source) ?? []; arr.push(e.target); outMap.set(e.source, arr)
-        }
-      }
-      for (const mId of milestoneIds) {
-        const sources = (inMap.get(mId) ?? []).filter((s) => nodeIds.has(s))
-        const targets = (outMap.get(mId) ?? []).filter((t) => nodeIds.has(t))
-        for (const s of sources) {
-          for (const t of targets) {
-            bridgeEdges.push({ id: `layout-bridge-${s}-${t}`, source: s, target: t, type: "dependency" })
-          }
-        }
-      }
-    }
+    const projectEdges = allEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
+    // Deduplicate edges
     const seen = new Set<string>()
-    const projectEdges = [...directEdges, ...bridgeEdges].filter((e) => {
+    const dedupedEdges = projectEdges.filter((e) => {
       const key = `${e.source}->${e.target}`; if (seen.has(key)) return false; seen.add(key); return true
     })
 
-    const positions = layoutGraph(projectNodes, projectEdges)
+    const positions = layoutGraph(projectNodes, dedupedEdges)
 
     const nextNodes = allNodes.map((n) => {
       const newPos = positions.get(n.id)

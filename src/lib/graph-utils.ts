@@ -102,14 +102,112 @@ export function calculateChildPosition(
 }
 
 /**
- * Auto-layout a set of nodes and edges as a top-to-bottom hierarchy.
+ * Auto-layout nodes. Dispatches to milestone-column layout when milestones
+ * are present, otherwise uses the classic topological layout.
+ */
+export function layoutGraph(
+  nodes: PlanNode[],
+  edges: PlanEdge[],
+): Map<string, { x: number; y: number }> {
+  if (nodes.length === 0) return new Map()
+  const hasMilestones = nodes.some((n) => n.type === "milestone")
+  if (hasMilestones) return layoutGraphMilestoneColumns(nodes, edges)
+  return layoutGraphTopological(nodes, edges)
+}
+
+/**
+ * Milestone-column layout: each milestone gets its own vertical column.
+ * Milestone sits at the top; tasks stack below with the highest-numbered
+ * task just below the milestone and the lowest-numbered task at the bottom.
+ * Columns are ordered left-to-right by milestone number.
+ * Tasks without a milestone go in an "orphan" column on the right.
+ */
+function layoutGraphMilestoneColumns(
+  nodes: PlanNode[],
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _edges: PlanEdge[],
+): Map<string, { x: number; y: number }> {
+  const positions = new Map<string, { x: number; y: number }>()
+
+  // Sort milestones by number
+  const milestones = nodes
+    .filter((n) => n.type === "milestone")
+    .sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
+
+  const tasks = nodes.filter((n) => n.type !== "milestone")
+  const milestoneSet = new Set(milestones.map((m) => m.id))
+
+  // Group tasks by milestoneId
+  const tasksByMilestone = new Map<string, PlanNode[]>()
+  const orphanTasks: PlanNode[] = []
+  for (const task of tasks) {
+    if (task.milestoneId && milestoneSet.has(task.milestoneId)) {
+      if (!tasksByMilestone.has(task.milestoneId)) {
+        tasksByMilestone.set(task.milestoneId, [])
+      }
+      tasksByMilestone.get(task.milestoneId)!.push(task)
+    } else {
+      orphanTasks.push(task)
+    }
+  }
+
+  // Sort tasks within each milestone by number ascending
+  for (const [, groupTasks] of tasksByMilestone) {
+    groupTasks.sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
+  }
+
+  const COLUMN_STRIDE = MILESTONE_WIDTH + HORIZONTAL_GAP * 2
+  const ROW_HEIGHT = NODE_HEIGHT + VERTICAL_GAP
+  const margin = 40
+  // Center task nodes under wider milestones
+  const taskXOffset = (MILESTONE_WIDTH - NODE_WIDTH) / 2
+
+  let colIndex = 0
+  for (const milestone of milestones) {
+    const columnTasks = tasksByMilestone.get(milestone.id) ?? []
+    const colX = margin + colIndex * COLUMN_STRIDE
+
+    // Milestone at the top
+    positions.set(milestone.id, { x: colX, y: margin })
+
+    // Tasks below: highest number just below milestone, lowest number at bottom.
+    // columnTasks is sorted ascending by number [1, 2, 3].
+    // We reverse for placement: [3, 2, 1] — index 0 goes just below milestone.
+    const reversed = [...columnTasks].reverse()
+    for (let i = 0; i < reversed.length; i++) {
+      positions.set(reversed[i].id, {
+        x: colX + taskXOffset,
+        y: margin + MILESTONE_HEIGHT + VERTICAL_GAP + i * ROW_HEIGHT,
+      })
+    }
+
+    colIndex++
+  }
+
+  // Orphan tasks in a column on the right
+  if (orphanTasks.length > 0) {
+    orphanTasks.sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
+    const colX = margin + colIndex * COLUMN_STRIDE + taskXOffset
+    for (let i = 0; i < orphanTasks.length; i++) {
+      positions.set(orphanTasks[i].id, {
+        x: colX,
+        y: margin + i * ROW_HEIGHT,
+      })
+    }
+  }
+
+  return positions
+}
+
+/**
+ * Classic topological layout (used when no milestones are present).
  * Uses topological sort to assign ranks, then arranges nodes to prefer
  * vertical distribution for dependent nodes (showing clear sequential flow)
  * while keeping independent nodes horizontal.
  * Isolated nodes (no edges) are packed compactly below the main graph.
  * Returns a map of nodeId → new position.
  */
-export function layoutGraph(
+function layoutGraphTopological(
   nodes: PlanNode[],
   edges: PlanEdge[],
 ): Map<string, { x: number; y: number }> {
@@ -360,11 +458,13 @@ export function computeEdgeHandles(
   const dx = tgtPos.x - srcPos.x
   const dy = tgtPos.y - srcPos.y
 
-  // If target is primarily below/above the source, use vertical handles
-  if (Math.abs(dy) > Math.abs(dx) * 1.5 && Math.abs(dy) > 30) {
+  // If target is primarily below the source, use vertical handles (bottom→top).
+  // For upward back-edges (dy < 0), fall through to horizontal handles (right→left)
+  // so bezier curves loop around visually rather than pointing against the flow.
+  if (dy > Math.abs(dx) * 1.5 && dy > 30) {
     return {
-      sourceHandle: dy > 0 ? "bottom" : "right",
-      targetHandle: dy > 0 ? "top" : "left",
+      sourceHandle: "bottom",
+      targetHandle: "top",
     }
   }
 

@@ -174,7 +174,7 @@ observationsRoute.get('/:traceId', async (c) => {
 
     // Verify the execution belongs to a project the user can access
     const [execution] = await db.select({ projectId: taskExecutions.projectId })
-      .from(taskExecutions).where(eq(taskExecutions.executionId, traceId)).limit(1)
+      .from(taskExecutions).where(and(eq(taskExecutions.executionId, traceId), isNull(taskExecutions.deletedAt))).limit(1)
     if (execution) {
       const accessibleProjectIds = await getUserProjectIds(user)
       if (!accessibleProjectIds.includes(execution.projectId)) {
@@ -208,7 +208,7 @@ observationsRoute.get('/:traceId/summary', async (c) => {
     const [execution] = await db
       .select({ markdownSummary: taskExecutions.markdownSummary, projectId: taskExecutions.projectId })
       .from(taskExecutions)
-      .where(eq(taskExecutions.executionId, traceId))
+      .where(and(eq(taskExecutions.executionId, traceId), isNull(taskExecutions.deletedAt)))
 
     if (execution) {
       const accessibleProjectIds = await getUserProjectIds(user)
