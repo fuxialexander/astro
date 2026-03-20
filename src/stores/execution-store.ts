@@ -3,7 +3,6 @@ import type { TaskExecution, ProviderStatus, PlanNode, PlanEdge, ToolTrace, File
 import { usePlanStore, isLive } from "./plan-store"
 import { useProjectStore } from "./project-store"
 import { useToastStore } from "./toast-store"
-import { getAccessToken } from "@/lib/supabase-client"
 import type { ApprovalRequest } from "@/components/approval-card"
 import { dataClient } from "@/lib/data-client"
 import { stripHtml, extractBlobUrls } from "@/lib/html-utils"
@@ -17,6 +16,9 @@ import { useAuthStore } from "./auth-store"
 import { showBatchCompleteNotification } from "@/lib/notifications"
 import { deriveDeliveryMode } from "@/lib/project-source"
 import { useSettingsStore } from "./settings-store"
+import { authHeaders } from "@/lib/auth-headers"
+import { useTeamStore } from "./team-store"
+import { useWorkspaceFilterStore } from "./workspace-filter-store"
 
 /** Returns true for regular task execution node IDs (not ephemeral playground sessions). */
 function isExecutionNodeId(nodeId: string): boolean {
@@ -25,14 +27,10 @@ function isExecutionNodeId(nodeId: string): boolean {
 
 // Helper: Create auth headers for API requests
 async function getAuthHeaders(): Promise<HeadersInit> {
-  const token = await getAccessToken()
-  const headers: HeadersInit = {
+  return {
     "Content-Type": "application/json",
+    ...(await authHeaders()),
   }
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`
-  }
-  return headers
 }
 
 // Helper: Resolve working directory from project config (delegates to @astro/core)
@@ -40,6 +38,13 @@ export function getProjectWorkingDir(
   project: Project | undefined,
 ) {
   return resolveWorkingDirectory(project)
+}
+
+function resolveDispatchMachineId(
+  project: Project | undefined,
+  requestedMachineId?: string,
+): string | undefined {
+  return requestedMachineId ?? project?.defaultMachineId
 }
 
 // Helper: Check if a project is locked to a specific machine
@@ -407,7 +412,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     }
 
     // Machine selection is handled server-side via project.defaultMachineId fallback
-    const effectiveTargetMachineId = options?.targetMachineId
+    const effectiveTargetMachineId = resolveDispatchMachineId(project, options?.targetMachineId)
 
     // Resolve working directory (may be undefined for auto-workspace)
     const dirCheck = getProjectWorkingDir(project)
@@ -1074,11 +1079,14 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // 1. Create project
     const projectId = crypto.randomUUID()
     const displayName = projectName || "New Project"
+    const wf = useWorkspaceFilterStore.getState().workspaceFilter
+    const teamId = wf !== 'all' ? wf : useTeamStore.getState().getPersonalTeamId()
     await useProjectStore.getState().addProject({
       id: projectId,
       name: displayName,
       description,
       status: 'active',
+      teamId,
       color: getColorForName(displayName),
       icon: getProjectIconForName(displayName),
       visionDoc: options?.visionDoc || "",
@@ -1136,7 +1144,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // gets { projectId, nodeId } immediately and can transition the UI.
     getAuthHeaders().then(async (headers) => {
       try {
-        const signing = await buildDispatchSignature(nodeId, projectId, options?.targetMachineId)
+        const effectiveTargetMachineId = options?.targetMachineId
+        const signing = await buildDispatchSignature(nodeId, projectId, effectiveTargetMachineId)
         const safeDescription = truncateDispatchField(description, MAX_DESCRIPTION_LENGTH, "Plan description")
         const planSettings = useSettingsStore.getState()
         const planProvider = options?.preferredProvider || planSettings.defaultProvider || undefined
@@ -1152,7 +1161,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             dependencies: [],
             verification: "human",
             visionDoc: options?.visionDoc ? truncateDispatchField(options.visionDoc, MAX_VISIONDOC_LENGTH, "Vision doc") : undefined,
-            targetMachineId: options?.targetMachineId,
+            targetMachineId: effectiveTargetMachineId,
             model: planModel,
             preferredProvider: planProvider,
             workingDirectory: options?.workingDirectory,
@@ -1364,7 +1373,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // Dispatch via POST /api/dispatch/task (fire-and-forget SSE processing)
     getAuthHeaders().then(async (headers) => {
       try {
-        const signing = await buildDispatchSignature(nodeId, projectId, options?.targetMachineId)
+        const effectiveTargetMachineId = resolveDispatchMachineId(project, options?.targetMachineId)
+        const signing = await buildDispatchSignature(nodeId, projectId, effectiveTargetMachineId)
         const safeDescription = truncateDispatchField(description, MAX_DESCRIPTION_LENGTH, "Plan description")
         const addSettings = useSettingsStore.getState()
         const addProvider = options?.preferredProvider || addSettings.defaultProvider || undefined
@@ -1380,7 +1390,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             dependencies: [],
             verification: "human",
             visionDoc: options?.visionDoc ? truncateDispatchField(options.visionDoc, MAX_VISIONDOC_LENGTH, "Vision doc") : undefined,
-            targetMachineId: options?.targetMachineId,
+            targetMachineId: effectiveTargetMachineId,
             model: addModel,
             preferredProvider: addProvider,
             workingDirectory: options?.workingDirectory || project.workingDirectory || undefined,
@@ -1491,7 +1501,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // Dispatch via POST /api/dispatch/task with replanContext
     getAuthHeaders().then(async (headers) => {
       try {
-        const signing = await buildDispatchSignature(nodeId, projectId, options?.targetMachineId)
+        const effectiveTargetMachineId = resolveDispatchMachineId(project, options?.targetMachineId)
+        const signing = await buildDispatchSignature(nodeId, projectId, effectiveTargetMachineId)
         const replanSettings = useSettingsStore.getState()
         const replanProvider = options?.preferredProvider || replanSettings.defaultProvider || undefined
         const replanModel = options?.model || replanSettings.getModelForProvider(replanProvider) || undefined
@@ -1506,7 +1517,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
             dependencies: [],
             verification: "human",
             visionDoc: options?.visionDoc,
-            targetMachineId: options?.targetMachineId,
+            targetMachineId: effectiveTargetMachineId,
             model: replanModel,
             preferredProvider: replanProvider,
             workingDirectory: project.workingDirectory,
@@ -1571,11 +1582,14 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     // 1. Create project for this playground session
     const projectId = crypto.randomUUID()
     const displayName = description.slice(0, 60) || "Playground Session"
+    // Playground sessions are always personal — not shared with team
+    const pgTeamId = useTeamStore.getState().getPersonalTeamId()
     await useProjectStore.getState().addProject({
       id: projectId,
       name: displayName,
       description,
       status: 'active',
+      teamId: pgTeamId,
       color: getColorForName(displayName),
       icon: getProjectIconForName(displayName),
       visionDoc: "",

@@ -165,9 +165,9 @@ DataLoader checks: are we in local mode, or is the user authenticated?
   (In server mode: wait until auth is initialized and user has a session)
 
   Phase 1 -- Load teams first:
-    - Teams must load before anything else because they set the X-Team-Id header
-      used by all subsequent API calls. If the user changed (sign-out then sign-in
-      as a different user), all stores are reset first.
+    - Teams must load before anything else because they establish membership state
+      and the default team context used by team-owned settings/resources. If the
+      user changed (sign-out then sign-in as a different user), all stores are reset first.
 
   Phase 2 -- Once teams are loaded, load all other stores in parallel:
     - projects, plan, settings, user-profile, display-settings,
@@ -188,7 +188,7 @@ DataLoader checks: are we in local mode, or is the user authenticated?
       initiatives, executions, agent, activities, plugins, skills
 ```
 
-This two-phase approach ensures the team context is correct before loading team-scoped data. Loading non-critical stores in the background means the user sees the app faster -- critical stores block the loading spinner, but settings, usage metrics, and similar secondary data arrive in the background.
+This two-phase approach ensures membership data and the default team context are ready before loading team-owned settings/resources. Cross-team project/task data is still readable across all teams the user belongs to. Loading non-critical stores in the background means the user sees the app faster -- critical stores block the loading spinner, but settings, usage metrics, and similar secondary data arrive in the background.
 
 ### 2.2 Lazy Data Loading -- Slim Global + Full Per-Project
 
@@ -1222,7 +1222,7 @@ Multi-user team support with invitations, role-based access control, and shared 
 - `team-store.ts` for team CRUD and membership
 - `team-selector-dialog.tsx` for switching teams
 - `team-invite.tsx` page for invitation acceptance
-- Team context (`X-Team-Id` header) scopes all API calls
+- Team context (`X-Team-Id` header) provides the default workspace for team-owned requests
 
 ### Responsive Layout
 

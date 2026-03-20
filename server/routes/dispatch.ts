@@ -29,6 +29,7 @@ import { eq, isNull, and, inArray, sql } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction, GENERATIVE_UI_HINT } from '../lib/prompt-templates.js'
+import { MACHINE_INSTRUCTION_PRESETS } from '../lib/machine-instruction-presets.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
 import { BUILTIN_TEMPLATE_IDS } from '../../packages/core/src/index.js'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
@@ -1001,13 +1002,18 @@ async function dispatchViaRelay(
   // Look up machine instruction for prompt injection.
   // Flow: machineId → registeredMachines.defaultInstructionId → machineInstructions.content
   let skillsInjection: string | undefined
+  const DEFAULT_INSTRUCTION_ID = 'builtin:default'
   if (machineId) {
     try {
       const [machine] = await db.select({ defaultInstructionId: registeredMachines.defaultInstructionId })
         .from(registeredMachines).where(eq(registeredMachines.id, machineId)).limit(1)
-      if (machine?.defaultInstructionId) {
+      const instrId = machine?.defaultInstructionId ?? DEFAULT_INSTRUCTION_ID
+      if (instrId.startsWith('builtin:')) {
+        const preset = MACHINE_INSTRUCTION_PRESETS.find((p) => p.id === instrId)
+        if (preset) skillsInjection = formatMachineInstruction(preset.name, preset.content)
+      } else {
         const [instruction] = await db.select({ content: machineInstructions.content, name: machineInstructions.name })
-          .from(machineInstructions).where(eq(machineInstructions.id, machine.defaultInstructionId)).limit(1)
+          .from(machineInstructions).where(eq(machineInstructions.id, instrId)).limit(1)
         if (instruction?.content) {
           skillsInjection = formatMachineInstruction(instruction.name, instruction.content)
         }

@@ -1,6 +1,7 @@
 /**
  * Shared helper for building authenticated fetch headers.
  * Used by Zustand stores that call authenticated API endpoints.
+ * Includes the default team context for team-owned resources when available.
  */
 import { getAccessToken } from '@/lib/supabase-client';
 import { getActiveTeamId } from '@/lib/api-client';

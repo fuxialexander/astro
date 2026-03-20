@@ -3,6 +3,7 @@ import type { OpenClawSkill, SkillCollectionManifest } from "@/types/skill"
 import { buildSkillPromptInjection } from "@astro/core/skill-injector"
 import { dataClient } from "@/lib/data-client"
 import { useToastStore } from "@/stores/toast-store"
+import { useTeamStore } from "@/stores/team-store"
 
 /** Returns true if the id is a temp placeholder (not yet persisted to server). */
 function isTempId(id: string): boolean {
@@ -133,6 +134,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     set({ skills })
 
     // Sync to backend — don't send temp ID; server generates a real UUID
+    const teamId = useTeamStore.getState().getDefaultTeamId()
     dataClient.createSkill({
       name: skill.name,
       description: skill.description,
@@ -140,6 +142,7 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
       source: skill.source,
       enabled: skill.enabled,
       config: skill.config,
+      teamId,
     }).then((created) => {
       // Surface sync cache warning to user if present
       if ('_warning' in created && created._warning) {
@@ -183,7 +186,8 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     set({ skills })
 
     // Sync to backend using the DB id
-    dataClient.updateSkill(id, updates).then((serverRow) => {
+    const teamId = existing.teamId ?? useTeamStore.getState().getDefaultTeamId()
+    dataClient.updateSkill(id, { ...updates, teamId }).then((serverRow) => {
       if ('_warning' in serverRow && serverRow._warning) {
         useToastStore.getState().add({ type: 'warning', title: 'Skill updated with warning', description: serverRow._warning as string })
       }
@@ -315,7 +319,8 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     set({ skills })
 
     // Sync to backend
-    dataClient.updateSkill(id, { config } as Partial<SkillRow>).catch((err) => {
+    const teamId = existing.teamId ?? useTeamStore.getState().getDefaultTeamId()
+    dataClient.updateSkill(id, { config, teamId } as Partial<SkillRow> & { teamId?: string }).catch((err) => {
       console.error('[skill-store] Failed to sync updateSkillConfig:', err)
     })
   },

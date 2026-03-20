@@ -302,8 +302,8 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     return deriveAvailableProviders(machine?.providers, globalProviders)
   }, [resolvedMachineId, executionMachines, globalProviders])
 
-  // Local overrides (empty string = use default)
-  const [selectedProvider, setSelectedProvider] = useState("")
+  // Use project-level provider from settings (shared with workdir bar)
+  const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider)
   const [selectedModel, setSelectedModel] = useState("")
 
   // Load providers on mount if not already loaded
@@ -311,18 +311,11 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     if (!providersLoaded) loadProviders()
   }, [providersLoaded, loadProviders])
 
-  // Sync defaults from settings on first load
-  useEffect(() => {
-    if (providersLoaded && !selectedProvider && defaultProvider) {
-      setSelectedProvider(defaultProvider)
-    }
-  }, [providersLoaded, defaultProvider, selectedProvider])
-
   // Resolve the effective provider object, model, and providerId for the API call
   const selectedProviderObj: ProviderStatus | undefined =
-    selectedProvider ? providers.find((p) => p.id === selectedProvider) : undefined
+    defaultProvider ? providers.find((p) => p.id === defaultProvider) : undefined
 
-  const effectiveProviderId = selectedProvider || defaultProvider || undefined
+  const effectiveProviderId = defaultProvider || undefined
 
   const customModelMap = useSettingsStore((s) => s.customModelMap)
   const modelTier = useSettingsStore((s) => s.modelTier)
@@ -587,19 +580,19 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
             <DropdownMenuContent align="end" className="w-[240px]">
               <DropdownMenuLabel>Agent</DropdownMenuLabel>
               <DropdownMenuItem
-                onClick={() => { setSelectedProvider(""); setSelectedModel("") }}
+                onClick={() => { setDefaultProvider(""); setSelectedModel("") }}
                 className="gap-2"
               >
                 <Bot className="h-3.5 w-3.5" />
                 <span>Auto</span>
-                {!selectedProvider && (
+                {!defaultProvider && (
                   <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />
                 )}
               </DropdownMenuItem>
               {providers.map((provider) => (
                 <DropdownMenuItem
                   key={provider.id}
-                  onClick={() => { setSelectedProvider(provider.id); setSelectedModel("") }}
+                  onClick={() => { setDefaultProvider(provider.id); setSelectedModel("") }}
                   className="gap-2"
                   disabled={!provider.available}
                 >
@@ -612,7 +605,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
                       </span>
                     )}
                   </div>
-                  {selectedProvider === provider.id && (
+                  {defaultProvider === provider.id && (
                     <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />
                   )}
                 </DropdownMenuItem>
@@ -734,7 +727,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
             onImagesChange={setChatImages}
             filePickerRef={filePickerRef}
           />
-          <div className="flex flex-col gap-1 shrink-0">
+          <div className="flex flex-row items-end gap-1 shrink-0">
             <Button
               size="icon"
               variant="ghost"
@@ -744,7 +737,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
             >
               <Paperclip className="h-4 w-4" />
             </Button>
-            {isStreaming ? (
+            {isStreaming && (
               <Button
                 size="icon"
                 variant="destructive"
@@ -754,17 +747,16 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
               >
                 <Square className="h-3.5 w-3.5" />
               </Button>
-            ) : (
-              <Button
-                size="icon"
-                className="h-9 w-9"
-                onClick={handleSend}
-                disabled={!input.trim() && chatImages.length === 0}
-                title={isBusy ? "Queue message (⌘+Enter)" : "Send (⌘+Enter)"}
-              >
-                <Send className="h-4 w-4" />
-              </Button>
             )}
+            <Button
+              size="icon"
+              className="h-9 w-9"
+              onClick={handleSend}
+              disabled={!input.trim() && chatImages.length === 0}
+              title={isBusy ? "Queue message (⌘+Enter)" : "Send (⌘+Enter)"}
+            >
+              <Send className="h-4 w-4" />
+            </Button>
           </div>
         </div>
       </div>

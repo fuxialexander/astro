@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { EnvironmentConfig } from '@/types'
 import { dataClient } from '@/lib/data-client'
+import { useTeamStore } from '@/stores/team-store'
 
 interface EnvironmentConfigStore {
   configs: EnvironmentConfig[]
@@ -33,11 +34,14 @@ export const useEnvironmentConfigStore = create<EnvironmentConfigStore>((set, ge
   },
 
   async upsert(backendId, machineId, customContext, displayName) {
+    const existing = get().getForBackend(backendId, machineId)
+    const teamId = existing?.teamId ?? useTeamStore.getState().getDefaultTeamId()
     const config = await dataClient.upsertEnvironmentConfig({
       backendId,
       machineId,
       customContext,
       displayName,
+      teamId,
     })
     set((state) => {
       const existing = state.configs.findIndex((c) => c.id === config.id)

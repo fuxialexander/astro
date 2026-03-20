@@ -4,7 +4,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { mkdirSync } from 'fs'
 import { buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, buildTitleGenerationPrompt, buildRefinementPrompt, buildLabelSuggestionPrompt, buildCompactionPrompt, formatMachineInstruction, GENERATIVE_UI_HINT } from '../lib/prompt-templates.js'
-import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
+import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED, MACHINE_INSTRUCTION_PRESETS } from '../lib/machine-instruction-presets.js'
 import { relayServer } from '../lib/relay-server.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { machineRegistry } from '../lib/machine-registry.js'
@@ -16,6 +16,19 @@ import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMess
 import { db } from '../lib/db/index.js'
 import { projects, registeredMachines, machineInstructions, blobs } from '../lib/db/schema.js'
 import { eq, and, inArray } from 'drizzle-orm'
+
+const DEFAULT_INSTRUCTION_ID = 'builtin:default'
+
+/** Resolve a machine's instruction content (handles both builtin presets and DB-stored instructions). */
+async function resolveMachineInstruction(instructionId: string): Promise<string | null> {
+  if (instructionId.startsWith('builtin:')) {
+    const preset = MACHINE_INSTRUCTION_PRESETS.find((p) => p.id === instructionId)
+    return preset ? formatMachineInstruction(preset.name, preset.content) : null
+  }
+  const [instruction] = await db.select({ content: machineInstructions.content, name: machineInstructions.name })
+    .from(machineInstructions).where(eq(machineInstructions.id, instructionId)).limit(1)
+  return instruction?.content ? formatMachineInstruction(instruction.name, instruction.content) : null
+}
 
 /** Verify the user has access to the given project (team-scoped). */
 async function verifyProjectAccess(projectId: string, user: AuthUser): Promise<boolean> {
@@ -356,13 +369,9 @@ agentRoute.post('/project-chat', async (c) => {
     try {
       const [machine] = await db.select({ defaultInstructionId: registeredMachines.defaultInstructionId })
         .from(registeredMachines).where(eq(registeredMachines.id, chatMachineId)).limit(1)
-      if (machine?.defaultInstructionId) {
-        const [instruction] = await db.select({ content: machineInstructions.content, name: machineInstructions.name })
-          .from(machineInstructions).where(eq(machineInstructions.id, machine.defaultInstructionId)).limit(1)
-        if (instruction?.content) {
-          chatSkills = formatMachineInstruction(instruction.name, instruction.content)
-        }
-      }
+      const instrId = machine?.defaultInstructionId ?? DEFAULT_INSTRUCTION_ID
+      const resolved = await resolveMachineInstruction(instrId)
+      if (resolved) chatSkills = resolved
     } catch (err) {
       console.warn('[agent/project-chat] Failed to fetch machine instruction:', err instanceof Error ? err.message : String(err))
     }
@@ -543,13 +552,9 @@ agentRoute.post('/task-chat', async (c) => {
     try {
       const [machine] = await db.select({ defaultInstructionId: registeredMachines.defaultInstructionId })
         .from(registeredMachines).where(eq(registeredMachines.id, tcMachineId)).limit(1)
-      if (machine?.defaultInstructionId) {
-        const [instruction] = await db.select({ content: machineInstructions.content, name: machineInstructions.name })
-          .from(machineInstructions).where(eq(machineInstructions.id, machine.defaultInstructionId)).limit(1)
-        if (instruction?.content) {
-          tcSkills = formatMachineInstruction(instruction.name, instruction.content)
-        }
-      }
+      const instrId = machine?.defaultInstructionId ?? DEFAULT_INSTRUCTION_ID
+      const resolved = await resolveMachineInstruction(instrId)
+      if (resolved) tcSkills = resolved
     } catch (err) {
       console.warn('[agent/task-chat] Failed to fetch machine instruction:', err instanceof Error ? err.message : String(err))
     }
@@ -682,13 +687,9 @@ agentRoute.post('/dispatch', async (c) => {
     if (targetMachineId) {
       const [machine] = await db.select({ defaultInstructionId: registeredMachines.defaultInstructionId })
         .from(registeredMachines).where(eq(registeredMachines.id, targetMachineId)).limit(1)
-      if (machine?.defaultInstructionId) {
-        const [instruction] = await db.select({ content: machineInstructions.content, name: machineInstructions.name })
-          .from(machineInstructions).where(eq(machineInstructions.id, machine.defaultInstructionId)).limit(1)
-        if (instruction?.content) {
-          dispatchSkills = formatMachineInstruction(instruction.name, instruction.content)
-        }
-      }
+      const instrId = machine?.defaultInstructionId ?? DEFAULT_INSTRUCTION_ID
+      const resolved = await resolveMachineInstruction(instrId)
+      if (resolved) dispatchSkills = resolved
     }
   } catch (err) {
     console.warn('[agent/dispatch] Failed to fetch machine instruction:', err instanceof Error ? err.message : String(err))

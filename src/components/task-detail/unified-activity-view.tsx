@@ -556,7 +556,7 @@ export function UnifiedActivityView({
             filePickerRef: taskFilePickerRef,
           } : {})}
         />
-        <div className="flex flex-col gap-1 shrink-0">
+        <div className="flex flex-row items-end gap-1 shrink-0">
           {!canSteer && (
             <Button
               size="icon"

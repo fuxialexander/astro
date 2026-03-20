@@ -4,7 +4,8 @@
  * Manages skill registry using Drizzle ORM for database persistence.
  * Skills are reusable capability definitions that can be assigned to tasks/agents.
  *
- * All routes are team-scoped following patterns from data.ts.
+ * Skills are team-owned standalone resources. Reads use the active/default
+ * team context as a filter; writes accept an explicit teamId payload.
  */
 
 import { Hono } from 'hono'
@@ -15,6 +16,7 @@ import { skillManager } from '../lib/skill-manager.js'
 import { skills } from '../lib/db/schema.js'
 import { errorMessage } from '../lib/error-utils.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
+import { resolveWritableTeamId } from '../lib/team-utils.js'
 
 const skillsRoute = new Hono()
 
@@ -123,7 +125,7 @@ function isUniqueViolation(e: unknown): boolean {
 
 /**
  * Build a team-scoped filter for skills.
- * Matches rows where teamId equals the user's active team,
+ * Matches rows where teamId equals the user's active/default team context,
  * OR where teamId is null (global/builtin skills visible to all).
  */
 function skillTeamScopeFilter(user: AuthUser) {
@@ -230,6 +232,8 @@ skillsRoute.post('/register', async (c) => {
   try {
     const user = c.get('user')! as AuthUser
     const body = await c.req.json()
+    const teamTarget = resolveWritableTeamId(user, body.teamId)
+    if ('error' in teamTarget) return c.json({ error: teamTarget.error }, 400)
 
     if (!body.skills || !Array.isArray(body.skills)) {
       return c.json({ error: 'skills array is required' }, 400)
@@ -292,7 +296,7 @@ skillsRoute.post('/register', async (c) => {
             enabled: (skill.enabled as boolean) ?? true,
             allowedTools: (skill.allowedTools as string[]) ?? [],
             config,
-            teamId: user.teamId ?? null,
+            teamId: teamTarget.teamId,
             createdAt: new Date(),
             updatedAt: new Date(),
           })
@@ -325,6 +329,8 @@ skillsRoute.post('/', async (c) => {
   try {
     const user = c.get('user')! as AuthUser
     const body = await c.req.json()
+    const teamTarget = resolveWritableTeamId(user, body.teamId)
+    if ('error' in teamTarget) return c.json({ error: teamTarget.error }, 400)
 
     if (!body.name || typeof body.name !== 'string') {
       return c.json({ error: 'name is required' }, 400)
@@ -398,7 +404,7 @@ skillsRoute.post('/', async (c) => {
       enabled: body.enabled ?? true,
       allowedTools: body.allowedTools ?? [],
       config,
-      teamId: user.teamId ?? null,
+      teamId: teamTarget.teamId,
       createdAt: body.createdAt ? new Date(body.createdAt) : now,
       updatedAt: body.updatedAt ? new Date(body.updatedAt) : now,
     }
@@ -501,6 +507,11 @@ skillsRoute.put('/:id', async (c) => {
     if (body.enabled !== undefined) patch.enabled = body.enabled
     if (body.allowedTools !== undefined) patch.allowedTools = body.allowedTools
     if (body.config !== undefined) patch.config = body.config
+    if (body.teamId !== undefined) {
+      const teamTarget = resolveWritableTeamId(user, body.teamId)
+      if ('error' in teamTarget) return c.json({ error: teamTarget.error }, 400)
+      patch.teamId = teamTarget.teamId
+    }
     // Validate OpenClaw extension field types
     if (body.userInvocable !== undefined && typeof body.userInvocable !== 'boolean') {
       return c.json({ error: 'userInvocable must be a boolean' }, 400)

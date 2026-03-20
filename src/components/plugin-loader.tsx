@@ -2,10 +2,11 @@ import { useEffect, useRef, type ReactNode } from "react"
 import { usePluginStore } from "@/stores/plugin-store"
 import { useSkillStore } from "@/stores/skill-store"
 import { useSidebarStore } from "@/stores/sidebar-store"
+import { useTeamStore } from "@/stores/team-store"
 import { useTheme } from "@/components/theme-provider"
 import { createPluginContext } from "@/lib/plugin-context"
 import { API_BASE_URL } from "@/lib/api-url"
-import { getAccessToken } from "@/lib/supabase-client"
+import { authHeaders } from "@/lib/auth-headers"
 import type { AstroPlugin, PluginContributions } from "@/types/plugin"
 
 // Built-in plugins bundled with Astro
@@ -24,14 +25,13 @@ const BUILTIN_PLUGINS: AstroPlugin[] = [
 async function syncSkillsToServer(skills: PluginContributions['skills']) {
   if (!skills || skills.length === 0) return
   try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    const token = await getAccessToken()
-    if (token) headers['Authorization'] = `Bearer ${token}`
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(await authHeaders()) }
+    const teamId = useTeamStore.getState().getDefaultTeamId()
     await fetch(`${API_BASE_URL}/api/skills/register`, {
       method: 'POST',
       headers,
       credentials: 'include',
-      body: JSON.stringify({ skills }),
+      body: JSON.stringify({ skills, teamId }),
     })
   } catch {
     // Server may not be reachable yet during startup — skills will load on next page load

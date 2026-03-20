@@ -1,6 +1,7 @@
 import { useProjectStore } from '@/stores/project-store'
 import { usePlanStore } from '@/stores/plan-store'
 import { useTeamStore } from '@/stores/team-store'
+import { useWorkspaceFilterStore } from '@/stores/workspace-filter-store'
 import type { Project, PlanNode, PlanEdge } from '@/types'
 import type { ProjectExportData, ImportResult } from './types'
 
@@ -24,7 +25,8 @@ export async function importProject(data: ProjectExportData): Promise<ImportResu
 
   // Reconstruct project
   const now = new Date()
-  const teamId = useTeamStore.getState().activeTeamId ?? ''
+  const wf = useWorkspaceFilterStore.getState().workspaceFilter
+  const teamId = wf !== 'all' ? wf : (useTeamStore.getState().getPersonalTeamId() ?? '')
   const project: Project = {
     id: newProjectId,
     teamId,

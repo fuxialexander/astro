@@ -3,7 +3,7 @@ import { apiUrl } from "@/lib/api-url"
 
 /**
  * Active team ID setter/getter.
- * The team store calls setActiveTeamId() after loading teams.
+ * The team store sets the default team context here after loading teams.
  */
 let _activeTeamId: string | undefined
 export function setActiveTeamId(teamId: string | undefined) {
@@ -15,7 +15,7 @@ export function getActiveTeamId(): string | undefined {
 
 /**
  * Build headers for authenticated API calls.
- * Includes Supabase access token and team ID when available.
+ * Includes Supabase access token and the default team context when available.
  */
 async function authHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = { "Content-Type": "application/json" }

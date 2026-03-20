@@ -225,15 +225,29 @@ export function TaskDetail() {
         <div className="flex-1 min-w-[20px]" />
         {/* Action buttons */}
         {isRunning && (
-          <Button
-            variant="destructive"
-            size="sm"
-            className="h-8 shrink-0"
-            onClick={() => nodeId && cancelExecution(nodeId)}
-          >
-            <Square className="h-3 w-3 md:h-3.5 md:w-3.5" />
-            <span className="hidden sm:inline ml-1.5">Stop</span>
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="destructive"
+              size="sm"
+              className="h-8 shrink-0"
+              onClick={() => nodeId && cancelExecution(nodeId)}
+            >
+              <Square className="h-3 w-3 md:h-3.5 md:w-3.5" />
+              <span className="hidden sm:inline ml-1.5">Stop</span>
+            </Button>
+            {isExecuting && (
+              <div className="flex items-center gap-1.5 text-info shrink-0">
+                <Loader2 className="h-3 w-3 md:h-3.5 md:w-3.5 animate-spin" />
+                <span className="text-[10px] md:text-xs font-medium">Running</span>
+              </div>
+            )}
+          </div>
+        )}
+        {!isRunning && isExecuting && (
+          <div className="flex items-center gap-1.5 text-info shrink-0">
+            <Loader2 className="h-3 w-3 md:h-3.5 md:w-3.5 animate-spin" />
+            <span className="text-[10px] md:text-xs font-medium">Running</span>
+          </div>
         )}
         {!isRunning && node.executionId && (
           <Button
@@ -256,12 +270,6 @@ export function TaskDetail() {
             <RotateCcw className={cn("h-3 w-3 md:h-3.5 md:w-3.5", isResetting && "animate-spin")} />
             <span className="hidden sm:inline ml-1.5">{isResetting ? "Resetting..." : "Reset"}</span>
           </Button>
-        )}
-        {isExecuting && (
-          <div className="flex items-center gap-1.5 text-info shrink-0">
-            <Loader2 className="h-3 w-3 md:h-3.5 md:w-3.5 animate-spin" />
-            <span className="text-[10px] md:text-xs font-medium">Running</span>
-          </div>
         )}
       </div>
       )}

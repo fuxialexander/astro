@@ -14,8 +14,8 @@ const BASE = "/api/data"
 
 /**
  * Active team ID setter/getter.
- * The team store calls setActiveTeamId() after loading teams.
- * This avoids circular imports between data-client and team-store.
+ * The team store sets the default team context here after loading teams.
+ * This is used for team-owned requests that still rely on X-Team-Id.
  */
 let _activeTeamId: string | undefined
 export function setActiveTeamId(teamId: string | undefined) {
@@ -797,7 +797,7 @@ export const dataClient = {
     })
   },
 
-  async upsertEnvironmentConfig(config: { backendId: string; machineId?: string; customContext: string; displayName?: string }): Promise<EnvironmentConfig> {
+  async upsertEnvironmentConfig(config: { backendId: string; machineId?: string; customContext: string; displayName?: string; teamId?: string }): Promise<EnvironmentConfig> {
     const row = await post(`${BASE}/environment-configs`, config) as Record<string, unknown>
     const r = snakeToCamel(row)
     return {
@@ -817,14 +817,14 @@ export const dataClient = {
     return (data.skills ?? []).map(mapSkillRow)
   },
 
-  async createSkill(skill: Partial<SkillRow>): Promise<SkillRow & { _warning?: string }> {
+  async createSkill(skill: Partial<SkillRow> & { teamId?: string }): Promise<SkillRow & { _warning?: string }> {
     const row = await post('/api/skills', skill) as Record<string, unknown>
     const mapped = mapSkillRow(row)
     if (row._warning) return { ...mapped, _warning: row._warning as string }
     return mapped
   },
 
-  async updateSkill(id: string, updates: Partial<SkillRow>): Promise<SkillRow & { _warning?: string }> {
+  async updateSkill(id: string, updates: Partial<SkillRow> & { teamId?: string }): Promise<SkillRow & { _warning?: string }> {
     const row = await put(`/api/skills/${id}`, updates) as Record<string, unknown>
     const mapped = mapSkillRow(row)
     if (row._warning) return { ...mapped, _warning: row._warning as string }

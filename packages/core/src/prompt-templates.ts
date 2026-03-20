@@ -17,7 +17,7 @@ export const MACHINE_INSTRUCTION_PRESET_META: Array<{
   {
     id: 'builtin:default',
     name: 'Default Compute Guide',
-    description: 'Universal guide covering Docker, K8s, and Slurm basics',
+    description: 'Minimal guide for local shell execution',
     filename: 'default-compute-guide.md',
   },
   {
@@ -176,7 +176,7 @@ export interface ChatPlanEdge {
  * prompt injection attempts. We use delimiters to separate user content from
  * system instructions.
  */
-export function buildChatSystemPrompt(visionDoc?: string, planNodes?: ChatPlanNode[], planEdges?: ChatPlanEdge[], skillsInjection?: string, projectId?: string, taskType?: 'plan' | 'execution'): string {
+export function buildChatSystemPrompt(visionDoc?: string, planNodes?: ChatPlanNode[], _planEdges?: ChatPlanEdge[], skillsInjection?: string, projectId?: string, taskType?: 'plan' | 'execution'): string {
   // SECURITY: Wrap user-provided content in delimiters
   const visionSection = visionDoc
     ? `\n\n## Project Vision Document\n<user_vision>\n${visionDoc}\n</user_vision>\n`
@@ -184,52 +184,32 @@ export function buildChatSystemPrompt(visionDoc?: string, planNodes?: ChatPlanNo
 
   let planSection = ""
   if (planNodes && planNodes.length > 0) {
-    // Build milestone lookup for display
+    // Group tasks under their milestones for a compact overview
+    const milestones = planNodes.filter((n) => n.type === "milestone")
+    const tasks = planNodes.filter((n) => n.type !== "milestone")
     const milestoneMap = new Map<string, string>()
-    for (const n of planNodes) {
-      if (n.type === "milestone") milestoneMap.set(n.id, n.title)
-    }
-    // Build node title lookup
-    const nodeNameMap = new Map<string, string>()
-    for (const n of planNodes) nodeNameMap.set(n.id, n.title)
+    for (const m of milestones) milestoneMap.set(m.id, m.title)
 
-    const nodeList = planNodes.map((n) => {
-      const milestoneName = n.milestoneId ? milestoneMap.get(n.milestoneId) : undefined
-      const deps = (n.dependencies ?? []).map((d) => `${nodeNameMap.get(d) ?? d} [${d}]`).join(", ")
-      const parts: string[] = [
-        `${n.type}, ${n.status}`,
-        n.priority ? `priority: ${n.priority}` : "",
-        n.estimate ? `estimate: ${n.estimate}` : "",
-        n.verification ? `verification: ${n.verification}` : "",
-        n.dueDate ? `due: ${n.dueDate}` : "",
-        milestoneName ? `milestone: ${milestoneName} [${n.milestoneId}]` : (n.type !== "milestone" ? "milestone: NONE" : ""),
-        deps ? `depends on: ${deps}` : "",
-      ].filter(Boolean)
-      return `- **[${n.id}]** ${n.title} (${parts.join(", ")})\n  ${n.description}`
-    }).join("\n")
-
-    // List available milestones for easy reference
-    const milestoneList = planNodes
-      .filter((n) => n.type === "milestone")
-      .map((n) => `  - **[${n.id}]** ${n.title}`)
-      .join("\n")
-    const milestoneSection = milestoneList
-      ? `\n\n## Available Milestones\n${milestoneList}\n`
-      : ""
-
-    // Show current edges
-    let edgeSection = ""
-    if (planEdges && planEdges.length > 0) {
-      const edgeList = planEdges.map((e) => {
-        const srcName = nodeNameMap.get(e.source) ?? e.source
-        const tgtName = nodeNameMap.get(e.target) ?? e.target
-        return `  - ${srcName} [${e.source}] → ${tgtName} [${e.target}] (${e.type})`
-      }).join("\n")
-      edgeSection = `\n\n## Current Edges (Dependencies)\n${edgeList}\n`
+    let nodeList = ""
+    if (milestones.length > 0) {
+      // Tasks grouped by milestone
+      for (const m of milestones) {
+        const children = tasks.filter((t) => t.milestoneId === m.id)
+        const childList = children.map((t) => `  - [${t.id}] ${t.title} (${t.status})`).join("\n")
+        nodeList += `- **[${m.id}]** ${m.title} (${m.status})\n${childList}\n`
+      }
+      // Ungrouped tasks
+      const ungrouped = tasks.filter((t) => !t.milestoneId)
+      if (ungrouped.length > 0) {
+        nodeList += `- **(no milestone)**\n` + ungrouped.map((t) => `  - [${t.id}] ${t.title} (${t.status})`).join("\n") + "\n"
+      }
+    } else {
+      // No milestones — flat list
+      nodeList = tasks.map((t) => `- [${t.id}] ${t.title} (${t.status})`).join("\n")
     }
 
     const projectIdSection = projectId ? `\n\n**Project ID:** \`${projectId}\`\n` : ""
-    planSection = `\n\n## Current Plan Nodes\n${nodeList}\n${milestoneSection}${edgeSection}${projectIdSection}`
+    planSection = `\n\n## Current Plan\n${nodeList}${projectIdSection}`
   }
 
   const isPlanMode = taskType === 'plan'

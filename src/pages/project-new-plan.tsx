@@ -22,6 +22,7 @@ import { useSettingsStore, resolveModel, type ModelTier } from "@/stores/setting
 import { useClaudeSessionsStore } from "@/stores/claude-sessions-store"
 import { useExampleStore } from "@/stores/example-store"
 import { useTeamStore } from "@/stores/team-store"
+import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
 import { PlanGeneration } from "@/components/plan-generation/plan-generation"
 import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
 import { ExamplePickerDialog } from "@/components/examples/example-picker-dialog"
@@ -578,7 +579,10 @@ export function ProjectNewPlan() {
         name: project.name,
         description: project.description as string || "",
         visionDoc: planGenerationRequest.visionDoc || "",
-        teamId: useTeamStore.getState().activeTeamId ?? '',
+        teamId: (() => {
+          const wf = useWorkspaceFilterStore.getState().workspaceFilter
+          return wf !== 'all' ? wf : (useTeamStore.getState().getPersonalTeamId() ?? '')
+        })(),
         status: "active",
         projectType: "plan",
         color: getColorForName(project.name),
@@ -937,26 +941,27 @@ export function ProjectNewPlan() {
               {/* Git workflow controls: branch selector + execution mode toggle */}
               {detection?.isGit && (
                 <div className="flex flex-col gap-1.5">
-                  {/* Branch selector — hidden when direct mode is confirmed (branch is irrelevant) */}
-                  {!(directMode && directConfirmed) && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground shrink-0">Target branch:</span>
-                      <BranchSelector
-                        value={effectiveBranch || 'main'}
-                        onChange={setSelectedBranch}
-                        path={workingDir.trim()}
-                        machineId={selectedMachine.machineId}
-                      />
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {/* Branch selector — hidden when direct mode is confirmed (branch is irrelevant) */}
+                    {!(directMode && directConfirmed) && (
+                      <>
+                        <span className="text-xs text-muted-foreground shrink-0">Target branch:</span>
+                        <BranchSelector
+                          value={effectiveBranch || 'main'}
+                          onChange={setSelectedBranch}
+                          path={workingDir.trim()}
+                          machineId={selectedMachine.machineId}
+                        />
+                      </>
+                    )}
 
-                  {/* Execution mode selector */}
-                  <div className="flex gap-1.5">
+                    {/* Execution mode selector */}
+                    <div className="flex gap-1.5">
                     <button
                       type="button"
                       onClick={() => { setDirectMode(false); setDirectConfirmed(false) }}
                       className={cn(
-                        "flex-1 px-2 py-1 rounded-md border text-xs transition-colors cursor-pointer",
+                        "px-3 py-1 rounded-full border text-xs transition-colors cursor-pointer whitespace-nowrap",
                         !directMode
                           ? "border-primary bg-primary/10 text-primary font-medium"
                           : "border-input bg-background text-muted-foreground hover:bg-muted/50",
@@ -968,7 +973,7 @@ export function ProjectNewPlan() {
                       type="button"
                       onClick={() => setDirectMode(true)}
                       className={cn(
-                        "flex-1 px-2 py-1 rounded-md border text-xs transition-colors cursor-pointer",
+                        "px-3 py-1 rounded-full border text-xs transition-colors cursor-pointer whitespace-nowrap",
                         directMode
                           ? "border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium"
                           : "border-input bg-background text-muted-foreground hover:bg-muted/50",
@@ -976,6 +981,7 @@ export function ProjectNewPlan() {
                     >
                       Direct (in-place)
                     </button>
+                  </div>
                   </div>
                   {directMode && !directConfirmed && (
                     <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2">

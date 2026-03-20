@@ -99,6 +99,7 @@ export interface Initiative {
   id: string;
   name: string;
   description: string;
+  teamId?: string;
   goal?: string;
   status: 'active' | 'on_hold' | 'completed' | 'cancelled';
   startDate?: string;     // ISO YYYY-MM-DD
@@ -115,6 +116,7 @@ export interface Team {
   name: string;
   description: string;
   featureFlags: Record<string, boolean>;
+  isPersonal?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

@@ -225,6 +225,13 @@
       "when": 1773993600000,
       "tag": "0031_add_plan_edges_unique_index",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1773977877167,
+      "tag": "0032_opposite_robin_chapel",
+      "breakpoints": true
     }
   ]
 }

@@ -97,15 +97,18 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
 
 interface DisplaySettingsState {
   settings: Record<ViewKey, DisplaySettings>
+  fastEdit: boolean
   loaded: boolean
   load: () => Promise<void>
   get: (view: ViewKey) => DisplaySettings
   update: (view: ViewKey, partial: Partial<DisplaySettings>) => void
   reset: (view: ViewKey) => void
+  toggleFastEdit: () => void
 }
 
 export const useDisplaySettingsStore = create<DisplaySettingsState>((set, get) => ({
   settings: { ...DEFAULTS },
+  fastEdit: false,
   loaded: false,
 
   load: async () => {
@@ -113,7 +116,13 @@ export const useDisplaySettingsStore = create<DisplaySettingsState>((set, get) =
       const fromApi = await dataClient.getDisplaySettings()
       if (fromApi && Object.keys(fromApi).length > 0) {
         const merged = { ...DEFAULTS }
+        // Migrate: read fastEdit from any per-view setting (global since migration)
+        let globalFastEdit = false
         for (const [key, value] of Object.entries(fromApi)) {
+          if (key === '_global') {
+            globalFastEdit = !!(value as unknown as Record<string, unknown>).fastEdit
+            continue
+          }
           const viewKey = key as ViewKey
           if (merged[viewKey]) {
             const settings = { ...DEFAULTS[viewKey], ...value }
@@ -125,10 +134,15 @@ export const useDisplaySettingsStore = create<DisplaySettingsState>((set, get) =
             if (settings.visibleProperties?.includes("order")) {
               settings.visibleProperties = settings.visibleProperties.filter((p: string) => p !== "order")
             }
+            // Migrate per-view fastEdit to global
+            if (settings.fastEdit) {
+              globalFastEdit = true
+              delete settings.fastEdit
+            }
             merged[viewKey] = settings
           }
         }
-        set({ settings: merged, loaded: true })
+        set({ settings: merged, fastEdit: globalFastEdit, loaded: true })
         return
       }
     } catch {
@@ -155,6 +169,12 @@ export const useDisplaySettingsStore = create<DisplaySettingsState>((set, get) =
     const updated = { ...current, [view]: { ...DEFAULTS[view] } }
     set({ settings: updated })
     dataClient.updateDisplaySetting(view, DEFAULTS[view]).catch(() => {})
+  },
+
+  toggleFastEdit: () => {
+    const next = !get().fastEdit
+    set({ fastEdit: next })
+    dataClient.updateDisplaySetting('_global' as ViewKey, { fastEdit: next } as unknown as DisplaySettings).catch(() => {})
   },
 }))
 

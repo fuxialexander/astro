@@ -96,7 +96,7 @@ When the browser loads (or refreshes), `DataLoader` (`src/components/data-loader
 
 ```
 DataLoader mounts
-  ├─ 1. GET /api/data/teams          → team-store (sets X-Team-Id for all subsequent calls)
+  ├─ 1. GET /api/data/teams          → team-store (loads memberships + default team context)
   ├─ 2. GET /api/data/profile        → settings-store
   ├─ 3. GET /api/data/projects       → project-store
   ├─ 4. GET /api/data/plan?slim=1    → plan-store (nodes + edges, no content/executionOutput)
@@ -110,12 +110,14 @@ Per-project load (triggered by useProjectData hook on navigation):
   └─ GET /api/data/executions?projectId=X → execution-store.loadForProject (merges full data)
 ```
 
-**All queries are team-scoped**: the backend applies `teamScopeFilter()` which generates:
+**Core project/task reads are cross-team by membership**: the backend applies an all-teams scope across every team the user belongs to. Team-owned standalone resources still use the default team context when needed.
+
+For example, project and initiative reads behave like:
 ```sql
-WHERE (team_id = $1) OR (team_id IS NULL AND owner_id = $2)
+WHERE team_id IN (...)
 ```
 
-This ensures User A never sees User B's data, even if they share a database.
+This ensures User A never sees data from teams they do not belong to, even if they share a database.
 
 ### 3.3 Two-Tier Lazy Loading
 

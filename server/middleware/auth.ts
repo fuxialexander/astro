@@ -31,6 +31,7 @@ import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
 import { isLocalMode } from '../lib/app-mode.js'
 import { LOCAL_USER_ID, LOCAL_TEAM_ID } from '../lib/db/bootstrap-local.js'
+import { PERSONAL_WORKSPACE_DESCRIPTION } from '../lib/team-utils.js'
 
 export interface AuthUser {
   id: string
@@ -166,7 +167,7 @@ async function resolveTeams(userId: string, requestedTeamId?: string): Promise<{
     console.log('[auth] No team found for user', userId, '— auto-creating personal team')
     const [team] = await db.insert(teams).values({
       name: 'Personal',
-      description: 'Auto-created personal workspace',
+      description: PERSONAL_WORKSPACE_DESCRIPTION,
     }).returning()
 
     await db.insert(teamMembers).values({

@@ -104,6 +104,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const updateProject = useProjectStore((s) => s.updateProject)
   const graphDisplaySettings = useDisplaySettingsStore((s) => s.get("plan-graph"))
+  const globalFastEdit = useDisplaySettingsStore((s) => s.fastEdit)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
 
@@ -375,68 +376,26 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   )
 
 
-  // Compute milestone positions dynamically: centered above their member tasks.
-  // Overlapping milestones are placed in additional rows stacking upward.
+  // Compute milestone positions: laid out sequentially in a row above all task nodes.
   const milestonePositions = useMemo(() => {
     const MILESTONE_WIDTH = 200
     const MILESTONE_HEIGHT = 40
-    const GAP = 16            // min horizontal gap between milestones
-    const ROW_STRIDE = MILESTONE_HEIGHT + 8  // vertical distance between rows (stacks upward)
-    // Base Y: just above the topmost task node so the gap stays ~8px regardless of layout
+    const GAP = 16
+    // Base Y: just above the topmost task node
     const taskNodesWithPos = projectNodes.filter(n => n.type !== 'milestone' && n.position)
     const topmostTaskY = taskNodesWithPos.length > 0
       ? Math.min(...taskNodesWithPos.map(t => t.position!.y))
       : 40
-    const MILESTONE_ROW_BASE_Y = topmostTaskY - MILESTONE_HEIGHT - 8
+    const leftmostTaskX = taskNodesWithPos.length > 0
+      ? Math.min(...taskNodesWithPos.map(t => t.position!.x))
+      : 40
+    const MILESTONE_ROW_Y = topmostTaskY - MILESTONE_HEIGHT - 8
     const positions = new Map<string, { x: number; y: number }>()
 
-    // Pass 1: compute ideal x for milestones anchored to member tasks
-    const idealX = new Map<string, number>()
+    let x = leftmostTaskX
     for (const msId of orderedMilestoneIds) {
-      const memberTasks = projectNodes.filter(n => n.type !== 'milestone' && n.milestoneId === msId && n.position)
-      if (memberTasks.length > 0) {
-        const cx = memberTasks.reduce((sum, t) => sum + (t.position?.x ?? 0), 0) / memberTasks.length
-        idealX.set(msId, cx - MILESTONE_WIDTH / 2 + 82)
-      }
-    }
-
-    // Pass 2: place orphan milestones to the right of all anchored ones
-    let fallbackX = 0
-    for (const x of idealX.values()) {
-      const right = x + MILESTONE_WIDTH + GAP
-      if (right > fallbackX) fallbackX = right
-    }
-    for (const msId of orderedMilestoneIds) {
-      if (!idealX.has(msId)) {
-        idealX.set(msId, fallbackX)
-        fallbackX += MILESTONE_WIDTH + GAP
-      }
-    }
-
-    // Pass 3: assign rows — milestones sorted by x, each placed in the first row
-    // where it doesn't overlap any already-placed milestone.
-    // Extra rows stack upward (more negative y).
-    const rowOccupancy: Array<Array<{ x: number }>> = []  // rowOccupancy[rowIdx] = list of placed {x}
-
-    const sortedIds = [...orderedMilestoneIds].sort((a, b) => (idealX.get(a) ?? 0) - (idealX.get(b) ?? 0))
-
-    for (const msId of sortedIds) {
-      const x = idealX.get(msId) ?? 0
-      let placed = false
-      for (let row = 0; row < rowOccupancy.length; row++) {
-        const overlaps = rowOccupancy[row].some(p => Math.abs(p.x - x) < MILESTONE_WIDTH + GAP)
-        if (!overlaps) {
-          rowOccupancy[row].push({ x })
-          positions.set(msId, { x, y: MILESTONE_ROW_BASE_Y - row * ROW_STRIDE })
-          placed = true
-          break
-        }
-      }
-      if (!placed) {
-        const row = rowOccupancy.length
-        rowOccupancy.push([{ x }])
-        positions.set(msId, { x, y: MILESTONE_ROW_BASE_Y - row * ROW_STRIDE })
-      }
+      positions.set(msId, { x, y: MILESTONE_ROW_Y })
+      x += MILESTONE_WIDTH + GAP
     }
 
     return positions
@@ -508,7 +467,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
         onDecompose: readOnly ? undefined : onDecomposeNode,
         onToggleSelect: readOnly ? undefined : handleToggleSelect,
         readOnly,
-        fastEdit: !readOnly && (graphDisplaySettings.fastEdit ?? false),
+        fastEdit: !readOnly && (globalFastEdit ?? false),
         onFastEdit: !readOnly ? (nodeId: string, title: string) => updateNode(nodeId, { title }) : undefined,
       },
       selected: n.id === selectedId,
@@ -533,7 +492,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
     }
 
     return taskNodes
-  }, [projectNodes, orderedMilestoneIds, milestonePositions, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy, readOnly, loopNodesEnabled, handleCreateMilestone, graphDisplaySettings.fastEdit, updateNode])
+  }, [projectNodes, orderedMilestoneIds, milestonePositions, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy, readOnly, loopNodesEnabled, handleCreateMilestone, globalFastEdit, updateNode])
 
   // Build a position lookup for edge handle routing
   const nodePositionMap = useMemo(() => {
@@ -707,11 +666,11 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
       setSelectedId(node.id)
       // In fast edit mode, clicking activates inline title editing in the node itself;
       // do not navigate to the detail page.
-      if (graphDisplaySettings.fastEdit) return
+      if (globalFastEdit) return
       const planNode = projectNodes.find((n) => n.id === node.id)
       onNodeSelect?.(planNode ?? null)
     },
-    [projectNodes, onNodeSelect, graphDisplaySettings.fastEdit]
+    [projectNodes, onNodeSelect, globalFastEdit]
   )
 
   const handlePaneClick = useCallback(() => {
@@ -845,7 +804,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
           { color: STATUS_DOT_COLOR.pruned,             label: 'pruned' },
         ] as const).map(({ color, label }) => (
           <span key={label} className="flex items-center gap-1 shrink-0">
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+            <span className="h-1.5 w-1.5" style={{ background: color }} />
             <span className="text-[9px] text-muted-foreground/70">{label}</span>
           </span>
         ))}
@@ -857,17 +816,11 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
           { color: PRIORITY_PIP_COLOR.low,    label: 'low' },
         ] as const).map(({ color, label }) => (
           <span key={label} className="flex items-center gap-1 shrink-0">
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+            <span className="h-1.5 w-1.5" style={{ background: color }} />
             <span className="text-[9px] text-muted-foreground/70">{label}</span>
           </span>
         ))}
         <div className="w-px h-3 bg-border shrink-0" />
-        <span className="flex items-center gap-1 shrink-0">
-          <svg width="18" height="6" className="shrink-0">
-            <line x1="0" y1="3" x2="18" y2="3" stroke={GRAPH_EDGE_COLOR} strokeWidth="1.5" strokeDasharray="4 3" opacity="0.8" />
-          </svg>
-          <span className="text-[9px] text-muted-foreground/70">active dep</span>
-        </span>
         <span className="flex items-center gap-1 shrink-0">
           <svg width="18" height="6" className="shrink-0">
             <line x1="0" y1="3" x2="14" y2="3" stroke={GRAPH_EDGE_COLOR} strokeWidth="1.5" opacity="0.7" />

@@ -410,7 +410,7 @@ export const registeredMachines = pgTable('registered_machines', {
     settings?: Record<string, unknown>
   }>>().default([]),
   workspaceId: text('workspace_id'),
-  defaultInstructionId: uuid('default_instruction_id'),
+  defaultInstructionId: text('default_instruction_id'),
   isConnected: boolean('is_connected').notNull().default(false),
   isRevoked: boolean('is_revoked').notNull().default(false),
   refreshTokenHash: text('refresh_token_hash').notNull(),

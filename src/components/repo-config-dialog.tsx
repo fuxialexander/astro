@@ -329,29 +329,24 @@ export function RepoConfigDialog({
                   </div>
                 )}
 
-              {/* Target branch selector — shown when git is detected */}
+              {/* Target branch + Execution mode — shown when git is detected */}
               {detection?.isGit && (
-                <div className="flex flex-col gap-1">
-                  <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Target branch</span>
-                  <BranchSelector
-                    value={baseBranch || detection.baseBranch || 'main'}
-                    onChange={setBaseBranch}
-                    path={workDir.trim()}
-                    machineId={selectedMachineId || undefined}
-                  />
-                </div>
-              )}
-
-              {/* Execution mode selector — shown when git is detected */}
-              {detection?.isGit && (
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Execution mode</span>
+                <div className="flex items-end gap-3">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Target branch</span>
+                    <BranchSelector
+                      value={baseBranch || detection.baseBranch || 'main'}
+                      onChange={setBaseBranch}
+                      path={workDir.trim()}
+                      machineId={selectedMachineId || undefined}
+                    />
+                  </div>
                   <div className="flex gap-1.5">
                     <button
                       type="button"
                       onClick={() => { setDirectMode(false); setDirectConfirmed(false) }}
                       className={cn(
-                        "flex-1 px-2.5 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
+                        "px-3 py-1.5 rounded-full border text-xs transition-colors cursor-pointer whitespace-nowrap",
                         !directMode
                           ? "border-primary bg-primary/10 text-primary font-medium"
                           : "border-input bg-background text-muted-foreground hover:bg-muted/50",
@@ -363,7 +358,7 @@ export function RepoConfigDialog({
                       type="button"
                       onClick={() => setDirectMode(true)}
                       className={cn(
-                        "flex-1 px-2.5 py-1.5 rounded-md border text-xs transition-colors cursor-pointer",
+                        "px-3 py-1.5 rounded-full border text-xs transition-colors cursor-pointer whitespace-nowrap",
                         directMode
                           ? "border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium"
                           : "border-input bg-background text-muted-foreground hover:bg-muted/50",
@@ -372,27 +367,27 @@ export function RepoConfigDialog({
                       Direct (in-place)
                     </button>
                   </div>
-                  {directMode && !directConfirmed && (
-                    <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2.5">
-                      <TriangleAlert className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-px" />
-                      <div className="flex-1 text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
-                        <span className="font-medium">
-                          {detection?.remoteUrl ? 'No worktrees · No branches · No PRs' : 'No worktrees · No branches'}
-                        </span>
-                        <br />
-                        <span className="text-muted-foreground">One task at a time, working directly inside the working directory.</span>
-                      </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-6 text-[11px] shrink-0 border-amber-500/40 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
-                        onClick={() => setDirectConfirmed(true)}
-                      >
-                        OK
-                      </Button>
-                    </div>
-                  )}
+                </div>
+              )}
+              {detection?.isGit && directMode && !directConfirmed && (
+                <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2.5">
+                  <TriangleAlert className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-px" />
+                  <div className="flex-1 text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+                    <span className="font-medium">
+                      {detection?.remoteUrl ? 'No worktrees · No branches · No PRs' : 'No worktrees · No branches'}
+                    </span>
+                    <br />
+                    <span className="text-muted-foreground">One task at a time, working directly inside the working directory.</span>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-[11px] shrink-0 border-amber-500/40 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
+                    onClick={() => setDirectConfirmed(true)}
+                  >
+                    OK
+                  </Button>
                 </div>
               )}
               </div>

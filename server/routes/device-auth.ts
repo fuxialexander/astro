@@ -1035,8 +1035,9 @@ deviceAuthRoute.delete('/machines/:id', requireAuth, async (c) => {
  * Returns machines owned by other team members that have been contributed.
  */
 deviceAuthRoute.get('/team-machines', requireAuth, async (c) => {
-  const user = c.get('user') as { id: string; teamId: string };
-  const teamId = user.teamId;
+  const user = c.get('user') as { id: string; teamIds: string[] };
+  const requestedTeamId = c.req.query('teamId');
+  const teamId = requestedTeamId && user.teamIds.includes(requestedTeamId) ? requestedTeamId : null;
 
   if (!teamId) {
     return c.json({ machines: [], count: 0 });
@@ -1070,12 +1071,15 @@ deviceAuthRoute.get('/team-machines', requireAuth, async (c) => {
  * Body: { shared: boolean }
  */
 deviceAuthRoute.patch('/machines/:id/share', requireAuth, async (c) => {
-  const user = c.get('user') as { id: string; teamId: string };
+  const user = c.get('user') as { id: string; teamIds: string[] };
   const id = c.req.param('id');
-  const body = await c.req.json() as { shared: boolean };
+  const body = await c.req.json() as { shared: boolean; teamId?: string | null };
 
   if (typeof body.shared !== 'boolean') {
     return c.json({ error: 'Missing required field: shared (boolean)' }, 400);
+  }
+  if (body.shared && (!body.teamId || !user.teamIds.includes(body.teamId))) {
+    return c.json({ error: 'A valid teamId is required when sharing a machine' }, 400);
   }
 
   // Verify ownership
@@ -1087,7 +1091,7 @@ deviceAuthRoute.patch('/machines/:id/share', requireAuth, async (c) => {
     return c.json({ error: 'Not authorized — only the machine owner can share it' }, 403);
   }
 
-  const targetTeamId = body.shared ? user.teamId : null;
+  const targetTeamId = body.shared ? body.teamId! : null;
   const success = await shareMachineWithTeam(id, targetTeamId);
 
   if (!success) {

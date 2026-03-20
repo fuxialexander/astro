@@ -133,10 +133,10 @@ export function MyTasks() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Filter out playground sessions — they have no plan nodes and shouldn't appear in task views
+  // Filter to only real projects — exclude playground sessions and plan generation sessions
   // Then apply workspace filter to scope projects by team
   const projects = useMemo(() => {
-    let filtered = allProjects.filter((p) => p.projectType != null && p.projectType !== 'playground')
+    let filtered = allProjects.filter((p) => p.projectType != null && p.projectType !== 'playground' && p.projectType !== 'plan')
     if (workspaceFilter !== 'all') {
       filtered = filtered.filter((p) => p.teamId === workspaceFilter)
     }

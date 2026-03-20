@@ -5,7 +5,7 @@ import { useProjectData } from "@/hooks/use-project-data"
 import { Diamond, Trash2, GitPullRequestDraft, GitPullRequest, Star, Play, Pencil, GitBranch, ChevronLeft, MoreVertical, FolderGit2, ExternalLink, Clock, RotateCcw, PanelBottom, PanelRight, RefreshCw, Sparkles, Globe, GitFork, X, Settings2, PlayCircle, Square, Scissors, Bot, Check } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { VisionDocDialog } from "@/components/vision-doc-dialog"
-import { ReplanDialog } from "@/components/replan-dialog"
+
 import { PlanHistory } from "@/components/plan-history"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
@@ -160,6 +160,84 @@ const PLAN_VIEW_AS_OPTIONS = [
   { value: "graph", label: "Graph" },
 ]
 
+
+// --- Execute All button (self-contained, reads from stores) ---
+function ExecuteAllButton({ projectId }: { projectId: string }) {
+  const rawPlanNodes = usePlanStore((s) => s.nodes)
+  const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
+  const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
+  const executeAllProject = useExecutionStore((s) => s.executeAllProject)
+  const stopBatchExecution = useExecutionStore((s) => s.stopBatchExecution)
+  const batchExecution = useExecutionStore((s) => s.batchExecutions.get(projectId))
+  const flushPendingSaves = useContentSaveStore((s) => s.flushPendingSaves)
+
+  const allProjectNodes = useMemo(() => planNodes.filter((n) => n.projectId === projectId), [planNodes, projectId])
+  const isBatchActive = batchExecution?.active ?? false
+  const plannedCount = allProjectNodes.filter((n) => n.status === "planned" && n.type !== "milestone").length
+  const executingCount = allProjectNodes.filter((n) => (n.status === "dispatched" || n.status === "in_progress") && n.type !== "milestone").length
+
+  const handleExecuteAll = useCallback(async () => {
+    if (!project?.defaultMachineId) {
+      useToastStore.getState().add({
+        type: "warning",
+        title: "No machine connected",
+        description: "Connect a machine in Environments before executing tasks.",
+      })
+      return
+    }
+    const nodeIds = allProjectNodes.map((n) => n.id)
+    try {
+      await flushPendingSaves(nodeIds)
+    } catch (error) {
+      console.error('Failed to save task content before execution:', error)
+      useToastStore.getState().add({
+        type: 'error',
+        title: 'Failed to save changes',
+        description: 'Could not save task content before execution. Please try again.',
+      })
+      return
+    }
+    executeAllProject(projectId)
+  }, [executeAllProject, projectId, project, allProjectNodes, flushPendingSaves])
+
+  if (isBatchActive) {
+    return (
+      <div className="flex items-center gap-2">
+        <div className="relative flex h-2 w-2">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+        </div>
+        <span className="text-xs font-medium text-foreground">
+          Executing{executingCount > 0 ? ` (${executingCount} running` : ""}
+          {plannedCount > 0 ? `, ${plannedCount} queued)` : executingCount > 0 ? ")" : "..."}
+        </span>
+        <button
+          type="button"
+          onClick={() => stopBatchExecution(projectId)}
+          title="Stop queuing new tasks (running tasks will finish)"
+          className="flex h-6 items-center gap-1 rounded-md border border-destructive/30 bg-destructive/5 px-2 text-[11px] font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+        >
+          <Square className="h-3 w-3" />
+          Stop
+        </button>
+      </div>
+    )
+  }
+
+  if (plannedCount <= 0) return null
+
+  return (
+    <button
+      type="button"
+      onClick={handleExecuteAll}
+      title={`Execute all ${plannedCount} planned tasks in dependency order`}
+      className="flex h-6 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2 text-xs font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+    >
+      <PlayCircle className="h-3.5 w-3.5" />
+      Execute All ({plannedCount})
+    </button>
+  )
+}
 
 // --- Compact workdir bar shown below the header ---
 function WorkdirBar({ project }: { project: Project }) {
@@ -341,6 +419,9 @@ function WorkdirBar({ project }: { project: Project }) {
             </button>
           </>
         )}
+        <div className="ml-auto shrink-0">
+          <ExecuteAllButton projectId={project.id} />
+        </div>
       </div>
     </>
   )
@@ -995,10 +1076,8 @@ export function PlanListView({
   const projects = useProjectStore((s) => s.projects)
   const displaySettings = useDisplaySettingsStore((s) => s.get(displayViewKey))
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
+  const fastEdit = useDisplaySettingsStore((s) => s.fastEdit)
   const flushPendingSaves = useContentSaveStore((s) => s.flushPendingSaves)
-  const executeAllProject = useExecutionStore((s) => s.executeAllProject)
-  const stopBatchExecution = useExecutionStore((s) => s.stopBatchExecution)
-  const batchExecution = useExecutionStore((s) => s.batchExecutions.get(projectId))
   const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
   const [labelManagerOpen, setLabelManagerOpen] = useState(false)
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
@@ -1394,35 +1473,6 @@ export function PlanListView({
     }
   }, [displaySettings.orderBy, displaySettings.orderDirection, updateDisplaySettings, displayViewKey])
 
-  const isBatchActive = batchExecution?.active ?? false
-  const plannedCount = allProjectNodes.filter((n) => n.status === "planned" && n.type !== "milestone").length
-  const executingCount = allProjectNodes.filter((n) => (n.status === "dispatched" || n.status === "in_progress") && n.type !== "milestone").length
-
-  const handleExecuteAll = useCallback(async () => {
-    if (!project?.defaultMachineId) {
-      useToastStore.getState().add({
-        type: "warning",
-        title: "No machine connected",
-        description: "Connect a machine in Environments before executing tasks.",
-      })
-      return
-    }
-    const nodeIds = allProjectNodes.map((n) => n.id)
-    try {
-      await flushPendingSaves(nodeIds)
-    } catch (error) {
-      console.error('Failed to save task content before execution:', error)
-      useToastStore.getState().add({
-        type: 'error',
-        title: 'Failed to save changes',
-        description: 'Could not save task content before execution. Please try again.',
-      })
-      return
-    }
-
-    executeAllProject(projectId)
-  }, [executeAllProject, projectId, project, allProjectNodes, flushPendingSaves])
-
   // Show empty state if no tasks (with column headers)
   if (tasks.length === 0) {
     return <ListEmptyState projectId={projectId} columns={columns} />
@@ -1432,38 +1482,6 @@ export function PlanListView({
   const visibleColumnsWithName = displaySettings.visibleProperties?.includes("name")
     ? displaySettings.visibleProperties
     : ["name", ...(displaySettings.visibleProperties || [])]
-
-  const executeAllButton = isBatchActive ? (
-    <div className="flex items-center gap-2">
-      <div className="relative flex h-2 w-2">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
-        <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
-      </div>
-      <span className="text-xs font-medium text-foreground">
-        Executing{executingCount > 0 ? ` (${executingCount} running` : ""}
-        {plannedCount > 0 ? `, ${plannedCount} queued)` : executingCount > 0 ? ")" : "..."}
-      </span>
-      <button
-        type="button"
-        onClick={() => stopBatchExecution(projectId)}
-        title="Stop queuing new tasks (running tasks will finish)"
-        className="flex h-6 items-center gap-1 rounded-md border border-destructive/30 bg-destructive/5 px-2 text-[11px] font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
-      >
-        <Square className="h-3 w-3" />
-        Stop
-      </button>
-    </div>
-  ) : plannedCount > 0 ? (
-    <button
-      type="button"
-      onClick={handleExecuteAll}
-      title={`Execute all ${plannedCount} planned tasks in dependency order`}
-      className="flex h-7 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-2.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer"
-    >
-      <PlayCircle className="h-3.5 w-3.5" />
-      Execute All ({plannedCount})
-    </button>
-  ) : null
 
   return (
     <>
@@ -1476,11 +1494,10 @@ export function PlanListView({
       )}
       <ItemListView
         columns={columns}
-        headerActions={executeAllButton}
         groups={groups}
         visibleColumns={visibleColumnsWithName}
         onItemClick={(node) => {
-          if (displaySettings.fastEdit) {
+          if (fastEdit) {
             setEditingTitle(node.title)
             setEditingNodeId(node.id)
           } else {
@@ -1495,7 +1512,7 @@ export function PlanListView({
         sortDirection={displaySettings.orderDirection}
         onSort={handleSort}
         onGroupDrop={displaySettings.groupBy !== "none" && displaySettings.groupBy !== "project" ? handleGroupDrop : undefined}
-        renderItemName={displaySettings.fastEdit ? (node) => {
+        renderItemName={fastEdit ? (node) => {
           if (editingNodeId === node.id) {
             return (
               <input
@@ -1613,6 +1630,7 @@ export function PlanTimelineView({
   const updateNode = usePlanStore((s) => s.updateNode)
   const projects = useProjectStore((s) => s.projects)
   const displaySettings = useDisplaySettingsStore((s) => s.get(displayViewKey))
+  const fastEdit = useDisplaySettingsStore((s) => s.fastEdit)
   const [isCreating, setIsCreating] = useState(false)
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState("")
@@ -1731,7 +1749,7 @@ export function PlanTimelineView({
       rows={timelineRows}
       viewKey={displayViewKey}
       renderLeftCell={(node) => {
-        if (displaySettings.fastEdit && editingNodeId === node.id) {
+        if (fastEdit && editingNodeId === node.id) {
           return (
             <input
               autoFocus
@@ -1769,7 +1787,7 @@ export function PlanTimelineView({
         )
       }}
       onItemClick={(node) => {
-        if (displaySettings.fastEdit) {
+        if (fastEdit) {
           setEditingTitle(node.title)
           setEditingNodeId(node.id)
         } else {
@@ -1808,6 +1826,7 @@ export function PlanBoardView({
   const planNodes = useMemo(() => rawPlanNodes.filter(isLive), [rawPlanNodes])
   const updateNode = usePlanStore((s) => s.updateNode)
   const boardSettings = useDisplaySettingsStore((s) => s.get("plan-board"))
+  const fastEdit = useDisplaySettingsStore((s) => s.fastEdit)
 
   const nodes = useMemo(() => {
     // If nodes provided (cross-project mode), use those
@@ -1836,7 +1855,7 @@ export function PlanBoardView({
         milestones={milestones}
         onNodeSelect={(node) => onNodeSelect(node)}
         onNodeUpdate={handleNodeUpdate}
-        fastEdit={boardSettings.fastEdit}
+        fastEdit={fastEdit}
         projectId={projectId}
       />
     </div>
@@ -1860,23 +1879,26 @@ export function PlanView() {
   const rawPlanEdges = usePlanStore((s) => s.edges)
   const planEdges = useMemo(() => rawPlanEdges.filter(isLive), [rawPlanEdges])
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
-  const graphFastEdit = useDisplaySettingsStore((s) => s.get("plan-graph").fastEdit)
-  const listFastEdit = useDisplaySettingsStore((s) => s.get("plan-list").fastEdit)
+  const fastEditSetting = useDisplaySettingsStore((s) => s.fastEdit)
+  const toggleFastEdit = useDisplaySettingsStore((s) => s.toggleFastEdit)
+  const projectTaskCount = useMemo(() => planNodes.filter((n) => n.projectId === id && n.type !== "milestone").length, [planNodes, id])
+  // Auto-enable fast edit when project has no tasks (empty plan)
+  const fastEdit = fastEditSetting || projectTaskCount === 0
 
   /** Select a node: navigate to its task detail page */
   const handleNodeSelect = useCallback((node: PlanNode | null) => {
     if (node && id) {
+      // In fast edit mode the view handles inline editing; skip navigation
+      if (fastEdit) return
       const pathParts = location.pathname.split('/')
       const from = pathParts[pathParts.length - 1] || 'graph'
-      // In fast edit mode the view handles inline editing; skip navigation
-      if ((from === 'graph' && graphFastEdit) || (from === 'list' && listFastEdit) || (from === 'timeline' && listFastEdit)) return
       const activeStatuses = new Set(['in_progress', 'dispatched', 'completed', 'auto_verified'])
       const tab = activeStatuses.has(node.status) ? 'activity' : 'content'
       navigate(`/project/${id}/task/${node.id}?from=${from}&tab=${tab}`)
     } else {
       setSelectedNode(null)
     }
-  }, [id, navigate, location.pathname, graphFastEdit, listFastEdit])
+  }, [id, navigate, location.pathname, fastEdit])
 
   /** Handle node ID click from chat messages */
   const handleChatNodeSelect = useCallback((nodeId: string) => {
@@ -1885,7 +1907,7 @@ export function PlanView() {
   }, [planNodes, handleNodeSelect])
   const [chatInitialMessage, setChatInitialMessage] = useState<string | undefined>()
   const [visionOpen, setVisionOpen] = useState(false)
-  const [replanOpen, setReplanOpen] = useState(false)
+
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
   const isMobile = useMediaQuery("(max-width: 767px)")
   const chatPanelPosition = useUIStore((s) => s.chatPanelPosition)
@@ -1939,6 +1961,37 @@ export function PlanView() {
   // viewMode changes from URL navigation. The guard avoids no-op renders.
   useEffect(() => { setSelectedNode(null) }, [viewMode, activeTab])
 
+  // Keyboard shortcuts: 'i' to enter fast edit, 'Escape' to exit, 1-4 to switch views
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName
+      const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable
+      if (isEditable) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.key === 'i' && !fastEditSetting) {
+        e.preventDefault()
+        toggleFastEdit()
+      } else if (e.key === 'Escape' && fastEditSetting) {
+        toggleFastEdit()
+      } else if (id) {
+        const viewMap: Record<string, ViewMode> = { '1': 'list', '2': 'board', '3': 'timeline', '4': 'graph' }
+        const view = viewMap[e.key]
+        if (view) { e.preventDefault(); navigate(`/project/${id}/${view}`) }
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [fastEditSetting, toggleFastEdit, id, navigate])
+
+  // Show help tooltip on first visit to plan view
+  const [showHelpTip, setShowHelpTip] = useState(() => {
+    try { return !localStorage.getItem('astro-plan-help-seen') } catch { return true }
+  })
+  const dismissHelpTip = useCallback(() => {
+    setShowHelpTip(false)
+    try { localStorage.setItem('astro-plan-help-seen', '1') } catch { /* noop */ }
+  }, [])
+
   // Handle decompose: open chat with pre-filled message
   const handleDecomposeNode = useCallback((nodeId: string) => {
     const node = planNodes.find((n) => n.id === nodeId)
@@ -1955,8 +2008,8 @@ export function PlanView() {
   // (projects converted from GitHub tasks keep githubOwner/githubRepo but have projectType 'plan')
   const gitHubEnabled = useFeatureFlag('github-integration')
   const isGitHubProject = gitHubEnabled && project?.projectType === 'github' && !!(project?.githubOwner && project?.githubRepo)
-  const liveNodes = useMemo(() => planNodes.filter(n => n.projectId === id), [planNodes, id])
-  const canReplan = liveNodes.length > 0 && !isGitHubProject
+
+
   const canSyncGitHub = isGitHubProject
 
   // GitHub issue sync handler
@@ -2105,6 +2158,14 @@ export function PlanView() {
                 Publish to Community
               </Button>
             )}
+            <Button
+              variant={fastEdit ? "secondary" : "outline"}
+              size="sm"
+              onClick={() => toggleFastEdit()}
+            >
+              <Pencil className={cn("h-3.5 w-3.5", fastEdit && "text-primary")} />
+              <span className="hidden md:inline">Fast Edit</span>
+            </Button>
             <DisplayPopover config={{
               ...(viewMode === "list" ? planListDisplayConfig
                 : viewMode === "timeline" ? planTimelineDisplayConfig
@@ -2143,15 +2204,6 @@ export function PlanView() {
                   />
                 </div>
               </div>
-            ) : canReplan ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" onClick={() => setReplanOpen(true)}>
-                    <RefreshCw className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Regenerate Plan</TooltipContent>
-              </Tooltip>
             ) : null}
           </div>
         )}
@@ -2234,14 +2286,6 @@ export function PlanView() {
                   }
                 />
               </>
-            ) : canReplan ? (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setReplanOpen(true)}>
-                  <RefreshCw className="h-3.5 w-3.5 mr-2" />
-                  Regenerate Plan
-                </DropdownMenuItem>
-              </>
             ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
@@ -2252,6 +2296,24 @@ export function PlanView() {
 
       {/* Fork source lineage banner (if forked from community plan) */}
       <ForkSourceBanner project={project} />
+
+      {/* First-visit keyboard shortcut hint */}
+      {showHelpTip && activeTab === "plan" && (
+        <div className="flex items-center gap-2 px-3 md:px-6 py-1.5 bg-primary/5 border-b border-primary/10 text-xs text-muted-foreground">
+          <span>
+            Press <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">I</kbd> to toggle fast edit,{" "}
+            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">Enter</kbd> to confirm,{" "}
+            <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">Esc</kbd> to exit
+          </span>
+          <button
+            type="button"
+            onClick={dismissHelpTip}
+            className="ml-auto text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Canvas/List + Detail/Chat pane */}
       <div className={cn("flex flex-1 overflow-hidden", isRightChat ? "flex-row" : "flex-col")}>
@@ -2314,8 +2376,6 @@ export function PlanView() {
       {/* Vision Document Dialog */}
       <VisionDocDialog open={visionOpen} onOpenChange={setVisionOpen} project={project} />
 
-      {/* Replan Dialog */}
-      <ReplanDialog open={replanOpen} onOpenChange={setReplanOpen} project={project} />
 
       {/* Publish to Community Dialog */}
       <PublishDialog

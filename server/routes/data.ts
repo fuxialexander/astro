@@ -23,7 +23,7 @@ import {
   projectKnowledge,
   loopIterations,
 } from '../lib/db/schema.js'
-import { eq, and, or, sql, desc, isNull, inArray, notInArray, ne } from 'drizzle-orm'
+import { eq, and, or, sql, desc, isNull, inArray, notInArray, ne, type AnyColumn } from 'drizzle-orm'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { logAuditEvent, AuditActions, ResourceTypes } from '../middleware/audit.js'
 import { isServerMode } from '../lib/app-mode.js'
@@ -35,6 +35,7 @@ import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 import { startLoop } from '../lib/loop-controller.js'
 import { extractRepoInfo } from '../lib/git-url-utils.js'
 import { isYoloMode } from '../lib/yolo-mode.js'
+import { resolveWritableTeamId } from '../lib/team-utils.js'
 
 // Fallback icon/color pools for projects created without explicit icon/color
 const FALLBACK_COLORS = ['#4A6D8A', '#5F8D6B', '#A07D4F', '#7B6B9A', '#9A6878', '#A8785E', '#5B7F9A', '#8A7A6E', '#71717A']
@@ -53,7 +54,7 @@ function pickByNameHash(name: string, arr: readonly string[]): string {
  * Cross-team scope filter: matches all teams the user belongs to.
  * All project/blob access checks use this to support cross-team projects.
  */
-function allTeamsScopeFilter(table: { teamId: typeof projects.teamId }, user: AuthUser) {
+function allTeamsScopeFilter<TTeamColumn extends AnyColumn>(table: { teamId: TTeamColumn }, user: AuthUser) {
   return inArray(table.teamId, user.teamIds)
 }
 
@@ -107,7 +108,13 @@ app.post('/projects', async (c) => {
 
   // Generate UUID if not provided
   const projectId = body.id || crypto.randomUUID()
-  const teamId = user.teamId
+  if (body.teamId !== undefined && body.teamId && !user.teamIds.includes(body.teamId)) {
+    return c.json({ error: 'Invalid teamId' }, 400)
+  }
+
+  const teamId = body.teamId && user.teamIds.includes(body.teamId)
+    ? body.teamId
+    : user.teamId
 
   // Server-authoritative number assignment in a transaction
   let assignedNumber: number | null = null
@@ -218,7 +225,12 @@ app.patch('/projects/:id', async (c) => {
   if (body.lead !== undefined) patch.lead = body.lead || null
   if (body.health !== undefined) patch.health = body.health || null
   if (body.initiativeId !== undefined) patch.initiativeId = body.initiativeId || null
-  if (body.teamId !== undefined && body.teamId && user.teamIds.includes(body.teamId)) patch.teamId = body.teamId
+  if (body.teamId !== undefined) {
+    if (body.teamId && !user.teamIds.includes(body.teamId)) {
+      return c.json({ error: 'Invalid teamId' }, 400)
+    }
+    patch.teamId = body.teamId || existing.teamId
+  }
   if (body.progress !== undefined) patch.progress = body.progress
   if (body.labels !== undefined) patch.labels = body.labels
   if (body.color !== undefined) patch.color = body.color
@@ -349,7 +361,7 @@ app.delete('/projects/:id', async (c) => {
 app.get('/initiatives', async (c) => {
   const user = c.get('user')! as AuthUser
   const rows = await db.select().from(initiatives).where(
-    eq(initiatives.teamId, user.teamId)
+    allTeamsScopeFilter(initiatives, user)
   )
   return c.json(rows)
 })
@@ -360,11 +372,18 @@ app.post('/initiatives', async (c) => {
   const now = new Date()
 
   const initiativeId = body.id || crypto.randomUUID()
+  if (body.teamId !== undefined && body.teamId && !user.teamIds.includes(body.teamId)) {
+    return c.json({ error: 'Invalid teamId' }, 400)
+  }
+
+  const teamId = body.teamId && user.teamIds.includes(body.teamId)
+    ? body.teamId
+    : user.teamId
 
   const row = {
     id: initiativeId,
     ownerId: user.id,
-    teamId: user.teamId,
+    teamId,
     name: body.name,
     description: body.description || '',
     goal: body.goal || null,
@@ -389,7 +408,7 @@ app.get('/initiatives/:id', async (c) => {
   const user = c.get('user')! as AuthUser
   const initiativeId = c.req.param('id')
   const [row] = await db.select().from(initiatives).where(
-    and(eq(initiatives.id, initiativeId), eq(initiatives.teamId, user.teamId))
+    and(eq(initiatives.id, initiativeId), allTeamsScopeFilter(initiatives, user))
   )
   if (!row) return c.json({ error: 'Not found' }, 404)
   return c.json(row)
@@ -400,7 +419,7 @@ app.patch('/initiatives/:id', async (c) => {
   const id = c.req.param('id')
 
   try {
-    const teamFilter = eq(initiatives.teamId, user.teamId)
+    const teamFilter = allTeamsScopeFilter(initiatives, user)
 
     const [existing] = await db.select().from(initiatives).where(
       and(eq(initiatives.id, id), teamFilter)
@@ -418,6 +437,12 @@ app.patch('/initiatives/:id', async (c) => {
     if (body.lead !== undefined) patch.lead = body.lead || null
     if (body.color !== undefined) patch.color = body.color
     if (body.icon !== undefined) patch.icon = body.icon
+    if (body.teamId !== undefined) {
+      if (body.teamId && !user.teamIds.includes(body.teamId)) {
+        return c.json({ error: 'Invalid teamId' }, 400)
+      }
+      patch.teamId = body.teamId || existing.teamId
+    }
 
     await db.update(initiatives).set(patch).where(
       and(eq(initiatives.id, id), teamFilter)
@@ -437,7 +462,7 @@ app.delete('/initiatives/:id', async (c) => {
   const initiativeId = c.req.param('id')
 
   try {
-    const teamFilter = eq(initiatives.teamId, user.teamId)
+    const teamFilter = allTeamsScopeFilter(initiatives, user)
 
     const [existing] = await db.select().from(initiatives).where(
       and(eq(initiatives.id, initiativeId), teamFilter)
@@ -1788,13 +1813,18 @@ app.post('/sessions', async (c) => {
     }
   }
 
-  await db.insert(sessions).values({
+  // Coerce empty strings to null for UUID columns
+  const values = {
     ...body,
     userId,
+    projectId: body.projectId || null,
+    nodeId: body.nodeId || null,
     createdAt: body.createdAt ? new Date(body.createdAt) : new Date(),
     updatedAt: body.updatedAt ? new Date(body.updatedAt) : new Date(),
     completedAt: body.completedAt ? new Date(body.completedAt) : null,
-  })
+  }
+
+  await db.insert(sessions).values(values)
 
   return c.json(body)
 })
@@ -2323,9 +2353,26 @@ app.post('/blobs', async (c) => {
     return c.json({ error: `File too large. Maximum size is ${MAX_BLOB_SIZE / 1024 / 1024}MB` }, 400)
   }
 
+  let teamId = user.teamId
+
+  if (body.projectId) {
+    const [project] = await db.select({ id: projects.id, teamId: projects.teamId }).from(projects).where(
+      and(eq(projects.id, body.projectId), allTeamsScopeFilter(projects, user))
+    )
+    if (!project) {
+      return c.json({ error: 'Not authorized for project' }, 403)
+    }
+    teamId = project.teamId
+  } else if (body.teamId !== undefined && body.teamId) {
+    if (!user.teamIds.includes(body.teamId)) {
+      return c.json({ error: 'Invalid teamId' }, 400)
+    }
+    teamId = body.teamId
+  }
+
   const [row] = await db.insert(blobs).values({
     ownerId: user.id,
-    teamId: user.teamId,
+    teamId,
     mimeType: body.mimeType,
     size,
     data: body.data,
@@ -2452,6 +2499,8 @@ app.post('/environment-configs', async (c) => {
   const user = c.get('user')! as AuthUser
   const body = await c.req.json()
   const { backendId, machineId, customContext, displayName } = body
+  const teamTarget = resolveWritableTeamId(user, body.teamId)
+  if ('error' in teamTarget) return c.json({ error: teamTarget.error }, 400)
 
   if (!backendId || typeof backendId !== 'string') return c.json({ error: 'backendId is required' }, 400)
   if (backendId.length > 100) return c.json({ error: 'backendId too long' }, 400)
@@ -2478,7 +2527,7 @@ app.post('/environment-configs', async (c) => {
       await db.update(environmentConfigs).set({
         customContext: customContext ?? '',
         displayName: displayName ?? null,
-        teamId: user.teamId,
+        teamId: teamTarget.teamId,
         updatedAt: new Date(),
       }).where(eq(environmentConfigs.id, existing.id))
       const [updated] = await db.select().from(environmentConfigs).where(eq(environmentConfigs.id, existing.id))
@@ -2487,7 +2536,7 @@ app.post('/environment-configs', async (c) => {
 
     const [row] = await db.insert(environmentConfigs).values({
       userId: user.id,
-      teamId: user.teamId,
+      teamId: teamTarget.teamId,
       machineId: machineId ?? null,
       backendId,
       customContext: customContext ?? '',
@@ -2509,7 +2558,7 @@ app.post('/environment-configs', async (c) => {
         await db.update(environmentConfigs).set({
           customContext: customContext ?? '',
           displayName: displayName ?? null,
-          teamId: user.teamId,
+          teamId: teamTarget.teamId,
           updatedAt: new Date(),
         }).where(eq(environmentConfigs.id, existing.id))
         const [updated] = await db.select().from(environmentConfigs).where(eq(environmentConfigs.id, existing.id))

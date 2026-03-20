@@ -1,7 +1,7 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { Link, useNavigate } from "react-router"
-import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil, Github, ChevronRight, Braces, Archive, ArchiveRestore, Building2 } from "lucide-react"
+import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil, Github, ChevronRight, Braces, Archive, ArchiveRestore, Building2, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -154,6 +154,7 @@ function getProjectColumns(
       id: "workingDirectory",
       label: "Working directory",
       width: "w-[200px]",
+      sortKey: "workingDirectory",
       render: (p) => p.workingDirectory ? (
         <span className="text-xs text-muted-foreground/60 truncate block" title={p.workingDirectory}>
           {shortenPath(p.workingDirectory)}
@@ -282,7 +283,6 @@ export function Projects() {
   const allNodes = useMemo(() => rawAllNodes.filter(isLive), [rawAllNodes])
   const initiatives = useInitiativeStore((s) => s.initiatives)
   const teams = useTeamStore((s) => s.teams)
-  const activeTeamId = useTeamStore((s) => s.activeTeamId)
   const addToast = useToastStore((s) => s.add)
   const navigate = useNavigate()
   const displaySettings = useDisplaySettingsStore((s) => s.get("projects"))
@@ -310,6 +310,20 @@ export function Projects() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Keyboard shortcuts: 1=List, 2=Board, 3=Timeline
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const viewMap: Record<string, ViewTab> = { '1': 'all', '2': 'board', '3': 'timeline' }
+      const view = viewMap[e.key]
+      if (view) { e.preventDefault(); setViewTab(view) }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
   // Focus input when inline creation row appears
   useEffect(() => {
     if (creating) {
@@ -326,7 +340,7 @@ export function Projects() {
     const id = crypto.randomUUID()
     const teamId = workspaceFilter !== 'all'
       ? workspaceFilter
-      : activeTeamId ?? undefined
+      : useTeamStore.getState().getPersonalTeamId()
     addProject({
       id,
       name: trimmed,
@@ -342,7 +356,7 @@ export function Projects() {
     } as Project)
     setCreating(false)
     navigate(`/project/${id}/graph`)
-  }, [addProject, navigate, workspaceFilter, activeTeamId])
+  }, [addProject, navigate, workspaceFilter])
 
   const handleImportFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -478,6 +492,8 @@ export function Projects() {
           const order = { on_track: 0, at_risk: 1, off_track: 2 }
           return dir * ((order[a.health ?? "on_track"] ?? 0) - (order[b.health ?? "on_track"] ?? 0))
         }
+        case "workingDirectory":
+          return dir * (a.workingDirectory ?? "").localeCompare(b.workingDirectory ?? "")
         default:
           return 0
       }
@@ -767,10 +783,6 @@ export function Projects() {
               className="hidden"
               onChange={handleImportFile}
             />
-            <Button size="sm" className="gap-1.5 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0" onClick={() => setCreating(true)}>
-              <Plus className="h-3.5 w-3.5" />
-              <span className="hidden md:inline">{t('new')}</span>
-            </Button>
             <DisplayPopover config={{
               ...(viewTab === "timeline" ? projectsTimelineDisplayConfig : projectsDisplayConfig),
               viewAsOptions,
@@ -794,7 +806,7 @@ export function Projects() {
         />
 
         {/* Filter Bar */}
-        <div className="flex items-center gap-3 border-b border-border px-4 sm:px-6 py-3 shrink-0 overflow-x-auto">
+        <div className="flex items-center gap-3 border-b border-border px-4 sm:px-6 py-3 shrink-0 relative z-10">
           <div className="flex items-center gap-2 shrink-0">
             <ListFilter className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium text-muted-foreground hidden sm:inline">Filter</span>
@@ -834,46 +846,44 @@ export function Projects() {
         </div>
 
         {viewTab === "all" && (
-          projects.length === 0 && !creating ? (
-            <div className="flex-1 overflow-auto">
-              <EmptyState
-                icon={Folder}
-                title="What are you working on?"
-                description="Create your first project and let AI help you break it down into a structured plan with clear dependencies and verification steps."
-                action={{
-                  label: "Create Project",
-                  href: "/plan",
-                }}
-                className="h-full"
-              />
-            </div>
-          ) : projects.length === 0 && creating ? (
-            <div className="flex-1 overflow-auto flex items-start justify-center pt-24">
-              <div className="flex items-center gap-2.5 px-4 sm:px-6 py-2.5 w-full max-w-md">
+          projects.length === 0 ? (
+            <div className="flex-1 overflow-auto flex flex-col">
+              <div className="flex items-center gap-2.5 px-4 sm:px-6 py-3 sm:py-2.5 border-b border-border hover:bg-muted/30 transition-colors">
                 <Plus className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 <input
                   ref={createInputRef}
                   type="text"
-                  placeholder="Project name... (Enter to create, Esc to cancel)"
-                  className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground border-b border-border pb-1"
+                  placeholder="Add project... (Enter to create)"
+                  className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                   enterKeyHint="done"
                   autoCapitalize="sentences"
+                  autoFocus
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault()
                       handleInlineCreate((e.target as HTMLInputElement).value)
                     }
-                    if (e.key === "Escape") {
-                      e.preventDefault()
-                      setCreating(false)
-                    }
                   }}
                   onBlur={(e) => {
                     const val = e.target.value.trim()
                     if (val) handleInlineCreate(val)
-                    else setCreating(false)
                   }}
                 />
+              </div>
+              <div className="flex-1 flex items-center justify-center">
+                <button
+                  type="button"
+                  onClick={() => navigate("/plan")}
+                  className="flex items-center gap-4 w-full max-w-lg rounded-xl bg-muted/50 border border-border px-6 py-5 hover:bg-muted/80 hover:border-primary/30 transition-all cursor-pointer"
+                >
+                  <div className="flex items-center justify-center h-10 w-10 rounded-full bg-primary/10 shrink-0">
+                    <Sparkles className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="text-left">
+                    <div className="text-sm font-semibold">Generate with AI</div>
+                    <div className="text-xs text-muted-foreground">Describe your goal and let AI create a plan</div>
+                  </div>
+                </button>
               </div>
             </div>
           ) : (
