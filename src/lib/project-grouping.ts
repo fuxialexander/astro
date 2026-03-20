@@ -12,6 +12,16 @@ export interface ProjectGroupDescriptor {
   defaultCollapsed?: boolean
 }
 
+export function getProjectGroupSeedProjects<TProject extends Pick<Project, "id" | "name" | "projectType">>(
+  projects: TProject[],
+  scopedProjectIds?: Iterable<string>,
+): TProject[] {
+  if (!scopedProjectIds) return projects
+
+  const allowedIds = new Set(scopedProjectIds)
+  return projects.filter((project) => allowedIds.has(project.id))
+}
+
 export function getProjectGroupDescriptor(project: Pick<Project, "id" | "name" | "projectType">): ProjectGroupDescriptor {
   if (project.projectType === "playground") {
     return {

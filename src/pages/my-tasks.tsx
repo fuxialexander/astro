@@ -28,7 +28,8 @@ import { useMediaQuery } from "@/hooks/use-media-query"
 import { PRIORITY_CONFIG } from "@/lib/constants"
 import { STATUS_CONFIG, statusBarColors, statusProgressColors } from "@/lib/status-config"
 import { assignDefaultDates } from "@/lib/timeline-utils"
-import { getProjectIdFromGroupKey } from "@/lib/project-grouping"
+import { filterMyTasksProjects, getMyTasksEffectiveTeamScope } from "@/lib/my-tasks-filter"
+import { getProjectGroupDescriptorForId, getProjectIdFromGroupKey } from "@/lib/project-grouping"
 import { cn } from "@/lib/utils"
 import type { PlanNode, Priority } from "@/types"
 
@@ -127,6 +128,9 @@ export function MyTasks() {
   const activeTeamId = useTeamStore((s) => s.activeTeamId)
   const workspaceFilter = useWorkspaceFilterStore((s) => s.workspaceFilter)
 
+  // Default to active team in multi-team workspaces; "all" for solo users
+  const [teamFilter, setTeamFilter] = useState<string>(() => teams.length > 1 && activeTeamId ? activeTeamId : "all")
+
   // Load all teams' data on mount for cross-team task view
   useEffect(() => {
     loadAllTeams()
@@ -134,15 +138,11 @@ export function MyTasks() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Filter to only real projects — exclude playground sessions and plan generation sessions
-  // Then apply workspace filter to scope projects by team
+  // Exclude transient plan-generation sessions, but keep playground projects so
+  // the tasks view matches the sidebar and can surface playground activity.
   const projects = useMemo(() => {
-    let filtered = allProjects.filter((p) => p.projectType != null && p.projectType !== 'playground' && p.projectType !== 'plan')
-    if (workspaceFilter !== 'all') {
-      filtered = filtered.filter((p) => p.teamId === workspaceFilter)
-    }
-    return filtered
-  }, [allProjects, workspaceFilter])
+    return filterMyTasksProjects(allProjects, workspaceFilter, teamFilter)
+  }, [allProjects, workspaceFilter, teamFilter])
   const projectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects])
   const rawNodes = usePlanStore((s) => s.nodes)
   const nodes = useMemo(() => rawNodes.filter((n) => isLive(n) && projectIds.has(n.projectId)), [rawNodes, projectIds])
@@ -162,8 +162,6 @@ export function MyTasks() {
   })
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all")
   const [projectFilter, setProjectFilter] = useState<string>("all")
-  // Default to active team in multi-team workspaces; "all" for solo users
-  const [teamFilter, setTeamFilter] = useState<string>(() => teams.length > 1 && activeTeamId ? activeTeamId : "all")
   const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
   const [selectedNode, setSelectedNode] = useState<PlanNode | null>(null)
 
@@ -181,19 +179,15 @@ export function MyTasks() {
     return m
   }, [projects])
 
-  // Map: projectId -> teamId (for team-based filtering)
-  const projectTeamMap = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const p of projects) if (p.teamId) m.set(p.id, p.teamId)
+  const projectsById = useMemo(() => {
+    const m = new Map<string, (typeof projects)[number]>()
+    for (const p of projects) m.set(p.id, p)
     return m
   }, [projects])
-
-  // Reverse map: project name -> project id (for cross-project task creation)
-  const projectNameToIdMap = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const p of projects) m.set(p.name, p.id)
-    return m
-  }, [projects])
+  const effectiveTeamScope = useMemo(
+    () => getMyTasksEffectiveTeamScope(workspaceFilter, teamFilter),
+    [workspaceFilter, teamFilter],
+  )
 
   // Node inspector: resolve selected node's project
   const handleNodeSelect = useCallback((node: PlanNode | null) => {
@@ -216,9 +210,20 @@ export function MyTasks() {
     if (statusFilter !== "all") tasks = tasks.filter((n) => n.status === statusFilter)
     if (priorityFilter !== "all") tasks = tasks.filter((n) => (n.priority ?? "none") === priorityFilter)
     if (projectFilter !== "all") tasks = tasks.filter((n) => n.projectId === projectFilter)
-    if (teamFilter !== "all") tasks = tasks.filter((n) => projectTeamMap.get(n.projectId) === teamFilter)
     return tasks
-  }, [nodes, displaySettings.showCompleted, statusFilter, priorityFilter, projectFilter, teamFilter, projectTeamMap])
+  }, [nodes, displaySettings.showCompleted, statusFilter, priorityFilter, projectFilter])
+
+  useEffect(() => {
+    if (workspaceFilter !== "all" && teamFilter !== "all") {
+      setTeamFilter("all")
+    }
+  }, [workspaceFilter, teamFilter])
+
+  useEffect(() => {
+    if (projectFilter !== "all" && !projects.some((project) => project.id === projectFilter)) {
+      setProjectFilter("all")
+    }
+  }, [projectFilter, projects])
 
   // Sort
   const sortedTasks = useMemo(() => {
@@ -251,15 +256,32 @@ export function MyTasks() {
 
   // Group for list view
   const listGroups = useMemo((): ListGroup<PlanNode>[] => {
+    if (displaySettings.groupBy === "project") {
+      const grouped = new Map<string, ListGroup<PlanNode>>()
+      for (const node of sortedTasks) {
+        const descriptor = getProjectGroupDescriptorForId(node.projectId, projectsById)
+        const existing = grouped.get(descriptor.key)
+        if (existing) {
+          existing.items.push(node)
+          continue
+        }
+        grouped.set(descriptor.key, {
+          key: descriptor.key,
+          label: descriptor.label,
+          icon: <Folder className="h-4 w-4 text-info" />,
+          items: [node],
+        })
+      }
+      return Array.from(grouped.values())
+    }
+
     if (displaySettings.groupBy === "none") {
       return [{ key: "all", label: "All Tasks", items: sortedTasks }]
     }
+
     const grouped = sortedTasks.reduce<Record<string, PlanNode[]>>((acc, node) => {
       let group: string
       switch (displaySettings.groupBy) {
-        case "project":
-          group = projectMap.get(node.projectId) ?? "Unknown Project"
-          break
         case "status":
           group = STATUS_CONFIG[node.status]?.label ?? node.status
           break
@@ -291,7 +313,7 @@ export function MyTasks() {
       }
       return { key: label, label, icon, items }
     })
-  }, [sortedTasks, displaySettings.groupBy, projectMap])
+  }, [sortedTasks, displaySettings.groupBy, projectsById])
 
   // Timeline rows
   const timelineRows = useMemo((): TimelineRow<PlanNode>[] => {
@@ -319,8 +341,8 @@ export function MyTasks() {
       const rows: TimelineRow<PlanNode>[] = []
       const grouped: Record<string, PlanNode[]> = {}
       for (const node of sortedTasks) {
-        const name = projectMap.get(node.projectId) ?? "Unknown"
-        ;(grouped[name] ??= []).push(node)
+        const descriptor = getProjectGroupDescriptorForId(node.projectId, projectsById)
+        ;(grouped[descriptor.label] ??= []).push(node)
       }
       for (const [label, items] of Object.entries(grouped)) {
         rows.push({ kind: "header", label, count: items.length })
@@ -344,12 +366,15 @@ export function MyTasks() {
     }
 
     return sortedTasks.map(nodeToRow)
-  }, [sortedTasks, edges, projectMap])
+  }, [sortedTasks, edges, projectsById])
 
   // Stats
   const activeCount = nodes.filter((n) => n.type !== "milestone" && (n.status === "in_progress" || n.status === "dispatched")).length
   const needsReviewCount = nodes.filter((n) => n.type !== "milestone" && n.status === "awaiting_judgment").length
-  const hasActiveFilters = statusFilter !== "all" || priorityFilter !== "all" || projectFilter !== "all" || teamFilter !== "all"
+  const hasActiveFilters = statusFilter !== "all"
+    || priorityFilter !== "all"
+    || projectFilter !== "all"
+    || (workspaceFilter === "all" && effectiveTeamScope !== "all")
 
   const clearFilters = () => {
     setStatusFilter("all")
@@ -465,7 +490,7 @@ export function MyTasks() {
             ]}
             onChange={setProjectFilter}
           />
-          {teams.length > 1 && (
+          {teams.length > 1 && workspaceFilter === "all" && (
             <FilterSelect
               label="Team"
               value={teamFilter}
@@ -588,7 +613,7 @@ export function MyTasks() {
                 {listGroups.map((group) => {
                   // Determine projectId for task creation when grouped by project
                   const targetProjectId = displaySettings.groupBy === "project"
-                    ? projectNameToIdMap.get(group.label)
+                    ? getProjectIdFromGroupKey(group.key)
                     : undefined
 
                   return (

@@ -274,7 +274,7 @@ export function RepoConfigDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md gap-0 p-0 overflow-hidden">
+      <DialogContent className="w-[min(96vw,860px)] max-w-[860px] gap-0 p-0 overflow-hidden">
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
           <FolderGit2 className="h-4 w-4 text-muted-foreground" />
@@ -327,12 +327,12 @@ export function RepoConfigDialog({
                       <span className="text-muted-foreground">Directory will be created</span>
                     )}
                   </div>
-                )}
+              )}
 
               {/* Target branch + Execution mode — shown when git is detected */}
               {detection?.isGit && (
-                <div className="flex items-end gap-3">
-                  <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
                     <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Target branch</span>
                     <BranchSelector
                       value={baseBranch || detection.baseBranch || 'main'}
@@ -341,7 +341,7 @@ export function RepoConfigDialog({
                       machineId={selectedMachineId || undefined}
                     />
                   </div>
-                  <div className="flex gap-1.5">
+                  <div className="flex flex-wrap gap-1.5 md:shrink-0">
                     <button
                       type="button"
                       onClick={() => { setDirectMode(false); setDirectConfirmed(false) }}

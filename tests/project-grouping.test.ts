@@ -5,6 +5,7 @@ import {
   PLAYGROUND_PROJECT_GROUP_LABEL,
   getProjectGroupDescriptor,
   getProjectGroupDescriptorForId,
+  getProjectGroupSeedProjects,
   getProjectIdFromGroupKey,
 } from "@/lib/project-grouping"
 
@@ -42,5 +43,17 @@ describe("project-grouping", () => {
 
     expect(getProjectGroupDescriptorForId("pg-1", projects).label).toBe("Playground")
     expect(getProjectGroupDescriptorForId("proj-1", projects).label).toBe("Core app")
+  })
+
+  it("limits seeded project groups to the scoped project ids", () => {
+    const projects = [
+      { id: "proj-1", name: "Core app", projectType: "default" as const },
+      { id: "proj-2", name: "Docs", projectType: "default" as const },
+      { id: "pg-1", name: "Playground", projectType: "playground" as const },
+    ]
+
+    expect(getProjectGroupSeedProjects(projects, ["proj-2", "missing"])).toEqual([
+      { id: "proj-2", name: "Docs", projectType: "default" },
+    ])
   })
 })
