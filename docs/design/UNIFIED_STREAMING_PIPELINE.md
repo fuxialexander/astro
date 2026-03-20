@@ -1,7 +1,7 @@
 # Unified Streaming Pipeline
 
 > **Last updated:** 2026-03-19
-> **Status:** All phases (1, 2, 2.5, 3 including 3.4, and 4) are **COMPLETE**. All main pathways now read through the unified stream/store path. Phase 3.4 (POST + subscribe) shipped: all chat/dispatch endpoints return plain JSON, and events flow exclusively through the global SSE bus (`/api/events/stream` → `realtime-store` → `useStreamEvents`). `parseChatSSE` / `parseExecutionSSE` removed. `streaming-event-replay.ts` removed. The `stream-watcher.ts` utility enables stores and components to subscribe to stream events for side effects (session messages, plan refresh, title generation). The main deliberate exception is structural, not functional: `pr_status` still renders through task-detail-specific context instead of becoming a fully generic shared block. Build passes (`tsc -b` clean). CLI v0.3.0 end-to-end tested locally against PGlite (plan create/list/tree/create-node/update-node/delete-node/add-edge/remove-edge all verified). See Section 10 for visual rendering reference.
+> **Status:** All phases (1, 2, 2.5, 3 including 3.4, and 4) are **COMPLETE**. All main pathways now read through the unified stream/store path via a five-hook architecture: `useStreamEvents` (core, 401 lines), `useActivityFeed` (dual-stream composition, 127 lines), `useChatSession` (session management, 89 lines), `useAutoScroll` (scroll control, 51 lines), `usePlanContext` (plan context injection, 60 lines). The shared `ActivityBlockRenderer` (235 lines) handles 20 block types across all pathways. Phase 3.4 (POST + subscribe) shipped: all chat/dispatch endpoints return plain JSON, and events flow exclusively through the global SSE bus (`/api/events/stream` → `realtime-store` → `useStreamEvents`). `parseChatSSE` / `parseExecutionSSE` removed. `streaming-event-replay.ts` removed. The `stream-watcher.ts` utility enables stores and components to subscribe to stream events for side effects (session messages, plan refresh, title generation). The unified task execution view (`unified-activity-view.tsx`, 643 lines) integrates file browser, approval handling, and steer/resume/chat input modes. The main deliberate exception is structural, not functional: `pr_status` still renders through task-detail-specific context via the `renderPrStatus` callback prop. Build passes (`tsc -b` clean). CLI v0.3.0 end-to-end tested locally against PGlite (plan create/list/tree/create-node/update-node/delete-node/add-edge/remove-edge all verified). See Section 10 for visual rendering reference.
 > **Author:** Architecture review
 > **Related:** [ARCHITECTURE.md](ARCHITECTURE.md), [PLAN_AND_REPLAN.md](PLAN_AND_REPLAN.md), [EVENT_DUPLICATION_ANALYSIS.md](EVENT_DUPLICATION_ANALYSIS.md)
 
@@ -142,16 +142,28 @@ graph TD
 |---|---|
 | `server/lib/streaming-event-log.ts` | Backend: persist events to `streaming_events` table |
 | `server/routes/agent.ts` | Backend: SSE bridge from relay to browser |
-| `src/lib/sse-parser.ts` | Frontend: `parseSSEStream`, `parseChatSSE`, `parseExecutionSSE` |
+| `server/routes/events.ts` | Backend: unified SSE endpoint with project-ownership filtering |
+| `server/lib/execution-watchdog.ts` | Backend: stale stream cleanup, cross-instance leader election |
+| `server/lib/redis-pubsub.ts` | Backend: cross-instance pub/sub, machine registry, leader election |
+| `src/lib/sse-parser.ts` | Frontend: `parseSSEStream` (low-level SSE line parser) |
 | `src/lib/streaming-event-hydrator.ts` | Frontend: convert `streaming_events` rows to `TaskActivityEvent[]` |
+| `src/lib/stream-status.ts` | Frontend: `deriveStreamStatus()` — unified status derivation |
+| `src/lib/stream-watcher.ts` | Frontend: lightweight stream observer for side effects |
 | `src/stores/realtime-store.ts` | Frontend: global SSE event bus, `taskStreams` map |
-| `src/stores/session-store.ts` | Frontend: session messages, chat SSE orchestration |
-| `src/stores/execution-store.ts` | Frontend: dispatch + execution lifecycle |
-| `src/hooks/use-restored-execution.ts` | Frontend: merge live + hydrated execution events (**deleted in Phase 2.5**) |
-| `src/hooks/use-chat-activity-events.ts` | Frontend: merge live + hydrated chat events (**deleted in Phase 2.5**) |
-| `src/hooks/use-chat-stream-events.ts` | Frontend: in-memory event accumulation for chat turns (**deleted in Phase 2.5**) |
-| `src/components/activity-blocks.tsx` | Frontend: `groupActivityEvents`, `DisplayBlock` types, block components |
-| `src/lib/plan-extraction.ts` | Frontend: `applyPlanFromText()` text-based plan mutation |
+| `src/stores/session-store.ts` | Frontend: session messages, POST + `watchStream()` chat orchestration |
+| `src/stores/execution-store.ts` | Frontend: dispatch + execution lifecycle (SSE code removed in Phase 3.4) |
+| `src/hooks/use-stream-events.ts` | Frontend: core unified hook (401 lines) — replaces deleted trio |
+| `src/hooks/use-activity-feed.ts` | Frontend: dual-stream composer (execution + chat merge) |
+| `src/hooks/use-chat-session.ts` | Frontend: shared chat session lookup/creation |
+| `src/hooks/use-auto-scroll.ts` | Frontend: universal scroll controller for activity feeds |
+| `src/hooks/use-plan-context.ts` | Frontend: plan context builder for AI prompt injection |
+| `src/components/activity-blocks.tsx` | Frontend: `groupActivityEvents`, `DisplayBlock` types, block components (~1500 lines) |
+| `src/components/activity-block-renderer.tsx` | Frontend: shared block renderer (235 lines, 20 block types) |
+| `src/components/task-detail/unified-activity-view.tsx` | Frontend: unified task execution view (643 lines) |
+| `src/lib/plan-extraction.ts` | Frontend: plan extraction helpers (text mutation path removed) |
+| `src/hooks/use-restored-execution.ts` | ~~Frontend: merge live + hydrated execution events~~ (**deleted in Phase 2.5**) |
+| `src/hooks/use-chat-activity-events.ts` | ~~Frontend: merge live + hydrated chat events~~ (**deleted in Phase 2.5**) |
+| `src/hooks/use-chat-stream-events.ts` | ~~Frontend: in-memory event accumulation for chat turns~~ (**deleted in Phase 2.5**) |
 
 ---
 
@@ -189,32 +201,45 @@ graph TD
     subgraph "Frontend — All Pathways"
         SSE_SUB[SSE Subscription per streamId]
         USE_SE[useStreamEvents hook]
+        USE_AF[useActivityFeed hook]
+        USE_CS[useChatSession hook]
+        USE_AS[useAutoScroll hook]
+        USE_PC[usePlanContext hook]
         RS[realtime-store taskStreams]
         GAE[groupActivityEvents]
-        BLOCKS[Shared Block Components]
+        ABR[ActivityBlockRenderer]
         VIEW[Pathway View Component]
 
         SSE_UNIFIED --> SSE_SUB
         SSE_SUB --> RS
         DB -->|catch-up hydration on mount| RS
         RS --> USE_SE
-        USE_SE --> GAE
-        GAE --> BLOCKS
-        BLOCKS --> VIEW
+        USE_SE --> USE_AF
+        USE_AF --> GAE
+        USE_CS --> USE_AF
+        GAE --> ABR
+        USE_AS --> VIEW
+        USE_PC --> USE_CS
+        ABR --> VIEW
     end
 
-    subgraph "Shared Block Registry"
+    subgraph "Shared Block Registry (20 types)"
         TB[TextBlock]
+        OPS[OperationalBlock]
         TOOL[ToolBlock / ToolGroupBlock]
         VIS[VisualBlock]
         PLAN[PlanResultBlock]
         PR[PrStatusBlock]
         GH[GitHubCommentBlock]
-        APPR[InlineApprovalBlock]
+        APPR[InlineApprovalBlock / ApprovalResponseBlock]
         ERR[ErrorBlock]
         STEER[SteerBlock]
         MUT[MutationBlock]
-        SYS[SystemPromptBlock]
+        SYS[SystemPromptBlock / SystemMessageBlock]
+        CHAT[ChatUserBlock / ChatAssistantBlock]
+        BRANCH[BranchLinkedBlock]
+        JSON[JsonRenderBlock]
+        FC[FileChangeBlock]
     end
 ```
 
@@ -227,8 +252,8 @@ After unification, pathways differ only in:
 | **Prompt template** | Each pathway uses a different system prompt | `server/routes/agent.ts` (backend) |
 | **Available tools** | Plan: read-only + astro-cli. Chat: all + MCP. Execution: all + MCP | `server/routes/agent.ts` (backend) |
 | **Delivery mode** | Only task execution does git-based delivery | Agent-runner config |
-| **Layout** | PlanGeneration has a graph sidebar. ChatPanel is a drawer. Task Execution has file changes panel | View components (frontend) |
-| **Input affordances** | Plan gen has steer. Chat has message input. Task execution has steer + abort | View components (frontend) |
+| **Layout** | PlanGeneration has a graph sidebar. ChatPanel is a drawer. Task Execution has resizable file browser sidebar (280-500px) | View components (frontend) |
+| **Input affordances** | All pathways share a unified input bar with context-dependent modes: **steer** (during execution), **resume** (post-completion with sessionId), **chat** (post-completion follow-up). Plan gen adds steer during streaming. Task execution adds abort button | View components (frontend) |
 
 Everything else -- event persistence, SSE transport, hydration, rendering, status tracking, **tool access**, **permission mode** -- is identical.
 
@@ -303,9 +328,13 @@ async function streamChatViaRelay(c, opts) {
 }
 ```
 
-### 4.3 Frontend: `useStreamEvents` Hook
+### 4.3 Frontend: Unified Hook Architecture
 
-A single hook replaces `useRestoredExecution`, `useChatActivityEvents`, and `useChatStreamEvents`.
+The unified pipeline is built on five composable hooks, each with a single responsibility. Together they replace the previous fragile multi-hook compositions (`useRestoredExecution` + `useChatActivityEvents` + `useChatStreamEvents`) with a clean layered architecture.
+
+#### 4.3.1 `useStreamEvents` — Core Stream Hook (401 lines)
+
+The primary hook. Replaces `useRestoredExecution`, `useChatActivityEvents`, and `useChatStreamEvents`.
 
 ```typescript
 interface StreamEventsResult {
@@ -317,26 +346,38 @@ interface StreamEventsResult {
   status: StreamStatus  // 'idle' | 'streaming' | 'completed' | 'error' | 'awaiting_approval'
   metadata: StreamMetadata  // machineId, sessionId, model, progress, etc.
   isHydrating: boolean
+  stalledMessage: string | null   // 20-min inactivity warning
+  isPlanCreating: boolean          // detected 'astro-cli plan create' in flight
 }
 
 type StreamStatus = 'idle' | 'streaming' | 'completed' | 'error' | 'awaiting_approval'
 
-function useStreamEvents(streamId: string | undefined): StreamEventsResult
+function useStreamEvents(streamId: string | undefined, options?: {
+  executionId?: string
+  execution?: TaskExecution
+  projectId?: string
+}): StreamEventsResult
 ```
 
 **Lifecycle:**
 
 1. **Mount / streamId change:** Call `hydrateFromCatchUp([streamId], 0)` to load all persisted events from the DB into the realtime store's `taskStreams` map.
 2. **Live streaming:** The global SSE subscription (realtime store's `connect()`) pushes events into `taskStreams` as they arrive. No pathway-specific SSE parsing -- the realtime store handles all event types uniformly.
-3. **Status derivation:** `deriveStreamStatus(activityEvents)` scans the event list:
-   - No events and no active SSE = `idle`
-   - Has events, no `result`/`error`/`done` event = `streaming`
-   - Has `approval_request` without matching `approval_response` = `awaiting_approval`
-   - Has `result` event = `completed`
-   - Has `error` event = `error`
-4. **Display blocks:** `groupActivityEvents(activityEvents)` is called once, producing `DisplayBlock[]` consumed by the view.
+3. **Three-source merge:** Reads from realtime-store (primary) → execution-store (migration fallback) → legacy session messages. This layered fallback ensures older sessions still display correctly.
+4. **Smart dedup:** Filters `AskUserQuestion` tool_use events when a corresponding `approval_request` event exists (prevents duplicate rendering). Filters steer tool events when steer activity events exist.
+5. **Status derivation:** `deriveStreamStatus(activityEvents, taskStream, executionStatus)` scans with precedence:
+   - `error` (taskStream failure or error event)
+   - `completed` (taskStream success or cancelled execution)
+   - `awaiting_approval` (unmatched approval_request)
+   - `streaming` (has events, no terminal, taskStream.status === 'running')
+   - `idle` (no events, no active stream)
+6. **Display blocks:** `groupActivityEvents(activityEvents)` is called once, producing `DisplayBlock[]` consumed by the view.
+7. **Plan mutation detection:** Detects plan-mutating tools (`create_task`, `Bash` containing `astro-cli plan`) and triggers `usePlanStore.loadPlanForProject(projectId)`.
+8. **Stall detection:** 20-minute inactivity timer. If no new events arrive while status is `streaming`, sets `stalledMessage` for UI display.
+9. **Plan creation detection:** Identifies `Bash` tool_use containing `astro-cli plan create` without a matching `tool_result` → sets `isPlanCreating: true` for skeleton rendering.
+10. **Tab visibility recovery:** On visibility change to `visible`, triggers catch-up hydration for all displayed streams (not just running ones).
 
-**Implementation note (2026-03-18):** The shipped hook now owns the live/hydrated event path across the main views. It still intentionally remains slightly hybrid in two places: it keeps the legacy `SessionMessage[]` fallback for pre-migration chat sessions, and `deriveStreamStatus()` still accepts `taskStream` metadata so terminal status remains correct even when the most recent terminal signal arrives via store metadata first.
+**Implementation note (2026-03-19):** The shipped hook (401 lines) now owns the live/hydrated event path across all views. It remains intentionally hybrid in two places: the legacy `SessionMessage[]` fallback for pre-migration chat sessions, and `deriveStreamStatus()` accepting `taskStream` metadata so terminal status remains correct when the terminal signal arrives via store metadata first.
 
 **What this replaces:**
 
@@ -346,6 +387,101 @@ function useStreamEvents(streamId: string | undefined): StreamEventsResult
 | `useChatActivityEvents(streamId, sessionMessages, isStreaming)` | `useStreamEvents(streamId)` |
 | `useChatStreamEvents()` | Removed -- events flow through realtime store |
 | `isChatSessionStream()` guard in realtime store | Removed -- all streams handled uniformly |
+
+#### 4.3.2 `useActivityFeed` — Dual-Stream Composer (127 lines)
+
+Merges execution stream + chat stream for pathways that support both (task detail, plan generation). Execution stream is authoritative — chat events that duplicate execution events are filtered.
+
+```typescript
+interface UseActivityFeedReturn {
+  execActivityEvents: TaskActivityEvent[]
+  chatActivityEvents: TaskActivityEvent[]
+  allActivityEvents: TaskActivityEvent[]
+  displayBlocks: DisplayBlock[]
+  answeredRequestIds: Set<string>
+  approvalResponseMap: Map<string, string>
+  isRestoring: boolean
+}
+
+function useActivityFeed(opts: {
+  executionId?: string
+  chatSessionId?: string
+  execution?: TaskExecution
+  projectId?: string
+  chatMessages?: SessionMessage[]
+}): UseActivityFeedReturn
+```
+
+**Dedup logic:** Chat events that fall within the execution event timestamp range are filtered (execution is authoritative). Post-completion chat events (after the last execution event) always pass through. Scans for `approval_response` events to build the `approvalResponseMap` for rendering answered approval cards.
+
+#### 4.3.3 `useChatSession` — Session Management (89 lines)
+
+Shared chat session lookup/creation for all pathways. Finds or creates a chat session (project-chat, task-chat, or playground) and provides send/abort actions.
+
+```typescript
+interface UseChatSessionReturn {
+  chatSession: SessionMessage[] | null
+  isChatStreaming: boolean
+  addMessage: (role: string, content: string) => void
+  sendChatMessage: (message: string, opts?: ChatOpts) => Promise<void>
+  sendPlaygroundChat: (message: string, opts?: ChatOpts) => Promise<void>
+  abortChatStream: () => void
+}
+
+function useChatSession(opts: {
+  projectId?: string
+  type: 'project-chat' | 'task-chat' | 'playground'
+  nodeId?: string
+}): UseChatSessionReturn
+```
+
+**Notable:** Lazy-loads full session messages after page refresh via `ensureFullSession()`, avoiding a global load of all session content on app startup.
+
+#### 4.3.4 `useAutoScroll` — Scroll Controller (51 lines)
+
+Universal auto-scroll for activity feeds. All four pathways use this instead of implementing their own scroll logic.
+
+```typescript
+interface UseAutoScrollReturn {
+  autoScroll: boolean
+  setAutoScroll: (v: boolean) => void
+  handleScroll: () => void
+  scrollToBottom: () => void
+}
+
+function useAutoScroll(
+  containerRef: RefObject<HTMLElement>,
+  deps: any[],              // re-scroll triggers (e.g., displayBlocks, status)
+  options?: { threshold?: number }  // default: 50px
+): UseAutoScrollReturn
+```
+
+**Behavior:** Scrolls to bottom when content arrives and the user hasn't scrolled up (threshold: 50px from bottom). User scroll-up disables auto-scroll; `scrollToBottom()` re-enables it (used by a "scroll to bottom" button).
+
+#### 4.3.5 `usePlanContext` — Plan Context Builder (60 lines)
+
+Builds a lean plan node/edge context for injection into AI API calls (chat, plan refinement).
+
+```typescript
+interface UsePlanContextReturn {
+  planNodes: PlanNode[]
+  planNodeContext: ChatPlanNodeContext[]   // 14 fields per node
+  planEdgeContext: ChatPlanEdgeContext[]
+}
+
+function usePlanContext(projectId?: string): UsePlanContextReturn
+```
+
+**Notable:** Filters to live nodes for the given project, strips HTML from content with fallback to description, filters edges to project nodes only. Used by `useChatSession` and plan-generation views to provide plan context to the AI.
+
+#### 4.3.6 Hook Composition by Pathway
+
+| Pathway | Hooks used |
+|---|---|
+| **Plan Generation** | `useStreamEvents` + `useActivityFeed` + `useChatSession` + `useAutoScroll` + `usePlanContext` |
+| **Chat Panel** | `useChatSession` + `useStreamEvents` + `useActivityFeed` + `useAutoScroll` |
+| **Playground** | `useChatSession` + `useStreamEvents` + `useActivityFeed` + `useAutoScroll` |
+| **Task Execution** | `useStreamEvents` + `useActivityFeed` + `useChatSession` + `useAutoScroll` |
 
 ### 4.4 Frontend: Unified Block Registry
 
@@ -357,35 +493,38 @@ All `DisplayBlock` types and their rendering components are shared across pathwa
 - `GitHubCommentBlock` (currently only in task detail): already in `activity-blocks.tsx`.
 - `InlineApprovalCard` (currently in plan-generation and task detail): move to `activity-blocks.tsx`.
 
-**Rendering decision:** Each view component renders `DisplayBlock[]` using a shared `<ActivityBlockRenderer blocks={blocks} />` component. The renderer maps each block type to its component. If a block type is irrelevant to a pathway (e.g., `pr_status` in ChatPanel), it simply never appears in the event stream because the agent does not have access to the tools that produce it.
+**Rendering decision:** Each view component renders `DisplayBlock[]` using a shared `<ActivityBlockRenderer blocks={blocks} />` component (235 lines). The renderer maps each block type to its component. If a block type is irrelevant to a pathway (e.g., `pr_status` in ChatPanel), it simply never appears in the event stream because the agent does not have access to the tools that produce it.
 
 ```typescript
-// Shared renderer — all pathways use this
-function ActivityBlockRenderer({ blocks }: { blocks: DisplayBlock[] }) {
-  return blocks.map((block, i) => {
-    switch (block.type) {
-      case 'text': return <TextBlock key={i} block={block} />
-      case 'tool': return <ToolBlock key={i} block={block} />
-      case 'tool_group': return <ToolGroupBlock key={i} block={block} />
-      case 'visual': return <VisualWidget key={i} block={block} />
-      case 'plan_result': return <PlanGraphBlock key={i} block={block} />
-      case 'pr_status': return <PrStatusBlock key={i} block={block} />
-      case 'github_comment': return <GitHubCommentBlock key={i} block={block} />
-      case 'approval_request': return <InlineApprovalBlock key={i} block={block} />
-      case 'approval_response': return <ApprovalResponseBlock key={i} block={block} />
-      case 'steer': return <SteerBlock key={i} block={block} />
-      case 'error': return <ErrorBlock key={i} block={block} />
-      case 'chat_user': return <ChatUserBlock key={i} block={block} />
-      case 'mutation': return <MutationBlock key={i} block={block} />
-      case 'system_prompt': return <SystemPromptBlock key={i} block={block} />
-      case 'json_render_spec': return <JsonRenderBlock key={i} block={block} />
-      default: return null
-    }
-  })
+// Shared renderer — all pathways use this (src/components/activity-block-renderer.tsx)
+interface ActivityBlockRendererProps {
+  blocks: DisplayBlock[]
+  isStreaming?: boolean
+  onLinkClick?: (href: string) => void
+  onSendPrompt?: (text: string) => void
+  onFileSelect?: (path: string) => void
+  onApprovalResponse?: (requestId: string, answer: string) => void
+  onEditMessage?: (index: number, newContent: string) => void
+  renderPrStatus?: (block: PrStatusBlock) => ReactNode  // pathway-specific PR renderer
+  resolveNodeTitle?: (nodeId: string) => string | undefined
+  githubContext?: { owner: string; repo: string }
+}
+
+function ActivityBlockRenderer(props: ActivityBlockRendererProps) {
+  // Routes 20 block types to their components:
+  // text, operational, tool, tool_group, visual, steer,
+  // file_change, error, chat_user, chat_assistant,
+  // approval_request, approval_response, mutation,
+  // github_comment, branch_linked, system_message,
+  // system_prompt, plan_result, json_render_spec, pr_status
 }
 ```
 
-**Implementation note (2026-03-18):** The shared renderer cutover is complete for the unified activity views. `pr_status` remains the one deliberate exception because it still needs task-detail-specific API-backed context before it can be promoted into a fully generic shared block.
+**Lazy loading:** Heavy pathway-specific components (`InlineApprovalCard`, `JsonRenderView`) are lazy-loaded via `React.lazy()` to avoid bloating the initial bundle for pathways that never use them.
+
+**Callback props:** The renderer accepts callbacks for interactive behavior: link navigation (`astro:node:uuid` links), file selection (for file browser integration), message editing, approval responses, and GitHub context (for comment rendering). This allows the same renderer to behave differently per pathway without pathway-specific rendering code.
+
+**Implementation note (2026-03-19):** The shared renderer (235 lines) is complete for all unified activity views. `pr_status` is the one deliberate exception — it accepts a `renderPrStatus` prop so the task-detail view can supply its API-backed PR card renderer while other pathways can ignore it.
 
 ### 4.5 Plan Mutations: CLI-Only Path
 
@@ -1007,9 +1146,14 @@ All phases are **COMPLETE**. The unified stream/store path is the sole frontend 
 | Backend: `chat_user` persistence | `server/routes/agent.ts:136-138` | Shipped |
 | Backend: `metrics` persistence | `server/routes/agent.ts:211-221` | Shipped |
 | Backend: `compaction` persistence | `server/routes/agent.ts:419-424` | Shipped |
-| `useStreamEvents` hook | `src/hooks/use-stream-events.ts` (306 lines) | Shipped |
-| `ActivityBlockRenderer` | `src/components/activity-block-renderer.tsx` (220 lines) | Shipped and adopted by the unified activity views |
-| `deriveStreamStatus()` | `src/lib/stream-status.ts` (62 lines) | Implemented (hybrid: events + `taskStream.status`) |
+| `useStreamEvents` hook | `src/hooks/use-stream-events.ts` (401 lines) | Shipped (expanded: `stalledMessage`, `isPlanCreating`, tab visibility recovery) |
+| `useActivityFeed` hook | `src/hooks/use-activity-feed.ts` (127 lines) | Shipped — dual-stream composer (execution + chat merge with smart dedup) |
+| `useChatSession` hook | `src/hooks/use-chat-session.ts` (89 lines) | Shipped — shared session lookup/creation for all pathways |
+| `useAutoScroll` hook | `src/hooks/use-auto-scroll.ts` (51 lines) | Shipped — universal scroll controller for activity feeds |
+| `usePlanContext` hook | `src/hooks/use-plan-context.ts` (60 lines) | Shipped — plan context builder for AI prompt injection |
+| `ActivityBlockRenderer` | `src/components/activity-block-renderer.tsx` (235 lines) | Shipped — 20 block types, lazy loading, callback props |
+| Unified activity view | `src/components/task-detail/unified-activity-view.tsx` (643 lines) | Shipped — file browser, approvals, steer/resume/chat modes |
+| `deriveStreamStatus()` | `src/lib/stream-status.ts` (64 lines) | Implemented (hybrid: events + `taskStream.status` + `executionStatus`) |
 | PlanGeneration migration | `src/components/plan-generation/plan-generation.tsx:168-220` | Shipped |
 | ChatPanel migration | `src/components/agent/chat-panel.tsx:225-250` | Shipped |
 | Playground migration | `src/pages/playground.tsx:353-401` | Shipped |
@@ -1039,7 +1183,7 @@ All phases are **COMPLETE**. The unified stream/store path is the sole frontend 
 | Unit tests for `RedisPubSub`, `redis-event-bridge`, `events.ts` self-dedup, relay-server publish integration | `tests/redis-event-bridge.test.ts` | Shipped |
 | E2E tests for cross-instance streaming with real Redis (auto-skip when Redis unavailable) | `tests/redis-e2e.test.ts` | Shipped |
 | **Phase 3.4: POST + subscribe** | | |
-| `stream-watcher.ts`: subscribe to `realtime-store.taskStreams` for side effects | `src/lib/stream-watcher.ts` | Shipped |
+| `stream-watcher.ts`: subscribe to `realtime-store.taskStreams` for side effects | `src/lib/stream-watcher.ts` (73 lines) | Shipped |
 | Removed `parseChatSSE` / `parseExecutionSSE` from SSE parser | `src/lib/sse-parser.ts` | Shipped |
 | Removed dead SSE/reconnection infrastructure (~1000 lines) from execution store | `src/stores/execution-store.ts` | Shipped |
 | Converted `projectChatWithAgent` / `chatWithTask` to return JSON (no SSE callbacks) | `src/lib/api-client.ts` | Shipped |
@@ -1200,9 +1344,13 @@ The following are explicitly out of scope for this design:
 ## Appendix: File Impact Summary
 
 Files **created** (Phase 1-2, shipped):
-- `src/hooks/use-stream-events.ts` -- shipped
-- `src/components/activity-block-renderer.tsx` -- shipped
-- `src/lib/stream-status.ts` -- shipped
+- `src/hooks/use-stream-events.ts` -- shipped (401 lines, core unified hook)
+- `src/hooks/use-activity-feed.ts` -- shipped (127 lines, dual-stream execution+chat composer)
+- `src/hooks/use-chat-session.ts` -- shipped (89 lines, shared session lookup/creation)
+- `src/hooks/use-auto-scroll.ts` -- shipped (51 lines, universal scroll controller)
+- `src/hooks/use-plan-context.ts` -- shipped (60 lines, plan context builder for AI calls)
+- `src/components/activity-block-renderer.tsx` -- shipped (235 lines, 20 block types)
+- `src/lib/stream-status.ts` -- shipped (64 lines, status derivation)
 
 Files **created** (Phase 2.5, shipped):
 - `server/lib/redis-pubsub.ts` -- shipped (cross-instance pub/sub, machine registry, leader election, execution context)
@@ -1216,10 +1364,10 @@ Files **created** (Phase 2.5, shipped):
 
 Files **significantly modified** (Phase 1-2, shipped):
 - `server/routes/agent.ts` -- shipped (persist chat_user, metrics, compaction events)
-- `src/components/plan-generation/plan-generation.tsx` -- shipped (uses `useStreamEvents`)
-- `src/components/agent/chat-panel.tsx` -- shipped (uses `useStreamEvents`)
-- `src/pages/playground.tsx` -- shipped (uses `useStreamEvents`)
-- `src/components/task-detail/unified-activity-view.tsx` -- shipped (uses `useStreamEvents`)
+- `src/components/plan-generation/plan-generation.tsx` -- shipped (uses `useStreamEvents` + `useActivityFeed` + `useChatSession` + `useAutoScroll` + `usePlanContext` + `ActivityBlockRenderer`)
+- `src/components/agent/chat-panel.tsx` -- shipped (uses `useActivityFeed` + `useChatSession` + `ActivityBlockRenderer`; simplified from 385 lines)
+- `src/pages/playground.tsx` -- shipped (uses `useChatSession` + `useStreamEvents` + `useActivityFeed`)
+- `src/components/task-detail/unified-activity-view.tsx` -- shipped (643 lines; uses all 5 hooks + `ActivityBlockRenderer`; integrates file browser, steer/resume/chat input modes, approval handling)
 
 Files **modified** (Phase 2.5, shipped):
 - `src/components/plan-generation/plan-generation.tsx` -- removed local event buffer, uses shared renderer
@@ -1262,8 +1410,9 @@ Files **modified** in Phase 4:
 Files **trimmed** in Phase 4:
 - `src/lib/plan-extraction.ts` (text mutation path removed; export helpers retained)
 
-Files to be **deleted** (Phase 3 step 4, if pursued):
+Files **deleted** (Phase 3.4, shipped):
 - `parseChatSSE` and `parseExecutionSSE` from `src/lib/sse-parser.ts` (the base `parseSSEStream` remains)
+- `src/lib/streaming-event-replay.ts` (no remaining callers)
 
 ---
 
