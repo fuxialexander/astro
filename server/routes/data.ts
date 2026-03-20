@@ -1925,13 +1925,20 @@ app.get('/executions', async (c) => {
     completedAt: taskExecutions.completedAt,
     durationMs: taskExecutions.durationMs,
     summary: taskExecutions.summary,
+    createdAt: taskExecutions.createdAt,
   }
 
-  const filtered = await db.select(columns).from(taskExecutions).where(and(inArray(taskExecutions.projectId, ids), isNull(taskExecutions.deletedAt)))
+  const filtered = await db.select(columns)
+    .from(taskExecutions)
+    .where(and(inArray(taskExecutions.projectId, ids), isNull(taskExecutions.deletedAt)))
+    .orderBy(desc(taskExecutions.createdAt))
 
-  // Convert to map keyed by nodeClientId.
+  // Convert to map keyed by nodeClientId, keeping only the latest execution for
+  // each node. Plan generations reuse the same node ID across reruns, and the
+  // frontend needs the newest executionId to hydrate AskUserQuestion state.
   const result: Record<string, unknown> = {}
   for (const exec of filtered) {
+    if (result[exec.nodeClientId]) continue
     result[exec.nodeClientId] = {
       executionId: exec.executionId,
       nodeId: exec.nodeClientId,

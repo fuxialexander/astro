@@ -188,4 +188,30 @@ describe('GET /api/data/executions (scoped query)', () => {
     const execs = await res.json()
     expect(Object.keys(execs)).toHaveLength(0)
   })
+
+  it('returns the latest execution for a node when multiple executions exist', async () => {
+    const proj = await (await postJson('/api/data/projects', { name: 'Plan Rerun Execs' })).json()
+
+    await db.insert(taskExecutions).values({
+      executionId: 'exec-old',
+      nodeClientId: 'plan-node-1',
+      projectId: proj.id,
+      status: 'failure',
+      createdAt: new Date('2026-03-19T10:00:00Z'),
+    })
+    await db.insert(taskExecutions).values({
+      executionId: 'exec-new',
+      nodeClientId: 'plan-node-1',
+      projectId: proj.id,
+      status: 'running',
+      createdAt: new Date('2026-03-19T11:00:00Z'),
+    })
+
+    const res = await request('/api/data/executions')
+    expect(res.status).toBe(200)
+
+    const execs = await res.json()
+    expect(execs['plan-node-1'].executionId).toBe('exec-new')
+    expect(execs['plan-node-1'].status).toBe('running')
+  })
 })
