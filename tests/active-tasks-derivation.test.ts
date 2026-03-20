@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { deriveActiveTasks } from "@/lib/active-tasks"
+import type { Project } from "@/types"
 
 describe("deriveActiveTasks", () => {
   it("applies the workspace filter to both count and running-project indicators", () => {
@@ -35,7 +36,7 @@ describe("deriveActiveTasks", () => {
       projects: [
         { id: "proj-a", name: "A", teamId: "team-a" },
         { id: "proj-b", name: "B", teamId: "team-b" },
-      ] as any,
+      ] as unknown as Project[],
       projectsLoaded: true,
       streamingSessions: new Set(),
       allSessions: new Map(),
@@ -68,7 +69,7 @@ describe("deriveActiveTasks", () => {
       nodesLoaded: true,
       projects: [
         { id: "proj-a", name: "A", teamId: "team-a" },
-      ] as any,
+      ] as unknown as Project[],
       projectsLoaded: true,
       streamingSessions: new Set(),
       allSessions: new Map(),
@@ -87,7 +88,7 @@ describe("deriveActiveTasks", () => {
       nodesLoaded: true,
       projects: [
         { id: "proj-a", name: "A", teamId: "team-a" },
-      ] as any,
+      ] as unknown as Project[],
       projectsLoaded: true,
       streamingSessions: new Set(["chat-1", "exec-1"]),
       allSessions: new Map([
