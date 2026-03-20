@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from "react"
+import { useMemo, useState, useCallback, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { Link, useNavigate } from "react-router"
 import {
@@ -14,6 +14,10 @@ import {
   ListFilter,
   TrendingUp,
   Activity,
+  CalendarDays,
+  UserRound,
+  CheckCircle2,
+  AlertTriangle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -48,7 +52,7 @@ import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useDisplaySettingsStore } from "@/stores/display-settings-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { formatShortDate, isOverdue } from "@/lib/date-utils"
-import { getRandomColor, getRandomInitiativeIcon } from "@/lib/color-icon-utils"
+import { DEFAULT_INITIATIVE_ICON, getRandomColor } from "@/lib/color-icon-utils"
 import { OnboardingHint } from "@/components/onboarding-hint"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
@@ -300,6 +304,29 @@ function ProjectBatchPicker({
   )
 }
 
+function InitiativeSummaryStat({
+  icon: Icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: typeof Folder
+  label: string
+  value: string
+  hint?: string
+}) {
+  return (
+    <div className="rounded-xl border border-border/70 bg-background px-4 py-3">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Icon className="h-3.5 w-3.5" />
+        <span>{label}</span>
+      </div>
+      <div className="mt-2 text-lg font-semibold tracking-tight">{value}</div>
+      {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
+    </div>
+  )
+}
+
 // --- Column definitions for initiative project list ---
 function getProjectColumns(
   renamingProjectId: string | null,
@@ -470,8 +497,12 @@ export default function InitiativesPage() {
     })
   }, [initiatives])
 
-  // Auto-select first initiative if none selected
-  const selected = selectedId ? initiatives.find((i) => i.id === selectedId) : null
+  const resolvedSelectedId = useMemo(() => {
+    if (selectedId && initiatives.some((i) => i.id === selectedId)) return selectedId
+    return sortedInitiatives[0]?.id ?? null
+  }, [initiatives, selectedId, sortedInitiatives])
+
+  const selected = resolvedSelectedId ? initiatives.find((i) => i.id === resolvedSelectedId) ?? null : null
   const selectedProjects = useMemo(
     () => (selected ? projectsByInitiative.get(selected.id) ?? [] : []),
     [selected, projectsByInitiative],
@@ -494,6 +525,56 @@ export default function InitiativesPage() {
     }
     return map
   }, [projects, allNodes])
+
+  useEffect(() => {
+    if (resolvedSelectedId !== selectedId) {
+      setSelectedId(resolvedSelectedId)
+    }
+  }, [resolvedSelectedId, selectedId])
+
+  useEffect(() => {
+    setShowProjectPicker(false)
+  }, [resolvedSelectedId])
+
+  const leadLabels = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const member of teamMembers) {
+      map.set(member.userId, member.user?.name || member.user?.email || member.userId)
+    }
+    return map
+  }, [teamMembers])
+
+  const activeInitiativeCount = useMemo(
+    () => initiatives.filter((initiative) => initiative.status === "active").length,
+    [initiatives],
+  )
+
+  const assignedProjectCount = useMemo(
+    () => projects.filter((project) => project.initiativeId).length,
+    [projects],
+  )
+
+  const selectedSummary = useMemo(() => {
+    if (!selected) return null
+
+    const selectedProjectIdSet = new Set(selectedProjects.map((project) => project.id))
+    const tasks = allNodes.filter((node) => selectedProjectIdSet.has(node.projectId) && node.type !== "milestone")
+    const completedTasks = tasks.filter((node) => node.status === "completed" || node.status === "auto_verified")
+    const completedProjects = selectedProjects.filter((project) => (progressMap[project.id] ?? 0) >= 100).length
+    const overdueProjects = selectedProjects.filter((project) =>
+      isOverdue(project.targetDate, (progressMap[project.id] ?? 0) >= 100 ? "completed" : "planned"),
+    ).length
+
+    return {
+      projectCount: selectedProjects.length,
+      activeProjectCount: selectedProjects.filter((project) => project.status === "active").length,
+      completedProjectCount: completedProjects,
+      overdueProjectCount: overdueProjects,
+      progressPct: tasks.length > 0 ? Math.round((completedTasks.length / tasks.length) * 100) : 0,
+      leadLabel: selected.lead ? (leadLabels.get(selected.lead) ?? selected.lead) : "Unassigned",
+      targetDateLabel: selected.targetDate ? formatShortDate(selected.targetDate) : "No target date",
+    }
+  }, [allNodes, leadLabels, progressMap, selected, selectedProjects])
 
   // Sort and filter projects for the list view
   const sortedFilteredProjects = useMemo(() => {
@@ -575,7 +656,7 @@ export default function InitiativesPage() {
         targetDate: "",
         lead: "",
         color: getRandomColor(),
-        icon: getRandomInitiativeIcon(),
+        icon: DEFAULT_INITIATIVE_ICON,
       })
     }
     setShowDialog(true)
@@ -598,7 +679,7 @@ export default function InitiativesPage() {
         targetDate: formData.targetDate,
         lead: formData.lead,
         color: formData.color || getRandomColor(),
-        icon: formData.icon || getRandomInitiativeIcon(),
+        icon: formData.icon || DEFAULT_INITIATIVE_ICON,
         createdAt: new Date(),
         updatedAt: new Date(),
       }
@@ -690,271 +771,400 @@ export default function InitiativesPage() {
   )
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
-      {/* Header */}
-      <div className="shrink-0 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="flex items-center justify-between h-14 px-6">
-          <div className="flex items-center gap-3">
-            <Target className="h-5 w-5 text-muted-foreground" />
-            <h1 className="text-xl font-primary font-semibold">{t('title')}</h1>
-            {initiatives.length > 0 && (
-              <Badge variant="outline" className="text-xs">
-                {initiatives.length}
-              </Badge>
-            )}
-          </div>
-          <Button onClick={() => handleOpenDialog()} size="sm">
-            <Plus className="h-4 w-4 mr-1.5" />
-            {t('new')}
-          </Button>
+    <div className="flex flex-1 flex-col min-w-0 h-full">
+      <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
+        <div className="flex items-center gap-3">
+          <Target className="h-5 w-5 text-muted-foreground" />
+          <h1 className="text-xl font-primary font-semibold">{t('title')}</h1>
+          {initiatives.length > 0 && (
+            <Badge variant="outline" className="text-xs">
+              {initiatives.length}
+            </Badge>
+          )}
         </div>
+        <Button onClick={() => handleOpenDialog()} size="sm">
+          <Plus className="h-4 w-4 mr-1.5" />
+          {t('new')}
+        </Button>
       </div>
 
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        {sortedInitiatives.length === 0 ? (
-          <div className="flex-1 overflow-auto p-6">
-            <OnboardingHint hintId="initiatives-intro" icon={Target} className="mb-3">
-              Grand Plans group related projects under a shared goal — useful when managing many projects.
-            </OnboardingHint>
-            <EmptyState
-              icon={Target}
-              title="No grand plans yet"
-              description="Create your first grand plan to group and organize projects"
-              action={{
-                label: "New Plan",
-                onClick: () => handleOpenDialog(),
-              }}
-            />
-          </div>
-        ) : (
-          <>
-            {/* Left: Grand Plan sidebar */}
-            <div className="w-[280px] shrink-0 border-r border-border flex flex-col overflow-hidden">
-              <div className="flex-1 overflow-y-auto">
-                {sortedInitiatives.map((initiative) => {
-                  const initiativeProjects = projectsByInitiative.get(initiative.id) || []
-                  const isSelected = selectedId === initiative.id
-
-                  return (
-                    <div
-                      key={initiative.id}
-                      className={cn(
-                        "group relative flex w-full items-start gap-3 px-4 py-3.5 text-left border-b border-border transition-colors",
-                        isSelected ? "bg-accent" : "hover:bg-muted/40",
-                      )}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setSelectedId(isSelected ? null : initiative.id)}
-                        className="flex items-start gap-3 flex-1 min-w-0 cursor-pointer"
-                      >
-                        <ColorIconBadge color={initiative.color} icon={initiative.icon} type="initiative" />
-                        <div className="flex-1 min-w-0 flex flex-col gap-1">
-                          <div className="flex items-center gap-2">
-                            <span className={cn("text-sm truncate", isSelected ? "font-semibold" : "font-medium")}>
-                              {initiative.name}
-                            </span>
-                            <Badge
-                              variant={statusConfig[initiative.status].variant}
-                              className="text-[9px] px-1 py-0 h-4 shrink-0"
-                            >
-                              {statusConfig[initiative.status].label}
-                            </Badge>
-                          </div>
-                          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                            <span>
-                              {initiativeProjects.length} project{initiativeProjects.length !== 1 ? "s" : ""}
-                            </span>
-                            {initiative.targetDate && (
-                              <>
-                                <span>&middot;</span>
-                                <span>{formatShortDate(initiative.targetDate)}</span>
-                              </>
-                            )}
-                          </div>
-                          <InitiativeProgress projects={initiativeProjects} />
-                        </div>
-                      </button>
-
-                      {/* Edit / Delete actions */}
-                      <div
-                        className={cn(
-                          "flex items-center gap-0.5 shrink-0 mt-0.5 transition-opacity",
-                          isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100",
-                        )}
-                      >
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleOpenDialog(initiative)
-                          }}
-                          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                          title="Edit plan"
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => handleDeleteClick(e, initiative.id)}
-                          className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
-                          title="Delete plan"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* Right: Main panel (project list, same as projects page) */}
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-              {!selected ? (
-                <div className="flex items-center justify-center h-full">
-                  <div className="flex flex-col items-center gap-2 text-center">
-                    <Target className="h-8 w-8 text-muted-foreground/30" />
-                    <p className="text-sm text-muted-foreground">Select a grand plan to view its projects</p>
+      {sortedInitiatives.length === 0 ? (
+        <div className="flex-1 overflow-auto p-6">
+          <OnboardingHint hintId="initiatives-intro" icon={Target} className="mb-3">
+            Initiatives group related projects under a shared objective, timeline, and owner.
+          </OnboardingHint>
+          <EmptyState
+            icon={Target}
+            title="No initiatives yet"
+            description="Create your first initiative to organize projects around a shared outcome."
+            action={{
+              label: "New Initiative",
+              onClick: () => handleOpenDialog(),
+            }}
+          />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-auto bg-muted/20">
+          <div className="flex min-h-full flex-col gap-5 p-4 sm:p-6 xl:flex-row">
+            <aside className="w-full shrink-0 xl:w-[320px] xl:min-w-[320px]">
+              <div className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
+                <div className="flex items-start justify-between gap-3 border-b border-border/70 px-4 py-4">
+                  <div>
+                    <p className="text-sm font-semibold">All initiatives</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {activeInitiativeCount} active · {assignedProjectCount} assigned projects
+                    </p>
                   </div>
+                  <Badge variant="secondary" className="text-xs">
+                    {sortedInitiatives.length}
+                  </Badge>
                 </div>
-              ) : (
-                <>
-                  {/* Activity Strip + Actions bar */}
-                  <div className="flex items-center justify-between border-b border-border px-6 h-14 shrink-0">
-                    <ActivityHeatStrip projectIds={selectedProjectIds} />
-                    <div className="flex items-center gap-3">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => setShowProjectPicker(!showProjectPicker)}
-                      >
-                        {showProjectPicker ? (
-                          "Done"
-                        ) : (
-                          <>
-                            <Plus className="h-3 w-3 mr-1" />
-                            Add Projects
-                          </>
+
+                <div className="max-h-[calc(100vh-220px)] overflow-y-auto">
+                  {sortedInitiatives.map((initiative) => {
+                    const initiativeProjects = projectsByInitiative.get(initiative.id) || []
+                    const isSelected = resolvedSelectedId === initiative.id
+
+                    return (
+                      <div
+                        key={initiative.id}
+                        className={cn(
+                          "group relative border-b border-border/60 last:border-b-0",
+                          isSelected ? "bg-accent/60" : "hover:bg-muted/40",
                         )}
-                      </Button>
-                      <DisplayPopover config={initiativeProjectsDisplayConfig} />
-                    </div>
-                  </div>
-
-                  {/* Project picker (shown inline below activity strip) */}
-                  {showProjectPicker && (
-                    <div className="px-6 py-3 border-b border-border shrink-0">
-                      <ProjectBatchPicker initiativeId={selected.id} onClose={() => setShowProjectPicker(false)} />
-                    </div>
-                  )}
-
-                  {/* Filter bar */}
-                  <div className="flex items-center gap-3 border-b border-border px-6 py-3 shrink-0">
-                    <div className="flex items-center gap-2">
-                      <ListFilter className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm font-medium text-muted-foreground">Filter</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <FilterSelect
-                        label="Status"
-                        value={statusFilter}
-                        options={[
-                          { value: "all", label: "All statuses" },
-                          { value: "active", label: "Active" },
-                          { value: "archived", label: "Archived" },
-                        ]}
-                        onChange={setStatusFilter}
-                      />
-                      <FilterSelect
-                        label="Health"
-                        value={healthFilter}
-                        options={[
-                          { value: "all", label: "All health" },
-                          { value: "on_track", label: "On track" },
-                          { value: "at_risk", label: "At risk" },
-                          { value: "off_track", label: "Off track" },
-                        ]}
-                        onChange={setHealthFilter}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Project list */}
-                  {selectedProjects.length === 0 ? (
-                    <div className="flex-1 overflow-auto">
-                      <EmptyState
-                        icon={Folder}
-                        title="No projects in this plan"
-                        description='Add existing projects to this grand plan using the "Add Projects" button above.'
-                        action={{
-                          label: "Add Projects",
-                          onClick: () => setShowProjectPicker(true),
-                        }}
-                        className="h-full"
-                      />
-                    </div>
-                  ) : (
-                    <ItemListView
-                      columns={projectColumns}
-                      groups={listGroups}
-                      visibleColumns={displaySettings.visibleProperties}
-                      onItemClick={(p) => navigate(`/project/${p.id}/graph`)}
-                      getItemId={(p) => p.id}
-                      batchActions={projectBatchActions}
-                      sortColumn={displaySettings.orderBy}
-                      sortDirection={displaySettings.orderDirection}
-                      onSort={handleSort}
-                      renderMobileItem={(p) => {
-                        const health = healthConfig[p.health ?? "on_track"]
-                        const pct = progressMap[p.id] ?? 0
-                        return (
+                      >
+                        <div className="flex items-start gap-3 px-4 py-4">
                           <button
-                            onClick={() => navigate(`/project/${p.id}/graph`)}
-                            className="w-full flex items-center gap-3.5 rounded-2xl bg-card p-4 transition-all shadow-sm hover:shadow-md border border-border text-left"
+                            type="button"
+                            onClick={() => setSelectedId(initiative.id)}
+                            className="flex min-w-0 flex-1 items-start gap-3 text-left cursor-pointer"
                           >
-                            <ColorIconBadge color={p.color} icon={p.icon} type="project" />
-                            <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-                              <h3 className="font-semibold text-base truncate">{p.name}</h3>
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <span className={cn("flex items-center gap-1", health.textClass)}>
-                                  <span className={cn("h-1.5 w-1.5 rounded-full", health.dotClass)} />
-                                  {health.label}
+                            <ColorIconBadge color={initiative.color} icon={initiative.icon} type="initiative" />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className={cn("truncate text-sm", isSelected ? "font-semibold" : "font-medium")}>
+                                  {initiative.name}
                                 </span>
-                                <span className="text-muted-foreground/40">&middot;</span>
-                                <span>{pct}%</span>
+                                <Badge
+                                  variant={statusConfig[initiative.status].variant}
+                                  className="h-4 shrink-0 px-1 py-0 text-[9px]"
+                                >
+                                  {statusConfig[initiative.status].label}
+                                </Badge>
                               </div>
-                              <div className="h-1.5 w-full rounded-full bg-border overflow-hidden">
-                                <div
-                                  className={cn(
-                                    "h-full rounded-full transition-all",
-                                    pct >= 95 ? "bg-success" : pct > 0 ? "bg-primary" : "",
-                                  )}
-                                  style={{ width: `${pct}%` }}
-                                />
+
+                              {(initiative.goal || initiative.description) && (
+                                <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                                  {initiative.goal || initiative.description}
+                                </p>
+                              )}
+
+                              <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+                                <span>
+                                  {initiativeProjects.length} project{initiativeProjects.length !== 1 ? "s" : ""}
+                                </span>
+                                {initiative.targetDate && (
+                                  <>
+                                    <span>&middot;</span>
+                                    <span>{formatShortDate(initiative.targetDate)}</span>
+                                  </>
+                                )}
+                              </div>
+
+                              <div className="mt-3">
+                                <InitiativeProgress projects={initiativeProjects} />
                               </div>
                             </div>
-                            <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
                           </button>
-                        )
-                      }}
-                    />
-                  )}
-                </>
+
+                          <div
+                            className={cn(
+                              "flex shrink-0 items-center gap-0.5 transition-opacity",
+                              isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                            )}
+                          >
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleOpenDialog(initiative)
+                              }}
+                              className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer"
+                              title="Edit initiative"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteClick(e, initiative.id)}
+                              className="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive cursor-pointer"
+                              title="Delete initiative"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </aside>
+
+            <section className="flex min-h-[520px] min-w-0 flex-1 flex-col gap-4">
+              {selected && selectedSummary && (
+                <div className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
+                  <div className="flex flex-col gap-5 p-5 sm:p-6">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex items-start gap-4">
+                          <ColorIconBadge color={selected.color} icon={selected.icon} type="initiative" />
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h2 className="text-2xl font-primary font-semibold tracking-tight">{selected.name}</h2>
+                              <Badge variant={statusConfig[selected.status].variant}>
+                                {statusConfig[selected.status].label}
+                              </Badge>
+                            </div>
+                            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+                              {selected.goal || selected.description || "A shared initiative for coordinating related projects."}
+                            </p>
+                            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1">
+                                <Folder className="h-3.5 w-3.5" />
+                                {selectedSummary.projectCount} project{selectedSummary.projectCount !== 1 ? "s" : ""}
+                              </span>
+                              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1">
+                                <CalendarDays className="h-3.5 w-3.5" />
+                                {selectedSummary.targetDateLabel}
+                              </span>
+                              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1">
+                                <UserRound className="h-3.5 w-3.5" />
+                                {selectedSummary.leadLabel}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={() => handleOpenDialog(selected)}>
+                          <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                          Edit Initiative
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <InitiativeSummaryStat
+                        icon={Folder}
+                        label="Active projects"
+                        value={String(selectedSummary.activeProjectCount)}
+                        hint={`${selectedSummary.projectCount} total`}
+                      />
+                      <InitiativeSummaryStat
+                        icon={CheckCircle2}
+                        label="Completed projects"
+                        value={String(selectedSummary.completedProjectCount)}
+                        hint={`${selectedSummary.progressPct}% task progress`}
+                      />
+                      <InitiativeSummaryStat
+                        icon={AlertTriangle}
+                        label="Overdue projects"
+                        value={String(selectedSummary.overdueProjectCount)}
+                        hint={selectedSummary.overdueProjectCount > 0 ? "Needs attention" : "Everything on schedule"}
+                      />
+                      <InitiativeSummaryStat
+                        icon={Activity}
+                        label="Delivery progress"
+                        value={`${selectedSummary.progressPct}%`}
+                        hint="Based on live plan tasks"
+                      />
+                    </div>
+
+                    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto]">
+                      <div className="rounded-xl border border-border/70 bg-muted/30 p-4">
+                        <div className="flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-medium">Overall progress</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Roll-up of live tasks across all projects in this initiative
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-2xl font-semibold tabular-nums">{selectedSummary.progressPct}%</div>
+                            <div className="text-xs text-muted-foreground">
+                              {selectedSummary.completedProjectCount} of {selectedSummary.projectCount} projects complete
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mt-4 h-2 overflow-hidden rounded-full bg-border">
+                          <div
+                            className="h-full rounded-full bg-primary transition-all"
+                            style={{ width: `${selectedSummary.progressPct}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-border/70 bg-background px-4 py-3">
+                        <ActivityHeatStrip projectIds={selectedProjectIds} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
               )}
-            </div>
-          </>
-        )}
-      </div>
+
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
+                <div className="flex flex-col gap-3 border-b border-border/70 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold">Projects</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {selected?.name ? `Projects currently mapped to ${selected.name}` : "Projects in this initiative"}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      onClick={() => setShowProjectPicker(!showProjectPicker)}
+                    >
+                      {showProjectPicker ? (
+                        "Done"
+                      ) : (
+                        <>
+                          <Plus className="mr-1.5 h-3.5 w-3.5" />
+                          Add Projects
+                        </>
+                      )}
+                    </Button>
+                    <DisplayPopover config={initiativeProjectsDisplayConfig} />
+                  </div>
+                </div>
+
+                {showProjectPicker && selected && (
+                  <div className="border-b border-border/70 px-4 py-4 sm:px-6">
+                    <ProjectBatchPicker initiativeId={selected.id} onClose={() => setShowProjectPicker(false)} />
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3 border-b border-border/70 px-4 py-3 shrink-0 sm:px-6">
+                  <div className="flex items-center gap-2 shrink-0">
+                    <ListFilter className="h-4 w-4 text-muted-foreground" />
+                    <span className="hidden text-sm font-medium text-muted-foreground sm:inline">Filter</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <FilterSelect
+                      label="Status"
+                      value={statusFilter}
+                      options={[
+                        { value: "all", label: "All statuses" },
+                        { value: "active", label: "Active" },
+                        { value: "archived", label: "Archived" },
+                      ]}
+                      onChange={setStatusFilter}
+                    />
+                    <FilterSelect
+                      label="Health"
+                      value={healthFilter}
+                      options={[
+                        { value: "all", label: "All health" },
+                        { value: "on_track", label: "On track" },
+                        { value: "at_risk", label: "At risk" },
+                        { value: "off_track", label: "Off track" },
+                      ]}
+                      onChange={setHealthFilter}
+                    />
+                  </div>
+                </div>
+
+                {selectedProjects.length === 0 ? (
+                  <div className="flex-1 overflow-auto">
+                    <EmptyState
+                      icon={Folder}
+                      title="No projects in this initiative"
+                      description='Add existing projects to this initiative using the "Add Projects" button above.'
+                      action={{
+                        label: "Add Projects",
+                        onClick: () => setShowProjectPicker(true),
+                      }}
+                      className="h-full"
+                    />
+                  </div>
+                ) : (
+                  <ItemListView
+                    columns={projectColumns}
+                    groups={listGroups}
+                    visibleColumns={displaySettings.visibleProperties}
+                    onItemClick={(p) => navigate(`/project/${p.id}/graph`)}
+                    getItemId={(p) => p.id}
+                    batchActions={projectBatchActions}
+                    sortColumn={displaySettings.orderBy}
+                    sortDirection={displaySettings.orderDirection}
+                    onSort={handleSort}
+                    emptyState={
+                      <EmptyState
+                        icon={ListFilter}
+                        title="No matching projects"
+                        description="Try widening your filters or clearing them to see the rest of this initiative."
+                        action={{
+                          label: "Clear Filters",
+                          onClick: () => {
+                            setStatusFilter("all")
+                            setHealthFilter("all")
+                          },
+                        }}
+                      />
+                    }
+                    renderMobileItem={(p) => {
+                      const health = healthConfig[p.health ?? "on_track"]
+                      const pct = progressMap[p.id] ?? 0
+                      return (
+                        <button
+                          onClick={() => navigate(`/project/${p.id}/graph`)}
+                          className="w-full flex items-center gap-3.5 rounded-2xl bg-card p-4 transition-all shadow-sm hover:shadow-md border border-border text-left"
+                        >
+                          <ColorIconBadge color={p.color} icon={p.icon} type="project" />
+                          <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                            <h3 className="font-semibold text-base truncate">{p.name}</h3>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span className={cn("flex items-center gap-1", health.textClass)}>
+                                <span className={cn("h-1.5 w-1.5 rounded-full", health.dotClass)} />
+                                {health.label}
+                              </span>
+                              <span className="text-muted-foreground/40">&middot;</span>
+                              <span>{pct}%</span>
+                            </div>
+                            <div className="h-1.5 w-full rounded-full bg-border overflow-hidden">
+                              <div
+                                className={cn(
+                                  "h-full rounded-full transition-all",
+                                  pct >= 95 ? "bg-success" : pct > 0 ? "bg-primary" : "",
+                                )}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </div>
+                          <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                        </button>
+                      )
+                    }}
+                  />
+                )}
+              </div>
+            </section>
+          </div>
+        </div>
+      )}
 
       {/* Create/Edit Dialog */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>{editingId ? "Edit Grand Plan" : "New Grand Plan"}</DialogTitle>
+            <DialogTitle>{editingId ? "Edit Initiative" : "New Initiative"}</DialogTitle>
             <DialogDescription>
-              {editingId ? "Update the plan details below." : "Create a new grand plan to group related projects."}
+              {editingId ? "Update the initiative details below." : "Create a new initiative to group related projects."}
             </DialogDescription>
           </DialogHeader>
 
@@ -1074,7 +1284,7 @@ export default function InitiativesPage() {
               Cancel
             </Button>
             <Button onClick={handleSave} disabled={!formData.name?.trim()}>
-              {editingId ? "Save Changes" : "Create Plan"}
+              {editingId ? "Save Changes" : "Create Initiative"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1084,9 +1294,9 @@ export default function InitiativesPage() {
       <Dialog open={!!deleteConfirmId} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>Delete Grand Plan</DialogTitle>
+            <DialogTitle>Delete Initiative</DialogTitle>
             <DialogDescription>
-              This will delete the grand plan. Projects will NOT be deleted, only unassigned from this plan.
+              This will delete the initiative. Projects will not be deleted, only unassigned from it.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

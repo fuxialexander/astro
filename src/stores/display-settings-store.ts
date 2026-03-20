@@ -8,6 +8,7 @@ export interface DisplaySettings {
   orderBy: string
   orderDirection: "asc" | "desc"
   showCompleted: boolean
+  showArchived?: boolean
   visibleProperties: string[]
   columnBy?: "status" | "priority" | "milestone"
   zoom?: "day" | "week" | "month" | "quarter" | "year"
@@ -23,6 +24,7 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     orderBy: "name",
     orderDirection: "asc",
     showCompleted: true,
+    showArchived: true,
     visibleProperties: ["workingDirectory", "progress", "targetDate"],
   },
   "projects-timeline": {
@@ -30,6 +32,7 @@ const DEFAULTS: Record<ViewKey, DisplaySettings> = {
     orderBy: "name",
     orderDirection: "asc",
     showCompleted: true,
+    showArchived: true,
     visibleProperties: [],
     zoom: "day",
   },

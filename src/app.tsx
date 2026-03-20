@@ -61,7 +61,6 @@ import { ProjectNewPlan } from "@/pages/project-new-plan"
 import DemoPlanNodeList from "@/pages/demo-plan-node-list"
 import { Playground } from "@/pages/playground"
 import { ShareImport } from "@/pages/share-import"
-import { Examples } from "@/pages/examples"
 import { Community } from "@/pages/community"
 import { CommunityPlanDetail } from "@/pages/community-plan-detail"
 
@@ -403,8 +402,8 @@ export default function App() {
                 <Route path="playground" element={<Playground />} />
                 <Route path="environments" element={<Environments />} />
                 <Route path="workflows" element={<Workflows />} />
-                <Route path="examples" element={<Examples />} />
-                <Route path="templates" element={<Navigate to="/examples" replace />} />
+                <Route path="examples" element={<Navigate to="/plan" replace state={{ openExamplePicker: true }} />} />
+                <Route path="templates" element={<Navigate to="/plan" replace state={{ openExamplePicker: true }} />} />
                 <Route path="community" element={<Community />} />
                 <Route path="community/plans/:id" element={<CommunityPlanDetail />} />
                 <Route path="share/:id" element={<ShareImport />} />

@@ -766,9 +766,10 @@ Run \`plan verify\` first — fix any errors — then review the tree output bef
 - If you need to add an edge between two already-created nodes, use \`astro-cli plan add-edge --json --project-id <PROJECT_ID> --source <fromId> --target <toId>\`.
 - To revise a node after creation, use \`astro-cli plan update-node <nodeId>\` with the relevant flags.
 - After finishing, run \`astro-cli plan tree --project-id <PROJECT_ID>\` and inspect the result before finishing.
-- **Rename the project** after creating the plan. The project name is initially the user's raw prompt — give it a short, descriptive name (2–5 words) that captures the project's purpose:
+- **Rename the project** after creating the plan. The project name is initially the user's raw prompt — give it a short, descriptive name (2–5 words) that captures the project's purpose.
+- Also pick a single fitting emoji for the project automatically, and use one that matches the project's purpose rather than a generic default.
   \`\`\`bash
-  astro-cli project update <PROJECT_ID> --name "Short Descriptive Name"
+  astro-cli project update <PROJECT_ID> --name "Short Descriptive Name" --icon "🎯"
   \`\`\``
 
   return `You are an interactive project planning assistant. Your goal is to help the user create a detailed, actionable project plan through exploration and discussion.

@@ -1546,7 +1546,7 @@ export class RelayServer extends EventEmitter {
         ...(task.description && { description: task.description }),
         // Multimodal image attachments
         ...(task.images && task.images.length > 0 && { images: task.images }),
-        // Short hex IDs for branch names and PR titles
+        // Compact IDs for branch names and PR titles
         ...(task.shortNodeId && { shortNodeId: task.shortNodeId }),
         ...(task.shortProjectId && { shortProjectId: task.shortProjectId }),
         // PR body enrichment fields

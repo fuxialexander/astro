@@ -392,7 +392,7 @@ app.post('/initiatives', async (c) => {
     targetDate: body.targetDate || null,
     lead: body.lead || null,
     color: body.color ?? pickByNameHash(body.name, FALLBACK_COLORS),
-    icon: body.icon ?? pickByNameHash(body.name, FALLBACK_ICONS),
+    icon: body.icon ?? '🚀',
     createdAt: (typeof body.createdAt === 'string' || typeof body.createdAt === 'number') ? new Date(body.createdAt) : now,
     updatedAt: (typeof body.updatedAt === 'string' || typeof body.updatedAt === 'number') ? new Date(body.updatedAt) : now,
   }

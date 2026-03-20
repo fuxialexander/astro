@@ -37,6 +37,8 @@ import { autoDispatchDownstream, cascadePruneDownstream, revertMilestonesOnReset
 // loop-controller is dynamically imported to avoid circular dependency with data.ts
 import { redisPubSub } from '../lib/redis-pubsub.js'
 import { notifyCritical, notifyWarning } from '../lib/monitoring.js'
+import { isYoloMode } from '../lib/yolo-mode.js'
+import { serverSideDispatch } from '../lib/server-side-dispatch.js'
 
 // Track workingDirectory per dispatched task (for safety decision lookup).
 // Dual-layer: local Map for zero-latency + Redis write-through for cross-instance.
@@ -77,6 +79,58 @@ You are running in **autonomous mode**. Proceed independently for all decisions 
  */
 function getShortId(id: string): string {
   return id.replace(/-/g, '').slice(0, 6).toLowerCase()
+}
+
+async function autoDispatchReadyPlanTasks(projectId: string): Promise<number> {
+  const completedStatuses = new Set(['completed', 'auto_verified'])
+
+  const projectTaskNodes = await db.select({
+    id: planNodes.clientId,
+    type: planNodes.type,
+    status: planNodes.status,
+  }).from(planNodes).where(
+    and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt))
+  )
+
+  const liveTasks = projectTaskNodes.filter((node) =>
+    node.type === 'task' && node.status === 'planned'
+  )
+  if (liveTasks.length === 0) return 0
+
+  const depsRows = await db.select({
+    nodeId: planNodeDependencies.nodeId,
+    dependencyId: planNodeDependencies.dependencyNodeId,
+  }).from(planNodeDependencies).where(
+    and(
+      eq(planNodeDependencies.projectId, projectId),
+      inArray(planNodeDependencies.nodeId, liveTasks.map((node) => node.id)),
+    )
+  )
+
+  const nodeStatus = new Map(projectTaskNodes.map((node) => [node.id, node.status]))
+  const depsByNode = new Map<string, string[]>()
+  for (const row of depsRows) {
+    const deps = depsByNode.get(row.nodeId) || []
+    deps.push(row.dependencyId)
+    depsByNode.set(row.nodeId, deps)
+  }
+
+  const readyTaskIds = liveTasks
+    .filter((node) => {
+      const deps = depsByNode.get(node.id) || []
+      return deps.every((depId) => completedStatuses.has(nodeStatus.get(depId) || 'planned'))
+    })
+    .map((node) => node.id)
+
+  if (readyTaskIds.length === 0) return 0
+
+  for (const readyTaskId of readyTaskIds) {
+    serverSideDispatch(readyTaskId, projectId).catch((err) => {
+      console.error(`[dispatch] Interactive plan YOLO auto-dispatch failed for ${readyTaskId}:`, err)
+    })
+  }
+
+  return readyTaskIds.length
 }
 
 function pickBestMachineFromCandidates(
@@ -1549,18 +1603,9 @@ ${verificationSection}${executiveSummarySection}`)
       const deliveryOk = !msg.result.deliveryStatus ||
         msg.result.deliveryStatus === 'success' ||
         msg.result.deliveryStatus === 'skipped'
-      let yoloEnabled = false
-      if (isSuccess && user?.id) {
-        try {
-          const [profile] = await db.select({ settings: userProfiles.settings })
-            .from(userProfiles).where(eq(userProfiles.id, user.id)).limit(1)
-          const settings = profile?.settings as Record<string, string> | null
-          // Playground tasks use separate playgroundYoloMode setting
-          yoloEnabled = nodeId.startsWith('playground-')
-            ? settings?.playgroundYoloMode === 'true'
-            : settings?.yoloMode === 'true'
-        } catch { /* fail closed — no auto-verify */ }
-      }
+      const yoloEnabled = isSuccess
+        ? await isYoloMode(user?.id, nodeId).catch(() => false)
+        : false
       // In YOLO mode, auto-verify even if delivery failed — the user opted out of
       // manual review. Delivery errors are still visible in the UI. Without YOLO,
       // delivery failure requires human judgment (the work is done but not shipped).
@@ -1717,6 +1762,13 @@ ${verificationSection}${executiveSummarySection}`)
           }).catch((err) => {
             console.error('[dispatch] Loop advance failed:', err)
           })
+        } else if (isInteractivePlan && isSuccess && yoloEnabled) {
+          const readyTaskCount = await autoDispatchReadyPlanTasks(projectId)
+          if (readyTaskCount === 0) {
+            console.log(`[dispatch] Interactive plan YOLO: no ready tasks to auto-dispatch for project ${projectId}`)
+          } else {
+            console.log(`[dispatch] Interactive plan YOLO auto-dispatched ${readyTaskCount} ready task(s) for project ${projectId}`)
+          }
         } else if (finalNodeStatus === 'auto_verified' || finalNodeStatus === 'completed') {
           // Auto-dispatch downstream tasks server-side (works even if browser disconnected).
           // Triggers for both auto_verified (YOLO mode) and completed (human-verified),

@@ -706,8 +706,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
                 const color = getProjectColor(index)
 
                 const projectIcon = (() => {
-                  const projIcon = project.icon || "FaBox"
+                  const projIcon = project.icon
                   const projColor = project.color || color
+                  if (!projIcon) return null
                   const FaIcon = getFaIcon(projIcon)
                   if (FaIcon) {
                     return <FaIcon size={collapsed ? 18 : 16} style={{ color: projColor }} className="shrink-0" />

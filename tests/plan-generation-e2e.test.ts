@@ -19,6 +19,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { tryAutoExecuteCompletedPlanProject } from '@/lib/plan-auto-execute'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 // ============================================================================
 // Section 1: Store Tests (always run, no server needed)
@@ -264,6 +266,27 @@ describe('Plan Generation - Store', () => {
     expect(executeAllProject).toHaveBeenNthCalledWith(2, 'proj-race', options)
     expect(clearAutoExecute).toHaveBeenCalledTimes(1)
     expect(clearAutoExecute).toHaveBeenCalledWith('proj-race')
+  })
+
+  it('dispatch.ts auto-dispatches ready tasks when interactive planning completes in YOLO mode', () => {
+    const source = readFileSync(
+      join(__dirname, '../server/routes/dispatch.ts'),
+      'utf-8',
+    )
+
+    expect(source).toContain('async function autoDispatchReadyPlanTasks')
+    expect(source).toContain("isInteractivePlan && isSuccess && yoloEnabled")
+    expect(source).toContain('serverSideDispatch(readyTaskId, projectId)')
+  })
+
+  it('dispatch.ts uses shared isYoloMode for completion status', () => {
+    const source = readFileSync(
+      join(__dirname, '../server/routes/dispatch.ts'),
+      'utf-8',
+    )
+
+    expect(source).toContain("import { isYoloMode } from '../lib/yolo-mode.js'")
+    expect(source).toContain("await isYoloMode(user?.id, nodeId).catch(() => false)")
   })
 
   // ── cancelPlanGeneration ───────────────────────────────────────────────────

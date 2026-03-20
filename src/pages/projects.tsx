@@ -26,7 +26,7 @@ import { fmtDate, addDays, isValidDateStr } from "@/lib/timeline-utils"
 import { formatShortDate, isOverdue } from "@/lib/date-utils"
 import { isServerMode } from "@/lib/app-mode"
 import { cn } from "@/lib/utils"
-import { getRandomColor, getRandomProjectIcon } from "@/lib/color-icon-utils"
+import { getRandomColor, getProjectIconForName } from "@/lib/color-icon-utils"
 import { DEFAULT_LABELS } from "@/lib/constants"
 import type { Project } from "@/types"
 
@@ -48,9 +48,10 @@ const initiativeIconColors: Record<string, string> = {
 
 const projectsDisplayConfig: DisplayPopoverConfig = {
   viewKey: "projects",
+  showArchivedToggle: true,
   groupByOptions: [
     { value: "none", label: "No grouping" },
-    { value: "initiative", label: "Grand Plan" },
+    { value: "initiative", label: "Initiative" },
     { value: "status", label: "Status" },
     { value: "health", label: "Health" },
     { value: "team", label: "Team" },
@@ -72,9 +73,10 @@ const projectsDisplayConfig: DisplayPopoverConfig = {
 
 const projectsTimelineDisplayConfig: DisplayPopoverConfig = {
   viewKey: "projects-timeline",
+  showArchivedToggle: true,
   groupByOptions: [
     { value: "none", label: "No grouping" },
-    { value: "initiative", label: "Grand Plan" },
+    { value: "initiative", label: "Initiative" },
     { value: "status", label: "Status" },
     { value: "health", label: "Health" },
     { value: "team", label: "Team" },
@@ -367,7 +369,7 @@ export function Projects() {
       visionDoc: "",
       status: "active",
       color: getRandomColor(),
-      icon: getRandomProjectIcon(),
+      icon: getProjectIconForName(trimmed),
       labels: DEFAULT_LABELS,
       teamId,
       createdAt: new Date(),
@@ -482,6 +484,9 @@ export function Projects() {
     let filtered = displaySettings.showCompleted
       ? projects
       : projects.filter((p) => (progressMap[p.id] ?? 0) < 100)
+    if (statusFilter === "all" && !(displaySettings.showArchived ?? true)) {
+      filtered = filtered.filter((p) => p.status !== "archived")
+    }
     if (statusFilter !== "all") {
       filtered = filtered.filter((p) => p.status === statusFilter)
     }
@@ -518,16 +523,19 @@ export function Projects() {
       }
     })
     return sorted
-  }, [projects, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted, statusFilter, healthFilter, initiativeFilter, workspaceFilter, progressMap])
+  }, [projects, displaySettings.orderBy, displaySettings.orderDirection, displaySettings.showCompleted, displaySettings.showArchived, statusFilter, healthFilter, initiativeFilter, workspaceFilter, progressMap])
 
   // Group projects for list view
   const listGroups = useMemo((): ListGroup<Project>[] => {
     if (displaySettings.groupBy === "none") {
       return [{ key: "all", label: "All Projects", items: sortedProjects }]
     }
+    const includeArchivedGroup = statusFilter === "archived" || (displaySettings.showArchived ?? true)
     // Pre-seed status groups so both Active and Archived always appear
     const seed: Record<string, Project[]> = displaySettings.groupBy === "status"
-      ? { Active: [], Archived: [] }
+      ? includeArchivedGroup
+        ? { Active: [], Archived: [] }
+        : { Active: [] }
       : {}
     const grouped = sortedProjects.reduce<Record<string, Project[]>>((acc, p) => {
       let group: string
@@ -569,7 +577,7 @@ export function Projects() {
       groups.sort((a, b) => (statusOrder[a.label] ?? 99) - (statusOrder[b.label] ?? 99))
     }
     return groups
-  }, [sortedProjects, displaySettings.groupBy, getInitiativeName, getTeamName])
+  }, [sortedProjects, displaySettings.groupBy, displaySettings.showArchived, getInitiativeName, getTeamName, statusFilter])
 
   // Timeline-specific settings
   const timelineDisplaySettings = useDisplaySettingsStore((s) => s.get("projects-timeline"))
@@ -603,9 +611,12 @@ export function Projects() {
 
   // Sort projects for timeline (uses timeline display settings)
   const timelineSortedProjects = useMemo(() => {
-    const filtered = timelineDisplaySettings.showCompleted
+    let filtered = timelineDisplaySettings.showCompleted
       ? projects
       : projects.filter((p) => (progressMap[p.id] ?? 0) < 100)
+    if (!(timelineDisplaySettings.showArchived ?? true)) {
+      filtered = filtered.filter((p) => p.status !== "archived")
+    }
     const sorted = [...filtered]
     const dir = timelineDisplaySettings.orderDirection === "asc" ? 1 : -1
     sorted.sort((a, b) => {
@@ -628,7 +639,7 @@ export function Projects() {
       }
     })
     return sorted
-  }, [projects, projectDateRanges, timelineDisplaySettings.orderBy, timelineDisplaySettings.orderDirection, timelineDisplaySettings.showCompleted, progressMap])
+  }, [projects, projectDateRanges, timelineDisplaySettings.orderBy, timelineDisplaySettings.orderDirection, timelineDisplaySettings.showCompleted, timelineDisplaySettings.showArchived, progressMap])
 
   // Timeline rows (with grouping support)
   const timelineRows = useMemo((): TimelineRow<Project>[] => {
@@ -883,10 +894,10 @@ export function Projects() {
               onChange={setHealthFilter}
             />
             <FilterSelect
-              label="Grand Plan"
+              label="Initiative"
               value={initiativeFilter}
               options={[
-                { value: "all", label: "All grand plans" },
+                { value: "all", label: "All initiatives" },
                 ...initiatives.map((i) => ({ value: i.id, label: i.name })),
               ]}
               onChange={setInitiativeFilter}

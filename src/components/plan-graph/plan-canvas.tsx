@@ -811,7 +811,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
           { color: STATUS_DOT_COLOR.pruned,             label: 'pruned' },
         ] as const).map(({ color, label }) => (
           <span key={label} className="flex items-center gap-1 shrink-0">
-            <span className="h-1.5 w-1.5" style={{ background: color }} />
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
             <span className="text-[9px] text-muted-foreground/70">{label}</span>
           </span>
         ))}

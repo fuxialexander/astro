@@ -3,7 +3,6 @@ import {
   getColorForName,
   getProjectIconForName,
   getRandomColor,
-  getRandomProjectIcon,
   COLOR_PALETTE,
   PROJECT_EMOJI_ICONS,
 } from '../src/lib/color-icon-utils'
@@ -60,15 +59,10 @@ describe('color-icon-utils', () => {
     })
   })
 
-  describe('random functions still work', () => {
+  describe('random color helper still works', () => {
     it('getRandomColor returns a palette color', () => {
       const color = getRandomColor()
       expect([...COLOR_PALETTE]).toContain(color)
-    })
-
-    it('getRandomProjectIcon returns a valid emoji', () => {
-      const icon = getRandomProjectIcon()
-      expect(PROJECT_EMOJI_ICONS).toContain(icon)
     })
   })
 })

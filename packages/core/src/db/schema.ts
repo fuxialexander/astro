@@ -60,7 +60,7 @@ export const initiatives = pgTable('initiatives', {
   targetDate: date('target_date'),
   lead: text('lead'),
   color: text('color').default('#3b82f6'),
-  icon: text('icon').default('🎯'),
+  icon: text('icon').default('🚀'),
   teamId: uuid('team_id').notNull(),
   deletedAt: timestamp('deleted_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),

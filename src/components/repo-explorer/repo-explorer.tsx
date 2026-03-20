@@ -3,15 +3,17 @@ import { Link } from "react-router"
 import { AlertCircle, ChevronDown, ChevronRight, ExternalLink, Github, Loader2, RefreshCw, Search, Zap, Check, X, Clock, Minus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { apiUrl } from "@/lib/api-url"
 import { authHeaders } from "@/lib/auth-headers"
 import { formatRelativeTime } from "@/lib/date-utils"
 import { addIssueToPlan, launchPrAction, quickFixIssue } from "@/lib/github-repo-actions"
-import { cn } from "@/lib/utils"
+import { cn, getShortId } from "@/lib/utils"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
 import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useToastStore } from "@/stores/toast-store"
+import { filterIssues, filterPullRequests, getUniqueFilterValues, type IssueStateFilter, type PrCiFilter, type PrReviewFilter, type PrStateFilter } from "./filter-utils"
 import { PrDiffViewer } from "./pr-diff-viewer"
 import { WorkspaceConfigDialog } from "./workspace-config-dialog"
 import type { GitHubRepoCacheSnapshot, Project } from "@/types"
@@ -27,6 +29,8 @@ interface RepoCacheResponse extends GitHubRepoCacheSnapshot {
     prNodeIds: Record<number, string>
   }
 }
+
+const ALL_FILTER_VALUE = "__all__"
 
 // ── CI status badge (inline, compact) ────────────────────────────────────
 
@@ -84,6 +88,15 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState("")
+  const [issueStateFilter, setIssueStateFilter] = useState<IssueStateFilter>("open")
+  const [issueLabelFilter, setIssueLabelFilter] = useState(ALL_FILTER_VALUE)
+  const [issueAuthorFilter, setIssueAuthorFilter] = useState(ALL_FILTER_VALUE)
+  const [issueAssigneeFilter, setIssueAssigneeFilter] = useState(ALL_FILTER_VALUE)
+  const [prStateFilter, setPrStateFilter] = useState<PrStateFilter>("open")
+  const [prReviewFilter, setPrReviewFilter] = useState<PrReviewFilter>("all")
+  const [prCiFilter, setPrCiFilter] = useState<PrCiFilter>("all")
+  const [prLabelFilter, setPrLabelFilter] = useState(ALL_FILTER_VALUE)
+  const [prAuthorFilter, setPrAuthorFilter] = useState(ALL_FILTER_VALUE)
   const [runningAction, setRunningAction] = useState<string | null>(null)
   const [expandedPr, setExpandedPr] = useState<number | null>(null)
   const [workspaceConfigOpen, setWorkspaceConfigOpen] = useState(false)
@@ -129,25 +142,57 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
   }, [loadSnapshot])
 
   const normalizedQuery = query.trim().toLowerCase()
+  const issueLabelOptions = useMemo(
+    () => getUniqueFilterValues((snapshot?.issues ?? []).flatMap((issue) => issue.labels.map((label) => label.name))),
+    [snapshot?.issues],
+  )
+  const issueAuthorOptions = useMemo(
+    () => getUniqueFilterValues((snapshot?.issues ?? []).map((issue) => issue.authorLogin)),
+    [snapshot?.issues],
+  )
+  const issueAssigneeOptions = useMemo(
+    () => getUniqueFilterValues((snapshot?.issues ?? []).flatMap((issue) => issue.assignees.map((assignee) => assignee.login))),
+    [snapshot?.issues],
+  )
+  const prLabelOptions = useMemo(
+    () => getUniqueFilterValues((snapshot?.pullRequests ?? []).flatMap((pr) => pr.labels.map((label) => label.name))),
+    [snapshot?.pullRequests],
+  )
+  const prAuthorOptions = useMemo(
+    () => getUniqueFilterValues((snapshot?.pullRequests ?? []).map((pr) => pr.authorLogin)),
+    [snapshot?.pullRequests],
+  )
   const issues = useMemo(() => {
-    const all = snapshot?.issues ?? []
-    return all.filter((issue) => {
-      if (!normalizedQuery) return true
-      return issue.title.toLowerCase().includes(normalizedQuery)
-        || String(issue.issueNumber).includes(normalizedQuery)
-        || (issue.body ?? "").toLowerCase().includes(normalizedQuery)
+    return filterIssues(snapshot?.issues ?? [], {
+      query: normalizedQuery,
+      state: issueStateFilter,
+      label: issueLabelFilter === ALL_FILTER_VALUE ? null : issueLabelFilter,
+      author: issueAuthorFilter === ALL_FILTER_VALUE ? null : issueAuthorFilter,
+      assignee: issueAssigneeFilter === ALL_FILTER_VALUE ? null : issueAssigneeFilter,
     })
-  }, [normalizedQuery, snapshot?.issues])
+  }, [issueAssigneeFilter, issueAuthorFilter, issueLabelFilter, issueStateFilter, normalizedQuery, snapshot?.issues])
 
   const pullRequests = useMemo(() => {
-    const all = snapshot?.pullRequests ?? []
-    return all.filter((pr) => {
-      if (!normalizedQuery) return true
-      return pr.title.toLowerCase().includes(normalizedQuery)
-        || String(pr.prNumber).includes(normalizedQuery)
-        || (pr.body ?? "").toLowerCase().includes(normalizedQuery)
+    return filterPullRequests(snapshot?.pullRequests ?? [], {
+      query: normalizedQuery,
+      state: prStateFilter,
+      label: prLabelFilter === ALL_FILTER_VALUE ? null : prLabelFilter,
+      author: prAuthorFilter === ALL_FILTER_VALUE ? null : prAuthorFilter,
+      review: prReviewFilter,
+      ci: prCiFilter,
     })
-  }, [normalizedQuery, snapshot?.pullRequests])
+  }, [normalizedQuery, prAuthorFilter, prCiFilter, prLabelFilter, prReviewFilter, prStateFilter, snapshot?.pullRequests])
+
+  const hasCustomIssueFilters = issueStateFilter !== "open"
+    || issueLabelFilter !== ALL_FILTER_VALUE
+    || issueAuthorFilter !== ALL_FILTER_VALUE
+    || issueAssigneeFilter !== ALL_FILTER_VALUE
+
+  const hasCustomPrFilters = prStateFilter !== "open"
+    || prReviewFilter !== "all"
+    || prCiFilter !== "all"
+    || prLabelFilter !== ALL_FILTER_VALUE
+    || prAuthorFilter !== ALL_FILTER_VALUE
 
   const activeAgents = useMemo(() => {
     return nodes
@@ -170,7 +215,7 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
     setRunningAction(key)
     try {
       const nodeId = await run()
-      addToast({ type: "success", title: successTitle, description: `Created task ${nodeId.slice(0, 8)}` })
+      addToast({ type: "success", title: successTitle, description: `Created task ${getShortId(nodeId)}` })
       void loadSnapshot()
     } catch (err) {
       addToast({ type: "error", title: "Action failed", description: err instanceof Error ? err.message : "Unknown error" })
@@ -198,6 +243,7 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
   }
 
   const hasWorkspace = !!project.workingDirectory
+  const panelClass = "rounded-2xl border border-border bg-card shadow-[0_2px_12px_-2px_rgba(0,0,0,0.12)]"
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-hidden p-4 md:p-6">
@@ -215,7 +261,7 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
       )}
 
       {/* ── Repo header ────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-3 rounded-xl border border-border/40 bg-card/50 p-4">
+      <div className={cn("flex flex-col gap-3 p-4", panelClass)}>
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/8 ring-1 ring-primary/15">
@@ -252,19 +298,82 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
 
         {/* ── Issues column ────────────────────────────────────────── */}
         <div className="flex min-h-0 flex-col">
-          <section className="flex min-h-0 flex-col rounded-xl border border-border/40 bg-card/30">
-            <div className="flex items-center justify-between border-b border-border/30 px-4 py-3">
-              <h3 className="text-[10px] font-bold uppercase tracking-[0.10em] text-muted-foreground">Open Issues</h3>
-              <span className="tabular-nums text-[11px] text-muted-foreground">{issues.filter((issue) => issue.state === "open").length}</span>
+          <section className={cn("flex min-h-0 flex-col", panelClass)}>
+            <div className="flex flex-col gap-3 border-b border-border/30 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-[10px] font-bold uppercase tracking-[0.10em] text-muted-foreground">Issues</h3>
+                <span className="tabular-nums text-[11px] text-muted-foreground">{issues.length}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={issueStateFilter} onValueChange={(value) => setIssueStateFilter(value as IssueStateFilter)}>
+                  <SelectTrigger className="h-8 w-[120px] text-[11px]">
+                    <SelectValue placeholder="State" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="open">Open</SelectItem>
+                    <SelectItem value="closed">Closed</SelectItem>
+                    <SelectItem value="all">All states</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={issueLabelFilter} onValueChange={setIssueLabelFilter}>
+                  <SelectTrigger className="h-8 w-[150px] text-[11px]">
+                    <SelectValue placeholder="Label" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_FILTER_VALUE}>All labels</SelectItem>
+                    {issueLabelOptions.map((label) => (
+                      <SelectItem key={label} value={label}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={issueAuthorFilter} onValueChange={setIssueAuthorFilter}>
+                  <SelectTrigger className="h-8 w-[150px] text-[11px]">
+                    <SelectValue placeholder="Author" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_FILTER_VALUE}>All authors</SelectItem>
+                    {issueAuthorOptions.map((author) => (
+                      <SelectItem key={author} value={author}>{author}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={issueAssigneeFilter} onValueChange={setIssueAssigneeFilter}>
+                  <SelectTrigger className="h-8 w-[150px] text-[11px]">
+                    <SelectValue placeholder="Assignee" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_FILTER_VALUE}>All assignees</SelectItem>
+                    {issueAssigneeOptions.map((assignee) => (
+                      <SelectItem key={assignee} value={assignee}>{assignee}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {hasCustomIssueFilters && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2 text-[11px]"
+                    onClick={() => {
+                      setIssueStateFilter("open")
+                      setIssueLabelFilter(ALL_FILTER_VALUE)
+                      setIssueAuthorFilter(ALL_FILTER_VALUE)
+                      setIssueAssigneeFilter(ALL_FILTER_VALUE)
+                    }}
+                  >
+                    Reset
+                  </Button>
+                )}
+              </div>
             </div>
             <div className="min-h-0 overflow-y-auto">
               {issues.length === 0 ? (
-                <div className="px-4 py-8 text-center text-[12px] text-muted-foreground/60">No cached issues match this filter.</div>
+                <div className="px-4 py-8 text-center text-[12px] text-muted-foreground/60">No cached issues match the current filters.</div>
               ) : (
                 <div className="flex flex-col gap-1.5 p-2">
                   {issues.map((issue) => {
                     const linkedNodeId = snapshot?.linkedNodeIds.issueNodeIds[issue.issueNumber]
                     const actionKey = `issue-${issue.issueNumber}`
+                    const issueActionsDisabled = issue.state !== "open"
                     return (
                       <div
                         key={issue.id}
@@ -282,6 +391,11 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
                               <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground/30" />
                             </div>
                             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              {issue.state !== "open" && (
+                                <span className="rounded-full bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                  {issue.state}
+                                </span>
+                              )}
                               {issue.labels.slice(0, 3).map((label) => {
                                 const hex = /^[0-9a-fA-F]{6}$/.test(label.color ?? '') ? label.color : undefined
                                 return (
@@ -317,14 +431,14 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
                                 size="sm"
                                 className="h-7 text-[11px]"
                                 onClick={() => void handleIssueAction(actionKey, () => addIssueToPlan(project, issue), "Added issue to plan")}
-                                disabled={runningAction === actionKey}
+                                disabled={runningAction === actionKey || issueActionsDisabled}
                               >
                                 Add to Plan
                               </Button>
                               <button
                                 className="gh-action-btn rounded-md px-2.5 py-1.5 text-[11px] font-semibold disabled:opacity-50"
                                 onClick={() => requireWorkspace(() => void handleIssueAction(actionKey, () => quickFixIssue(project, issue), "Quick fix launched"))}
-                                disabled={runningAction === actionKey}
+                                disabled={runningAction === actionKey || issueActionsDisabled}
                               >
                                 {runningAction === actionKey ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Quick Fix"}
                               </button>
@@ -342,20 +456,99 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
 
         {/* ── PRs + Agents column ──────────────────────────────────── */}
         <div className="flex min-h-0 flex-col gap-4">
-          <section className="flex min-h-0 flex-col rounded-xl border border-border/40 bg-card/30">
-            <div className="flex items-center justify-between border-b border-border/30 px-4 py-3">
-              <h3 className="text-[10px] font-bold uppercase tracking-[0.10em] text-muted-foreground">Pull Requests</h3>
-              <span className="tabular-nums text-[11px] text-muted-foreground">{pullRequests.filter((pr) => pr.state === "open").length}</span>
+          <section className={cn("flex min-h-0 flex-col", panelClass)}>
+            <div className="flex flex-col gap-3 border-b border-border/30 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-[10px] font-bold uppercase tracking-[0.10em] text-muted-foreground">Pull Requests</h3>
+                <span className="tabular-nums text-[11px] text-muted-foreground">{pullRequests.length}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={prStateFilter} onValueChange={(value) => setPrStateFilter(value as PrStateFilter)}>
+                  <SelectTrigger className="h-8 w-[130px] text-[11px]">
+                    <SelectValue placeholder="State" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="open">Open</SelectItem>
+                    <SelectItem value="closed">Closed</SelectItem>
+                    <SelectItem value="merged">Merged</SelectItem>
+                    <SelectItem value="all">All states</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={prReviewFilter} onValueChange={(value) => setPrReviewFilter(value as PrReviewFilter)}>
+                  <SelectTrigger className="h-8 w-[150px] text-[11px]">
+                    <SelectValue placeholder="Review" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All reviews</SelectItem>
+                    <SelectItem value="approved">Approved</SelectItem>
+                    <SelectItem value="changes_requested">Changes requested</SelectItem>
+                    <SelectItem value="reviewed">Reviewed</SelectItem>
+                    <SelectItem value="pending">Needs review</SelectItem>
+                    <SelectItem value="none">No review state</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={prCiFilter} onValueChange={(value) => setPrCiFilter(value as PrCiFilter)}>
+                  <SelectTrigger className="h-8 w-[130px] text-[11px]">
+                    <SelectValue placeholder="CI" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All CI</SelectItem>
+                    <SelectItem value="success">Passing</SelectItem>
+                    <SelectItem value="failure">Failing</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="none">No checks</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={prLabelFilter} onValueChange={setPrLabelFilter}>
+                  <SelectTrigger className="h-8 w-[150px] text-[11px]">
+                    <SelectValue placeholder="Label" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_FILTER_VALUE}>All labels</SelectItem>
+                    {prLabelOptions.map((label) => (
+                      <SelectItem key={label} value={label}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={prAuthorFilter} onValueChange={setPrAuthorFilter}>
+                  <SelectTrigger className="h-8 w-[150px] text-[11px]">
+                    <SelectValue placeholder="Author" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_FILTER_VALUE}>All authors</SelectItem>
+                    {prAuthorOptions.map((author) => (
+                      <SelectItem key={author} value={author}>{author}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {hasCustomPrFilters && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2 text-[11px]"
+                    onClick={() => {
+                      setPrStateFilter("open")
+                      setPrReviewFilter("all")
+                      setPrCiFilter("all")
+                      setPrLabelFilter(ALL_FILTER_VALUE)
+                      setPrAuthorFilter(ALL_FILTER_VALUE)
+                    }}
+                  >
+                    Reset
+                  </Button>
+                )}
+              </div>
             </div>
             <div className="min-h-0 overflow-y-auto">
               {pullRequests.length === 0 ? (
-                <div className="px-4 py-8 text-center text-[12px] text-muted-foreground/60">No cached pull requests match this filter.</div>
+                <div className="px-4 py-8 text-center text-[12px] text-muted-foreground/60">No cached pull requests match the current filters.</div>
               ) : (
                 <div className="flex flex-col gap-1.5 p-2">
                   {pullRequests.map((pr) => {
                     const actionKey = `pr-${pr.prNumber}`
                     const isExpanded = expandedPr === pr.prNumber
                     const mergeReady = isPrMergeReady(pr)
+                    const prActionsDisabled = pr.state !== "open"
                     return (
                       <div
                         key={pr.id}
@@ -385,6 +578,11 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
 
                               {/* Status row */}
                               <div className="mt-1.5 ml-5 flex flex-wrap items-center gap-1.5">
+                                {pr.state !== "open" && (
+                                  <span className="rounded-full bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                    {pr.state}
+                                  </span>
+                                )}
                                 <CIStatusBadge status={pr.ciStatus} />
                                 <ReviewBadge decision={pr.reviewDecision} />
                                 {(pr.additions > 0 || pr.deletions > 0) && (
@@ -409,14 +607,14 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
                                 size="sm"
                                 className="h-7 text-[11px]"
                                 onClick={() => requireWorkspace(() => void handleIssueAction(actionKey, () => launchPrAction(project, pr, "address_review"), "Review task launched"))}
-                                disabled={runningAction === actionKey}
+                                disabled={runningAction === actionKey || prActionsDisabled}
                               >
                                 Address Review
                               </Button>
                               <button
                                 className="gh-action-btn rounded-md px-2.5 py-1.5 text-[11px] font-semibold disabled:opacity-50"
                                 onClick={() => requireWorkspace(() => void handleIssueAction(actionKey, () => launchPrAction(project, pr, "fix_ci"), "CI fix launched"))}
-                                disabled={runningAction === actionKey}
+                                disabled={runningAction === actionKey || prActionsDisabled}
                               >
                                 {runningAction === actionKey ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Fix CI"}
                               </button>
@@ -438,7 +636,7 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
           </section>
 
           {/* ── Active agents ───────────────────────────────────────── */}
-          <section className="rounded-xl border border-border/40 bg-card/30">
+          <section className={panelClass}>
             <div className="border-b border-border/30 px-4 py-3">
               <h3 className="text-[10px] font-bold uppercase tracking-[0.10em] text-muted-foreground">Active Agents</h3>
             </div>
