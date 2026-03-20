@@ -1994,8 +1994,8 @@ ${verificationSection}${executiveSummarySection}`)
             console.log(`[dispatch] YOLO auto-approved relay approval: execution=${executionId} requestId=${msg.requestId} answer="${autoAnswer}"`)
             relayServer.sendApprovalResponse(executionId, targetMachineId, msg.requestId, true, autoAnswer)
             // Persist both request and response so hydration shows it as answered
-            streamingEventLog.appendApprovalRequestIfAbsent(executionId, { requestId: msg.requestId, question: msg.question, options: msg.options, machineId: targetMachineId }).catch(() => {})
-            streamingEventLog.append(executionId, 'approval_response', { requestId: msg.requestId, answer: autoAnswer, answered: true }).catch(() => {})
+            await streamingEventLog.appendApprovalRequestIfAbsent(executionId, { requestId: msg.requestId, question: msg.question, options: msg.options, machineId: targetMachineId }).catch(() => {})
+            await streamingEventLog.appendApprovalResponseIfAbsent(executionId, { requestId: msg.requestId, answer: autoAnswer, answered: true }).catch(() => {})
             return
           }
         } catch {
@@ -2400,6 +2400,47 @@ async function drainPendingSteers(executionId: string, machineId: string): Promi
 }
 
 /**
+ * Check if a user is authorized for a task — either they own the execution
+ * or they belong to the same team as the project. Returns true if authorized.
+ */
+async function isUserAuthorizedForTask(
+  user: AuthUser,
+  ctx: { userId: string; projectId: string } | undefined,
+  taskId: string,
+): Promise<boolean> {
+  // Local mode: always authorized
+  if (user.id === LOCAL_USER_ID) return true
+
+  if (ctx) {
+    // Owner of the execution — authorized
+    if (ctx.userId === user.id || ctx.userId === LOCAL_USER_ID) return true
+
+    // Team member check: does the user belong to the same team as the project?
+    const [project] = await db.select({ id: projects.id }).from(projects)
+      .where(and(
+        eq(projects.id, ctx.projectId),
+        inArray(projects.teamId, user.teamIds)
+      )).limit(1)
+    return !!project
+  }
+
+  // No context — try DB fallback via plan_nodes
+  const [nodeRow] = await db.select({ projectId: planNodes.projectId })
+    .from(planNodes).where(eq(planNodes.clientId, taskId)).limit(1)
+  if (nodeRow) {
+    const [project] = await db.select({ id: projects.id }).from(projects)
+      .where(and(
+        eq(projects.id, nodeRow.projectId),
+        inArray(projects.teamId, user.teamIds)
+      )).limit(1)
+    return !!project
+  }
+
+  // No context and no DB record — deny
+  return false
+}
+
+/**
  * Steer a running agent task
  *
  * POST /api/dispatch/steer
@@ -2425,17 +2466,11 @@ dispatchRoute.post('/steer', async (c) => {
   }
   const { taskId, machineId, message, action, interrupt, sessionId, branchName } = parsed.data
 
-  // Validate user owns this task (async fallback for cross-instance scenarios)
+  // Validate user has access to this task (owner or team member)
   const steerUser = c.get('user') as AuthUser | undefined
   if (steerUser?.id && steerUser.id !== LOCAL_USER_ID) {
     const ctx = await executionContextStore.getWithFallback(taskId)
-    if (ctx) {
-      if (ctx.userId !== steerUser.id && ctx.userId !== LOCAL_USER_ID) {
-        return c.json({ success: false, error: 'Not authorized for this task' }, 403)
-      }
-    } else {
-      // Context not in local store or Redis — deny by default for security.
-      // The cancel endpoint has a DB fallback; steer requires an active execution.
+    if (!await isUserAuthorizedForTask(steerUser, ctx, taskId)) {
       return c.json({ success: false, error: 'Not authorized for this task' }, 403)
     }
   }
@@ -2480,16 +2515,11 @@ dispatchRoute.post('/approval', async (c) => {
   }
   const { taskId, machineId, requestId, answered, answer, message } = parsed.data
 
-  // Validate user owns this task (async fallback for cross-instance scenarios)
+  // Validate user has access to this task (owner or team member)
   const approvalUser = c.get('user') as AuthUser | undefined
   if (approvalUser?.id && approvalUser.id !== LOCAL_USER_ID) {
     const ctx = await executionContextStore.getWithFallback(taskId)
-    if (ctx) {
-      if (ctx.userId !== approvalUser.id && ctx.userId !== LOCAL_USER_ID) {
-        return c.json({ success: false, error: 'Not authorized for this task' }, 403)
-      }
-    } else {
-      // Context not in local store or Redis — deny by default for security.
+    if (!await isUserAuthorizedForTask(approvalUser, ctx, taskId)) {
       return c.json({ success: false, error: 'Not authorized for this task' }, 403)
     }
   }
@@ -2503,8 +2533,16 @@ dispatchRoute.post('/approval', async (c) => {
     )
   }
 
-  // Persist approval_response so hydration knows this approval was answered
-  streamingEventLog.append(taskId, 'approval_response', { requestId, answer, answered }).catch(() => {})
+  // Persist approval_response so hydration knows this approval was answered.
+  // MUST await — if this is fire-and-forget, a page refresh before the write
+  // completes causes the catch-up query to miss the response, showing the
+  // approval card as unanswered again. Uses idempotent version to prevent
+  // duplicates from multi-tab or retry scenarios.
+  try {
+    await streamingEventLog.appendApprovalResponseIfAbsent(taskId, { requestId, answer: answer ?? '', answered: answered ?? true })
+  } catch (err) {
+    console.warn('[dispatch] Failed to persist approval_response:', (err as Error).message)
+  }
 
   return c.json({ success: true, taskId, machineId, requestId, message: 'Approval response sent' })
 })
@@ -2536,15 +2574,11 @@ dispatchRoute.post('/safety-decision', async (c) => {
     return c.json({ success: false, error: `Invalid decision. Must be one of: ${validDecisions.join(', ')}` }, 400)
   }
 
-  // Validate user owns this task (async fallback for cross-instance scenarios)
+  // Validate user has access to this task (owner or team member)
   const safetyUser = c.get('user') as AuthUser | undefined
   if (safetyUser?.id && safetyUser.id !== LOCAL_USER_ID) {
     const ctx = await executionContextStore.getWithFallback(taskId)
-    if (ctx) {
-      if (ctx.userId !== safetyUser.id && ctx.userId !== LOCAL_USER_ID) {
-        return c.json({ success: false, error: 'Not authorized for this task' }, 403)
-      }
-    } else {
+    if (!await isUserAuthorizedForTask(safetyUser, ctx, taskId)) {
       return c.json({ success: false, error: 'Not authorized for this task' }, 403)
     }
   }
@@ -2601,28 +2635,12 @@ dispatchRoute.post('/cancel', async (c) => {
   }
 
   // Validate user has access to this task (in-memory context or DB fallback)
+  // Validate user has access to this task (owner or team member)
   const cancelUser = c.get('user') as AuthUser | undefined
   if (cancelUser?.id && cancelUser.id !== LOCAL_USER_ID) {
-    const ctx = executionContextStore.get(id)
-    if (ctx) {
-      // In-memory context available: check user owns this execution
-      if (ctx.userId !== cancelUser.id && ctx.userId !== LOCAL_USER_ID) {
-        return c.json({ success: false, error: 'Not authorized for this task' }, 403)
-      }
-    } else if (nodeId) {
-      // Context lost (e.g., server restart): fall back to DB project ownership check
-      const [nodeRow] = await db.select({ projectId: planNodes.projectId })
-        .from(planNodes).where(eq(planNodes.clientId, nodeId)).limit(1)
-      if (nodeRow) {
-        const [project] = await db.select({ id: projects.id }).from(projects)
-          .where(and(
-            eq(projects.id, nodeRow.projectId),
-            inArray(projects.teamId, cancelUser.teamIds)
-          )).limit(1)
-        if (!project) {
-          return c.json({ success: false, error: 'Not authorized for this task' }, 403)
-        }
-      }
+    const ctx = await executionContextStore.getWithFallback(id)
+    if (!await isUserAuthorizedForTask(cancelUser, ctx, nodeId ?? id)) {
+      return c.json({ success: false, error: 'Not authorized for this task' }, 403)
     }
   }
 
@@ -2909,7 +2927,7 @@ async function tryRecoverApproval(
     }
 
     // 5. Persist recovery for idempotency + hydration
-    streamingEventLog.append(executionId, 'approval_response', {
+    await streamingEventLog.appendApprovalResponseIfAbsent(executionId, {
       requestId: relayData.requestId,
       answer,
       answered: true,

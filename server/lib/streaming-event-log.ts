@@ -164,6 +164,52 @@ class StreamingEventLog {
   }
 
   /**
+   * Persist an approval_response exactly once per execution/requestId pair.
+   * Prevents duplicate approval_response rows on multi-tab or retry scenarios.
+   */
+  async appendApprovalResponseIfAbsent(
+    executionId: string,
+    data: {
+      requestId: string
+      answer: string
+      answered: boolean
+    },
+  ): Promise<number> {
+    await this.flushText(executionId)
+
+    try {
+      return await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`streaming-approval-resp:${executionId}:${data.requestId}`}))`)
+
+        const existing = await tx.select({ seq: streamingEvents.seq })
+          .from(streamingEvents)
+          .where(
+            and(
+              eq(streamingEvents.executionId, executionId),
+              eq(streamingEvents.eventType, 'approval_response'),
+              sql`${streamingEvents.data}->>'requestId' = ${data.requestId}`,
+            ),
+          )
+          .orderBy(desc(streamingEvents.seq))
+          .limit(1)
+
+        if (existing[0]) return existing[0].seq
+
+        const [row] = await tx.insert(streamingEvents).values({
+          executionId,
+          eventType: 'approval_response',
+          data,
+        }).returning({ seq: streamingEvents.seq })
+
+        return row.seq
+      })
+    } catch (err) {
+      console.warn('[streaming-event-log] Failed to append approval_response:', (err as Error).message)
+      return 0
+    }
+  }
+
+  /**
    * Persist a safety_prompt exactly once per execution/safety prompt tuple.
    */
   async appendSafetyPromptIfAbsent(
