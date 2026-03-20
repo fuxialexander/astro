@@ -17,6 +17,7 @@ export interface DisplayPopoverConfig {
   groupByOptions: DisplayOption[]
   orderByOptions: DisplayOption[]
   propertyOptions: DisplayOption[]
+  showArchivedToggle?: boolean
   columnByOptions?: DisplayOption[]
   groupByLabel?: string
   showZoom?: boolean
@@ -218,6 +219,14 @@ export function DisplayPopover({ config }: { config: DisplayPopoverConfig }) {
             checked={settings.showCompleted}
             onChange={(v) => handleUpdate({ showCompleted: v })}
           />
+
+          {config.showArchivedToggle && (
+            <ToggleRow
+              label={t('display.showArchived', 'Show archived')}
+              checked={settings.showArchived ?? true}
+              onChange={(v) => handleUpdate({ showArchived: v })}
+            />
+          )}
 
           {/* Zoom — timeline only */}
           {config.showZoom && (

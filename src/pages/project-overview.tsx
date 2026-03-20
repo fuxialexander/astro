@@ -804,7 +804,7 @@ export function OverviewTab({
           </div>
 
           <div className="flex items-center justify-between">
-            <span className="text-[13px] text-muted-foreground">Grand Plan</span>
+            <span className="text-[13px] text-muted-foreground">Initiative</span>
             {editingInitiative ? (
               <select
                 className="text-[13px] rounded-md border border-input bg-background px-2 py-1"
@@ -816,7 +816,7 @@ export function OverviewTab({
                 onBlur={() => setEditingInitiative(false)}
                 autoFocus
               >
-                <option value="">No grand plan</option>
+                <option value="">No initiative</option>
                 {initiatives
                   .filter(i => i.status === "active")
                   .map((initiative) => (
@@ -971,4 +971,3 @@ export function OverviewTab({
     </div>
   )
 }
-

@@ -29,7 +29,7 @@ import {
   Network,
   Clock,
 } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, getShortId } from "@/lib/utils"
 import type { TaskActivityEvent, ExecutionSummary } from "@/types"
 import { JsonRenderView } from "@/components/ui/json-render-view"
 import { StreamingMarkdown } from "@/components/ui/streaming-markdown"
@@ -900,7 +900,7 @@ export function MutationBlock({
     <div className="mx-4 my-1.5 space-y-1">
       {nodeUpdates.map((update, i) => {
         const { nodeId, ...fields } = update
-        const title = getNodeTitle?.(nodeId) || nodeId.slice(0, 8)
+        const title = getNodeTitle?.(nodeId) || getShortId(nodeId)
         const fieldEntries = Object.entries(fields).filter(([k]) => k !== 'nodeId')
         return (
           <div key={`upd-${i}`} className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted/50 text-xs">

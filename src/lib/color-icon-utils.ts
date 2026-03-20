@@ -27,7 +27,7 @@ export const COLOR_PALETTE = [
 
 // Font Awesome icon names for projects (kept for backwards compatibility with existing projects)
 export const PROJECT_FA_ICONS = [
-  'FaBox', 'FaSmile', 'FaFrown', 'FaGrinTongue', 'FaMeh', 'FaGrimace',
+  'FaSmile', 'FaFrown', 'FaGrinTongue', 'FaMeh', 'FaGrimace',
   'FaMask', 'FaHandsClapping', 'FaRunning', 'FaFootball', 'FaAccessibleIcon',
   'FaDna', 'FaHeart', 'FaPlus', 'FaPills', 'FaTag', 'FaDroplet',
   'FaPalette', 'FaCookie', 'FaPyramid', 'FaLeaf', 'FaTree',
@@ -135,6 +135,8 @@ export const INITIATIVE_EMOJI_ICONS = [
   '🧠', '💪', '🌍', '🛡️', '⚔️', '🪄',
 ] as const;
 
+export const DEFAULT_INITIATIVE_ICON = '🚀';
+
 // Simple string hash (djb2) — deterministic, good distribution
 function hashString(str: string): number {
   let hash = 5381;
@@ -154,29 +156,9 @@ export function getColorForName(name: string): string {
   return COLOR_PALETTE[hashString(name) % COLOR_PALETTE.length];
 }
 
-// Get a random project icon (emoji)
-export function getRandomProjectIcon(): string {
-  return PROJECT_EMOJI_ICONS[Math.floor(Math.random() * PROJECT_EMOJI_ICONS.length)];
-}
-
 // Get a deterministic project icon from a name
 export function getProjectIconForName(name: string): string {
   return PROJECT_EMOJI_ICONS[hashString(name) % PROJECT_EMOJI_ICONS.length];
-}
-
-// Get a random initiative icon (emoji)
-export function getRandomInitiativeIcon(): string {
-  return INITIATIVE_EMOJI_ICONS[Math.floor(Math.random() * INITIATIVE_EMOJI_ICONS.length)];
-}
-
-// Get a random project emoji (backwards compatibility alias)
-export function getRandomProjectEmoji(): string {
-  return getRandomProjectIcon();
-}
-
-// Get a random initiative emoji (backwards compatibility alias)
-export function getRandomInitiativeEmoji(): string {
-  return getRandomInitiativeIcon();
 }
 
 // Get a color that's distinct from the given colors

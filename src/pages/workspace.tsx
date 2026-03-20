@@ -225,52 +225,55 @@ export function Workspace() {
 
   const totalAttention = summary?.attention.length ?? 0
   const totalWorking = summary?.projects.reduce((sum, p) => sum + p.openPullRequests, 0) ?? 0
+  const sectionClass = "rounded-2xl border border-border bg-card p-5 shadow-[0_2px_12px_-2px_rgba(0,0,0,0.12)]"
 
   return (
     <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-7 p-6 md:px-10 md:py-8">
       {/* ── Header with metric pills ─────────────────────────────── */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/8 ring-1 ring-primary/15">
-            <Github className="h-5 w-5 text-primary" />
-          </div>
-          <div className="flex items-baseline gap-5">
-            <h1 className="text-[17px] font-semibold tracking-[-0.02em]">GitHub</h1>
-            <div className="flex items-baseline gap-0.5">
-              {[
-                { value: githubProjects.length, label: "repos" },
-                ...(totalWorking > 0 ? [{ value: totalWorking, label: "open PRs", color: "var(--info)" }] : []),
-                ...(totalAttention > 0 ? [{ value: totalAttention, label: "need attention", color: "var(--warning)" }] : []),
-              ].map((m, i) => (
-                <span key={m.label} className="flex items-baseline">
-                  {i > 0 && <span className="mx-3 text-[11px] text-border">*</span>}
-                  <MetricPill value={m.value} label={m.label} color={m.color} />
-                </span>
-              ))}
+      <div className="rounded-2xl border border-border bg-card px-5 py-4 shadow-[0_2px_12px_-2px_rgba(0,0,0,0.12)]">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-5">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/8 ring-1 ring-primary/15">
+              <Github className="h-5 w-5 text-primary" />
+            </div>
+            <div className="flex items-baseline gap-5">
+              <h1 className="text-[17px] font-semibold tracking-[-0.02em]">GitHub</h1>
+              <div className="flex flex-wrap items-baseline gap-y-1">
+                {[
+                  { value: githubProjects.length, label: "repos" },
+                  ...(totalWorking > 0 ? [{ value: totalWorking, label: "open PRs", color: "var(--info)" }] : []),
+                  ...(totalAttention > 0 ? [{ value: totalAttention, label: "need attention", color: "var(--warning)" }] : []),
+                ].map((m, i) => (
+                  <span key={m.label} className="flex items-baseline">
+                    {i > 0 && <span className="mx-3 text-[11px] text-border">*</span>}
+                    <MetricPill value={m.value} label={m.label} color={m.color} />
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading || !connected}>
-            <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", loading && "animate-spin")} />
-            Refresh
-          </Button>
-          {connected && (
-            <button
-              className="gh-action-btn flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[12px] font-semibold"
-              onClick={() => setImportOpen(true)}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Import Repo
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading || !connected}>
+              <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", loading && "animate-spin")} />
+              Refresh
+            </Button>
+            {connected && (
+              <button
+                className="gh-action-btn flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[12px] font-semibold"
+                onClick={() => setImportOpen(true)}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Import Repo
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {/* ── Connect banner ────────────────────────────────────────── */}
       {!connected && (
         <div
-          className="gh-card flex items-center justify-between rounded-xl border border-border/40 px-5 py-4"
+          className="flex items-center justify-between rounded-2xl border border-border bg-card px-5 py-4 shadow-[0_2px_12px_-2px_rgba(0,0,0,0.12)]"
         >
           <div className="flex items-center gap-4">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted/40">
@@ -307,7 +310,7 @@ export function Workspace() {
         <div className="animate-stagger flex flex-col gap-7">
           {/* ── Attention zones ───────────────────────────────────── */}
           {totalAttention > 0 && (
-            <section>
+            <section className={sectionClass}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-[10px] font-bold uppercase tracking-[0.10em] text-muted-foreground">
                   Needs Attention
@@ -333,13 +336,13 @@ export function Workspace() {
           )}
 
           {totalAttention === 0 && summary && (
-            <div className="flex items-center justify-center rounded-xl border border-border/30 bg-card/30 py-8 text-sm text-muted-foreground">
+            <div className="flex items-center justify-center rounded-2xl border border-border bg-card py-8 text-sm text-muted-foreground shadow-[0_2px_12px_-2px_rgba(0,0,0,0.12)]">
               No items currently need attention.
             </div>
           )}
 
           {/* ── Repo grid ─────────────────────────────────────────── */}
-          <section>
+          <section className={sectionClass}>
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-[10px] font-bold uppercase tracking-[0.10em] text-muted-foreground">
                 Repositories

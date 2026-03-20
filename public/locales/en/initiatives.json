@@ -1,8 +1,8 @@
 {
-  "title": "Grand Plans",
-  "new": "New Plan",
-  "noInitiatives": "No grand plans yet",
-  "createFirst": "Create your first grand plan",
+  "title": "Initiatives",
+  "new": "New Initiative",
+  "noInitiatives": "No initiatives yet",
+  "createFirst": "Create your first initiative",
   "projects": "Projects",
   "progress": "Progress",
   "status": "Status",

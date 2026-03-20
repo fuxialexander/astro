@@ -181,9 +181,9 @@ export interface TaskDispatch {
   taskId: string;
   projectId: string;
   nodeId: string;  // Reference to PlanNode
-  /** Short hex ID derived from nodeId (first 6 hex chars of UUID) for branch names and PR titles */
+  /** Compact node ID token used for branch names and PR titles */
   shortNodeId?: string;
-  /** Short hex ID derived from projectId (first 6 hex chars of UUID) for PR titles */
+  /** Compact project ID token used for branch names and PR titles */
   shortProjectId?: string;
   title: string;
   description: string;

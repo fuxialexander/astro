@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useTranslation } from "react-i18next"
-import { useSearchParams, useLocation, useNavigate } from "react-router"
+import { useSearchParams, useLocation } from "react-router"
 import { Sparkles, Loader2, GitBranch, Info, Monitor, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -25,6 +25,7 @@ import { useTeamStore } from "@/stores/team-store"
 import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
 import { PlanGeneration } from "@/components/plan-generation/plan-generation"
 import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
+import { ExampleCommandPickerDialog } from "@/components/examples/example-command-picker-dialog"
 import { ExamplePickerDialog } from "@/components/examples/example-picker-dialog"
 import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { MachineWorkdirSelector } from "@/components/machine-workdir-selector"
@@ -54,14 +55,20 @@ export function ProjectNewPlan() {
   const [searchParams, setSearchParams] = useSearchParams()
   const projectIdParam = searchParams.get("projectId")
   const location = useLocation()
-  const navigate = useNavigate()
 
   // Location state context
-  const locationState = location.state as { fromPlaygroundId?: string; initialTemplateId?: string; templateLaunchResult?: LaunchExampleResult; templatePrefill?: ExamplePrefillData } | null
+  const locationState = location.state as {
+    fromPlaygroundId?: string
+    initialTemplateId?: string
+    templateLaunchResult?: LaunchExampleResult
+    templatePrefill?: ExamplePrefillData
+    openExamplePicker?: boolean
+  } | null
   const fromPlaygroundId = locationState?.fromPlaygroundId
   const locationTemplateId = locationState?.initialTemplateId
   const templateLaunchFromExamples = locationState?.templateLaunchResult
   const templatePrefill = locationState?.templatePrefill
+  const openExamplePickerFromState = locationState?.openExamplePicker
 
   // Input phase state
   const [description, setDescription] = useState("")
@@ -73,6 +80,7 @@ export function ProjectNewPlan() {
   const [selectedProvider, setSelectedProvider] = useState("")
   const [selectedModel, setSelectedModel] = useState("")
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false)
+  const [exampleCommandPickerOpen, setExampleCommandPickerOpen] = useState(false)
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
   const [initialTemplateId, setInitialTemplateId] = useState<string | null>(null)
   const [templateLaunching, setTemplateLaunching] = useState(false)
@@ -264,6 +272,13 @@ export function ProjectNewPlan() {
       window.history.replaceState({}, '')
     }
   }, [locationTemplateId, templatesLoaded])
+
+  useEffect(() => {
+    if (openExamplePickerFromState && templatesLoaded) {
+      setExampleCommandPickerOpen(true)
+      window.history.replaceState({}, '', location.pathname + location.search)
+    }
+  }, [openExamplePickerFromState, templatesLoaded, location.pathname, location.search])
 
   // Reset provider/model when machine changes and current provider isn't available
   useEffect(() => {
@@ -880,7 +895,7 @@ export function ProjectNewPlan() {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => navigate("/examples")}
+                  onClick={() => setExampleCommandPickerOpen(true)}
                   disabled={templateLaunching}
                   className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -1249,6 +1264,15 @@ export function ProjectNewPlan() {
           }}
           planSessions={planHistory}
           onSelectPlanSession={viewSession}
+        />
+
+        <ExampleCommandPickerDialog
+          open={exampleCommandPickerOpen}
+          onOpenChange={setExampleCommandPickerOpen}
+          onSelectTemplate={(template) => {
+            setInitialTemplateId(template.id)
+            setTemplatePickerOpen(true)
+          }}
         />
 
         {/* Template picker dialog */}

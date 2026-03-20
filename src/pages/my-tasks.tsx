@@ -28,6 +28,7 @@ import { useMediaQuery } from "@/hooks/use-media-query"
 import { PRIORITY_CONFIG } from "@/lib/constants"
 import { STATUS_CONFIG, statusBarColors, statusProgressColors } from "@/lib/status-config"
 import { assignDefaultDates } from "@/lib/timeline-utils"
+import { getProjectIdFromGroupKey } from "@/lib/project-grouping"
 import { cn } from "@/lib/utils"
 import type { PlanNode, Priority } from "@/types"
 
@@ -528,7 +529,7 @@ export function MyTasks() {
               getProjectIdFromGroup={(groupKey) => {
                 // When grouped by project, extract projectId from the group label
                 if (displaySettings.groupBy === "project") {
-                  return projectNameToIdMap.get(groupKey)
+                  return getProjectIdFromGroupKey(groupKey)
                 }
                 return undefined
               }}

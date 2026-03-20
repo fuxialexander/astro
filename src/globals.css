@@ -238,7 +238,7 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   GITHUB COMMAND CENTER — depth, glow, and attention-coded cards
+   GITHUB SURFACES — align GitHub views with the app's standard card system
    ═══════════════════════════════════════════════════════════════════════════ */
 
 @keyframes agent-pulse {
@@ -252,90 +252,44 @@
 }
 
 .gh-card {
-  background: linear-gradient(175deg, rgba(28, 28, 31, 1) 0%, rgba(18, 18, 20, 1) 100%);
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.7),
-    0 3px 10px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+  background: color-mix(in srgb, var(--card) 94%, transparent);
+  box-shadow: 0 2px 12px -2px rgba(0, 0, 0, 0.15);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background-color 0.16s ease;
 }
 
 .gh-card:hover {
   transform: translateY(-2px);
-  box-shadow:
-    0 4px 8px rgba(0, 0, 0, 0.6),
-    0 14px 36px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.14);
 }
 
 .gh-card-merge {
-  background: linear-gradient(175deg, rgba(20, 40, 28, 1) 0%, rgba(12, 24, 16, 1) 100%);
+  background: color-mix(in srgb, var(--card) 88%, var(--success) 12%);
   box-shadow:
-    0 0 0 1px rgba(130, 184, 136, 0.18),
-    0 1px 2px rgba(0, 0, 0, 0.7),
-    0 3px 10px rgba(0, 0, 0, 0.4),
-    0 0 30px rgba(130, 184, 136, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    0 0 0 1px color-mix(in srgb, var(--success) 18%, transparent),
+    0 2px 12px -2px rgba(0, 0, 0, 0.15);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background-color 0.16s ease;
 }
 
 .gh-card-merge:hover {
   transform: translateY(-2px);
   box-shadow:
-    0 0 0 1px rgba(130, 184, 136, 0.3),
-    0 4px 8px rgba(0, 0, 0, 0.6),
-    0 14px 36px rgba(0, 0, 0, 0.4),
-    0 0 50px rgba(130, 184, 136, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    0 0 0 1px color-mix(in srgb, var(--success) 28%, transparent),
+    0 8px 24px -8px rgba(0, 0, 0, 0.14);
 }
 
 .gh-action-btn {
-  background: linear-gradient(175deg, rgba(127, 168, 196, 0.14) 0%, rgba(127, 168, 196, 0.06) 100%);
-  border: 1px solid rgba(127, 168, 196, 0.22);
+  background: color-mix(in srgb, var(--card) 86%, var(--primary) 14%);
+  border: 1px solid color-mix(in srgb, var(--primary) 26%, var(--border));
   color: var(--primary);
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.1s ease;
+  box-shadow: 0 1px 6px -2px rgba(0, 0, 0, 0.12);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease, border-color 0.12s ease;
 }
 
 .gh-action-btn:hover {
   transform: translateY(-1px);
-  background: linear-gradient(175deg, rgba(127, 168, 196, 0.2) 0%, rgba(127, 168, 196, 0.1) 100%);
-  border-color: rgba(127, 168, 196, 0.4);
-  box-shadow:
-    0 2px 6px rgba(0, 0, 0, 0.5),
-    0 0 16px rgba(127, 168, 196, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-}
-
-:root:not(.dark) .gh-card {
-  background: linear-gradient(175deg, rgba(255, 255, 255, 1) 0%, rgba(248, 248, 249, 1) 100%);
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.05),
-    0 3px 10px rgba(0, 0, 0, 0.03),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-
-:root:not(.dark) .gh-card:hover {
-  box-shadow:
-    0 4px 8px rgba(0, 0, 0, 0.08),
-    0 14px 36px rgba(0, 0, 0, 0.05),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-
-:root:not(.dark) .gh-card-merge {
-  background: linear-gradient(175deg, rgba(240, 253, 244, 1) 0%, rgba(248, 255, 248, 1) 100%);
-  box-shadow:
-    0 0 0 1px rgba(95, 141, 107, 0.15),
-    0 1px 2px rgba(0, 0, 0, 0.05),
-    0 3px 10px rgba(0, 0, 0, 0.03);
-}
-
-:root:not(.dark) .gh-action-btn {
-  background: linear-gradient(175deg, rgba(74, 109, 138, 0.08) 0%, rgba(74, 109, 138, 0.03) 100%);
-  border: 1px solid rgba(74, 109, 138, 0.2);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-  color: var(--primary);
+  background: color-mix(in srgb, var(--card) 80%, var(--primary) 20%);
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+  box-shadow: 0 6px 18px -10px rgba(0, 0, 0, 0.22);
 }
 
 .glass-shimmer {

@@ -6,11 +6,22 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * Derive a short hex ID from a UUID for compact display (like git short SHAs).
- * "550e8400-e29b-41d4-a716-446655440000" → "550e84"
+ * Derive a compact display ID.
+ * UUIDs keep their leading hex prefix, while generated IDs like
+ * "node-1774020409860-9dlx8l" use their unique suffix to avoid collisions.
  */
 export function getShortId(id: string): string {
-  return id.replace(/-/g, '').slice(0, 6).toLowerCase()
+  const normalized = id.replace(/-/g, '').toLowerCase()
+  if (/^[0-9a-f]{32}$/.test(normalized)) {
+    return normalized.slice(0, 6)
+  }
+
+  const tail = id.toLowerCase().split('-').filter(Boolean).at(-1)
+  if (tail && tail.length >= 4) {
+    return tail.slice(-6)
+  }
+
+  return normalized.slice(0, 6)
 }
 
 /**

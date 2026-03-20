@@ -49,6 +49,10 @@ import { statusLabels, statusBadgeVariants, statusBarColors, statusProgressColor
 import { formatDueDateShort, formatDuration } from "@/lib/date-utils"
 import { assignDefaultDates } from "@/lib/timeline-utils"
 import { remoteTypeLabel } from "@/lib/project-source"
+import {
+  getProjectGroupDescriptor,
+  getProjectGroupDescriptorForId,
+} from "@/lib/project-grouping"
 import { isServerMode } from "@/lib/app-mode"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
 import { cn } from "@/lib/utils"
@@ -1234,6 +1238,7 @@ export function PlanListView({
   }, [milestones])
 
   const projectNameMap = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects])
+  const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
 
   // Compute execution order via topological sort
   const executionOrderMap = useMemo(() => {
@@ -1315,21 +1320,33 @@ export function PlanListView({
         items,
       }))
     } else if (displaySettings.groupBy === "project") {
-      const projectMap = new Map(projects.map((p) => [p.id, p.name]))
-      // Start with all projects so empty ones get a group too
-      const grouped: Record<string, PlanNode[]> = {}
+      const grouped = new Map<string, ListGroup<PlanNode>>()
       for (const p of projects) {
-        grouped[p.name] = []
+        const descriptor = getProjectGroupDescriptor(p)
+        if (!grouped.has(descriptor.key)) {
+          grouped.set(descriptor.key, {
+            key: descriptor.key,
+            label: descriptor.label,
+            items: [],
+            defaultCollapsed: descriptor.defaultCollapsed,
+          })
+        }
       }
       for (const node of tasks) {
-        const key = projectMap.get(node.projectId) ?? "Unknown Project"
-        ;(grouped[key] ??= []).push(node)
+        const descriptor = getProjectGroupDescriptorForId(node.projectId, projectsById)
+        const existing = grouped.get(descriptor.key)
+        if (existing) {
+          existing.items.push(node)
+          continue
+        }
+        grouped.set(descriptor.key, {
+          key: descriptor.key,
+          label: descriptor.label,
+          items: [node],
+          defaultCollapsed: descriptor.defaultCollapsed,
+        })
       }
-      result = Object.entries(grouped).map(([label, items]) => ({
-        key: label,
-        label,
-        items,
-      }))
+      result = Array.from(grouped.values())
     } else if (displaySettings.groupBy === "label") {
       const allLabels = project?.labels ?? []
       const labelMap = new Map(allLabels.map((l) => [l.id, l]))
@@ -1373,7 +1390,7 @@ export function PlanListView({
     }
 
     return result
-  }, [tasks, prunedTasks, milestones, projects, displaySettings.groupBy, project?.labels])
+  }, [tasks, prunedTasks, milestones, projects, projectsById, displaySettings.groupBy, project?.labels])
 
   // Open creation row for the first group when Enter is pressed globally
   useEffect(() => {
@@ -1397,7 +1414,9 @@ export function PlanListView({
   function renderAddTaskRow(groupKey: string) {
     const defaultMilestoneId = groupKey.startsWith("milestone-") ? groupKey.replace("milestone-", "") : undefined
     // For cross-project mode, extract projectId from group
-    const targetProjectId = getProjectIdFromGroup?.(groupKey) ?? projectId
+    const targetProjectId = getProjectIdFromGroup?.(groupKey) ?? (projectId !== "cross-project-mode" ? projectId : undefined)
+
+    if (!targetProjectId) return null
 
     if (creatingInGroup === groupKey) {
       return (
@@ -1636,6 +1655,7 @@ export function PlanTimelineView({
   const [isCreating, setIsCreating] = useState(false)
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState("")
+  const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
 
   const allProjectNodes = useMemo(() => {
     // If nodes provided (cross-project mode), use those
@@ -1731,10 +1751,9 @@ export function PlanTimelineView({
     }
 
     if (displaySettings.groupBy === "project") {
-      const projectMap = new Map(projects.map((p) => [p.id, p.name]))
       const grouped: Record<string, PlanNode[]> = {}
       for (const node of datedTasks) {
-        const key = projectMap.get(node.projectId) ?? "Unknown Project"
+        const key = getProjectGroupDescriptorForId(node.projectId, projectsById).label
         ;(grouped[key] ??= []).push(node)
       }
       const rows: TimelineRow<PlanNode>[] = []
@@ -1746,7 +1765,7 @@ export function PlanTimelineView({
     }
 
     return datedTasks.map(nodeToRow)
-  }, [datedTasks, milestones, projects, displaySettings.groupBy])
+  }, [datedTasks, milestones, displaySettings.groupBy, projectsById])
 
   return (
     <ItemTimelineView

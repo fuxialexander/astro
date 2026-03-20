@@ -287,8 +287,9 @@ describe('Source code: dispatch.ts YOLO safety auto-approve', () => {
     'utf-8'
   )
 
-  it('reads yoloMode from user profile settings', () => {
-    expect(source).toContain("yoloMode === 'true'")
+  it('uses shared YOLO resolution for task completion', () => {
+    expect(source).toContain('isYoloMode')
+    expect(source).toContain("await isYoloMode(user?.id, nodeId).catch(() => false)")
   })
 
   it('auto-approves first option in YOLO mode', () => {

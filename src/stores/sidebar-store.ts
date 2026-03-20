@@ -49,13 +49,11 @@ const defaultItems: SidebarItem[] = [
   { id: "playground", to: "/playground", icon: "FlaskConical", label: "Playground", visible: true, protected: false },
   { id: "projects", to: "/projects", icon: "GitBranch", label: "Projects", visible: true, protected: false },
   { id: "github", to: "/github", icon: "Github", label: "GitHub", visible: true, protected: false, featureFlag: "github-integration" },
-  { id: "examples", to: "/examples", icon: "BookOpen", label: "Examples", visible: true, protected: false },
   { id: "community", to: "/community", icon: "Globe", label: "Community", visible: true, protected: false },
   { id: "environments", to: "/environments", icon: "Terminal", label: "Environments", visible: true, protected: true },
   { id: "tasks", to: "/tasks", icon: "CheckSquare", label: "Tasks", visible: false, protected: false },
   { id: "active", to: "/active", icon: "Zap", label: "Active", visible: false, protected: false },
-  { id: "workflows", to: "/workflows", icon: "BookOpen", label: "Workflows", visible: false, protected: false },
-  { id: "initiatives", to: "/initiatives", icon: "Target", label: "Grand Plans", visible: false, protected: false },
+  { id: "initiatives", to: "/initiatives", icon: "Target", label: "Initiatives", visible: false, protected: false },
 ]
 
 function mergeWithDefaults(stored: SidebarItem[]): SidebarItem[] {

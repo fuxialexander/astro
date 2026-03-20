@@ -12,6 +12,7 @@ import { useUIStore } from "@/stores/ui-store"
 import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
 import { statusBadgeVariants, TERMINAL_NODE_STATUSES } from "@/lib/status-config"
 import { getActiveTasksContentState } from "@/lib/active-tasks"
+import { getShortId } from "@/lib/utils"
 
 interface ActiveTask {
   nodeId: string
@@ -302,7 +303,7 @@ export function ActiveTasks() {
           const proj = projects.find((p) => p.id === projectId)
           return proj?.name || "Playground Session"
         }
-        return node?.title || (nodesLoaded ? `Task ${nodeId.slice(0, 8)}` : "Loading…")
+        return node?.title || (nodesLoaded ? `Task ${getShortId(nodeId)}` : "Loading…")
       }
 
       const task: ActiveTask = {
