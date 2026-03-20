@@ -11,6 +11,7 @@ import { useSessionStore } from "@/stores/session-store"
 import { useUIStore } from "@/stores/ui-store"
 import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
 import { statusBadgeVariants, TERMINAL_NODE_STATUSES } from "@/lib/status-config"
+import { getActiveTasksContentState } from "@/lib/active-tasks"
 
 interface ActiveTask {
   nodeId: string
@@ -250,6 +251,7 @@ function ProjectGroup({
 export function ActiveTasks() {
   const { t } = useTranslation('tasks')
   const executions = useExecutionStore((s) => s.executions)
+  const executionsLoaded = useExecutionStore((s) => s.loaded)
   const projects = useProjectStore((s) => s.projects)
   const projectsLoaded = useProjectStore((s) => s.loaded)
   const rawNodes = usePlanStore((s) => s.nodes)
@@ -257,6 +259,7 @@ export function ActiveTasks() {
   const nodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
   const streamingSessions = useSessionStore((s) => s.streamingSessions)
   const allSessions = useSessionStore((s) => s.sessions)
+  const sessionsLoaded = useSessionStore((s) => s.loaded)
   const workspaceFilter = useWorkspaceFilterStore((s) => s.workspaceFilter)
 
   // Build project ID set for fast orphan detection (O(1) vs O(n) per lookup)
@@ -408,6 +411,7 @@ export function ActiveTasks() {
     () => filteredProjects.reduce((sum, g) => sum + g.tasks.length, 0),
     [filteredProjects],
   )
+  const contentState = getActiveTasksContentState(filteredCount, { executionsLoaded, sessionsLoaded })
 
   return (
     <div className="flex flex-col h-full">
@@ -428,7 +432,19 @@ export function ActiveTasks() {
 
       {/* Content */}
       <div className="flex-1 overflow-auto px-4 md:px-8 py-6">
-        {filteredCount === 0 ? (
+        {contentState === "loading" ? (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
+            <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-muted/50">
+              <div className="absolute inset-3 rounded-full border-2 border-info border-t-transparent animate-spin" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-foreground">Loading active tasks</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Restoring running tasks, playground sessions, and plan generations
+              </p>
+            </div>
+          </div>
+        ) : contentState === "empty" ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted/50">
               <Play className="h-5 w-5 text-muted-foreground" />

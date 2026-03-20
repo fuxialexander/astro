@@ -18,6 +18,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { tryAutoExecuteCompletedPlanProject } from '@/lib/plan-auto-execute'
 
 // ============================================================================
 // Section 1: Store Tests (always run, no server needed)
@@ -45,6 +46,7 @@ vi.mock('@/lib/supabase-client', () => ({
     dataClient: {
       load: vi.fn().mockResolvedValue(undefined),
       save: vi.fn().mockResolvedValue(undefined),
+      saveExecution: vi.fn().mockResolvedValue(undefined),
       delete: vi.fn().mockResolvedValue(undefined),
       getProfile: vi.fn().mockResolvedValue(null),
       updateProfile: vi.fn().mockResolvedValue(undefined),
@@ -227,6 +229,41 @@ describe('Plan Generation - Store', () => {
     expect(body.model).toBe('claude-sonnet-4-6')
     expect(body.nodeId).toBe(`plan-${MOCK_UUID}`)
     expect(body.projectId).toBe(MOCK_UUID)
+  })
+
+  it('YOLO auto-execute survives plan-result ordering race', () => {
+    const executeAllProject = vi.fn()
+      // First attempt: plan completion arrives before plan nodes are loaded
+      .mockReturnValueOnce(false)
+      // Second attempt: plan_result-triggered reload makes nodes available
+      .mockReturnValueOnce(true)
+    const clearAutoExecute = vi.fn()
+    const options = { preferredProvider: 'codex', targetMachineId: 'machine-1' }
+
+    const firstAttempt = tryAutoExecuteCompletedPlanProject('proj-race', {
+      hasAutoExecute: true,
+      planExecutionStatus: 'success',
+      options,
+      executeAllProject,
+      clearAutoExecute,
+    })
+
+    expect(firstAttempt).toBe(false)
+    expect(clearAutoExecute).not.toHaveBeenCalled()
+
+    const secondAttempt = tryAutoExecuteCompletedPlanProject('proj-race', {
+      hasAutoExecute: true,
+      planExecutionStatus: 'success',
+      options,
+      executeAllProject,
+      clearAutoExecute,
+    })
+
+    expect(secondAttempt).toBe(true)
+    expect(executeAllProject).toHaveBeenNthCalledWith(1, 'proj-race', options)
+    expect(executeAllProject).toHaveBeenNthCalledWith(2, 'proj-race', options)
+    expect(clearAutoExecute).toHaveBeenCalledTimes(1)
+    expect(clearAutoExecute).toHaveBeenCalledWith('proj-race')
   })
 
   // ── cancelPlanGeneration ───────────────────────────────────────────────────

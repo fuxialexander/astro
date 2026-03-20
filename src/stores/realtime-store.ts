@@ -22,6 +22,7 @@ import type { TaskActivityEvent } from '@/types'
 import { useToastStore } from './toast-store'
 import { useNotificationStore } from './notification-store'
 import { buildServerCompletionMessage, buildClientCompletionMessage } from '@/lib/completion-messages'
+import { tryAutoExecuteCompletedPlanProject } from '@/lib/plan-auto-execute'
 
 // Per-node fetch generation counter to prevent out-of-order getNode() responses
 // from overwriting newer state (e.g., rapid dispatched → in_progress → completed).
@@ -244,6 +245,17 @@ function flushRealtimeText(
     }
     streams.set(execId, stream)
     return { taskStreams: streams }
+  })
+}
+
+function tryAutoExecutePlannedProject(projectId: string): boolean {
+  const execStore = useExecutionStore.getState()
+  return tryAutoExecuteCompletedPlanProject(projectId, {
+    hasAutoExecute: execStore.autoExecuteProjectIds.has(projectId),
+    planExecutionStatus: execStore.executions.get(`plan-${projectId}`)?.status,
+    options: execStore.autoExecuteProjectIds.get(projectId),
+    executeAllProject: (autoProjectId, options) => execStore.executeAllProject(autoProjectId, options),
+    clearAutoExecute: (autoProjectId) => execStore.setAutoExecute(autoProjectId, false),
   })
 }
 
@@ -1916,15 +1928,11 @@ function handleRealtimeEvent(
             if (isSuccess) {
               const planProjectId = planNodeIdToProjectId(nodeId)
               if (planProjectId) {
-                const execStore = useExecutionStore.getState()
-                if (execStore.autoExecuteProjectIds.has(planProjectId)) {
-                  const autoExecOptions = execStore.autoExecuteProjectIds.get(planProjectId)
-                  execStore.setAutoExecute(planProjectId, false)
-                  setTimeout(() => {
+                setTimeout(() => {
+                  if (tryAutoExecutePlannedProject(planProjectId)) {
                     console.log(`[realtime] YOLO mode: auto-executing all tasks for project ${planProjectId}`)
-                    execStore.executeAllProject(planProjectId, autoExecOptions)
-                  }, 1000)
-                }
+                  }
+                }, 1000)
               }
             }
           }
@@ -2064,7 +2072,12 @@ function handleRealtimeEvent(
 
       // Refresh plan store from DB (plan nodes were already created by the CLI)
       import('@/stores/plan-store').then(({ usePlanStore }) => {
-        usePlanStore.getState().load()
+        usePlanStore.getState().load().then(() => {
+          const planProjectId = data.projectId as string | undefined
+          if (planProjectId && tryAutoExecutePlannedProject(planProjectId)) {
+            console.log(`[realtime] YOLO mode: auto-executing loaded plan for project ${planProjectId}`)
+          }
+        })
       })
 
       addActivity(set, 'info', `Plan created: ${nodes.length} nodes`)
