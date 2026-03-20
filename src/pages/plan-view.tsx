@@ -52,6 +52,7 @@ import { remoteTypeLabel } from "@/lib/project-source"
 import {
   getProjectGroupDescriptor,
   getProjectGroupDescriptorForId,
+  getProjectGroupSeedProjects,
 } from "@/lib/project-grouping"
 import { isServerMode } from "@/lib/app-mode"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
@@ -1321,7 +1322,11 @@ export function PlanListView({
       }))
     } else if (displaySettings.groupBy === "project") {
       const grouped = new Map<string, ListGroup<PlanNode>>()
-      for (const p of projects) {
+      const seededProjects = getProjectGroupSeedProjects(
+        projects,
+        nodes ? allProjectNodes.map((node) => node.projectId) : undefined,
+      )
+      for (const p of seededProjects) {
         const descriptor = getProjectGroupDescriptor(p)
         if (!grouped.has(descriptor.key)) {
           grouped.set(descriptor.key, {
@@ -1390,7 +1395,7 @@ export function PlanListView({
     }
 
     return result
-  }, [tasks, prunedTasks, milestones, projects, projectsById, displaySettings.groupBy, project?.labels])
+  }, [tasks, prunedTasks, milestones, projects, projectsById, displaySettings.groupBy, project?.labels, nodes, allProjectNodes])
 
   // Open creation row for the first group when Enter is pressed globally
   useEffect(() => {
