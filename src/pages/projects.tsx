@@ -1,7 +1,7 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { Link, useNavigate } from "react-router"
-import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil, Github, ChevronRight, Braces, Archive, ArchiveRestore, Building2, Sparkles } from "lucide-react"
+import { Folder, ListFilter, Plus, Rocket, FlaskConical, Users, Trash2, Upload, Pencil, Github, ChevronRight, Braces, Archive, ArchiveRestore, Building2, Sparkles, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -287,6 +287,8 @@ export function Projects() {
   const navigate = useNavigate()
   const displaySettings = useDisplaySettingsStore((s) => s.get("projects"))
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
+  const fastEditSetting = useDisplaySettingsStore((s) => s.fastEdit)
+  const toggleFastEdit = useDisplaySettingsStore((s) => s.toggleFastEdit)
   const [viewTab, setViewTab] = useState<ViewTab>("all")
   const [statusFilter, setStatusFilter] = useState("all")
   const [healthFilter, setHealthFilter] = useState("all")
@@ -299,6 +301,15 @@ export function Projects() {
   const createInputRef = useRef<HTMLInputElement>(null)
   const [githubPickerOpen, setGithubPickerOpen] = useState(false)
 
+  // Show help tooltip on first visit
+  const [showHelpTip, setShowHelpTip] = useState(() => {
+    try { return !localStorage.getItem('astro-projects-help-seen') } catch { return true }
+  })
+  const dismissHelpTip = useCallback(() => {
+    setShowHelpTip(false)
+    try { localStorage.setItem('astro-projects-help-seen', '1') } catch { /* noop */ }
+  }, [])
+
   // GitHub App integration
   const githubInstallations = useGitHubAppStore((s) => s.installations)
   const githubConnected = githubInstallations.length > 0
@@ -310,19 +321,27 @@ export function Projects() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Keyboard shortcuts: 1=List, 2=Board, 3=Timeline
+  // Keyboard shortcuts: 'i' to toggle fast edit, 'Escape' to exit, 1-3 to switch views
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return
       if (e.metaKey || e.ctrlKey || e.altKey) return
-      const viewMap: Record<string, ViewTab> = { '1': 'all', '2': 'board', '3': 'timeline' }
-      const view = viewMap[e.key]
-      if (view) { e.preventDefault(); setViewTab(view) }
+      if (e.key === 'i' && !fastEditSetting) {
+        e.preventDefault()
+        toggleFastEdit()
+      } else if (e.key === 'Escape' && fastEditSetting) {
+        toggleFastEdit()
+        setRenamingProjectId(null)
+      } else {
+        const viewMap: Record<string, ViewTab> = { '1': 'all', '2': 'board', '3': 'timeline' }
+        const view = viewMap[e.key]
+        if (view) { e.preventDefault(); setViewTab(view) }
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [])
+  }, [fastEditSetting, toggleFastEdit])
 
   // Focus input when inline creation row appears
   useEffect(() => {
@@ -783,6 +802,15 @@ export function Projects() {
               className="hidden"
               onChange={handleImportFile}
             />
+            <Button
+              variant={fastEditSetting ? "secondary" : "ghost"}
+              size="sm"
+              className="gap-1.5 h-7 px-2"
+              onClick={() => toggleFastEdit()}
+            >
+              <Pencil className={cn("h-3.5 w-3.5", fastEditSetting && "text-primary")} />
+              <span className="hidden md:inline">Fast Edit</span>
+            </Button>
             <DisplayPopover config={{
               ...(viewTab === "timeline" ? projectsTimelineDisplayConfig : projectsDisplayConfig),
               viewAsOptions,
@@ -804,6 +832,27 @@ export function Projects() {
           open={githubPickerOpen}
           onOpenChange={setGithubPickerOpen}
         />
+
+        {/* Keyboard help tip */}
+        {showHelpTip && (
+          <div className="flex items-center gap-2 px-3 md:px-6 py-1.5 bg-primary/5 border-b border-primary/10 text-xs text-muted-foreground">
+            <span>
+              Press <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">I</kbd> to toggle fast edit,{" "}
+              <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">Enter</kbd> to confirm,{" "}
+              <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">Esc</kbd> to exit.{" "}
+              <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">1</kbd>{" "}
+              <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">2</kbd>{" "}
+              <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted font-mono text-[11px]">3</kbd> to switch views
+            </span>
+            <button
+              type="button"
+              onClick={dismissHelpTip}
+              className="ml-auto text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Filter Bar */}
         <div className="flex items-center gap-3 border-b border-border px-4 sm:px-6 py-3 shrink-0 relative z-10">
@@ -891,7 +940,13 @@ export function Projects() {
               columns={projectColumns}
               groups={listGroups}
               visibleColumns={displaySettings.visibleProperties}
-              onItemClick={(p) => navigate(`/project/${p.id}/graph`)}
+              onItemClick={(p) => {
+                if (fastEditSetting) {
+                  setRenamingProjectId(p.id)
+                } else {
+                  navigate(`/project/${p.id}/graph`)
+                }
+              }}
               getItemId={(p) => p.id}
               batchActions={getProjectBatchActions}
               sortColumn={displaySettings.orderBy}
