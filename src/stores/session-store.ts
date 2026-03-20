@@ -47,6 +47,19 @@ type QueuedChatMessage =
   | { kind: 'playground'; params: SendPlaygroundChatParams }
 const chatMessageQueues = new Map<string, QueuedChatMessage[]>()
 
+/** Set a chat stream's status in the realtime-store so periodic catch-up polling activates. */
+function setChatStreamStatus(streamId: string, status: string) {
+  useRealtimeStore.setState((state) => {
+    const streams = new Map(state.taskStreams)
+    const existing = streams.get(streamId) || {
+      taskId: streamId, stdout: '', progress: 0,
+      toolTraces: [], fileChanges: [], steerMessages: [], activityEvents: [],
+    }
+    streams.set(streamId, { ...existing, status })
+    return { taskStreams: streams }
+  })
+}
+
 /** Drain the next queued message for a session. Called after onComplete/onError. */
 function drainChatQueue(sid: string, get: () => SessionState, set: (partial: Partial<SessionState> | ((state: SessionState) => Partial<SessionState>)) => void) {
   const queue = chatMessageQueues.get(sid)
@@ -813,6 +826,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       })
     }
 
+    // Mark chat stream as running so periodic catch-up polling activates
+    setChatStreamStatus(sid, 'running')
+
     // Only send providerSessionId if session has completed exchanges
     // and the provider hasn't changed (resume on a different provider would fail)
     const hasCompletedExchange = session.messages.some(
@@ -881,6 +897,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
         // Clear chat mutation flag and streaming state
         useExecutionStore.getState().setChatMutationActive(projectId, false)
+        setChatStreamStatus(sid, 'completed')
         chatAbortControllers.delete(sid)
         set((state) => {
           const ss = new Set(state.streamingSessions)
@@ -925,6 +942,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           timestamp: new Date(),
         })
         useExecutionStore.getState().setChatMutationActive(projectId, false)
+        setChatStreamStatus(sid, 'error')
         chatAbortControllers.delete(sid)
         set((state) => {
           const ss = new Set(state.streamingSessions)
@@ -972,6 +990,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
       if (!isStale) {
         useExecutionStore.getState().setChatMutationActive(projectId, false)
+        setChatStreamStatus(sid, 'error')
         chatAbortControllers.delete(sid)
         set((state) => {
           const ss = new Set(state.streamingSessions)
@@ -1031,6 +1050,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       })
     }
 
+    // Mark chat stream as running so periodic catch-up polling activates
+    setChatStreamStatus(sid, 'running')
+
     // Determine if we should resume a provider session.
     // A valid resume requires: (1) a completed assistant exchange, AND
     // (2) a real provider session ID (not the frontend session ID which would
@@ -1071,6 +1093,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           get().addMessage(sid, { role: "assistant", content: rawAssistantText })
         }
 
+        setChatStreamStatus(sid, 'completed')
         chatAbortControllers.delete(sid)
         set((state) => {
           const ss = new Set(state.streamingSessions)
@@ -1115,6 +1138,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           error,
           timestamp: new Date(),
         })
+        setChatStreamStatus(sid, 'error')
         chatAbortControllers.delete(sid)
         set((state) => {
           const ss = new Set(state.streamingSessions)
@@ -1161,6 +1185,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         })
       }
       if (!isStale) {
+        setChatStreamStatus(sid, 'error')
         chatAbortControllers.delete(sid)
         set((state) => {
           const ss = new Set(state.streamingSessions)
@@ -1178,6 +1203,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       controller.abort()
       chatAbortControllers.delete(sessionId)
     }
+    // Mark stream as aborted so periodic catch-up polling stops
+    setChatStreamStatus(sessionId, 'aborted')
     // Clear chat mutation flag for the session's project (if any)
     const session = get().sessions.get(sessionId)
     if (session?.projectId) {
