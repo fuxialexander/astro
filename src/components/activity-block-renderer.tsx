@@ -204,7 +204,7 @@ export function ActivityBlockRenderer({
 
           case 'system_prompt': {
             const promptEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'system_prompt' }>
-            return <SystemPromptBlock key={key} event={promptEvent} />
+            return <div key={key} className="px-4"><SystemPromptBlock event={promptEvent} /></div>
           }
 
           case 'plan_result': {

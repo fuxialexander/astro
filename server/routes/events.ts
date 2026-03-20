@@ -1043,6 +1043,13 @@ eventsRoute.get('/catch-up', async (c) => {
     return c.json({ events: [], lastSeq: afterSeq, hasMore: false })
   }
 
+  // Flush in-memory text buffers for any running execution before reading the DB.
+  // Text is buffered in streamingEventLog until the next structural event; a
+  // secondary tab opening mid-response would otherwise get stale catch-up data.
+  await Promise.allSettled(
+    accessibleExecutionIds.map((id) => streamingEventLog.flushText(id))
+  )
+
   const events = await streamingEventLog.getAfter(accessibleExecutionIds, afterSeq, limit)
   const lastSeq = events.length > 0 ? events[events.length - 1].seq : afterSeq
   const hasMore = events.length >= limit

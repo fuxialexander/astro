@@ -21,27 +21,24 @@ import { useProjectStore } from "@/stores/project-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useSettingsStore } from "@/stores/settings-store"
 import { useExecutionStore } from "@/stores/execution-store"
-import { useUsageStore } from "@/stores/usage-store"
-import { chatWithTask, fetchStreamingEventsCatchUp, replayChatCatchUpEvents } from "@/lib/api-client"
-import { parseSSEStream } from "@/lib/sse-parser"
-import { getStreamingRowReplayData } from "@/lib/streaming-event-replay"
 import { cn } from "@/lib/utils"
-import type { PlanNode, TaskExecution, TaskActivityEvent } from "@/types"
+import type { PlanNode, TaskExecution } from "@/types"
 import {
   SummaryCard,
   NewCommentComposer,
 } from "@/components/activity-blocks"
-import { groupActivityEvents } from "@/components/activity-blocks"
 import { ActivityBlockRenderer } from "@/components/activity-block-renderer"
 import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 import { PrStatusCard } from "@/components/pr-status-card"
 import type { PrData, PrCheckRun, PrReview } from "@/components/pr-status-card"
 import { PRReviewThreads } from "@/components/pr-review-threads"
-import { useStreamEvents } from "@/hooks/use-stream-events"
-import type { GitHubReviewThread } from "@/types"
+import type { GitHubReviewThread, TaskActivityEvent } from "@/types"
 import { FileBrowser } from "@/components/file-browser"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { projectWorktreePath, resolveFilePathForBrowsing } from "./file-path-utils"
+import { useAutoScroll } from "@/hooks/use-auto-scroll"
+import { useChatSession } from "@/hooks/use-chat-session"
+import { useActivityFeed } from "@/hooks/use-activity-feed"
 
 const EMPTY_REVIEW_THREADS: GitHubReviewThread[] = []
 
@@ -68,8 +65,6 @@ export function UnifiedActivityView({
   const [sending, setSending] = useState(false)
   const [taskImages, setTaskImages] = useState<ChatImageAttachment[]>([])
   const taskFilePickerRef = useRef<(() => void) | null>(null)
-  const [isChatStreaming, setIsChatStreaming] = useState(false)
-  const [autoScroll, setAutoScroll] = useState(true)
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false)
   const [initialFilePath, setInitialFilePath] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -115,15 +110,12 @@ export function UnifiedActivityView({
       document.removeEventListener("touchend", handleEnd)
     }
   }, [])
-  const abortRef = useRef<AbortController | null>(null)
-  /** Per-turn chat stream state for disconnect catch-up */
-  const chatStreamRef = useRef<{ streamId: string; lastSeq: number }>({ streamId: '', lastSeq: 0 })
 
   const project = useProjectStore((s) => s.projects.find((p) => p.id === projectId))
   const githubOwner = project?.githubOwner
   const githubRepo = project?.githubRepo
 
-  // GitHub comment context for reply functionality and new comment composer
+  // GitHub comment context
   const githubCommentNumber = node.prNumber ?? node.githubIssueNumber
   const githubContext = useMemo(() => {
     if (githubOwner && githubRepo && githubCommentNumber) {
@@ -132,7 +124,6 @@ export function UnifiedActivityView({
     return undefined
   }, [githubOwner, githubRepo, githubCommentNumber])
 
-  // Subscribe to real-time GitHub comment stream
   const subscribeToStream = useGitHubCommentsStore((s) => s.subscribeToStream)
   useEffect(() => {
     if (!githubContext) return
@@ -140,7 +131,6 @@ export function UnifiedActivityView({
     return cleanup
   }, [githubContext, subscribeToStream])
 
-  // Review threads for thread count in PrStatusCard
   const reviewThreadsKey = githubContext ? `${githubContext.owner}/${githubContext.repo}/${githubContext.number}` : ""
   const reviewThreadsRaw = useGitHubCommentsStore((s) => reviewThreadsKey ? s.reviewThreads[reviewThreadsKey] : undefined)
   const reviewThreads = reviewThreadsRaw ?? EMPTY_REVIEW_THREADS
@@ -148,7 +138,6 @@ export function UnifiedActivityView({
   const [scrollToReviewThreadId] = useState<number | null>(null)
 
   const handleReviewCommentsClick = useCallback(() => {
-    // Scroll to the review threads section
     const el = document.getElementById("pr-review-threads")
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "start" })
@@ -158,116 +147,49 @@ export function UnifiedActivityView({
   const addSteerMessage = useRealtimeStore((s) => s.addSteerMessage)
   const updateSteerMessage = useRealtimeStore((s) => s.updateSteerMessage)
   const respondToDynamicApproval = useRealtimeStore((s) => s.respondToDynamicApproval)
-  const pushActivityEvent = useRealtimeStore((s) => s.pushActivityEvent)
-  const hydrateFromCatchUp = useRealtimeStore((s) => s.hydrateFromCatchUp)
   const cancelExecution = useExecutionStore((s) => s.cancelExecution)
   const model = useSettingsStore((s) => s.model)
 
-  // Session store actions
-  const sessionsLoaded = useSessionStore((s) => s.loaded)
-  const createSessionAction = useSessionStore((s) => s.createSession)
-  const addMessage = useSessionStore((s) => s.addMessage)
-  const setProviderSessionId = useSessionStore((s) => s.setProviderSessionId)
-  // Get or create task-chat session for this node — wait for sessions to load first
-  const allSessions = useSessionStore((s) => s.sessions)
-  const chatSession = useMemo(() => {
-    let latest: ReturnType<typeof allSessions.get> | undefined
-    for (const session of allSessions.values()) {
-      if (session.nodeId === node.id && session.type === "task-chat") {
-        if (!latest || session.createdAt > latest.createdAt) latest = session
-      }
-    }
-    return latest
-  }, [allSessions, node.id])
+  // ─── Shared Hooks ─────────────────────────────────────────────────
+  const { chatSession, isChatStreaming, addMessage, sendPlaygroundChat, abortChatStream } =
+    useChatSession({ projectId, type: "task-chat", nodeId: node.id })
 
-  // Ensure chat session exists
-  useEffect(() => {
-    if (sessionsLoaded && !chatSession) {
-      createSessionAction({ type: "task-chat", projectId, nodeId: node.id })
-    }
-  }, [sessionsLoaded, chatSession, createSessionAction, node.id, projectId])
+  const sessionMessages = useMemo(() => chatSession?.messages || [], [chatSession?.messages])
+  const {
+    execActivityEvents: activityEvents,
+    allActivityEvents, displayBlocks, answeredRequestIds, approvalResponseMap, isRestoring,
+  } = useActivityFeed({
+    executionId: executionId || undefined,
+    chatSessionId: chatSession?.id,
+    execution,
+    projectId,
+    chatMessages: sessionMessages,
+  })
 
-  // Lazy-load full session data (messages) after page refresh
-  const ensureFullSession = useSessionStore((s) => s.ensureFullSession)
-  const ensuredSessionRef = useRef<string | undefined>(undefined)
-  useEffect(() => {
-    const sid = chatSession?.id
-    if (sid && sid !== ensuredSessionRef.current && chatSession.messages.length === 0 && !isChatStreaming) {
-      ensuredSessionRef.current = sid
-      ensureFullSession(sid)
-    }
-  }, [chatSession?.id, chatSession?.messages.length, isChatStreaming, ensureFullSession])
-
-  // Unified stream events for the execution activity timeline.
-  const { activityEvents, isHydrating: isRestoring } = useStreamEvents(
-    executionId || undefined,
-    { execution, projectId },
-  )
-  const taskChatMessages = useMemo(() => chatSession?.messages || [], [chatSession?.messages])
-  const { activityEvents: chatActivityEvents } = useStreamEvents(
-    chatSession?.id,
-    { legacySessionMessages: taskChatMessages },
+  const { autoScroll, handleScroll, scrollToBottom } = useAutoScroll(
+    containerRef,
+    [allActivityEvents.length, displayBlocks.length],
   )
 
-  const allActivityEvents: TaskActivityEvent[] = useMemo(() => {
-    return [...activityEvents, ...chatActivityEvents]
-  }, [activityEvents, chatActivityEvents])
-
-  // Group events for display
-  const displayBlocks = useMemo(() => {
-    const blocks = groupActivityEvents(allActivityEvents)
-    return blocks
-  }, [allActivityEvents])
-
-  // Pre-build approval response lookup (answered set + response map) to avoid O(n) scans in render
-  const { answeredRequestIds, approvalResponseMap } = useMemo(() => {
-    const ids = new Set<string>()
-    const responses = new Map<string, Extract<TaskActivityEvent, { type: 'approval_response' }>>()
-    for (const event of allActivityEvents) {
-      if (event.type === 'approval_response') {
-        ids.add(event.requestId)
-        responses.set(event.requestId, event)
-      }
-    }
-    return { answeredRequestIds: ids, approvalResponseMap: responses }
-  }, [allActivityEvents])
-
+  // ─── Handlers ─────────────────────────────────────────────────────
   async function handleApprovalResponse(requestId: string, answer: string) {
     if (!executionId) return
     await respondToDynamicApproval(executionId, requestId, answer)
   }
 
-  // Fallback: if no activity events, render plain text
   const outputText = execution?.streamText || taskStream?.stdout || node.executionOutput || ""
   const hasFallback = allActivityEvents.length === 0 && outputText.length > 0
 
-  // Auto-scroll
-  const eventsLength = allActivityEvents.length
-  useEffect(() => {
-    if (autoScroll && containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight
-    }
-  }, [eventsLength, autoScroll, displayBlocks.length])
-
-  const handleScroll = () => {
-    if (!containerRef.current) return
-    const { scrollTop, scrollHeight, clientHeight } = containerRef.current
-    setAutoScroll(scrollHeight - scrollTop - clientHeight < 50)
-  }
-
-  // Steer message handler (when running OR resuming a completed task)
+  // Steer handler (with ack tracking and interrupt support)
   async function handleSteer(text: string, interrupt = false) {
     if (!text || sending) return
     setSending(true)
 
-    // Attempt to resolve machineId from multiple sources before giving up
     const resolvedMachineId = machineId
       || useExecutionStore.getState().getExecution(node.id)?.machineId
       || useRealtimeStore.getState().taskStreams.get(executionId)?.machineId
 
-    // Capture index before push so updateSteerMessage targets the correct entry
     const steerIndex = taskStream?.steerMessages.length ?? 0
-    // Track in store (not yet in activity timeline — waits for ack)
     addSteerMessage(executionId, text, interrupt)
 
     if (!resolvedMachineId) {
@@ -276,7 +198,6 @@ export function UnifiedActivityView({
       return
     }
 
-    // Set 15s timeout
     const timeoutId = setTimeout(() => {
       updateSteerMessage(executionId, steerIndex, { accepted: false, ackMessage: "Timed out" })
     }, 15000)
@@ -305,290 +226,55 @@ export function UnifiedActivityView({
         })
       } else {
         clearTimeout(timeoutId)
-        // Check if the response is an SSE stream (resumed session)
-        const contentType = response.headers.get("content-type") || ""
-        if (contentType.includes("text/event-stream")) {
-          updateSteerMessage(executionId, steerIndex, {
-            accepted: true,
-            ackMessage: "Session resumed",
-          })
-
-          // Mark execution as running during resume
-          const nodeId = node.id
-          useExecutionStore.setState((state) => {
-            const newExecutions = new Map(state.executions)
-            const exec = newExecutions.get(nodeId)
-            if (exec) {
-              exec.status = "running"
-              exec.completedAt = undefined
-            }
-            return { executions: newExecutions }
-          })
-
-          // Process the SSE stream to update execution state (with reconnection)
-          let lastSeq = 0
-          let streamCompleted = false
-
-          /** Replay a single SSE event by type — shared between live stream and catch-up */
-          const replayEvent = (event: string, data: string) => {
-            switch (event) {
-              case "text":
-                useExecutionStore.getState().appendText(nodeId, data)
-                break
-              case "tool_use":
-                try {
-                  const parsed = JSON.parse(data)
-                  const traceId = `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`
-                  useExecutionStore.getState().addToolTrace(nodeId, {
-                    id: traceId,
-                    toolName: parsed.toolName,
-                    toolInput: parsed.toolInput,
-                    timestamp: new Date(),
-                  })
-                } catch { /* ignore */ }
-                break
-              case "tool_result":
-                try {
-                  const parsed = JSON.parse(data)
-                  useExecutionStore.getState().updateToolTraceResult(
-                    nodeId, parsed.toolName, parsed.result, parsed.success
-                  )
-                } catch { /* ignore */ }
-                break
-              case "file_change":
-                try {
-                  const parsed = JSON.parse(data)
-                  useExecutionStore.getState().addFileChange(nodeId, {
-                    path: parsed.path,
-                    action: parsed.action || "modify",
-                    linesAdded: parsed.linesAdded,
-                    linesRemoved: parsed.linesRemoved,
-                    diff: parsed.diff,
-                    timestamp: new Date(),
-                  })
-                } catch { /* ignore */ }
-                break
-              case "result":
-                try {
-                  const parsed = JSON.parse(data)
-                  streamCompleted = true
-                  useExecutionStore.setState((state) => {
-                    const newExecutions = new Map(state.executions)
-                    const exec = newExecutions.get(nodeId)
-                    if (exec) {
-                      exec.status = (parsed.status === "success" || parsed.status === "completed") ? "success" : "failure"
-                      exec.completedAt = new Date()
-                      if (parsed.sessionId) exec.sessionId = parsed.sessionId
-                    }
-                    return { executions: newExecutions }
-                  })
-                } catch { /* ignore */ }
-                break
-              case "error":
-                try {
-                  const parsed = JSON.parse(data)
-                  console.error("[steer] Resume error:", parsed.error)
-                } catch { /* ignore */ }
-                break
-              case "done":
-                streamCompleted = true
-                break
-              case "resumed":
-              case "session_init":
-              case "heartbeat":
-              case "aborted":
-                break
-            }
-          }
-
-          try {
-            await parseSSEStream(response, {
-              onEvent: ({ event, data }) => replayEvent(event, data),
-              onId: (id) => {
-                const seq = parseInt(id, 10)
-                if (!isNaN(seq) && seq > lastSeq) lastSeq = seq
-              },
-            })
-          } catch (streamError) {
-            // Stream errored — attempt catch-up if not a page unload
-            if (streamCompleted) {
-              // Already got terminal event, ignore trailing error
-            } else if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-              // Page is unloading — task still runs server-side; skip failure marking
-              console.log('[steer] SSE interrupted by page unload, skipping failure marking')
-            } else {
-              // Network drop mid-stream: catch up from persisted events
-              console.warn('[steer] SSE stream error, attempting catch-up:', streamError)
-              try {
-                const { events } = await fetchStreamingEventsCatchUp(
-                  [executionId],
-                  lastSeq,
-                )
-                for (const row of events) {
-                  const data = getStreamingRowReplayData(row)
-                  replayEvent(row.eventType, data)
-                }
-                if (events.length > 0) {
-                  console.log(`[steer] Caught up ${events.length} events after stream error`)
-                }
-              } catch (catchUpError) {
-                console.warn('[steer] Catch-up fetch also failed:', catchUpError)
-              }
-            }
-          }
-        } else {
-          // JSON response — standard ack for active session injection
-          updateSteerMessage(executionId, steerIndex, { accepted: true })
-        }
+        updateSteerMessage(executionId, steerIndex, { accepted: true })
       }
     } catch (error) {
       clearTimeout(timeoutId)
-
-      // Don't mark as failure if the page is unloading (refresh/navigate away)
-      // — the task is still running server-side, catch-up will reconcile on reload
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-        console.log('[steer] SSE interrupted by page unload, skipping failure marking')
-      } else {
-        updateSteerMessage(executionId, steerIndex, {
-          accepted: false,
-          ackMessage: `Failed: ${error instanceof Error ? error.message : "Network error"}`,
-        })
-      }
+      updateSteerMessage(executionId, steerIndex, {
+        accepted: false,
+        ackMessage: `Failed: ${error instanceof Error ? error.message : "Network error"}`,
+      })
     } finally {
       setSending(false)
     }
   }
 
-  // Chat message handler (when completed/idle)
-  async function handleChat(text: string) {
-    if ((!text && taskImages.length === 0) || isChatStreaming || !chatSession) return
+  // Chat handler (post-completion)
+  function handleChat(text: string) {
+    if ((!text && taskImages.length === 0) || !chatSession) return
 
-    // Capture and clear images before async
     const currentImages = taskImages
     setTaskImages([])
 
     const sid = chatSession.id
+    addMessage(sid, { role: "user", content: text || "(See attached images)" })
+    addMessage(sid, { role: "assistant", content: "" })
 
-    // Add user event for display
-    pushActivityEvent(sid, { type: 'chat_user', message: text, timestamp: new Date() })
-
-    // Store in session for conversation history (sent to backend on subsequent turns)
-    addMessage(sid, { role: "user", content: text })
-
-    // Use the stable session ID so all task-chat turns share one activity stream.
-    const turnStreamId = sid
-    chatStreamRef.current = { streamId: turnStreamId, lastSeq: 0 }
-
-    setIsChatStreaming(true)
-    abortRef.current = new AbortController()
-
-    // Build message history from session
-    const historyMessages = (chatSession.messages || [])
+    const freshSession = useSessionStore.getState().sessions.get(sid)
+    const freshMessages = freshSession?.messages || []
+    const historyMessages = freshMessages
+      .slice(0, -2)
       .filter((m) => m.role === "user" || (m.role === "assistant" && m.content.length > 0))
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
 
-    let rawText = ""
-    const finalizeChatTurn = (assistantText: string, newSessionId?: string) => {
-      if (newSessionId) setProviderSessionId(sid, newSessionId)
-      addMessage(sid, { role: "assistant", content: assistantText })
-      chatStreamRef.current = { streamId: '', lastSeq: 0 }
-      setIsChatStreaming(false)
-    }
-    try {
-      // For the first chat turn, resume the execution's Claude session if available.
-      // Subsequent turns use the chat session's own provider session ID.
-      const resumeId = chatSession.providerSessionId || execution?.sessionId
-
-      await chatWithTask(
-        {
-          message: text || "(See attached images)",
-          sessionId: resumeId,
-          streamId: turnStreamId,
-          nodeId: node.id,
-          projectId,
-          taskTitle: node.title,
-          taskDescription: node.content ? stripHtml(node.content) : (node.description || node.title || ""),
-          taskOutput: outputText,
-          visionDoc: project?.visionDoc,
-          model,
-          providerId: execution?.providerId || undefined,
-          messages: historyMessages,
-          branchName: execution?.branchName,
-          prUrl: execution?.prUrl,
-          imageRefs: currentImages.length > 0 ? currentImages.map((img) => img.id) : undefined,
-        },
-        {
-          onText: (chunk) => {
-            rawText += chunk
-          },
-          onOperational: () => {},
-          onToolUse: () => {},
-          onToolResult: () => {},
-          onDone: (newSessionId) => {
-            // Store raw text only — tool context is already in taskOutput
-            finalizeChatTurn(rawText, newSessionId)
-          },
-          onSeq: (seq) => {
-            chatStreamRef.current.lastSeq = seq
-          },
-          onError: (error) => {
-            chatStreamRef.current = { streamId: '', lastSeq: 0 }
-            pushActivityEvent(sid, { type: 'error', error, timestamp: new Date() })
-            setIsChatStreaming(false)
-          },
-          onMetrics: (m) => {
-            useUsageStore.getState().addTaskMetrics({
-              durationMs: m.durationMs,
-              inputTokens: m.inputTokens,
-              outputTokens: m.outputTokens,
-              estimatedCostUsd: m.totalCost,
-              model: m.model,
-              turnsUsed: m.numTurns,
-            }, true)
-          },
-        },
-        abortRef.current.signal,
-      )
-    } catch {
-      // Attempt catch-up on network error
-      const { streamId: catchUpStreamId, lastSeq } = chatStreamRef.current
-      if (catchUpStreamId) {
-        try {
-          await hydrateFromCatchUp([catchUpStreamId], lastSeq)
-          const { events } = await fetchStreamingEventsCatchUp([catchUpStreamId], lastSeq)
-          if (events.length > 0) {
-            const { completed } = replayChatCatchUpEvents(events, {
-              onText: (chunk) => {
-                rawText += chunk
-              },
-              onToolUse: () => {},
-              onToolResult: () => {},
-              onDone: (newSessionId) => {
-                finalizeChatTurn(rawText, newSessionId)
-              },
-            })
-            if (completed) {
-              chatStreamRef.current = { streamId: '', lastSeq: 0 }
-            }
-          } else {
-            pushActivityEvent(sid, { type: 'error', error: 'Connection lost during chat', timestamp: new Date() })
-          }
-        } catch {
-          chatStreamRef.current = { streamId: '', lastSeq: 0 }
-          pushActivityEvent(sid, { type: 'error', error: 'Connection lost — unable to recover', timestamp: new Date() })
-        }
-      } else {
-        pushActivityEvent(sid, { type: 'error', error: 'Connection lost', timestamp: new Date() })
-      }
-
-      setIsChatStreaming(false)
-    }
+    sendPlaygroundChat({
+      sessionId: sid,
+      projectId,
+      nodeId: node.id,
+      message: text || "(See attached images)",
+      taskTitle: node.title,
+      taskDescription: node.content ? stripHtml(node.content) : (node.description || node.title || ""),
+      taskOutput: outputText,
+      visionDoc: project?.visionDoc,
+      model,
+      providerId: execution?.providerId || undefined,
+      messages: historyMessages,
+      branchName: execution?.branchName,
+      prUrl: execution?.prUrl,
+      imageRefs: currentImages.length > 0 ? currentImages.map((img) => img.id) : undefined,
+    })
   }
 
-  // Allow steering on running tasks, or resuming completed tasks that have an active session
-  // (works for all providers — the agent-runner's steerTask routes to resumeTask for completed tasks)
-  // Use the same 3-source resolution as handleSteer so the button stays enabled
-  // whenever the call would actually succeed (prop, execution store, or realtime stream)
   const resolvedMachineIdForCanSteer = machineId
     || useExecutionStore.getState().getExecution(node.id)?.machineId
     || useRealtimeStore.getState().taskStreams.get(executionId)?.machineId
@@ -606,7 +292,6 @@ export function UnifiedActivityView({
     }
   }
 
-  // Handle sendPrompt from VisualWidget iframes
   function handleSendPrompt(text: string) {
     if (canSteer) {
       handleSteer(text)
@@ -617,10 +302,6 @@ export function UnifiedActivityView({
 
   const isInputDisabled = sending || isChatStreaming
 
-  // Derive working directory for file browser from project.
-  // Prefer the persistent project worktree (.astro/worktrees/{id}/) when a
-  // project branch exists — this has all merged task work on a detached HEAD,
-  // unlike the base working directory which stays on main/default branch.
   const baseWorkDir = project?.workingDirectory || ""
   const fileBrowserDir = useMemo(() => {
     if (baseWorkDir && project?.projectBranch) {
@@ -629,7 +310,6 @@ export function UnifiedActivityView({
     return baseWorkDir
   }, [baseWorkDir, project?.projectBranch])
 
-  // Handler for FileChangeBlock clicks — opens FileBrowser and navigates to file
   const handleFileSelect = useCallback((filePath: string) => {
     const resolved = resolveFilePathForBrowsing(filePath, fileBrowserDir)
     setInitialFilePath(resolved)
@@ -700,12 +380,10 @@ export function UnifiedActivityView({
         onScroll={handleScroll}
         className="flex-1 overflow-auto py-3 bg-muted/20"
       >
-        {/* Summary card at top when available */}
         {execution?.summary && (
           <SummaryCard summary={execution.summary} />
         )}
 
-        {/* Auto-show PR card when node has a prNumber and no pr_status block in feed */}
         {node.prNumber && !displayBlocks.some(b => b.type === 'pr_status') && (
           <PrStatusCard
             node={node}
@@ -716,14 +394,12 @@ export function UnifiedActivityView({
           />
         )}
 
-        {/* Fallback for old tasks without activity events */}
         {hasFallback && (
           <pre className="font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-foreground px-4 py-2">
             {outputText}
           </pre>
         )}
 
-        {/* Empty state */}
         {!hasFallback && displayBlocks.length === 0 && (
           <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
             {isRunning ? (
@@ -740,7 +416,6 @@ export function UnifiedActivityView({
           </div>
         )}
 
-        {/* Activity event blocks */}
         <ActivityBlockRenderer
           blocks={displayBlocks}
           isStreaming={isRunning || isChatStreaming}
@@ -755,22 +430,16 @@ export function UnifiedActivityView({
           renderPrStatus={renderPrStatus}
         />
 
-        {/* Streaming cursor */}
         {isRunning && activityEvents.length > 0 && (
           <span className="px-4 animate-pulse text-info text-xs font-mono">|</span>
         )}
 
-        {/* Pending steer bubble removed: addSteerMessage now adds pending
-            events directly to activityEvents, rendered inline above */}
-
-        {/* Chat streaming indicator (post-completion thinking) */}
         {isChatStreaming && (
           <div className="flex items-center gap-2 px-4 py-2">
             <TypingIndicator className="text-muted-foreground" />
           </div>
         )}
 
-        {/* PR Review Comment Threads — shown when node has a linked PR */}
         {githubContext && node.prNumber && (
           <PRReviewThreads
             owner={githubContext.owner}
@@ -780,12 +449,10 @@ export function UnifiedActivityView({
           />
         )}
 
-        {/* New GitHub comment composer — shown when there's a linked issue/PR */}
         {githubContext && displayBlocks.some(b => b.type === 'github_comment') && (
           <NewCommentComposer githubContext={githubContext} />
         )}
 
-        {/* Completion footer */}
         {!isRunning && (execution?.status === "success" || execution?.status === "failure") && activityEvents.length > 0 && (
           <div className={cn(
             "flex items-center gap-2 mx-4 my-3 px-3 py-2 rounded-lg border text-xs font-medium",
@@ -833,10 +500,7 @@ export function UnifiedActivityView({
           variant="secondary"
           size="sm"
           className="absolute bottom-16 right-4 h-8 gap-1.5 shadow-md z-10"
-          onClick={() => {
-            setAutoScroll(true)
-            containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight, behavior: "smooth" })
-          }}
+          onClick={scrollToBottom}
         >
           <ArrowDown className="h-3.5 w-3.5" />
           Bottom
@@ -845,7 +509,6 @@ export function UnifiedActivityView({
 
       {/* Input Bar */}
       <div className="border-t border-border bg-background shrink-0">
-      {/* Session context notice */}
       {!isRunning && execution?.sessionId && (
         <div className="px-3 pt-2 pb-0 flex items-center gap-1.5 text-[10px] text-muted-foreground">
           <Info className="h-3 w-3 shrink-0" />
@@ -905,50 +568,41 @@ export function UnifiedActivityView({
               <Paperclip className="h-4 w-4" />
             </Button>
           )}
-          {isRunning ? (
+          {(isRunning || isChatStreaming) && (
             <Button
               size="icon"
               variant="destructive"
               className="h-9 w-9"
-              onClick={() => cancelExecution(node.id)}
-              title="Stop execution"
+              onClick={() => {
+                if (isChatStreaming && chatSession) abortChatStream(chatSession.id)
+                if (isRunning) cancelExecution(node.id)
+              }}
+              title={isRunning ? "Stop execution" : "Stop response"}
             >
               <Square className="h-3.5 w-3.5" />
-            </Button>
-          ) : isChatStreaming ? (
-            <Button
-              size="icon"
-              variant="destructive"
-              className="h-9 w-9"
-              onClick={() => { abortRef.current?.abort(); setIsChatStreaming(false) }}
-              title="Stop response"
-            >
-              <Square className="h-3.5 w-3.5" />
-            </Button>
-          ) : (
-            <Button
-              size="icon"
-              className="h-9 w-9"
-              onClick={(e) => handleSend(e.shiftKey)}
-              disabled={(!input.trim() && (canSteer || taskImages.length === 0)) || isInputDisabled}
-              title="Send (⌘+Enter)"
-            >
-              {sending ? (
-                <TypingIndicator className="text-current scale-75" />
-              ) : (
-                <Send className="h-4 w-4" />
-              )}
             </Button>
           )}
+          <Button
+            size="icon"
+            className="h-9 w-9"
+            onClick={(e) => handleSend(e.shiftKey)}
+            disabled={(!input.trim() && (canSteer || taskImages.length === 0)) || isInputDisabled}
+            title="Send (⌘+Enter)"
+          >
+            {sending ? (
+              <TypingIndicator className="text-current scale-75" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+          </Button>
         </div>
       </div>
       </div>
     </div>
 
-    {/* File Browser Sidebar — Desktop: resizable inline panel, Mobile: bottom Sheet */}
+    {/* File Browser Sidebar */}
     {fileBrowserOpen && machineId && fileBrowserDir && !isMobile && (
       <div className="relative shrink-0 flex border-l border-border" style={{ width: fileBrowserWidth }}>
-        {/* Drag handle */}
         <div
           className="w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 shrink-0 touch-none"
           onMouseDown={(e) => {

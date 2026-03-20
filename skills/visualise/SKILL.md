@@ -1,7 +1,7 @@
 ---
 name: visualise
 version: "1.0.0"
-description: "Use this skill to render interactive visual content — SVG diagrams, HTML widgets, data charts — directly in conversations. Triggers when the user asks to visualize, diagram, chart, illustrate, or create interactive graphics."
+description: "Advanced visualizer reference with detailed SVG/Chart.js/D3 patterns, design token docs, and complex interactive widget examples. Only load this skill when the user explicitly asks for help with visualizer syntax or advanced rendering beyond what the built-in Generative UI hint covers. Do NOT load for normal visualizer usage — the system prompt already contains the rules."
 category: tools
 tags: [visualization, diagram, svg, chart, interactive, html]
 allowedTools: [Read, Write, Edit, Glob, Grep, Bash]

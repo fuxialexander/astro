@@ -5,7 +5,7 @@
  * and task detail views can share the same rendering components.
  */
 
-import React, { useState, useRef, useCallback } from "react"
+import React, { useState, useRef, useCallback, useEffect } from "react"
 import {
   Loader2,
   CheckCircle2,
@@ -96,8 +96,6 @@ export interface DisplayBlock {
   visualContent?: string
   /** For 'visual' blocks: the source file name */
   visualLabel?: string
-  /** For 'visual' blocks: true if content is not saved to disk (will expire) */
-  visualEphemeral?: boolean
   /** For 'json_render_spec' blocks: custom component definitions (code strings) to eval at render time */
   componentDefs?: Record<string, string>
 }
@@ -191,7 +189,6 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
             events: pair,
             visualContent: sanitizeHtmlContent(vizInput.content),
             visualLabel: vizInput.title,
-            visualEphemeral: true,
           })
         }
         continue
@@ -515,10 +512,31 @@ export function OperationalBlock({ events }: { events: TaskActivityEvent[] }) {
   )
 }
 
+function shouldAutoExpand(toolUse: Extract<TaskActivityEvent, { type: 'tool_use' }> | undefined): boolean {
+  if (!toolUse) return false
+  if (toolUse.toolName === 'Bash') {
+    const cmd = (toolUse.toolInput as { command?: string })?.command ?? ''
+    return /plan (tree|verify)/.test(cmd)
+  }
+  return false
+}
+
+function hasRenderableResult(toolResult: Extract<TaskActivityEvent, { type: 'tool_result' }> | undefined): boolean {
+  if (!toolResult?.toolResult) return false
+  return isPlanTreeData(toolResult.toolResult)
+}
+
 export function ToolBlock({ events, isRunning }: { events: TaskActivityEvent[]; isRunning?: boolean }) {
-  const [expanded, setExpanded] = useState(false)
   const toolUse = events.find((e): e is Extract<TaskActivityEvent, { type: 'tool_use' }> => e.type === 'tool_use')
   const toolResult = events.find((e): e is Extract<TaskActivityEvent, { type: 'tool_result' }> => e.type === 'tool_result')
+  const [expanded, setExpanded] = useState(() => shouldAutoExpand(toolUse) || hasRenderableResult(toolResult))
+
+  // Auto-expand once a renderable result arrives (tool was running when mounted)
+  useEffect(() => {
+    if (!expanded && hasRenderableResult(toolResult)) {
+      setExpanded(true)
+    }
+  }, [toolResult, expanded])
 
   if (!toolUse) return null
 
@@ -572,8 +590,6 @@ export function ToolBlock({ events, isRunning }: { events: TaskActivityEvent[]; 
 }
 
 export function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEvent[]; isRunning?: boolean }) {
-  const [expanded, setExpanded] = useState(false)
-
   const toolPairs: Array<{
     toolUse: Extract<TaskActivityEvent, { type: 'tool_use' }>
     toolResult?: Extract<TaskActivityEvent, { type: 'tool_result' }>
@@ -597,6 +613,16 @@ export function ToolGroupBlock({ events, isRunning }: { events: TaskActivityEven
     if (toolResult) pairedResultIds.add(toolResult.id)
     toolPairs.push({ toolUse, toolResult })
   }
+
+  const [expanded, setExpanded] = useState(() =>
+    toolPairs.some((p) => shouldAutoExpand(p.toolUse) || hasRenderableResult(p.toolResult))
+  )
+
+  useEffect(() => {
+    if (!expanded && toolPairs.some((p) => hasRenderableResult(p.toolResult))) {
+      setExpanded(true)
+    }
+  }, [toolPairs, expanded])
 
   if (toolPairs.length === 0) return null
 
@@ -689,7 +715,7 @@ export function VisualBlock({ block, onSendPrompt }: { block: DisplayBlock; onSe
       {block.visualLabel && (
         <p className="text-[10px] font-mono text-muted-foreground/60 mb-1">{block.visualLabel}</p>
       )}
-      <VisualWidget code={block.visualContent} onSendPrompt={onSendPrompt} ephemeral={block.visualEphemeral} />
+      <VisualWidget code={block.visualContent} onSendPrompt={onSendPrompt} />
     </div>
   )
 }
@@ -817,6 +843,11 @@ export function SummaryCard({ summary }: { summary: ExecutionSummary }) {
 }
 
 export function ErrorBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'error' }> }) {
+  // Filter out cancelled parallel tool call errors — these are normal agent behavior, not real errors
+  if (typeof event.error === 'string' && /^Cancelled:?\s/i.test(event.error)) {
+    return null
+  }
+
   return (
     <div className="flex items-start gap-2 mx-4 my-1.5 px-3 py-2 rounded-md bg-error/10 border border-error/20 text-sm text-error">
       <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -831,7 +862,13 @@ export function ChatUserBlock({ event, onEdit }: { event: Extract<TaskActivityEv
       <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">You</span>
       <div className="group/msg relative rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground max-w-[80%]">
         <p className="whitespace-pre-wrap">{event.message}</p>
-        {onEdit && (
+        {event.queued && (
+          <span className="flex items-center gap-1 mt-1 text-[10px] text-primary-foreground/60" title="Queued — will send after current response">
+            <Clock className="h-3 w-3" />
+            Queued
+          </span>
+        )}
+        {onEdit && !event.queued && (
           <button
             onClick={() => onEdit(event.message)}
             className="absolute -left-8 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/msg:opacity-60 hover:!opacity-100 transition-opacity text-muted-foreground hover:text-foreground cursor-pointer"

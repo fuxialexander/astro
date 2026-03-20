@@ -40,7 +40,6 @@ import { RemotePathBrowser } from "@/components/remote-path-browser"
 import { PlaygroundHeader } from "@/components/playground/playground-header"
 import { InlineRenameInput } from "@/components/inline-rename-input"
 import { FileBrowser } from "@/components/file-browser"
-import { groupActivityEvents } from "@/components/activity-blocks"
 import { ActivityBlockRenderer } from "@/components/activity-block-renderer"
 import { SessionPickerDialog } from "@/components/playground/session-picker-dialog"
 import { useClaudeSessionsStore, type ClaudeCodeSession } from "@/stores/claude-sessions-store"
@@ -53,7 +52,9 @@ import { ProviderDropdown } from "@/components/execution/provider-dropdown"
 import { InstructionPicker } from "@/components/execution/instruction-picker"
 import { useMachineInstructionStore } from "@/stores/machine-instruction-store"
 import type { TaskActivityEvent } from "@/types"
-import { useStreamEvents } from "@/hooks/use-stream-events"
+import { useAutoScroll } from "@/hooks/use-auto-scroll"
+import { useChatSession } from "@/hooks/use-chat-session"
+import { useActivityFeed } from "@/hooks/use-activity-feed"
 
 // Identify playground projects by the projectType field (persisted) or execution key (in-memory fallback)
 function isPlaygroundProject(project: { projectType?: string; id: string }, executions: Map<string, unknown>): boolean {
@@ -89,7 +90,6 @@ export function Playground() {
   // queuedMessage removed: steer messages are now persisted to streaming_events
   // with status 'pending' and batch-drained by the relay when the agent is ready.
   const [editingPrompt, setEditingPrompt] = useState<string | null>(null)
-  const [autoScroll, setAutoScroll] = useState(true)
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
   // Track provider during activity phase (for mid-session switching and follow-up chat)
   const [activeProvider, setActiveProvider] = useState("")
@@ -146,13 +146,7 @@ export function Playground() {
   // Sessions store (Claude Code sessions picker)
   const loadSessions = useClaudeSessionsStore((s) => s.loadSessions)
 
-  // Session store for post-completion chat
-  const sessionsLoaded = useSessionStore((s) => s.loaded)
-  const createSessionAction = useSessionStore((s) => s.createSession)
-  const addMessage = useSessionStore((s) => s.addMessage)
-  const sendPlaygroundChat = useSessionStore((s) => s.sendPlaygroundChat)
-  const abortChatStream = useSessionStore((s) => s.abortChatStream)
-  const streamingSessions = useSessionStore((s) => s.streamingSessions)
+  // Session store for mount tracking
   const registerMounted = useSessionStore((s) => s.registerMounted)
   const unregisterMounted = useSessionStore((s) => s.unregisterMounted)
   const playgroundYolo = useSettingsStore((s) => s.playgroundYoloMode)
@@ -213,14 +207,19 @@ export function Playground() {
     }
   }, [projectIdParam, activeProjectId, urlExecProviderId])
 
-  // Machine name for display
+  // Machine name for display — check execution store first, fall back to taskStream
+  // (taskStream always gets machineId from task:init SSE; execution store may lag)
+  const taskStreamMachineId = useRealtimeStore(
+    useCallback((s) => executionId ? s.taskStreams.get(executionId)?.machineId : undefined, [executionId])
+  )
   const machineName = (() => {
-    if (!execution?.machineId) return undefined
-    const realtimeM = realtimeMachines.get(execution.machineId)
+    const mid = execution?.machineId || taskStreamMachineId
+    if (!mid) return undefined
+    const realtimeM = realtimeMachines.get(mid)
     if (realtimeM) return realtimeM.name
-    const registeredM = registeredMachines.find((m) => m.id === execution.machineId)
+    const registeredM = registeredMachines.find((m) => m.id === mid)
     if (registeredM) return registeredM.name
-    return execution.machineId
+    return mid
   })()
 
   // All machines (relay + realtime deduplicated)
@@ -295,41 +294,16 @@ export function Playground() {
     return () => clearTimeout(timer)
   }, [isRunning, execution?.executionId])
 
-  // Get or create a chat session for this playground
+  // Chat session (post-completion follow-up) — shared hook handles lookup, creation, lazy-load
   const playgroundNodeId = activeProjectId ? `playground-${activeProjectId}` : ''
-  const allSessions = useSessionStore((s) => s.sessions)
-  const chatSession = useMemo(() => {
-    if (!playgroundNodeId) return undefined
-    let latest: ReturnType<typeof allSessions.get> | undefined
-    for (const session of allSessions.values()) {
-      if (session.nodeId === playgroundNodeId && session.type === "task-chat") {
-        if (!latest || session.createdAt > latest.createdAt) latest = session
-      }
-    }
-    return latest
-  }, [allSessions, playgroundNodeId])
-  useEffect(() => {
-    if (sessionsLoaded && activeProjectId && !chatSession) {
-      createSessionAction({ type: "task-chat", projectId: activeProjectId, nodeId: playgroundNodeId })
-    }
-  }, [sessionsLoaded, chatSession, createSessionAction, activeProjectId, playgroundNodeId])
+  const { chatSession, isChatStreaming, addMessage, sendPlaygroundChat, abortChatStream } =
+    useChatSession({
+      projectId: activeProjectId || '',
+      type: "task-chat",
+      nodeId: playgroundNodeId || undefined,
+    })
 
-  // Derive chat streaming state from store
-  const isChatStreaming = chatSession ? streamingSessions.has(chatSession.id) : false
-
-  // Chat session ID used for streaming, activity merge, and mount tracking
   const chatSessionId = chatSession?.id || ''
-
-  // Lazy-load full session data (messages) after page refresh — the list
-  // endpoint returns stubs without messages to reduce egress
-  const ensureFullSession = useSessionStore((s) => s.ensureFullSession)
-  const ensuredSessionRef = useRef<string | undefined>(undefined)
-  useEffect(() => {
-    if (chatSessionId && chatSessionId !== ensuredSessionRef.current && chatSession && chatSession.messages.length === 0 && !isChatStreaming) {
-      ensuredSessionRef.current = chatSessionId
-      ensureFullSession(chatSessionId)
-    }
-  }, [chatSessionId, chatSession, isChatStreaming, ensureFullSession])
 
   // Register/unregister mounted state for background notification detection
   useEffect(() => {
@@ -338,27 +312,17 @@ export function Playground() {
     return () => unregisterMounted(chatSessionId)
   }, [chatSessionId, registerMounted, unregisterMounted])
 
-  // Unified stream events for the execution activity timeline.
-  const { activityEvents, isHydrating: isRestoring } = useStreamEvents(
-    executionId || undefined,
-    { execution },
-  )
-
-  // Hydrate chat events via useStreamEvents
+  // Unified activity feed — merges execution + chat events with playground dedup
   const playgroundSessionMessages = useMemo(() => chatSession?.messages || [], [chatSession?.messages])
-  const { activityEvents: chatActivityEvents } = useStreamEvents(
-    chatSession?.id,
-    { legacySessionMessages: playgroundSessionMessages },
-  )
-
-  const allActivityEvents: TaskActivityEvent[] = useMemo(() => {
-    return [...activityEvents, ...chatActivityEvents]
-  }, [activityEvents, chatActivityEvents])
-
-  const displayBlocks = useMemo(() => {
-    const blocks = groupActivityEvents(allActivityEvents)
-    return blocks
-  }, [allActivityEvents])
+  const {
+    execActivityEvents: activityEvents,
+    allActivityEvents, displayBlocks, answeredRequestIds, approvalResponseMap, isRestoring,
+  } = useActivityFeed({
+    executionId: executionId || undefined,
+    chatSessionId: chatSession?.id,
+    execution,
+    chatMessages: playgroundSessionMessages,
+  })
 
   const pendingApprovals = useMemo(() => {
     if (!execution?.executionId) return []
@@ -366,18 +330,6 @@ export function Playground() {
       (a) => a.taskId === execution.executionId
     )
   }, [dynamicApprovalsMap, execution?.executionId])
-
-  const { answeredRequestIds, approvalResponseMap } = useMemo(() => {
-    const ids = new Set<string>()
-    const responses = new Map<string, Extract<TaskActivityEvent, { type: 'approval_response' }>>()
-    for (const event of allActivityEvents) {
-      if (event.type === 'approval_response') {
-        ids.add(event.requestId)
-        responses.set(event.requestId, event)
-      }
-    }
-    return { answeredRequestIds: ids, approvalResponseMap: responses }
-  }, [allActivityEvents])
 
   const headerStatus = execution?.status === "cancelled"
     ? 'stopped'
@@ -390,18 +342,10 @@ export function Playground() {
           : 'running'
 
   // Auto-scroll
-  const eventsLength = allActivityEvents.length
-  useEffect(() => {
-    if (autoScroll && containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight
-    }
-  }, [eventsLength, autoScroll, displayBlocks.length])
-
-  const handleScroll = useCallback(() => {
-    if (!containerRef.current) return
-    const { scrollTop, scrollHeight, clientHeight } = containerRef.current
-    setAutoScroll(scrollHeight - scrollTop - clientHeight < 50)
-  }, [])
+  const { autoScroll, handleScroll, scrollToBottom } = useAutoScroll(
+    containerRef,
+    [allActivityEvents.length, displayBlocks.length],
+  )
 
   // Submit new playground session
   const handleSubmit = useCallback(async () => {
@@ -506,8 +450,9 @@ export function Playground() {
   }, [sending, activeProjectId, execution?.executionId, addSteerMessage, steerPlaygroundSession])
 
   // Chat message handler (post-completion) — delegates to store-owned SSE
+  // No isChatStreaming guard: the store queues messages sent while streaming
   const handleChat = useCallback((text: string) => {
-    if (!text || isChatStreaming || !chatSession || !activeProjectId) return
+    if (!text || !chatSession || !activeProjectId) return
 
     const sid = chatSession.id
 
@@ -548,7 +493,7 @@ export function Playground() {
       providerId: activeProvider || undefined,
       messages: historyMessages,
     })
-  }, [isChatStreaming, chatSession, activeProjectId, playgroundNodeId, project, activeProvider, activityEvents, addMessage, sendPlaygroundChat])
+  }, [chatSession, activeProjectId, playgroundNodeId, project, activeProvider, activityEvents, addMessage, sendPlaygroundChat])
 
   // Route: steer during execution, chat after completion
   const handleSend = useCallback(() => {
@@ -688,7 +633,10 @@ export function Playground() {
             availableProviders={activeSessionProviders}
             onProviderChange={setActiveProvider}
             onBack={handleBack}
-            onAbort={() => cancelPlaygroundSession(activeProjectId)}
+            onAbort={() => {
+              if (isChatStreaming && chatSession) abortChatStream(chatSession.id)
+              cancelPlaygroundSession(activeProjectId)
+            }}
             onRetry={handleRetry}
             onToggleFileSidebar={() => setFileSidebarOpen(!fileSidebarOpen)}
             onRename={(newTitle) => updateProject(activeProjectId, { name: newTitle })}
@@ -824,10 +772,7 @@ export function Playground() {
               variant="secondary"
               size="sm"
               className="absolute bottom-16 right-4 h-8 gap-1.5 shadow-md z-10"
-              onClick={() => {
-                setAutoScroll(true)
-                containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight, behavior: "smooth" })
-              }}
+              onClick={scrollToBottom}
             >
               <ArrowDown className="h-3.5 w-3.5" />
               Bottom
@@ -856,41 +801,33 @@ export function Playground() {
                 rows={1}
                 className="flex-1 rounded-lg border border-border/20 bg-muted/30 px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/50 focus:bg-muted/40 transition-colors resize-none"
               />
-              {isRunning ? (
+              {(isRunning || isChatStreaming) && (
                 <Button
                   size="icon"
                   variant="destructive"
                   className="h-9 w-9 shrink-0"
-                  onClick={() => cancelPlaygroundSession(activeProjectId!)}
-                  title="Stop session"
+                  onClick={() => {
+                    if (isChatStreaming && chatSession) abortChatStream(chatSession.id)
+                    if (isRunning) cancelPlaygroundSession(activeProjectId!)
+                  }}
+                  title={isRunning ? "Stop session" : "Stop response"}
                 >
                   <Square className="h-3.5 w-3.5" />
-                </Button>
-              ) : isChatStreaming ? (
-                <Button
-                  size="icon"
-                  variant="destructive"
-                  className="h-9 w-9 shrink-0"
-                  onClick={() => chatSession && abortChatStream(chatSession.id)}
-                  title="Stop response"
-                >
-                  <Square className="h-3.5 w-3.5" />
-                </Button>
-              ) : (
-                <Button
-                  size="icon"
-                  className="h-9 w-9 shrink-0"
-                  onClick={handleSend}
-                  disabled={!input.trim() || sending}
-                  title="Send (⌘+Enter)"
-                >
-                  {sending ? (
-                    <TypingIndicator className="text-current scale-75" />
-                  ) : (
-                    <Send className="h-4 w-4" />
-                  )}
                 </Button>
               )}
+              <Button
+                size="icon"
+                className="h-9 w-9 shrink-0"
+                onClick={handleSend}
+                disabled={!input.trim() || sending}
+                title="Send (⌘+Enter)"
+              >
+                {sending ? (
+                  <TypingIndicator className="text-current scale-75" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+              </Button>
             </div>
           </div>
         </div>

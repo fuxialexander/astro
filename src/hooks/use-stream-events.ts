@@ -56,6 +56,10 @@ export interface StreamEventsResult {
   metadata: StreamMetadata
   /** True while loading persisted events from DB */
   isHydrating: boolean
+  /** Set when the stream has been inactive for 20 minutes while still 'streaming' */
+  stalledMessage?: string
+  /** True when a Bash tool_use containing 'astro-cli plan create' has no matching tool_result yet */
+  isPlanCreating: boolean
 }
 
 const EMPTY_TOOL_TRACES: ToolTrace[] = []
@@ -121,11 +125,17 @@ export function useStreamEvents(
 
   // When the tab becomes visible again, catch up just this mounted stream.
   // This covers chat streams that aren't part of the global SSE reconnect sweep.
+  // Skip catch-up if the stream is actively running — live SSE is delivering events
+  // and catch-up hydration can race with the SSE bus, dropping the latest unflushed
+  // text events (the "flash and disappear" bug).
   useEffect(() => {
     if (!streamId || typeof document === "undefined") return
 
     const handleVisibilityChange = () => {
       if (document.visibilityState !== "visible") return
+      // Skip if stream is actively running — SSE is current, no need to catch up
+      const stream = useRealtimeStore.getState().taskStreams.get(streamId)
+      if (stream?.status === 'running' || stream?.status === 'in_progress') return
       hydrateFromCatchUp([streamId], latestPersistedSeq).catch((err) => {
         console.warn('[useStreamEvents] visibility catch-up failed for', streamId, err)
       })
@@ -134,6 +144,7 @@ export function useStreamEvents(
     document.addEventListener("visibilitychange", handleVisibilityChange)
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange)
   }, [streamId, latestPersistedSeq, hydrateFromCatchUp])
+
 
   // Build activity events — merge taskStream with execution store and legacy fallback
   const activityEvents: TaskActivityEvent[] = useMemo(() => {
@@ -283,10 +294,10 @@ export function useStreamEvents(
     return pending.length > 0 ? pending : EMPTY_PENDING_APPROVALS
   }, [activityEvents, streamId])
 
-  // Derive status
+  // Derive status (optimistic cancel: pass execution?.status for immediate 'completed')
   const status = useMemo(
-    () => deriveStreamStatus(activityEvents, taskStream),
-    [activityEvents, taskStream]
+    () => deriveStreamStatus(activityEvents, taskStream, execution?.status),
+    [activityEvents, taskStream, execution?.status]
   )
 
   // Extract metadata
@@ -297,6 +308,54 @@ export function useStreamEvents(
     progress: taskStream?.progress,
     progressMessage: taskStream?.progressMessage,
   }), [taskStream?.machineId, taskStream?.sessionId, taskStream?.model, taskStream?.progress, taskStream?.progressMessage])
+
+  // 20-minute inactivity stall detection
+  const STALL_TIMEOUT_MS = 20 * 60 * 1000
+  const [isStalled, setIsStalled] = useState(false)
+  const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Reset stall state when streamId changes
+  useEffect(() => {
+    setIsStalled(false)
+  }, [streamId])
+
+  // Start/reset inactivity timer whenever events arrive while streaming
+  useEffect(() => {
+    if (status !== 'streaming') {
+      if (stallTimerRef.current != null) {
+        clearTimeout(stallTimerRef.current)
+        stallTimerRef.current = null
+      }
+      return
+    }
+    if (stallTimerRef.current != null) clearTimeout(stallTimerRef.current)
+    stallTimerRef.current = setTimeout(() => {
+      setIsStalled(true)
+    }, STALL_TIMEOUT_MS)
+    return () => {
+      if (stallTimerRef.current != null) {
+        clearTimeout(stallTimerRef.current)
+        stallTimerRef.current = null
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activityEvents.length, status])
+
+  // isPlanCreating: Bash tool_use with 'astro-cli plan create' without matching tool_result
+  const isPlanCreating = useMemo(() => {
+    for (let i = activityEvents.length - 1; i >= 0; i--) {
+      const e = activityEvents[i]
+      if (e.type === 'tool_result' && (e as { toolName?: string }).toolName === 'Bash') return false
+      if (e.type === 'tool_use' && (e as { toolName?: string }).toolName === 'Bash') {
+        const input =
+          typeof (e as { toolInput?: unknown }).toolInput === 'string'
+            ? (e as { toolInput: string }).toolInput
+            : JSON.stringify((e as { toolInput?: unknown }).toolInput ?? '')
+        if (input.includes('astro-cli plan create')) return true
+      }
+    }
+    return false
+  }, [activityEvents])
 
   // Plan-mutation detection: trigger plan refresh when plan-mutating tools complete
   const lastEventCountRef = useRef(0)
@@ -321,14 +380,22 @@ export function useStreamEvents(
     activityEvents.length === 0
   )
 
+  const derivedStatus: StreamStatus = isStalled && status === 'streaming' ? 'error' : status
+  const stalledMessage =
+    isStalled && status === 'streaming'
+      ? 'Stream may have stalled — no events received for 20 minutes'
+      : undefined
+
   return {
     activityEvents,
     displayBlocks,
     toolTraces,
     fileChanges,
     pendingApprovals,
-    status,
+    status: derivedStatus,
     metadata,
     isHydrating,
+    stalledMessage,
+    isPlanCreating,
   }
 }

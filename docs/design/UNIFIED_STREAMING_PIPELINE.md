@@ -1,7 +1,7 @@
 # Unified Streaming Pipeline
 
 > **Last updated:** 2026-03-19
-> **Status:** Phases 1, 2, 2.5, 3 (except optional POST + subscribe), and 4 are implemented. All main pathways now read through the unified stream/store path, `operational` is a first-class event, text-based plan mutation fallback is removed, and the old suppression layer (`isChatSessionStream()` / `activeDispatchStreams`) is gone. The main deliberate exception is structural, not functional: `pr_status` still renders through task-detail-specific context instead of becoming a fully generic shared block. Build passes (`tsc -b` clean). CLI v0.3.0 end-to-end tested locally against PGlite (plan create/list/tree/create-node/update-node/delete-node/add-edge/remove-edge all verified). See Section 10 for visual rendering reference.
+> **Status:** All phases (1, 2, 2.5, 3 including 3.4, and 4) are **COMPLETE**. All main pathways now read through the unified stream/store path. Phase 3.4 (POST + subscribe) shipped: all chat/dispatch endpoints return plain JSON, and events flow exclusively through the global SSE bus (`/api/events/stream` → `realtime-store` → `useStreamEvents`). `parseChatSSE` / `parseExecutionSSE` removed. `streaming-event-replay.ts` removed. The `stream-watcher.ts` utility enables stores and components to subscribe to stream events for side effects (session messages, plan refresh, title generation). The main deliberate exception is structural, not functional: `pr_status` still renders through task-detail-specific context instead of becoming a fully generic shared block. Build passes (`tsc -b` clean). CLI v0.3.0 end-to-end tested locally against PGlite (plan create/list/tree/create-node/update-node/delete-node/add-edge/remove-edge all verified). See Section 10 for visual rendering reference.
 > **Author:** Architecture review
 > **Related:** [ARCHITECTURE.md](ARCHITECTURE.md), [PLAN_AND_REPLAN.md](PLAN_AND_REPLAN.md), [EVENT_DUPLICATION_ANALYSIS.md](EVENT_DUPLICATION_ANALYSIS.md)
 
@@ -897,22 +897,25 @@ Migration is split into five phases. Each phase is independently deployable and 
    - `dispatch.ts` / `agent.ts` no longer mirror relay text/tool/file/session events into the global bus.
    - `streaming-event-log.ts` now provides idempotent append helpers for terminal and prompt events so multiple listeners can safely converge on the same DB rows.
 
-4. **Step 4 (optional, future): Convert to POST + subscribe**:
-   - Only pursue if latency measurement confirms the DB + pub/sub path is acceptable (< 50ms added latency for text chunks).
-   - This step removes `parseChatSSE` and `parseExecutionSSE` wrappers.
-   - Can be done per-pathway incrementally.
+4. **Step 4: POST + subscribe** — **COMPLETE (2026-03-19)**:
+   - All chat/dispatch endpoints (`projectChatWithAgent`, `chatWithTask`, `startExecution`, `startPlanGeneration`, etc.) now return plain JSON (`{ taskId, streamId }` or `{ executionId }`).
+   - Removed `parseChatSSE`, `parseExecutionSSE` from `sse-parser.ts` (kept `parseSSEStream` for global SSE bus).
+   - Removed `streaming-event-replay.ts` entirely (no remaining callers).
+   - Created `src/lib/stream-watcher.ts` — subscribes to `realtime-store.taskStreams` for a given `streamId`, firing callbacks on text chunks, tool events, completion, and errors. Used by session-store and components for side effects (session messages, plan mutation detection, title generation).
+   - Removed ~1000 lines of dead SSE/reconnection infrastructure from `execution-store.ts` (`processSSEStreamWithReconnect`, `handleSSEEvent`, `processCatchUpEvents`, text batching, page unload detection).
+   - Execution summary generation (`requestExecutionSummary`) moved to `realtime-store.ts` `task:result` handler — fires when task completes via global SSE bus.
+   - Latency concern was a non-issue: agent runner returns blocks (not individual tokens), so the DB + pub/sub path adds negligible perceived latency.
 
 **Why this is better than the original Phase 3:**
 - Each step is independently deployable and independently revertible.
 - Steps 1-3 remove the suppression layer without changing the transport contract.
-- No latency risk — direct SSE continues to provide low-latency text streaming.
-- Step 4 becomes optional, pursued only if measurement justifies it.
+- Step 4 removes the dead SSE parsing layer and aligns the frontend with the backend reality (JSON endpoints + global SSE bus).
 
-**Risk:** Low (steps 1-3). Medium (step 4, if pursued).
+**Risk:** Low (all steps). Step 4 was lower risk than originally estimated because the backend already returned JSON — the SSE parser on JSON responses was a no-op.
 
 **Validation:** After each step, run the full test suite + manual smoke test of all 4 pathways. Verify no duplicate events in the UI.
 
-**Estimated scope:** Steps 1-3: ~50 lines new, ~80 lines removed. Step 4: ~400 lines changed (same as original Phase 3).
+**Estimated scope:** Steps 1-3: ~50 lines new, ~80 lines removed. Step 4: ~1000 lines removed, ~70 lines created (`stream-watcher.ts`).
 
 ### Phase 4: CLI-Only Plan Mutations -- COMPLETE
 
@@ -985,11 +988,11 @@ Backend data.ts setPlan endpoint:
 | 2 | Unified frontend hydration (core hook/store) | Medium | Yes | Phase 1 | **COMPLETE** |
 | 2.5 | Last-mile convergence + reliability hardening | Low | Yes | Phase 2 | **COMPLETE** |
 | 3 | SSE path simplification (steps 1-3) | Low | Yes | Phase 2 | **COMPLETE** |
-| 3.4 | POST + subscribe (optional) | Medium | Yes | Phase 3 steps 1-3 | Deferred |
+| 3.4 | POST + subscribe | Low | Yes | Phase 3 steps 1-3 | **COMPLETE** |
 | 4.0 | Solve `plan_result` pipeline for CLI | Medium | Yes | Phase 2 | **COMPLETE** |
 | 4.1 | Prompt change + delete `applyPlanFromText` | Medium | Partial | Phase 4.0 + CLI v0.3.0 | **COMPLETE** |
 
-Only optional Phase 3.4 remains deferred. The implemented design keeps direct SSE for latency-sensitive endpoint UX while the unified stream/store path remains the authoritative frontend model.
+All phases are **COMPLETE**. The unified stream/store path is the sole frontend model — all events flow through the global SSE bus, with no direct SSE parsing from chat/dispatch endpoints.
 
 ---
 
@@ -1032,17 +1035,25 @@ Only optional Phase 3.4 remains deferred. The implemented design keeps direct SS
 | `dbSeq` passthrough in `StreamingEventMessage` for SSE `Last-Event-ID` on cross-instance events | `server/lib/redis-pubsub.ts`, `server/routes/events.ts` | Shipped |
 | `userId` passthrough in `StreamingEventMessage` for cross-instance user isolation checks in `events.ts` | `server/lib/redis-pubsub.ts`, `server/routes/events.ts` | Shipped |
 | Steer message lifecycle: `claimPendingSteers()` (atomic UPDATE RETURNING), `updateSteerStatus()`, `updateSentSteersStatus()` | `server/lib/streaming-event-log.ts` | Shipped |
-| `streaming-event-replay.ts`: DB row → SSE format bridge helper (`replayStreamingEvent()`) | `src/lib/streaming-event-replay.ts` | Shipped |
+| `streaming-event-replay.ts`: DB row → SSE format bridge helper (`replayStreamingEvent()`) | `src/lib/streaming-event-replay.ts` | Removed (Phase 3.4) |
 | Unit tests for `RedisPubSub`, `redis-event-bridge`, `events.ts` self-dedup, relay-server publish integration | `tests/redis-event-bridge.test.ts` | Shipped |
 | E2E tests for cross-instance streaming with real Redis (auto-skip when Redis unavailable) | `tests/redis-e2e.test.ts` | Shipped |
+| **Phase 3.4: POST + subscribe** | | |
+| `stream-watcher.ts`: subscribe to `realtime-store.taskStreams` for side effects | `src/lib/stream-watcher.ts` | Shipped |
+| Removed `parseChatSSE` / `parseExecutionSSE` from SSE parser | `src/lib/sse-parser.ts` | Shipped |
+| Removed dead SSE/reconnection infrastructure (~1000 lines) from execution store | `src/stores/execution-store.ts` | Shipped |
+| Converted `projectChatWithAgent` / `chatWithTask` to return JSON (no SSE callbacks) | `src/lib/api-client.ts` | Shipped |
+| Converted all chat callers to POST + `watchStream()` | `plan-generation.tsx`, `unified-activity-view.tsx`, `session-store.ts` | Shipped |
+| Execution summary generation triggered from `task:result` in realtime store | `src/stores/realtime-store.ts` | Shipped |
+| Deleted `streaming-event-replay.ts` (no remaining callers) | `src/lib/streaming-event-replay.ts` | Shipped |
+| Updated SSE parser tests (removed `parseChatSSE`/`parseExecutionSSE` tests) | `tests/sse-parser.test.ts` | Shipped |
 
 ### 6.2 What Remains (Tech Debt)
 
 | Item | File | Blocked by |
 |---|---|---|
 | `pr_status` still rendered with task-detail-specific context | `src/components/task-detail/unified-activity-view.tsx`, `src/pages/task-detail.tsx` | Intentional structural exception |
-| `parseChatSSE` / `parseExecutionSSE` still exist for direct endpoint UX | `src/lib/sse-parser.ts:96, 179` | Optional Phase 3 step 4 (deferred) |
-| `PLAN_MUTATING_TOOLS` still drives plan refresh after CLI mutations | `src/stores/session-store.ts:42` | Acceptable steady-state behavior |
+| `PLAN_MUTATING_TOOLS` still drives plan refresh after CLI mutations | `src/hooks/use-stream-events.ts`, `src/stores/session-store.ts` | Acceptable steady-state behavior |
 
 ### 6.3 Gaps Discovered in Audit
 
@@ -1178,11 +1189,7 @@ The following are explicitly out of scope for this design:
 
 **Q5: Should Phase 3 Step 4 (POST + subscribe) be pursued?**
 
-**Open.** The rescoped Phase 3 (steps 1-3) removes the suppression logic without changing the transport. Step 4 would eliminate the direct SSE path entirely, providing architectural purity but adding latency. Decision criteria:
-- Measure text streaming latency through DB + Redis pub/sub path vs. direct SSE.
-- If delta < 50ms p99, proceed with Step 4.
-- If delta > 50ms, keep direct SSE as a latency optimization and accept the dual-path (which is safe after steps 1-3 eliminate the suppression guards).
-- This measurement should be done after Phase 2.5 and Phase 3 steps 1-3 ship.
+**Resolved: Yes, shipped.** The latency concern was a non-issue because the agent runner delivers text in blocks (not individual tokens), so the DB + global SSE bus path adds negligible perceived latency. The backend endpoints already returned plain JSON (the frontend SSE parser on JSON responses was a no-op that immediately fell through to polling). Phase 3.4 removed ~1000 lines of dead SSE/reconnection code and aligned the frontend with the backend reality. All events now flow exclusively through the global SSE bus (`/api/events/stream` → `realtime-store` → `useStreamEvents` / `watchStream`).
 
 **Q6: Should high-frequency streaming events (text, tool_use, tool_result, file_change, session_init, progress) ever go through Redis pub/sub?**
 
@@ -1202,7 +1209,8 @@ Files **created** (Phase 2.5, shipped):
 - `server/lib/redis-event-bridge.ts` -- shipped (bridges `executionEventBus` → Redis for coordination events)
 - `server/lib/execution-context-store.ts` -- shipped (dual-layer userId lookup for cross-instance isolation)
 - `server/lib/execution-watchdog.ts` -- shipped (stale stream cleanup, cross-instance leader election)
-- `src/lib/streaming-event-replay.ts` -- shipped (DB row → SSE format bridge helper)
+- `src/lib/streaming-event-replay.ts` -- shipped then removed (Phase 3.4: no remaining callers)
+- `src/lib/stream-watcher.ts` -- shipped (Phase 3.4: subscribe to realtime-store for stream side effects)
 - `tests/redis-event-bridge.test.ts` -- shipped (unit tests with mocked ioredis)
 - `tests/redis-e2e.test.ts` -- shipped (real Redis E2E cross-instance tests, auto-skip)
 
@@ -1223,7 +1231,11 @@ Files **modified** (Phase 2.5, shipped):
 - `server/routes/agent.ts` -- abort with synthetic terminal event; `operational` events for heartbeat
 - `server/routes/dispatch.ts` -- `operational` events for dispatch heartbeat
 - `server/routes/events.ts` -- `onRedisStreaming` handler; `isProjectOwnedByUser` ownership checks; SSE cleanup on abort
-- `src/stores/realtime-store.ts` -- tab visibility recovery; removed chat-stream suppression
+- `src/stores/realtime-store.ts` -- tab visibility recovery; removed chat-stream suppression; Phase 3.4: added `requestExecutionSummary` call in `task:result` handler
+- `src/stores/execution-store.ts` -- Phase 3.4: removed ~1000 lines of dead SSE/reconnection infrastructure (`processSSEStreamWithReconnect`, `handleSSEEvent`, `processCatchUpEvents`, text batching, page unload detection); exported `requestExecutionSummary`
+- `src/stores/session-store.ts` -- Phase 3.4: converted `sendChatMessage` and `sendPlaygroundChat` to POST + `watchStream()`
+- `src/lib/api-client.ts` -- Phase 3.4: removed SSE callbacks from `projectChatWithAgent` and `chatWithTask` (now return plain JSON)
+- `src/lib/sse-parser.ts` -- Phase 3.4: removed `parseChatSSE` and `parseExecutionSSE` (kept `parseSSEStream` for global SSE bus)
 - `packages/core/src/types.ts` -- added `operational` variant to `TaskActivityEvent`
 - `src/lib/streaming-event-hydrator.ts` -- `operational` event type mapping + legacy shim for old `text` rows; `extractStreamingEventData()` utility
 - `src/components/activity-blocks.tsx` -- added `OperationalBlock`; removed `/──\s*\[/` regex branch from `TextBlock`

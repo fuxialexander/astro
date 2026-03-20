@@ -1,21 +1,18 @@
 import { Hono } from 'hono'
-import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
 import { homedir } from 'os'
 import { join } from 'path'
 import { mkdirSync } from 'fs'
-import { buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, buildTitleGenerationPrompt, buildRefinementPrompt, buildLabelSuggestionPrompt, buildCompactionPrompt, formatMachineInstruction } from '../lib/prompt-templates.js'
+import { buildChatSystemPrompt, buildTaskExecutionPrompt, buildTaskChatSystemPrompt, buildSummaryPrompt, buildTitleGenerationPrompt, buildRefinementPrompt, buildLabelSuggestionPrompt, buildCompactionPrompt, formatMachineInstruction, GENERATIVE_UI_HINT } from '../lib/prompt-templates.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
 import { relayServer } from '../lib/relay-server.js'
-import { dispatchEngine } from '../lib/dispatch/index.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { machineRegistry } from '../lib/machine-registry.js'
 import { streamingEventLog } from '../lib/streaming-event-log.js'
-import { incrementChatSSE, decrementChatSSE } from '../lib/sse-connection-tracker.js'
+import { executionContextStore } from '../lib/execution-context-store.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
-import { redisPubSub, type StreamingEventMessage } from '../lib/redis-pubsub.js'
-import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, TaskOperationalMessage, TaskToolTraceMessage, TaskFileChangeMessage, TaskSessionInitMessage, ProviderType, ImageAttachment } from '../types/relay.js'
+import type { TaskDispatch as RelayTaskDispatch, TaskResultMessage, TaskTextMessage, ProviderType, ImageAttachment } from '../types/relay.js'
 import { db } from '../lib/db/index.js'
 import { projects, taskExecutions, registeredMachines, machineInstructions, blobs } from '../lib/db/schema.js'
 import { eq, and, inArray } from 'drizzle-orm'
@@ -97,7 +94,6 @@ async function streamChatViaRelay(
   // persistId: where streaming events are stored. Defaults to taskId (relay routing key),
   // but callers can supply a stable streamId so the frontend can find events after refresh.
   const persistId = opts.streamId || opts.taskId
-  const startTime = Date.now()
 
   const task: RelayTaskDispatch = {
     taskId: opts.taskId,
@@ -147,391 +143,39 @@ async function streamChatViaRelay(
     providerId: opts.preferredProvider,
   })
 
-  // Disable proxy buffering so SSE chunks flush immediately (Fly.io, nginx)
-  c.header('X-Accel-Buffering', 'no')
+  // Register in executionContextStore so the catch-up endpoint can verify access
+  // and flush the in-memory text buffer for this session (chat/plan pathways).
+  const user = c.get('user') as { id: string } | undefined
+  if (opts.projectId && user?.id) {
+    executionContextStore.register({
+      executionId: persistId,
+      projectId: opts.projectId,
+      nodeId: opts.nodeId || '',
+      userId: user.id,
+      machineId: opts.targetMachineId || '',
+    })
+  }
 
-  return streamSSE(c, async (stream) => {
-    let alive = true
-    incrementChatSSE()
-    let lastActivity = Date.now()
-    let providerSessionId: string | undefined  // Real Claude SDK session ID from session_init
-    const ACTIVITY_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 hours (matches dispatch.ts; approval pause resets timer)
-
-    // Hono's streamSSE only wires the abort signal for old Bun; on Node.js the
-    // signal fires via @hono/node-server's outgoing.on("close") but the SSE helper
-    // never listens — wire it explicitly so client disconnect sets alive=false.
-    c.req.raw.signal.addEventListener('abort', () => { alive = false }, { once: true })
-
-    const onText = (msg: TaskTextMessage) => {
-      if (!alive || msg.taskId !== opts.taskId) return
-      lastActivity = Date.now()
-      // relay-server is the single persistence authority for relay-originated events.
-      // Do not call streamingEventLog here — relay-server already persisted this.
-      stream.writeSSE({ event: 'text', data: msg.text }).catch(() => { alive = false })
-    }
-
-    const onOperational = (msg: TaskOperationalMessage) => {
-      if (!alive || msg.taskId !== opts.taskId) return
-      lastActivity = Date.now()
-      const seq = msg._dbSeq ?? 0
-      stream.writeSSE({
-        event: 'operational',
-        data: JSON.stringify({ message: msg.message, source: msg.source }),
-        id: String(seq),
-      }).catch(() => { alive = false })
-    }
-
-    const onResult = async (msg: TaskResultMessage) => {
-      if (!alive || msg.result.taskId !== opts.taskId) return
-      lastActivity = Date.now()
-      const resolvedSessionId = providerSessionId || opts.taskId
-      const isSuccess = msg.result.status === 'completed'
-      const metrics = msg.result.metrics
-
-      // Forward agent runner errors to client instead of silently sending 'done'
-      if (msg.result.status === 'failed') {
-        const errorMsg = msg.result.error || 'Agent runner task failed'
-        console.error(`[chat] Task ${opts.taskId} failed: ${errorMsg}`)
-        await streamingEventLog.appendTerminalIfAbsent(persistId, 'result', {
-          sessionId: resolvedSessionId,
-          status: 'failed',
-          error: errorMsg,
-          metrics,
-        })
-        stream.writeSSE({
-          event: 'error',
-          data: errorMsg,
-        }).catch(() => {})
-        alive = false
-      } else {
-        await streamingEventLog.appendTerminalIfAbsent(persistId, 'result', {
-          sessionId: resolvedSessionId,
-          status: 'completed',
-          metrics,
-        })
-        stream.writeSSE({
-          event: 'done',
-          data: JSON.stringify({
-            sessionId: resolvedSessionId,
-            metrics: metrics ? {
-              durationMs: metrics.durationMs,
-              inputTokens: metrics.inputTokens,
-              outputTokens: metrics.outputTokens,
-              totalCost: metrics.totalCost,
-              model: metrics.model,
-              numTurns: metrics.numTurns,
-            } : undefined,
-          }),
-        }).catch(() => {})
-        alive = false
-      }
-
-      // Persist metrics as a separate event for clean querying (unified streaming pipeline Phase 1)
-      if (metrics) {
-        await streamingEventLog.append(persistId, 'metrics', {
-          durationMs: metrics.durationMs,
-          inputTokens: metrics.inputTokens,
-          outputTokens: metrics.outputTokens,
-          totalCost: metrics.totalCost,
-          model: metrics.model,
-          numTurns: metrics.numTurns,
-        })
-      }
-
-      // Create taskExecutions record for cost tracking (chat pathways)
-      if (opts.pathwayType && opts.projectId) {
+  // Persist compaction events before dispatching (pre-stream events)
+  if (opts.preStreamEvents) {
+    for (const evt of opts.preStreamEvents) {
+      if (evt.event === 'compaction') {
         try {
-          await db.insert(taskExecutions).values({
-            executionId: persistId,
-            nodeClientId: opts.nodeId || `__pathway:${opts.pathwayType}`,
-            projectId: opts.projectId,
-            status: isSuccess ? 'success' : 'failure',
-            error: msg.result.error || null,
-            startedAt: new Date(startTime),
-            completedAt: new Date(),
-            sessionId: resolvedSessionId,
-            providerId: opts.preferredProvider || null,
-            durationMs: metrics?.durationMs ?? (Date.now() - startTime),
-            inputTokens: metrics?.inputTokens ?? null,
-            outputTokens: metrics?.outputTokens ?? null,
-            tokensUsed: metrics ? ((metrics.inputTokens ?? 0) + (metrics.outputTokens ?? 0)) : null,
-            estimatedCostUsd: metrics?.totalCost ?? null,
-            model: metrics?.model ?? null,
-            turnsUsed: metrics?.numTurns ?? null,
-          }).onConflictDoNothing()
-        } catch (err) {
-          console.warn(`[chat] Failed to persist taskExecution for ${persistId}:`, err)
-        }
+          await streamingEventLog.append(persistId, 'compaction', JSON.parse(evt.data))
+        } catch { /* ignore parse errors for malformed compaction data */ }
       }
     }
+  }
 
-    const onToolTrace = (msg: TaskToolTraceMessage) => {
-      if (!alive || msg.taskId !== opts.taskId) return
-      lastActivity = Date.now()
-      // seq comes from relay-server's persist; use it as the SSE event id for catch-up ordering
-      const seq = msg._dbSeq ?? 0
-      stream.writeSSE({
-        event: 'tool_use',
-        data: JSON.stringify({ toolName: msg.toolName, toolInput: msg.toolInput, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) }),
-        id: String(seq),
-      }).catch(() => { alive = false })
-      if (msg.toolResult !== undefined) {
-        stream.writeSSE({
-          event: 'tool_result',
-          data: JSON.stringify({ toolName: msg.toolName, success: msg.success, result: msg.toolResult, ...(msg.toolUseId ? { toolUseId: msg.toolUseId } : {}) }),
-          id: String(seq),
-        }).catch(() => { alive = false })
-      }
-    }
+  // Fire-and-forget relay dispatch — all subsequent events reach the frontend
+  // exclusively through the global SSE bus (relay-server → executionEventBus → events.ts → realtime-store).
+  const dispatched = relayServer.dispatchTask(task, opts.targetMachineId, user?.id)
 
-    const onFileChange = (msg: TaskFileChangeMessage) => {
-      if (!alive || msg.taskId !== opts.taskId) return
-      lastActivity = Date.now()
-      // Compute line counts from diff when not provided
-      let linesAdded = msg.linesAdded
-      let linesRemoved = msg.linesRemoved
-      if (linesAdded == null && linesRemoved == null && msg.diff) {
-        for (const line of msg.diff.split('\n')) {
-          if (line.startsWith('+') && !line.startsWith('+++')) linesAdded = (linesAdded ?? 0) + 1
-          else if (line.startsWith('-') && !line.startsWith('---')) linesRemoved = (linesRemoved ?? 0) + 1
-        }
-      }
-      const data = { path: msg.path, action: msg.action, linesAdded, linesRemoved }
-      // seq comes from relay-server's persist
-      const seq = msg._dbSeq ?? 0
-      stream.writeSSE({
-        event: 'file_change',
-        data: JSON.stringify(data),
-        id: String(seq),
-      }).catch(() => { alive = false })
-    }
+  if (!dispatched) {
+    return c.json({ success: false, error: 'No agent runner connected. Start one with: npx astro-agent start --relay wss://<your-relay-url>' }, 503)
+  }
 
-    const onSessionInit = (msg: TaskSessionInitMessage) => {
-      if (!alive || msg.taskId !== opts.taskId) return
-      lastActivity = Date.now()
-      providerSessionId = msg.sessionId  // Capture real Claude SDK session ID
-      // seq comes from relay-server's persist
-      const seq = msg._dbSeq ?? 0
-      stream.writeSSE({
-        event: 'session_init',
-        data: JSON.stringify({ sessionId: msg.sessionId, model: msg.model }),
-        id: String(seq),
-      }).catch(() => { alive = false })
-    }
-
-    const onMachineDisconnected = (disconnectedMachineId: string) => {
-      if (!alive) return
-      if (opts.targetMachineId && disconnectedMachineId !== opts.targetMachineId) return
-      stream.writeSSE({
-        event: 'error',
-        data: 'Remote machine disconnected during task execution',
-      }).catch(() => {})
-      alive = false
-    }
-
-    const onTaskError = (msg: { taskId: string; error: string }) => {
-      if (!alive || msg.taskId !== opts.taskId) return
-      stream.writeSSE({
-        event: 'error',
-        data: msg.error,
-      }).catch(() => {})
-      alive = false
-    }
-
-    relayServer.on('task:text', onText)
-    relayServer.on('task:operational', onOperational)
-    relayServer.on('task:result', onResult)
-    relayServer.on('task:error', onTaskError)
-    relayServer.on('task:tool_trace', onToolTrace)
-    relayServer.on('task:file_change', onFileChange)
-    relayServer.on('task:session_init', onSessionInit)
-    relayServer.on('machine:disconnected', onMachineDisconnected)
-
-    // Cross-instance streaming: when the task runs on a remote instance,
-    // response events arrive via Redis pub/sub instead of local relay events.
-    // Convert them into the same SSE writes so the client receives output
-    // regardless of which instance the agent runner is connected to.
-    const onRedisStreaming = (msg: StreamingEventMessage) => {
-      if (!alive) return
-      // Only process events from other instances for this task
-      if (msg.instanceId === redisPubSub.getInstanceId()) return
-      if (msg.taskId !== opts.taskId) return
-      lastActivity = Date.now()
-
-      switch (msg.eventType) {
-        case 'text':
-          stream.writeSSE({ event: 'text', data: msg.data.text as string }).catch(() => { alive = false })
-          break
-        case 'operational': {
-          const seq = msg.dbSeq ?? 0
-          stream.writeSSE({
-            event: 'operational',
-            data: JSON.stringify(msg.data),
-            id: String(seq),
-          }).catch(() => { alive = false })
-          break
-        }
-        case 'tool_use':
-        case 'tool_result': {
-          const seq = msg.dbSeq ?? 0
-          stream.writeSSE({
-            event: msg.eventType === 'tool_use' ? 'tool_use' : 'tool_result',
-            data: JSON.stringify(msg.data),
-            id: String(seq),
-          }).catch(() => { alive = false })
-          break
-        }
-        case 'file_change': {
-          const seq = msg.dbSeq ?? 0
-          stream.writeSSE({
-            event: 'file_change',
-            data: JSON.stringify(msg.data),
-            id: String(seq),
-          }).catch(() => { alive = false })
-          break
-        }
-        case 'session_init': {
-          providerSessionId = msg.data.sessionId as string
-          const seq = msg.dbSeq ?? 0
-          stream.writeSSE({
-            event: 'session_init',
-            data: JSON.stringify({ sessionId: msg.data.sessionId, model: msg.data.model }),
-            id: String(seq),
-          }).catch(() => { alive = false })
-          break
-        }
-        case 'result': {
-          const resultData = msg.data as Record<string, unknown>
-          const resolvedSessionId = providerSessionId || opts.taskId
-          const isSuccess = resultData.status === 'completed'
-          const metrics = resultData.metrics as Record<string, unknown> | undefined
-
-          if (!isSuccess) {
-            const errorMsg = (resultData.error as string) || 'Agent runner task failed'
-            stream.writeSSE({ event: 'error', data: errorMsg }).catch(() => {})
-          } else {
-            stream.writeSSE({
-              event: 'done',
-              data: JSON.stringify({ sessionId: resolvedSessionId, metrics }),
-            }).catch(() => {})
-          }
-          alive = false
-          break
-        }
-        case 'error': {
-          stream.writeSSE({
-            event: 'error',
-            data: (msg.data.error as string) || 'Task failed',
-          }).catch(() => { alive = false })
-          alive = false
-          break
-        }
-      }
-    }
-    redisPubSub.on('task:streaming', onRedisStreaming)
-
-    const cleanup = () => {
-      relayServer.off('task:text', onText)
-      relayServer.off('task:operational', onOperational)
-      relayServer.off('task:result', onResult)
-      relayServer.off('task:error', onTaskError)
-      relayServer.off('task:tool_trace', onToolTrace)
-      relayServer.off('task:file_change', onFileChange)
-      relayServer.off('task:session_init', onSessionInit)
-      relayServer.off('machine:disconnected', onMachineDisconnected)
-      redisPubSub.off('task:streaming', onRedisStreaming)
-    }
-
-    // Extract authenticated user for machine ownership filtering
-    const user = c.get('user') as { id: string } | undefined
-
-    const cleanupAll = () => {
-      cleanup()
-    }
-
-    // Emit pre-stream events (e.g. compaction notice) before dispatch
-    if (opts.preStreamEvents) {
-      for (const evt of opts.preStreamEvents) {
-        await stream.writeSSE({ event: evt.event, data: evt.data }).catch(() => { alive = false })
-        // Persist compaction events to streaming_events (unified streaming pipeline Phase 1)
-        if (evt.event === 'compaction') {
-          try {
-            await streamingEventLog.append(persistId, 'compaction', JSON.parse(evt.data))
-          } catch { /* ignore parse errors for malformed compaction data */ }
-        }
-      }
-    }
-
-    // Dispatch after listeners are registered
-    const dispatched = relayServer.dispatchTask(task, opts.targetMachineId, user?.id)
-
-    if (!dispatched) {
-      cleanupAll()
-      await stream.writeSSE({
-        event: 'error',
-        data: 'No agent runner connected. Start one with: npx astro-agent start --relay wss://<your-relay-url>',
-      })
-      return
-    }
-
-    // Keepalive + activity timeout + elapsed-time heartbeat
-    let lastElapsedMsg = startTime
-    const ELAPSED_INTERVAL_MS = 60_000 // Show elapsed time every 60 seconds
-    const heartbeat = setInterval(async () => {
-      if (!alive) { clearInterval(heartbeat); return }
-      if (Date.now() - lastActivity > ACTIVITY_TIMEOUT_MS) {
-        // Don't timeout if we're waiting for user approval (ask_user_question)
-        if (dispatchEngine.hasPendingApprovalForExecution(opts.taskId)) {
-          lastActivity = Date.now() // Reset timer while approval is pending
-        } else {
-          stream.writeSSE({ event: 'error', data: 'Activity timeout — agent runner stopped responding' }).catch(() => {})
-          alive = false
-          clearInterval(heartbeat)
-          return
-        }
-      }
-      // Flush buffered text to DB and send its seq as the SSE event id.
-      // This advances realtimeClient.lastSeq on the client so that a subsequent
-      // SSE reconnect catch-up does NOT re-fetch text that was already delivered
-      // via SSE — preventing duplicate text output after a network blip.
-      const textSeq = await streamingEventLog.flushText(persistId).catch(() => null)
-      stream.writeSSE({ id: textSeq ? String(textSeq) : undefined, event: 'heartbeat', data: '' }).catch(() => { alive = false; clearInterval(heartbeat) })
-
-      // Periodic elapsed-time message — shows the user the session is alive
-      // when there's a long silent phase (agent reading files, running tools).
-      // Only emits if enough time has passed since the last elapsed message.
-      if (Date.now() - lastElapsedMsg >= ELAPSED_INTERVAL_MS) {
-        const elapsedSec = Math.round((Date.now() - startTime) / 1000)
-        const mins = Math.floor(elapsedSec / 60)
-        const secs = elapsedSec % 60
-        const elapsed = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`
-        const payload = { message: `Working... (${elapsed} elapsed)`, source: 'astro' as const }
-        const seq = await streamingEventLog.append(persistId, 'operational', payload).catch(() => null)
-        stream.writeSSE({
-          id: seq ? String(seq) : undefined,
-          event: 'operational',
-          data: JSON.stringify(payload),
-        }).catch(() => {})
-        lastElapsedMsg = Date.now()
-      }
-    }, 15000)
-
-    stream.onAbort(() => {
-      alive = false
-      decrementChatSSE()
-      clearInterval(heartbeat)
-      cleanupAll()
-      streamingEventLog.flushText(persistId).catch(() => {})
-      // Task continues running on the agent runner — results arrive via relay → global SSE → realtime-store
-    })
-
-    // Wait for completion
-    await new Promise<void>((resolve) => {
-      const check = setInterval(() => {
-        if (!alive) { clearInterval(check); clearInterval(heartbeat); cleanupAll(); resolve() }
-      }, 500)
-    })
-  })
+  return c.json({ success: true, taskId: opts.taskId, streamId: opts.streamId || opts.taskId })
 }
 
 /**
@@ -910,12 +554,10 @@ agentRoute.post('/task-chat', async (c) => {
       console.warn('[agent/task-chat] Failed to fetch machine instruction:', err instanceof Error ? err.message : String(err))
     }
   }
-  // Task-chat is post-execution analysis — skip machine instructions (Docker/K8s/Slurm
-  // commands are irrelevant for reviewing results) and skip GENERATIVE_UI_HINT (no
-  // structured rendering needed in this conversational context).
-  if (!tcSkills) {
-    tcSkills = undefined  // no fallback — keep prompt lean for analysis chat
-  }
+  // Task-chat skips machine instructions (Docker/K8s/Slurm commands are irrelevant
+  // for reviewing results), but always injects the lightweight Generative UI hint
+  // so playground follow-up chat and task detail chat can render rich components.
+  tcSkills = (tcSkills || '') + '\n\n' + GENERATIVE_UI_HINT
 
   const systemPrompt = buildTaskChatSystemPrompt({
     taskTitle,
@@ -1315,56 +957,5 @@ agentRoute.post('/providers/detect', async (c) => {
     connectedRunners: machines.length,
   })
 })
-
-// ── Generative UI — lightweight hint injected into every chat prompt ──
-// Full catalog + examples are in skills/render-ui/SKILL.md (loaded on-demand via skill manager).
-// This hint is ~800 chars vs the full catalog's ~18KB.
-
-const GENERATIVE_UI_HINT = `## Generative UI
-
-You can render interactive UI components using \`\`\`yaml-spec code fences. These render as native React components — not HTML iframes. Content persists across sessions (no expiry).
-
-**NEVER use \`\`\`visualizer**. ALWAYS use \`\`\`yaml-spec (with \`\`\`component for custom visuals).
-
-**Available components**: Card, Stack, Separator, Text, Heading, Badge, Alert, Table, List, KeyValue, CodeBlock, OptionCard, Timeline, Accordion, TabView, TodoList, CardCarousel, Metric, StepIndicator, Progress, Button
-
-**Actions**: send_chat_message (continues conversation), copy_to_clipboard, navigate_to_node, setState
-
-**Data-prop components** — data goes in \`props\`, NOT as children. Set \`children: []\`:
-- **CardCarousel**: \`props.cards: [{title, description, content, badge, badgeVariant}]\`
-- **Timeline**: \`props.entries: [{label, title, description}]\`
-- **Accordion**: \`props.items: [{title, content}]\`
-- **TodoList**: \`props.items: [{id, content, status, priority}]\`
-- **Table**: \`props.headers\` + \`props.rows\` arrays
-
-**Example** (Table + interactive OptionCards):
-\`\`\`yaml-spec
-root: opts
-elements:
-  opts:
-    type: Stack
-    props: { direction: vertical, gap: sm }
-    children: [a, b]
-  a:
-    type: OptionCard
-    props: { title: "Option A", description: "First choice" }
-    on:
-      press:
-        action: send_chat_message
-        params: { message: "I choose Option A" }
-    children: []
-  b:
-    type: OptionCard
-    props: { title: "Option B", description: "Second choice" }
-    on:
-      press:
-        action: send_chat_message
-        params: { message: "I choose Option B" }
-    children: []
-\`\`\`
-
-**Custom components**: Use \`\`\`component Name fences with React.createElement (no JSX) before the yaml-spec. Available: React, cn (tailwind utility).
-
-Default to markdown for conversational text. Use yaml-spec when content is structured or interactive.`
 
 export { agentRoute }

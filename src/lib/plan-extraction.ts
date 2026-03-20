@@ -35,8 +35,10 @@ export interface PlanExportJson {
 }
 
 /**
- * Converts live PlanNode[]/PlanEdge[] into a clean export JSON
- * with sequential IDs (n1, n2 for tasks; m1, m2 for milestones; e1, e2 for edges).
+ * Converts live PlanNode[]/PlanEdge[] into a clean export JSON.
+ * Preserves actual node IDs (the real `node-...` client IDs) so the exported
+ * JSON matches what `astro-cli plan verify --json` returns, making Copy JSON
+ * and Create New Project consistent with the live plan data.
  * Strips internal fields (projectId, position, content, createdAt, updatedAt, execution fields).
  */
 export function planNodesToExportJson(
@@ -44,48 +46,31 @@ export function planNodesToExportJson(
   nodes: PlanNode[],
   edges: PlanEdge[],
 ): PlanExportJson {
-  // Build UUID → sequential ID mapping
-  const idMap = new Map<string, string>()
-  let taskCounter = 0
-  let milestoneCounter = 0
-
-  for (const node of nodes) {
-    if (node.type === 'milestone') {
-      milestoneCounter++
-      idMap.set(node.id, `m${milestoneCounter}`)
-    } else {
-      taskCounter++
-      idMap.set(node.id, `n${taskCounter}`)
-    }
-  }
-
-  const resolveId = (uuid: string): string => idMap.get(uuid) ?? uuid
+  const nodeIdSet = new Set(nodes.map((n) => n.id))
 
   const exportNodes = nodes.map((n) => ({
-    id: resolveId(n.id),
+    id: n.id,
     type: n.type,
     title: n.title,
     description: n.description ?? '',
     status: n.status,
-    parentId: n.parentId ? resolveId(n.parentId) : null,
-    dependencies: (n.dependencies ?? []).map(resolveId),
+    parentId: n.parentId ?? null,
+    dependencies: n.dependencies ?? [],
     verification: n.verification ?? 'auto',
     ...(n.startDate ? { startDate: n.startDate } : {}),
     ...(n.endDate ? { endDate: n.endDate } : {}),
     ...(n.priority ? { priority: n.priority } : {}),
     ...(n.estimate ? { estimate: n.estimate } : {}),
     ...(n.dueDate ? { dueDate: n.dueDate } : {}),
-    ...(n.milestoneId ? { milestoneId: resolveId(n.milestoneId) } : {}),
+    ...(n.milestoneId ? { milestoneId: n.milestoneId } : {}),
   }))
 
-  let edgeCounter = 0
-  const nodeIdSet = new Set(nodes.map((n) => n.id))
   const exportEdges = edges
     .filter((e) => nodeIdSet.has(e.source) && nodeIdSet.has(e.target))
     .map((e) => ({
-      id: `e${++edgeCounter}`,
-      source: resolveId(e.source),
-      target: resolveId(e.target),
+      id: e.id,
+      source: e.source,
+      target: e.target,
       type: e.type,
     }))
 

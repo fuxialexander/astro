@@ -467,6 +467,8 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       n.id === id ? { ...n, ...updates, updatedAt: new Date() } : n
     )
     set({ nodes: nextNodes })
+    // Skip API call for virtual node IDs (playground-/plan- prefixes are ephemeral, not in DB)
+    if (id.startsWith('playground-') || id.startsWith('plan-')) return
     dataClient.updateNode(id, updates).catch((err) => {
       console.error('[plan-store] Failed to update node in API:', err)
     })

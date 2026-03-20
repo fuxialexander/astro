@@ -578,12 +578,19 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               if (e.seq != null) existingActivitySeqs.add(e.seq)
             }
 
-            // Keep existing events that are NOT superseded by a hydrated seq'd version
-            // Drop no-seq text events: their content is captured in existing.stdout and
-            // the DB has a batched seq'd version in the hydrated set
+            // Keep existing events that are NOT superseded by a hydrated seq'd version.
+            // For no-seq text events: only drop those whose content is covered by
+            // the hydrated set (timestamps before the last hydrated event).
+            // Keep no-seq text events newer than the last hydrated event — they
+            // haven't been flushed to DB yet, so the hydrated set doesn't cover them.
+            const lastHydratedActivityTime = hydrated.activityEvents.length > 0
+              ? new Date(hydrated.activityEvents[hydrated.activityEvents.length - 1].timestamp).getTime()
+              : 0
             const existingKept = existing.activityEvents.filter(e => {
               if (e.seq != null) return !hydratedActivitySeqs.has(e.seq)
-              return e.type !== 'text'
+              if (e.type !== 'text') return true
+              // Keep no-seq text events newer than the latest hydrated event
+              return new Date(e.timestamp).getTime() > lastHydratedActivityTime
             })
             // Build set of no-seq event types already present in existingKept so that
             // no-seq events from hydrated (e.g. plan_result, which carries no DB seq)
@@ -645,12 +652,19 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       })
 
       // Reconstruct dynamicApprovals from pending approval_request events
-      // and safetyPrompts from pending safety_prompt events
+      // and safetyPrompts from pending safety_prompt events.
+      // Also remove any stale dynamicApprovals that SSE delivered before hydration
+      // confirmed they were already answered in the DB.
       set((state) => {
         const newApprovals = new Map(state.dynamicApprovals)
         const newSafetyPrompts = new Map(state.safetyPrompts)
         for (const [execId] of byExecution) {
           const hydrated = hydratedByExecution.get(execId)!
+          // Remove stale approvals that were already answered (SSE race: approval_request
+          // arrived via SSE before hydration confirmed it was answered in the DB)
+          for (const answeredId of hydrated.answeredApprovals) {
+            newApprovals.delete(answeredId)
+          }
           for (const approval of hydrated.pendingApprovals) {
             newApprovals.set(approval.requestId, {
               taskId: approval.executionId,
@@ -889,16 +903,16 @@ function mergeBySeq<T extends { seq?: number; timestamp: Date }>(
   }
   // For events with seq: skip if already in the hydrated set
   // For events without seq (e.g. text events whose seq is unavailable due
-  // to server-side batching): fall back to timestamp comparison. This is
-  // a known-lossy heuristic — text events within 1s of the last hydrated
-  // event may be dropped. Acceptable because the P0 guard in events.ts
-  // eliminates the primary source of text duplication (double-delivery).
+  // to server-side batching): keep if strictly newer than the last hydrated
+  // event. The text dedup in groupActivityEvents() handles any content
+  // duplicates that slip through. Previous 1s buffer was too aggressive
+  // and dropped the last block of live events when hydration raced with SSE.
   const lastHydratedTime = new Date(hydrated[hydrated.length - 1].timestamp).getTime()
   const newLiveItems = live.filter(e => {
     if (e.seq != null) {
       return !hydratedSeqs.has(e.seq)
     }
-    return new Date(e.timestamp).getTime() > lastHydratedTime + 1000
+    return new Date(e.timestamp).getTime() > lastHydratedTime
   })
 
   return newLiveItems.length > 0
@@ -1243,6 +1257,21 @@ function handleRealtimeEvent(
           useExecutionStore.setState({ executions: newExecs })
           execStore.persist()
           break
+        }
+      }
+
+      // Fire-and-forget summary generation for completed task executions
+      {
+        for (const [nid, exec] of useExecutionStore.getState().executions) {
+          if (exec.executionId === execId && (exec.status === 'success' || exec.status === 'failure')) {
+            const node = usePlanStore.getState().nodes.find((n) => n.id === nid)
+            if (node) {
+              import('./execution-store').then(({ requestExecutionSummary }) => {
+                void requestExecutionSummary(nid, exec, node)
+              })
+            }
+            break
+          }
         }
       }
 
@@ -1832,7 +1861,10 @@ function handleRealtimeEvent(
       // Plan-node status update is now handled by node:status_changed SSE event
       // (DB-authoritative: server writes status, emits notification, frontend re-reads from DB)
 
-      // 1. Create execution entry so ExecutionPanel can render
+      // 1. Create or update execution entry so ExecutionPanel can render.
+      // Always update machineId + executionId — the entry may exist from
+      // startPlaygroundSession (which creates it without machineId) or from
+      // a DB load on another tab.
       const execStore = useExecutionStore.getState()
       if (!execStore.executions.has(initNodeId)) {
         useExecutionStore.setState((state) => {
@@ -1850,6 +1882,22 @@ function handleRealtimeEvent(
             machineId: initMachineId,
           })
           return { executions: newExecs }
+        })
+      } else if (initMachineId) {
+        // Entry exists but may lack machineId (playground sessions, DB-loaded entries)
+        useExecutionStore.setState((state) => {
+          const newExecs = new Map(state.executions)
+          const existing = newExecs.get(initNodeId)!
+          if (!existing.machineId || !existing.executionId) {
+            newExecs.set(initNodeId, {
+              ...existing,
+              machineId: existing.machineId || initMachineId,
+              executionId: existing.executionId || execId,
+              status: 'running',
+            })
+            return { executions: newExecs }
+          }
+          return state
         })
       }
 

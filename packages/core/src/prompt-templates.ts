@@ -304,15 +304,22 @@ astro-cli plan add-edge --json --project-id <PROJECT_ID> --source <fromNodeId> -
 astro-cli plan remove-edge --json --project-id <PROJECT_ID> --source <fromNodeId> --target <toNodeId>
 \`\`\`
 
-**After all changes — verify and adjust:**
+**After all changes — verify structure and fix:**
 \`\`\`bash
+astro-cli plan verify --json --project-id <PROJECT_ID>
 astro-cli plan tree --json --project-id <PROJECT_ID>
 \`\`\`
-Review the tree output. If anything is missing or wrong, apply additional commands to fix it.
+Run \`verify\` first — it checks for deadlocks, cycles, missing milestoneIds, empty milestones, and stray membership edges. Fix any reported errors before finishing. Then run \`tree\` to inspect the final shape.
+
+**Auto-fix membership edges:**
+\`\`\`bash
+astro-cli plan verify --fix --project-id <PROJECT_ID>
+\`\`\`
+Removes any task→milestone edges where the task's milestoneId already expresses membership (redundant edges that clutter the graph).
 
 ### Rules
 - Run one command per change. Do NOT batch multiple changes into a single command.
-- ALWAYS run \`plan tree --json\` after all changes to confirm the result. The JSON output is rendered as a visual tree in the UI for user inspection.
+- ALWAYS run \`plan verify --json\` and \`plan tree --json\` after all changes to confirm the result.
 - Node IDs are shown in brackets \`[id]\` in the plan above — use those exact IDs.
 - NEVER output raw JSON or attempt to mutate the plan through chat text — the only way to change the plan is through \`astro-cli\` commands.
 - If a command fails (non-zero exit), show the error and fix it before continuing.`
@@ -631,7 +638,7 @@ export function buildInteractivePlanPrompt(
 This project is connected to GitHub repository \`${ghOwner}/${ghRepo}\`.
 The final step must open a pull request that merges all completed work into the \`${target}\` branch.
 
-After running \`astro-cli plan create\`, add the GitHub push task with the dedicated CLI command:
+After creating all nodes with \`astro-cli plan create-node\`, add the GitHub push task with the dedicated CLI command:
 \`\`\`bash
 astro-cli plan add-github-push-task --json \\
   --project-id <PROJECT_ID> \\
@@ -705,17 +712,32 @@ The command returns \`{ ok, id, edgesAdded }\` on success.
 
 4. **Share your reasoning** — Think out loud as you explore. Explain what you're finding, what patterns you see, and how they inform the plan.
 
-5. **Create the final plan with Astro CLI** — Once you have enough information, build the complete plan JSON in memory, then pipe it to:
+5. **Create the plan node by node** — Once you have enough information, create each node individually in topological order (milestones first, then tasks in dependency order). For each node, capture the returned ID and use it in subsequent \`--dependency\` flags:
 \`\`\`bash
-cat <<'EOF' | astro-cli plan create --project-id <PROJECT_ID> --json
-{ ...full plan JSON... }
-EOF
+# Create a milestone
+astro-cli plan create-node --json \\
+  --project-id <PROJECT_ID> \\
+  --title "Milestone Title" \\
+  --type milestone \\
+  --start-date YYYY-MM-DD --end-date YYYY-MM-DD
+# → returns { ok, id: "node-...", ... } — save this ID
+
+# Create a task (reference the milestone and any dependencies by their returned IDs)
+astro-cli plan create-node --json \\
+  --project-id <PROJECT_ID> \\
+  --title "Task Title" \\
+  --type task \\
+  --description "Concrete brief: what, why, which files, done criteria" \\
+  --milestone-id <milestoneId> \\
+  --dependency <predecessorId> \\
+  --priority high --estimate M --verification auto
 \`\`\`
-After that, run:
+After creating all nodes, run:
 \`\`\`bash
+astro-cli plan verify --json --project-id <PROJECT_ID>
 astro-cli plan tree --json --project-id <PROJECT_ID>
 \`\`\`
-Review the tree output and fix anything wrong before finishing.`
+Fix any errors reported by \`verify\` (deadlocks, cycles, missing milestoneIds, etc.), then review the tree before finishing.`
   } else {
     approachSection = `
 1. **Ask clarifying questions** — If you have a tool to ask the user questions (e.g., AskUserQuestion or an MCP equivalent), use it to clarify:
@@ -727,30 +749,47 @@ Review the tree output and fix anything wrong before finishing.`
 
 3. **Share your reasoning** — Think out loud. Explain your thought process, what tradeoffs you see, and how they inform the plan.
 
-4. **Create the final plan with Astro CLI** — Once the plan is ready, pipe the complete JSON to:
+4. **Create the plan node by node** — Once the plan is ready, create each node individually in topological order (milestones first, then tasks in dependency order). Capture each returned ID and use it in subsequent \`--dependency\` flags:
 \`\`\`bash
-cat <<'EOF' | astro-cli plan create --project-id <PROJECT_ID> --json
-{ ...full plan JSON... }
-EOF
+# Create a milestone
+astro-cli plan create-node --json \\
+  --project-id <PROJECT_ID> \\
+  --title "Milestone Title" \\
+  --type milestone \\
+  --start-date YYYY-MM-DD --end-date YYYY-MM-DD
+# → returns { ok, id: "node-...", ... } — save this ID
+
+# Create a task
+astro-cli plan create-node --json \\
+  --project-id <PROJECT_ID> \\
+  --title "Task Title" \\
+  --type task \\
+  --description "Concrete brief: what, why, which files, done criteria" \\
+  --milestone-id <milestoneId> \\
+  --dependency <predecessorId> \\
+  --priority high --estimate M --verification auto
 \`\`\`
 Then run:
 \`\`\`bash
 astro-cli plan tree --json --project-id <PROJECT_ID>
 \`\`\`
-Verify the tree output and correct any mistakes before finishing.`
+Run \`plan verify --json\` first — fix any errors — then review the tree output before finishing.`
   }
 
   const importantSection = `## Important
 - Do NOT write code, create files, or build anything. Your only job is to plan — the tasks you create will be executed later by agents.
 - Your text output is visible to the user in real-time as a chat conversation.
-- The plan is created only by a successful \`astro-cli plan create --project-id <PROJECT_ID> --json\` command.
-- Do NOT print raw JSON in the chat as the final answer. Use the CLI command instead.
-- When you revise the plan, replace the entire plan with a new full JSON document through \`astro-cli plan create\`.
-- After each create/update cycle, run \`astro-cli plan tree --json --project-id <PROJECT_ID>\` and inspect the result before finishing.`
+- Create nodes one by one using \`astro-cli plan create-node\`. Always pass \`--json\` to get the returned node ID for use in subsequent calls.
+- Always use the actual node ID returned by each \`create-node\` call — never invent IDs.
+- Create milestones before the tasks that reference them via \`--milestone-id\`.
+- Create nodes in dependency order: a node's predecessors must exist before it is created (so you can pass their IDs as \`--dependency\`).
+- If you need to add an edge between two already-created nodes, use \`astro-cli plan add-edge --json --project-id <PROJECT_ID> --source <fromId> --target <toId>\`.
+- To revise a node after creation, use \`astro-cli plan update-node <nodeId>\` with the relevant flags.
+- After finishing, run \`astro-cli plan tree --json --project-id <PROJECT_ID>\` and inspect the result before finishing.`
 
   return `You are an interactive project planning assistant. Your goal is to help the user create a detailed, actionable project plan through exploration and discussion.
 
-**You MUST create the plan by running \`astro-cli plan create\` before finishing.** Everything else (exploration, questions, reasoning) is preparation for that CLI call.
+**You MUST create the plan by calling \`astro-cli plan create-node\` for each node before finishing.** Everything else (exploration, questions, reasoning) is preparation for those CLI calls.
 
 ## User's Goal
 <user_goal>
@@ -760,17 +799,11 @@ ${projectIdSection}${visionSection}${replanSection}${skillsSection}${githubSecti
 ## Your Approach
 ${approachSection}
 
-## Plan Output Format
+## Creating the Plan
 
-Pipe a \`{ projectName, nodes[], edges[] }\` JSON object to \`astro-cli plan create\`:
-\`\`\`bash
-cat <<'EOF' | astro-cli plan create --project-id <PROJECT_ID> --json
-{ "projectName": "...", "nodes": [...], "edges": [...] }
-EOF
-\`\`\`
-The CLI validates the schema and returns \`{ ok, nodeCount, edgeCount, idMapping }\`. If validation fails, fix the reported field and retry. Do NOT print the JSON in chat.
+Create each node individually using \`astro-cli plan create-node --json\`. The command returns \`{ ok, id, projectId, title }\` — capture the \`id\` and use it in subsequent \`--dependency\` and \`--milestone-id\` flags. Create in topological order: milestones first, then tasks from root to leaf.
 
-Key milestone/task pattern: tasks have a \`milestoneId\` pointing to the milestone they feed INTO (not the one they depend on via edges). n1 → m1 (edge) + n1.milestoneId = "m1" (membership). n2.milestoneId = "m2" + n2.dependencies = ["m1"] (waits for m1, belongs to m2). A task that belongs to milestone M MUST NOT also have an incoming edge from M — that is a deadlock.
+Key milestone/task pattern: tasks have a \`--milestone-id\` pointing to the milestone they feed INTO (not the one they depend on). Task T1 with \`--milestone-id M1\` means "T1 contributes to M1's completion". Task T2 with \`--dependency M1\` means "T2 waits for M1 to complete". A task must NEVER have both \`--milestone-id M\` and \`--dependency M\` — that is a deadlock.
 
 ## Task Description Quality
 
@@ -785,29 +818,25 @@ Parallel tasks (no dependency edge between them) run as separate agents in isola
 - Group related changes (component + test + styles) into one task
 
 ## Node Rules
-- type: "milestone" for checkpoints, "task" for work items, "decision" for human-judgment points
-- All status: "planned"
-- verification: "auto" if programmatically verifiable, "human" otherwise
-- position: top-to-bottom layout starting at {x:40,y:40}, increment y by 100. Parallel branches offset x by 260
-- Tasks do NOT have startDate/endDate. Milestones MUST have both (equal, YYYY-MM-DD)
-- priority: "urgent" | "high" | "medium" | "low" | "none"
-- estimate: "XS" | "S" | "M" | "L" | "XL". Target each task at ~20 min of expert work or <1000 lines changed
-- milestoneId: REQUIRED for tasks — every task must reference a milestone. milestoneId means "this task contributes to the milestone's completion" (the milestone auto-completes when all its member tasks finish). A task's milestoneId must NEVER be a milestone it depends on via edges — that creates a deadlock cycle
-- labelIds: from {l1: Frontend/UI, l2: Backend/API, l3: Testing/QA, l4: Infrastructure/DevOps, l5: Research}
-- acceptanceCriteria: optional array of verification checks with {id, description, type, command?, autoVerifiable}
-- Aim for 6–15 nodes, but this is flexible — use more for complex projects, fewer for simple ones. Valid DAG (no cycles)
-- projectName: at most 7 words, title case, no filler words
+- --type: milestone for checkpoints, task for work items, decision for human-judgment points
+- Omit --status (defaults to "planned")
+- --verification: auto if programmatically verifiable, human otherwise
+- Tasks do NOT use --start-date/--end-date. Milestones MUST have both (equal, YYYY-MM-DD)
+- --priority: urgent | high | medium | low | none
+- --estimate: XS | S | M | L | XL. Target each task at ~20 min of expert work or <1000 lines changed
+- --milestone-id: REQUIRED for tasks — every task must reference a milestone. Means "this task contributes to the milestone's completion" (auto-completes when all member tasks finish). A task's --milestone-id must NEVER be a milestone it also --dependency-depends on — deadlock cycle
+- Aim for 6–15 nodes total, but flexible. The graph must be a valid DAG (no cycles)
 
 ## Edge Rules
 - type: "dependency" for sequential, "branch" for parallel paths
 - Milestones are gate nodes: tasks flow IN to a milestone, and downstream tasks depend ON the milestone. Never create a milestone that only has incoming edges — it must also have outgoing edges to the tasks it gates. Example: tasks A,B,C → milestone M → task D (NOT A,B,C → M with D separately depending on A,B,C)
 - Every milestone must be on the critical path — no orphan milestones with zero outgoing edges (the final milestone in the plan is the only exception)
-- CRITICAL — no milestone deadlocks: a task that belongs to milestone M (milestoneId: "M") must NEVER have an edge from M → task. milestoneId means "I feed INTO M's completion", while an edge M → task means "I wait FOR M to complete" — combining both on the same milestone creates an unresolvable cycle. Tasks that depend on M must belong to a DIFFERENT downstream milestone. Correct: n1(milestoneId:m1) → m1 → n2(milestoneId:m2) → m2. Wrong: m1 → n1(milestoneId:m1) — deadlock!
+- CRITICAL — no milestone deadlocks: a task that belongs to milestone M (--milestone-id M) must NEVER have an edge from M → task. --milestone-id means "I feed INTO M's completion", while an edge M → task means "I wait FOR M to complete" — combining both on the same milestone creates an unresolvable cycle. Tasks that depend on M must belong to a DIFFERENT downstream milestone. Correct: taskA(milestone-id:M1) → M1 → taskB(milestone-id:M2) → M2. Wrong: M1 → taskA(milestone-id:M1) — deadlock! Run \`plan verify\` to catch this automatically.
 
 ${importantSection}
 
 ## Reminder
-After exploration, reasoning, and any clarifying questions, you MUST call \`astro-cli plan create --project-id <PROJECT_ID> --json\` with the complete plan JSON piped to stdin. This is not optional — the CLI call is the only way to persist the plan. Do NOT output raw JSON in the chat.`
+After exploration, reasoning, and any clarifying questions, you MUST call \`astro-cli plan create-node\` for each node in the plan. Create in topological order (milestones first, then tasks root-to-leaf), always passing \`--json\` to capture each returned ID. Finish by running \`plan verify --json\` and fixing any reported errors.`
 }
 
 // ─── Compaction ──────────────────────────────────────────────────────
@@ -836,3 +865,99 @@ Output ONLY the summary paragraph, no preamble.
 ---
 ${formatted}`
 }
+
+// ── Generative UI hint — single source of truth for all AI pathways ──
+// Lightweight (~800 chars) version. Full catalog in skills/render-ui/SKILL.md (~18KB).
+export const GENERATIVE_UI_HINT = `## Generative UI
+
+You can render interactive UI components using \`\`\`yaml-spec code fences. These render as native React components — not HTML iframes. Content persists across sessions (no expiry).
+
+**Prefer \`\`\`yaml-spec** for structured data (tables, cards, dashboards). Use \`\`\`visualizer for custom SVG diagrams, charts (Chart.js/D3), or interactive HTML that needs full creative freedom (renders in a sandboxed iframe).
+
+**Available components**: Card, Stack, Separator, Text, Heading, Badge, Alert, Table, List, KeyValue, CodeBlock, OptionCard, Timeline, Accordion, TabView, TodoList, CardCarousel, Metric, StepIndicator, Progress, Button
+
+**Actions**: send_chat_message (continues conversation), copy_to_clipboard, navigate_to_node, setState
+
+**Data-prop components** — data goes in \`props\`, NOT as children. Set \`children: []\`:
+- **CardCarousel**: \`props.cards: [{title, description, content, badge, badgeVariant}]\`
+- **Timeline**: \`props.entries: [{label, title, description}]\`
+- **Accordion**: \`props.items: [{title, content}]\`
+- **TodoList**: \`props.items: [{id, content, status, priority}]\`
+- **Table**: \`props.headers\` + \`props.rows\` arrays
+
+**Example** (Table + interactive OptionCards):
+\`\`\`yaml-spec
+root: opts
+elements:
+  opts:
+    type: Stack
+    props: { direction: vertical, gap: sm }
+    children: [a, b]
+  a:
+    type: OptionCard
+    props: { title: "Option A", description: "First choice" }
+    on:
+      press:
+        action: send_chat_message
+        params: { message: "I choose Option A" }
+    children: []
+  b:
+    type: OptionCard
+    props: { title: "Option B", description: "Second choice" }
+    on:
+      press:
+        action: send_chat_message
+        params: { message: "I choose Option B" }
+    children: []
+\`\`\`
+
+**Custom components**: Define reusable components with \`\`\`component Name fences BEFORE the yaml-spec that uses them. Use React.createElement (no JSX). Available globals: React, cn (tailwind class merge utility).
+
+Example — define a custom StatCard, then use it in yaml-spec:
+\`\`\`component StatCard
+function StatCard({ label, value, trend }) {
+  const e = React.createElement
+  return e('div', { className: cn('flex flex-col gap-1 p-3 rounded-lg border') },
+    e('span', { className: 'text-xs text-muted-foreground' }, label),
+    e('span', { className: 'text-2xl font-bold' }, value),
+    trend && e('span', { className: cn('text-xs', trend > 0 ? 'text-green-500' : 'text-red-500') }, (trend > 0 ? '+' : '') + trend + '%')
+  )
+}
+\`\`\`
+\`\`\`yaml-spec
+root: dashboard
+elements:
+  dashboard:
+    type: Stack
+    props: { direction: horizontal, gap: 4 }
+    children: [s1, s2]
+  s1:
+    type: StatCard
+    props: { label: "Users", value: "1,234", trend: 12 }
+    children: []
+  s2:
+    type: StatCard
+    props: { label: "Errors", value: "3", trend: -8 }
+    children: []
+\`\`\`
+
+Use custom components when the predefined catalog doesn't cover your layout needs — e.g., specialized cards, custom meters, domain-specific widgets. You can use ALL Tailwind CSS classes and any React hooks.
+
+### \`\`\`visualizer — Custom HTML/SVG/JS
+
+For diagrams, charts, interactive widgets — anything beyond the yaml-spec component catalog. Content renders in a sandboxed iframe.
+
+**Rules:**
+- Output HTML/SVG inside a \`\`\`visualizer code fence (fragments only, no DOCTYPE)
+- **IMPORTANT: TRANSPARENT BACKGROUND ONLY** — NEVER set background-color on html, body, or root containers. The host app provides the surface color and handles light/dark mode. Setting ANY background color (black, white, dark gray, etc.) will clash with the user's current theme. Let the page background show through.
+- **Theming**: ALL colors must work in both light AND dark mode. Use CSS variables — \`var(--color-text-primary)\`, \`var(--color-text-secondary)\`, \`var(--color-background-secondary)\`, \`var(--color-border-primary)\`, etc. NEVER hardcode colors like \`#333\`, \`white\`, \`black\`, \`#1a1a2e\`, \`#0d1117\`, or any dark/light literal.
+- **SVG**: viewBox 680px width, 14px labels, 0.5px strokes, \`dominant-baseline="central"\`
+- **Streaming order**: \`<style>\` first → visible content → \`<script>\` last
+- **No** \`localStorage\`, \`position: fixed\`, or external API fetches
+- **Allowed CDNs**: cdnjs.cloudflare.com, esm.sh, cdn.jsdelivr.net, unpkg.com
+- **Charts**: Chart.js 4 via CDN, wrap canvas in \`position:relative\` container with explicit height, read CSS vars for colors
+- \`sendPrompt(text)\` triggers a follow-up chat message from the visual
+
+**When to use**: "diagram of X", "visualize Y", interactive explorers with sliders/controls, Chart.js/D3 charts, SVG mechanism drawings, mockup presentations.
+
+**BE CREATIVE AND PROACTIVE WITH VISUALIZATION** — Don't wait for the user to ask for visuals. Whenever your response contains structured data (lists, comparisons, metrics, status reports, analysis results, architecture overviews, workflows), render it as yaml-spec or visualizer instead of plain markdown. A well-designed visual communicates faster than a wall of text. Think like a designer: use CardCarousel for options, Table for comparisons, Timeline for sequences, Metric for KPIs, custom components for domain-specific data, and visualizer for diagrams and charts. This hint contains everything you need — do NOT load the render-ui or visualise skills unless the user explicitly requests advanced rendering features.`

@@ -52,6 +52,8 @@ export interface HydratedStreamData {
   }>
   // Pending approval requests (not yet answered)
   pendingApprovals: PendingApproval[]
+  // Approval request IDs that have been answered (for cleaning up stale SSE-delivered entries)
+  answeredApprovals: Set<string>
   // Pending safety prompts (not yet responded to)
   pendingSafetyPrompts: PendingSafetyPrompt[]
   // Metadata from init, session_init and result events
@@ -391,7 +393,7 @@ export function hydrateStreamingEvents(events: StreamingEventRow[]): HydratedStr
     .map(e => e.content)
     .join('')
 
-  return { stdout: hydratedStdout, activityEvents, toolTraces, fileChanges, pendingApprovals, pendingSafetyPrompts, machineId, status, output, error, sessionId, model, progress, progressMessage, branchName, prUrl, prNumber, deliveryStatus, finalStatus, summary, planResult }
+  return { stdout: hydratedStdout, activityEvents, toolTraces, fileChanges, pendingApprovals, answeredApprovals, pendingSafetyPrompts, machineId, status, output, error, sessionId, model, progress, progressMessage, branchName, prUrl, prNumber, deliveryStatus, finalStatus, summary, planResult }
 }
 
 function extractLegacyTextEvents(text: string, timestamp: Date, seq?: number): TaskActivityEvent[] {

@@ -1,5 +1,4 @@
 import { getAccessToken } from "@/lib/supabase-client"
-import { parseChatSSE } from "@/lib/sse-parser"
 import { apiUrl } from "@/lib/api-url"
 
 /**
@@ -75,22 +74,8 @@ export interface ChatPlanEdgeContext {
 
 export async function projectChatWithAgent(
   params: { message: string; sessionId?: string; streamId?: string; projectId: string; visionDoc?: string; model?: string; providerId?: string; planNodes?: ChatPlanNodeContext[]; planEdges?: ChatPlanEdgeContext[]; selectedBackends?: string[]; messages?: Array<{ role: 'user' | 'assistant'; content: string }>; taskType?: 'plan' | 'execution'; imageRefs?: string[] },
-  callbacks: {
-    onText: (text: string) => void
-    onOperational?: (data: { message: string; source: 'astro' | 'git' | 'delivery' }) => void
-    onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
-    onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
-    onDone: (sessionId: string) => void
-    onError: (error: string) => void
-    /** Called with each SSE seq number — track for disconnect catch-up */
-    onSeq?: (seq: number) => void
-    /** Called when the done event includes usage metrics */
-    onMetrics?: (metrics: { durationMs?: number; inputTokens?: number; outputTokens?: number; totalCost?: number; model?: string; numTurns?: number }) => void
-    /** Called when conversation history was compacted before this turn */
-    onCompaction?: (data: { originalCount: number; compactedCount: number; summary: string }) => void
-  },
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<{ taskId: string; streamId: string }> {
   const res = await fetch(apiUrl("/api/agent/project-chat"), {
     method: "POST",
     headers: await authHeaders(),
@@ -101,28 +86,10 @@ export async function projectChatWithAgent(
   if (!res.ok) {
     let errorMsg = `Server error: ${res.status}`
     try { const b = await res.json(); if (b.error) errorMsg += ` – ${b.error}` } catch { /* non-JSON */ }
-    callbacks.onError(errorMsg)
-    return
+    throw new Error(errorMsg)
   }
 
-  let terminated = false
-  await parseChatSSE(res, {
-    onText: callbacks.onText,
-    onOperational: callbacks.onOperational,
-    onToolUse: callbacks.onToolUse,
-    onToolResult: callbacks.onToolResult,
-    onDone: (sessionId) => { terminated = true; callbacks.onDone(sessionId) },
-    onError: (error) => { terminated = true; callbacks.onError(error) },
-    onSeq: callbacks.onSeq,
-    onMetrics: callbacks.onMetrics,
-    onCompaction: callbacks.onCompaction,
-  })
-
-  // If the stream ended without a done/error event (server crash, network drop),
-  // fire onDone so the frontend clears streaming state instead of hanging forever.
-  if (!terminated) {
-    callbacks.onDone("")
-  }
+  return res.json() as Promise<{ taskId: string; streamId: string }>
 }
 
 export async function abortAgent(sessionId: string): Promise<void> {
@@ -159,20 +126,8 @@ export interface TaskChatParams {
 
 export async function chatWithTask(
   params: TaskChatParams,
-  callbacks: {
-    onText: (text: string) => void
-    onOperational?: (data: { message: string; source: 'astro' | 'git' | 'delivery' }) => void
-    onToolUse?: (data: { toolName: string; toolInput: unknown }) => void
-    onToolResult?: (data: { toolName: string; success: boolean; result: unknown }) => void
-    onDone: (sessionId: string) => void
-    onError: (error: string) => void
-    /** Called with each SSE seq number — track for disconnect catch-up */
-    onSeq?: (seq: number) => void
-    /** Called when the done event includes usage metrics */
-    onMetrics?: (metrics: { durationMs?: number; inputTokens?: number; outputTokens?: number; totalCost?: number; model?: string; numTurns?: number }) => void
-  },
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<{ taskId: string; streamId: string }> {
   const res = await fetch(apiUrl("/api/agent/task-chat"), {
     method: "POST",
     headers: await authHeaders(),
@@ -183,25 +138,10 @@ export async function chatWithTask(
   if (!res.ok) {
     let errorMsg = `Server error: ${res.status}`
     try { const b = await res.json(); if (b.error) errorMsg += ` – ${b.error}` } catch { /* non-JSON */ }
-    callbacks.onError(errorMsg)
-    return
+    throw new Error(errorMsg)
   }
 
-  let terminated = false
-  await parseChatSSE(res, {
-    onText: callbacks.onText,
-    onOperational: callbacks.onOperational,
-    onToolUse: callbacks.onToolUse,
-    onToolResult: callbacks.onToolResult,
-    onDone: (sessionId) => { terminated = true; callbacks.onDone(sessionId) },
-    onError: (error) => { terminated = true; callbacks.onError(error) },
-    onSeq: callbacks.onSeq,
-    onMetrics: callbacks.onMetrics,
-  })
-
-  if (!terminated) {
-    callbacks.onDone("")
-  }
+  return res.json() as Promise<{ taskId: string; streamId: string }>
 }
 
 /**

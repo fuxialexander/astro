@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Download } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 /** Maximum iframe height in pixels to prevent layout abuse */
@@ -14,11 +13,6 @@ export interface VisualWidgetProps {
   onSendPrompt?: (text: string) => void
   /** Callback when the iframe sends an openLink message. Defaults to window.open. */
   onOpenLink?: (url: string) => void
-  /**
-   * If true, content is ephemeral (from code fences / MCP tool, not saved to disk).
-   * Shows a "Save" button and an expiry notice.
-   */
-  ephemeral?: boolean
   /** Additional CSS class names */
   className?: string
   /** Additional inline styles */
@@ -216,7 +210,6 @@ export function VisualWidget({
   isStreaming = false,
   onSendPrompt,
   onOpenLink,
-  ephemeral = false,
   className,
   style,
 }: VisualWidgetProps) {
@@ -315,19 +308,6 @@ export function VisualWidget({
     return () => window.removeEventListener("message", handleMessage)
   }, [handleMessage])
 
-  const handleSave = useCallback(() => {
-    const html = buildDocument(code)
-    const blob = new Blob([html], { type: "text/html" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `visualization-${Date.now()}.html`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  }, [code])
-
   if (!blobUrl) return null
 
   return (
@@ -340,20 +320,6 @@ export function VisualWidget({
         style={{ height: `${iframeHeight}px`, maxHeight: `${MAX_IFRAME_HEIGHT}px` }}
         title="Visual widget"
       />
-      {ephemeral && !isStreaming && (
-        <div className="flex items-center justify-between px-3 py-1.5 bg-muted/30 border-t border-border/40">
-          <span className="text-[10px] text-muted-foreground/60">
-            This visualization expires after 7 days
-          </span>
-          <button
-            onClick={handleSave}
-            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer px-1.5 py-0.5 rounded hover:bg-muted/50"
-          >
-            <Download className="h-3 w-3" />
-            Save to disk
-          </button>
-        </div>
-      )}
     </div>
   )
 }

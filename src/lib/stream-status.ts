@@ -25,7 +25,10 @@ export type StreamStatus = 'idle' | 'streaming' | 'completed' | 'error' | 'await
 export function deriveStreamStatus(
   activityEvents: TaskActivityEvent[],
   taskStream?: TaskStream,
+  executionStatus?: string,
 ): StreamStatus {
+  if (executionStatus === 'cancelled') return 'completed'
+
   // Check taskStream status first (comes from task:result SSE)
   if (taskStream?.status === 'failure' || taskStream?.status === 'error') return 'error'
   if (taskStream?.status === 'success' || taskStream?.status === 'completed') return 'completed'

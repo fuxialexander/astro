@@ -377,7 +377,7 @@ export type TaskActivityEvent =
   | { type: 'tool_use'; id: string; toolName: string; toolInput: unknown; timestamp: Date; seq?: number }
   | { type: 'tool_result'; id: string; toolName: string; toolResult?: unknown; success?: boolean; duration?: number; timestamp: Date; seq?: number }
   | { type: 'steer'; message: string; accepted?: boolean; ackMessage?: string; interrupted?: boolean; timestamp: Date; seq?: number }
-  | { type: 'chat_user'; message: string; timestamp: Date; seq?: number }
+  | { type: 'chat_user'; message: string; queued?: boolean; timestamp: Date; seq?: number }
   | { type: 'chat_assistant'; content: string; timestamp: Date; seq?: number }
   | { type: 'file_change'; path: string; action: string; diff?: string; linesAdded?: number; linesRemoved?: number; timestamp: Date; seq?: number }
   | { type: 'error'; error: string; timestamp: Date; seq?: number }
