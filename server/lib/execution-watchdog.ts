@@ -163,7 +163,9 @@ async function closeTimedOutStreams(cutoffTime: Date): Promise<number> {
   let closed = 0
   const timeoutMinutes = Math.round(config.streamTimeoutMs / 60_000)
 
-  for (const row of rows.rows as Array<{ executionId: string }>) {
+  // db.execute() returns rows directly with postgres-js, but { rows } with node-postgres/PGlite
+  const rowArray = (Array.isArray(rows) ? rows : (rows as { rows?: unknown[] }).rows ?? []) as Array<{ executionId: string }>
+  for (const row of rowArray) {
     const executionId = row.executionId
     if (!executionId) continue
     if (await hasPendingApproval(executionId)) continue
