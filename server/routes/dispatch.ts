@@ -2422,13 +2422,25 @@ async function isUserAuthorizedForTask(
     return !!project
   }
 
-  // No context — try DB fallback via plan_nodes
+  // No context — try DB fallback via plan_nodes (taskId may be a node clientId)
   const [nodeRow] = await db.select({ projectId: planNodes.projectId })
     .from(planNodes).where(eq(planNodes.clientId, taskId)).limit(1)
   if (nodeRow) {
     const [project] = await db.select({ id: projects.id }).from(projects)
       .where(and(
         eq(projects.id, nodeRow.projectId),
+        inArray(projects.teamId, user.teamIds)
+      )).limit(1)
+    return !!project
+  }
+
+  // Fallback: taskId may be an execution ID (e.g., steer on completed task after context TTL expired)
+  const [execRow] = await db.select({ projectId: taskExecutions.projectId })
+    .from(taskExecutions).where(eq(taskExecutions.executionId, taskId)).limit(1)
+  if (execRow) {
+    const [project] = await db.select({ id: projects.id }).from(projects)
+      .where(and(
+        eq(projects.id, execRow.projectId),
         inArray(projects.teamId, user.teamIds)
       )).limit(1)
     return !!project

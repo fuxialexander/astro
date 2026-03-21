@@ -591,18 +591,29 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
             }
 
             // Keep existing events that are NOT superseded by a hydrated seq'd version.
-            // For no-seq text events: only drop those whose content is covered by
-            // the hydrated set (timestamps before the last hydrated event).
-            // Keep no-seq text events newer than the last hydrated event — they
-            // haven't been flushed to DB yet, so the hydrated set doesn't cover them.
-            const lastHydratedActivityTime = hydrated.activityEvents.length > 0
-              ? new Date(hydrated.activityEvents[hydrated.activityEvents.length - 1].timestamp).getTime()
-              : 0
+            //
+            // For no-seq text events: compare total text length to decide which
+            // source has more content. If existing (live SSE) has more text than
+            // hydrated (DB), keep existing no-seq text events — they contain
+            // unflushed data the DB doesn't have yet. If hydrated has equal or more
+            // text, the DB is caught up and we can drop no-seq text in favor of
+            // the canonical seq'd versions from hydration.
+            //
+            // Previous approach used timestamp comparison which caused flash/flicker
+            // when client/server clocks diverged or hydration raced with live text.
+            const hydratedTextLen = hydrated.activityEvents
+              .filter(e => e.type === 'text')
+              .reduce((acc, e) => acc + ((e as { content: string }).content?.length || 0), 0)
+            const existingNoSeqTextLen = existing.activityEvents
+              .filter(e => e.type === 'text' && e.seq == null)
+              .reduce((acc, e) => acc + ((e as { content: string }).content?.length || 0), 0)
+            const liveTextAhead = existingNoSeqTextLen > hydratedTextLen
+
             const existingKept = existing.activityEvents.filter(e => {
               if (e.seq != null) return !hydratedActivitySeqs.has(e.seq)
               if (e.type !== 'text') return true
-              // Keep no-seq text events newer than the latest hydrated event
-              return new Date(e.timestamp).getTime() > lastHydratedActivityTime
+              // Keep no-seq text when live SSE is ahead of DB; drop when DB caught up
+              return liveTextAhead
             })
             // Build set of no-seq event types already present in existingKept so that
             // no-seq events from hydrated (e.g. plan_result, which carries no DB seq)
@@ -613,11 +624,14 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
             // Add hydrated events not already covered by existing seqs.
             // For no-seq hydrated events (e.g. plan_result), skip if the same type
             // already exists in existingKept to avoid duplicating SSE-delivered events.
-            const hydratedNew = hydrated.activityEvents.filter(e =>
-              e.seq == null
+            // When live text is ahead, also skip hydrated text events (seq'd or not)
+            // to prevent duplicate text rendering.
+            const hydratedNew = hydrated.activityEvents.filter(e => {
+              if (liveTextAhead && e.type === 'text') return false
+              return e.seq == null
                 ? !existingKeptNoSeqTypes.has(e.type)
                 : !existingActivitySeqs.has(e.seq)
-            )
+            })
             const mergedActivity = [...existingKept, ...hydratedNew]
             mergedActivity.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 
@@ -997,10 +1011,19 @@ function reconcileResultFromCatchUp(
           const existingProjectNodes = usePlanStore.getState().nodes.filter(n => n.projectId === planProjectId)
           if (existingProjectNodes.length > 0) {
             console.log(`[realtime] Skipping plan catch-up for project ${planProjectId} — ${existingProjectNodes.length} nodes already loaded from DB`)
-            break
-          }
-          if (hydrated.planResult) {
+          } else if (hydrated.planResult) {
             void usePlanStore.getState().load()
+          }
+
+          // YOLO auto-execute: catch-up hydration may set status to 'success' before
+          // the task:result SSE arrives, causing the SSE handler's already-completed
+          // guard to skip auto-execute. Trigger it here as well.
+          if (isSuccess) {
+            setTimeout(() => {
+              if (tryAutoExecutePlannedProject(planProjectId)) {
+                console.log(`[realtime] YOLO mode: auto-executing from catch-up hydration for project ${planProjectId}`)
+              }
+            }, 500)
           }
           break
         }

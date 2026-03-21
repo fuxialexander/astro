@@ -156,7 +156,7 @@ async function closeTimedOutStreams(cutoffTime: Date): Promise<number> {
     FROM streaming_events
     WHERE deleted_at IS NULL
     GROUP BY execution_id
-    HAVING MAX(created_at) < ${cutoffTime}
+    HAVING MAX(created_at) < ${cutoffTime.toISOString()}
       AND BOOL_OR(event_type IN ('result', 'error')) = FALSE
   `)
 
