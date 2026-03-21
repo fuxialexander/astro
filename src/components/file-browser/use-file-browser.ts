@@ -25,6 +25,8 @@ export interface UseFileBrowserOptions {
   workingDirectory: string
   /** Hide dotfiles / dot-directories by default */
   showHiddenFiles?: boolean
+  /** Directory to fall back to if workingDirectory does not exist */
+  fallbackDirectory?: string
 }
 
 export interface UseFileBrowserReturn {
@@ -129,6 +131,7 @@ export function useFileBrowser({
   machineId,
   workingDirectory,
   showHiddenFiles: initialShowHidden = false,
+  fallbackDirectory,
 }: UseFileBrowserOptions): UseFileBrowserReturn {
   const [path, setPath] = useState(workingDirectory)
   const [allEntries, setAllEntries] = useState<DirectoryEntry[]>([])
@@ -138,6 +141,8 @@ export function useFileBrowser({
   const [showHiddenFiles, setShowHiddenFiles] = useState(initialShowHidden)
   const [previewPath, setPreviewPath] = useState<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  // Track the effective home directory (may be fallback if primary doesn't exist)
+  const homeDirectoryRef = useRef(workingDirectory)
 
   // Filter hidden files
   const entries = showHiddenFiles
@@ -148,7 +153,7 @@ export function useFileBrowser({
   const files = entries.filter((e) => !e.isDirectory)
 
   const loadDirectory = useCallback(
-    async (targetPath: string) => {
+    async (targetPath: string, tryFallback = false) => {
       if (!machineId) return
 
       setLoading(true)
@@ -158,6 +163,18 @@ export function useFileBrowser({
       try {
         const result = await fetchDirectoryList(machineId, targetPath)
         if (result.error) {
+          // If the directory doesn't exist and we have a fallback, try it
+          if (tryFallback && fallbackDirectory && fallbackDirectory !== targetPath) {
+            try {
+              const fallbackResult = await fetchDirectoryList(machineId, fallbackDirectory)
+              if (!fallbackResult.error) {
+                homeDirectoryRef.current = fallbackDirectory
+                setPath(fallbackResult.path)
+                setAllEntries(fallbackResult.entries)
+                return
+              }
+            } catch { /* fall through to show original error */ }
+          }
           setError(result.error)
           setAllEntries([])
         } else {
@@ -171,12 +188,13 @@ export function useFileBrowser({
         setLoading(false)
       }
     },
-    [machineId]
+    [machineId, fallbackDirectory]
   )
 
   useEffect(() => {
     if (machineId && workingDirectory) {
-      loadDirectory(workingDirectory)
+      homeDirectoryRef.current = workingDirectory
+      loadDirectory(workingDirectory, true)
     }
   }, [machineId, workingDirectory, loadDirectory])
 
@@ -209,8 +227,9 @@ export function useFileBrowser({
   }, [path, navigateTo])
 
   const goHome = useCallback(() => {
-    navigateTo(workingDirectory)
-  }, [workingDirectory, navigateTo])
+    // Use the effective home (may have been resolved to fallback)
+    loadDirectory(homeDirectoryRef.current, true)
+  }, [loadDirectory])
 
   const refresh = useCallback(() => {
     loadDirectory(path)

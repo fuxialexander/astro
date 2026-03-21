@@ -256,13 +256,13 @@ repoRoute.get('/detect', async (c) => {
   // Fast-fail for ghost machines
   const reachable = await relayServer.isMachineReachable(machineId)
   if (!reachable) {
-    return c.json({ error: 'Machine not connected' }, 500)
+    return c.json({ error: 'Machine not connected' }, 502)
   }
 
   try {
     const result = await requestRemoteRepoDetect(machineId, dirPath)
     if (result.error) {
-      return c.json({ error: result.error }, 500)
+      return c.json({ error: result.error }, 502)
     }
     // Cache successful detection results
     setCachedDetect(machineId, dirPath, result)
