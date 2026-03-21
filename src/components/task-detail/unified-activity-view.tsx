@@ -178,7 +178,6 @@ export function UnifiedActivityView({
   }
 
   const outputText = execution?.streamText || taskStream?.stdout || node.executionOutput || ""
-  const hasFallback = allActivityEvents.length === 0 && outputText.length > 0
 
   // Steer handler (with ack tracking and interrupt support)
   async function handleSteer(text: string, interrupt = false) {
@@ -396,13 +395,7 @@ export function UnifiedActivityView({
           />
         )}
 
-        {hasFallback && (
-          <pre className="font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-foreground px-4 py-2">
-            {outputText}
-          </pre>
-        )}
-
-        {!hasFallback && displayBlocks.length === 0 && (
+        {displayBlocks.length === 0 && (
           <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
             {isRunning ? (
               <span className="flex items-center gap-2 text-muted-foreground">

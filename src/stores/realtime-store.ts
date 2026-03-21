@@ -236,12 +236,17 @@ function flushRealtimeText(
   set((state) => {
     const streams = new Map(state.taskStreams)
     const existing = streams.get(execId) || createEmptyTaskStream(execId)
-    // Only update stdout from live SSE text. Activity events are populated
-    // exclusively from DB hydration (periodic catch-up) to avoid duplication
-    // between live SSE text and DB-persisted text batches.
+    // Push live SSE text into both stdout and activityEvents so that
+    // displayBlocks render immediately. DB catch-up mergeBySeq deduplicates
+    // once persisted events arrive.
     const stream = {
       ...existing,
       stdout: existing.stdout + text,
+      activityEvents: [...existing.activityEvents, {
+        type: 'text' as const,
+        content: text,
+        timestamp: new Date(),
+      }],
     }
     streams.set(execId, stream)
     return { taskStreams: streams }
@@ -1270,6 +1275,22 @@ function handleRealtimeEvent(
                 void requestExecutionSummary(nid, exec, node)
               })
             }
+
+            // YOLO auto-execute: when a plan-* execution completes successfully,
+            // trigger executeAllProject. The plan_result SSE fires before task:result,
+            // so the auto-execute check at plan_result time fails (status still 'running').
+            // Retry here now that status is 'success'.
+            if (isSuccess && nid.startsWith('plan-')) {
+              const planProjectId = planNodeIdToProjectId(nid)
+              if (planProjectId) {
+                setTimeout(() => {
+                  if (tryAutoExecutePlannedProject(planProjectId)) {
+                    console.log(`[realtime] YOLO mode: auto-executing all tasks after plan completion for project ${planProjectId}`)
+                  }
+                }, 500)
+              }
+            }
+
             break
           }
         }

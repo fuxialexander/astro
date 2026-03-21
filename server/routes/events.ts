@@ -315,7 +315,7 @@ eventsRoute.get('/stream', async (c) => {
           prUrl: msg.result.prUrl,
           prNumber: msg.result.prNumber,
           deliveryStatus: msg.result.deliveryStatus,
-        }).catch(() => {})
+        }).catch((err) => console.warn('[events] Failed to persist task result:', (err as Error).message))
       })
     }
 
@@ -412,7 +412,7 @@ eventsRoute.get('/stream', async (c) => {
             question: msg.question,
             options: msg.options,
             machineId: msg.machineId,
-          }).catch(() => {})
+          }).catch((err) => console.warn('[events] Failed to persist approval_request:', (err as Error).message))
 
           // Also route to configured channels (OpenClaw/Telegram/Slack/etc.)
           // Channels can respond interactively — first response wins (agent runner deduplicates).
@@ -461,6 +461,11 @@ eventsRoute.get('/stream', async (c) => {
             relayServer.sendApprovalResponse(msg.taskId, msg.machineId, msg.requestId, true, autoAnswer)
             console.log(`[events] YOLO auto-approved: task=${msg.taskId} request=${msg.requestId} answer="${autoAnswer}"`)
 
+            // Persist approval_response so hydration on page refresh shows it as answered
+            streamingEventLog.appendApprovalResponseIfAbsent(msg.taskId, {
+              requestId: msg.requestId, answer: autoAnswer, answered: true,
+            }).catch((err) => console.warn('[events] Failed to persist YOLO approval_response:', (err as Error).message))
+
             // Send auto-responded notification to browser instead of the approval dialog
             const autoData = JSON.stringify({
               taskId: msg.taskId,
@@ -484,11 +489,17 @@ eventsRoute.get('/stream', async (c) => {
     }
 
     /** Auto-proceed a safety prompt and notify the browser */
-    const autoSafetyProceed = (msg: { taskId: string; safetyTier: string; warning?: string; machineId?: string }, reason: string) => {
+    const autoSafetyProceed = (msg: { taskId: string; safetyTier: string; warning?: string; machineId?: string; options?: Array<{ id: string; label: string; description?: string }> }, reason: string) => {
       relayServer.sendSafetyDecision(msg.taskId, msg.machineId!, 'proceed')
       console.log(`[events] ${reason} safety auto-proceed: task=${msg.taskId} tier=${msg.safetyTier}`)
 
-      streamingEventLog.append(msg.taskId, 'safety_response', { decision: 'proceed', autoApproved: true }).catch(() => {})
+      // Persist safety_prompt before the response so hydration on page refresh sees both
+      if (msg.options) {
+        streamingEventLog.appendSafetyPromptIfAbsent(msg.taskId, {
+          safetyTier: msg.safetyTier, warning: msg.warning, machineId: msg.machineId, options: msg.options,
+        }).catch((err) => console.warn('[events] Failed to persist safety_prompt:', (err as Error).message))
+      }
+      streamingEventLog.append(msg.taskId, 'safety_response', { decision: 'proceed', autoApproved: true }).catch((err) => console.warn('[events] Failed to persist safety_response:', (err as Error).message))
 
       const autoData = JSON.stringify({
         taskId: msg.taskId,
@@ -507,7 +518,7 @@ eventsRoute.get('/stream', async (c) => {
         warning: msg.warning,
         machineId: msg.machineId,
         options: msg.options,
-      }).catch(() => {})
+      }).catch((err) => console.warn('[events] Failed to persist safety_prompt:', (err as Error).message))
     }
 
     const onTaskSafetyPrompt = (msg: { taskId: string; safetyTier: string; warning?: string; machineId?: string; options: Array<{ id: string; label: string; description?: string }> }) => {
