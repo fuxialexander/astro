@@ -529,6 +529,12 @@ dispatchRoute.post('/task', async (c) => {
       return c.json({ success: false, error: 'Project not found or not authorized' }, 404)
     }
 
+    // Guard against duplicate dispatch: if the node is already dispatched/in_progress,
+    // reject unless force=true. Prevents race between frontend and server-side auto-execute.
+    if (dbNode && !force && (dbNode.status === 'dispatched' || dbNode.status === 'in_progress')) {
+      return c.json({ success: false, error: `Task already ${dbNode.status}` }, 409)
+    }
+
     if (dbNode) {
       nodeNumber = dbNode.number
       title ??= dbNode.title

@@ -37,10 +37,17 @@ export interface ServerSideDispatchOptions {
  * the dispatch handler via StreamingEventLog.
  */
 export async function serverSideDispatch(nodeId: string, projectId: string, options?: ServerSideDispatchOptions): Promise<void> {
-  // Check node status — skip if already dispatched/in_progress/completed or deleted
-  const [node] = await db.select({ status: planNodes.status })
-    .from(planNodes).where(and(eq(planNodes.clientId, nodeId), isNull(planNodes.deletedAt))).limit(1)
-  if (!node || node.status !== 'planned') {
+  // Atomically claim the task: UPDATE status → 'dispatched' only if currently 'planned'.
+  // This prevents duplicate dispatch when both server-side and frontend auto-execute
+  // race on the same node. If the row is already dispatched/in_progress/completed, the
+  // UPDATE matches 0 rows and we skip.
+  const claimed = await db.update(planNodes)
+    .set({ status: 'dispatched', updatedAt: new Date() })
+    .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.status, 'planned'), isNull(planNodes.deletedAt)))
+    .returning({ clientId: planNodes.clientId })
+  if (claimed.length === 0) {
+    const [node] = await db.select({ status: planNodes.status })
+      .from(planNodes).where(and(eq(planNodes.clientId, nodeId), isNull(planNodes.deletedAt))).limit(1)
     console.log(`[server-dispatch] Skipping ${nodeId}: status=${node?.status ?? 'not found'}`)
     return
   }
