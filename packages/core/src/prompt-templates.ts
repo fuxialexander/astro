@@ -291,6 +291,8 @@ astro-cli plan tree --json --project-id <PROJECT_ID>
 \`\`\`
 Run \`verify\` first — it checks for deadlocks, cycles, missing milestoneIds, empty milestones, and stray membership edges. Fix any reported errors before finishing. Then run \`tree\` to inspect the final shape.
 
+**IMPORTANT:** Use ONLY the flags shown above. Do NOT invent extra flags (e.g. --icon, --emoji). The CLI will reject unknown options.
+
 **Auto-fix membership edges:**
 \`\`\`bash
 astro-cli plan verify --fix --project-id <PROJECT_ID>
