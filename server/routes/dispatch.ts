@@ -1974,28 +1974,24 @@ ${verificationSection}${executiveSummarySection}`)
     }
 
     const onApprovalRequest = async (msg: { taskId: string; requestId: string; question: string; options: string[]; machineId?: string }) => {
-      if (!alive || msg.taskId !== executionId) return
+      if (resultSent || msg.taskId !== executionId) return
       lastActivity = Date.now()
       hasReceivedEvent = true
 
       // YOLO mode: auto-approve with first option instead of showing card
       if (user?.id && msg.options.length > 0) {
         try {
-          const [profile] = await db.select({ settings: userProfiles.settings })
-            .from(userProfiles).where(eq(userProfiles.id, user.id)).limit(1)
-          const settings = profile?.settings as Record<string, string> | null
-          const isPlayground = nodeId.startsWith('playground-')
-          const yoloOn = isPlayground
-            ? settings?.playgroundYoloMode === 'true'
-            : settings?.yoloMode === 'true'
+          const yoloOn = await isYoloMode(user.id, nodeId)
           if (yoloOn) {
             const targetMachineId = msg.machineId || machineId || ''
             const autoAnswer = msg.options[0]
             console.log(`[dispatch] YOLO auto-approved relay approval: execution=${executionId} requestId=${msg.requestId} answer="${autoAnswer}"`)
             relayServer.sendApprovalResponse(executionId, targetMachineId, msg.requestId, true, autoAnswer)
             // Persist both request and response so hydration shows it as answered
-            await streamingEventLog.appendApprovalRequestIfAbsent(executionId, { requestId: msg.requestId, question: msg.question, options: msg.options, machineId: targetMachineId }).catch(() => {})
-            await streamingEventLog.appendApprovalResponseIfAbsent(executionId, { requestId: msg.requestId, answer: autoAnswer, answered: true }).catch(() => {})
+            await streamingEventLog.appendApprovalRequestIfAbsent(executionId, { requestId: msg.requestId, question: msg.question, options: msg.options, machineId: targetMachineId })
+              .catch((err) => console.warn('[dispatch] Failed to persist YOLO approval_request:', (err as Error).message))
+            await streamingEventLog.appendApprovalResponseIfAbsent(executionId, { requestId: msg.requestId, answer: autoAnswer, answered: true })
+              .catch((err) => console.warn('[dispatch] Failed to persist YOLO approval_response:', (err as Error).message))
             return
           }
         } catch {
@@ -2006,24 +2002,26 @@ ${verificationSection}${executiveSummarySection}`)
       waitingForApproval = true
       // Persist approval_request so it survives page refresh
       const approvalData = { requestId: msg.requestId, question: msg.question, options: msg.options, machineId: msg.machineId || machineId }
-      streamingEventLog.appendApprovalRequestIfAbsent(executionId, approvalData).catch(() => {})
+      streamingEventLog.appendApprovalRequestIfAbsent(executionId, approvalData)
+        .catch((err) => console.warn('[dispatch] Failed to persist approval_request:', (err as Error).message))
     }
 
     // P3: Listen for task:stdout to reset activity timer (fixes SLURM output tailing + blocking Bash commands)
     const onStdout = (msg: import('../types/relay.js').TaskStdoutMessage) => {
-      if (!alive || msg.output.taskId !== executionId) return
+      if (resultSent || msg.output.taskId !== executionId) return
       lastActivity = Date.now()
       hasReceivedEvent = true
     }
 
     const onSafetyPrompt = (msg: { taskId: string; safetyTier: string; warning?: string; options: Array<{ id: string; label: string; description?: string }>; machineId?: string }) => {
-      if (!alive || msg.taskId !== executionId) return
+      if (resultSent || msg.taskId !== executionId) return
       lastActivity = Date.now()
       hasReceivedEvent = true
       waitingForApproval = true
       // Persist safety_prompt so it survives page refresh
       const safetyData = { safetyTier: msg.safetyTier, warning: msg.warning, options: msg.options, machineId: msg.machineId || machineId }
-      streamingEventLog.appendSafetyPromptIfAbsent(executionId, safetyData).catch(() => {})
+      streamingEventLog.appendSafetyPromptIfAbsent(executionId, safetyData)
+        .catch((err) => console.warn('[dispatch] Failed to persist safety_prompt:', (err as Error).message))
     }
 
     // P2: Handle dead job detection

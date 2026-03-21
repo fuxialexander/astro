@@ -1270,6 +1270,22 @@ function handleRealtimeEvent(
                 void requestExecutionSummary(nid, exec, node)
               })
             }
+
+            // YOLO auto-execute: when a plan-* execution completes successfully,
+            // trigger executeAllProject. The plan_result SSE fires before task:result,
+            // so the auto-execute check at plan_result time fails (status still 'running').
+            // Retry here now that status is 'success'.
+            if (isSuccess && nid.startsWith('plan-')) {
+              const planProjectId = planNodeIdToProjectId(nid)
+              if (planProjectId) {
+                setTimeout(() => {
+                  if (tryAutoExecutePlannedProject(planProjectId)) {
+                    console.log(`[realtime] YOLO mode: auto-executing all tasks after plan completion for project ${planProjectId}`)
+                  }
+                }, 500)
+              }
+            }
+
             break
           }
         }

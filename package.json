@@ -7,7 +7,7 @@
     "dev": "concurrently -n fe,be,cli,agent -c blue,green,cyan,yellow \"vite\" \"tsx watch --env-file-if-exists=.env --env-file-if-exists=.env.local server/index.ts\" \"npm run --prefix packages/cli watch\" \"sleep 4 && npm run dev:agent\"",
     "dev:local": "bash scripts/switch-env.sh local && npm run dev",
     "dev:dev": "bash scripts/switch-env.sh dev && bash ./scripts/dev-with-tunnel.sh",
-    "dev:agent": "tsx packages/agent-runner/src/cli.ts start --foreground --relay ws://localhost:3002 --max-tasks 4 --log-level info",
+    "dev:agent": "ASTRO_SERVER_URL=http://localhost:3001 tsx packages/agent-runner/src/cli.ts start --foreground --relay ws://localhost:3002 --max-tasks 4 --log-level info",
     "dev:tunnel": "bash ./scripts/dev-with-tunnel.sh",
     "dev:frontend": "vite",
     "dev:backend": "tsx watch --env-file-if-exists=.env --env-file-if-exists=.env.local server/index.ts",
