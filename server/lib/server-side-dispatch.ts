@@ -97,6 +97,7 @@ export async function serverSideDispatch(nodeId: string, projectId: string, opti
     nodeId,
     projectId,
     targetMachineId: options?.targetMachineId ?? project.defaultMachineId ?? undefined,
+    force: true, // We already atomically claimed (status→dispatched) above, so bypass the duplicate guard
   }
   if (options?.branchSuffix) body.branchSuffix = options.branchSuffix
   if (options?.scheduleRunId) body.scheduleRunId = options.scheduleRunId

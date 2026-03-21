@@ -568,6 +568,7 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
           if (hydrated.progressMessage) metadata.progressMessage = hydrated.progressMessage
           if (hydrated.machineId) metadata.machineId = hydrated.machineId
 
+
           if (isReconnect) {
             // On SSE reconnect, deduplicate events to prevent showing text twice.
             // Text events are batched server-side: SSE delivers individual chunks (no seq),
@@ -628,9 +629,11 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
             // to prevent duplicate text rendering.
             const hydratedNew = hydrated.activityEvents.filter(e => {
               if (liveTextAhead && e.type === 'text') return false
-              return e.seq == null
-                ? !existingKeptNoSeqTypes.has(e.type)
-                : !existingActivitySeqs.has(e.seq)
+              if (e.seq == null) return !existingKeptNoSeqTypes.has(e.type)
+              // Always include seq'd hydrated events: existingKept already
+              // dropped its copies (line above filters out seqs present in
+              // hydrated), so the canonical DB version replaces them.
+              return true
             })
             const mergedActivity = [...existingKept, ...hydratedNew]
             mergedActivity.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
@@ -1362,9 +1365,9 @@ function handleRealtimeEvent(
       const hasInput = data.toolInput !== undefined
       const hasResult = data.toolResult !== undefined
 
-      // Activity events (tool_use/tool_result) are populated exclusively from
-      // DB hydration (periodic catch-up) to avoid duplication. Only update
-      // toolTraces and plan metadata from live SSE.
+      // Tool activity events (tool_use/tool_result) come from DB hydration
+      // (periodic catch-up) rather than live SSE to avoid complex dedup.
+      // Update toolTraces and plan metadata from live SSE.
       set((state) => {
         const streams = new Map(state.taskStreams)
         const existing = streams.get(execId) || createEmptyTaskStream(execId)

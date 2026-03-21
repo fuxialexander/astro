@@ -146,6 +146,7 @@ export function useStreamEvents(
   // Poll every 3s to backfill activity events with persisted text chunks.
   // The server-side catch-up endpoint flushes pending text before querying,
   // so each poll picks up recently streamed text.
+  //
   const streamStatus = taskStream?.status
   useEffect(() => {
     if (!streamId) return
