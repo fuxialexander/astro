@@ -287,7 +287,7 @@ astro-cli plan remove-edge --json --project-id <PROJECT_ID> --source <fromNodeId
 **After all changes — verify structure and fix:**
 \`\`\`bash
 astro-cli plan verify --project-id <PROJECT_ID>
-astro-cli plan tree --project-id <PROJECT_ID>
+astro-cli plan tree --json --project-id <PROJECT_ID>
 \`\`\`
 Run \`verify\` first — it checks for deadlocks, cycles, missing milestoneIds, empty milestones, and stray membership edges. Fix any reported errors before finishing. Then run \`tree\` to inspect the final shape.
 
@@ -299,7 +299,7 @@ Removes any task→milestone edges where the task's milestoneId already expresse
 
 ### Rules
 - Run one command per change. Do NOT batch multiple changes into a single command.
-- ALWAYS run \`plan verify\` and \`plan tree\` after all changes to confirm the result.
+- ALWAYS run \`plan verify\` and \`plan tree --json\` after all changes to confirm the result.
 - Node IDs are shown in brackets \`[id]\` in the plan above — use those exact IDs.
 - NEVER output raw JSON or attempt to mutate the plan through chat text — the only way to change the plan is through \`astro-cli\` commands.
 - If a command fails (non-zero exit), show the error and fix it before continuing.`
@@ -715,7 +715,7 @@ astro-cli plan create-node --json \\
 After creating all nodes, run:
 \`\`\`bash
 astro-cli plan verify --project-id <PROJECT_ID>
-astro-cli plan tree --project-id <PROJECT_ID>
+astro-cli plan tree --json --project-id <PROJECT_ID>
 \`\`\`
 Fix any errors reported by \`verify\` (deadlocks, cycles, missing milestoneIds, etc.), then review the tree before finishing.`
   } else {
@@ -751,7 +751,7 @@ astro-cli plan create-node --json \\
 \`\`\`
 Then run:
 \`\`\`bash
-astro-cli plan tree --project-id <PROJECT_ID>
+astro-cli plan tree --json --project-id <PROJECT_ID>
 \`\`\`
 Run \`plan verify\` first — fix any errors — then review the tree output before finishing.`
   }
@@ -765,7 +765,7 @@ Run \`plan verify\` first — fix any errors — then review the tree output bef
 - Create nodes in dependency order: a node's predecessors must exist before it is created (so you can pass their IDs as \`--dependency\`).
 - If you need to add an edge between two already-created nodes, use \`astro-cli plan add-edge --json --project-id <PROJECT_ID> --source <fromId> --target <toId>\`.
 - To revise a node after creation, use \`astro-cli plan update-node <nodeId>\` with the relevant flags.
-- After finishing, run \`astro-cli plan tree --project-id <PROJECT_ID>\` and inspect the result before finishing.
+- After finishing, run \`astro-cli plan tree --json --project-id <PROJECT_ID>\` and inspect the result before finishing.
 - **Rename the project** after creating the plan. The project name is initially the user's raw prompt — give it a short, descriptive name (2–5 words) that captures the project's purpose.
 - Also pick a single fitting emoji for the project automatically, and use one that matches the project's purpose rather than a generic default.
   \`\`\`bash

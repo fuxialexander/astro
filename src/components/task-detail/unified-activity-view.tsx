@@ -219,12 +219,32 @@ export function UnifiedActivityView({
       if (!response.ok) {
         clearTimeout(timeoutId)
         const errText = await response.text().catch(() => "Unknown error")
+        // If steer was rejected because session expired on a completed task,
+        // fall back to chat mode instead of showing an error
+        if (!isRunning && (errText.includes("not found") || errText.includes("session expired") || errText.includes("not accepted"))) {
+          updateSteerMessage(executionId, steerIndex, {
+            accepted: false,
+            ackMessage: "Session expired — switching to chat follow-up...",
+          })
+          handleChat(text)
+          return
+        }
         updateSteerMessage(executionId, steerIndex, {
           accepted: false,
           ackMessage: `Failed: ${response.status} ${errText.slice(0, 100)}`,
         })
       } else {
         clearTimeout(timeoutId)
+        // Check if steer was acked but not accepted (session gone on agent side)
+        const result = await response.json().catch(() => ({ accepted: true }))
+        if (result.accepted === false && !isRunning) {
+          updateSteerMessage(executionId, steerIndex, {
+            accepted: false,
+            ackMessage: "Session expired — switching to chat follow-up...",
+          })
+          handleChat(text)
+          return
+        }
         updateSteerMessage(executionId, steerIndex, { accepted: true })
       }
     } catch (error) {

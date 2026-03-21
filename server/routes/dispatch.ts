@@ -98,12 +98,12 @@ async function autoDispatchReadyPlanTasks(projectId: string): Promise<number> {
   if (liveTasks.length === 0) return 0
 
   const depsRows = await db.select({
-    nodeId: planNodeDependencies.nodeId,
-    dependencyId: planNodeDependencies.dependencyNodeId,
+    nodeId: planNodeDependencies.nodeClientId,
+    dependencyId: planNodeDependencies.dependsOnClientId,
   }).from(planNodeDependencies).where(
     and(
-      eq(planNodeDependencies.projectId, projectId),
-      inArray(planNodeDependencies.nodeId, liveTasks.map((node) => node.id)),
+      eq(planNodeDependencies.nodeProjectId, projectId),
+      inArray(planNodeDependencies.nodeClientId, liveTasks.map((node) => node.id)),
     )
   )
 
@@ -527,6 +527,12 @@ dispatchRoute.post('/task', async (c) => {
       )).limit(1)
     if (!dbProject) {
       return c.json({ success: false, error: 'Project not found or not authorized' }, 404)
+    }
+
+    // Guard against duplicate dispatch: if the node is already dispatched/in_progress,
+    // reject unless force=true. Prevents race between frontend and server-side auto-execute.
+    if (dbNode && !force && (dbNode.status === 'dispatched' || dbNode.status === 'in_progress')) {
+      return c.json({ success: false, error: `Task already ${dbNode.status}` }, 409)
     }
 
     if (dbNode) {

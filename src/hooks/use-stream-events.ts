@@ -172,34 +172,17 @@ export function useStreamEvents(
       let events: TaskActivityEvent[]
 
       if (execEvents.length > 0 && streamEvents.length > 0) {
-        // Merge execution-store events with realtime-store events
-        // Realtime-store has steer/approval events that execution-store may not
-        const steerAndApprovalEvents = streamEvents.filter(
-          e => e.type === 'steer' || e.type === 'approval_request' || e.type === 'approval_response'
-        )
-        if (steerAndApprovalEvents.length > 0) {
-          // Filter out AskUserQuestion tool_use (approval_request provides interactive UI)
-          const filteredExec = execEvents.filter(
-            e => !(e.type === 'tool_use' && (e as { toolName?: string }).toolName === 'AskUserQuestion')
-          )
-          events = [...filteredExec, ...steerAndApprovalEvents]
-          events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-          // Deduplicate approval_request by requestId
-          const seenRequestIds = new Set<string>()
-          for (let i = events.length - 1; i >= 0; i--) {
-            const e = events[i]
-            if (e.type === 'approval_request') {
-              const rid = (e as { requestId: string }).requestId
-              if (seenRequestIds.has(rid)) {
-                events.splice(i, 1)
-              } else {
-                seenRequestIds.add(rid)
-              }
-            }
-          }
-        } else {
-          events = execEvents
-        }
+        // Prefer streamEvents (realtime-store) as the primary source — it contains
+        // hydrated seq'd events from DB catch-up merged with live SSE events.
+        // Execution-store events are raw SSE chunks without DB reconciliation;
+        // using them caused the original tab to miss hydrated content because the
+        // old code fell through to `events = execEvents` when there were no
+        // steer/approval events, discarding all DB-reconciled text.
+        //
+        // streamEvents already contains all event types (text, tool_use,
+        // tool_result, file_change, steer, approval_*, error, progress),
+        // so we use it directly.
+        events = streamEvents
       } else if (streamEvents.length > 0) {
         events = streamEvents
       } else {

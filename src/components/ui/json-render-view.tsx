@@ -78,11 +78,19 @@ export function JsonRenderView({ spec, className, maxHeight, loading, fallback, 
     return <>{fallback}</>
   }
 
-  // Sanitize: ensure every element has props and children (may be undefined from YAML parsing)
+  // Sanitize: ensure every element has props and children (may be undefined from YAML parsing).
+  // Also filter out child references to elements that don't exist yet (common during
+  // streaming when the spec is partially parsed — prevents "[json-render] Missing element"
+  // warnings from the renderer).
   const rawElements = spec.elements as unknown as Record<string, Record<string, unknown>>
+  const elementKeys = new Set(Object.keys(rawElements))
   const cleanElements: Record<string, unknown> = {}
   for (const [key, el] of Object.entries(rawElements)) {
-    cleanElements[key] = { ...el, props: el.props ?? {}, children: el.children ?? [] }
+    const rawChildren = (el.children ?? []) as string[]
+    const validChildren = Array.isArray(rawChildren)
+      ? rawChildren.filter(child => typeof child !== 'string' || elementKeys.has(child))
+      : rawChildren
+    cleanElements[key] = { ...el, props: el.props ?? {}, children: validChildren }
   }
   const sanitized = { root: spec.root, elements: cleanElements, state: spec.state } as unknown as Spec
 
