@@ -646,6 +646,21 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
             // so existing.stdout may contain unflushed text beyond what's in mergedStdout.
             const bestStdout = existing.stdout.length >= mergedStdout.length ? existing.stdout : mergedStdout
 
+            // If bestStdout has more text than mergedActivity's text events, synthesize
+            // a trailing text event to prevent display blocks from missing content.
+            // This closes the gap when live SSE text hasn't been flushed to DB yet
+            // but activityEvents dropped the no-seq live text events (liveTextAhead=false).
+            if (bestStdout.length > mergedStdout.length) {
+              const trailingText = bestStdout.slice(mergedStdout.length)
+              if (trailingText.length > 0) {
+                mergedActivity.push({
+                  type: 'text' as const,
+                  content: trailingText,
+                  timestamp: new Date(),
+                })
+              }
+            }
+
             streams.set(execId, {
               ...existing,
               ...metadata,
