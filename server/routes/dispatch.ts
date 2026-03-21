@@ -98,12 +98,12 @@ async function autoDispatchReadyPlanTasks(projectId: string): Promise<number> {
   if (liveTasks.length === 0) return 0
 
   const depsRows = await db.select({
-    nodeId: planNodeDependencies.nodeId,
-    dependencyId: planNodeDependencies.dependencyNodeId,
+    nodeId: planNodeDependencies.nodeClientId,
+    dependencyId: planNodeDependencies.dependsOnClientId,
   }).from(planNodeDependencies).where(
     and(
-      eq(planNodeDependencies.projectId, projectId),
-      inArray(planNodeDependencies.nodeId, liveTasks.map((node) => node.id)),
+      eq(planNodeDependencies.nodeProjectId, projectId),
+      inArray(planNodeDependencies.nodeClientId, liveTasks.map((node) => node.id)),
     )
   )
 
