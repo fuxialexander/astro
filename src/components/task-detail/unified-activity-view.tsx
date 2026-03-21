@@ -621,6 +621,7 @@ export function UnifiedActivityView({
         <FileBrowser
           machineId={machineId}
           workingDirectory={fileBrowserDir}
+          fallbackDirectory={baseWorkDir}
           embedded
           onClose={() => { setFileBrowserOpen(false); setInitialFilePath(null) }}
           initialFilePath={initialFilePath}
@@ -633,6 +634,7 @@ export function UnifiedActivityView({
           <FileBrowser
             machineId={machineId}
             workingDirectory={fileBrowserDir}
+            fallbackDirectory={baseWorkDir}
             embedded
             onClose={() => { setFileBrowserOpen(false); setInitialFilePath(null) }}
             initialFilePath={initialFilePath}

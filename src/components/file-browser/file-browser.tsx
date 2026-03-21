@@ -56,6 +56,8 @@ export interface FileBrowserProps {
   machineName?: string
   machineHostname?: string
   workingDirectory: string
+  /** Directory to fall back to if workingDirectory does not exist */
+  fallbackDirectory?: string
   editorType?: EditorType
   onClose?: () => void
   /** When true, renders without fixed width/border (for Sheet embedding) */
@@ -157,6 +159,7 @@ export function FileBrowser({
   machineName,
   machineHostname,
   workingDirectory,
+  fallbackDirectory,
   editorType: initialEditorType = "cursor",
   onClose,
   embedded = false,
@@ -238,7 +241,7 @@ export function FileBrowser({
     handleKeyDown: hookKeyDown,
     breadcrumbs,
     entries,
-  } = useFileBrowser({ machineId, workingDirectory })
+  } = useFileBrowser({ machineId, workingDirectory, fallbackDirectory })
 
   // Navigate to initialFilePath when provided
   useEffect(() => {
