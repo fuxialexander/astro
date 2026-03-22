@@ -23,6 +23,22 @@ function getShortUUID(uuid: string): string {
   return uuid.replace(/-/g, '').slice(0, 6)
 }
 
+/** Batch-update plan_nodes to set deliveryBranchId for a list of node client IDs. */
+async function assignBranchToNodes(
+  tx: any,
+  projectId: string,
+  branchId: string,
+  nodeIds: string[],
+): Promise<void> {
+  if (nodeIds.length === 0) return
+  await tx.update(planNodes)
+    .set({ deliveryBranchId: branchId, updatedAt: new Date() })
+    .where(and(
+      eq(planNodes.projectId, projectId),
+      inArray(planNodes.clientId, nodeIds),
+    ))
+}
+
 /**
  * Ensure delivery branches exist for a project.
  * If no delivery branches have been assigned yet, compute connected components
@@ -67,37 +83,32 @@ export async function ensureDeliveryBranches(
 
   if (components.length === 0) return []
 
-  // Create delivery branch records
-  const branches: DeliveryBranch[] = []
+  // Create delivery branch records inside a transaction
+  return await db.transaction(async (tx: any) => {
+    const branches: DeliveryBranch[] = []
 
-  for (const comp of components) {
-    const branchId = crypto.randomUUID()
-    const shortDeliveryId = getShortUUID(branchId)
-    const branchName = `astro/${shortProjectId}-${shortDeliveryId}`
+    for (const comp of components) {
+      const branchId = crypto.randomUUID()
+      const shortDeliveryId = getShortUUID(branchId)
+      const branchName = `astro/${shortProjectId}-${shortDeliveryId}`
 
-    const [row] = await db.insert(deliveryBranches).values({
-      id: branchId,
-      projectId,
-      branchName,
-      isSingleton: comp.isSingleton,
-      nodeIds: comp.nodeIds,
-      status: 'active',
-    }).returning()
+      const [row] = await tx.insert(deliveryBranches).values({
+        id: branchId,
+        projectId,
+        branchName,
+        isSingleton: comp.isSingleton,
+        nodeIds: comp.nodeIds,
+        status: 'active',
+      }).returning()
 
-    // Update plan_nodes with delivery_branch_id
-    for (const nodeId of comp.nodeIds) {
-      await db.update(planNodes)
-        .set({ deliveryBranchId: branchId, updatedAt: new Date() })
-        .where(and(
-          eq(planNodes.projectId, projectId),
-          eq(planNodes.clientId, nodeId),
-        ))
+      // Batch-update plan_nodes with delivery_branch_id
+      await assignBranchToNodes(tx, projectId, branchId, comp.nodeIds)
+
+      branches.push(rowToDeliveryBranch(row))
     }
 
-    branches.push(rowToDeliveryBranch(row))
-  }
-
-  return branches
+    return branches
+  })
 }
 
 /**
@@ -212,11 +223,7 @@ export async function reconcileAfterReplan(
   restartedBranches: string[]
   newBranches: string[]
 }> {
-  const messages: string[] = []
-  const restartedBranches: string[] = []
-  const newBranches: string[] = []
-
-  // Get current state
+  // Read current state outside the transaction (read-only)
   const existingRows = await db.select().from(deliveryBranches).where(
     and(
       eq(deliveryBranches.projectId, projectId),
@@ -232,7 +239,6 @@ export async function reconcileAfterReplan(
     status: r.status,
   }))
 
-  // Get new graph
   const nodeRows = await db.select().from(planNodes).where(
     and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt))
   )
@@ -244,19 +250,26 @@ export async function reconcileAfterReplan(
 
   const reconciliation = detectStructuralChanges(nodes, edges, existingRecords)
 
-  // Handle restarts
-  if (reconciliation.restart.length > 0) {
+  // Apply all mutations inside a single transaction
+  const messages: string[] = []
+  const restartedBranches: string[] = []
+  const newBranches: string[] = []
+
+  await db.transaction(async (tx: any) => {
+    // Handle restarts
     for (const restart of reconciliation.restart) {
       messages.push(`-- Delivery branch restructuring required (${restart.reason}) --`)
 
       for (const branch of restart.affectedBranches) {
         messages.push(`Closing delivery branch ${branch.branchName} (${branch.nodeIds.length} tasks)`)
-        await markDeliveryBranchObsolete(db, branch.id)
+        await tx.update(deliveryBranches)
+          .set({ status: 'obsolete', updatedAt: new Date() })
+          .where(eq(deliveryBranches.id, branch.id))
         restartedBranches.push(branch.branchName)
 
-        // Reset tasks on this branch to 'planned'
-        for (const nodeId of branch.nodeIds) {
-          await db.update(planNodes)
+        // Batch-reset all tasks on this branch to 'planned'
+        if (branch.nodeIds.length > 0) {
+          await tx.update(planNodes)
             .set({
               status: 'planned',
               deliveryBranchId: null,
@@ -274,7 +287,7 @@ export async function reconcileAfterReplan(
             })
             .where(and(
               eq(planNodes.projectId, projectId),
-              eq(planNodes.clientId, nodeId),
+              inArray(planNodes.clientId, branch.nodeIds),
             ))
         }
       }
@@ -285,7 +298,7 @@ export async function reconcileAfterReplan(
         const shortDeliveryId = getShortUUID(branchId)
         const branchName = `astro/${shortProjectId}-${shortDeliveryId}`
 
-        await db.insert(deliveryBranches).values({
+        await tx.insert(deliveryBranches).values({
           id: branchId,
           projectId,
           branchName,
@@ -294,55 +307,49 @@ export async function reconcileAfterReplan(
           status: 'active',
         })
 
-        for (const nodeId of comp.nodeIds) {
-          await db.update(planNodes)
-            .set({ deliveryBranchId: branchId, updatedAt: new Date() })
-            .where(and(
-              eq(planNodes.projectId, projectId),
-              eq(planNodes.clientId, nodeId),
-            ))
-        }
+        await assignBranchToNodes(tx, projectId, branchId, comp.nodeIds)
 
         newBranches.push(branchName)
         messages.push(`Created delivery branch ${branchName} (${comp.taskIds.length} tasks, ${comp.isSingleton ? 'singleton' : 'multi-task'})`)
       }
     }
-  }
 
-  // Handle new components (no restart needed)
-  for (const entry of reconciliation.create) {
-    const branchId = crypto.randomUUID()
-    const shortDeliveryId = getShortUUID(branchId)
-    const branchName = `astro/${shortProjectId}-${shortDeliveryId}`
+    // Handle new components (no restart needed)
+    for (const entry of reconciliation.create) {
+      const branchId = crypto.randomUUID()
+      const shortDeliveryId = getShortUUID(branchId)
+      const branchName = `astro/${shortProjectId}-${shortDeliveryId}`
 
-    await db.insert(deliveryBranches).values({
-      id: branchId,
-      projectId,
-      branchName,
-      isSingleton: entry.component.isSingleton,
-      nodeIds: entry.component.nodeIds,
-      status: 'active',
-    })
+      await tx.insert(deliveryBranches).values({
+        id: branchId,
+        projectId,
+        branchName,
+        isSingleton: entry.component.isSingleton,
+        nodeIds: entry.component.nodeIds,
+        status: 'active',
+      })
 
-    for (const nodeId of entry.component.nodeIds) {
-      await db.update(planNodes)
-        .set({ deliveryBranchId: branchId, updatedAt: new Date() })
-        .where(and(
-          eq(planNodes.projectId, projectId),
-          eq(planNodes.clientId, nodeId),
-        ))
+      await assignBranchToNodes(tx, projectId, branchId, entry.component.nodeIds)
+
+      newBranches.push(branchName)
+      messages.push(`Created delivery branch ${branchName} (${entry.component.taskIds.length} tasks, ${entry.component.isSingleton ? 'singleton' : 'multi-task'})`)
     }
 
-    newBranches.push(branchName)
-    messages.push(`Created delivery branch ${branchName} (${entry.component.taskIds.length} tasks, ${entry.component.isSingleton ? 'singleton' : 'multi-task'})`)
-  }
+    // Handle kept branches (update node lists + assign new nodes)
+    for (const entry of reconciliation.keep) {
+      await tx.update(deliveryBranches)
+        .set({ nodeIds: entry.newNodeIds, updatedAt: new Date() })
+        .where(eq(deliveryBranches.id, entry.branch.id))
 
-  // Handle kept branches (update node lists)
-  for (const entry of reconciliation.keep) {
-    await db.update(deliveryBranches)
-      .set({ nodeIds: entry.newNodeIds, updatedAt: new Date() })
-      .where(eq(deliveryBranches.id, entry.branch.id))
-  }
+      // Find nodes that are new to this branch and set their deliveryBranchId
+      const addedNodeIds = entry.newNodeIds.filter(
+        (id) => !entry.branch.nodeIds.includes(id)
+      )
+      if (addedNodeIds.length > 0) {
+        await assignBranchToNodes(tx, projectId, entry.branch.id, addedNodeIds)
+      }
+    }
+  })
 
   return {
     messages,

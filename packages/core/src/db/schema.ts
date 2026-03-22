@@ -188,7 +188,7 @@ export const planNodes = pgTable('plan_nodes', {
   loopBestMetricValue: real('loop_best_metric_value'),
   loopBestIteration: integer('loop_best_iteration'),
   loopStatus: text('loop_status'), // 'iterating' | 'stopped' | null
-  deliveryBranchId: uuid('delivery_branch_id'),
+  deliveryBranchId: uuid('delivery_branch_id').references(() => deliveryBranches.id),
   deletedAt: timestamp('deleted_at'),
   deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),

@@ -28,6 +28,7 @@ import { projects, planNodes, planNodeDependencies, blobs, userProfiles, taskExe
 import { eq, isNull, and, inArray, sql } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
+import { getDeliveryBranchForNode } from '../lib/dispatch/delivery-branch-manager.js'
 import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction, GENERATIVE_UI_HINT } from '../lib/prompt-templates.js'
 import { MACHINE_INSTRUCTION_PRESETS } from '../lib/machine-instruction-presets.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
@@ -1489,7 +1490,6 @@ ${verificationSection}${executiveSummarySection}`)
   let projectBranch = `astro/${shortProjectId}`
   let deliveryBranchIsSingleton = false
   try {
-    const { getDeliveryBranchForNode } = await import('../lib/dispatch/delivery-branch-manager.js')
     const deliveryBranch = await getDeliveryBranchForNode(db, projectId, nodeId, shortProjectId)
     if (deliveryBranch) {
       projectBranch = deliveryBranch.branchName

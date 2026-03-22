@@ -36,8 +36,11 @@ export class UnionFind {
     }
   }
 
-  /** Find the root representative of the set containing `x`. */
+  /** Find the root representative of the set containing `x`. Throws if `x` is unknown. */
   find(x: string): string {
+    if (!this.parent.has(x)) {
+      throw new Error(`UnionFind: unknown element "${x}"`)
+    }
     let root = x
     while (this.parent.get(root) !== root) {
       root = this.parent.get(root)!
@@ -132,6 +135,7 @@ export function computeConnectedComponents(
   )
   if (activeNodes.length === 0) return []
 
+  const nodeMap = new Map(activeNodes.map((n) => [n.id, n]))
   const nodeIds = activeNodes.map((n) => n.id)
   const nodeIdSet = new Set(nodeIds)
   const uf = new UnionFind(nodeIds)
@@ -169,7 +173,7 @@ export function computeConnectedComponents(
 
   for (const [rootId, memberIds] of rawComponents) {
     const taskIds = memberIds.filter((id) => {
-      const node = activeNodes.find((n) => n.id === id)
+      const node = nodeMap.get(id)
       return node?.type === 'task'
     })
 
@@ -187,10 +191,10 @@ export function computeConnectedComponents(
   // Sort components deterministically by lowest task number, then by first task ID
   components.sort((a, b) => {
     const aMinNumber = Math.min(
-      ...a.taskIds.map((id) => nodes.find((n) => n.id === id)?.number ?? Number.MAX_SAFE_INTEGER)
+      ...a.taskIds.map((id) => nodeMap.get(id)?.number ?? Number.MAX_SAFE_INTEGER)
     )
     const bMinNumber = Math.min(
-      ...b.taskIds.map((id) => nodes.find((n) => n.id === id)?.number ?? Number.MAX_SAFE_INTEGER)
+      ...b.taskIds.map((id) => nodeMap.get(id)?.number ?? Number.MAX_SAFE_INTEGER)
     )
     if (aMinNumber !== bMinNumber) return aMinNumber - bMinNumber
     return a.taskIds[0].localeCompare(b.taskIds[0])
@@ -235,25 +239,27 @@ export interface DeliveryBranchReconciliation {
   }>
 }
 
+const EXECUTED_STATUSES = new Set<string>([
+  'completed',
+  'auto_verified',
+  'in_progress',
+  'dispatched',
+  'awaiting_judgment',
+  'awaiting_approval',
+])
+
 /**
  * Check which tasks on a delivery branch have been executed.
- * A task is "executed" if its status is completed, auto_verified, or in_progress.
+ * A task is "executed" if its status is completed, auto_verified, in_progress,
+ * dispatched, awaiting_judgment, or awaiting_approval.
  */
 function getExecutedTaskIds(
   branchNodeIds: string[],
-  nodes: PlanNode[],
+  nodeMap: Map<string, PlanNode>,
 ): string[] {
-  const executedStatuses: PlanNode['status'][] = [
-    'completed',
-    'auto_verified',
-    'in_progress',
-    'dispatched',
-    'awaiting_judgment',
-    'awaiting_approval',
-  ]
   return branchNodeIds.filter((id) => {
-    const node = nodes.find((n) => n.id === id)
-    return node && executedStatuses.includes(node.status)
+    const node = nodeMap.get(id)
+    return node && EXECUTED_STATUSES.has(node.status)
   })
 }
 
@@ -274,6 +280,7 @@ export function detectStructuralChanges(
 ): DeliveryBranchReconciliation {
   const newComponents = computeConnectedComponents(nodes, edges)
   const activeBranches = existingBranches.filter((b) => b.status === 'active' || b.status === 'pr_created')
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]))
 
   const result: DeliveryBranchReconciliation = {
     keep: [],
@@ -311,7 +318,7 @@ export function detectStructuralChanges(
 
   // Check 1: Do any delivery branches have executed tasks split across different new components?
   for (const branch of activeBranches) {
-    const executedIds = getExecutedTaskIds(branch.nodeIds, nodes)
+    const executedIds = getExecutedTaskIds(branch.nodeIds, nodeMap)
     if (executedIds.length <= 1) continue // Can't split a single executed task
 
     const componentRoots = new Set<string>()
@@ -335,7 +342,7 @@ export function detectStructuralChanges(
     for (const nodeId of comp.nodeIds) {
       const branch = nodeToBranch.get(nodeId)
       if (!branch) continue
-      const executedIds = getExecutedTaskIds([nodeId], nodes)
+      const executedIds = getExecutedTaskIds([nodeId], nodeMap)
       if (executedIds.length > 0) {
         branchesWithExecuted.add(branch.id)
       }
@@ -377,7 +384,7 @@ export function detectStructuralChanges(
     for (const nodeId of comp.nodeIds) {
       const branch = nodeToBranch.get(nodeId)
       if (branch && !restartBranches.has(branch.id) && !claimedBranches.has(branch.id)) {
-        const executedIds = getExecutedTaskIds([nodeId], nodes)
+        const executedIds = getExecutedTaskIds([nodeId], nodeMap)
         if (executedIds.length > 0) {
           ownerBranch = branch
           break
