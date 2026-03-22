@@ -284,11 +284,28 @@ export interface TaskDispatch {
   baseBranch?: string;
 
   /**
+   * Per-component delivery branch (e.g., 'astro/7b19a9-e4f1a2').
+   * In multi-task components, per-task branches are created from this branch.
+   * In singleton components, the agent works directly on this branch.
+   */
+  deliveryBranch?: string;
+
+  /**
+   * @deprecated Use `deliveryBranch` instead. Kept for backward compatibility
+   * with older agent runners that read `projectBranch`.
+   *
    * Project-level accumulation branch (e.g., 'astro/7b19a9').
    * When set, the agent runner creates the worktree from this branch instead of main,
    * and per-task PRs target this branch for auto-merge.
    */
   projectBranch?: string;
+
+  /**
+   * When true, the delivery branch has exactly one task (singleton component).
+   * The agent works directly on the delivery branch — no task sub-branch.
+   * PRs target the base branch (main) instead of the delivery branch.
+   */
+  deliveryBranchIsSingleton?: boolean;
 
   /**
    * Worktree strategy for non-git or copy-based execution.

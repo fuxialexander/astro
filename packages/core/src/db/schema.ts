@@ -1,5 +1,5 @@
 import { pgTable, text, integer, real, uuid, timestamp, boolean, date, jsonb, primaryKey, unique, index, uniqueIndex, check } from 'drizzle-orm/pg-core'
-import { sql } from 'drizzle-orm'
+import { sql, isNull } from 'drizzle-orm'
 import type { GitHubSyncSettings } from '../types.js'
 
 // ── Projects ──────────────────────────────────────────────────────────
@@ -188,6 +188,7 @@ export const planNodes = pgTable('plan_nodes', {
   loopBestMetricValue: real('loop_best_metric_value'),
   loopBestIteration: integer('loop_best_iteration'),
   loopStatus: text('loop_status'), // 'iterating' | 'stopped' | null
+  deliveryBranchId: uuid('delivery_branch_id').references(() => deliveryBranches.id, { onDelete: 'set null' }),
   deletedAt: timestamp('deleted_at'),
   deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -200,6 +201,28 @@ export const planNodes = pgTable('plan_nodes', {
   deletedAtIdx: index('idx_plan_nodes_deleted_at').on(table.deletedAt),
   branchNameIdx: index('idx_plan_nodes_branch_name').on(table.branchName),
   prNumberIdx: index('idx_plan_nodes_pr_number').on(table.prNumber),
+}))
+
+// ── Delivery Branches ─────────────────────────────────────────────────
+// Each connected component of the plan graph gets its own delivery branch.
+// Replaces the single project-level accumulation branch.
+export const deliveryBranches = pgTable('delivery_branches', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  branchName: text('branch_name').notNull(),
+  isSingleton: boolean('is_singleton').notNull().default(false),
+  nodeIds: text('node_ids').array().notNull().default([]),
+  prUrl: text('pr_url'),
+  prNumber: integer('pr_number'),
+  status: text('status').notNull().default('active'), // 'active' | 'pr_created' | 'merged' | 'obsolete'
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at'),
+}, (table) => ({
+  projectIdIdx: index('idx_delivery_branches_project').on(table.projectId),
+  projectBranchUniq: uniqueIndex('idx_delivery_branches_project_branch')
+    .on(table.projectId, table.branchName)
+    .where(isNull(table.deletedAt)),
 }))
 
 // ── Plan Node Dependencies ────────────────────────────────────────────

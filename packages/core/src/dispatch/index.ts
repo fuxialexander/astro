@@ -14,6 +14,19 @@ export { ResultRouter, createResultRouter, DEFAULT_ROUTER_CONFIG } from './resul
 export type { ResultRouterConfig } from './result-router.js'
 export { BranchManager, createBranchManager } from './branch-manager.js'
 export type { BranchInfo } from './branch-manager.js'
+
+// Connected component analysis for delivery branches
+export {
+  UnionFind,
+  computeConnectedComponents,
+  detectStructuralChanges,
+  requiresRestart,
+} from './connected-components.js'
+export type {
+  PlanComponent,
+  DeliveryBranchRecord,
+  DeliveryBranchReconciliation,
+} from './connected-components.js'
 export {
   selectMachine,
   resetRoundRobin,

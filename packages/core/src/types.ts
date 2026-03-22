@@ -331,6 +331,7 @@ export interface PlanNode {
   loopBestMetricValue?: number;
   loopBestIteration?: number;
   loopStatus?: 'iterating' | 'stopped' | null;
+  deliveryBranchId?: string;
 }
 
 // Comment on a plan node
@@ -479,6 +480,21 @@ export interface PlanEdge {
   type: EdgeType;
   deletedAt?: Date;
   deletionActionId?: string;
+}
+
+export type DeliveryBranchStatus = 'active' | 'pr_created' | 'merged' | 'obsolete';
+
+export interface DeliveryBranch {
+  id: string;
+  projectId: string;
+  branchName: string;
+  isSingleton: boolean;
+  nodeIds: string[];
+  prUrl?: string;
+  prNumber?: number;
+  status: DeliveryBranchStatus;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 // Domain expertise options for planning personalization

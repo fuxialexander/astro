@@ -239,6 +239,13 @@
       "when": 1773993601000,
       "tag": "0031_soft_delete_all_entities",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1774139630872,
+      "tag": "0034_stale_blink",
+      "breakpoints": true
     }
   ]
 }
