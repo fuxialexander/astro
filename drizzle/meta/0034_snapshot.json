@@ -1,6 +1,6 @@
 {
-  "id": "defbdab9-3b2d-498f-b7d2-7ba36dd7ca31",
-  "prevId": "c11df76e-bed9-40b0-99d5-c8cfeb5c21b4",
+  "id": "8ffbfd9a-31e4-42fd-b640-3aabd9ca1344",
+  "prevId": "defbdab9-3b2d-498f-b7d2-7ba36dd7ca31",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -654,6 +654,7 @@
             }
           ],
           "isUnique": true,
+          "where": "\"delivery_branches\".\"deleted_at\" is null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -3694,6 +3695,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "plan_nodes_delivery_branch_id_delivery_branches_id_fk": {
+          "name": "plan_nodes_delivery_branch_id_delivery_branches_id_fk",
+          "tableFrom": "plan_nodes",
+          "tableTo": "delivery_branches",
+          "columnsFrom": [
+            "delivery_branch_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

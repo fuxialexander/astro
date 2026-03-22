@@ -225,39 +225,41 @@ export async function reconcileAfterReplan(
   restartedBranches: string[]
   newBranches: string[]
 }> {
-  // Read current state outside the transaction (read-only)
-  const existingRows = await db.select().from(deliveryBranches).where(
-    and(
-      eq(deliveryBranches.projectId, projectId),
-      isNull(deliveryBranches.deletedAt),
-      inArray(deliveryBranches.status, ['active', 'pr_created']),
-    )
-  )
-  const existingRecords: DeliveryBranchRecord[] = existingRows.map((r: any) => ({
-    id: r.id,
-    branchName: r.branchName,
-    nodeIds: r.nodeIds ?? [],
-    isSingleton: r.isSingleton,
-    status: r.status,
-  }))
-
-  const nodeRows = await db.select().from(planNodes).where(
-    and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt))
-  )
-  const edgeRows = await db.select().from(planEdges).where(
-    and(eq(planEdges.projectId, projectId), isNull(planEdges.deletedAt))
-  )
-  const nodes: PlanNode[] = nodeRows.map(dbNodeToPlanNode)
-  const edges: PlanEdge[] = edgeRows.map(dbEdgeToPlanEdge)
-
-  const reconciliation = detectStructuralChanges(nodes, edges, existingRecords)
-
-  // Apply all mutations inside a single transaction
+  // All reads and mutations inside a single transaction with advisory lock
+  // to prevent TOCTOU races with concurrent re-plans.
   const messages: string[] = []
   const restartedBranches: string[] = []
   const newBranches: string[] = []
 
   await db.transaction(async (tx: any) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`delivery-branches:${projectId}`}))`)
+
+    const existingRows = await tx.select().from(deliveryBranches).where(
+      and(
+        eq(deliveryBranches.projectId, projectId),
+        isNull(deliveryBranches.deletedAt),
+        inArray(deliveryBranches.status, ['active', 'pr_created']),
+      )
+    )
+    const existingRecords: DeliveryBranchRecord[] = existingRows.map((r: any) => ({
+      id: r.id,
+      branchName: r.branchName,
+      nodeIds: r.nodeIds ?? [],
+      isSingleton: r.isSingleton,
+      status: r.status,
+    }))
+
+    const nodeRows = await tx.select().from(planNodes).where(
+      and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt))
+    )
+    const edgeRows = await tx.select().from(planEdges).where(
+      and(eq(planEdges.projectId, projectId), isNull(planEdges.deletedAt))
+    )
+    const nodes: PlanNode[] = nodeRows.map(dbNodeToPlanNode)
+    const edges: PlanEdge[] = edgeRows.map(dbEdgeToPlanEdge)
+
+    const reconciliation = detectStructuralChanges(nodes, edges, existingRecords)
+
     // Handle restarts
     for (const restart of reconciliation.restart) {
       messages.push(`-- Delivery branch restructuring required (${restart.reason}) --`)

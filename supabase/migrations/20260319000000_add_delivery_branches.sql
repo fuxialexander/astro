@@ -10,9 +10,9 @@ CREATE TABLE IF NOT EXISTS delivery_branches (
   pr_url TEXT,
   pr_number INTEGER,
   status TEXT NOT NULL DEFAULT 'active',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  deleted_at TIMESTAMPTZ
+  created_at TIMESTAMP NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMP
 );
 
 ALTER TABLE delivery_branches ENABLE ROW LEVEL SECURITY;
