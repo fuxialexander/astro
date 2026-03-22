@@ -376,7 +376,9 @@ class StreamingEventLog {
           AND data->>'status' = 'pending'
         RETURNING seq, execution_id AS "executionId", event_type AS "eventType", data, created_at AS "createdAt"
       `)
-      return (rows.rows as Array<{ seq: number; executionId: string; eventType: string; data: unknown; createdAt: Date }>).map((r) => ({
+      // db.execute() returns rows directly with postgres-js, but { rows } with node-postgres/PGlite
+      const rowArray = (Array.isArray(rows) ? rows : (rows as { rows?: unknown[] }).rows ?? []) as Array<{ seq: number; executionId: string; eventType: string; data: unknown; createdAt: Date }>
+      return rowArray.map((r) => ({
         seq: r.seq,
         executionId: r.executionId,
         eventType: r.eventType,
