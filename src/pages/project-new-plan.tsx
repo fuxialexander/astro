@@ -790,6 +790,10 @@ export function ProjectNewPlan() {
   // triggers (project with zero live nodes → isRegeneration → reuses same project).
   const removeNodes = usePlanStore((s) => s.removeNodes)
   const handleRegenerate = useCallback((targetProjectId: string) => {
+    // Guard: don't regenerate if the session is still active
+    const exec = useExecutionStore.getState().executions.get(`plan-${targetProjectId}`)
+    if (exec?.status === 'pending' || exec?.status === 'running') return
+
     // Clear the execution so the routing logic falls through to the input form
     useExecutionStore.setState((state) => {
       const next = new Map(state.executions)
@@ -798,8 +802,10 @@ export function ProjectNewPlan() {
     })
     // Soft-delete any partial plan nodes from the failed attempt so
     // existingProjectHasNoNodes evaluates to true → isRegeneration = true
-    // → handleSubmit reuses the same project instead of creating a new one
-    const partialNodeIds = planNodes
+    // → handleSubmit reuses the same project instead of creating a new one.
+    // Read fresh nodes at call time to avoid stale closure + excessive re-renders.
+    const currentNodes = usePlanStore.getState().nodes
+    const partialNodeIds = currentNodes
       .filter((n) => n.projectId === targetProjectId && isLive(n))
       .map((n) => n.id)
     if (partialNodeIds.length > 0) {
@@ -808,7 +814,7 @@ export function ProjectNewPlan() {
     // Set URL to the project so existing-project pre-fill kicks in
     setActiveProjectId(targetProjectId)
     setSearchParams({ projectId: targetProjectId })
-  }, [setSearchParams, planNodes, removeNodes])
+  }, [setSearchParams, removeNodes])
 
   if (activeProjectId && (execution || project) && !showInputForRegeneration) {
     return (
@@ -1185,7 +1191,7 @@ export function ProjectNewPlan() {
                         </p>
                         {timestamp && (
                           <span className="text-[10px] text-muted-foreground/60 shrink-0">
-                            {new Date(timestamp).toLocaleDateString(undefined, {
+                            {new Date(timestamp).toLocaleString(undefined, {
                               month: 'short',
                               day: 'numeric',
                               hour: '2-digit',
