@@ -299,7 +299,7 @@ export function UnifiedActivityView({
     executionId ? s.taskStreams.get(executionId)?.machineId : undefined
   )
   const resolvedMachineIdForCanSteer = machineId || execMachineId || streamMachineId
-  const canSteer = (isRunning || (execution?.status === "success" && !!execution?.sessionId)) && !!resolvedMachineIdForCanSteer
+  const canSteer = isRunning && !!resolvedMachineIdForCanSteer
 
   function handleSend(interrupt = false) {
     const text = input.trim()
