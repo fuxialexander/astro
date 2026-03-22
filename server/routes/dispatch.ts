@@ -1484,13 +1484,26 @@ ${verificationSection}${executiveSummarySection}`)
     console.warn('[dispatch] Failed to fetch project for event hooks:', err)
   }
 
-  // Compute the project-level accumulation branch
-  const projectBranch = `astro/${shortProjectId}`
+  // Compute delivery branch for this task's connected component.
+  // Falls back to legacy project-level branch if delivery branches are not yet assigned.
+  let projectBranch = `astro/${shortProjectId}`
+  let deliveryBranchIsSingleton = false
+  try {
+    const { getDeliveryBranchForNode } = await import('../lib/dispatch/delivery-branch-manager.js')
+    const deliveryBranch = await getDeliveryBranchForNode(db, projectId, nodeId, shortProjectId)
+    if (deliveryBranch) {
+      projectBranch = deliveryBranch.branchName
+      deliveryBranchIsSingleton = deliveryBranch.isSingleton
+      console.log(`[dispatch] Using delivery branch ${projectBranch} (singleton=${deliveryBranchIsSingleton}) for node ${nodeId}`)
+    }
+  } catch (err) {
+    console.warn(`[dispatch] Failed to resolve delivery branch for node ${nodeId}, falling back to project branch:`, err)
+  }
 
-  // Persist projectBranch to the project record (idempotent — only sets if not already set)
+  // Persist projectBranch to the project record for backward compatibility (idempotent)
   try {
     await db.update(projects)
-      .set({ projectBranch, updatedAt: new Date() })
+      .set({ projectBranch: `astro/${shortProjectId}`, updatedAt: new Date() })
       .where(and(eq(projects.id, projectId), isNull(projects.projectBranch)))
   } catch (err) {
     console.warn(`[dispatch] Failed to persist projectBranch for project ${projectId}:`, err)
@@ -1527,6 +1540,7 @@ ${verificationSection}${executiveSummarySection}`)
     remoteType,
     baseBranch: baseBranch || undefined,
     projectBranch,
+    deliveryBranchIsSingleton,
     agentDir,
     worktreeStrategy,
     useWorktree,

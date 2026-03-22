@@ -1,0 +1,401 @@
+/**
+ * Delivery Branch Manager
+ *
+ * Manages the lifecycle of delivery branches — per-connected-component
+ * accumulation branches that each produce their own PR to the base branch.
+ *
+ * Replaces the single project-level accumulation branch model.
+ */
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+import { eq, and, isNull, inArray } from 'drizzle-orm'
+import { deliveryBranches, planNodes, planEdges } from '../db/schema.js'
+import type { PlanNode, PlanEdge, DeliveryBranch } from '../../../packages/core/src/types.js'
+import {
+  computeConnectedComponents,
+  detectStructuralChanges,
+  type DeliveryBranchRecord,
+} from '../../../packages/core/src/dispatch/connected-components.js'
+
+/** Short ID from a UUID: first 6 hex chars after stripping hyphens. */
+function getShortUUID(uuid: string): string {
+  return uuid.replace(/-/g, '').slice(0, 6)
+}
+
+/**
+ * Ensure delivery branches exist for a project.
+ * If no delivery branches have been assigned yet, compute connected components
+ * and create delivery branch records for each component.
+ *
+ * @param db - Drizzle database instance
+ * @param projectId - Project UUID
+ * @param shortProjectId - Short project ID (first 6 hex chars)
+ * @returns Array of active delivery branches
+ */
+export async function ensureDeliveryBranches(
+  db: any,
+  projectId: string,
+  shortProjectId: string,
+): Promise<DeliveryBranch[]> {
+  // Check for existing active delivery branches
+  const existing = await db.select().from(deliveryBranches).where(
+    and(
+      eq(deliveryBranches.projectId, projectId),
+      isNull(deliveryBranches.deletedAt),
+      inArray(deliveryBranches.status, ['active', 'pr_created']),
+    )
+  )
+
+  if (existing.length > 0) {
+    return existing.map(rowToDeliveryBranch)
+  }
+
+  // No delivery branches yet — compute connected components from the plan graph
+  const nodeRows = await db.select().from(planNodes).where(
+    and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt))
+  )
+  const edgeRows = await db.select().from(planEdges).where(
+    and(eq(planEdges.projectId, projectId), isNull(planEdges.deletedAt))
+  )
+
+  // Convert DB rows to types expected by computeConnectedComponents
+  const nodes: PlanNode[] = nodeRows.map(dbNodeToPlanNode)
+  const edges: PlanEdge[] = edgeRows.map(dbEdgeToPlanEdge)
+
+  const components = computeConnectedComponents(nodes, edges)
+
+  if (components.length === 0) return []
+
+  // Create delivery branch records
+  const branches: DeliveryBranch[] = []
+
+  for (const comp of components) {
+    const branchId = crypto.randomUUID()
+    const shortDeliveryId = getShortUUID(branchId)
+    const branchName = `astro/${shortProjectId}-${shortDeliveryId}`
+
+    const [row] = await db.insert(deliveryBranches).values({
+      id: branchId,
+      projectId,
+      branchName,
+      isSingleton: comp.isSingleton,
+      nodeIds: comp.nodeIds,
+      status: 'active',
+    }).returning()
+
+    // Update plan_nodes with delivery_branch_id
+    for (const nodeId of comp.nodeIds) {
+      await db.update(planNodes)
+        .set({ deliveryBranchId: branchId, updatedAt: new Date() })
+        .where(and(
+          eq(planNodes.projectId, projectId),
+          eq(planNodes.clientId, nodeId),
+        ))
+    }
+
+    branches.push(rowToDeliveryBranch(row))
+  }
+
+  return branches
+}
+
+/**
+ * Get the delivery branch for a specific task node.
+ *
+ * @param db - Drizzle database instance
+ * @param projectId - Project UUID
+ * @param nodeClientId - Plan node client ID
+ * @param shortProjectId - Short project ID for branch naming
+ * @returns Delivery branch record, or null if not assigned
+ */
+export async function getDeliveryBranchForNode(
+  db: any,
+  projectId: string,
+  nodeClientId: string,
+  shortProjectId: string,
+): Promise<DeliveryBranch | null> {
+  // First try: look up via plan_nodes.delivery_branch_id
+  const [nodeRow] = await db.select({ deliveryBranchId: planNodes.deliveryBranchId })
+    .from(planNodes)
+    .where(and(
+      eq(planNodes.projectId, projectId),
+      eq(planNodes.clientId, nodeClientId),
+    ))
+    .limit(1)
+
+  if (nodeRow?.deliveryBranchId) {
+    const [branchRow] = await db.select().from(deliveryBranches)
+      .where(eq(deliveryBranches.id, nodeRow.deliveryBranchId))
+      .limit(1)
+    if (branchRow) return rowToDeliveryBranch(branchRow)
+  }
+
+  // Fallback: ensure delivery branches exist, then look up again
+  const branches = await ensureDeliveryBranches(db, projectId, shortProjectId)
+
+  // Find the branch that contains this node
+  for (const branch of branches) {
+    if (branch.nodeIds.includes(nodeClientId)) {
+      return branch
+    }
+  }
+
+  return null
+}
+
+/**
+ * Mark a delivery branch as obsolete (used during re-plan restarts).
+ */
+export async function markDeliveryBranchObsolete(
+  db: any,
+  branchId: string,
+): Promise<void> {
+  await db.update(deliveryBranches)
+    .set({ status: 'obsolete', updatedAt: new Date() })
+    .where(eq(deliveryBranches.id, branchId))
+}
+
+/**
+ * Update delivery branch PR info after component completion.
+ */
+export async function updateDeliveryBranchPr(
+  db: any,
+  branchId: string,
+  prUrl: string,
+  prNumber: number,
+): Promise<void> {
+  await db.update(deliveryBranches)
+    .set({ prUrl, prNumber, status: 'pr_created', updatedAt: new Date() })
+    .where(eq(deliveryBranches.id, branchId))
+}
+
+/**
+ * Check if all executable tasks in a delivery branch's component are complete.
+ */
+export async function isComponentComplete(
+  db: any,
+  branchId: string,
+): Promise<boolean> {
+  const [branch] = await db.select().from(deliveryBranches)
+    .where(eq(deliveryBranches.id, branchId))
+    .limit(1)
+
+  if (!branch || branch.status !== 'active') return false
+
+  const completedStatuses = ['completed', 'auto_verified']
+  const nodeRows = await db.select({ status: planNodes.status, type: planNodes.type })
+    .from(planNodes)
+    .where(and(
+      eq(planNodes.deliveryBranchId, branchId),
+      isNull(planNodes.deletedAt),
+    ))
+
+  // Check if all task nodes (not milestones/branches) are complete
+  const taskRows = nodeRows.filter((r: any) => r.type === 'task')
+  if (taskRows.length === 0) return false
+
+  return taskRows.every((r: any) => completedStatuses.includes(r.status))
+}
+
+/**
+ * Run the delivery branch reconciliation after a re-plan.
+ * Returns structured log messages for the plan chat.
+ */
+export async function reconcileAfterReplan(
+  db: any,
+  projectId: string,
+  shortProjectId: string,
+): Promise<{
+  messages: string[]
+  requiresRestart: boolean
+  restartedBranches: string[]
+  newBranches: string[]
+}> {
+  const messages: string[] = []
+  const restartedBranches: string[] = []
+  const newBranches: string[] = []
+
+  // Get current state
+  const existingRows = await db.select().from(deliveryBranches).where(
+    and(
+      eq(deliveryBranches.projectId, projectId),
+      isNull(deliveryBranches.deletedAt),
+      inArray(deliveryBranches.status, ['active', 'pr_created']),
+    )
+  )
+  const existingRecords: DeliveryBranchRecord[] = existingRows.map((r: any) => ({
+    id: r.id,
+    branchName: r.branchName,
+    nodeIds: r.nodeIds ?? [],
+    isSingleton: r.isSingleton,
+    status: r.status,
+  }))
+
+  // Get new graph
+  const nodeRows = await db.select().from(planNodes).where(
+    and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt))
+  )
+  const edgeRows = await db.select().from(planEdges).where(
+    and(eq(planEdges.projectId, projectId), isNull(planEdges.deletedAt))
+  )
+  const nodes: PlanNode[] = nodeRows.map(dbNodeToPlanNode)
+  const edges: PlanEdge[] = edgeRows.map(dbEdgeToPlanEdge)
+
+  const reconciliation = detectStructuralChanges(nodes, edges, existingRecords)
+
+  // Handle restarts
+  if (reconciliation.restart.length > 0) {
+    for (const restart of reconciliation.restart) {
+      messages.push(`-- Delivery branch restructuring required (${restart.reason}) --`)
+
+      for (const branch of restart.affectedBranches) {
+        messages.push(`Closing delivery branch ${branch.branchName} (${branch.nodeIds.length} tasks)`)
+        await markDeliveryBranchObsolete(db, branch.id)
+        restartedBranches.push(branch.branchName)
+
+        // Reset tasks on this branch to 'planned'
+        for (const nodeId of branch.nodeIds) {
+          await db.update(planNodes)
+            .set({
+              status: 'planned',
+              deliveryBranchId: null,
+              executionId: null,
+              executionOutput: null,
+              executionError: null,
+              executionStartedAt: null,
+              executionCompletedAt: null,
+              branchName: null,
+              prUrl: null,
+              prNumber: null,
+              commitBeforeSha: null,
+              commitAfterSha: null,
+              updatedAt: new Date(),
+            })
+            .where(and(
+              eq(planNodes.projectId, projectId),
+              eq(planNodes.clientId, nodeId),
+            ))
+        }
+      }
+
+      // Create new delivery branches for the restructured components
+      for (const comp of restart.newComponents) {
+        const branchId = crypto.randomUUID()
+        const shortDeliveryId = getShortUUID(branchId)
+        const branchName = `astro/${shortProjectId}-${shortDeliveryId}`
+
+        await db.insert(deliveryBranches).values({
+          id: branchId,
+          projectId,
+          branchName,
+          isSingleton: comp.isSingleton,
+          nodeIds: comp.nodeIds,
+          status: 'active',
+        })
+
+        for (const nodeId of comp.nodeIds) {
+          await db.update(planNodes)
+            .set({ deliveryBranchId: branchId, updatedAt: new Date() })
+            .where(and(
+              eq(planNodes.projectId, projectId),
+              eq(planNodes.clientId, nodeId),
+            ))
+        }
+
+        newBranches.push(branchName)
+        messages.push(`Created delivery branch ${branchName} (${comp.taskIds.length} tasks, ${comp.isSingleton ? 'singleton' : 'multi-task'})`)
+      }
+    }
+  }
+
+  // Handle new components (no restart needed)
+  for (const entry of reconciliation.create) {
+    const branchId = crypto.randomUUID()
+    const shortDeliveryId = getShortUUID(branchId)
+    const branchName = `astro/${shortProjectId}-${shortDeliveryId}`
+
+    await db.insert(deliveryBranches).values({
+      id: branchId,
+      projectId,
+      branchName,
+      isSingleton: entry.component.isSingleton,
+      nodeIds: entry.component.nodeIds,
+      status: 'active',
+    })
+
+    for (const nodeId of entry.component.nodeIds) {
+      await db.update(planNodes)
+        .set({ deliveryBranchId: branchId, updatedAt: new Date() })
+        .where(and(
+          eq(planNodes.projectId, projectId),
+          eq(planNodes.clientId, nodeId),
+        ))
+    }
+
+    newBranches.push(branchName)
+    messages.push(`Created delivery branch ${branchName} (${entry.component.taskIds.length} tasks, ${entry.component.isSingleton ? 'singleton' : 'multi-task'})`)
+  }
+
+  // Handle kept branches (update node lists)
+  for (const entry of reconciliation.keep) {
+    await db.update(deliveryBranches)
+      .set({ nodeIds: entry.newNodeIds, updatedAt: new Date() })
+      .where(eq(deliveryBranches.id, entry.branch.id))
+  }
+
+  return {
+    messages,
+    requiresRestart: reconciliation.restart.length > 0,
+    restartedBranches,
+    newBranches,
+  }
+}
+
+// ── Row conversion helpers ───────────────────────────────────────────
+
+function rowToDeliveryBranch(row: any): DeliveryBranch {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    branchName: row.branchName,
+    isSingleton: row.isSingleton,
+    nodeIds: row.nodeIds ?? [],
+    prUrl: row.prUrl ?? undefined,
+    prNumber: row.prNumber ?? undefined,
+    status: row.status,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}
+
+function dbNodeToPlanNode(row: any): PlanNode {
+  return {
+    id: row.clientId,
+    number: row.number,
+    projectId: row.projectId,
+    type: row.type,
+    title: row.title,
+    description: row.description,
+    status: row.status,
+    parentId: row.parentId,
+    dependencies: row.dependencies ?? [],
+    verification: row.verification ?? 'auto',
+    position: { x: row.positionX ?? 0, y: row.positionY ?? 0 },
+    milestoneId: row.milestoneId,
+    deliveryBranchId: row.deliveryBranchId,
+    deletedAt: row.deletedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  } as PlanNode
+}
+
+function dbEdgeToPlanEdge(row: any): PlanEdge {
+  return {
+    id: row.clientId ?? row.id,
+    source: row.sourceClientId,
+    target: row.targetClientId,
+    type: row.type,
+    deletedAt: row.deletedAt,
+  }
+}
