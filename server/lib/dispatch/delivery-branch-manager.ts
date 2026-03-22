@@ -208,8 +208,10 @@ export async function isComponentComplete(
       ))
 
     // Check if all task nodes (not milestones/branches) are complete.
-    // If no task nodes remain (all deleted), the component is vacuously complete.
-    const taskRows = nodeRows.filter((r: any) => r.type === 'task')
+    // Pruned tasks are excluded — pruning sets status='pruned' but NOT deletedAt,
+    // so they'd otherwise block completion forever.
+    // If no active task nodes remain (all deleted or pruned), the component is vacuously complete.
+    const taskRows = nodeRows.filter((r: any) => r.type === 'task' && r.status !== 'pruned')
     if (taskRows.length === 0) return true
 
     return taskRows.every((r: any) => completedStatuses.includes(r.status))
@@ -345,6 +347,7 @@ export async function reconcileAfterReplan(
     }
 
     // Handle kept branches (update node lists + assign new nodes)
+    const keptBranchIds = new Set(reconciliation.keep.map((e) => e.branch.id))
     for (const entry of reconciliation.keep) {
       await tx.update(deliveryBranches)
         .set({ nodeIds: entry.newNodeIds, updatedAt: new Date() })
@@ -356,6 +359,22 @@ export async function reconcileAfterReplan(
       )
       if (addedNodeIds.length > 0) {
         await assignBranchToNodes(tx, projectId, entry.branch.id, addedNodeIds)
+      }
+    }
+
+    // Mark orphan branches as obsolete — these are active branches that were
+    // neither kept, restarted, nor claimed by any new component (e.g., when
+    // two unexecuted branches merge and only one gets claimed).
+    const restartBranchIds = new Set<string>()
+    for (const restart of reconciliation.restart) {
+      for (const b of restart.affectedBranches) restartBranchIds.add(b.id)
+    }
+    for (const branch of existingRecords) {
+      if (!keptBranchIds.has(branch.id) && !restartBranchIds.has(branch.id)) {
+        await tx.update(deliveryBranches)
+          .set({ status: 'obsolete', updatedAt: new Date() })
+          .where(eq(deliveryBranches.id, branch.id))
+        messages.push(`Obsoleted orphan delivery branch ${branch.branchName}`)
       }
     }
   })

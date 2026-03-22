@@ -66,12 +66,12 @@ Delivery branch:  astro/{shortProjectId}-{shortDeliveryId}
 Task branch:      astro/{shortProjectId}-{shortDeliveryId}-{shortNodeId}
 
 Examples:
-  astro/7b19a9-e4f1a2           (delivery branch)
-  astro/7b19a9-e4f1a2-n3        (task branch within component)
+  astro/7b19a9-e4f1a2b3           (delivery branch)
+  astro/7b19a9-e4f1a2b3-n3        (task branch within component)
 ```
 
 - `shortProjectId`: First 6 hex chars of project UUID (unchanged from current model)
-- `shortDeliveryId`: First 6 hex chars of a randomly generated UUID, created once when the delivery branch record is inserted into the DB
+- `shortDeliveryId`: First 8 hex chars of a randomly generated UUID, created once when the delivery branch record is inserted into the DB
 - `shortNodeId`: `n{number}` or last 6 hex chars of node UUID (unchanged)
 
 ### Why UUID-based, Not Sequential
