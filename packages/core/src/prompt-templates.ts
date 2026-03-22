@@ -301,8 +301,8 @@ Automatically fixes: cross-milestone task→task edges (routes them through the 
 
 ### Structural Rules
 - Every task must belong to a milestone via \`--milestone-id\`.
-- Cross-milestone dependencies MUST be milestone-to-milestone only. Tasks depend on a previous milestone as a whole, NOT on individual tasks from that milestone.
-- The plan should include a terminal review/delivery node in the final milestone.
+- Cross-milestone dependencies MUST route through milestone nodes. A task in milestone N that depends on work from milestone N-1 should depend on the N-1 milestone node, NOT directly on individual tasks inside N-1. Intra-milestone task-to-task edges are fine.
+- The plan should include a terminal review node in the final milestone (code review for software projects, quality review for other deliverables).
 - ALWAYS run \`plan verify\` after making changes to catch structural issues.
 
 ### Rules
@@ -834,12 +834,13 @@ Parallel tasks (no dependency edge between them) run as separate agents in isola
 
 These rules are enforced by \`plan verify\`. Violating them causes errors at dispatch time.
 
-1. **Cross-milestone dependencies MUST be milestone-to-milestone only.** Tasks in milestone N depend on milestone N-1 as a whole, NOT on individual tasks from milestone N-1. Intra-milestone task-to-task edges are allowed. NEVER create a direct dependency edge from a task in one milestone to a task in a different milestone.
+1. **Cross-milestone dependencies MUST route through milestone nodes.** A task in milestone N that depends on work from milestone N-1 should depend on the N-1 milestone node, NOT directly on individual tasks inside N-1. Intra-milestone task-to-task edges are allowed. NEVER create a direct dependency edge from a task in one milestone to a task in a different milestone.
 
-2. **The final milestone MUST contain a terminal review/delivery node:**
-   - If the project has a GitHub repo: include a delivery node titled "Create PR and run shepherd review" (use \`astro-cli plan add-github-push-task\` after creating all other nodes).
-   - If the project has no GitHub repo: include a task node titled "Run shepherd code review" that uses a sub-agent to review all changes.
-   - Code review is ALWAYS required regardless of delivery mode.
+2. **The final milestone MUST contain a terminal review/delivery node** appropriate to the project type:
+   - Software projects with a GitHub repo: include a delivery node titled "Create PR and run shepherd review" (use \`astro-cli plan add-github-push-task\` after creating all other nodes).
+   - Software projects without a GitHub repo: include a task node titled "Run shepherd code review" that uses a sub-agent to review all changes.
+   - Non-software projects (slides, research, writing, analysis): include a review task appropriate to the deliverable (e.g., "Review presentation for clarity and flow", "Validate analysis results", "Final quality review").
+   - Every plan must end with some form of review — the type should match the deliverable.
 
 3. **No task may depend on or follow the terminal review/delivery node.** It must be the final leaf of the plan.
 
