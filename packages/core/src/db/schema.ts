@@ -1,5 +1,5 @@
 import { pgTable, text, integer, real, uuid, timestamp, boolean, date, jsonb, primaryKey, unique, index, uniqueIndex, check } from 'drizzle-orm/pg-core'
-import { sql } from 'drizzle-orm'
+import { sql, isNull } from 'drizzle-orm'
 import type { GitHubSyncSettings } from '../types.js'
 
 // ── Projects ──────────────────────────────────────────────────────────
@@ -188,7 +188,7 @@ export const planNodes = pgTable('plan_nodes', {
   loopBestMetricValue: real('loop_best_metric_value'),
   loopBestIteration: integer('loop_best_iteration'),
   loopStatus: text('loop_status'), // 'iterating' | 'stopped' | null
-  deliveryBranchId: uuid('delivery_branch_id').references(() => deliveryBranches.id),
+  deliveryBranchId: uuid('delivery_branch_id').references(() => deliveryBranches.id, { onDelete: 'set null' }),
   deletedAt: timestamp('deleted_at'),
   deletionActionId: text('deletion_action_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -221,7 +221,8 @@ export const deliveryBranches = pgTable('delivery_branches', {
 }, (table) => ({
   projectIdIdx: index('idx_delivery_branches_project').on(table.projectId),
   projectBranchUniq: uniqueIndex('idx_delivery_branches_project_branch')
-    .on(table.projectId, table.branchName),
+    .on(table.projectId, table.branchName)
+    .where(isNull(table.deletedAt)),
 }))
 
 // ── Plan Node Dependencies ────────────────────────────────────────────

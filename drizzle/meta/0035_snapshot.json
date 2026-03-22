@@ -1,5 +1,5 @@
 {
-  "id": "270a62d8-83ee-4cd7-b626-eac6e5aef210",
+  "id": "4be5bd5c-8be3-48af-8a82-c140da6f2845",
   "prevId": "defbdab9-3b2d-498f-b7d2-7ba36dd7ca31",
   "version": "7",
   "dialect": "postgresql",
@@ -654,6 +654,7 @@
             }
           ],
           "isUnique": true,
+          "where": "\"delivery_branches\".\"deleted_at\" is null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -3706,7 +3707,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

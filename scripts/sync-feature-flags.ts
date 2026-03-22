@@ -202,6 +202,7 @@ const INTERNAL_FLAGS: Record<string, boolean> = {
   'webhook-automation': true,
   'loop-nodes': true,
   'team-machines': true,
+  'delivery-branches': true,
 }
 
 // ─── Script logic ────────────────────────────────────────────────────

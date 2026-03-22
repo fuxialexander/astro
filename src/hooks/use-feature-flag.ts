@@ -8,6 +8,7 @@ const GLOBAL_DEFAULTS: Record<string, boolean> = {
   'webhook-automation': false,
   'loop-nodes': false,
   'team-machines': false,
+  'delivery-branches': false,
 }
 
 /**

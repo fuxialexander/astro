@@ -1,1 +1,0 @@
-ALTER TABLE "plan_nodes" ADD CONSTRAINT "plan_nodes_delivery_branch_id_delivery_branches_id_fk" FOREIGN KEY ("delivery_branch_id") REFERENCES "public"."delivery_branches"("id") ON DELETE no action ON UPDATE no action;

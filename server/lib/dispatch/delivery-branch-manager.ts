@@ -9,7 +9,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { eq, and, isNull, inArray } from 'drizzle-orm'
+import { eq, and, isNull, inArray, sql } from 'drizzle-orm'
 import { deliveryBranches, planNodes, planEdges } from '../db/schema.js'
 import type { PlanNode, PlanEdge, DeliveryBranch } from '../../../packages/core/src/types.js'
 import {
@@ -54,37 +54,40 @@ export async function ensureDeliveryBranches(
   projectId: string,
   shortProjectId: string,
 ): Promise<DeliveryBranch[]> {
-  // Check for existing active delivery branches
-  const existing = await db.select().from(deliveryBranches).where(
-    and(
-      eq(deliveryBranches.projectId, projectId),
-      isNull(deliveryBranches.deletedAt),
-      inArray(deliveryBranches.status, ['active', 'pr_created']),
-    )
-  )
-
-  if (existing.length > 0) {
-    return existing.map(rowToDeliveryBranch)
-  }
-
-  // No delivery branches yet — compute connected components from the plan graph
-  const nodeRows = await db.select().from(planNodes).where(
-    and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt))
-  )
-  const edgeRows = await db.select().from(planEdges).where(
-    and(eq(planEdges.projectId, projectId), isNull(planEdges.deletedAt))
-  )
-
-  // Convert DB rows to types expected by computeConnectedComponents
-  const nodes: PlanNode[] = nodeRows.map(dbNodeToPlanNode)
-  const edges: PlanEdge[] = edgeRows.map(dbEdgeToPlanEdge)
-
-  const components = computeConnectedComponents(nodes, edges)
-
-  if (components.length === 0) return []
-
-  // Create delivery branch records inside a transaction
+  // Everything inside a transaction with advisory lock to prevent concurrent
+  // dispatches from creating duplicate branch sets (TOCTOU race).
   return await db.transaction(async (tx: any) => {
+    // Advisory lock scoped to this project — serializes concurrent calls
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`delivery-branches:${projectId}`}))`)
+
+    // Check for existing active delivery branches (now race-free)
+    const existing = await tx.select().from(deliveryBranches).where(
+      and(
+        eq(deliveryBranches.projectId, projectId),
+        isNull(deliveryBranches.deletedAt),
+        inArray(deliveryBranches.status, ['active', 'pr_created']),
+      )
+    )
+
+    if (existing.length > 0) {
+      return existing.map(rowToDeliveryBranch)
+    }
+
+    // No delivery branches yet — compute connected components from the plan graph
+    const nodeRows = await tx.select().from(planNodes).where(
+      and(eq(planNodes.projectId, projectId), isNull(planNodes.deletedAt))
+    )
+    const edgeRows = await tx.select().from(planEdges).where(
+      and(eq(planEdges.projectId, projectId), isNull(planEdges.deletedAt))
+    )
+
+    const nodes: PlanNode[] = nodeRows.map(dbNodeToPlanNode)
+    const edges: PlanEdge[] = edgeRows.map(dbEdgeToPlanEdge)
+
+    const components = computeConnectedComponents(nodes, edges)
+
+    if (components.length === 0) return []
+
     const branches: DeliveryBranch[] = []
 
     for (const comp of components) {
@@ -101,7 +104,6 @@ export async function ensureDeliveryBranches(
         status: 'active',
       }).returning()
 
-      // Batch-update plan_nodes with delivery_branch_id
       await assignBranchToNodes(tx, projectId, branchId, comp.nodeIds)
 
       branches.push(rowToDeliveryBranch(row))
@@ -386,7 +388,9 @@ function dbNodeToPlanNode(row: any): PlanNode {
     description: row.description,
     status: row.status,
     parentId: row.parentId,
-    dependencies: row.dependencies ?? [],
+    // NOTE: dependencies are in the plan_node_dependencies junction table, not on plan_nodes directly.
+    // This field will always be []. Connectivity relies on plan_edges, which covers the same ground.
+    dependencies: [],
     verification: row.verification ?? 'auto',
     position: { x: row.positionX ?? 0, y: row.positionY ?? 0 },
     milestoneId: row.milestoneId,

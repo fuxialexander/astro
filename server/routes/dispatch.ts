@@ -24,11 +24,12 @@ import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js'
 import { executionContextStore } from '../lib/execution-context-store.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
 import { db } from '../lib/db/index.js'
-import { projects, planNodes, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines, scheduleRuns } from '../lib/db/schema.js'
+import { projects, planNodes, planNodeDependencies, blobs, userProfiles, taskExecutions, streamingEvents, projectKnowledge, machineInstructions, registeredMachines, scheduleRuns, teams } from '../lib/db/schema.js'
 import { eq, isNull, and, inArray, sql } from 'drizzle-orm'
 import type { TaskResult as DispatchTaskResult } from '../lib/dispatch/types.js'
 import type { Project } from '../../src/types/index.js'
 import { getDeliveryBranchForNode } from '../lib/dispatch/delivery-branch-manager.js'
+import { hasFeature } from '../lib/feature-flags.js'
 import { buildInteractivePlanPrompt, sanitizeGitHubName, sanitizeGitBranch, formatMachineInstruction, GENERATIVE_UI_HINT } from '../lib/prompt-templates.js'
 import { MACHINE_INSTRUCTION_PRESETS } from '../lib/machine-instruction-presets.js'
 import { DEFAULT_MACHINE_INSTRUCTION_FORMATTED } from '../lib/machine-instruction-presets.js'
@@ -1486,15 +1487,26 @@ ${verificationSection}${executiveSummarySection}`)
   }
 
   // Compute delivery branch for this task's connected component.
-  // Falls back to legacy project-level branch if delivery branches are not yet assigned.
+  // Falls back to legacy project-level branch if delivery branches are not yet assigned
+  // or if the feature flag is disabled for this team.
   let projectBranch = `astro/${shortProjectId}`
   let deliveryBranchIsSingleton = false
   try {
-    const deliveryBranch = await getDeliveryBranchForNode(db, projectId, nodeId, shortProjectId)
-    if (deliveryBranch) {
-      projectBranch = deliveryBranch.branchName
-      deliveryBranchIsSingleton = deliveryBranch.isSingleton
-      console.log(`[dispatch] Using delivery branch ${projectBranch} (singleton=${deliveryBranchIsSingleton}) for node ${nodeId}`)
+    // Check feature flag: look up team flags from the project's team
+    let teamFlags: Record<string, boolean> | null = null
+    if (projectRecord) {
+      const [teamRow] = await db.select({ featureFlags: teams.featureFlags })
+        .from(teams).where(eq(teams.id, projectRecord.teamId)).limit(1)
+      teamFlags = teamRow?.featureFlags ?? null
+    }
+
+    if (hasFeature(teamFlags, 'delivery-branches')) {
+      const deliveryBranch = await getDeliveryBranchForNode(db, projectId, nodeId, shortProjectId)
+      if (deliveryBranch) {
+        projectBranch = deliveryBranch.branchName
+        deliveryBranchIsSingleton = deliveryBranch.isSingleton
+        console.log(`[dispatch] Using delivery branch ${projectBranch} (singleton=${deliveryBranchIsSingleton}) for node ${nodeId}`)
+      }
     }
   } catch (err) {
     console.warn(`[dispatch] Failed to resolve delivery branch for node ${nodeId}, falling back to project branch:`, err)

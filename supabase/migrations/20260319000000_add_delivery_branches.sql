@@ -37,14 +37,14 @@ DO $$ BEGIN
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_delivery_branches_project ON delivery_branches USING btree (project_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_branches_project_branch ON delivery_branches USING btree (project_id, branch_name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_branches_project_branch ON delivery_branches USING btree (project_id, branch_name) WHERE deleted_at IS NULL;
 
--- Add delivery_branch_id FK to plan_nodes
+-- Add delivery_branch_id FK to plan_nodes (SET NULL on delete so project cascade doesn't break)
 DO $$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_name = 'plan_nodes' AND column_name = 'delivery_branch_id'
   ) THEN
-    ALTER TABLE plan_nodes ADD COLUMN delivery_branch_id UUID REFERENCES delivery_branches(id);
+    ALTER TABLE plan_nodes ADD COLUMN delivery_branch_id UUID REFERENCES delivery_branches(id) ON DELETE SET NULL;
   END IF;
 END $$;
