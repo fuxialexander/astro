@@ -985,17 +985,45 @@ async function dispatchViaRelay(
       machineId = bestMachine.machineId
       selectedMachineAccess = accessibleMachinesById.get(machineId)
     } else {
-      // Verify access to explicitly targeted machine (owner or team-shared)
+      // Verify the targeted machine is actually connected and authorized.
+      // targetMachineId may come from project.defaultMachineId (stale DB value)
+      // or from the request body — either way, verify it's live in the registry.
       const targetMachine = machineRegistry.get(machineId)
-      const ownerAllowed = !targetMachine?.userId
-        || targetMachine.userId === LOCAL_USER_ID
-        || targetMachine.userId === user?.id
-      const sharedAllowed = !!selectedMachineAccess
-      if (user?.id && !ownerAllowed && !sharedAllowed) {
-        return c.json(
-          { success: false, error: `Machine ${machineId} not found or not authorized` },
-          403
-        )
+      if (!targetMachine) {
+        // Machine not in registry — fall back to best available machine
+        console.log(`[dispatch] Targeted machine ${machineId} not in registry, falling back to best available`)
+        const bestMachine = availableMachinesLoaded && user?.id
+          ? pickBestMachineFromCandidates(
+              machineRegistry.getAll().filter((machine) =>
+                accessibleMachinesById.has(machine.machineId)
+                || !machine.userId
+                || machine.userId === LOCAL_USER_ID,
+              ),
+              preferredProvider,
+            )
+          : machineRegistry.findBestMachine(preferredProvider, user?.id)
+        if (!bestMachine) {
+          return c.json(
+            {
+              success: false,
+              error: `No available machine. Targeted machine ${machineId} is disconnected and no fallback available.`,
+            },
+            503
+          )
+        }
+        machineId = bestMachine.machineId
+        selectedMachineAccess = accessibleMachinesById.get(machineId)
+      } else {
+        const ownerAllowed = !targetMachine.userId
+          || targetMachine.userId === LOCAL_USER_ID
+          || targetMachine.userId === user?.id
+        const sharedAllowed = !!selectedMachineAccess
+        if (user?.id && !ownerAllowed && !sharedAllowed) {
+          return c.json(
+            { success: false, error: `Machine ${machineId} not found or not authorized` },
+            403
+          )
+        }
       }
     }
 
