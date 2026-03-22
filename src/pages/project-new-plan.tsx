@@ -786,7 +786,9 @@ export function ProjectNewPlan() {
   // stay in chat phase so PlanGeneration can display the error UI (e.g., "No machine available").
   const showInputForRegeneration = existingProjectHasNoNodes && (!execution || (executionIsTerminal && !execution.error)) && !fromPlaygroundId
   // Regenerate handler: navigates to the input form with the failed project pre-filled.
-  // Clears the execution entry so showInputForRegeneration triggers (project with zero nodes).
+  // Clears the execution entry and any partial plan nodes so showInputForRegeneration
+  // triggers (project with zero live nodes → isRegeneration → reuses same project).
+  const removeNodes = usePlanStore((s) => s.removeNodes)
   const handleRegenerate = useCallback((targetProjectId: string) => {
     // Clear the execution so the routing logic falls through to the input form
     useExecutionStore.setState((state) => {
@@ -794,10 +796,19 @@ export function ProjectNewPlan() {
       next.delete(`plan-${targetProjectId}`)
       return { executions: next }
     })
+    // Soft-delete any partial plan nodes from the failed attempt so
+    // existingProjectHasNoNodes evaluates to true → isRegeneration = true
+    // → handleSubmit reuses the same project instead of creating a new one
+    const partialNodeIds = planNodes
+      .filter((n) => n.projectId === targetProjectId && isLive(n))
+      .map((n) => n.id)
+    if (partialNodeIds.length > 0) {
+      removeNodes(partialNodeIds)
+    }
     // Set URL to the project so existing-project pre-fill kicks in
     setActiveProjectId(targetProjectId)
     setSearchParams({ projectId: targetProjectId })
-  }, [setSearchParams])
+  }, [setSearchParams, planNodes, removeNodes])
 
   if (activeProjectId && (execution || project) && !showInputForRegeneration) {
     return (
