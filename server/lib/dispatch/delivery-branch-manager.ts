@@ -18,9 +18,9 @@ import {
   type DeliveryBranchRecord,
 } from '../../../packages/core/src/dispatch/connected-components.js'
 
-/** Short ID from a UUID: first 6 hex chars after stripping hyphens. */
+/** Short ID from a UUID: first 8 hex chars after stripping hyphens. */
 function getShortUUID(uuid: string): string {
-  return uuid.replace(/-/g, '').slice(0, 6)
+  return uuid.replace(/-/g, '').slice(0, 8)
 }
 
 /** Batch-update plan_nodes to set deliveryBranchId for a list of node client IDs. */
@@ -207,9 +207,10 @@ export async function isComponentComplete(
         isNull(planNodes.deletedAt),
       ))
 
-    // Check if all task nodes (not milestones/branches) are complete
+    // Check if all task nodes (not milestones/branches) are complete.
+    // If no task nodes remain (all deleted), the component is vacuously complete.
     const taskRows = nodeRows.filter((r: any) => r.type === 'task')
-    if (taskRows.length === 0) return false
+    if (taskRows.length === 0) return true
 
     return taskRows.every((r: any) => completedStatuses.includes(r.status))
   })

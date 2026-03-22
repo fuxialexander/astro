@@ -315,6 +315,7 @@ export function detectStructuralChanges(
   // Track which branches and components are involved in restarts
   const restartBranches = new Set<string>() // branch IDs
   const restartComponents = new Set<string>() // component IDs
+  let hasMerge = false
 
   // Check 1: Do any delivery branches have executed tasks split across different new components?
   for (const branch of activeBranches) {
@@ -350,6 +351,7 @@ export function detectStructuralChanges(
 
     if (branchesWithExecuted.size > 1) {
       // This component merges executed work from multiple branches → restart
+      hasMerge = true
       restartComponents.add(comp.id)
       for (const branchId of branchesWithExecuted) {
         restartBranches.add(branchId)
@@ -362,9 +364,9 @@ export function detectStructuralChanges(
     const affectedBranches = activeBranches.filter((b) => restartBranches.has(b.id))
     const affectedComponents = newComponents.filter((c) => restartComponents.has(c.id))
 
-    // Determine reason: "split" if a single branch's executed tasks went to multiple components,
-    // "merge" if multiple branches' executed tasks converged into one component.
-    const reason = restartBranches.size > 1 ? 'merge' : 'split'
+    // Determine reason from which check(s) fired.
+    // If both split and merge detected, report 'merge' (the more disruptive scenario).
+    const reason = hasMerge ? 'merge' : 'split'
     result.restart.push({
       affectedBranches,
       newComponents: affectedComponents,

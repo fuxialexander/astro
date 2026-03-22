@@ -1551,7 +1551,8 @@ ${verificationSection}${executiveSummarySection}`)
     deliveryMode: isPushToGithub ? 'push' : (deliveryMode ?? deriveDefaultDeliveryMode(remoteType)),
     remoteType,
     baseBranch: baseBranch || undefined,
-    projectBranch,
+    deliveryBranch: projectBranch, // Primary field for new agent runners
+    projectBranch, // Backward compat for older agent runners
     deliveryBranchIsSingleton,
     agentDir,
     worktreeStrategy,
