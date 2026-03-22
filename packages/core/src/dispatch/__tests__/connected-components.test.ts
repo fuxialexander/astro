@@ -500,3 +500,193 @@ describe('requiresRestart', () => {
     expect(requiresRestart(nodes, [], branches)).toBe(true)
   })
 })
+
+// ============================================================================
+// Stress Tests — Scalability and Performance
+// ============================================================================
+
+describe('Stress tests', () => {
+  it('handles 10K nodes in a single chain (linear graph)', () => {
+    const N = 10_000
+    const nodes: PlanNode[] = []
+    const edges: PlanEdge[] = []
+    for (let i = 0; i < N; i++) {
+      nodes.push(makeNode({ id: `t${i}`, number: i }))
+      if (i > 0) edges.push(makeEdge(`t${i - 1}`, `t${i}`))
+    }
+
+    const start = performance.now()
+    const components = computeConnectedComponents(nodes, edges)
+    const elapsed = performance.now() - start
+
+    expect(components).toHaveLength(1)
+    expect(components[0].nodeIds).toHaveLength(N)
+    expect(components[0].taskIds).toHaveLength(N)
+    expect(components[0].isSingleton).toBe(false)
+    // Union-Find with path compression: should be well under 1 second for 10K
+    expect(elapsed).toBeLessThan(1000)
+  })
+
+  it('handles 10K isolated nodes (10K singleton components)', () => {
+    const N = 10_000
+    const nodes: PlanNode[] = []
+    for (let i = 0; i < N; i++) {
+      nodes.push(makeNode({ id: `t${i}`, number: i }))
+    }
+
+    const start = performance.now()
+    const components = computeConnectedComponents(nodes, [])
+    const elapsed = performance.now() - start
+
+    expect(components).toHaveLength(N)
+    expect(components.every((c) => c.isSingleton)).toBe(true)
+    expect(elapsed).toBeLessThan(2000)
+  })
+
+  it('handles 5K nodes with high-fanout milestone (star graph)', () => {
+    const N = 5_000
+    const nodes: PlanNode[] = [
+      makeNode({ id: 'milestone', type: 'milestone', number: 0 }),
+    ]
+    for (let i = 0; i < N; i++) {
+      nodes.push(makeNode({ id: `t${i}`, number: i + 1, milestoneId: 'milestone' }))
+    }
+
+    const start = performance.now()
+    const components = computeConnectedComponents(nodes, [])
+    const elapsed = performance.now() - start
+
+    // All tasks connected via milestone containment
+    expect(components).toHaveLength(1)
+    expect(components[0].taskIds).toHaveLength(N)
+    expect(components[0].nodeIds).toHaveLength(N + 1) // tasks + milestone
+    expect(elapsed).toBeLessThan(1000)
+  })
+
+  it('handles 1K components with 10 nodes each (many small groups)', () => {
+    const GROUPS = 1_000
+    const PER_GROUP = 10
+    const nodes: PlanNode[] = []
+    const edges: PlanEdge[] = []
+
+    for (let g = 0; g < GROUPS; g++) {
+      for (let i = 0; i < PER_GROUP; i++) {
+        const id = `g${g}_t${i}`
+        nodes.push(makeNode({ id, number: g * PER_GROUP + i }))
+        if (i > 0) edges.push(makeEdge(`g${g}_t${i - 1}`, id))
+      }
+    }
+
+    const start = performance.now()
+    const components = computeConnectedComponents(nodes, edges)
+    const elapsed = performance.now() - start
+
+    expect(components).toHaveLength(GROUPS)
+    expect(components.every((c) => c.taskIds.length === PER_GROUP)).toBe(true)
+    expect(elapsed).toBeLessThan(2000)
+  })
+
+  it('reconciliation scales with 100 existing branches and 100 new components', () => {
+    // Simulate a re-plan where 50 branches are kept, 25 restarted, 25 new
+    const existingBranches: DeliveryBranchRecord[] = []
+    const nodes: PlanNode[] = []
+    const edges: PlanEdge[] = []
+
+    // 50 branches that stay intact (executed tasks remain together)
+    for (let b = 0; b < 50; b++) {
+      const nodeIds = Array.from({ length: 5 }, (_, i) => `keep_b${b}_t${i}`)
+      existingBranches.push(makeBranch(`keep-${b}`, nodeIds))
+      for (let i = 0; i < 5; i++) {
+        nodes.push(makeNode({
+          id: `keep_b${b}_t${i}`,
+          number: b * 10 + i,
+          status: i < 2 ? 'completed' : 'planned',
+        }))
+        if (i > 0) edges.push(makeEdge(`keep_b${b}_t${i - 1}`, `keep_b${b}_t${i}`))
+      }
+    }
+
+    // 25 branches that get split (executed tasks end up in different components)
+    for (let b = 0; b < 25; b++) {
+      const nodeIds = [`split_b${b}_t0`, `split_b${b}_t1`]
+      existingBranches.push(makeBranch(`split-${b}`, nodeIds))
+      // Both executed, but no edge between them in new graph = split
+      nodes.push(makeNode({ id: `split_b${b}_t0`, number: 500 + b * 2, status: 'completed' }))
+      nodes.push(makeNode({ id: `split_b${b}_t1`, number: 500 + b * 2 + 1, status: 'completed' }))
+    }
+
+    // 25 entirely new components (no existing branch)
+    for (let c = 0; c < 25; c++) {
+      const ids = Array.from({ length: 3 }, (_, i) => `new_c${c}_t${i}`)
+      for (let i = 0; i < 3; i++) {
+        nodes.push(makeNode({ id: ids[i], number: 600 + c * 3 + i }))
+        if (i > 0) edges.push(makeEdge(ids[i - 1], ids[i]))
+      }
+    }
+
+    const start = performance.now()
+    const reconciliation = detectStructuralChanges(nodes, edges, existingBranches)
+    const elapsed = performance.now() - start
+
+    expect(reconciliation.keep).toHaveLength(50)
+    expect(reconciliation.create).toHaveLength(25)
+    expect(reconciliation.restart.length).toBeGreaterThan(0)
+    // Total affected by restart: 25 existing branches worth of split nodes
+    const restartedBranches = reconciliation.restart.flatMap((r) => r.affectedBranches)
+    expect(restartedBranches).toHaveLength(25)
+    expect(elapsed).toBeLessThan(1000)
+  })
+
+  it('UnionFind handles 50K elements with random unions', () => {
+    const N = 50_000
+    const ids = Array.from({ length: N }, (_, i) => `id${i}`)
+    const uf = new UnionFind(ids)
+
+    const start = performance.now()
+    // Create ~5K random unions
+    for (let i = 0; i < 5_000; i++) {
+      const a = `id${Math.floor(Math.random() * N)}`
+      const b = `id${Math.floor(Math.random() * N)}`
+      uf.union(a, b)
+    }
+    const components = uf.getComponents()
+    const elapsed = performance.now() - start
+
+    expect(components.size).toBeGreaterThan(0)
+    expect(components.size).toBeLessThan(N)
+    // 50K elements with 5K random unions should be fast
+    expect(elapsed).toBeLessThan(1000)
+  })
+
+  it('UnionFind.find() throws on unknown element', () => {
+    const uf = new UnionFind(['a', 'b', 'c'])
+    expect(() => uf.find('unknown')).toThrow('UnionFind: unknown element "unknown"')
+  })
+
+  it('handles mixed node types (task, milestone, branch, loop, decision)', () => {
+    const nodes: PlanNode[] = [
+      makeNode({ id: 't1', type: 'task', number: 1 }),
+      makeNode({ id: 'm1', type: 'milestone', number: 2 }),
+      makeNode({ id: 'b1', type: 'branch', number: 3 }),
+      makeNode({ id: 'l1', type: 'loop' as any, number: 4 }),
+      makeNode({ id: 'd1', type: 'decision' as any, number: 5 }),
+      makeNode({ id: 't2', type: 'task', number: 6 }),
+    ]
+    const edges: PlanEdge[] = [
+      makeEdge('t1', 'm1'),
+      makeEdge('m1', 'b1'),
+      makeEdge('b1', 'l1'),
+      makeEdge('l1', 'd1'),
+      makeEdge('d1', 't2'),
+    ]
+
+    const components = computeConnectedComponents(nodes, edges)
+
+    // All connected via edges — one component
+    expect(components).toHaveLength(1)
+    expect(components[0].nodeIds).toHaveLength(6)
+    // Only 'task' nodes count as executable
+    expect(components[0].taskIds).toEqual(['t1', 't2'])
+    expect(components[0].isSingleton).toBe(false)
+  })
+})

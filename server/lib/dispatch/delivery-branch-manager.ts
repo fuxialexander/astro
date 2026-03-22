@@ -357,7 +357,7 @@ export async function reconcileAfterReplan(
 
   return {
     messages,
-    requiresRestart: reconciliation.restart.length > 0,
+    requiresRestart: restartedBranches.length > 0,
     restartedBranches,
     newBranches,
   }
