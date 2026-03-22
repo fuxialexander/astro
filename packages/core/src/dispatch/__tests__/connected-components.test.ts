@@ -668,8 +668,8 @@ describe('Stress tests', () => {
       makeNode({ id: 't1', type: 'task', number: 1 }),
       makeNode({ id: 'm1', type: 'milestone', number: 2 }),
       makeNode({ id: 'b1', type: 'branch', number: 3 }),
-      makeNode({ id: 'l1', type: 'loop' as any, number: 4 }),
-      makeNode({ id: 'd1', type: 'decision' as any, number: 5 }),
+      makeNode({ id: 'l1', type: 'loop', number: 4 }),
+      makeNode({ id: 'd1', type: 'decision', number: 5 }),
       makeNode({ id: 't2', type: 'task', number: 6 }),
     ]
     const edges: PlanEdge[] = [
