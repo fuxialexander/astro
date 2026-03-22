@@ -7,7 +7,7 @@
  */
 
 import { useState, useRef, useEffect, useMemo } from "react"
-import { Send, Square, ArrowDown, Sparkles, AlertCircle, Monitor, Clock, Pencil } from "lucide-react"
+import { Send, Square, ArrowDown, Sparkles, AlertCircle, Monitor, Clock, Pencil, RefreshCw } from "lucide-react"
 import { TypingIndicator } from "@/components/ui/typing-indicator"
 import { useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
@@ -37,6 +37,8 @@ interface PlanGenerationProps {
   onBack?: () => void
   /** Called when user wants to start a new plan session */
   onNewPlan?: () => void
+  /** Called to regenerate the plan (retry after failure) */
+  onRegenerate?: () => void
 }
 
 export function PlanGeneration({
@@ -46,6 +48,7 @@ export function PlanGeneration({
   workingDirectory,
   onBack,
   onNewPlan,
+  onRegenerate,
 }: PlanGenerationProps) {
   const navigate = useNavigate()
   const yoloMode = useSettingsStore((s) => s.yoloMode)
@@ -340,6 +343,12 @@ export function PlanGeneration({
                         Set Up Machine
                       </Button>
                     </Link>
+                    {onRegenerate && (
+                      <Button variant="default" size="sm" onClick={onRegenerate}>
+                        <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                        Retry
+                      </Button>
+                    )}
                     {onBack && (
                       <Button variant="ghost" size="sm" onClick={onBack}>
                         Go Back
@@ -361,6 +370,12 @@ export function PlanGeneration({
                         Check Machines
                       </Button>
                     </Link>
+                    {onRegenerate && (
+                      <Button variant="default" size="sm" onClick={onRegenerate}>
+                        <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                        Retry
+                      </Button>
+                    )}
                     {onBack && (
                       <Button variant="ghost" size="sm" onClick={onBack}>
                         Go Back
@@ -371,11 +386,19 @@ export function PlanGeneration({
               ) : (
                 <div className="space-y-3">
                   <p id="plan-error-message" className="text-xs text-muted-foreground">{execution.error}</p>
-                  {onBack && (
-                    <Button variant="ghost" size="sm" onClick={onBack}>
-                      Go Back
-                    </Button>
-                  )}
+                  <div className="flex items-center justify-center gap-2">
+                    {onRegenerate && (
+                      <Button variant="default" size="sm" onClick={onRegenerate}>
+                        <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                        Retry
+                      </Button>
+                    )}
+                    {onBack && (
+                      <Button variant="ghost" size="sm" onClick={onBack}>
+                        Go Back
+                      </Button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -384,7 +407,7 @@ export function PlanGeneration({
 
         {/* Empty state */}
         {displayBlocks.length === 0 && execution?.status !== "failure" && (
-          <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-sm text-muted-foreground">
             {isRunning ? (
               <span className="flex items-center gap-2">
                 <TypingIndicator className="text-muted-foreground" />
@@ -395,7 +418,22 @@ export function PlanGeneration({
                 <TypingIndicator className="text-muted-foreground" />
                 Loading activity...
               </span>
-            ) : "No activity yet"}
+            ) : (
+              <>
+                <p>No activity recorded for this session.</p>
+                {onRegenerate && (
+                  <Button variant="default" size="sm" onClick={onRegenerate}>
+                    <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                    Regenerate Plan
+                  </Button>
+                )}
+                {onBack && (
+                  <Button variant="ghost" size="sm" onClick={onBack}>
+                    Go Back
+                  </Button>
+                )}
+              </>
+            )}
           </div>
         )}
 
