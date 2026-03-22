@@ -291,6 +291,13 @@ export interface TaskDispatch {
   projectBranch?: string;
 
   /**
+   * When true, the delivery branch has exactly one task (singleton component).
+   * The agent works directly on the delivery branch — no task sub-branch.
+   * PRs target the base branch (main) instead of the delivery branch.
+   */
+  deliveryBranchIsSingleton?: boolean;
+
+  /**
    * Worktree strategy for non-git or copy-based execution.
    * - 'copy': Copy project files to worktree dir (default for 'copy' deliveryMode)
    * - 'reference': Create empty dir with file map (for large datasets)

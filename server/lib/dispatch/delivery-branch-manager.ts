@@ -190,25 +190,29 @@ export async function isComponentComplete(
   db: any,
   branchId: string,
 ): Promise<boolean> {
-  const [branch] = await db.select().from(deliveryBranches)
-    .where(eq(deliveryBranches.id, branchId))
-    .limit(1)
+  // Transaction ensures consistent read of branch + its nodes (no TOCTOU race
+  // where a task completes between the two queries).
+  return await db.transaction(async (tx: any) => {
+    const [branch] = await tx.select().from(deliveryBranches)
+      .where(eq(deliveryBranches.id, branchId))
+      .limit(1)
 
-  if (!branch || branch.status !== 'active') return false
+    if (!branch || branch.status !== 'active') return false
 
-  const completedStatuses = ['completed', 'auto_verified']
-  const nodeRows = await db.select({ status: planNodes.status, type: planNodes.type })
-    .from(planNodes)
-    .where(and(
-      eq(planNodes.deliveryBranchId, branchId),
-      isNull(planNodes.deletedAt),
-    ))
+    const completedStatuses = ['completed', 'auto_verified']
+    const nodeRows = await tx.select({ status: planNodes.status, type: planNodes.type })
+      .from(planNodes)
+      .where(and(
+        eq(planNodes.deliveryBranchId, branchId),
+        isNull(planNodes.deletedAt),
+      ))
 
-  // Check if all task nodes (not milestones/branches) are complete
-  const taskRows = nodeRows.filter((r: any) => r.type === 'task')
-  if (taskRows.length === 0) return false
+    // Check if all task nodes (not milestones/branches) are complete
+    const taskRows = nodeRows.filter((r: any) => r.type === 'task')
+    if (taskRows.length === 0) return false
 
-  return taskRows.every((r: any) => completedStatuses.includes(r.status))
+    return taskRows.every((r: any) => completedStatuses.includes(r.status))
+  })
 }
 
 /**

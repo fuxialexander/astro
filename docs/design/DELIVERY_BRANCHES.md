@@ -527,7 +527,7 @@ Projects created before this feature that have `projects.projectBranch` set:
 
 ### Feature Flag
 
-Gate behind `connected-component-branches` feature flag:
+Gate behind `delivery-branches` feature flag:
 
 - **Off (default)**: single delivery branch per project (legacy behavior via compatibility shim)
 - **On**: full connected-component model

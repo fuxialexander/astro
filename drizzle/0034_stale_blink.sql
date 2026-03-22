@@ -12,20 +12,7 @@ CREATE TABLE "delivery_branches" (
 	"deleted_at" timestamp
 );
 --> statement-breakpoint
-ALTER TABLE "initiatives" ALTER COLUMN "icon" SET DEFAULT '🚀';--> statement-breakpoint
-ALTER TABLE "activity_events" ADD COLUMN "deleted_at" timestamp;--> statement-breakpoint
-ALTER TABLE "blobs" ADD COLUMN "deleted_at" timestamp;--> statement-breakpoint
-ALTER TABLE "environment_configs" ADD COLUMN "deleted_at" timestamp;--> statement-breakpoint
-ALTER TABLE "initiatives" ADD COLUMN "deleted_at" timestamp;--> statement-breakpoint
-ALTER TABLE "node_comments" ADD COLUMN "deleted_at" timestamp;--> statement-breakpoint
 ALTER TABLE "plan_nodes" ADD COLUMN "delivery_branch_id" uuid;--> statement-breakpoint
-ALTER TABLE "project_knowledge" ADD COLUMN "deleted_at" timestamp;--> statement-breakpoint
-ALTER TABLE "schedules" ADD COLUMN "deleted_at" timestamp;--> statement-breakpoint
-ALTER TABLE "sessions" ADD COLUMN "deleted_at" timestamp;--> statement-breakpoint
-ALTER TABLE "skills" ADD COLUMN "deleted_at" timestamp;--> statement-breakpoint
-ALTER TABLE "streaming_events" ADD COLUMN "deleted_at" timestamp;--> statement-breakpoint
-ALTER TABLE "task_chat_sessions" ADD COLUMN "deleted_at" timestamp;--> statement-breakpoint
-ALTER TABLE "task_executions" ADD COLUMN "deleted_at" timestamp;--> statement-breakpoint
 ALTER TABLE "delivery_branches" ADD CONSTRAINT "delivery_branches_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "plan_nodes" ADD CONSTRAINT "plan_nodes_delivery_branch_id_delivery_branches_id_fk" FOREIGN KEY ("delivery_branch_id") REFERENCES "public"."delivery_branches"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "idx_delivery_branches_project" ON "delivery_branches" USING btree ("project_id");--> statement-breakpoint
