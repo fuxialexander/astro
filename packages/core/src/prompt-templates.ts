@@ -289,15 +289,21 @@ astro-cli plan remove-edge --json --project-id <PROJECT_ID> --source <fromNodeId
 astro-cli plan verify --project-id <PROJECT_ID>
 astro-cli plan tree --json --project-id <PROJECT_ID>
 \`\`\`
-Run \`verify\` first — it checks for deadlocks, cycles, missing milestoneIds, empty milestones, and stray membership edges. Fix any reported errors before finishing. Then run \`tree\` to inspect the final shape.
+Run \`verify\` first — it checks for deadlocks, cycles, missing milestoneIds, cross-milestone task→task edges, and orphan milestones. Fix any reported errors before finishing. Then run \`tree\` to inspect the final shape.
 
 **IMPORTANT:** Use ONLY the flags shown above. Do NOT invent extra flags (e.g. --icon, --emoji). The CLI will reject unknown options.
 
-**Auto-fix membership edges:**
+**Auto-fix structural issues:**
 \`\`\`bash
 astro-cli plan verify --fix --project-id <PROJECT_ID>
 \`\`\`
-Removes any task→milestone edges where the task's milestoneId already expresses membership (redundant edges that clutter the graph).
+Automatically fixes: cross-milestone task→task edges (routes them through the milestone), membership deadlocks (removes M→task edge where task has milestoneId M), and redundant edges.
+
+### Structural Rules
+- Every task must belong to a milestone via \`--milestone-id\`.
+- Cross-milestone dependencies MUST route through milestone nodes. A task in milestone N that depends on work from milestone N-1 should depend on the N-1 milestone node, NOT directly on individual tasks inside N-1. Intra-milestone task-to-task edges are fine.
+- The plan should include a terminal review node in the final milestone (code review for software projects, quality review for other deliverables).
+- ALWAYS run \`plan verify\` after making changes to catch structural issues.
 
 ### Rules
 - Run one command per change. Do NOT batch multiple changes into a single command.
@@ -618,7 +624,7 @@ export function buildInteractivePlanPrompt(
     if (ghOwner && ghRepo) {
       githubSection = `\n## GitHub Integration
 This project is connected to GitHub repository \`${ghOwner}/${ghRepo}\`.
-The final step must open a pull request that merges all completed work into the \`${target}\` branch.
+The final step must open a pull request that merges all completed work into the \`${target}\` branch and run a code review on it.
 
 After creating all nodes with \`astro-cli plan create-node\`, add the GitHub push task with the dedicated CLI command:
 \`\`\`bash
@@ -631,7 +637,7 @@ astro-cli plan add-github-push-task --json \\
   --depends-on <nodeId2>
 \`\`\`
 Pass ALL leaf task nodes (nodes with no downstream dependencies) as \`--depends-on\` arguments.
-The command returns \`{ ok, id, edgesAdded }\` on success.
+The command returns \`{ ok, id, edgesAdded }\` on success. The created node already includes code review instructions in its description — no need to add them manually.
 `
     }
   }
@@ -813,17 +819,40 @@ Parallel tasks (no dependency edge between them) run as separate agents in isola
 - --estimate: XS | S | M | L | XL. Target each task at ~20 min of expert work or <1000 lines changed
 - --milestone-id: REQUIRED for tasks — every task must reference a milestone. Means "this task contributes to the milestone's completion" (auto-completes when all member tasks finish). A task's --milestone-id must NEVER be a milestone it also --dependency-depends on — deadlock cycle
 - Aim for 6–15 nodes total, but flexible. The graph must be a valid DAG (no cycles)
+- 2–6 tasks per milestone is ideal. Avoid monolithic milestones with 10+ tasks.
+- Independent tasks within a milestone should have NO unnecessary serial dependencies so they can execute in parallel.
 
 ## Edge Rules
 - type: "dependency" for sequential, "branch" for parallel paths
 - Milestones are gate nodes: tasks flow IN to a milestone, and downstream tasks depend ON the milestone. Never create a milestone that only has incoming edges — it must also have outgoing edges to the tasks it gates. Example: tasks A,B,C → milestone M → task D (NOT A,B,C → M with D separately depending on A,B,C)
 - Every milestone must be on the critical path — no orphan milestones with zero outgoing edges (the final milestone in the plan is the only exception)
-- CRITICAL — no milestone deadlocks: a task that belongs to milestone M (--milestone-id M) must NEVER have an edge from M → task. --milestone-id means "I feed INTO M's completion", while an edge M → task means "I wait FOR M to complete" — combining both on the same milestone creates an unresolvable cycle. Tasks that depend on M must belong to a DIFFERENT downstream milestone. Correct: taskA(milestone-id:M1) → M1 → taskB(milestone-id:M2) → M2. Wrong: M1 → taskA(milestone-id:M1) — deadlock! Run \`plan verify\` to catch this automatically.
+- CRITICAL — no milestone deadlocks: a task that belongs to milestone M (--milestone-id M) must NEVER have an edge from M → task. --milestone-id means "I feed INTO M's completion", while an edge M → task means "I wait FOR M to complete" — combining both on the same milestone creates an unresolvable cycle. Tasks that depend on M must belong to a DIFFERENT downstream milestone. Correct: taskA(milestone-id:M1) → M1 → taskB(milestone-id:M2) → M2. Wrong: M1 → taskA(milestone-id:M1) — deadlock!
+
+## Structural Validation Rules (MANDATORY)
+
+These rules are enforced by \`plan verify\`. Violating them causes errors at dispatch time.
+
+1. **Cross-milestone dependencies MUST route through milestone nodes.** A task in milestone N that depends on work from milestone N-1 should depend on the N-1 milestone node, NOT directly on individual tasks inside N-1. Intra-milestone task-to-task edges are allowed. NEVER create a direct dependency edge from a task in one milestone to a task in a different milestone.
+
+2. **The final milestone MUST contain a terminal review/delivery node** appropriate to the project type:
+   - Software projects with a GitHub repo: include a delivery node titled "Create PR and run shepherd review" (use \`astro-cli plan add-github-push-task\` after creating all other nodes).
+   - Software projects without a GitHub repo: include a task node titled "Run shepherd code review" that uses a sub-agent to review all changes.
+   - Non-software projects (slides, research, writing, analysis): include a review task appropriate to the deliverable (e.g., "Review presentation for clarity and flow", "Validate analysis results", "Final quality review").
+   - Every plan must end with some form of review — the type should match the deliverable.
+
+3. **No task may depend on or follow the terminal review/delivery node.** It must be the final leaf of the plan.
+
+4. **Prefer minimal dependencies.** Only add edges needed to preserve correct execution ordering. Unnecessary serialization slows down parallel execution.
 
 ${importantSection}
 
-## Reminder
-After exploration, reasoning, and any clarifying questions, you MUST call \`astro-cli plan create-node\` for each node in the plan. Create in topological order (milestones first, then tasks root-to-leaf), always passing \`--json\` to capture each returned ID. Finish by running \`plan verify\` and fixing any reported errors.`
+## Final Steps
+
+After creating all nodes:
+1. Run \`astro-cli plan verify --project-id <PROJECT_ID>\` to check for structural issues.
+2. If verify reports errors, fix them (use \`--fix\` for auto-fixable issues).
+3. Run \`astro-cli plan tree --json --project-id <PROJECT_ID>\` to inspect the final shape.
+4. Rename the project with a short descriptive name and fitting emoji.`
 }
 
 // ─── Compaction ──────────────────────────────────────────────────────

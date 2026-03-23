@@ -201,10 +201,13 @@ export function layoutGraph(
 }
 
 /**
- * Milestone-column layout: each milestone gets its own vertical column.
- * Milestone sits at the top; tasks stack below in dependency-aware execution order,
- * with lower-numbered tasks biased earlier when no dependency forces a different order.
- * Columns are ordered left-to-right by milestone number.
+ * Milestone-column layout: milestones are ranked by topological depth
+ * (longest-path from any root in the milestone DAG), so parallel branches
+ * share the same rank column and stack vertically instead of being forced
+ * side-by-side where edges would cross through intermediate milestones.
+ *
+ * Within each rank column milestones are sorted by number, and each
+ * milestone's tasks stack below it in dependency-aware execution order.
  * Tasks without a milestone go in an "orphan" column on the right.
  */
 function layoutGraphMilestoneColumns(
@@ -213,15 +216,75 @@ function layoutGraphMilestoneColumns(
 ): Map<string, { x: number; y: number }> {
   const positions = new Map<string, { x: number; y: number }>()
 
-  // Sort milestones by number
-  const milestones = nodes
-    .filter((n) => n.type === "milestone")
-    .sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
-
+  const milestones = nodes.filter((n) => n.type === "milestone")
   const tasks = nodes.filter((n) => n.type !== "milestone")
   const milestoneSet = new Set(milestones.map((m) => m.id))
 
-  // Group tasks by milestoneId
+  // ── 1. Build milestone-to-milestone DAG and compute topological ranks ──
+
+  // Collect edges where both endpoints are milestones
+  const msChildren = new Map<string, string[]>()
+  const msInDegree = new Map<string, number>()
+  for (const m of milestones) {
+    msChildren.set(m.id, [])
+    msInDegree.set(m.id, 0)
+  }
+  for (const e of edges) {
+    if (milestoneSet.has(e.source) && milestoneSet.has(e.target)) {
+      msChildren.get(e.source)!.push(e.target)
+      msInDegree.set(e.target, (msInDegree.get(e.target) ?? 0) + 1)
+    }
+  }
+
+  // Kahn's algorithm — rank = longest path from any root
+  const msRank = new Map<string, number>()
+  const queue: string[] = []
+  for (const m of milestones) {
+    if ((msInDegree.get(m.id) ?? 0) === 0) {
+      queue.push(m.id)
+      msRank.set(m.id, 0)
+    }
+  }
+
+  let head = 0
+  while (head < queue.length) {
+    const id = queue[head++]
+    const r = msRank.get(id) ?? 0
+    for (const child of msChildren.get(id) ?? []) {
+      const existing = msRank.get(child)
+      if (existing === undefined || r + 1 > existing) {
+        msRank.set(child, r + 1)
+      }
+      const newIn = (msInDegree.get(child) ?? 1) - 1
+      msInDegree.set(child, newIn)
+      if (newIn === 0) {
+        queue.push(child)
+      }
+    }
+  }
+
+  // Handle any unranked milestones (cycles or disconnected)
+  for (const m of milestones) {
+    if (!msRank.has(m.id)) {
+      msRank.set(m.id, 0)
+    }
+  }
+
+  // Group milestones by rank, sorted by number within each rank
+  const rankGroups = new Map<number, PlanNode[]>()
+  for (const m of milestones) {
+    const r = msRank.get(m.id) ?? 0
+    if (!rankGroups.has(r)) rankGroups.set(r, [])
+    rankGroups.get(r)!.push(m)
+  }
+  for (const [, group] of rankGroups) {
+    group.sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
+  }
+
+  const sortedRanks = [...rankGroups.keys()].sort((a, b) => a - b)
+
+  // ── 2. Group tasks by milestoneId ──
+
   const tasksByMilestone = new Map<string, PlanNode[]>()
   const orphanTasks: PlanNode[] = []
   for (const task of tasks) {
@@ -241,26 +304,39 @@ function layoutGraphMilestoneColumns(
     groupTasks.splice(0, groupTasks.length, ...orderedTasks)
   }
 
+  // ── 3. Layout: each rank is a column (x), milestones stack vertically (y) ──
+
   const COLUMN_STRIDE = MILESTONE_WIDTH + HORIZONTAL_GAP * 2
   const ROW_HEIGHT = NODE_HEIGHT + VERTICAL_GAP
+  const MILESTONE_GROUP_GAP = 40
   const margin = 40
   // Center task nodes under wider milestones
   const taskXOffset = (MILESTONE_WIDTH - NODE_WIDTH) / 2
 
   let colIndex = 0
-  for (const milestone of milestones) {
-    const columnTasks = tasksByMilestone.get(milestone.id) ?? []
+  for (const rank of sortedRanks) {
+    const group = rankGroups.get(rank)!
     const colX = margin + colIndex * COLUMN_STRIDE
+    let cursorY = margin
 
-    // Milestone at the top
-    positions.set(milestone.id, { x: colX, y: margin })
+    for (const milestone of group) {
+      const columnTasks = tasksByMilestone.get(milestone.id) ?? []
 
-    // Tasks flow downward in execution order, with dependencies appearing above dependents.
-    for (let i = 0; i < columnTasks.length; i++) {
-      positions.set(columnTasks[i].id, {
-        x: colX + taskXOffset,
-        y: margin + MILESTONE_HEIGHT + VERTICAL_GAP + i * ROW_HEIGHT,
-      })
+      // Milestone header
+      positions.set(milestone.id, { x: colX, y: cursorY })
+      cursorY += MILESTONE_HEIGHT + VERTICAL_GAP
+
+      // Tasks flow downward
+      for (const task of columnTasks) {
+        positions.set(task.id, {
+          x: colX + taskXOffset,
+          y: cursorY,
+        })
+        cursorY += ROW_HEIGHT
+      }
+
+      // Gap before next milestone group in the same rank column
+      cursorY += MILESTONE_GROUP_GAP
     }
 
     colIndex++
