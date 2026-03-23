@@ -8,10 +8,12 @@
  */
 
 import { useEffect } from "react"
-import { Users, Share2, Monitor, CheckCircle2, XCircle, Unlink } from "lucide-react"
+import { Users, Share2, Monitor, CheckCircle2, XCircle, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { EmptyState } from "@/components/ui/empty-state"
 import { useMachinesStore, type RegisteredMachine } from "@/stores/machines-store"
 import { useToastStore } from "@/stores/toast-store"
@@ -20,14 +22,14 @@ import { formatRelativeTime } from "@/lib/date-utils"
 
 // ─── My Machine Row ─────────────────────────────────────────────────────────
 
-function MyMachineRow({ machine, activeTeamId, onShare }: {
+function MyMachineRow({ machine, onToggleTeam }: {
   machine: RegisteredMachine
-  activeTeamId?: string | null
-  onShare: (machineId: string, shared: boolean) => void
+  onToggleTeam: (machineId: string, teamId: string, shared: boolean) => void
 }) {
+  const teams = useTeamStore((s) => s.teams)
   const teamIds = machine.teamIds ?? (machine.teamId ? [machine.teamId] : [])
-  const isSharedWithCurrentTeam = !!activeTeamId && teamIds.includes(activeTeamId)
   const sharedCount = teamIds.length
+
   return (
     <div className="flex items-center gap-3 py-2.5 px-3 rounded-lg hover:bg-muted/40 transition-colors">
       <div className="flex-shrink-0">
@@ -43,20 +45,40 @@ function MyMachineRow({ machine, activeTeamId, onShare }: {
         <div className="text-xs text-muted-foreground truncate">{machine.hostname} · {machine.platform}</div>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
-        {sharedCount > 0 && (
-          <Badge variant="secondary" className="text-xs">
-            Shared{sharedCount > 1 ? ` (${sharedCount} teams)` : ''}
-          </Badge>
-        )}
-        <Button
-          variant={isSharedWithCurrentTeam ? "outline" : "secondary"}
-          size="sm"
-          className="h-7 text-xs gap-1.5"
-          onClick={() => onShare(machine.id, !isSharedWithCurrentTeam)}
-        >
-          {isSharedWithCurrentTeam ? <Unlink className="w-3 h-3" /> : <Share2 className="w-3 h-3" />}
-          {isSharedWithCurrentTeam ? "Unshare" : "Share with team"}
-        </Button>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5">
+              <Share2 className="w-3 h-3" />
+              {sharedCount === 0
+                ? "Share"
+                : sharedCount === 1
+                  ? `Shared (1 team)`
+                  : `Shared (${sharedCount} teams)`}
+              <ChevronDown className="w-3 h-3 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-56 p-2" align="end">
+            <div className="text-xs font-medium text-muted-foreground px-2 py-1.5">Share with teams</div>
+            {teams.map((team) => {
+              const isShared = teamIds.includes(team.id)
+              return (
+                <label
+                  key={team.id}
+                  className="flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-muted/60 cursor-pointer transition-colors"
+                >
+                  <Checkbox
+                    checked={isShared}
+                    onCheckedChange={() => onToggleTeam(machine.id, team.id, !isShared)}
+                  />
+                  <span className="text-sm truncate">{team.name}</span>
+                </label>
+              )
+            })}
+            {teams.length === 0 && (
+              <div className="text-xs text-muted-foreground px-2 py-1.5">No teams available</div>
+            )}
+          </PopoverContent>
+        </Popover>
       </div>
     </div>
   )
@@ -102,17 +124,13 @@ export function TeamMachinesSection() {
     fetchTeamMachines()
   }, [fetchTeamMachines, activeTeamId])
 
-  const handleShare = async (machineId: string, shared: boolean) => {
-    const ok = await shareMachine(machineId, shared)
+  const handleToggleTeam = async (machineId: string, teamId: string, shared: boolean) => {
+    const ok = await shareMachine(machineId, teamId, shared)
     if (ok) {
       addToast({
         type: "success",
-        title: shared ? "Machine shared with team" : "Machine unshared",
-        description: shared
-          ? "Teammates can now use this machine for task execution."
-          : "Machine is no longer available to teammates.",
+        title: shared ? "Machine shared with team" : "Machine unshared from team",
       })
-      // Refresh team machines list
       fetchTeamMachines()
     } else {
       addToast({
@@ -148,7 +166,7 @@ export function TeamMachinesSection() {
             ) : (
               <div className="divide-y divide-border/50">
                 {myMachines.map((m) => (
-                  <MyMachineRow key={m.id} machine={m} activeTeamId={activeTeamId} onShare={handleShare} />
+                  <MyMachineRow key={m.id} machine={m} onToggleTeam={handleToggleTeam} />
                 ))}
               </div>
             )}
