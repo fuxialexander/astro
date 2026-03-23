@@ -27,7 +27,7 @@ import type {
   SessionEvent,
 } from '../types/relay.js'
 import { requireAuth, type AuthUser } from '../middleware/auth.js'
-import { getMachine } from '../lib/registered-machines-store.js'
+import { getMachine, getTeamSharedMachineIds } from '../lib/registered-machines-store.js'
 import { executionEventBus } from '../lib/execution-event-bus.js'
 import { redisPubSub, type StreamingEventMessage } from '../lib/redis-pubsub.js'
 import { astroEventTransport } from '../lib/events/astro-event-transport.js'
@@ -243,10 +243,13 @@ eventsRoute.get('/stream', async (c) => {
       }
     }
 
-    // Send initial machine list (filtered by authenticated user)
+    // Send initial machine list (filtered by authenticated user + team shared)
     // Cross-reference with persistent store to prefer user-set names
     const allMachines = machineRegistry.getAll()
-    const machines = allMachines.filter(m => !m.userId || m.userId === user?.id || m.userId === LOCAL_USER_ID)
+    const teamSharedIds = user?.teamIds ? await getTeamSharedMachineIds(user.teamIds) : new Set<string>()
+    const machines = allMachines.filter(m =>
+      !m.userId || m.userId === user?.id || m.userId === LOCAL_USER_ID || teamSharedIds.has(m.machineId)
+    )
     const machineData = await Promise.all(machines.map(async (m) => {
       const dbMachine = await getMachine(m.machineId)
       // Prefer user-set name from DB if it differs from hostname (i.e., user renamed it)

@@ -434,6 +434,18 @@ export async function unshareMachineFromTeam(machineId: string, teamId: string):
 }
 
 /**
+ * Get machine IDs shared with any of the given teams (via join table).
+ * Useful for filtering live machines in relay/SSE without loading full machine rows.
+ */
+export async function getTeamSharedMachineIds(teamIds: string[]): Promise<Set<string>> {
+  if (teamIds.length === 0) return new Set()
+  const rows = await db.select({ machineId: machineTeamShares.machineId })
+    .from(machineTeamShares)
+    .where(sql`${machineTeamShares.teamId} IN (${sql.join(teamIds.map(id => sql`${id}`), sql`, `)})`)
+  return new Set(rows.map(r => r.machineId))
+}
+
+/**
  * Get all machines available to a user (owned + team shared)
  *
  * Returns machines the user owns plus machines shared with any team the user belongs to.

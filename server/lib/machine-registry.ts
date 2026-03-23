@@ -401,13 +401,17 @@ export class MachineRegistry extends EventEmitter {
    */
   findBestMachine(
     preferredProvider?: ProviderType,
-    userId?: string
+    userId?: string,
+    teamSharedMachineIds?: Set<string>,
   ): MachineRegistryEntry | undefined {
     let candidates = this.getAll();
 
-    // Filter by user ownership when provided
+    // Filter by user ownership or team sharing when provided
     if (userId) {
-      candidates = candidates.filter(m => !m.userId || m.userId === userId || m.userId === LOCAL_USER_ID);
+      candidates = candidates.filter(m =>
+        !m.userId || m.userId === userId || m.userId === LOCAL_USER_ID
+        || teamSharedMachineIds?.has(m.machineId)
+      );
     }
 
     const effectiveProvider = preferredProvider;
