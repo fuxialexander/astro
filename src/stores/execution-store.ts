@@ -152,6 +152,10 @@ export interface ExecutionOptions {
   maxTurns?: number
   /** Whether to use git worktree isolation (defaults to true in agent runner) */
   useWorktree?: boolean
+  /** Follow-up execution: re-dispatch with delivery pipeline after task completion */
+  isFollowUp?: boolean
+  /** The follow-up instruction from the user */
+  followUpMessage?: string
 }
 
 // Batch execution state for "Execute All" mode
@@ -364,18 +368,22 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
     // Check node status — only 'planned' nodes should be dispatched
     // (prevents double-dispatch when button is clicked twice or batch + manual race)
-    if (node.status !== 'planned') {
+    // Exception: follow-up dispatches on completed tasks bypass this guard
+    if (node.status !== 'planned' && !options?.isFollowUp) {
       console.warn(`Node ${nodeId} status is '${node.status}', not 'planned' — skipping dispatch`)
       return
     }
 
     // Check dependencies are met (use edges as source of truth)
+    // Skip for follow-up dispatches — the task already completed once
     const liveNodes = planStore.nodes.filter(isLive)
     const liveEdges = planStore.edges.filter(isLive)
-    const canExecute = canExecuteNode(node, liveNodes, liveEdges)
-    if (!canExecute.ready) {
-      console.error("Dependencies not met:", canExecute.reason)
-      return
+    if (!options?.isFollowUp) {
+      const canExecute = canExecuteNode(node, liveNodes, liveEdges)
+      if (!canExecute.ready) {
+        console.error("Dependencies not met:", canExecute.reason)
+        return
+      }
     }
 
     // Create abort controller
@@ -504,6 +512,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           useWorktree: options?.useWorktree,
           imageRefs: node.content ? extractBlobUrls(node.content) : undefined,
           acceptanceCriteria: node.acceptanceCriteria || undefined,
+          ...(options?.isFollowUp && { isFollowUp: true, force: true }),
+          ...(options?.followUpMessage && { followUpMessage: options.followUpMessage }),
           ...signing,
         }),
         signal: abortController.signal,
@@ -534,6 +544,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           `Task "${node.title}" dispatched`,
           { taskId: result.executionId },
         )
+
+        // Follow-up user messages are persisted server-side as acknowledged
+        // steer_message events in streaming_events. The hydration pipeline
+        // renders them as chat_user events. No frontend injection needed.
       }
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {

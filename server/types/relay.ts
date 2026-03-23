@@ -146,8 +146,9 @@ export interface ImageAttachment {
  * - 'plan': Plan generation — produces structured JSON output (task graph).
  * - 'chat': Conversational exchange — multi-turn chat about a plan or project.
  * - 'summarize': Single-turn summarization of task output.
+ * - 'follow-up': Post-completion follow-up execution — full delivery pipeline with optional session resume.
  */
-export type TaskDispatchType = 'execution' | 'plan' | 'chat' | 'summarize' | 'playground';
+export type TaskDispatchType = 'execution' | 'plan' | 'chat' | 'summarize' | 'playground' | 'follow-up';
 
 /**
  * A single message in a conversation history.

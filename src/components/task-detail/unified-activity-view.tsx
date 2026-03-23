@@ -198,7 +198,13 @@ export function UnifiedActivityView({
     }
 
     const timeoutId = setTimeout(() => {
-      updateSteerMessage(executionId, steerIndex, { accepted: false, ackMessage: "Timed out" })
+      updateSteerMessage(executionId, steerIndex, {
+        accepted: false,
+        ackMessage: isCompletedExecution ? "Timed out — dispatching follow-up execution..." : "Timed out",
+      })
+      if (isCompletedExecution) {
+        handleFollowUpDispatch(text, true)
+      }
     }, 15000)
 
     try {
@@ -224,9 +230,9 @@ export function UnifiedActivityView({
         if (!isRunning && (errText.includes("not found") || errText.includes("session expired") || errText.includes("not accepted"))) {
           updateSteerMessage(executionId, steerIndex, {
             accepted: false,
-            ackMessage: "Session expired — switching to chat follow-up...",
+            ackMessage: "Session expired — dispatching follow-up execution...",
           })
-          handleChat(text)
+          handleFollowUpDispatch(text, true)
           return
         }
         updateSteerMessage(executionId, steerIndex, {
@@ -236,32 +242,59 @@ export function UnifiedActivityView({
       } else {
         clearTimeout(timeoutId)
         const result = await response.json().catch(() => ({ delivered: false }))
-        // Machine offline + completed task → fall back to chat
+        // Machine offline + completed task → fall back to follow-up execution
         if (!result.delivered && !isRunning) {
           updateSteerMessage(executionId, steerIndex, {
             accepted: false,
-            ackMessage: "Machine offline — switching to chat follow-up...",
+            ackMessage: "Machine offline — dispatching follow-up execution...",
           })
-          handleChat(text)
+          handleFollowUpDispatch(text, true)
           return
         }
         // Session expired on agent side
         if (result.accepted === false && !isRunning) {
           updateSteerMessage(executionId, steerIndex, {
             accepted: false,
-            ackMessage: "Session expired — switching to chat follow-up...",
+            ackMessage: "Session expired — dispatching follow-up execution...",
           })
-          handleChat(text)
+          handleFollowUpDispatch(text, true)
           return
         }
         updateSteerMessage(executionId, steerIndex, { accepted: result.delivered ?? true })
       }
     } catch (error) {
       clearTimeout(timeoutId)
-      updateSteerMessage(executionId, steerIndex, {
-        accepted: false,
-        ackMessage: `Failed: ${error instanceof Error ? error.message : "Network error"}`,
+      if (isCompletedExecution) {
+        updateSteerMessage(executionId, steerIndex, {
+          accepted: false,
+          ackMessage: "Network error — dispatching follow-up execution...",
+        })
+        handleFollowUpDispatch(text, true)
+      } else {
+        updateSteerMessage(executionId, steerIndex, {
+          accepted: false,
+          ackMessage: `Failed: ${error instanceof Error ? error.message : "Network error"}`,
+        })
+      }
+    } finally {
+      setSending(false)
+    }
+  }
+
+  // Follow-up execution handler — re-dispatches as a full execution with delivery
+  // skipSendingGuard: true when called from steer fallback (sending is already true)
+  async function handleFollowUpDispatch(text: string, skipSendingGuard = false) {
+    if (!text || (!skipSendingGuard && sending)) return
+    setSending(true)
+    try {
+      await useExecutionStore.getState().startExecution(node.id, projectId, {
+        isFollowUp: true,
+        followUpMessage: text,
+        targetMachineId: execution?.machineId || machineId,
+        preferredProvider: execution?.providerId || undefined,
       })
+    } catch (error) {
+      console.error("[unified-activity] Follow-up dispatch failed:", error)
     } finally {
       setSending(false)
     }
@@ -311,12 +344,18 @@ export function UnifiedActivityView({
   const hasPreservedSession = !isRunning && !!execution?.sessionId && !!resolvedMachineIdForCanSteer
   const canSteer = (isRunning && !!resolvedMachineIdForCanSteer) || hasPreservedSession
 
+  // Completed execution = node in terminal status with an existing execution
+  const TERMINAL_STATUSES = new Set(["completed", "auto_verified", "awaiting_judgment", "awaiting_approval"])
+  const isCompletedExecution = !isRunning && !!execution?.executionId && TERMINAL_STATUSES.has(node.status)
+
   function handleSend(interrupt = false) {
     const text = input.trim()
     if (!text && (canSteer || taskImages.length === 0)) return
     setInput("")
 
-    if (canSteer) {
+    if (isCompletedExecution) {
+      handleFollowUpDispatch(text)
+    } else if (canSteer) {
       handleSteer(text, interrupt)
     } else {
       handleChat(text)
@@ -324,7 +363,9 @@ export function UnifiedActivityView({
   }
 
   function handleSendPrompt(text: string) {
-    if (canSteer) {
+    if (isCompletedExecution) {
+      handleFollowUpDispatch(text)
+    } else if (canSteer) {
       handleSteer(text)
     } else {
       handleChat(text)
@@ -538,7 +579,7 @@ export function UnifiedActivityView({
         <div className="px-3 pt-2 pb-0 flex items-center gap-1.5 text-[10px] text-muted-foreground">
           <Info className="h-3 w-3 shrink-0" />
           <span>
-            {`${hasPreservedSession ? 'Resume session' : 'Follow-up chat'}${execution.branchName ? ` — changes on \`${execution.branchName}\`` : ''}`}
+            {`${hasPreservedSession ? 'Resume session' : isCompletedExecution ? 'Follow-up execution' : 'Follow-up chat'}${execution.branchName ? ` — changes on \`${execution.branchName}\`` : ''}`}
             {execution.prUrl ? ` — ` : ''}
           </span>
           {execution.prUrl && (
@@ -565,10 +606,10 @@ export function UnifiedActivityView({
           onChange={setInput}
           onSubmit={(opts) => handleSend(opts?.interrupt ?? false)}
           placeholder={
-            isRunning && canSteer
+            isCompletedExecution
+              ? "Continue working on this task... (type @ to reference files)"
+              : canSteer
               ? "Steer the agent... (type @ to reference files)"
-              : hasPreservedSession
-              ? "Resume session... (type @ to reference files)"
               : "Ask about this task... (type @ to reference files)"
           }
           rows={2}

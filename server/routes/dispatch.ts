@@ -384,6 +384,8 @@ const dispatchTaskSchema = z.object({
   scheduleRunId: z.string().uuid().optional(),
   resumeSessionId: z.string().max(200).optional(),
   forkSession: z.boolean().optional(),
+  isFollowUp: z.boolean().optional(),
+  followUpMessage: z.string().max(50000).optional(),
   replanContext: z.object({
     previousPlanSummary: z.string().optional(),
     lessons: z.array(z.object({
@@ -455,6 +457,8 @@ dispatchRoute.post('/task', async (c) => {
     resumeSessionId,
     forkSession,
     replanContext,
+    isFollowUp,
+    followUpMessage,
   } = body
 
   // These variables may be resolved from DB when not provided by the client
@@ -478,6 +482,11 @@ dispatchRoute.post('/task', async (c) => {
   let nodeNumber: number | null | undefined
   let githubContext: import('../lib/prompt-templates.js').GitHubContextForPrompt | undefined
   let isBuiltinTemplate = false
+  // Follow-up execution: resolve previous execution's sessionId for session resume
+  let followUpResumeSessionId: string | undefined
+  let followUpPreviousOutput: string | undefined
+  let followUpPrUrl: string | undefined
+  let followUpBranchName: string | undefined
   // ── Early serial execution check for 'direct' delivery mode ──────
   // Fail-fast optimization: if the client explicitly sends deliveryMode='direct',
   // we can reject duplicate dispatches before the DB lookups (saves ~2 queries).
@@ -550,6 +559,26 @@ dispatchRoute.post('/task', async (c) => {
       loopConfig = dbNode.loopConfig as typeof loopConfig
       loopStatus = dbNode.loopStatus
       loopCurrentIteration = dbNode.loopCurrentIteration
+
+      // For follow-up execution: resolve previous execution's sessionId, output, and branch
+      if (isFollowUp && dbNode.executionId) {
+        const [prevExec] = await db.select({
+          sessionId: taskExecutions.sessionId,
+          machineId: taskExecutions.machineId,
+          providerId: taskExecutions.providerId,
+          markdownSummary: taskExecutions.markdownSummary,
+        }).from(taskExecutions)
+          .where(eq(taskExecutions.executionId, dbNode.executionId))
+          .limit(1)
+        if (prevExec) {
+          followUpResumeSessionId = prevExec.sessionId ?? undefined
+          followUpPreviousOutput = prevExec.markdownSummary ?? dbNode.executionOutput ?? undefined
+          // Prefer previous execution's machine/provider if not explicitly set
+          targetMachineId ??= prevExec.machineId ?? undefined
+        }
+        followUpPrUrl = dbNode.prUrl ?? undefined
+        followUpBranchName = dbNode.branchName ?? undefined
+      }
 
       // Resolve dependencies from DB if not provided
       if (dependencies.length === 0) {
@@ -822,6 +851,12 @@ dispatchRoute.post('/task', async (c) => {
     loopConfig,
     loopStatus,
     loopCurrentIteration,
+    isFollowUp,
+    followUpMessage,
+    followUpResumeSessionId,
+    followUpPreviousOutput,
+    followUpPrUrl,
+    followUpBranchName,
   })
 })
 
@@ -873,6 +908,12 @@ async function dispatchViaRelay(
     loopConfig?: import('../../packages/core/src/types.js').LoopConfig
     loopStatus?: string | null
     loopCurrentIteration?: number | null
+    isFollowUp?: boolean
+    followUpMessage?: string
+    followUpResumeSessionId?: string
+    followUpPreviousOutput?: string
+    followUpPrUrl?: string
+    followUpBranchName?: string
   }
 ) {
   // Derive Astro base URL: env var > request Origin header
@@ -921,6 +962,12 @@ async function dispatchViaRelay(
     loopConfig,
     loopStatus,
     loopCurrentIteration,
+    isFollowUp,
+    followUpMessage,
+    followUpResumeSessionId,
+    followUpPreviousOutput,
+    followUpPrUrl,
+    followUpBranchName,
   } = params
   const deliveryMode = deliveryModeParam
   const useWorktree = useWorktreeParam
@@ -1371,7 +1418,26 @@ There is no branch isolation — changes are made in-place.
     }
 
     // SECURITY (MEDIUM-002): wrap user-provided title and description in delimiters
-    promptParts.push(`## Current Task\n\n<user_task>\n**${title}**\n\n${description}\n</user_task>`)
+    if (isFollowUp && followUpMessage) {
+      // Follow-up execution: include original task context + follow-up instruction
+      let followUpContext = `## Original Task\n\n<original_task>\n**${title}**\n\n${description}\n</original_task>`
+      if (followUpPreviousOutput) {
+        const cappedOutput = followUpPreviousOutput.length > 4000
+          ? followUpPreviousOutput.slice(0, 4000) + '\n\n[… truncated]'
+          : followUpPreviousOutput
+        followUpContext += `\n\n## Previous Execution Summary\n\n${cappedOutput}`
+      }
+      if (followUpBranchName) {
+        followUpContext += `\n\nThe previous execution worked on branch: \`${followUpBranchName}\``
+      }
+      if (followUpPrUrl) {
+        followUpContext += `\nPR from previous execution: ${followUpPrUrl}`
+      }
+      followUpContext += `\n\n## Follow-Up Instructions\n\n<user_task>\n${followUpMessage}\n</user_task>`
+      promptParts.push(followUpContext)
+    } else {
+      promptParts.push(`## Current Task\n\n<user_task>\n**${title}**\n\n${description}\n</user_task>`)
+    }
 
     // Inject available skills so the agent knows what tools are available
     if (skillsInjection) {
@@ -1588,8 +1654,9 @@ ${verificationSection}${executiveSummarySection}`)
     useWorktree,
     images,
     skipSafetyCheck: isBuiltinTemplate || (skipSafetyCheck && nodeId.startsWith('playground-')) || (!!workingDirectory && safetyDecision !== null) || !workingDirectory,
+    ...(isFollowUp ? { type: 'follow-up' as const } : {}),
     ...(isInteractivePlan ? { useWorktree: false, deliveryMode: 'direct' as const, type: 'plan' as const } : {}),
-    ...(nodeId.startsWith('playground-') && !isInteractivePlan ? { type: 'playground' as const } : {}),
+    ...(nodeId.startsWith('playground-') && !isInteractivePlan && !isFollowUp ? { type: 'playground' as const } : {}),
     ...(relaySystemPrompt ? { systemPrompt: relaySystemPrompt } : {}),
     ...(astroBaseUrl && { astroBaseUrl }),
     ...(githubIssueUrl && { githubIssueUrl }),
@@ -1597,7 +1664,7 @@ ${verificationSection}${executiveSummarySection}`)
     ...(dispatchSignature && { dispatchSignature }),
     ...(dispatchSigningPayload && { dispatchSigningPayload }),
     ...(dispatchTrustedKeys && dispatchTrustedKeys.length > 0 && { dispatchTrustedKeys }),
-    ...(resumeSessionId && { resumeSessionId }),
+    ...((resumeSessionId || followUpResumeSessionId) && { resumeSessionId: resumeSessionId || followUpResumeSessionId }),
     ...(forkSession && { forkSession }),
   }
 
@@ -2255,6 +2322,17 @@ ${verificationSection}${executiveSummarySection}`)
       ...initData,
       hasSystemPrompt: !!(relaySystemPrompt || relayPrompt),
     })
+
+    // Persist follow-up user message so it survives page refresh.
+    // Written as 'acknowledged' steer_message — the hydrator renders these as chat_user.
+    if (isFollowUp && followUpMessage) {
+      await streamingEventLog.append(executionId, 'steer_message', {
+        message: followUpMessage,
+        status: 'acknowledged',
+      }).catch((err: unknown) => {
+        console.warn('[dispatch] Failed to persist follow-up message:', err)
+      })
+    }
 
     // Update plan_nodes.status to in_progress server-side (DB-authoritative).
     {

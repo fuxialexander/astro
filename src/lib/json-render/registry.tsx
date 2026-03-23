@@ -408,7 +408,7 @@ export const { registry, handlers } = defineRegistry(astroCatalog, {
     },
 
     KeyValue: ({ props }) => {
-      const pairs = props.pairs ?? []
+      const pairs = props.pairs ?? props.items ?? []
       if (pairs.length === 0) return null
       return (
       <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
