@@ -528,9 +528,7 @@ export function UnifiedActivityView({
         <div className="px-3 pt-2 pb-0 flex items-center gap-1.5 text-[10px] text-muted-foreground">
           <Info className="h-3 w-3 shrink-0" />
           <span>
-            {canSteer
-              ? `Resume session in worktree${execution.branchName ? ` on \`${execution.branchName}\`` : ''}`
-              : `Follow-up chat${execution.branchName ? ` — changes on \`${execution.branchName}\`` : ''}`}
+            {`Follow-up chat${execution.branchName ? ` — changes on \`${execution.branchName}\`` : ''}`}
             {execution.prUrl ? ` — ` : ''}
           </span>
           {execution.prUrl && (
@@ -558,9 +556,7 @@ export function UnifiedActivityView({
           onSubmit={(opts) => handleSend(opts?.interrupt ?? false)}
           placeholder={
             canSteer
-              ? isRunning
-                ? "Steer the agent... (type @ to reference files)"
-                : "Resume session in worktree... (type @ to reference files)"
+              ? "Steer the agent... (type @ to reference files)"
               : "Ask about this task... (type @ to reference files)"
           }
           rows={2}

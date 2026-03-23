@@ -23,6 +23,7 @@ import {
   X,
   Pencil,
   Zap,
+  RefreshCw,
 } from "lucide-react"
 import { TypingIndicator } from "@/components/ui/typing-indicator"
 import { Button } from "@/components/ui/button"
@@ -603,6 +604,29 @@ export function Playground() {
     deleteProject(projectId)
   }, [activeProjectId, allExecutions, deleteProject, setSearchParams])
 
+  // Retry a failed playground session — pre-fill the landing form with the same prompt/machine/dir
+  const handleRetrySession = useCallback((projectId: string) => {
+    const exec = useExecutionStore.getState().executions.get(`playground-${projectId}`)
+    // Guard: don't retry if the session is still active
+    if (exec?.status === 'pending' || exec?.status === 'running') return
+
+    const proj = useProjectStore.getState().projects.find((p) => p.id === projectId)
+    if (!proj) return
+
+    // Pre-fill the landing form
+    setDescription(proj.description || proj.name || "")
+    if (proj.workingDirectory) setWorkingDir(proj.workingDirectory)
+    if (exec?.machineId) {
+      const machine = allMachines.find((m) => m.machineId === exec.machineId)
+      if (machine) setSelectedMachine(machine)
+    }
+    if (exec?.providerId) setSelectedProvider(exec.providerId)
+
+    // Clear active project so we go to landing phase
+    setActiveProjectId(null)
+    setSearchParams({})
+  }, [allMachines, setSearchParams])
+
   // ─── Loading / Not Found State ─────────────────────────────────────
   if (activeProjectId && !execution) {
     return (
@@ -652,7 +676,11 @@ export function Playground() {
               <div className="flex items-center justify-center h-full">
                 <div className="text-center max-w-md px-4">
                   <p className="text-sm font-medium text-destructive mb-1">Session failed</p>
-                  <p className="text-xs text-muted-foreground">{execution.error}</p>
+                  <p className="text-xs text-muted-foreground mb-3">{execution.error}</p>
+                  <Button variant="default" size="sm" onClick={() => handleRetrySession(activeProjectId!)}>
+                    <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                    Retry
+                  </Button>
                 </div>
               </div>
             )}
@@ -990,16 +1018,18 @@ export function Playground() {
             <div className="flex flex-col gap-1">
               {playgroundHistory.map((p) => {
                 const exec = allExecutions.get(`playground-${p.id}`)
+                const isFailed = exec?.status === 'failure'
+                const timestamp = p.updatedAt || p.createdAt
                 const statusLabel = exec?.status === 'running' ? 'Running'
                   : exec?.status === 'pending' ? 'Pending'
                   : exec?.status === 'success' ? 'Completed'
-                  : exec?.status === 'failure' ? 'Failed'
+                  : isFailed ? 'Failed'
                   : exec?.status === 'cancelled' ? 'Stopped'
                   : ''
                 const statusColor = exec?.status === 'running' ? 'bg-primary'
                   : exec?.status === 'pending' ? 'bg-muted-foreground'
                   : exec?.status === 'success' ? 'bg-success'
-                  : exec?.status === 'failure' || exec?.status === 'cancelled' ? 'bg-destructive'
+                  : isFailed || exec?.status === 'cancelled' ? 'bg-destructive'
                   : 'bg-muted-foreground'
 
                 return (
@@ -1027,7 +1057,7 @@ export function Playground() {
                       ) : (
                         <div className="group/name flex items-center gap-1">
                           <p
-                            className="text-sm truncate"
+                            className={cn("text-sm truncate", isFailed && "text-muted-foreground")}
                             onDoubleClick={(e) => {
                               e.stopPropagation()
                               setRenamingSessionId(p.id)
@@ -1056,13 +1086,37 @@ export function Playground() {
                             {PROVIDER_NAMES[exec.providerId] || exec.providerName || exec.providerId}
                           </Badge>
                         )}
+                        {timestamp && (
+                          <span className="text-[10px] text-muted-foreground/60 shrink-0">
+                            {new Date(timestamp).toLocaleString(undefined, {
+                              month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                            })}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {statusLabel && (
-                        <Badge variant="outline" className="text-[10px] hidden md:inline-flex">
+                        <Badge
+                          variant={isFailed ? "destructive" : "outline"}
+                          className="text-[10px] hidden md:inline-flex"
+                        >
                           {statusLabel}
                         </Badge>
+                      )}
+                      {isFailed && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-[10px] gap-1 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hidden md:inline-flex"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleRetrySession(p.id)
+                          }}
+                        >
+                          <RefreshCw className="h-3 w-3" />
+                          Retry
+                        </Button>
                       )}
                       {exec?.status === 'success' && (
                         <Button
