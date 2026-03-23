@@ -720,7 +720,7 @@ function makePlanColumns(
       render: (node) => {
         return (
           <span className={cn("text-sm truncate flex items-center gap-1.5", node.status === "pruned" && "line-through")}>
-            {onExecute && (
+            {onExecute && node.status === 'planned' && (
               <button
                 type="button"
                 title="Execute task"
@@ -1097,6 +1097,11 @@ export function PlanListView({
   }, [])
 
   const handleExecute = useCallback(async (node: PlanNode) => {
+    // Guard against double-dispatch: only planned tasks can be executed
+    if (node.status !== 'planned') {
+      console.warn(`[plan-view] Skipping dispatch for node ${node.id} — status is ${node.status}, not planned`)
+      return
+    }
     if (!project?.defaultMachineId) {
       useToastStore.getState().add({
         type: "warning",
