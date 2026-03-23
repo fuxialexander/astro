@@ -1888,6 +1888,7 @@ ${verificationSection}${executiveSummarySection}`)
       // keep the node in 'in_progress' instead of transitioning to a terminal status.
       // The last execution to finish will transition the node.
       try {
+        let skipNodeUpdate = false
         if (isParallelDispatch) {
           const [otherActive] = await db.select({ id: taskExecutions.id })
             .from(taskExecutions)
@@ -1899,28 +1900,49 @@ ${verificationSection}${executiveSummarySection}`)
             ))
             .limit(1)
           if (otherActive) {
-            // Other executions still running — only update this task_execution record,
-            // keep plan node in_progress. Update executionId/output if this is a success
-            // (prefer success over the current pointer).
             if (msg.result.status === 'completed') {
-              nodePatch.status = 'in_progress' // Don't transition node yet
-              nodePatch.executionId = executionId // Point to the successful execution
-            } else {
-              // Failure while others still running — don't update plan node at all
+              // Success while others still running — keep node in_progress but
+              // update executionId to point to this successful execution.
+              // Clear result-specific fields so we don't overwrite with partial data.
               nodePatch.status = 'in_progress'
+              nodePatch.executionId = executionId
+              // Remove fields that shouldn't update while node stays in_progress
+              delete nodePatch.executionOutput
+              delete nodePatch.executionError
+              delete nodePatch.executionCompletedAt
+              delete nodePatch.endDate
+              delete nodePatch.actualEndDate
+              delete nodePatch.branchName
+              delete nodePatch.prUrl
+              delete nodePatch.prNumber
+              delete nodePatch.commitBeforeSha
+              delete nodePatch.commitAfterSha
+            } else {
+              // Failure while others still running — skip plan node update entirely.
+              // Only the task_execution row (below) records this failure.
+              skipNodeUpdate = true
             }
           }
         }
 
-        await db.update(planNodes)
-          .set(nodePatch)
-          .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
-          .execute()
+        if (!skipNodeUpdate) {
+          await db.update(planNodes)
+            .set(nodePatch)
+            .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
+            .execute()
+        }
+
+        // Determine the actual status written to the DB for downstream logic.
+        // When isParallelDispatch overrides status to 'in_progress', we must use
+        // that — not the pre-override finalNodeStatus — to avoid premature cascades.
+        const actualNodeStatus = skipNodeUpdate ? 'in_progress' : (nodePatch.status ?? finalNodeStatus)
 
         // Notify frontend: DB is committed, safe to re-read
-        executionEventBus.emit('node:status_changed', {
-          nodeId, projectId, status: nodePatch.status ?? finalNodeStatus, executionId,
-        })
+        if (!skipNodeUpdate) {
+          executionEventBus.emit('node:status_changed', {
+            nodeId, projectId, status: actualNodeStatus, executionId,
+          })
+        }
 
         // Check if this is a loop node iteration — loops must always advance,
         // regardless of finalNodeStatus (the loop controller handles failures internally)
@@ -1948,7 +1970,7 @@ ${verificationSection}${executiveSummarySection}`)
           } else {
             console.log(`[dispatch] Interactive plan YOLO auto-dispatched ${readyTaskCount} ready task(s) for project ${projectId}`)
           }
-        } else if (finalNodeStatus === 'auto_verified' || finalNodeStatus === 'completed') {
+        } else if (actualNodeStatus === 'auto_verified' || actualNodeStatus === 'completed') {
           // Auto-dispatch downstream tasks server-side (works even if browser disconnected).
           // Triggers for both auto_verified (YOLO mode) and completed (human-verified),
           // so downstream tasks cascade regardless of verification mode.
