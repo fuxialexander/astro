@@ -355,9 +355,16 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       return
     }
 
-    // Check if already executing
+    // Check if already executing (local execution store)
     if (get().isExecuting(nodeId)) {
       console.warn("Node already executing:", nodeId)
+      return
+    }
+
+    // Check node status — only 'planned' nodes should be dispatched
+    // (prevents double-dispatch when button is clicked twice or batch + manual race)
+    if (node.status !== 'planned') {
+      console.warn(`Node ${nodeId} status is '${node.status}', not 'planned' — skipping dispatch`)
       return
     }
 
