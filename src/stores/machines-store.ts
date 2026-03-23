@@ -113,15 +113,15 @@ export const useMachinesStore = create<MachinesState>((set) => ({
   shareMachine: async (machineId: string, shared: boolean): Promise<boolean> => {
     try {
       const teamId = getActiveTeamId()
-      if (shared && !teamId) {
-        throw new Error('Select a workspace before sharing a machine')
+      if (!teamId) {
+        throw new Error('Select a workspace before sharing/unsharing a machine')
       }
       const headers = await getAuthHeaders()
       headers['Content-Type'] = 'application/json'
       const response = await fetch(apiUrl(`/api/device/machines/${machineId}/share`), {
         method: 'PATCH',
         headers,
-        body: JSON.stringify({ shared, teamId: shared ? teamId : null }),
+        body: JSON.stringify({ shared, teamId }),
       })
       if (!response.ok) throw new Error('Failed to update machine sharing')
       const data = await response.json()
