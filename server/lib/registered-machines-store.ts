@@ -405,7 +405,7 @@ export async function getConnectedMachinesCount(): Promise<number> {
  */
 export async function shareMachineWithTeam(machineId: string, teamId: string | null): Promise<boolean> {
   const result = await db.update(registeredMachines)
-    .set({ teamId: teamId ?? undefined })
+    .set({ teamId })
     .where(eq(registeredMachines.id, machineId))
     .returning({ id: registeredMachines.id })
   return result.length > 0
