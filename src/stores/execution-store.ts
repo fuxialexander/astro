@@ -152,6 +152,10 @@ export interface ExecutionOptions {
   maxTurns?: number
   /** Whether to use git worktree isolation (defaults to true in agent runner) */
   useWorktree?: boolean
+  /** Follow-up execution: re-dispatch with delivery pipeline after task completion */
+  isFollowUp?: boolean
+  /** The follow-up instruction from the user */
+  followUpMessage?: string
 }
 
 // Batch execution state for "Execute All" mode
@@ -504,6 +508,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           useWorktree: options?.useWorktree,
           imageRefs: node.content ? extractBlobUrls(node.content) : undefined,
           acceptanceCriteria: node.acceptanceCriteria || undefined,
+          ...(options?.isFollowUp && { isFollowUp: true, force: true }),
+          ...(options?.followUpMessage && { followUpMessage: options.followUpMessage }),
           ...signing,
         }),
         signal: abortController.signal,
