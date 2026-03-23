@@ -624,7 +624,7 @@ export function buildInteractivePlanPrompt(
     if (ghOwner && ghRepo) {
       githubSection = `\n## GitHub Integration
 This project is connected to GitHub repository \`${ghOwner}/${ghRepo}\`.
-The final step must open a pull request that merges all completed work into the \`${target}\` branch, then run a shepherd code review on the PR.
+The final step must open a pull request that merges all completed work into the \`${target}\` branch and run a code review on it.
 
 After creating all nodes with \`astro-cli plan create-node\`, add the GitHub push task with the dedicated CLI command:
 \`\`\`bash
@@ -637,9 +637,7 @@ astro-cli plan add-github-push-task --json \\
   --depends-on <nodeId2>
 \`\`\`
 Pass ALL leaf task nodes (nodes with no downstream dependencies) as \`--depends-on\` arguments.
-The command returns \`{ ok, id, edgesAdded }\` on success.
-
-The delivery task description should include: "Create a PR to merge all work into \`${target}\`, then run the \`/pr-shepherd\` skill to review and fix any issues before marking the PR as ready for review."
+The command returns \`{ ok, id, edgesAdded }\` on success. The created node already includes code review instructions in its description — no need to add them manually.
 `
     }
   }
