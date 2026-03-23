@@ -379,7 +379,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         session.projectId === params.projectId &&
         session.type === params.type &&
         session.status === "active" &&
-        (!params.nodeId || session.nodeId === params.nodeId)
+        (params.nodeId ? session.nodeId === params.nodeId : !session.nodeId)
       ) {
         return session
       }
