@@ -1486,9 +1486,21 @@ export class RelayServer extends EventEmitter {
       machineId = bestMachine.machineId;
     }
 
-    const connection = machineRegistry.getConnection(machineId);
+    let connection = machineRegistry.getConnection(machineId);
+
+    // Fallback: if target machine is not connected, try finding any available machine
+    if (!connection && targetMachineId) {
+      console.warn(`[relay] Target machine ${machineId} not connected for task ${task.taskId}, falling back to best available`);
+      const bestMachine = machineRegistry.findBestMachine(task.preferredProvider, userId)
+        || (task.preferredProvider ? machineRegistry.findBestMachine(undefined, userId) : null);
+      if (bestMachine) {
+        machineId = bestMachine.machineId;
+        connection = machineRegistry.getConnection(machineId);
+      }
+    }
+
     if (!connection) {
-      console.error(`[relay] Machine ${machineId} not found for task ${task.taskId}`);
+      console.error(`[relay] No available machine for task ${task.taskId}${targetMachineId ? ` (target ${targetMachineId} not connected)` : ''}`);
       return false;
     }
 
