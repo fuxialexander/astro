@@ -235,8 +235,17 @@ export function UnifiedActivityView({
         })
       } else {
         clearTimeout(timeoutId)
-        // Check if steer was acked but not accepted (session gone on agent side)
-        const result = await response.json().catch(() => ({ accepted: true }))
+        const result = await response.json().catch(() => ({ delivered: false }))
+        // Machine offline + completed task → fall back to chat
+        if (!result.delivered && !isRunning) {
+          updateSteerMessage(executionId, steerIndex, {
+            accepted: false,
+            ackMessage: "Machine offline — switching to chat follow-up...",
+          })
+          handleChat(text)
+          return
+        }
+        // Session expired on agent side
         if (result.accepted === false && !isRunning) {
           updateSteerMessage(executionId, steerIndex, {
             accepted: false,
@@ -245,7 +254,7 @@ export function UnifiedActivityView({
           handleChat(text)
           return
         }
-        updateSteerMessage(executionId, steerIndex, { accepted: true })
+        updateSteerMessage(executionId, steerIndex, { accepted: result.delivered ?? true })
       }
     } catch (error) {
       clearTimeout(timeoutId)
@@ -299,7 +308,8 @@ export function UnifiedActivityView({
     executionId ? s.taskStreams.get(executionId)?.machineId : undefined
   )
   const resolvedMachineIdForCanSteer = machineId || execMachineId || streamMachineId
-  const canSteer = isRunning && !!resolvedMachineIdForCanSteer
+  const hasPreservedSession = !isRunning && !!execution?.sessionId && !!resolvedMachineIdForCanSteer
+  const canSteer = (isRunning && !!resolvedMachineIdForCanSteer) || hasPreservedSession
 
   function handleSend(interrupt = false) {
     const text = input.trim()
@@ -528,7 +538,7 @@ export function UnifiedActivityView({
         <div className="px-3 pt-2 pb-0 flex items-center gap-1.5 text-[10px] text-muted-foreground">
           <Info className="h-3 w-3 shrink-0" />
           <span>
-            {`Follow-up chat${execution.branchName ? ` — changes on \`${execution.branchName}\`` : ''}`}
+            {`${hasPreservedSession ? 'Resume session' : 'Follow-up chat'}${execution.branchName ? ` — changes on \`${execution.branchName}\`` : ''}`}
             {execution.prUrl ? ` — ` : ''}
           </span>
           {execution.prUrl && (
@@ -555,8 +565,10 @@ export function UnifiedActivityView({
           onChange={setInput}
           onSubmit={(opts) => handleSend(opts?.interrupt ?? false)}
           placeholder={
-            canSteer
+            isRunning && canSteer
               ? "Steer the agent... (type @ to reference files)"
+              : hasPreservedSession
+              ? "Resume session... (type @ to reference files)"
               : "Ask about this task... (type @ to reference files)"
           }
           rows={2}

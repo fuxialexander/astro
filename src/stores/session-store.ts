@@ -372,13 +372,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   getOrCreateSession: (params) => {
-    // Atomically find an existing session matching projectId + type, or create one.
+    // Atomically find an existing session matching projectId + type (+ nodeId), or create one.
     // This prevents duplicate sessions when multiple components mount simultaneously.
     for (const session of get().sessions.values()) {
       if (
         session.projectId === params.projectId &&
         session.type === params.type &&
-        session.status === "active"
+        session.status === "active" &&
+        (!params.nodeId || session.nodeId === params.nodeId)
       ) {
         return session
       }
@@ -1212,12 +1213,23 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
     // Clear the message queue so stale queued messages don't fire after abort
     chatMessageQueues.delete(sessionId)
+
+    // Clean up empty assistant placeholder left by abort
+    const sessions = new Map(get().sessions)
+    const currentSession = sessions.get(sessionId)
+    if (currentSession) {
+      const msgs = currentSession.messages
+      if (msgs.length > 0 && msgs[msgs.length - 1].role === 'assistant' && !msgs[msgs.length - 1].content) {
+        sessions.set(sessionId, { ...currentSession, messages: msgs.slice(0, -1), updatedAt: new Date() })
+      }
+    }
+
     set((state) => {
       const ss = new Set(state.streamingSessions)
       ss.delete(sessionId)
       const d = new Map(state.chatQueueDepths)
       d.delete(sessionId)
-      return { streamingSessions: ss, chatQueueDepths: d }
+      return { streamingSessions: ss, chatQueueDepths: d, sessions }
     })
   },
 

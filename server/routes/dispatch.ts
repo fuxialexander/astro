@@ -2563,7 +2563,7 @@ dispatchRoute.post('/steer', async (c) => {
   // Even if relay send fails, the message is persisted as 'pending' and will be
   // batch-drained when session_init fires or between turns.
 
-  return c.json({ success: true, taskId, machineId, message: sent ? 'Steer message sent' : 'Steer message queued' })
+  return c.json({ success: true, delivered: sent, taskId, machineId, message: sent ? 'Steer message sent' : 'Steer message queued' })
 })
 
 /**

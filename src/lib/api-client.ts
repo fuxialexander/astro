@@ -84,9 +84,12 @@ export async function projectChatWithAgent(
   })
 
   if (!res.ok) {
-    let errorMsg = `Server error: ${res.status}`
-    try { const b = await res.json(); if (b.error) errorMsg += ` – ${b.error}` } catch { /* non-JSON */ }
-    throw new Error(errorMsg)
+    let serverError: string | undefined
+    try { const b = await res.json(); serverError = b.error } catch { /* non-JSON */ }
+    if (res.status === 503) {
+      throw new Error(serverError || 'No agent runner connected. Connect a machine in Settings > Environments.')
+    }
+    throw new Error(serverError ? `${serverError} (${res.status})` : `Server error: ${res.status}`)
   }
 
   return res.json() as Promise<{ taskId: string; streamId: string }>
@@ -136,9 +139,12 @@ export async function chatWithTask(
   })
 
   if (!res.ok) {
-    let errorMsg = `Server error: ${res.status}`
-    try { const b = await res.json(); if (b.error) errorMsg += ` – ${b.error}` } catch { /* non-JSON */ }
-    throw new Error(errorMsg)
+    let serverError: string | undefined
+    try { const b = await res.json(); serverError = b.error } catch { /* non-JSON */ }
+    if (res.status === 503) {
+      throw new Error(serverError || 'No agent runner connected. Connect a machine in Settings > Environments.')
+    }
+    throw new Error(serverError ? `${serverError} (${res.status})` : `Server error: ${res.status}`)
   }
 
   return res.json() as Promise<{ taskId: string; streamId: string }>

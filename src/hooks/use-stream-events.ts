@@ -162,6 +162,22 @@ export function useStreamEvents(
     return () => clearInterval(interval)
   }, [streamId, streamStatus, hydrateFromCatchUp])
 
+  // Low-frequency catch-up for mounted idle streams.
+  // When the stream is not actively running (completed, error, aborted), the 3s poll above
+  // doesn't fire. This secondary poll ensures cross-device/cross-tab convergence:
+  // if Tab A or another device sends a follow-up message, Tab B picks it up within ~15s.
+  useEffect(() => {
+    if (!streamId) return
+    // Skip when the fast 3s poll is active
+    if (streamStatus === 'running' || streamStatus === 'in_progress') return
+
+    const interval = setInterval(() => {
+      const seq = latestPersistedSeqRef.current
+      hydrateFromCatchUp([streamId], seq).catch(() => {})
+    }, 15000)
+
+    return () => clearInterval(interval)
+  }, [streamId, streamStatus, hydrateFromCatchUp])
 
   // Build activity events — merge taskStream with execution store and legacy fallback
   const activityEvents: TaskActivityEvent[] = useMemo(() => {
