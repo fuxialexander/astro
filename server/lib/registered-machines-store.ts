@@ -9,7 +9,7 @@ import type { RegisteredMachine } from '../types/device-auth.js'
 import type { ProviderType } from '../types/relay.js'
 import crypto from 'crypto'
 import { db } from './db/index.js'
-import { registeredMachines, machineUsageLogs, teamMembers, teams } from './db/schema.js'
+import { registeredMachines, machineUsageLogs, machineTeamShares, teamMembers, teams } from './db/schema.js'
 import { eq, and, desc, or, sql } from 'drizzle-orm'
 
 /**
@@ -22,7 +22,7 @@ export function generateMachineId(hostname: string): string {
 }
 
 // Helper: map a Drizzle row to RegisteredMachine
-function mapRowToMachine(row: typeof registeredMachines.$inferSelect): RegisteredMachine {
+function mapRowToMachine(row: typeof registeredMachines.$inferSelect, teamIds?: string[]): RegisteredMachine {
   return {
     id: row.id,
     name: row.name,
@@ -32,7 +32,8 @@ function mapRowToMachine(row: typeof registeredMachines.$inferSelect): Registere
     providers: (row.providers ?? []) as ProviderType[],
     providerConfigs: (row.providerConfigs ?? []) as import('../types/device-auth.js').ProviderConfig[],
     userId: row.userId,
-    teamId: row.teamId ?? undefined,
+    teamId: teamIds?.[0] ?? row.teamId ?? undefined,
+    teamIds: teamIds ?? (row.teamId ? [row.teamId] : []),
     workspaceId: row.workspaceId ?? undefined,
     registeredAt: row.registeredAt,
     lastSeenAt: row.lastSeenAt,
@@ -42,6 +43,16 @@ function mapRowToMachine(row: typeof registeredMachines.$inferSelect): Registere
     defaultInstructionId: row.defaultInstructionId ?? null,
     metadata: (row.metadata ?? undefined) as Record<string, string> | undefined,
   }
+}
+
+/**
+ * Get all team IDs a machine is shared with
+ */
+export async function getMachineTeamIds(machineId: string): Promise<string[]> {
+  const rows = await db.select({ teamId: machineTeamShares.teamId })
+    .from(machineTeamShares)
+    .where(eq(machineTeamShares.machineId, machineId))
+  return rows.map(r => r.teamId)
 }
 
 /**
@@ -401,14 +412,25 @@ export async function getConnectedMachinesCount(): Promise<number> {
 }
 
 /**
- * Share a machine with a team (owner only)
+ * Share a machine with a team (adds to join table, supports multi-team)
  */
-export async function shareMachineWithTeam(machineId: string, teamId: string | null): Promise<boolean> {
-  const result = await db.update(registeredMachines)
-    .set({ teamId })
-    .where(eq(registeredMachines.id, machineId))
-    .returning({ id: registeredMachines.id })
-  return result.length > 0
+export async function shareMachineWithTeam(machineId: string, teamId: string): Promise<string[]> {
+  await db.insert(machineTeamShares)
+    .values({ machineId, teamId })
+    .onConflictDoNothing()
+  return getMachineTeamIds(machineId)
+}
+
+/**
+ * Unshare a machine from a team (removes from join table)
+ */
+export async function unshareMachineFromTeam(machineId: string, teamId: string): Promise<string[]> {
+  await db.delete(machineTeamShares)
+    .where(and(
+      eq(machineTeamShares.machineId, machineId),
+      eq(machineTeamShares.teamId, teamId),
+    ))
+  return getMachineTeamIds(machineId)
 }
 
 /**
@@ -421,16 +443,25 @@ export async function getAvailableMachines(userId: string): Promise<import('../t
   const memberships = await db.select({ teamId: teamMembers.teamId })
     .from(teamMembers)
     .where(eq(teamMembers.userId, userId))
-  const teamIds = memberships.map(m => m.teamId)
+  const userTeamIds = memberships.map(m => m.teamId)
+
+  // Find machine IDs shared with any of the user's teams
+  let sharedMachineIds: string[] = []
+  if (userTeamIds.length > 0) {
+    const sharedRows = await db.select({ machineId: machineTeamShares.machineId })
+      .from(machineTeamShares)
+      .where(sql`${machineTeamShares.teamId} IN (${sql.join(userTeamIds.map(id => sql`${id}`), sql`, `)})`)
+    sharedMachineIds = [...new Set(sharedRows.map(r => r.machineId))]
+  }
 
   // Query: user's own machines OR machines shared with user's teams
   const conditions = [
     and(eq(registeredMachines.userId, userId), eq(registeredMachines.isRevoked, false)),
   ]
-  if (teamIds.length > 0) {
+  if (sharedMachineIds.length > 0) {
     conditions.push(
       and(
-        sql`${registeredMachines.teamId} IN (${sql.join(teamIds.map(id => sql`${id}`), sql`, `)})`,
+        sql`${registeredMachines.id} IN (${sql.join(sharedMachineIds.map(id => sql`${id}`), sql`, `)})`,
         eq(registeredMachines.isRevoked, false),
       )
     )
@@ -440,39 +471,79 @@ export async function getAvailableMachines(userId: string): Promise<import('../t
     .where(or(...conditions))
     .orderBy(desc(registeredMachines.registeredAt))
 
+  // Build machineId → teamIds lookup from join table
+  const allMachineIds = rows.map(r => r.id)
+  const machineTeamMap = new Map<string, string[]>()
+  if (allMachineIds.length > 0) {
+    const shareRows = await db.select({
+      machineId: machineTeamShares.machineId,
+      teamId: machineTeamShares.teamId,
+    }).from(machineTeamShares)
+      .where(sql`${machineTeamShares.machineId} IN (${sql.join(allMachineIds.map(id => sql`${id}`), sql`, `)})`)
+    for (const r of shareRows) {
+      const arr = machineTeamMap.get(r.machineId) ?? []
+      arr.push(r.teamId)
+      machineTeamMap.set(r.machineId, arr)
+    }
+  }
+
   // Build a teamId → teamName lookup
   const teamNameMap = new Map<string, string>()
-  if (teamIds.length > 0) {
+  if (userTeamIds.length > 0) {
     const teamRows = await db.select({ id: teams.id, name: teams.name }).from(teams)
-      .where(sql`${teams.id} IN (${sql.join(teamIds.map(id => sql`${id}`), sql`, `)})`)
+      .where(sql`${teams.id} IN (${sql.join(userTeamIds.map(id => sql`${id}`), sql`, `)})`)
     for (const t of teamRows) {
       teamNameMap.set(t.id, t.name)
     }
   }
 
   return rows.map(row => {
-    const machine = mapRowToMachine(row)
-    const isTeamMachine = machine.userId !== userId && !!machine.teamId
+    const machineTeamIds = machineTeamMap.get(row.id) ?? []
+    const machine = mapRowToMachine(row, machineTeamIds)
+    const isTeamMachine = machine.userId !== userId && machineTeamIds.length > 0
+    const machineTeamNames = machineTeamIds.map(tid => teamNameMap.get(tid)).filter(Boolean) as string[]
     return {
       ...machine,
       isTeamMachine,
-      teamName: machine.teamId ? teamNameMap.get(machine.teamId) : undefined,
+      teamName: machineTeamNames[0],
+      teamNames: machineTeamNames,
     }
   })
 }
 
 /**
- * Get team machines for a specific team
+ * Get team machines for a specific team (via join table)
  */
 export async function getTeamMachines(teamId: string): Promise<RegisteredMachine[]> {
+  // Find machine IDs shared with this team
+  const shareRows = await db.select({ machineId: machineTeamShares.machineId })
+    .from(machineTeamShares)
+    .where(eq(machineTeamShares.teamId, teamId))
+  const machineIds = shareRows.map(r => r.machineId)
+
+  if (machineIds.length === 0) return []
+
   const rows = await db.select().from(registeredMachines)
     .where(and(
-      eq(registeredMachines.teamId, teamId),
+      sql`${registeredMachines.id} IN (${sql.join(machineIds.map(id => sql`${id}`), sql`, `)})`,
       eq(registeredMachines.isRevoked, false),
     ))
     .orderBy(desc(registeredMachines.registeredAt))
 
-  return rows.map(mapRowToMachine)
+  // Get all team shares for these machines
+  const allShareRows = await db.select({
+    machineId: machineTeamShares.machineId,
+    teamId: machineTeamShares.teamId,
+  }).from(machineTeamShares)
+    .where(sql`${machineTeamShares.machineId} IN (${sql.join(machineIds.map(id => sql`${id}`), sql`, `)})`)
+  const machineTeamMap = new Map<string, string[]>()
+  for (const r of allShareRows) {
+    const arr = machineTeamMap.get(r.machineId) ?? []
+    arr.push(r.teamId)
+    machineTeamMap.set(r.machineId, arr)
+  }
+
+  return rows.map(row => mapRowToMachine(row, machineTeamMap.get(row.id) ?? []))
 }
 
 // ============================================================================

@@ -449,6 +449,15 @@ export const registeredMachines = pgTable('registered_machines', {
   teamIdIdx: index('idx_registered_machines_team_id').on(table.teamId),
 }))
 
+// ── Machine Team Shares (many-to-many) ──────────────────────────────
+export const machineTeamShares = pgTable('machine_team_shares', {
+  machineId: text('machine_id').notNull().references(() => registeredMachines.id, { onDelete: 'cascade' }),
+  teamId: uuid('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
+  sharedAt: timestamp('shared_at').notNull().defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.machineId, table.teamId] }),
+}))
+
 // ── Project Members ──────────────────────────────────────────────────
 export const projectMembers = pgTable('project_members', {
   projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),

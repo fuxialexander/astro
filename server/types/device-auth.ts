@@ -189,8 +189,10 @@ export interface RegisteredMachine {
   providerConfigs?: ProviderConfig[];
   /** User ID who registered this machine */
   userId: string;
-  /** Team ID if shared with a team (optional) */
+  /** @deprecated Use teamIds instead — kept for backward compat */
   teamId?: string;
+  /** Team IDs this machine is shared with */
+  teamIds?: string[];
   /** Workspace ID (if applicable) */
   workspaceId?: string;
   /** Registration timestamp */
@@ -392,6 +394,8 @@ export interface MachineUsageLog {
 export interface MachineWithTeamInfo extends RegisteredMachine {
   /** Whether this is a team-shared machine */
   isTeamMachine: boolean;
-  /** Team name if shared */
+  /** @deprecated Use teamNames instead */
   teamName?: string;
+  /** Team names if shared with multiple teams */
+  teamNames?: string[];
 }
