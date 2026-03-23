@@ -199,6 +199,8 @@ interface RealtimeState {
   /** Reconcile running tasks after page refresh: bootstrap execution store + task streams
    *  for plan nodes that are in_progress but have no execution store entries. */
   reconcileRunningTasks: () => void
+  /** Add an entry to the dashboard activity feed (public API for cross-store use). */
+  addActivityEntry: (type: string, text: string, extra?: { taskId?: string; machineId?: string }) => void
 }
 
 let activityCounter = 0
@@ -915,6 +917,10 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       console.log('[realtime] Reconciling', catchUpIds.length, 'running tasks after page load')
       get().hydrateFromCatchUp(catchUpIds, 0)
     }
+  },
+
+  addActivityEntry: (type, text, extra) => {
+    addActivity(set, type, text, extra)
   },
 }))
 

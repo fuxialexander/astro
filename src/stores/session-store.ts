@@ -1049,6 +1049,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         message,
         timestamp: new Date(),
       })
+      // Add to dashboard activity feed
+      const preview = message.length > 60 ? message.slice(0, 57) + '...' : message
+      useRealtimeStore.getState().addActivityEntry('chat', `Follow-up: ${preview}`)
     }
 
     // Mark chat stream as running so periodic catch-up polling activates
