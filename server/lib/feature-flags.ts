@@ -29,7 +29,7 @@ export const GLOBAL_DEFAULTS: Record<string, boolean> = {
   'github-integration': false,
   'webhook-automation': false,
   'loop-nodes': false,
-  'team-machines': false,
+  'team-machines': true,
   'delivery-branches': false,
 }
 
