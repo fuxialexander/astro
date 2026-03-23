@@ -16,6 +16,7 @@ import {
   Scissors,
   Loader2,
   ClipboardCheck,
+  MessageSquare,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -40,6 +41,7 @@ import { TaskTimeline } from "@/components/dashboard/task-timeline"
 import { ProjectHealthCard } from "@/components/dashboard/project-health-card"
 import { WhatsNewSection } from "@/components/dashboard/whats-new-section"
 import { UpcomingScheduledRuns } from "@/components/dashboard/upcoming-scheduled-runs"
+import { useSessionStore } from "@/stores/session-store"
 import { useFeatureFlag } from "@/hooks/use-feature-flag"
 import { formatCompactNumber } from "@astro/core/achievements"
 import { dataClient } from "@/lib/data-client"
@@ -52,6 +54,8 @@ const activityIcons: Record<string, { icon: typeof Activity; color: string }> = 
   progress: { icon: Activity, color: "text-info" },
   machine: { icon: Monitor, color: "text-primary" },
   file_change: { icon: FileText, color: "text-warning" },
+  chat: { icon: MessageSquare, color: "text-info" },
+  dispatch: { icon: Zap, color: "text-warning" },
 }
 
 function ActivityItem({ event }: { event: ActivityEvent }) {
@@ -109,6 +113,7 @@ export function Dashboard() {
 
   useEffect(() => { loadAll() }, [loadAll])
 
+  const streamingSessions = useSessionStore((s) => s.streamingSessions)
   const activeNodeTasks = nodes.filter(
     (n) => n.status === "in_progress" || n.status === "dispatched"
   ).length
@@ -118,7 +123,8 @@ export function Dashboard() {
   const activePlanSessions = [...allExecutions.values()].filter(
     (e) => (e.status === "running" || e.status === "pending") && e.nodeId.startsWith("plan-")
   ).length
-  const activeTasks = activeNodeTasks + activePlaygroundTasks + activePlanSessions
+  const activeChatSessions = streamingSessions.size
+  const activeTasks = activeNodeTasks + activePlaygroundTasks + activePlanSessions + activeChatSessions
   const pendingDecisions = nodes.filter(
     (n) => n.status === "awaiting_judgment" || n.status === "awaiting_approval"
   ).length + dynamicApprovals.size

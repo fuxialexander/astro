@@ -135,11 +135,12 @@ export function deriveActiveTasks(params: {
     const session = allSessions.get(sessionId)
     if (!session?.projectId) continue
 
-    const isPlayground = session.type === "task-chat"
-    if (!isPlayground && session.type !== "project-chat") continue
+    const isTaskChat = session.type === "task-chat"
+    if (!isTaskChat && session.type !== "project-chat") continue
 
-    const stableNodeId = isPlayground
-      ? `playground-${session.projectId}`
+    // Use session's nodeId for task-chat to differentiate per-task follow-ups
+    const stableNodeId = isTaskChat
+      ? (session.nodeId ? `followup-${session.nodeId}` : `playground-${session.projectId}`)
       : `chat-${sessionId}`
 
     if (addedNodeIds.has(stableNodeId)) continue
@@ -150,10 +151,17 @@ export function deriveActiveTasks(params: {
       || projectById.get(session.projectId)?.name
       || "Chat Session"
 
+    // For task-chat, check if the associated task already completed (= follow-up chat)
+    const taskNode = isTaskChat && session.nodeId ? rawNodesById.get(session.nodeId) : undefined
+    const isFollowUp = taskNode && TERMINAL_ACTIVE_TASK_NODE_STATUSES.has(taskNode.status)
+    const displayTitle = isTaskChat
+      ? (isFollowUp ? `Follow-up: ${taskNode?.title || title}` : title)
+      : `Chat: ${title}`
+
     pushTask(session.projectId, {
       nodeId: stableNodeId,
       projectId: session.projectId,
-      title: isPlayground ? title : `Chat: ${title}`,
+      title: displayTitle,
       status: "running",
       startedAt: session.updatedAt,
     })

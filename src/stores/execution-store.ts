@@ -18,6 +18,7 @@ import { deriveDeliveryMode } from "@/lib/project-source"
 import { useSettingsStore } from "./settings-store"
 import { authHeaders } from "@/lib/auth-headers"
 import { useTeamStore } from "./team-store"
+import { useRealtimeStore } from "./realtime-store"
 import { useWorkspaceFilterStore } from "./workspace-filter-store"
 
 /** Returns true for regular task execution node IDs (not ephemeral playground sessions). */
@@ -526,6 +527,13 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           }
           return { executions: newExecutions }
         })
+
+        // Add to dashboard activity feed
+        useRealtimeStore.getState().addActivityEntry(
+          'dispatch',
+          `Task "${node.title}" dispatched`,
+          { taskId: result.executionId },
+        )
       }
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {

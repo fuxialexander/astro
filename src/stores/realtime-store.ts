@@ -199,6 +199,8 @@ interface RealtimeState {
   /** Reconcile running tasks after page refresh: bootstrap execution store + task streams
    *  for plan nodes that are in_progress but have no execution store entries. */
   reconcileRunningTasks: () => void
+  /** Add an entry to the dashboard activity feed (public API for cross-store use). */
+  addActivityEntry: (type: string, text: string, extra?: { taskId?: string; machineId?: string }) => void
 }
 
 let activityCounter = 0
@@ -610,8 +612,31 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
               .reduce((acc, e) => acc + ((e as { content: string }).content?.length || 0), 0)
             const liveTextAhead = existingNoSeqTextLen > hydratedTextLen
 
+            // Build counting map of hydrated user-originated events for dedup.
+            // When a user sends a message, the frontend pushes a no-seq event locally
+            // for instant display, and the backend persists the same event to DB (seq'd).
+            // During catch-up, both versions coexist → duplicate display. Track counts
+            // so we drop exactly as many local copies as there are DB counterparts
+            // (handles identical messages correctly — counting, not just presence).
+            const hydratedUserMsgCounts = new Map<string, number>()
+            for (const e of hydrated.activityEvents) {
+              if (e.seq != null && (e.type === 'chat_user' || e.type === 'steer')) {
+                const key = `${e.type}:${(e as { message: string }).message}`
+                hydratedUserMsgCounts.set(key, (hydratedUserMsgCounts.get(key) || 0) + 1)
+              }
+            }
+
             const existingKept = existing.activityEvents.filter(e => {
               if (e.seq != null) return !hydratedActivitySeqs.has(e.seq)
+              // Drop locally-pushed user events when their canonical DB version has arrived
+              if (e.type === 'chat_user' || e.type === 'steer') {
+                const key = `${e.type}:${(e as { message: string }).message}`
+                const remaining = hydratedUserMsgCounts.get(key)
+                if (remaining && remaining > 0) {
+                  hydratedUserMsgCounts.set(key, remaining - 1)
+                  return false
+                }
+              }
               if (e.type !== 'text') return true
               // Keep no-seq text when live SSE is ahead of DB; drop when DB caught up
               return liveTextAhead
@@ -892,6 +917,10 @@ export const useRealtimeStore = create<RealtimeState>((set, get) => ({
       console.log('[realtime] Reconciling', catchUpIds.length, 'running tasks after page load')
       get().hydrateFromCatchUp(catchUpIds, 0)
     }
+  },
+
+  addActivityEntry: (type, text, extra) => {
+    addActivity(set, type, text, extra)
   },
 }))
 
