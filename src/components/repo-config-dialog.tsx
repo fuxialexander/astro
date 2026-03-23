@@ -36,7 +36,9 @@ export function RepoConfigDialog({
   const installations = useGitHubAppStore((s) => s.installations)
   const connected = installations.length > 0
   const registeredMachines = useMachinesStore((s) => s.machines)
+  const teamMachines = useMachinesStore((s) => s.teamMachines)
   const fetchMachines = useMachinesStore((s) => s.fetchMachines)
+  const fetchTeamMachines = useMachinesStore((s) => s.fetchTeamMachines)
   const relayMachines = useExecutionStore((s) => s.machines)
   const machinesLoaded = useExecutionStore((s) => s.machinesLoaded)
   const loadMachines = useExecutionStore((s) => s.loadMachines)
@@ -73,10 +75,10 @@ export function RepoConfigDialog({
   // Load machines on open
   useEffect(() => {
     if (open) {
-      if (isMultiTenant) fetchMachines()
+      if (isMultiTenant) { fetchMachines(); fetchTeamMachines() }
       if (!machinesLoaded) loadMachines()
     }
-  }, [open, isMultiTenant, fetchMachines, machinesLoaded, loadMachines])
+  }, [open, isMultiTenant, fetchMachines, fetchTeamMachines, machinesLoaded, loadMachines])
 
   // Aggregate repos from all GitHub App installations
   const repos = useMemo(() => {
@@ -102,12 +104,23 @@ export function RepoConfigDialog({
   // Auto-select single machine
   const allMachines = useMemo(() => {
     if (isMultiTenant) {
-      return registeredMachines.filter((m) => !m.isRevoked).map((m) => ({
-        id: m.id,
-        name: m.name,
-        hostname: m.hostname,
-        isConnected: m.isConnected,
-      }))
+      const seen = new Set<string>()
+      const result: Array<{ id: string; name: string; hostname?: string; isConnected: boolean }> = []
+      // Own machines
+      for (const m of registeredMachines) {
+        if (!m.isRevoked && !seen.has(m.id)) {
+          seen.add(m.id)
+          result.push({ id: m.id, name: m.name, hostname: m.hostname, isConnected: m.isConnected })
+        }
+      }
+      // Team-shared machines (deduplicated)
+      for (const m of teamMachines) {
+        if (!m.isRevoked && !seen.has(m.id)) {
+          seen.add(m.id)
+          result.push({ id: m.id, name: m.name, hostname: m.hostname, isConnected: m.isConnected })
+        }
+      }
+      return result
     }
     const seen = new Set<string>()
     const result: Array<{ id: string; name: string; hostname?: string; isConnected: boolean }> = []
@@ -124,7 +137,7 @@ export function RepoConfigDialog({
       }
     }
     return result
-  }, [isMultiTenant, registeredMachines, relayMachines, realtimeMachines])
+  }, [isMultiTenant, registeredMachines, teamMachines, relayMachines, realtimeMachines])
 
   // Convert to MachineInfo shape for MachineWorkdirSelector
   const machineInfoList = useMemo<MachineInfo[]>(() =>
