@@ -49,7 +49,7 @@ interface MachinesState {
   renameMachine: (machineId: string, name: string) => Promise<boolean>
   updateMachineProviderConfigs: (machineId: string, configs: ProviderConfig[]) => Promise<boolean>
   updateMachineStatus: (machineId: string, isConnected: boolean) => void
-  shareMachine: (machineId: string, shared: boolean) => Promise<boolean>
+  shareMachine: (machineId: string, teamId: string, shared: boolean) => Promise<boolean>
 }
 
 /**
@@ -110,12 +110,8 @@ export const useMachinesStore = create<MachinesState>((set) => ({
     }
   },
 
-  shareMachine: async (machineId: string, shared: boolean): Promise<boolean> => {
+  shareMachine: async (machineId: string, teamId: string, shared: boolean): Promise<boolean> => {
     try {
-      const teamId = getActiveTeamId()
-      if (!teamId) {
-        throw new Error('Select a workspace before sharing/unsharing a machine')
-      }
       const headers = await getAuthHeaders()
       headers['Content-Type'] = 'application/json'
       const response = await fetch(apiUrl(`/api/device/machines/${machineId}/share`), {
