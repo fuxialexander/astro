@@ -37,6 +37,7 @@ export {
   sharedBundles,
   dispatchQueueEntries,
   machineUsageLogs,
+  machineTeamShares,
   blobs,
   nodeComments,
   githubConnections,

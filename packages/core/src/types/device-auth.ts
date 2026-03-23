@@ -26,7 +26,9 @@ export interface RegisteredMachine {
   providers: ProviderType[];
   providerConfigs?: ProviderConfig[];
   userId: string;
+  /** @deprecated Use teamIds instead */
   teamId?: string;
+  teamIds?: string[];
   workspaceId?: string;
   registeredAt: Date;
   lastSeenAt: Date;
@@ -39,5 +41,7 @@ export interface RegisteredMachine {
 /** Extended machine info with team context */
 export interface MachineWithTeamInfo extends RegisteredMachine {
   isTeamMachine: boolean;
+  /** @deprecated Use teamNames instead */
   teamName?: string;
+  teamNames?: string[];
 }

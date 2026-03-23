@@ -573,7 +573,9 @@ export function Environments() {
   // Apply workspace filter to registered machines
   const registeredMachines = useMemo(() => {
     if (workspaceFilter === 'all') return allRegisteredMachines
-    return allRegisteredMachines.filter((m) => m.teamId === workspaceFilter)
+    return allRegisteredMachines.filter((m) =>
+      m.teamIds?.includes(workspaceFilter) || m.teamId === workspaceFilter
+    )
   }, [allRegisteredMachines, workspaceFilter])
 
   // Machine instructions

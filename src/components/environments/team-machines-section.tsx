@@ -20,11 +20,14 @@ import { formatRelativeTime } from "@/lib/date-utils"
 
 // ─── My Machine Row ─────────────────────────────────────────────────────────
 
-function MyMachineRow({ machine, onShare }: {
+function MyMachineRow({ machine, activeTeamId, onShare }: {
   machine: RegisteredMachine
+  activeTeamId?: string | null
   onShare: (machineId: string, shared: boolean) => void
 }) {
-  const isShared = !!machine.teamId
+  const teamIds = machine.teamIds ?? (machine.teamId ? [machine.teamId] : [])
+  const isSharedWithCurrentTeam = !!activeTeamId && teamIds.includes(activeTeamId)
+  const sharedCount = teamIds.length
   return (
     <div className="flex items-center gap-3 py-2.5 px-3 rounded-lg hover:bg-muted/40 transition-colors">
       <div className="flex-shrink-0">
@@ -40,15 +43,19 @@ function MyMachineRow({ machine, onShare }: {
         <div className="text-xs text-muted-foreground truncate">{machine.hostname} · {machine.platform}</div>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
-        {isShared && <Badge variant="secondary" className="text-xs">Shared</Badge>}
+        {sharedCount > 0 && (
+          <Badge variant="secondary" className="text-xs">
+            Shared{sharedCount > 1 ? ` (${sharedCount} teams)` : ''}
+          </Badge>
+        )}
         <Button
-          variant={isShared ? "outline" : "secondary"}
+          variant={isSharedWithCurrentTeam ? "outline" : "secondary"}
           size="sm"
           className="h-7 text-xs gap-1.5"
-          onClick={() => onShare(machine.id, !isShared)}
+          onClick={() => onShare(machine.id, !isSharedWithCurrentTeam)}
         >
-          {isShared ? <Unlink className="w-3 h-3" /> : <Share2 className="w-3 h-3" />}
-          {isShared ? "Unshare" : "Share with team"}
+          {isSharedWithCurrentTeam ? <Unlink className="w-3 h-3" /> : <Share2 className="w-3 h-3" />}
+          {isSharedWithCurrentTeam ? "Unshare" : "Share with team"}
         </Button>
       </div>
     </div>
@@ -141,7 +148,7 @@ export function TeamMachinesSection() {
             ) : (
               <div className="divide-y divide-border/50">
                 {myMachines.map((m) => (
-                  <MyMachineRow key={m.id} machine={m} onShare={handleShare} />
+                  <MyMachineRow key={m.id} machine={m} activeTeamId={activeTeamId} onShare={handleShare} />
                 ))}
               </div>
             )}

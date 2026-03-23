@@ -32,6 +32,7 @@ export interface RegisteredMachine {
   isConnected: boolean
   isRevoked: boolean
   teamId?: string | null
+  teamIds?: string[]
   userId?: string
 }
 
@@ -124,10 +125,11 @@ export const useMachinesStore = create<MachinesState>((set) => ({
       })
       if (!response.ok) throw new Error('Failed to update machine sharing')
       const data = await response.json()
-      // Update local state — reflect new teamId
+      // Update local state — reflect new teamIds
+      const teamIds = (data.teamIds as string[]) ?? []
       set((state) => ({
         machines: state.machines.map((m) =>
-          m.id === machineId ? { ...m, teamId: (data.teamId as string | null) ?? null } : m
+          m.id === machineId ? { ...m, teamId: teamIds[0] ?? null, teamIds } : m
         ),
       }))
       return true

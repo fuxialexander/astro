@@ -58,13 +58,14 @@ import {
   updateMachineName,
   updateMachineProviderConfigs,
   shareMachineWithTeam,
+  unshareMachineFromTeam,
   getTeamMachines,
 } from '../lib/registered-machines-store.js';
 import { machineRegistry } from '../lib/machine-registry.js';
 import { relayServer } from '../lib/relay-server.js';
 import { db } from '../lib/db/index.js';
-import { registeredMachines } from '../lib/db/schema.js';
-import { eq } from 'drizzle-orm';
+import { registeredMachines, machineTeamShares } from '../lib/db/schema.js';
+import { eq, sql } from 'drizzle-orm';
 import { getServiceClient } from '../lib/supabase.js'
 import { isServerMode } from '../lib/app-mode.js';
 import { storeUserDispatchPublicKey } from '../lib/user-dispatch-public-keys.js';
@@ -718,48 +719,88 @@ deviceAuthRoute.get('/machines', requireAuth, async (c) => {
     // Cross-reference DB status with live relay connections
     const liveIds = new Set(machineRegistry.getAll().map(m => m.machineId));
 
-    const machines = (data || []).map((row: Record<string, unknown>) => ({
-      id: row.id as string,
-      name: row.name as string,
-      hostname: row.hostname as string,
-      platform: row.platform as string,
-      providers: row.providers as string[],
-      providerConfigs: row.provider_configs ?? [],
-      defaultInstructionId: (row.default_instruction_id as string) ?? null,
-      userId: row.user_id as string,
-      teamId: (row.team_id as string) ?? null,
-      registeredAt: new Date(row.registered_at as string),
-      lastSeenAt: new Date(row.last_seen_at as string),
-      isConnected: liveIds.has(row.id as string),
-      isRevoked: row.is_revoked as boolean,
-    }));
+    // Load teamIds from join table for all machines
+    const machineIds = (data || []).map((row: Record<string, unknown>) => row.id as string);
+    const machineTeamMap = new Map<string, string[]>();
+    if (machineIds.length > 0) {
+      const shareRows = await db.select({
+        machineId: machineTeamShares.machineId,
+        teamId: machineTeamShares.teamId,
+      }).from(machineTeamShares)
+        .where(sql`${machineTeamShares.machineId} IN (${sql.join(machineIds.map(id => sql`${id}`), sql`, `)})`);
+      for (const r of shareRows) {
+        const arr = machineTeamMap.get(r.machineId) ?? [];
+        arr.push(r.teamId);
+        machineTeamMap.set(r.machineId, arr);
+      }
+    }
+
+    const machines = (data || []).map((row: Record<string, unknown>) => {
+      const id = row.id as string;
+      const tIds = machineTeamMap.get(id) ?? [];
+      return {
+        id,
+        name: row.name as string,
+        hostname: row.hostname as string,
+        platform: row.platform as string,
+        providers: row.providers as string[],
+        providerConfigs: row.provider_configs ?? [],
+        defaultInstructionId: (row.default_instruction_id as string) ?? null,
+        userId: row.user_id as string,
+        teamId: tIds[0] ?? (row.team_id as string) ?? null,
+        teamIds: tIds,
+        registeredAt: new Date(row.registered_at as string),
+        lastSeenAt: new Date(row.last_seen_at as string),
+        isConnected: liveIds.has(id),
+        isRevoked: row.is_revoked as boolean,
+      };
+    });
 
     return c.json({
       machines,
       count: machines.length,
     });
   } else {
-    // Local mode: Use manual filtering (SQLite)
+    // Local mode: Use Drizzle ORM
     const machines = await getUserMachines(user.id);
-    // Cross-reference DB status with live relay connections
     const liveIds = new Set(machineRegistry.getAll().map(m => m.machineId));
 
+    // Load teamIds from join table
+    const machineIds = machines.map(m => m.id);
+    const machineTeamMap = new Map<string, string[]>();
+    if (machineIds.length > 0) {
+      const shareRows = await db.select({
+        machineId: machineTeamShares.machineId,
+        teamId: machineTeamShares.teamId,
+      }).from(machineTeamShares)
+        .where(sql`${machineTeamShares.machineId} IN (${sql.join(machineIds.map(id => sql`${id}`), sql`, `)})`);
+      for (const r of shareRows) {
+        const arr = machineTeamMap.get(r.machineId) ?? [];
+        arr.push(r.teamId);
+        machineTeamMap.set(r.machineId, arr);
+      }
+    }
+
     return c.json({
-      machines: machines.map((m) => ({
-        id: m.id,
-        name: m.name,
-        hostname: m.hostname,
-        platform: m.platform,
-        providers: m.providers,
-        providerConfigs: m.providerConfigs ?? [],
-        defaultInstructionId: m.defaultInstructionId ?? null,
-        userId: m.userId,
-        teamId: m.teamId ?? null,
-        registeredAt: m.registeredAt,
-        lastSeenAt: m.lastSeenAt,
-        isConnected: liveIds.has(m.id),
-        isRevoked: m.isRevoked,
-      })),
+      machines: machines.map((m) => {
+        const tIds = machineTeamMap.get(m.id) ?? [];
+        return {
+          id: m.id,
+          name: m.name,
+          hostname: m.hostname,
+          platform: m.platform,
+          providers: m.providers,
+          providerConfigs: m.providerConfigs ?? [],
+          defaultInstructionId: m.defaultInstructionId ?? null,
+          userId: m.userId,
+          teamId: tIds[0] ?? m.teamId ?? null,
+          teamIds: tIds,
+          registeredAt: m.registeredAt,
+          lastSeenAt: m.lastSeenAt,
+          isConnected: liveIds.has(m.id),
+          isRevoked: m.isRevoked,
+        };
+      }),
       count: machines.length,
     });
   }
@@ -1054,7 +1095,8 @@ deviceAuthRoute.get('/team-machines', requireAuth, async (c) => {
       platform: m.platform,
       providers: m.providers,
       userId: m.userId,
-      teamId: m.teamId,
+      teamId: m.teamIds?.[0] ?? m.teamId,
+      teamIds: m.teamIds ?? [],
       registeredAt: m.registeredAt,
       lastSeenAt: m.lastSeenAt,
       isConnected: liveIds.has(m.id),
@@ -1066,9 +1108,9 @@ deviceAuthRoute.get('/team-machines', requireAuth, async (c) => {
 
 /**
  * PATCH /device/machines/:id/share
- * Share or unshare a machine with the current user's team.
+ * Share or unshare a machine with a team (supports multi-team sharing).
  * Only the machine owner can share/unshare.
- * Body: { shared: boolean }
+ * Body: { shared: boolean, teamId: string }
  */
 deviceAuthRoute.patch('/machines/:id/share', requireAuth, async (c) => {
   const user = c.get('user') as { id: string; teamIds: string[] };
@@ -1078,8 +1120,8 @@ deviceAuthRoute.patch('/machines/:id/share', requireAuth, async (c) => {
   if (typeof body.shared !== 'boolean') {
     return c.json({ error: 'Missing required field: shared (boolean)' }, 400);
   }
-  if (body.shared && (!body.teamId || !user.teamIds.includes(body.teamId))) {
-    return c.json({ error: 'A valid teamId is required when sharing a machine' }, 400);
+  if (!body.teamId || !user.teamIds.includes(body.teamId)) {
+    return c.json({ error: 'A valid teamId is required' }, 400);
   }
 
   // Verify ownership
@@ -1091,17 +1133,15 @@ deviceAuthRoute.patch('/machines/:id/share', requireAuth, async (c) => {
     return c.json({ error: 'Not authorized — only the machine owner can share it' }, 403);
   }
 
-  const targetTeamId = body.shared ? body.teamId! : null;
-  const success = await shareMachineWithTeam(id, targetTeamId);
-
-  if (!success) {
-    return c.json({ error: 'Failed to update machine sharing' }, 500);
-  }
+  const teamIds = body.shared
+    ? await shareMachineWithTeam(id, body.teamId)
+    : await unshareMachineFromTeam(id, body.teamId);
 
   return c.json({
     success: true,
     shared: body.shared,
-    teamId: targetTeamId,
+    teamId: body.teamId,
+    teamIds,
   });
 });
 
