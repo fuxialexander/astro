@@ -526,6 +526,9 @@ dispatchRoute.post('/task', async (c) => {
   let loopConfig: import('../../packages/core/src/types.js').LoopConfig | undefined
   let loopStatus: string | null | undefined
   let loopCurrentIteration: number | null | undefined
+  // Parallel execution: set to true when another user's execution is already running on this node.
+  // When true, we skip plan_nodes status/executionId updates (keep pointing to the first execution).
+  let isParallelDispatch = false
   try {
     // Fetch plan node (exclude soft-deleted)
     const [dbNode] = await db.select().from(planNodes)
@@ -543,8 +546,36 @@ dispatchRoute.post('/task', async (c) => {
     // Guard against duplicate dispatch: if the node is already dispatched or running,
     // reject unless force=true. Both 'dispatched' and 'in_progress' indicate an active
     // dispatch pipeline — allowing re-dispatch creates duplicate executions.
+    //
+    // When parallel-execution flag is enabled, allow different users to dispatch
+    // the same task concurrently (each gets their own execution/worktree). Still
+    // block the SAME user from dispatching twice, and always block in 'direct' mode
+    // (no git isolation → file conflicts).
     if (dbNode && !force && (dbNode.status === 'dispatched' || dbNode.status === 'in_progress')) {
-      return c.json({ success: false, error: `Task already ${dbNode.status}` }, 409)
+      // Check parallel-execution feature flag
+      const [teamRow] = await db.select({ featureFlags: teams.featureFlags })
+        .from(teams).where(eq(teams.id, dbProject.teamId)).limit(1)
+      const parallelEnabled = hasFeature(teamRow?.featureFlags ?? null, 'parallel-execution')
+
+      if (!parallelEnabled || deliveryMode === 'direct') {
+        return c.json({ success: false, error: `Task already ${dbNode.status}` }, 409)
+      }
+
+      // Parallel mode: block if THIS user already has an active execution for this node
+      const [activeUserExec] = await db.select({ id: taskExecutions.id })
+        .from(taskExecutions)
+        .where(and(
+          eq(taskExecutions.nodeClientId, nodeId),
+          eq(taskExecutions.userId, user!.id),
+          inArray(taskExecutions.status, ['pending', 'running']),
+          isNull(taskExecutions.deletedAt),
+        ))
+        .limit(1)
+      if (activeUserExec) {
+        return c.json({ success: false, error: 'You already have an active execution for this task' }, 409)
+      }
+      // Different user — allow parallel dispatch
+      isParallelDispatch = true // eslint-disable-line @typescript-eslint/no-unused-vars -- used in onResult and dispatch-start blocks below
     }
 
     if (dbNode) {
@@ -1852,7 +1883,35 @@ ${verificationSection}${executiveSummarySection}`)
 
       // Await DB write so node:status_changed is only emitted after commit.
       // Frontend re-reads from DB on notification (DB-authoritative pattern).
+      //
+      // Parallel execution: if other executions for this node are still active,
+      // keep the node in 'in_progress' instead of transitioning to a terminal status.
+      // The last execution to finish will transition the node.
       try {
+        if (isParallelDispatch) {
+          const [otherActive] = await db.select({ id: taskExecutions.id })
+            .from(taskExecutions)
+            .where(and(
+              eq(taskExecutions.nodeClientId, nodeId),
+              inArray(taskExecutions.status, ['pending', 'running']),
+              isNull(taskExecutions.deletedAt),
+              sql`${taskExecutions.executionId} != ${executionId}`,
+            ))
+            .limit(1)
+          if (otherActive) {
+            // Other executions still running — only update this task_execution record,
+            // keep plan node in_progress. Update executionId/output if this is a success
+            // (prefer success over the current pointer).
+            if (msg.result.status === 'completed') {
+              nodePatch.status = 'in_progress' // Don't transition node yet
+              nodePatch.executionId = executionId // Point to the successful execution
+            } else {
+              // Failure while others still running — don't update plan node at all
+              nodePatch.status = 'in_progress'
+            }
+          }
+        }
+
         await db.update(planNodes)
           .set(nodePatch)
           .where(and(eq(planNodes.clientId, nodeId), eq(planNodes.projectId, projectId)))
@@ -1860,7 +1919,7 @@ ${verificationSection}${executiveSummarySection}`)
 
         // Notify frontend: DB is committed, safe to re-read
         executionEventBus.emit('node:status_changed', {
-          nodeId, projectId, status: finalNodeStatus, executionId,
+          nodeId, projectId, status: nodePatch.status ?? finalNodeStatus, executionId,
         })
 
         // Check if this is a loop node iteration — loops must always advance,
@@ -2326,7 +2385,9 @@ ${verificationSection}${executiveSummarySection}`)
     }
 
     // Update plan_nodes.status to in_progress server-side (DB-authoritative).
-    {
+    // Skip when this is a parallel dispatch (another user's execution already owns
+    // the node status/executionId — we don't overwrite it).
+    if (!isParallelDispatch) {
       const now = new Date()
       try {
         await db.update(planNodes)
@@ -2371,6 +2432,7 @@ ${verificationSection}${executiveSummarySection}`)
       nodeId,
       projectId,
       machineId,
+      userId: user?.id,
       providerId: initData.providerId,
       providerName: initData.providerName,
       computeBackend,

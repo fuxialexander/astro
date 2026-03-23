@@ -2055,6 +2055,44 @@ app.get('/executions/:nodeId', async (c) => {
   return c.json(exec)
 })
 
+// All executions for a node (parallel execution history)
+app.get('/executions/:nodeId/all', async (c) => {
+  const user = c.get('user')! as AuthUser
+  const nodeId = c.req.param('nodeId')
+
+  const rows = await db.select({
+    executionId: taskExecutions.executionId,
+    nodeId: taskExecutions.nodeClientId,
+    projectId: taskExecutions.projectId,
+    userId: taskExecutions.userId,
+    status: taskExecutions.status,
+    error: taskExecutions.error,
+    machineId: taskExecutions.machineId,
+    sessionId: taskExecutions.sessionId,
+    startedAt: taskExecutions.startedAt,
+    completedAt: taskExecutions.completedAt,
+    markdownSummary: taskExecutions.markdownSummary,
+    summary: taskExecutions.summary,
+    durationMs: taskExecutions.durationMs,
+    inputTokens: taskExecutions.inputTokens,
+    outputTokens: taskExecutions.outputTokens,
+    estimatedCostUsd: taskExecutions.estimatedCostUsd,
+    model: taskExecutions.model,
+    turnsUsed: taskExecutions.turnsUsed,
+  }).from(taskExecutions)
+    .where(and(eq(taskExecutions.nodeClientId, nodeId), isNull(taskExecutions.deletedAt)))
+    .orderBy(desc(taskExecutions.createdAt))
+
+  if (rows.length === 0) return c.json([])
+
+  // Verify project access
+  const [project] = await db.select({ id: projects.id }).from(projects)
+    .where(and(eq(projects.id, rows[0].projectId), allTeamsScopeFilter(projects, user)))
+  if (!project) return c.json({ error: 'Not authorized' }, 403)
+
+  return c.json(rows)
+})
+
 app.delete('/executions/:nodeId', async (c) => {
   const user = c.get('user')! as AuthUser
   const nodeId = c.req.param('nodeId')
