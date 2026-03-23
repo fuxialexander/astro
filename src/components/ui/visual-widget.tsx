@@ -132,10 +132,13 @@ function buildDocument(code: string): string {
     overflow-y: auto;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     background: transparent;
-    color: inherit;
+    color: hsl(var(--foreground, 0 0% 3.9%));
     max-width: 100%;
   }
   body { padding: 8px; }
+  /* Ensure SVG foreignObject text inherits body color and dark-bg sections get light text */
+  svg foreignObject { color: inherit; }
+  svg text { fill: currentColor; }
   /* Prevent any child from overflowing */
   body > * { max-width: 100%; overflow-x: auto; }
   /* Entrance animation — subtle fly-in for progressive rendering */
