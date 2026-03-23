@@ -85,9 +85,13 @@ export const astroCatalog = defineCatalog(schema, {
         pairs: z.array(z.object({
           key: z.string(),
           value: z.string(),
-        })),
+        })).optional(),
+        items: z.array(z.object({
+          key: z.string(),
+          value: z.string(),
+        })).optional(),
       }),
-      description: 'A key-value display for structured data. Each pair has a key label and value.',
+      description: 'A key-value display for structured data. Each pair has a key label and value. Accepts either "pairs" or "items" as the prop name.',
     },
     CodeBlock: {
       props: z.object({
