@@ -9,7 +9,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { useSearchParams, useLocation } from "react-router"
-import { Sparkles, Loader2, GitBranch, Info, Monitor, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate, AlertTriangle } from "lucide-react"
+import { Sparkles, Loader2, GitBranch, Info, Monitor, Clock, X, FileCode2, Layers, ChevronDown, ChevronRight, FileText, Paperclip, LayoutTemplate, AlertTriangle, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
@@ -785,6 +785,37 @@ export function ProjectNewPlan() {
   // execution or the execution ended cleanly (no error). When the execution has an error,
   // stay in chat phase so PlanGeneration can display the error UI (e.g., "No machine available").
   const showInputForRegeneration = existingProjectHasNoNodes && (!execution || (executionIsTerminal && !execution.error)) && !fromPlaygroundId
+  // Regenerate handler: navigates to the input form with the failed project pre-filled.
+  // Clears the execution entry and any partial plan nodes so showInputForRegeneration
+  // triggers (project with zero live nodes → isRegeneration → reuses same project).
+  const removeNodes = usePlanStore((s) => s.removeNodes)
+  const handleRegenerate = useCallback((targetProjectId: string) => {
+    // Guard: don't regenerate if the session is still active
+    const exec = useExecutionStore.getState().executions.get(`plan-${targetProjectId}`)
+    if (exec?.status === 'pending' || exec?.status === 'running') return
+
+    // Clear the execution so the routing logic falls through to the input form
+    useExecutionStore.setState((state) => {
+      const next = new Map(state.executions)
+      next.delete(`plan-${targetProjectId}`)
+      return { executions: next }
+    })
+    // Soft-delete any partial plan nodes from the failed attempt so
+    // existingProjectHasNoNodes evaluates to true → isRegeneration = true
+    // → handleSubmit reuses the same project instead of creating a new one.
+    // Read fresh nodes at call time to avoid stale closure + excessive re-renders.
+    const currentNodes = usePlanStore.getState().nodes
+    const partialNodeIds = currentNodes
+      .filter((n) => n.projectId === targetProjectId && isLive(n))
+      .map((n) => n.id)
+    if (partialNodeIds.length > 0) {
+      removeNodes(partialNodeIds)
+    }
+    // Set URL to the project so existing-project pre-fill kicks in
+    setActiveProjectId(targetProjectId)
+    setSearchParams({ projectId: targetProjectId })
+  }, [setSearchParams, removeNodes])
+
   if (activeProjectId && (execution || project) && !showInputForRegeneration) {
     return (
       <div className="h-full">
@@ -805,6 +836,7 @@ export function ProjectNewPlan() {
             setSearchParams({})
             resetForm()
           }}
+          onRegenerate={() => handleRegenerate(activeProjectId)}
         />
       </div>
     )
@@ -1138,6 +1170,8 @@ export function ProjectNewPlan() {
                   : exec?.status === 'success' ? 'bg-success'
                   : exec?.status === 'failure' ? 'bg-destructive'
                   : 'bg-muted-foreground'
+                const isFailed = exec?.status === 'failure'
+                const timestamp = p.updatedAt || p.createdAt
 
                 return (
                   <div
@@ -1151,15 +1185,41 @@ export function ProjectNewPlan() {
                     <span className={cn("h-2 w-2 rounded-full shrink-0", statusColor)} />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm truncate">{p.name}</p>
-                      <p className="text-[10px] text-muted-foreground truncate font-mono">
-                        {p.workingDirectory || "—"}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-[10px] text-muted-foreground truncate font-mono">
+                          {p.workingDirectory || "—"}
+                        </p>
+                        {timestamp && (
+                          <span className="text-[10px] text-muted-foreground/60 shrink-0">
+                            {new Date(timestamp).toLocaleString(undefined, {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {statusLabel && (
-                        <Badge variant="outline" className="text-[10px] hidden md:inline-flex">
+                        <Badge variant="outline" className={cn("text-[10px] hidden md:inline-flex", isFailed && "border-destructive/40 text-destructive")}>
                           {statusLabel}
                         </Badge>
+                      )}
+                      {isFailed && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-[10px] gap-1 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity hidden md:inline-flex"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleRegenerate(p.id)
+                          }}
+                        >
+                          <RefreshCw className="h-3 w-3" />
+                          Retry
+                        </Button>
                       )}
                       <button
                         onClick={(e) => {
