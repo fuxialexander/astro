@@ -31,6 +31,7 @@ export const GLOBAL_DEFAULTS: Record<string, boolean> = {
   'loop-nodes': false,
   'team-machines': true,
   'delivery-branches': false,
+  'parallel-execution': false,
 }
 
 /**

@@ -1897,6 +1897,7 @@ function handleRealtimeEvent(
       const initNodeId = data.nodeId as string
       const initProjectId = data.projectId as string
       const initMachineId = data.machineId as string | undefined
+      const initUserId = data.userId as string | undefined
 
       // Plan-node status update is now handled by node:status_changed SSE event
       // (DB-authoritative: server writes status, emits notification, frontend re-reads from DB)
@@ -1920,19 +1921,21 @@ function handleRealtimeEvent(
             activityEvents: [],
             startedAt: new Date(),
             machineId: initMachineId,
+            userId: initUserId,
           })
           return { executions: newExecs }
         })
-      } else if (initMachineId) {
-        // Entry exists but may lack machineId (playground sessions, DB-loaded entries)
+      } else if (initMachineId || initUserId) {
+        // Entry exists but may lack machineId/userId (playground sessions, DB-loaded entries)
         useExecutionStore.setState((state) => {
           const newExecs = new Map(state.executions)
           const existing = newExecs.get(initNodeId)!
-          if (!existing.machineId || !existing.executionId) {
+          if (!existing.machineId || !existing.executionId || !existing.userId) {
             newExecs.set(initNodeId, {
               ...existing,
               machineId: existing.machineId || initMachineId,
               executionId: existing.executionId || execId,
+              userId: existing.userId || initUserId,
               status: 'running',
             })
             return { executions: newExecs }

@@ -201,6 +201,9 @@ interface ExecutionState {
   // tasks created/modified via plan chat (avoids YOLO cascading from chat context)
   chatMutationProjectIds: Set<string>
 
+  // Parallel execution: all executions per node (loaded on demand)
+  nodeExecutions: Map<string, TaskExecution[]>
+
   // Pending approval requests
   pendingApprovals: Map<string, ApprovalRequest>
 
@@ -250,6 +253,10 @@ interface ExecutionState {
   respondToApproval: (approvalId: string, approved: boolean, selectedOption?: string) => Promise<void>
   getPendingApproval: (approvalId: string) => ApprovalRequest | undefined
   getPendingApprovalForNode: (nodeId: string) => ApprovalRequest | undefined
+
+  // Parallel execution actions
+  loadNodeExecutions: (nodeId: string) => Promise<TaskExecution[]>
+  getNodeExecutions: (nodeId: string) => TaskExecution[]
 
   // Mutation methods for relay/realtime events
   appendText: (nodeId: string, text: string) => void
@@ -348,8 +355,63 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   autoExecuteProjectIds: new Map(),
   completedProjectIds: new Set(),
   chatMutationProjectIds: new Set(),
+  nodeExecutions: new Map(),
   pendingApprovals: new Map(),
   loaded: false,
+
+  loadNodeExecutions: async (nodeId: string) => {
+    try {
+      const headers = await getAuthHeaders()
+      const response = await fetch(apiUrl(`/api/data/executions/${nodeId}/all`), { headers })
+      if (!response.ok) return []
+      const rows = await response.json() as Array<{
+        executionId: string; nodeId: string; projectId: string; userId?: string;
+        status: string; error?: string; machineId?: string; sessionId?: string;
+        startedAt: string; completedAt?: string; markdownSummary?: string;
+        summary?: TaskExecution['summary']; durationMs?: number;
+        inputTokens?: number; outputTokens?: number; estimatedCostUsd?: number;
+        model?: string; turnsUsed?: number;
+      }>
+      const executions: TaskExecution[] = rows.map((r) => ({
+        nodeId: r.nodeId,
+        projectId: r.projectId,
+        executionId: r.executionId,
+        userId: r.userId,
+        status: r.status as TaskExecution['status'],
+        streamText: '',
+        error: r.error,
+        toolTraces: [],
+        fileChanges: [],
+        activityEvents: [],
+        startedAt: new Date(r.startedAt),
+        completedAt: r.completedAt ? new Date(r.completedAt) : undefined,
+        machineId: r.machineId,
+        sessionId: r.sessionId,
+        summary: r.summary,
+        metrics: r.durationMs != null ? {
+          durationMs: r.durationMs,
+          inputTokens: r.inputTokens,
+          outputTokens: r.outputTokens,
+          estimatedCostUsd: r.estimatedCostUsd,
+          model: r.model,
+          turnsUsed: r.turnsUsed,
+        } : undefined,
+      }))
+      set((state) => {
+        const next = new Map(state.nodeExecutions)
+        next.set(nodeId, executions)
+        return { nodeExecutions: next }
+      })
+      return executions
+    } catch (err) {
+      console.error('[execution-store] Failed to load node executions:', err)
+      return []
+    }
+  },
+
+  getNodeExecutions: (nodeId: string) => {
+    return get().nodeExecutions.get(nodeId) ?? []
+  },
 
   startExecution: async (nodeId: string, projectId: string, options?: ExecutionOptions) => {
     // Get node and project info

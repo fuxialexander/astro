@@ -8,6 +8,7 @@ import { useKeyboardNavStore } from "@/stores/keyboard-nav-store"
 import { usePlanStore } from "@/stores/plan-store"
 import { useExecutionStore } from "@/stores/execution-store"
 import { useUserProfileStore } from "@/stores/user-profile-store"
+import { useTeamStore } from "@/stores/team-store"
 import { formatRelativeTime } from "@/lib/date-utils"
 
 const statusConfig: Record<string, { bg: string; border: string; dotColor: string }> = {
@@ -121,21 +122,35 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
   const progress = taskStream?.progress ?? 0
   const isRunning = data.status === "in_progress" || data.status === "dispatched"
 
-  // Execution attribution: "Ran by [name], [time ago]"
+  // Execution attribution: "Running by [name]" or "Ran by [name], [time ago]"
   const execution = useExecutionStore((s) => s.executions.get(id))
   const currentUserId = useUserProfileStore((s) => s.profile.id)
   const currentUserName = useUserProfileStore((s) => s.profile.name)
-  const hasExecution = !!execution && (execution.status === "success" || execution.status === "failure" || execution.status === "cancelled")
+  const activeTeamId = useTeamStore((s) => s.activeTeamId)
+  const teamMembers = useTeamStore((s) => activeTeamId ? s.teamMembers[activeTeamId] : undefined)
+  const hasExecution = !!execution && !!execution.userId
   const attribution = (() => {
     if (!hasExecution || !execution) return null
-    const time = execution.completedAt ?? execution.startedAt
-    if (!time) return null
-    const timeAgo = formatRelativeTime(time)
+    const isActive = execution.status === "pending" || execution.status === "running"
+    const isTerminal = execution.status === "success" || execution.status === "failure" || execution.status === "cancelled"
+    if (!isActive && !isTerminal) return null
+
+    // Resolve executor name: self → display name, other → look up team members
     let name = "Unknown"
     if (execution.userId) {
-      name = execution.userId === currentUserId ? (currentUserName || "You") : "Team member"
+      if (execution.userId === currentUserId) {
+        name = currentUserName || "You"
+      } else {
+        const member = teamMembers?.find((m) => m.userId === execution.userId)
+        name = member?.user?.name || "Teammate"
+      }
     }
-    return { name, timeAgo }
+
+    if (isActive) {
+      return { name, timeAgo: null, isRunning: true }
+    }
+    const time = execution.completedAt ?? execution.startedAt
+    return { name, timeAgo: time ? formatRelativeTime(time) : null, isRunning: false }
   })()
 
   // Verification state
@@ -524,8 +539,10 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
             <span className="inline-flex items-center gap-0.5 text-[9px] font-medium rounded-full bg-warning/12 text-warning px-1 py-px border border-warning/20">
               <Eye className="h-2 w-2 shrink-0" />Review
             </span>
+          ) : attribution?.isRunning ? (
+            <span className="truncate text-[9px] text-info/70 animate-pulse">{attribution.name}</span>
           ) : attribution ? (
-            <span className="truncate text-[9px] text-muted-foreground/60">{attribution.name}</span>
+            <span className="truncate text-[9px] text-muted-foreground/60">{attribution.name}{attribution.timeAgo ? `, ${attribution.timeAgo}` : ''}</span>
           ) : null}
 
           {/* Right side icons + priority pip */}
