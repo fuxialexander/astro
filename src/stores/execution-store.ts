@@ -544,6 +544,38 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           `Task "${node.title}" dispatched`,
           { taskId: result.executionId },
         )
+
+        // For follow-up dispatches, inject the user's message as a chat_user activity event
+        // so it appears in the activity feed before the execution output
+        if (options?.isFollowUp && options.followUpMessage) {
+          const followUpMsg = options.followUpMessage
+          const execId = result.executionId
+          // Use dynamic import to avoid circular dependency
+          import("./realtime-store").then(({ useRealtimeStore: rtStore }) => {
+            const injectEvent = () => {
+              rtStore.setState((state) => {
+                const streams = new Map(state.taskStreams)
+                const s = streams.get(execId)
+                if (s) {
+                  streams.set(execId, {
+                    ...s,
+                    activityEvents: [
+                      { type: 'chat_user' as const, message: followUpMsg, timestamp: new Date() },
+                      ...s.activityEvents,
+                    ],
+                  })
+                }
+                return { taskStreams: streams }
+              })
+            }
+            // Stream may not exist yet — try immediately, retry after SSE init
+            if (rtStore.getState().taskStreams.has(execId)) {
+              injectEvent()
+            } else {
+              setTimeout(injectEvent, 500)
+            }
+          })
+        }
       }
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
