@@ -1104,19 +1104,10 @@ async function dispatchViaRelay(
       }
     }
 
-    if (isSharedMachine) {
-      if (!dispatchSignature || !dispatchSigningPayload) {
-        return c.json(
-          { success: false, error: 'Shared machine dispatch requires a signed browser intent' },
-          403,
-        )
-      }
-      if (!dispatchTrustedKeys || dispatchTrustedKeys.length === 0) {
-        return c.json(
-          { success: false, error: 'Shared machine dispatch requires a registered browser signing key. Authorize a device from this account first.' },
-          403,
-        )
-      }
+    if (isSharedMachine && (!dispatchSignature || !dispatchSigningPayload)) {
+      // Dispatch signing is optional for team-shared machines.
+      // Team membership (verified via getAvailableMachines) is sufficient authorization.
+      console.log(`[dispatch] Shared machine ${machineId} dispatch without signing — authorized via team membership`)
     }
 
     // Register execution context for user-scoped SSE filtering + ownership validation
