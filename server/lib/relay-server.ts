@@ -1461,19 +1461,20 @@ export class RelayServer extends EventEmitter {
    * Dispatch a task to an agent runner
    * @param userId - Authenticated user ID for machine ownership filtering
    */
-  dispatchTask(task: TaskDispatch, targetMachineId?: string, userId?: string): boolean {
+  dispatchTask(task: TaskDispatch, targetMachineId?: string, userId?: string, teamSharedMachineIds?: Set<string>): boolean {
     let machineId = targetMachineId;
 
     // Find best machine if not specified
     if (!machineId) {
       let bestMachine = machineRegistry.findBestMachine(
         task.preferredProvider,
-        userId
+        userId,
+        teamSharedMachineIds,
       );
 
       // Fallback: try without provider filter if no machine matches
       if (!bestMachine && task.preferredProvider) {
-        bestMachine = machineRegistry.findBestMachine(undefined, userId);
+        bestMachine = machineRegistry.findBestMachine(undefined, userId, teamSharedMachineIds);
         if (bestMachine) {
           console.log(`[relay] No '${task.preferredProvider}' provider available, falling back to machine ${bestMachine.machineId}`);
         }
@@ -1491,8 +1492,8 @@ export class RelayServer extends EventEmitter {
     // Fallback: if target machine is not connected, try finding any available machine
     if (!connection && targetMachineId) {
       console.warn(`[relay] Target machine ${machineId} not connected for task ${task.taskId}, falling back to best available`);
-      const bestMachine = machineRegistry.findBestMachine(task.preferredProvider, userId)
-        || (task.preferredProvider ? machineRegistry.findBestMachine(undefined, userId) : null);
+      const bestMachine = machineRegistry.findBestMachine(task.preferredProvider, userId, teamSharedMachineIds)
+        || (task.preferredProvider ? machineRegistry.findBestMachine(undefined, userId, teamSharedMachineIds) : null);
       if (bestMachine) {
         machineId = bestMachine.machineId;
         connection = machineRegistry.getConnection(machineId);

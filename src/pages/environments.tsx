@@ -569,6 +569,7 @@ export function Environments() {
   const revokeMachine = useMachinesStore((s) => s.revokeMachine)
   const allRegisteredMachines = useMachinesStore((s) => s.machines)
   const fetchMachines = useMachinesStore((s) => s.fetchMachines)
+  const fetchTeamMachines = useMachinesStore((s) => s.fetchTeamMachines)
 
   // Apply workspace filter to registered machines
   const registeredMachines = useMemo(() => {
@@ -601,24 +602,27 @@ export function Environments() {
     }
   }, [realtimeConnected, connectRealtime])
 
-  // Fetch registered machines on mount
+  // Fetch registered machines + team machines on mount
   useEffect(() => {
     fetchMachines()
-  }, [fetchMachines])
+    fetchTeamMachines()
+  }, [fetchMachines, fetchTeamMachines])
 
   // Load machine instructions
   useEffect(() => {
     if (!miLoaded) miLoad()
   }, [miLoaded, miLoad])
 
+  const teamMachines = useMachinesStore((s) => s.teamMachines)
   const liveMachines = Array.from(machines.values())
 
   // Connected: all machines with a live relay WebSocket connection.
-  // In multi-tenant mode, filter to only show machines that belong to
-  // the current user's team (registered machines are already team-scoped).
+  // In multi-tenant mode, include owned + team-shared machines.
   const registeredMachineIds = new Set(registeredMachines.filter((m) => !m.isRevoked).map((m) => m.id))
+  const teamMachineIds = new Set(teamMachines.map((m) => m.id))
+  const accessibleMachineIds = new Set([...registeredMachineIds, ...teamMachineIds])
   const connectedLiveMachines = isMultiTenant
-    ? liveMachines.filter((m) => registeredMachineIds.has(m.machineId))
+    ? liveMachines.filter((m) => accessibleMachineIds.has(m.machineId))
     : liveMachines
   const liveMachineIds = new Set(connectedLiveMachines.map((m) => m.machineId))
 

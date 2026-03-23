@@ -11,7 +11,7 @@ import { Hono } from 'hono';
 import { relayServer } from '../lib/relay-server.js';
 import { machineRegistry } from '../lib/machine-registry.js';
 import { redisPubSub } from '../lib/redis-pubsub.js';
-import { getMachine } from '../lib/registered-machines-store.js';
+import { getMachine, getTeamSharedMachineIds } from '../lib/registered-machines-store.js';
 import type { TaskDispatch, ProviderType } from '../types/relay.js';
 import { LOCAL_USER_ID } from '../lib/db/bootstrap-local.js';
 import { requireAuth, type AuthUser } from '../middleware/auth.js';
@@ -86,8 +86,12 @@ relayRoute.get('/status', (c) => {
 relayRoute.get('/machines', async (c) => {
   const user = c.get('user') as AuthUser | undefined;
   const snapshot = machineRegistry.getSnapshot();
-  // Filter machines by authenticated user
-  const userMachines = snapshot.machines.filter(m => !m.userId || m.userId === user?.id || m.userId === LOCAL_USER_ID);
+  // Include machines shared with the user's teams
+  const teamSharedIds = user?.teamIds ? await getTeamSharedMachineIds(user.teamIds) : new Set<string>();
+  // Filter machines by authenticated user OR team sharing
+  const userMachines = snapshot.machines.filter(m =>
+    !m.userId || m.userId === user?.id || m.userId === LOCAL_USER_ID || teamSharedIds.has(m.machineId)
+  );
 
   // Cross-reference with persistent store to get user-set names
   const machinesWithDbNames = await Promise.all(
@@ -128,7 +132,7 @@ relayRoute.get('/machines', async (c) => {
  * GET /relay/machines/:machineId
  * Get details for a specific machine
  */
-relayRoute.get('/machines/:machineId', (c) => {
+relayRoute.get('/machines/:machineId', async (c) => {
   const machineId = c.req.param('machineId');
   const user = c.get('user') as AuthUser | undefined;
   const machine = machineRegistry.get(machineId);
@@ -137,9 +141,12 @@ relayRoute.get('/machines/:machineId', (c) => {
     return c.json({ error: 'Machine not found' }, 404);
   }
 
-  // Verify ownership
+  // Verify ownership or team sharing
   if (machine.userId && machine.userId !== LOCAL_USER_ID && user?.id && machine.userId !== user.id) {
-    return c.json({ error: 'Machine not found' }, 404);
+    const teamSharedIds = user.teamIds ? await getTeamSharedMachineIds(user.teamIds) : new Set<string>();
+    if (!teamSharedIds.has(machineId)) {
+      return c.json({ error: 'Machine not found' }, 404);
+    }
   }
 
   return c.json({
