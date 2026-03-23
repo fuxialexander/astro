@@ -987,10 +987,26 @@ function mergeBySeq<T extends { seq?: number; timestamp: Date }>(
   // event. The text dedup in groupActivityEvents() handles any content
   // duplicates that slip through. Previous 1s buffer was too aggressive
   // and dropped the last block of live events when hydration raced with SSE.
+  //
+  // Also dedup no-seq chat_user/steer events whose message already appears
+  // in a seq'd hydrated event (steer resolution creates a no-seq chat_user
+  // locally; the DB persists a seq'd version — both must not coexist).
+  const hydratedUserMessages = new Set<string>()
+  for (const e of hydrated) {
+    const typed = e as unknown as { type?: string; message?: string }
+    if (e.seq != null && (typed.type === 'chat_user' || typed.type === 'steer') && typed.message) {
+      hydratedUserMessages.add(typed.message)
+    }
+  }
   const lastHydratedTime = new Date(hydrated[hydrated.length - 1].timestamp).getTime()
   const newLiveItems = live.filter(e => {
     if (e.seq != null) {
       return !hydratedSeqs.has(e.seq)
+    }
+    // Drop no-seq chat_user/steer when hydrated already has the same message (with seq)
+    const typed = e as unknown as { type?: string; message?: string }
+    if ((typed.type === 'chat_user' || typed.type === 'steer') && typed.message && hydratedUserMessages.has(typed.message)) {
+      return false
     }
     return new Date(e.timestamp).getTime() > lastHydratedTime
   })

@@ -2323,6 +2323,17 @@ ${verificationSection}${executiveSummarySection}`)
       hasSystemPrompt: !!(relaySystemPrompt || relayPrompt),
     })
 
+    // Persist follow-up user message so it survives page refresh.
+    // Written as 'acknowledged' steer_message — the hydrator renders these as chat_user.
+    if (isFollowUp && followUpMessage) {
+      await streamingEventLog.append(executionId, 'steer_message', {
+        message: followUpMessage,
+        status: 'acknowledged',
+      }).catch((err: unknown) => {
+        console.warn('[dispatch] Failed to persist follow-up message:', err)
+      })
+    }
+
     // Update plan_nodes.status to in_progress server-side (DB-authoritative).
     {
       const now = new Date()
