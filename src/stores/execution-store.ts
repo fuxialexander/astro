@@ -368,18 +368,22 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
 
     // Check node status — only 'planned' nodes should be dispatched
     // (prevents double-dispatch when button is clicked twice or batch + manual race)
-    if (node.status !== 'planned') {
+    // Exception: follow-up dispatches on completed tasks bypass this guard
+    if (node.status !== 'planned' && !options?.isFollowUp) {
       console.warn(`Node ${nodeId} status is '${node.status}', not 'planned' — skipping dispatch`)
       return
     }
 
     // Check dependencies are met (use edges as source of truth)
+    // Skip for follow-up dispatches — the task already completed once
     const liveNodes = planStore.nodes.filter(isLive)
     const liveEdges = planStore.edges.filter(isLive)
-    const canExecute = canExecuteNode(node, liveNodes, liveEdges)
-    if (!canExecute.ready) {
-      console.error("Dependencies not met:", canExecute.reason)
-      return
+    if (!options?.isFollowUp) {
+      const canExecute = canExecuteNode(node, liveNodes, liveEdges)
+      if (!canExecute.ready) {
+        console.error("Dependencies not met:", canExecute.reason)
+        return
+      }
     }
 
     // Create abort controller

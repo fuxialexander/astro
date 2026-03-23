@@ -353,20 +353,20 @@ export function UnifiedActivityView({
     if (!text && (canSteer || taskImages.length === 0)) return
     setInput("")
 
-    if (canSteer) {
-      handleSteer(text, interrupt)
-    } else if (isCompletedExecution) {
+    if (isCompletedExecution) {
       handleFollowUpDispatch(text)
+    } else if (canSteer) {
+      handleSteer(text, interrupt)
     } else {
       handleChat(text)
     }
   }
 
   function handleSendPrompt(text: string) {
-    if (canSteer) {
-      handleSteer(text)
-    } else if (isCompletedExecution) {
+    if (isCompletedExecution) {
       handleFollowUpDispatch(text)
+    } else if (canSteer) {
+      handleSteer(text)
     } else {
       handleChat(text)
     }
@@ -606,12 +606,10 @@ export function UnifiedActivityView({
           onChange={setInput}
           onSubmit={(opts) => handleSend(opts?.interrupt ?? false)}
           placeholder={
-            isRunning && canSteer
-              ? "Steer the agent... (type @ to reference files)"
-              : hasPreservedSession
-              ? "Resume session... (type @ to reference files)"
-              : isCompletedExecution
+            isCompletedExecution
               ? "Continue working on this task... (type @ to reference files)"
+              : canSteer
+              ? "Steer the agent... (type @ to reference files)"
               : "Ask about this task... (type @ to reference files)"
           }
           rows={2}
