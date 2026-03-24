@@ -49,8 +49,15 @@ fn set_sidecar_status(app: tauri::AppHandle, connected: bool) {
 }
 
 /// Tauri command: navigate to a specific project (for deep link handling).
+///
+/// Validates that `project_id` is a valid UUID to prevent script injection
+/// via `window.eval()`.
 #[tauri::command]
 fn navigate_to_project(app: tauri::AppHandle, project_id: String) {
+    if !is_valid_uuid(&project_id) {
+        log::warn!("navigate_to_project: invalid project_id: {}", project_id);
+        return;
+    }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.eval(&format!(
             "window.location.href = '/projects/{}'",
@@ -231,6 +238,14 @@ pub fn run() {
         });
 }
 
+/// Check if a string looks like a valid UUID (hex digits and dashes only).
+/// This prevents script injection when interpolating IDs into `window.eval()`.
+fn is_valid_uuid(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 64
+        && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+}
+
 /// Parses and handles deep link URLs.
 ///
 /// Supported URL formats:
@@ -241,7 +256,7 @@ fn handle_deep_link<R: tauri::Runtime>(app: &tauri::AppHandle<R>, url: &str) {
     if let Some(path) = url.strip_prefix("astro://") {
         let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
         match parts.as_slice() {
-            ["project", project_id] => {
+            ["project", project_id] if is_valid_uuid(project_id) => {
                 log::info!("Deep link: opening project {}", project_id);
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.eval(&format!(
