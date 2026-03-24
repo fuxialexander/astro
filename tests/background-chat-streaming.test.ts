@@ -76,12 +76,24 @@ vi.mock('../src/lib/plan-mutations', () => ({
 }))
 
 const mockPushActivityEvent = vi.fn()
+const mockRealtimeTaskStreams = new Map()
 vi.mock('../src/stores/realtime-store', () => ({
-  useRealtimeStore: {
-    getState: () => ({
-      pushActivityEvent: mockPushActivityEvent,
-    }),
-  },
+  useRealtimeStore: Object.assign(
+    () => ({}),
+    {
+      getState: () => ({
+        pushActivityEvent: mockPushActivityEvent,
+        taskStreams: mockRealtimeTaskStreams,
+        addActivityEntry: mockPushActivityEvent,
+      }),
+      setState: vi.fn((updater: unknown) => {
+        if (typeof updater === 'function') {
+          updater({ taskStreams: mockRealtimeTaskStreams })
+        }
+      }),
+      subscribe: vi.fn(() => () => {}),
+    },
+  ),
 }))
 
 const mockPlanLoad = vi.fn()
@@ -956,24 +968,24 @@ describe('Sidebar activity — source code integration', () => {
     expect(source).toContain('allSessions')
   })
 
-  it('sidebar iterates streamingSessions to build projectsWithRunning', async () => {
+  it('active-tasks iterates streamingSessions to build projectsWithRunning', async () => {
     const { readFileSync } = await import('fs')
     const { join } = await import('path')
     const source = readFileSync(
-      join(__dirname, '..', 'src', 'components', 'layout', 'sidebar.tsx'),
+      join(__dirname, '..', 'src', 'lib', 'active-tasks.ts'),
       'utf-8',
     )
     // The key logic: iterate streamingSessions, look up each session's projectId
     expect(source).toContain('for (const sessionId of streamingSessions)')
     expect(source).toContain('session?.projectId')
-    expect(source).toContain('running.add(session.projectId)')
+    expect(source).toContain('markRunning(session.projectId)')
   })
 
-  it('sidebar includes batchExecutions in projectsWithRunning', async () => {
+  it('active-tasks includes batchExecutions in projectsWithRunning', async () => {
     const { readFileSync } = await import('fs')
     const { join } = await import('path')
     const source = readFileSync(
-      join(__dirname, '..', 'src', 'components', 'layout', 'sidebar.tsx'),
+      join(__dirname, '..', 'src', 'lib', 'active-tasks.ts'),
       'utf-8',
     )
     expect(source).toContain('batchExecutions')

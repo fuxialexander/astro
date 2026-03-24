@@ -43,8 +43,14 @@ CREATE TABLE IF NOT EXISTS "github_pr_cache" (
 	"cached_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "github_issue_cache" ADD CONSTRAINT "github_issue_cache_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "github_pr_cache" ADD CONSTRAINT "github_pr_cache_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "github_issue_cache" ADD CONSTRAINT "github_issue_cache_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "github_pr_cache" ADD CONSTRAINT "github_pr_cache_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "github_issue_cache_project_issue_idx" ON "github_issue_cache" USING btree ("project_id","issue_number");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "github_issue_cache_project_state_idx" ON "github_issue_cache" USING btree ("project_id","state");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "github_issue_cache_project_updated_idx" ON "github_issue_cache" USING btree ("project_id","updated_at");--> statement-breakpoint

@@ -136,7 +136,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
 
   const selectionActive = checkedIds.size > 0
 
-  const { flowToScreenPosition, screenToFlowPosition, fitView: rfFitView, zoomIn: rfZoomIn, zoomOut: rfZoomOut } = useReactFlow()
+  const { screenToFlowPosition, fitView: rfFitView, zoomIn: rfZoomIn, zoomOut: rfZoomOut } = useReactFlow()
 
   const projectNodes = useMemo(() => {
     // Always exclude pruned nodes — they are abandoned, not completed
@@ -410,31 +410,6 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   )
 
 
-  // Compute milestone positions: laid out sequentially in a row above all task nodes.
-  const milestonePositions = useMemo(() => {
-    const MILESTONE_WIDTH = 200
-    const MILESTONE_HEIGHT = 40
-    const GAP = 16
-    // Base Y: just above the topmost task node
-    const taskNodesWithPos = projectNodes.filter(n => n.type !== 'milestone' && n.position)
-    const topmostTaskY = taskNodesWithPos.length > 0
-      ? Math.min(...taskNodesWithPos.map(t => t.position!.y))
-      : 40
-    const leftmostTaskX = taskNodesWithPos.length > 0
-      ? Math.min(...taskNodesWithPos.map(t => t.position!.x))
-      : 40
-    const MILESTONE_ROW_Y = topmostTaskY - MILESTONE_HEIGHT - 8
-    const positions = new Map<string, { x: number; y: number }>()
-
-    let x = leftmostTaskX
-    for (const msId of orderedMilestoneIds) {
-      positions.set(msId, { x, y: MILESTONE_ROW_Y })
-      x += MILESTONE_WIDTH + GAP
-    }
-
-    return positions
-  }, [projectNodes, orderedMilestoneIds])
-
   const handleCreateMilestone = useCallback((title: string) => {
     const now = new Date()
     // Place to the right of the rightmost existing milestone
@@ -527,7 +502,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
     }
 
     return taskNodes
-  }, [projectNodes, orderedMilestoneIds, milestonePositions, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy, readOnly, loopNodesEnabled, handleCreateMilestone, globalFastEdit, updateNode])
+  }, [projectNodes, orderedMilestoneIds, selectedId, checkedIds, selectionActive, onDecomposeNode, handleToggleSelect, highlightBy, readOnly, loopNodesEnabled, handleCreateMilestone, globalFastEdit, updateNode])
 
   // Build a position lookup for edge handle routing
   const nodePositionMap = useMemo(() => {
@@ -747,7 +722,7 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
     })
 
     connectingNodeRef.current = null
-  }, [projectNodes, projectEdges, screenToFlowPosition, flowToScreenPosition])
+  }, [projectNodes, projectEdges, screenToFlowPosition])
 
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
