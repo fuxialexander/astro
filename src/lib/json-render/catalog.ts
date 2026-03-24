@@ -15,8 +15,9 @@ export const astroCatalog = defineCatalog(schema, {
       props: z.object({
         title: z.string().optional(),
         description: z.string().optional(),
+        content: z.string().optional(),
       }),
-      description: 'A container card with optional title and description. Use for grouping related content.',
+      description: 'A container card with optional title, description, and content body text. Use for grouping related content.',
     },
     Stack: {
       props: z.object({

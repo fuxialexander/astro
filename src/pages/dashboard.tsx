@@ -280,7 +280,19 @@ export function Dashboard() {
       const planned = pNodes.filter((n) => n.status === "planned").length
       const awaiting = pNodes.filter((n) => ["awaiting_judgment", "awaiting_approval"].includes(n.status)).length
       const pruned = pNodes.filter((n) => n.status === "pruned").length
-      const velocityData = heatmapData.slice(-30).map((d) => d.tasksCompleted)
+      // Per-project velocity: count tasks completed per day over last 30 days
+      const now = new Date()
+      const dayBuckets = new Array(30).fill(0)
+      for (const n of pNodes) {
+        const completedAt = n.executionCompletedAt ?? (["completed", "auto_verified"].includes(n.status) ? n.updatedAt : null)
+        if (!completedAt) continue
+        const d = new Date(completedAt)
+        const daysAgo = Math.floor((now.getTime() - d.getTime()) / 86_400_000)
+        if (daysAgo >= 0 && daysAgo < 30) {
+          dayBuckets[29 - daysAgo]++
+        }
+      }
+      const velocityData = dayBuckets
 
       return {
         project,
@@ -298,11 +310,11 @@ export function Dashboard() {
 
   const projectHealth = useMemo(() => computeHealth(recentProjects),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [recentProjects, nodes, heatmapData, projectCosts])
+  [recentProjects, nodes, projectCosts])
 
   const playgroundHealth = useMemo(() => computeHealth(recentPlaygrounds),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [recentPlaygrounds, nodes, heatmapData, projectCosts])
+  [recentPlaygrounds, nodes, projectCosts])
 
   const hourlyPulse = useMemo(() => {
     const now = Date.now()
