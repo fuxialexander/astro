@@ -14,6 +14,7 @@ import { useProjectStore } from '@desktop/stores/project-store'
 import { useStreamEvents } from '@desktop/hooks/use-stream-events'
 import { ChatPanel } from '@desktop/components/chat/ChatPanel'
 import { PlanGraph } from '@desktop/components/plan/PlanGraph'
+import { TerminalPanel } from '@desktop/components/terminal/TerminalPanel'
 import { cn } from '@desktop/lib/utils'
 import type { Project } from '@desktop/types'
 
@@ -175,13 +176,7 @@ export function Workspace() {
         {activeTab === 'chat' && <ChatPanel projectId={project.id} />}
         {activeTab === 'plan' && <PlanGraph projectId={project.id} />}
         {activeTab === 'terminal' && (
-          <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-            <div className="text-center space-y-1">
-              <Terminal className="w-8 h-8 mx-auto opacity-40" />
-              <p>Terminal panel</p>
-              <p className="text-xs opacity-60">Coming in integration phase</p>
-            </div>
-          </div>
+          <TerminalPanel cwd={project.workingDirectory} />
         )}
       </main>
     </div>

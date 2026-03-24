@@ -14,13 +14,17 @@
  *   Cmd+3  focus review panel
  *   Cmd+K  open command palette
  */
-import { useEffect, useRef, useState } from 'react'
-import { Outlet } from 'react-router'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { Outlet, useParams } from 'react-router'
 import { motion } from 'framer-motion'
 import { PanelRightOpen } from 'lucide-react'
 
 import { useLayoutStore } from '@desktop/stores/layout-store'
+import { useProjectStore } from '@desktop/stores/project-store'
+import { useFileStore } from '@desktop/stores/file-store'
 import { ProjectSidebar } from '@desktop/components/sidebar/ProjectSidebar'
+import { FileBrowser } from '@desktop/components/files/FileBrowser'
+import { DiffViewer } from '@desktop/components/review/DiffViewer'
 import { ResizeHandle } from '@desktop/components/layout/ResizeHandle'
 import { PanelHeader } from '@desktop/components/layout/PanelHeader'
 import { CommandPalette } from '@desktop/components/common/CommandPalette'
@@ -47,8 +51,31 @@ export function WorkspaceLayout() {
     toggleCommandPalette,
   } = useLayoutStore()
 
+  const { id: projectId } = useParams<{ id: string }>()
+  const projects = useProjectStore((s) => s.projects)
+  const selectedFile = useFileStore((s) => s.selectedFile)
+  const setSelectedFile = useFileStore((s) => s.setSelectedFile)
+
+  // Derive the working directory from the active project
+  const activeProject = projects.find((p) => p.id === projectId)
+  const workingDirectory = activeProject?.workingDirectory ?? null
+
   // Track whether user is currently dragging a resize handle
   const [isResizing, setIsResizing] = useState(false)
+  // Track whether the review panel is showing a file (DiffViewer) or activity
+  const [reviewMode, setReviewMode] = useState<'activity' | 'file'>('activity')
+
+  // When a file is selected in the file browser, open it in the review panel
+  const handleFileSelect = useCallback(
+    (path: string) => {
+      setSelectedFile(path)
+      setReviewMode('file')
+      if (!reviewOpen) {
+        toggleReview()
+      }
+    },
+    [setSelectedFile, reviewOpen, toggleReview],
+  )
 
   // Refs used only inside event handlers — no renders needed
   const resizingPanelRef = useRef<'sidebar' | 'review' | null>(null)
@@ -150,7 +177,18 @@ export function WorkspaceLayout() {
           style={{ width: sidebarWidth, height: '100%', minWidth: sidebarWidth }}
           className="border-r flex flex-col"
         >
-          <ProjectSidebar />
+          <div className="flex-1 min-h-0 flex flex-col">
+            <ProjectSidebar />
+            {/* File browser — shown when a project is active */}
+            {projectId && workingDirectory && (
+              <div className="border-t flex-1 min-h-0 overflow-hidden">
+                <FileBrowser
+                  rootPath={workingDirectory}
+                  onFileSelect={handleFileSelect}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </motion.div>
 
@@ -190,13 +228,49 @@ export function WorkspaceLayout() {
           style={{ width: reviewWidth, height: '100%', minWidth: reviewWidth }}
           className="border-l flex flex-col"
         >
-          <PanelHeader
-            title="Activity"
-            side="right"
-            onCollapse={toggleReview}
-          />
+          {/* Review panel tab bar */}
+          <div className="flex items-center border-b flex-shrink-0">
+            <button
+              onClick={() => setReviewMode('activity')}
+              className={cn(
+                'px-3 py-2 text-xs transition-colors duration-100',
+                reviewMode === 'activity'
+                  ? 'text-foreground border-b-2 border-primary font-medium'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Activity
+            </button>
+            <button
+              onClick={() => setReviewMode('file')}
+              className={cn(
+                'px-3 py-2 text-xs transition-colors duration-100',
+                reviewMode === 'file'
+                  ? 'text-foreground border-b-2 border-primary font-medium'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              File
+            </button>
+            <div className="flex-1" />
+            <PanelHeader
+              title=""
+              side="right"
+              onCollapse={toggleReview}
+            />
+          </div>
           <div className="flex-1 overflow-hidden">
-            <ActivityFeed />
+            {reviewMode === 'activity' ? (
+              <ActivityFeed />
+            ) : (
+              <DiffViewer
+                filePath={selectedFile}
+                onClose={() => {
+                  setSelectedFile(null)
+                  setReviewMode('activity')
+                }}
+              />
+            )}
           </div>
         </div>
       </motion.div>
