@@ -345,9 +345,9 @@ function layoutGraphMilestoneColumns(
 
   // ── 3. Layout: each rank is a column (x), milestones stack vertically (y) ──
 
-  const COLUMN_STRIDE = MILESTONE_WIDTH + HORIZONTAL_GAP * 2
+  const COLUMN_STRIDE = MILESTONE_WIDTH + HORIZONTAL_GAP * 3
   const ROW_HEIGHT = NODE_HEIGHT + VERTICAL_GAP
-  const MILESTONE_GROUP_GAP = 40
+  const MILESTONE_GROUP_GAP = 80
   const margin = 40
   // Center task nodes under wider milestones
   const taskXOffset = (MILESTONE_WIDTH - NODE_WIDTH) / 2
