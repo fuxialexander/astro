@@ -12,6 +12,7 @@
  */
 
 import { createClient, type SupabaseClient, type Session } from '@supabase/supabase-js'
+import { isTauri } from './tauri-detect'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
@@ -64,6 +65,10 @@ export function getSupabase(): SupabaseClient | null {
 export function shouldUseSupabase(): boolean {
   // Explicit override to force local-only mode
   if (import.meta.env.VITE_ASTRO_LOCAL_MODE === 'true') {
+    return false
+  }
+  // Tauri standalone mode: skip Supabase auth unless explicitly configured
+  if (isTauri() && !SUPABASE_URL) {
     return false
   }
   return !!(SUPABASE_URL && SUPABASE_ANON_KEY)
