@@ -24,6 +24,7 @@ import { ProjectSidebar } from '@desktop/components/sidebar/ProjectSidebar'
 import { ResizeHandle } from '@desktop/components/layout/ResizeHandle'
 import { PanelHeader } from '@desktop/components/layout/PanelHeader'
 import { CommandPalette } from '@desktop/components/common/CommandPalette'
+import { ActivityFeed } from '@desktop/components/activity/ActivityFeed'
 import { cn } from '@desktop/lib/utils'
 
 // Smooth 200 ms ease-in-out for collapse/expand
@@ -190,15 +191,12 @@ export function WorkspaceLayout() {
           className="border-l flex flex-col"
         >
           <PanelHeader
-            title="Review"
+            title="Activity"
             side="right"
             onCollapse={toggleReview}
           />
-          <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-            <div className="text-center space-y-1">
-              <p>Review panel</p>
-              <p className="text-xs opacity-60">Cmd+J to toggle</p>
-            </div>
+          <div className="flex-1 overflow-hidden">
+            <ActivityFeed />
           </div>
         </div>
       </motion.div>
