@@ -1,17 +1,23 @@
 [package]
 name = "astro-desktop"
 version = "0.1.0"
-description = "Astro Desktop App"
+description = "Astro Desktop - AI-assisted planning platform"
 authors = ["Astro Team"]
 edition = "2021"
+
+[lib]
+name = "astro_desktop_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-shell = "2"
+tauri-plugin-window-state = "2"
 tauri-plugin-log = "2"
+tauri-plugin-deep-link = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["json", "blocking"] }
