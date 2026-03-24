@@ -24,6 +24,7 @@ import { statusBadgeVariants } from "@/lib/status-config"
 import { formatDuration } from "@/lib/date-utils"
 import { cn, getShortId } from "@/lib/utils"
 import { useStreamEvents } from "@/hooks/use-stream-events"
+import { ExecutionSwitcher } from "@/components/task-detail/execution-switcher"
 
 export type PanelSize = 'default' | 'three-quarter' | 'full'
 
@@ -63,8 +64,20 @@ export function TaskDetail() {
     () => !window.matchMedia("(max-width: 767px)").matches
   )
 
+  // Execution switcher: allow viewing a different execution's activity
+  const [overrideExecutionId, setOverrideExecutionId] = useState<string | null>(null)
+  const nodeExecutions = useExecutionStore((s) => nodeId ? s.nodeExecutions.get(nodeId) : undefined)
+  const hasMultipleExecutions = (nodeExecutions?.length ?? 0) > 1
+
+  // Find the override execution object when switching
+  const overrideExecution = overrideExecutionId
+    ? nodeExecutions?.find((e) => e.executionId === overrideExecutionId)
+    : undefined
+
   // Compute executionId early for use in hooks
-  const executionId = node?.executionId || execution?.executionId || ""
+  const defaultExecutionId = node?.executionId || execution?.executionId || ""
+  const executionId = overrideExecutionId || defaultExecutionId
+  const activeExecution = overrideExecution || execution
 
   // Check for pending approval
   const pendingApproval = nodeId ? getPendingApprovalForNode(nodeId) : undefined
@@ -75,13 +88,13 @@ export function TaskDetail() {
   })
 
   const isRunning = !!node && (node.status === "in_progress" || node.status === "dispatched")
-    && execution?.status !== "success" && execution?.status !== "failure" && execution?.status !== "cancelled"
+    && activeExecution?.status !== "success" && activeExecution?.status !== "failure" && activeExecution?.status !== "cancelled"
 
   // Get file changes from unified stream events hook
   // Hook must be called before any early returns (Rules of Hooks)
   const { fileChanges: restoredFileChanges } = useStreamEvents(
     executionId || undefined,
-    { execution },
+    { execution: activeExecution },
   )
 
   if (!node || !projectId) {
@@ -542,11 +555,20 @@ export function TaskDetail() {
           <TabsContent value="content" className="flex-1 m-0 min-h-0 overflow-auto">
             <TaskContentTab node={node} projectId={projectId} panelSize="default" fileTree={project?.fileTree} />
           </TabsContent>
-          <TabsContent value="activity" className="flex-1 m-0 min-h-0">
+          <TabsContent value="activity" className="flex-1 m-0 min-h-0 flex flex-col">
+            {hasMultipleExecutions && nodeId && (
+              <div className="px-4 pt-2 pb-1 border-b border-border shrink-0">
+                <ExecutionSwitcher
+                  nodeId={nodeId}
+                  activeExecutionId={executionId}
+                  onSwitch={(eid) => setOverrideExecutionId(eid === defaultExecutionId ? null : eid)}
+                />
+              </div>
+            )}
             <UnifiedActivityView
               node={node}
               projectId={projectId}
-              execution={execution}
+              execution={activeExecution}
               taskStream={taskStream}
               isRunning={isRunning}
               executionId={executionId}

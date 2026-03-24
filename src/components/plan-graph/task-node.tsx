@@ -124,10 +124,26 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
 
   // Execution attribution: "Running by [name]" or "Ran by [name], [time ago]"
   const execution = useExecutionStore((s) => s.executions.get(id))
+  const nodeExecutions = useExecutionStore((s) => s.nodeExecutions.get(id))
   const currentUserId = useUserProfileStore((s) => s.profile.id)
   const currentUserName = useUserProfileStore((s) => s.profile.name)
   const activeTeamId = useTeamStore((s) => s.activeTeamId)
   const teamMembers = useTeamStore((s) => activeTeamId ? s.teamMembers[activeTeamId] : undefined)
+
+  // Helper to resolve a userId to a display name
+  const resolveName = useCallback((userId: string | undefined) => {
+    if (!userId) return "Unknown"
+    if (userId === currentUserId) return currentUserName || "You"
+    const member = teamMembers?.find((m) => m.userId === userId)
+    return member?.user?.name || "Teammate"
+  }, [currentUserId, currentUserName, teamMembers])
+
+  // Count active parallel executions
+  const activeExecutions = nodeExecutions?.filter(
+    (e) => e.status === "pending" || e.status === "running"
+  ) ?? []
+  const parallelCount = activeExecutions.length
+
   const hasExecution = !!execution && !!execution.userId
   const attribution = (() => {
     if (!hasExecution || !execution) return null
@@ -135,16 +151,7 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
     const isTerminal = execution.status === "success" || execution.status === "failure" || execution.status === "cancelled"
     if (!isActive && !isTerminal) return null
 
-    // Resolve executor name: self → display name, other → look up team members
-    let name = "Unknown"
-    if (execution.userId) {
-      if (execution.userId === currentUserId) {
-        name = currentUserName || "You"
-      } else {
-        const member = teamMembers?.find((m) => m.userId === execution.userId)
-        name = member?.user?.name || "Teammate"
-      }
-    }
+    const name = resolveName(execution.userId)
 
     if (isActive) {
       return { name, timeAgo: null, isRunning: true }
@@ -540,7 +547,23 @@ export const TaskNode = memo(function TaskNode({ id, data }: NodeProps<TaskNodeD
               <Eye className="h-2 w-2 shrink-0" />Review
             </span>
           ) : attribution?.isRunning ? (
-            <span className="truncate text-[9px] text-info/70 animate-pulse">{attribution.name}</span>
+            <span className="inline-flex items-center gap-1 truncate text-[9px] text-info/70 animate-pulse">
+              {parallelCount > 1 ? (
+                <>
+                  <span className="inline-flex -space-x-1">
+                    {activeExecutions.slice(0, 3).map((e, i) => (
+                      <span key={i} className="inline-block h-3 w-3 rounded-full bg-info/20 border border-info/40 text-[6px] leading-3 text-center font-medium text-info"
+                        title={resolveName(e.userId)}>
+                        {resolveName(e.userId).charAt(0)}
+                      </span>
+                    ))}
+                  </span>
+                  <span>{parallelCount} running</span>
+                </>
+              ) : (
+                attribution.name
+              )}
+            </span>
           ) : attribution ? (
             <span className="truncate text-[9px] text-muted-foreground/60">{attribution.name}{attribution.timeAgo ? `, ${attribution.timeAgo}` : ''}</span>
           ) : null}

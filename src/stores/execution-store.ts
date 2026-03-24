@@ -18,6 +18,7 @@ import { deriveDeliveryMode } from "@/lib/project-source"
 import { useSettingsStore } from "./settings-store"
 import { authHeaders } from "@/lib/auth-headers"
 import { useTeamStore } from "./team-store"
+import { useUserProfileStore } from "./user-profile-store"
 import { useRealtimeStore } from "./realtime-store"
 import { useWorkspaceFilterStore } from "./workspace-filter-store"
 
@@ -423,15 +424,22 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     }
 
     // Check if already executing (local execution store)
+    // Allow parallel dispatch if the running execution belongs to a different user
+    // (the backend enforces the parallel-execution feature flag)
     if (get().isExecuting(nodeId)) {
-      console.warn("Node already executing:", nodeId)
-      return
+      const runningExec = get().executions.get(nodeId)
+      const myUserId = useUserProfileStore.getState().profile.id
+      if (runningExec?.userId === myUserId || !myUserId) {
+        console.warn("Node already executing by you:", nodeId)
+        return
+      }
+      // Different user's execution — allow this user to dispatch in parallel
     }
 
-    // Check node status — only 'planned' nodes should be dispatched
+    // Check node status — only 'planned' or 'in_progress' (parallel) nodes should be dispatched
     // (prevents double-dispatch when button is clicked twice or batch + manual race)
     // Exception: follow-up dispatches on completed tasks bypass this guard
-    if (node.status !== 'planned' && !options?.isFollowUp) {
+    if (node.status !== 'planned' && node.status !== 'in_progress' && !options?.isFollowUp) {
       console.warn(`Node ${nodeId} status is '${node.status}', not 'planned' — skipping dispatch`)
       return
     }
