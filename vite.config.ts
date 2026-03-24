@@ -5,7 +5,14 @@ import path from 'path'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
 
+  // Detect Tauri build: TAURI_ENV_* vars are set by the Tauri CLI
+  const isTauriBuild = !!env.TAURI_ENV_PLATFORM || !!env.TAURI_FAMILY
+
   return {
+  define: {
+    // Expose VITE_TAURI flag so frontend can detect Tauri at build time
+    ...(isTauriBuild ? { 'import.meta.env.VITE_TAURI': JSON.stringify('true') } : {}),
+  },
   plugins: [
     {
       name: 'landing-page-rewrite',

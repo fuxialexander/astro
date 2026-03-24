@@ -19,7 +19,7 @@ import { useRealtimeStore } from "@/stores/realtime-store"
 import { useSessionStore } from "@/stores/session-store"
 import { useWorkspaceFilterStore } from "@/stores/workspace-filter-store"
 import { useAutoReveal } from "@/hooks/use-auto-reveal"
-import { isServerMode } from "@/lib/app-mode"
+import { isServerMode, isTauriMode } from "@/lib/app-mode"
 import { deriveActiveTasks } from "@/lib/active-tasks"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
@@ -818,21 +818,21 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
         )}
       </div>
 
-      {/* Local Mode Badge */}
+      {/* Local Mode / Desktop App Badge */}
       {!showAuth && (
         collapsed ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex justify-center py-2 border-t border-border">
-                <div className="h-2 w-2 rounded-full bg-warning" />
+                <div className={cn("h-2 w-2 rounded-full", isTauriMode() ? "bg-primary" : "bg-warning")} />
               </div>
             </TooltipTrigger>
-            <TooltipContent side="right">{t("localMode")}</TooltipContent>
+            <TooltipContent side="right">{isTauriMode() ? "Desktop App" : t("localMode")}</TooltipContent>
           </Tooltip>
         ) : (
           <div className="flex items-center gap-2 px-5 py-3 text-xs text-muted-foreground border-t border-border dark:border-border">
-            <div className="h-2 w-2 rounded-full bg-warning" />
-            {t("localMode")}
+            <div className={cn("h-2 w-2 rounded-full", isTauriMode() ? "bg-primary" : "bg-warning")} />
+            {isTauriMode() ? "Desktop App" : t("localMode")}
           </div>
         )
       )}
