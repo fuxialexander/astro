@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nickel-org/nickel.rs/master/src/tauri.conf.schema.json",
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-cli/schema.json",
   "productName": "Astro Desktop",
   "version": "0.0.1",
   "identifier": "com.astroanywhere.desktop",
@@ -16,13 +16,16 @@
         "title": "Astro",
         "width": 1200,
         "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
         "resizable": true,
         "fullscreen": false,
-        "decorations": true
+        "decorations": true,
+        "center": true
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:3001 ws://localhost:3002 https://api.astroanywhere.com wss://api.astroanywhere.com; img-src 'self' data: blob: https:; font-src 'self' data:"
     }
   },
   "bundle": {
@@ -34,6 +37,44 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": [
+      "sidecar/**/*"
+    ],
+    "macOS": {
+      "signingIdentity": null,
+      "entitlements": null,
+      "minimumSystemVersion": "10.15"
+    },
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libssl3"]
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "dialog": true,
+      "pubkey": "",
+      "endpoints": [
+        "https://releases.astroanywhere.com/{{target}}/{{arch}}/{{current_version}}"
+      ]
+    },
+    "shell": {
+      "open": true,
+      "scope": [
+        {
+          "name": "node-sidecar",
+          "cmd": "node",
+          "args": true
+        }
+      ]
+    }
   }
 }
