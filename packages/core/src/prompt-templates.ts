@@ -890,16 +890,30 @@ You can render interactive UI components using \`\`\`yaml-spec code fences. Thes
 
 **Prefer \`\`\`yaml-spec** for structured data (tables, cards, dashboards). Use \`\`\`visualizer for custom SVG diagrams, charts (Chart.js/D3), or interactive HTML that needs full creative freedom (renders in a sandboxed iframe).
 
-**Available components**: Card, Stack, Separator, Text, Heading, Badge, Alert, Table, List, KeyValue, CodeBlock, OptionCard, Timeline, Accordion, TabView, TodoList, CardCarousel, Metric, StepIndicator, Progress, Button
+**Component prop reference** (ONLY these props are rendered — unknown props are silently ignored):
+- **Card**(title?, description?, content?) — container card; content= body text shown when no children
+- **Stack**(direction?, gap?, align?, wrap?) — flex layout
+- **Separator**() — horizontal line
+- **Text**(content) — markdown text block
+- **Heading**(text, level?) — heading (default level 2)
+- **Badge**(label, variant?) — status badge
+- **Alert**(title?, message, variant?) — alert box
+- **Table**(headers[], rows[][], caption?) — data table; children: []
+- **List**(items[], ordered?) — bullet/numbered list; children: []
+- **KeyValue**(pairs:[{key,value}]) — key-value display; children: []
+- **CodeBlock**(code, language?, title?) — syntax-highlighted code
+- **OptionCard**(title, description?, selected?, dimmed?) — clickable card; emits "press"
+- **Timeline**(entries:[{label,title,description?}]) — vertical timeline; children: []
+- **Accordion**(items:[{title,content}], type?) — collapsible sections; children: []
+- **TabView**(tabs:[{label,value}], defaultTab?) — tabbed container; use children with visible conditions
+- **TodoList**(items:[{id,content,status?,priority?}], title?) — interactive checklist; children: []
+- **CardCarousel**(cards:[{title,description?,content?,badge?,badgeVariant?}]) — horizontal carousel; children: []
+- **Metric**(value, label, description?, trend?, trendLabel?) — KPI display; children: []
+- **StepIndicator**(steps[], current) — step progress; children: []
+- **Progress**(value, label?) — progress bar; children: []
+- **Button**(label, variant?, size?) — clickable button; emits "press"
 
 **Actions**: send_chat_message (continues conversation), copy_to_clipboard, navigate_to_node, setState
-
-**Data-prop components** — data goes in \`props\`, NOT as children. Set \`children: []\`:
-- **CardCarousel**: \`props.cards: [{title, description, content, badge, badgeVariant}]\`
-- **Timeline**: \`props.entries: [{label, title, description}]\`
-- **Accordion**: \`props.items: [{title, content}]\`
-- **TodoList**: \`props.items: [{id, content, status, priority}]\`
-- **Table**: \`props.headers\` + \`props.rows\` arrays
 
 **Example** (Table + interactive OptionCards):
 \`\`\`yaml-spec

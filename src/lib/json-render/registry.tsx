@@ -305,17 +305,26 @@ function PlanGraphInner({ nodes: inputNodes }: { nodes: PlanNodeInput[] }) {
 export const { registry, handlers } = defineRegistry(astroCatalog, {
   components: {
     // ── Layout ──────────────────────────────────────────────────────
-    Card: ({ props, children }) => (
-      <Card>
-        {(props.title || props.description) && (
-          <CardHeader className="pb-2">
-            {props.title && <CardTitle className="text-sm">{props.title}</CardTitle>}
-            {props.description && <CardDescription className="text-xs">{props.description}</CardDescription>}
-          </CardHeader>
-        )}
-        <CardContent className="pt-0">{children}</CardContent>
-      </Card>
-    ),
+    Card: ({ props, children }) => {
+      const hasChildren = Array.isArray(children) ? children.some(Boolean) : !!children
+      return (
+        <Card>
+          {(props.title || props.description) && (
+            <CardHeader className="pb-2">
+              {props.title && <CardTitle className="text-sm">{props.title}</CardTitle>}
+              {props.description && <CardDescription className="text-xs">{props.description}</CardDescription>}
+            </CardHeader>
+          )}
+          <CardContent className="pt-0">
+            {children}
+            {/* Render props.content as body text when provided (agents often use this instead of children) */}
+            {props.content && !hasChildren && (
+              <p className="text-sm text-muted-foreground">{props.content}</p>
+            )}
+          </CardContent>
+        </Card>
+      )
+    },
 
     Stack: ({ props, children }) => (
       <div className={cn(
