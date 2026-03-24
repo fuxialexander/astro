@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { ChevronDown, Check, Loader2, XCircle, Clock, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -34,14 +34,13 @@ export function ExecutionSwitcher({ nodeId, activeExecutionId, onSwitch }: Execu
   const currentUserId = useUserProfileStore((s) => s.profile.id)
   const activeTeamId = useTeamStore((s) => s.activeTeamId)
   const teamMembers = useTeamStore((s) => activeTeamId ? s.teamMembers[activeTeamId] : undefined)
-  const [loaded, setLoaded] = useState(false)
-
-  // Load all executions for this node on first render
+  // Load all executions for this node; re-fetch when nodeId changes
+  const fetchedRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!loaded) {
-      loadNodeExecutions(nodeId).then(() => setLoaded(true))
-    }
-  }, [nodeId, loaded, loadNodeExecutions])
+    if (fetchedRef.current === nodeId) return
+    fetchedRef.current = nodeId
+    loadNodeExecutions(nodeId)
+  }, [nodeId, loadNodeExecutions])
 
   const executions = useMemo(() => {
     if (!nodeExecutions || nodeExecutions.length === 0) return []

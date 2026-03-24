@@ -1342,30 +1342,39 @@ function handleRealtimeEvent(
         ...(data.deliveryStatus ? { deliveryStatus: data.deliveryStatus as "success" | "failed" | "skipped" } : {}),
       }
 
-      const newExecs = new Map(execStore.executions)
-      for (const [nid, exec] of execStore.executions) {
-        if (exec.executionId === execId) {
-          newExecs.set(nid, { ...exec, ...resultPatch })
-          useExecutionStore.setState({ executions: newExecs })
-          execStore.persist()
-          break
-        }
-      }
-
-      // Also update the entry in nodeExecutions (parallel tracking list)
       useExecutionStore.setState((state) => {
-        const nodeExecs = new Map(state.nodeExecutions)
-        for (const [nodeId, list] of nodeExecs) {
-          const idx = list.findIndex((e) => e.executionId === execId)
-          if (idx >= 0) {
-            const updated = [...list]
-            updated[idx] = { ...updated[idx], ...resultPatch }
-            nodeExecs.set(nodeId, updated)
-            return { nodeExecutions: nodeExecs }
+        const newExecs = new Map(state.executions)
+        for (const [nid, exec] of newExecs) {
+          if (exec.executionId === execId) {
+            newExecs.set(nid, { ...exec, ...resultPatch })
+            return { executions: newExecs }
           }
         }
         return state
       })
+      execStore.persist()
+
+      // Also update the entry in nodeExecutions (parallel tracking list).
+      // Find the nodeId via the executions map first to avoid scanning all lists.
+      const resultNodeId = (() => {
+        for (const [nid, exec] of useExecutionStore.getState().executions) {
+          if (exec.executionId === execId) return nid
+        }
+        return undefined
+      })()
+      if (resultNodeId) {
+        useExecutionStore.setState((state) => {
+          const list = state.nodeExecutions.get(resultNodeId)
+          if (!list) return state
+          const idx = list.findIndex((e) => e.executionId === execId)
+          if (idx < 0) return state
+          const updated = [...list]
+          updated[idx] = { ...updated[idx], ...resultPatch }
+          const nodeExecs = new Map(state.nodeExecutions)
+          nodeExecs.set(resultNodeId, updated)
+          return { nodeExecutions: nodeExecs }
+        })
+      }
 
       // Fire-and-forget summary generation for completed task executions
       {

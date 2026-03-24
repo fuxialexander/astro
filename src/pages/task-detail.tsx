@@ -556,7 +556,7 @@ export function TaskDetail() {
             <TaskContentTab node={node} projectId={projectId} panelSize="default" fileTree={project?.fileTree} />
           </TabsContent>
           <TabsContent value="activity" className="flex-1 m-0 min-h-0 flex flex-col">
-            {hasMultipleExecutions && nodeId && (
+            {hasMultipleExecutions && nodeId && executionId && (
               <div className="px-4 pt-2 pb-1 border-b border-border shrink-0">
                 <ExecutionSwitcher
                   nodeId={nodeId}

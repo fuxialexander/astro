@@ -400,7 +400,13 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       }))
       set((state) => {
         const next = new Map(state.nodeExecutions)
-        next.set(nodeId, executions)
+        // Merge: keep live in-flight entries that aren't yet in the DB snapshot
+        const existing = next.get(nodeId) ?? []
+        const dbIds = new Set(executions.map((e) => e.executionId))
+        const liveOnly = existing.filter(
+          (e) => !dbIds.has(e.executionId) && (e.status === 'pending' || e.status === 'running')
+        )
+        next.set(nodeId, [...executions, ...liveOnly])
         return { nodeExecutions: next }
       })
       return executions
@@ -429,8 +435,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
     if (get().isExecuting(nodeId)) {
       const runningExec = get().executions.get(nodeId)
       const myUserId = useUserProfileStore.getState().profile.id
-      if (runningExec?.userId === myUserId || !myUserId) {
-        console.warn("Node already executing by you:", nodeId)
+      // Block if: no owner on running exec, same user, or no current user identity
+      if (!runningExec?.userId || runningExec.userId === myUserId || !myUserId) {
+        console.warn("Node already executing:", nodeId)
         return
       }
       // Different user's execution — allow this user to dispatch in parallel
