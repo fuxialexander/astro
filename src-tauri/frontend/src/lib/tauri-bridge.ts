@@ -7,13 +7,13 @@
  */
 
 import { invoke } from '@tauri-apps/api/core'
-import type { FileEntry, SidecarStatus, WatcherEvent } from '@desktop/types'
+import type { FileEntry, SidecarStatus } from '@desktop/types'
 
 // ── File System Commands ─────────────────────────────────────────────
 
 /** List directory contents. */
 export async function listDir(path: string): Promise<FileEntry[]> {
-  return invoke<FileEntry[]>('list_dir', { path })
+  return invoke<FileEntry[]>('list_files', { path, gitignore: true })
 }
 
 /** Read a file as UTF-8 text. */
@@ -21,72 +21,38 @@ export async function readFile(path: string): Promise<string> {
   return invoke<string>('read_file', { path })
 }
 
-/** Write UTF-8 text to a file. */
-export async function writeFile(path: string, contents: string): Promise<void> {
-  return invoke<void>('write_file', { path, contents })
-}
-
-/** Check if a path exists. */
-export async function pathExists(path: string): Promise<boolean> {
-  return invoke<boolean>('path_exists', { path })
-}
-
-/** Create a directory (and parents). */
-export async function createDir(path: string): Promise<void> {
-  return invoke<void>('create_dir', { path })
-}
+// NOTE: write_file, path_exists, create_dir, run_command are not yet
+// implemented as Rust Tauri commands. Add them to fs_commands.rs as needed.
 
 // ── Terminal Commands ────────────────────────────────────────────────
 
-export interface TerminalOutput {
-  stdout: string
-  stderr: string
-  exitCode: number
-}
-
-/** Run a shell command in a given working directory. */
-export async function runCommand(
-  command: string,
-  args: string[],
-  cwd?: string,
-): Promise<TerminalOutput> {
-  return invoke<TerminalOutput>('run_command', { command, args, cwd })
-}
-
 /** Spawn a persistent terminal session and return its ID. */
 export async function spawnTerminal(cwd?: string): Promise<string> {
-  return invoke<string>('spawn_terminal', { cwd })
+  const id = `term-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+  await invoke<void>('spawn_terminal', { id, cwd: cwd ?? '~' })
+  return id
 }
 
 /** Send input to a terminal session. */
 export async function writeTerminal(sessionId: string, input: string): Promise<void> {
-  return invoke<void>('write_terminal', { sessionId, input })
+  return invoke<void>('write_terminal', { id: sessionId, data: input })
 }
 
 /** Kill a terminal session. */
 export async function killTerminal(sessionId: string): Promise<void> {
-  return invoke<void>('kill_terminal', { sessionId })
+  return invoke<void>('kill_terminal', { id: sessionId })
 }
 
 // ── File Watcher ─────────────────────────────────────────────────────
 
 /** Start watching a directory for file changes. Returns a watcher ID. */
-export async function watchDir(path: string): Promise<string> {
-  return invoke<string>('watch_dir', { path })
+export async function watchDir(path: string, recursive = true): Promise<string> {
+  return invoke<string>('watch_directory', { path, recursive })
 }
 
 /** Stop watching a directory. */
-export async function unwatchDir(watcherId: string): Promise<void> {
-  return invoke<void>('unwatch_dir', { watcherId })
-}
-
-/**
- * Poll for watcher events since the last poll.
- * In a real implementation, this would use Tauri events (listen()),
- * but this provides a simpler initial API.
- */
-export async function pollWatcherEvents(watcherId: string): Promise<WatcherEvent[]> {
-  return invoke<WatcherEvent[]>('poll_watcher_events', { watcherId })
+export async function unwatchDir(watchId: string): Promise<void> {
+  return invoke<void>('unwatch', { watchId })
 }
 
 // ── Sidecar (Agent Runner) ───────────────────────────────────────────
