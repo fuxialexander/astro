@@ -1332,23 +1332,48 @@ function handleRealtimeEvent(
 
       // Update execution store entry (so UI reflects terminal status after refresh)
       // Build new Map to maintain Zustand immutability (don't mutate live state)
-      const newExecs = new Map(execStore.executions)
-      for (const [nid, exec] of execStore.executions) {
-        if (exec.executionId === execId) {
-          newExecs.set(nid, {
-            ...exec,
-            status: isSuccess ? 'success' : 'failure',
-            completedAt: new Date(),
-            ...(data.error ? { error: data.error as string } : {}),
-            ...(data.branchName ? { branchName: data.branchName as string } : {}),
-            ...(data.prUrl ? { prUrl: data.prUrl as string } : {}),
-            ...(data.prNumber ? { prNumber: data.prNumber as number } : {}),
-            ...(data.deliveryStatus ? { deliveryStatus: data.deliveryStatus as "success" | "failed" | "skipped" } : {}),
-          })
-          useExecutionStore.setState({ executions: newExecs })
-          execStore.persist()
-          break
+      const resultPatch = {
+        status: (isSuccess ? 'success' : 'failure') as 'success' | 'failure',
+        completedAt: new Date(),
+        ...(data.error ? { error: data.error as string } : {}),
+        ...(data.branchName ? { branchName: data.branchName as string } : {}),
+        ...(data.prUrl ? { prUrl: data.prUrl as string } : {}),
+        ...(data.prNumber ? { prNumber: data.prNumber as number } : {}),
+        ...(data.deliveryStatus ? { deliveryStatus: data.deliveryStatus as "success" | "failed" | "skipped" } : {}),
+      }
+
+      useExecutionStore.setState((state) => {
+        const newExecs = new Map(state.executions)
+        for (const [nid, exec] of newExecs) {
+          if (exec.executionId === execId) {
+            newExecs.set(nid, { ...exec, ...resultPatch })
+            return { executions: newExecs }
+          }
         }
+        return state
+      })
+      execStore.persist()
+
+      // Also update the entry in nodeExecutions (parallel tracking list).
+      // Find the nodeId via the executions map first to avoid scanning all lists.
+      const resultNodeId = (() => {
+        for (const [nid, exec] of useExecutionStore.getState().executions) {
+          if (exec.executionId === execId) return nid
+        }
+        return undefined
+      })()
+      if (resultNodeId) {
+        useExecutionStore.setState((state) => {
+          const list = state.nodeExecutions.get(resultNodeId)
+          if (!list) return state
+          const idx = list.findIndex((e) => e.executionId === execId)
+          if (idx < 0) return state
+          const updated = [...list]
+          updated[idx] = { ...updated[idx], ...resultPatch }
+          const nodeExecs = new Map(state.nodeExecutions)
+          nodeExecs.set(resultNodeId, updated)
+          return { nodeExecutions: nodeExecs }
+        })
       }
 
       // Fire-and-forget summary generation for completed task executions
@@ -1907,42 +1932,59 @@ function handleRealtimeEvent(
       // startPlaygroundSession (which creates it without machineId) or from
       // a DB load on another tab.
       const execStore = useExecutionStore.getState()
-      if (!execStore.executions.has(initNodeId)) {
+      const existingExec = execStore.executions.get(initNodeId)
+
+      const newExecEntry = {
+        nodeId: initNodeId,
+        projectId: initProjectId,
+        executionId: execId,
+        status: 'running' as const,
+        streamText: '',
+        toolTraces: [],
+        fileChanges: [],
+        activityEvents: [],
+        startedAt: new Date(),
+        machineId: initMachineId,
+        userId: initUserId,
+      }
+
+      if (!existingExec) {
+        // No existing execution for this node — set as primary
         useExecutionStore.setState((state) => {
           const newExecs = new Map(state.executions)
-          newExecs.set(initNodeId, {
-            nodeId: initNodeId,
-            projectId: initProjectId,
-            executionId: execId,
-            status: 'running',
-            streamText: '',
-            toolTraces: [],
-            fileChanges: [],
-            activityEvents: [],
-            startedAt: new Date(),
-            machineId: initMachineId,
-            userId: initUserId,
-          })
+          newExecs.set(initNodeId, newExecEntry)
           return { executions: newExecs }
         })
-      } else if (initMachineId || initUserId) {
-        // Entry exists but may lack machineId/userId (playground sessions, DB-loaded entries)
+      } else if (existingExec.executionId === execId) {
+        // Same execution — update missing fields (playground sessions, DB-loaded entries)
         useExecutionStore.setState((state) => {
           const newExecs = new Map(state.executions)
           const existing = newExecs.get(initNodeId)!
-          if (!existing.machineId || !existing.executionId || !existing.userId) {
-            newExecs.set(initNodeId, {
-              ...existing,
-              machineId: existing.machineId || initMachineId,
-              executionId: existing.executionId || execId,
-              userId: existing.userId || initUserId,
-              status: 'running',
-            })
-            return { executions: newExecs }
-          }
-          return state
+          newExecs.set(initNodeId, {
+            ...existing,
+            machineId: existing.machineId || initMachineId,
+            executionId: existing.executionId || execId,
+            userId: existing.userId || initUserId,
+            status: 'running',
+          })
+          return { executions: newExecs }
         })
       }
+      // else: different execution for this node (parallel dispatch) —
+      // don't overwrite the primary executions map entry.
+
+      // 1b. Parallel execution tracking: always append to nodeExecutions list.
+      // This lets the UI show all concurrent executions for a node.
+      useExecutionStore.setState((state) => {
+        const nodeExecs = new Map(state.nodeExecutions)
+        const list = [...(nodeExecs.get(initNodeId) ?? [])]
+        // Avoid duplicate entries for the same executionId
+        if (!list.some((e) => e.executionId === execId)) {
+          list.push(newExecEntry)
+          nodeExecs.set(initNodeId, list)
+        }
+        return { nodeExecutions: nodeExecs }
+      })
 
       // 2. Create taskStream entry so progress/text events can be routed
       set((state) => {
