@@ -1,22 +1,55 @@
 # Tauri Desktop App Vision
 
-> **Status: PROPOSED -- Not yet implemented.** This document describes a future Tauri desktop app architecture. No Tauri code exists in the codebase. See [PACKAGE_ARCHITECTURE.md](./PACKAGE_ARCHITECTURE.md) for the current monorepo structure.
+> **Status: IN PROGRESS** -- The `src-tauri/` scaffold is implemented (Rust app shell, Node.js sidecar lifecycle, native menus, system tray, deep links). The next milestone is adding Rust native commands for filesystem and terminal operations, followed by a dedicated desktop frontend.
 
-> **See also:** [PACKAGE_ARCHITECTURE.md](./PACKAGE_ARCHITECTURE.md) for the full monorepo package structure (`@astro/core`, `@astro/cli`, `server/`, `@astroanywhere/agent-runner`, Tauri desktop) and how they compose across deployment scenarios.
+> **See also:** [PACKAGE_ARCHITECTURE.md](./PACKAGE_ARCHITECTURE.md) for the full monorepo package structure (`@astro/core`, `@astro/cli`, `server/`, `@astroanywhere/agent-runner`, Tauri desktop) and how they compose across deployment scenarios. See [DESKTOP_UI_SPEC.md](./DESKTOP_UI_SPEC.md) for the three-panel desktop frontend specification.
 
 ## Motivation
 
 The current Astro architecture has a fundamental filesystem gap:
 
 ```
-Frontend (Cloudflare Pages)  →  no filesystem access
-Backend (Fly.io)             →  no access to user's filesystem
-Agent Runner (user machine)  →  has filesystem, no UI
+Frontend (Cloudflare Pages)  -->  no filesystem access
+Backend (Fly.io)             -->  no access to user's filesystem
+Agent Runner (user machine)  -->  has filesystem, no UI
 ```
 
 No single component has **both** filesystem access and UI rendering. This forces a complex relay architecture to bridge the gap: the frontend asks the backend, which asks the relay, which asks the agent runner on the user's machine.
 
-For machine-local resources — plugins, skills, file trees, git operations — this indirection adds latency, complexity, and fragility. A desktop app eliminates this gap.
+For machine-local resources -- plugins, skills, file trees, git operations -- this indirection adds latency, complexity, and fragility. A desktop app eliminates this gap.
+
+Beyond the technical benefits, the desktop app enables a **Codex-like UX** -- a focused, three-panel interface designed for conversational AI-assisted development, with direct filesystem access, integrated terminal, and zero-latency local operations.
+
+## Desktop-First UI Vision
+
+The desktop app breaks from the web app's general-purpose layout. It follows a **Codex-like three-panel pattern** optimized for AI-assisted planning and execution:
+
+```
++------------------+----------------------------+--------------------+
+|                  |                            |                    |
+|  Project         |  Thread / Chat Panel       |  Review / Diff     |
+|  Sidebar         |                            |  Pane              |
+|                  |  > User: Build the auth    |                    |
+|  [P] astro       |    module with passkeys    |  src/auth.ts       |
+|  [P] research    |                            |  + import { ... }  |
+|  [P] cli         |  > AI: I'll break this     |  + export class    |
+|                  |    into 3 tasks:            |    AuthProvider {  |
+|  Threads         |    1. Schema migration     |  - // old impl     |
+|  > Auth module   |    2. Provider class       |  + // new impl     |
+|  > Bug fix #42   |    3. UI components        |                    |
+|  > Deploy prep   |                            |  Terminal           |
+|                  |  [Input area]              |  $ npm test        |
+|                  |                            |  PASS 12/12        |
++------------------+----------------------------+--------------------+
+```
+
+**Key UX principles:**
+- **Conversation-first**: The center panel is always a chat thread -- planning, execution, and review all flow through conversation
+- **Instant context**: The review pane shows diffs, file contents, and terminal output relevant to the current thread
+- **Keyboard-driven**: Panel focus with Cmd+1/2/3, command palette with Cmd+K, new thread with Cmd+T
+- **Smooth transitions**: 200ms panel resize animations, spring-based drag handles, 150ms hover states
+
+See [DESKTOP_UI_SPEC.md](./DESKTOP_UI_SPEC.md) for the complete component inventory, layout spec, keyboard shortcuts, and animation details.
 
 ## Architecture
 
@@ -24,54 +57,148 @@ For machine-local resources — plugins, skills, file trees, git operations — 
 
 ```
 Browser (Cloudflare)
-    │
-    │  HTTPS
-    ▼
+    |
+    |  HTTPS
+    v
 Hono API (Fly.io)
-    │
-    │  WebSocket
-    ▼
+    |
+    |  WebSocket
+    v
 Relay Server (port 3002)
-    │
-    │  WebSocket
-    ▼
-Agent Runner (user machine) → Filesystem
+    |
+    |  WebSocket
+    v
+Agent Runner (user machine) --> Filesystem
 ```
 
 4 components, 3 network hops for local operations.
 
-### Proposed (Tauri)
+### Implemented (Tauri + Node.js Sidecar)
+
+The current `src-tauri/` scaffold wraps the existing web frontend in a native Tauri window, with the Hono API server running as a managed Node.js sidecar process:
 
 ```
-┌─────────────────────────────────────────┐
-│ Tauri App (single binary)               │
-│                                         │
-│  ┌─────────────────────────────────┐    │
-│  │ Webview (React frontend)        │    │
-│  │ Same React app, same components │    │
-│  └──────────┬──────────────────────┘    │
-│             │ Tauri commands            │
-│  ┌──────────▼──────────────────────┐    │
-│  │ Rust Backend                    │    │
-│  │  ├── PGlite (local Postgres)   │    │
-│  │  ├── Filesystem (direct)       │    │
-│  │  ├── Agent Runner (embedded)   │    │
-│  │  └── Claude SDK (API calls)    │    │
-│  └──────────┬──────────────────────┘    │
-│             │                           │
-│  ┌──────────▼──────────────────────┐    │
-│  │ Optional Network               │    │
-│  │  ├── → Supabase (sync/teams)   │    │
-│  │  └── → Relay (remote machines) │    │
-│  └─────────────────────────────────┘    │
-└─────────────────────────────────────────┘
++-------------------------------------------+
+| Tauri App (single binary)                 |
+|                                           |
+|  +-------------------------------------+ |
+|  | Webview (React frontend)            | |
+|  | Same React app as web, loaded from  | |
+|  | dist/ or localhost:5173 (dev)       | |
+|  +------------------+------------------+ |
+|                     | Tauri IPC           |
+|  +------------------v------------------+ |
+|  | Rust Shell                          | |
+|  |  +-- Sidecar lifecycle (spawn/stop) | |
+|  |  +-- System tray                    | |
+|  |  +-- Native menus                   | |
+|  |  +-- Deep links (astro://)          | |
+|  +------------------+------------------+ |
+|                     | Process spawn       |
+|  +------------------v------------------+ |
+|  | Node.js Sidecar (port 3001)         | |
+|  |  +-- Hono API server               | |
+|  |  +-- PGlite (local Postgres)        | |
+|  |  +-- Claude Agent SDK               | |
+|  |  +-- WebSocket relay (port 3002)    | |
+|  +-------------------------------------+ |
++-------------------------------------------+
 ```
 
-1 component for local ops, 0 network hops.
+### Target (Tauri + Rust Native + Sidecar)
+
+The next evolution adds Rust-native commands for performance-critical operations while keeping the Node.js sidecar for API/DB/AI:
+
+```
++---------------------------------------------------+
+| Tauri App                                         |
+|                                                   |
+|  +---------------------------------------------+ |
+|  | Desktop Frontend (Vite+React)               | |
+|  | Codex-like three-panel layout               | |
+|  | Separate from web app in src-tauri/frontend/ | |
+|  +---------------------+-----------------------+ |
+|                        | Tauri IPC                |
+|  +---------------------v-----------------------+ |
+|  | Rust Backend                                | |
+|  |  +-- File tree (git ls-files, ripgrep)     | |
+|  |  +-- File read/write (direct syscalls)      | |
+|  |  +-- Terminal PTY (portable-pty)            | |
+|  |  +-- File watcher (notify crate)            | |
+|  |  +-- Sidecar lifecycle                      | |
+|  |  +-- System tray, menus, deep links         | |
+|  +---------------------+-----------------------+ |
+|                        | HTTP to localhost:3001   |
+|  +---------------------v-----------------------+ |
+|  | Node.js Sidecar                             | |
+|  |  +-- Hono API (plan gen, dispatch, data)    | |
+|  |  +-- PGlite / Postgres                      | |
+|  |  +-- Claude Agent SDK (SSE streaming)       | |
+|  |  +-- WebSocket relay                        | |
+|  +---------------------------------------------+ |
++---------------------------------------------------+
+```
+
+## Current Implementation (src-tauri/)
+
+The `src-tauri/` directory contains a working Tauri 2 application scaffold:
+
+### File Inventory
+
+| File | Lines | Role |
+|------|-------|------|
+| `src/lib.rs` | 261 | App builder: registers commands, plugins (shell, log, deep-link, window-state), creates tray + menus, manages sidecar lifecycle, handles deep links |
+| `src/sidecar.rs` | 392 | Sidecar manager: spawn/stop Node.js process, health check polling, port conflict detection, SIGTERM/SIGKILL shutdown, log piping |
+| `src/menu.rs` | ~200 | Native menu bar: File (New/Open Project), Edit (standard), View (Reload/DevTools/Zoom), Help (Docs/About) |
+| `src/tray.rs` | ~80 | System tray: icon, status indicator ("Sidecar: Connected/Disconnected"), Open/Quit actions |
+| `src/main.rs` | 5 | Entry point, calls `lib::run()` |
+| `tauri.conf.json` | 76 | App config: window (1400x900, min 800x600), CSP, tray icon, plugins, deep-link scheme (`astro://`) |
+| `Cargo.toml` | 34 | Dependencies: tauri 2, plugins (shell, window-state, log, deep-link), reqwest, tokio, serde |
+| `build.rs` | 3 | Standard tauri-build |
+| `sidecar/.gitignore` | 1 | Ignores built sidecar bundle |
+
+### Supporting Scripts
+
+| File | Role |
+|------|------|
+| `scripts/build-sidecar.ts` | esbuild bundler: compiles `server/index.ts` into `src-tauri/sidecar/astro-sidecar.js`, copies drizzle migrations + skills + landing page |
+
+### Tauri Commands (Current)
+
+```rust
+// Sidecar health check -- returns running/healthy/port/external_process
+sidecar_status(state) -> SidecarStatus
+
+// Restart sidecar (stop + start + wait_for_ready)
+sidecar_restart(state) -> SidecarStatus
+
+// Update tray icon status indicator
+set_sidecar_status(app, connected)
+
+// Navigate webview to a project (deep link handler)
+navigate_to_project(app, project_id)
+```
+
+### Implemented Features
+
+- [x] Tauri 2 app shell with window config (1400x900, resizable, centered)
+- [x] Node.js sidecar lifecycle (spawn, health poll, graceful SIGTERM, SIGKILL fallback)
+- [x] Port conflict detection (reuses existing healthy server)
+- [x] Sidecar log piping to `~/.astro/logs/tauri-sidecar.log` and stdout
+- [x] System tray with status indicator and Open/Quit actions
+- [x] Native menu bar (File, Edit, View, Help) with accelerators
+- [x] Deep link handling (`astro://project/{id}`)
+- [x] Window-close-to-tray behavior (sidecar keeps running)
+- [x] Plugin: structured logging (file + stdout)
+- [x] Plugin: shell (open URLs in default browser)
+- [x] Plugin: deep-link registration (`astro://` URL scheme)
+- [x] Plugin: window-state persistence (remember size/position)
+- [x] CSP configured for localhost:3001, ws://localhost:3002, Anthropic API, Supabase
+- [x] Build script (esbuild) bundles server into single sidecar JS file
 
 ## Mode Spectrum
 
-A Tauri app doesn't force a choice between local and server mode — it supports a spectrum:
+A Tauri app doesn't force a choice between local and server mode -- it supports a spectrum:
 
 | Feature | Standalone | Connected | Team |
 |---------|-----------|-----------|------|
@@ -109,145 +236,169 @@ A Tauri app doesn't force a choice between local and server mode — it supports
 The fundamental difference is **where the orchestration layer runs**:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          WEB MODE (current)                             │
-│                                                                         │
-│  User's Browser              Cloud (Fly.io)            User's Machine   │
-│  ┌──────────┐    HTTPS     ┌──────────────┐    WS    ┌─────────────┐  │
-│  │  React   │─────────────▶│  Hono API    │────────▶ │ Agent Runner│  │
-│  │  App     │◀─────────────│  + Relay     │◀────────│  (CLI)      │  │
-│  └──────────┘    SSE       └──────┬───────┘         └──────┬──────┘  │
-│                                   │ HTTPS                   │ fs      │
-│                            ┌──────▼───────┐         ┌──────▼──────┐  │
-│                            │ Claude API   │         │ Filesystem  │  │
-│                            │ Supabase     │         │ Git, Skills │  │
-│                            └──────────────┘         └─────────────┘  │
-│                                                                         │
-│  Orchestration: Cloud          Data: Cloud + Machine        UI: Browser │
-└─────────────────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------------------+
+|                          WEB MODE (current)                             |
+|                                                                         |
+|  User's Browser              Cloud (Fly.io)            User's Machine   |
+|  +----------+    HTTPS     +--------------+    WS    +-------------+   |
+|  |  React   |------------>|  Hono API    |-------->  | Agent Runner|   |
+|  |  App     |<------------|  + Relay     |<--------  |  (CLI)      |   |
+|  +----------+    SSE       +------+-------+          +------+------+   |
+|                                   | HTTPS                   | fs       |
+|                            +------v-------+          +------v------+   |
+|                            | Claude API   |          | Filesystem  |   |
+|                            | Supabase     |          | Git, Skills |   |
+|                            +--------------+          +-------------+   |
+|                                                                         |
+|  Orchestration: Cloud          Data: Cloud + Machine        UI: Browser |
++-------------------------------------------------------------------------+
 
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         TAURI MODE (proposed)                           │
-│                                                                         │
-│  ┌────────────────────────────────────────────────┐     Optional Cloud  │
-│  │  Tauri App (user's machine)                    │    ┌─────────────┐ │
-│  │  ┌──────────┐                                  │    │ Supabase    │ │
-│  │  │  React   │    IPC (in-process, ~0ms)        │───▶│ (sync)      │ │
-│  │  │  Webview │◀─────────────────────────┐       │    └─────────────┘ │
-│  │  └──────────┘                          │       │    ┌─────────────┐ │
-│  │  ┌─────────────────────────────────────┴──┐    │───▶│ Relay       │ │
-│  │  │  Rust Backend                          │    │    │ (remote     │ │
-│  │  │  ├── PGlite (embedded Postgres)        │    │    │  machines)  │ │
-│  │  │  ├── Agent Runner (embedded)           │    │    └─────────────┘ │
-│  │  │  ├── Filesystem (direct)               │    │    ┌─────────────┐ │
-│  │  │  └── Claude SDK (direct API calls) ────│────│───▶│ Claude API  │ │
-│  │  └────────────────────────────────────────┘    │    └─────────────┘ │
-│  └────────────────────────────────────────────────┘                     │
-│                                                                         │
-│  Orchestration: Local          Data: Local + Sync       UI: Local       │
-└─────────────────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------------------+
+|                         TAURI MODE (current)                            |
+|                                                                         |
+|  +----------------------------------------------------+  Optional Cloud |
+|  |  Tauri App (user's machine)                        |  +-------------+|
+|  |  +----------+  IPC   +---------------------------+ |  | Supabase    ||
+|  |  |  React   |<------>| Rust shell                | |->| (sync)      ||
+|  |  |  Webview |        |  +-- tray, menus, links   | |  +-------------+|
+|  |  +----------+        +------------+--------------+ |  +-------------+|
+|  |       |  HTTP                     | spawn          |->| Relay       ||
+|  |       v                           v                |  | (remote     ||
+|  |  +--------------------------------------------+   |  |  machines)  ||
+|  |  |  Node.js Sidecar (port 3001)               |   |  +-------------+|
+|  |  |  Hono API + PGlite + Claude SDK            |---|->| Claude API  ||
+|  |  +--------------------------------------------+   |  +-------------+|
+|  +----------------------------------------------------+                 |
+|                                                                         |
+|  Orchestration: Local          Data: Local + Sync       UI: Local       |
++-------------------------------------------------------------------------+
+
++-------------------------------------------------------------------------+
+|                     TAURI MODE (target architecture)                     |
+|                                                                         |
+|  +----------------------------------------------------+  Optional Cloud |
+|  |  Tauri App (user's machine)                        |  +-------------+|
+|  |  +----------+                                      |  | Supabase    ||
+|  |  |  Desktop |    IPC (in-process, ~0ms)            |->| (sync)      ||
+|  |  |  React   |<-----------------------------+       |  +-------------+|
+|  |  +----------+                              |       |  +-------------+|
+|  |  +----------------------------------------+--+    |->| Relay       ||
+|  |  |  Rust Backend                             |    |  | (remote     ||
+|  |  |  +-- File tree (git ls-files, ripgrep)    |    |  |  machines)  ||
+|  |  |  +-- Terminal PTY                         |    |  +-------------+|
+|  |  |  +-- File watcher                         |    |  +-------------+|
+|  |  +---------------------+---------------------+    |->| Claude API  ||
+|  |                        | HTTP localhost            |  +-------------+|
+|  |  +---------------------v---------------------+    |                  |
+|  |  |  Node.js Sidecar                          |    |                  |
+|  |  |  +-- Hono API, PGlite, Claude SDK         |    |                  |
+|  |  +-------------------------------------------+    |                  |
+|  +----------------------------------------------------+                 |
++-------------------------------------------------------------------------+
 ```
+
+### Why Node.js Sidecar + Rust Native Commands
+
+The architecture uses a hybrid approach:
+
+**Rust handles performance-critical, latency-sensitive operations** via direct Tauri IPC:
+- File tree listing (`git ls-files` / recursive walk) -- must be instant for UI responsiveness
+- File read/write -- zero-copy, direct syscalls
+- Text search (`ripgrep` integration) -- must be fast across large codebases
+- Terminal PTY -- low-latency character-by-character streaming
+- File watching -- OS-native events (FSEvents/inotify/ReadDirectoryChanges)
+
+**Node.js sidecar handles API/DB/AI orchestration** via HTTP on localhost:
+- Claude Agent SDK streaming (SSE) -- the SDK is JavaScript-only
+- Drizzle ORM + PGlite -- the entire data layer is TypeScript
+- Hono API routes -- plan generation, dispatch, data persistence
+- WebSocket relay -- remote machine communication
+
+This split avoids rewriting the entire backend in Rust while getting native performance where it matters most (filesystem and terminal). The frontend talks to Rust via IPC for fast ops and to the sidecar via HTTP for everything else.
 
 ### Data Flow Comparison by Operation
 
-#### 1. Plan Generation (User → AI → Plan Graph)
+#### 1. Plan Generation (User --> AI --> Plan Graph)
 
 ```
 WEB:
   Browser                    Fly.io                      Anthropic
-  ┌──────┐   POST /agent   ┌──────┐   POST /messages   ┌───────┐
-  │React │──────────────── ▶│ Hono │───────────────────▶│Claude │
-  │      │◀════════════════│      │◀═══════════════════│  API  │
-  └──────┘   SSE stream    └──────┘   SSE stream       └───────┘
+  +------+   POST /agent   +------+   POST /messages   +-------+
+  |React |---------------->| Hono |-------------------->|Claude |
+  |      |<================|      |<====================|  API  |
+  +------+   SSE stream    +------+   SSE stream       +-------+
 
-  Latency: Browser → Fly.io (50-200ms) + Fly.io → Anthropic (varies)
+  Latency: Browser -> Fly.io (50-200ms) + Fly.io -> Anthropic (varies)
   Failure points: 2 network hops, SSE proxy through Cloudflare
 
 TAURI:
-  ┌──────────────────────────────┐                      Anthropic
-  │ Tauri App                    │   POST /messages     ┌───────┐
-  │ Webview ◀══IPC══▶ Rust ─────│──────────────────────▶│Claude │
-  │                              │◀════════════════════│  API  │
-  └──────────────────────────────┘   SSE stream        └───────┘
+  +------------------------------+                      Anthropic
+  | Tauri App                    |                      +-------+
+  | Webview --HTTP--> Sidecar ---|---POST /messages---->|Claude |
+  |         <==SSE===            |<=====================|  API  |
+  +------------------------------+   SSE stream        +-------+
 
-  Latency: IPC (~0ms) + Rust → Anthropic (varies)
+  Latency: localhost (~0ms) + Sidecar -> Anthropic (varies)
   Failure points: 1 network hop, no proxy
 ```
 
-#### 2. Task Execution (Dispatch → Agent → Results)
+#### 2. Task Execution (Dispatch --> Agent --> Results)
 
 ```
 WEB (local machine):
   Browser         Fly.io          Relay (3002)      Agent Runner
-  ┌──────┐ POST  ┌──────┐  WS   ┌───────┐   WS   ┌──────────┐
-  │React │──────▶│ Hono │──────▶│Relay  │───────▶│ Claude   │
-  │      │       │      │       │Server │        │ Code CLI │
-  │      │◀══════│      │◀══════│       │◀═══════│          │──▶ Filesystem
-  └──────┘ SSE   └──────┘ events└───────┘ stdout └──────────┘
+  +------+ POST  +------+  WS   +-------+   WS   +----------+
+  |React |------>| Hono |------>|Relay  |------->| Claude   |
+  |      |       |      |       |Server |        | Code CLI |
+  |      |<======|      |<======|       |<=======|          |--> Filesystem
+  +------+ SSE   +------+ events+-------+ stdout +----------+
                                   + result
 
-  Latency: ~100-300ms per hop × 3 hops = 300-900ms round-trip
-  Stdout: Agent → WS → Relay → WS → Hono → SSE → Browser (3 hops)
-
-WEB (remote machine, e.g. HPC):
-  Same as above, but Relay → Agent Runner crosses the internet.
-  This path REMAINS in Tauri mode for remote dispatch.
+  Latency: ~100-300ms per hop x 3 hops = 300-900ms round-trip
 
 TAURI (local task):
-  ┌───────────────────────────────────────────────────┐
-  │ Tauri App                                         │
-  │                                                   │
-  │ Webview ◀══IPC══▶ Rust ──spawn──▶ Agent Runner   │
-  │                     │               │              │
-  │                     │◀══ pipe ══════╯              │
-  │                     │         stdout + result      │
-  │                     │                              │
-  │                     ├──▶ Filesystem (direct)       │
-  │                     └──▶ PGlite (save result)      │
-  └───────────────────────────────────────────────────┘
+  +---------------------------------------------------+
+  | Tauri App                                         |
+  |                                                   |
+  | Webview --HTTP--> Sidecar --spawn--> Agent Runner |
+  |         <==SSE===    |                |           |
+  |                      |<== pipe =======+           |
+  |                      |         stdout + result    |
+  |                      |                            |
+  |                      +---> Filesystem (direct)    |
+  |                      +---> PGlite (save result)   |
+  +---------------------------------------------------+
 
-  Latency: IPC (~0ms) + process spawn (~50ms)
-  Stdout: Agent → pipe → Rust → IPC → Webview (0 network hops)
-
-TAURI (remote task — e.g. HPC cluster):
-  ┌────────────────────────────┐
-  │ Tauri App                  │        Relay           Remote Machine
-  │                            │  WS   ┌───────┐  WS  ┌──────────┐
-  │ Webview ◀══IPC══▶ Rust ───│──────▶│Relay  │─────▶│ Agent    │
-  │                            │◀══════│Server │◀═════│ Runner   │
-  └────────────────────────────┘       └───────┘      └──────────┘
-
-  Latency: IPC (~0ms) + WS to relay + WS to remote
-  Note: Hono backend is bypassed entirely — Rust speaks WS directly
+  Latency: localhost (~0ms) + process spawn (~50ms)
+  Stdout: Agent -> pipe -> Sidecar -> SSE -> Webview (0 network hops)
 ```
 
-#### 3. Skill/Plugin Discovery
+#### 3. File Operations (New with Rust Native Commands)
 
 ```
-WEB (remote machine):
-  Browser         Fly.io           Relay            Agent Runner
-  ┌──────┐ GET   ┌──────┐  WS    ┌───────┐  WS   ┌──────────┐
-  │React │──────▶│ Hono │───────▶│Relay  │──────▶│ scan     │
-  │      │◀──────│      │◀───────│       │◀──────│ ~/.astro │
-  └──────┘ JSON  └──────┘        └───────┘       └──────────┘
-  Cache in Zustand (5min TTL)
+WEB (current):
+  Browser         Fly.io          Relay            Agent Runner
+  +------+ GET   +------+  WS   +-------+  WS   +----------+
+  |React |------>| Hono |------>|Relay  |------->| scan     |
+  |      |<------|      |<------|       |<-------| workdir  |
+  +------+ JSON  +------+       +-------+        +----------+
 
   Latency: 200-500ms, stale for up to 5 minutes
 
-TAURI:
-  ┌───────────────────────────────────────────┐
-  │ Tauri App                                 │
-  │                                           │
-  │ Webview ◀══IPC══▶ Rust ──▶ Filesystem    │
-  │                     │       ~/.astro/     │
-  │                     │       .astro/       │
-  │                     │       ~/.claude/    │
-  │                     │                     │
-  │                     ◀── Vec<Skill> ───────│
-  └───────────────────────────────────────────┘
+TAURI (target):
+  +-------------------------------------------+
+  | Tauri App                                 |
+  |                                           |
+  | Webview ==IPC==> Rust                     |
+  |                    |  git ls-files         |
+  |                    |  ripgrep              |
+  |                    |  fs::read / write     |
+  |                    |  notify (watcher)     |
+  |         <==IPC==   |                      |
+  +-------------------------------------------+
 
   Latency: <5ms, always fresh
-  No caching needed — reads are fast enough to do on every page load
+  No caching needed -- reads are fast enough for every interaction
 ```
 
 #### 4. Data Persistence
@@ -255,153 +406,64 @@ TAURI:
 ```
 WEB (local mode):
   Browser         Hono (localhost:3001)
-  ┌──────┐ POST  ┌──────────────────┐
-  │React │──────▶│ Drizzle ORM      │
-  │      │◀──────│    ▼             │
-  └──────┘ JSON  │ PGlite (WASM)   │
-                 └──────────────────┘
+  +------+ POST  +------------------+
+  |React |------>| Drizzle ORM      |
+  |      |<------|    v              |
+  +------+ JSON  | PGlite (WASM)    |
+                 +------------------+
 
-WEB (server mode):
-  Browser         Fly.io                Supabase
-  ┌──────┐ POST  ┌──────┐  TCP/SSL    ┌──────────┐
-  │React │──────▶│ Hono │────────────▶│ Postgres │
-  │      │◀──────│      │◀────────────│ + RLS    │
-  └──────┘ JSON  └──────┘             └──────────┘
-
-TAURI (standalone):
-  ┌───────────────────────────────────┐
-  │ Tauri App                         │
-  │                                   │
-  │ Webview ◀══IPC══▶ Rust            │
-  │                     │             │
-  │                     ▼             │
-  │                  PGlite           │
-  │                  (embedded)       │
-  └───────────────────────────────────┘
-
-  No network. Same Drizzle schema as Supabase.
+TAURI (current -- same as web local mode, sidecar hosts PGlite):
+  +-------------------------------------------+
+  | Tauri App                                 |
+  |                                           |
+  | Webview --HTTP--> Sidecar                 |
+  |         <--JSON--   |                     |
+  |                     v                     |
+  |                  Drizzle ORM              |
+  |                     v                     |
+  |                  PGlite (WASM in Node)    |
+  +-------------------------------------------+
 
 TAURI (connected / team):
-  ┌───────────────────────────────────┐         Supabase
-  │ Tauri App                         │  HTTPS ┌──────────┐
-  │                                   │───────▶│ Postgres │
-  │ Webview ◀══IPC══▶ Rust            │◀───────│ + RLS    │
-  │                     │             │  WS    │ Realtime │
-  │                     ▼             │        └──────────┘
-  │                  PGlite           │
-  │                  (local cache)    │
-  └───────────────────────────────────┘
+  +-----------------------------------+         Supabase
+  | Tauri App                         |  HTTPS +----------+
+  |                                   |------->| Postgres |
+  | Webview --HTTP--> Sidecar         |<-------| + RLS    |
+  |                     |             |  WS    | Realtime |
+  |                     v             |        +----------+
+  |                  PGlite           |
+  |                  (local cache)    |
+  +-----------------------------------+
 
-  Writes: PGlite first (instant) → sync to Supabase (async)
+  Writes: PGlite first (instant) --> sync to Supabase (async)
   Reads: PGlite (instant), updated via Supabase Realtime
-  Offline: Queue writes, replay on reconnect
-```
-
-#### 5. Real-Time Collaboration
-
-```
-WEB:
-  Browser A                Supabase                Browser B
-  ┌──────┐   WS (RT)     ┌──────────┐  WS (RT)  ┌──────┐
-  │React │◀══════════════▶│ Realtime │◀══════════▶│React │
-  └──────┘                └──────────┘            └──────┘
-
-  Direct browser ↔ Supabase. Works well.
-
-TAURI (team mode):
-  Tauri App A              Supabase                Tauri App B
-  ┌────────────┐  WS (RT) ┌──────────┐  WS (RT) ┌────────────┐
-  │Rust backend│◀════════▶│ Realtime │◀════════▶│Rust backend│
-  │  ▲         │          └──────────┘          │         ▲  │
-  │  │ IPC     │                                │    IPC  │  │
-  │  ▼         │                                │         ▼  │
-  │Webview     │                                │     Webview│
-  └────────────┘                                └────────────┘
-
-  Supabase Realtime → Rust backend → IPC → React
-  Extra IPC hop vs web, but Rust can batch/debounce updates
 ```
 
 ### Protocol Summary
 
 | Channel | Protocol | Latency | Used For |
 |---------|----------|---------|----------|
-| Webview ↔ Rust | Tauri IPC (JSON over OS pipes) | ~0.1ms | All frontend-backend communication |
-| Rust → Claude API | HTTPS + SSE | 100-500ms | Plan generation, chat |
-| Rust → Supabase | HTTPS + WebSocket | 50-200ms | Data sync, realtime (connected/team only) |
-| Rust → Relay | WebSocket | 50-200ms | Remote machine dispatch only |
-| Rust → Filesystem | Direct syscalls | <1ms | Skills, plugins, git, file trees |
-| Rust → PGlite | In-process FFI | <1ms | All data persistence |
-| Rust → Agent Runner | Process spawn + pipes | ~50ms startup | Local task execution |
+| Webview <-> Rust | Tauri IPC (JSON over OS pipes) | ~0.1ms | File ops, terminal, search |
+| Webview <-> Sidecar | HTTP localhost:3001 | ~1ms | API routes, plan gen, data |
+| Sidecar -> Claude API | HTTPS + SSE | 100-500ms | Plan generation, chat |
+| Sidecar -> Supabase | HTTPS + WebSocket | 50-200ms | Data sync, realtime (connected/team only) |
+| Sidecar -> Relay | WebSocket | 50-200ms | Remote machine dispatch only |
+| Rust -> Filesystem | Direct syscalls | <1ms | File tree, read, write, search |
+| Rust -> Terminal | PTY (portable-pty) | <1ms | Terminal input/output |
+| Sidecar -> Agent Runner | Process spawn + pipes | ~50ms startup | Local task execution |
 
 ### What Disappears in Tauri Mode
 
 ```
 Web Mode                              Tauri Mode
-────────                              ──────────
-Browser ──HTTPS──▶ Hono               Webview ──IPC──▶ Rust      (no Hono)
-Hono ──WS──▶ Relay ──WS──▶ Runner    Rust ──spawn──▶ Runner     (no Relay for local)
-Browser ──fetch──▶ /api/skills        Rust ──fs──▶ scan dirs     (no HTTP for skills)
-Browser ──fetch──▶ /api/repo/*        Rust ──fs──▶ git commands  (no HTTP for git)
-Browser ──SSE──▶ /api/events          Rust ──IPC──▶ Webview      (no SSE)
-Agent Runner ──WS──▶ Relay (stdout)   Runner ──pipe──▶ Rust      (no WS for stdout)
-Device auth flow (register machine)   N/A — app IS the machine   (no device auth)
+--------                              ----------
+Browser --HTTPS--> Hono               Webview --HTTP--> Sidecar (localhost)
+Browser --HTTPS--> Cloudflare Pages   Webview loads from dist/ (no CDN)
+Hono --WS--> Relay --WS--> Runner    Sidecar --spawn--> Runner (no Relay for local)
+Browser --fetch--> /api/skills        Rust --fs--> scan dirs (IPC, no HTTP)
+Browser --fetch--> /api/repo/*        Rust --fs--> git commands (IPC, no HTTP)
+Device auth flow (register machine)   N/A -- app IS the machine
 ```
-
-### Network Requests in Each Mode
-
-**Standalone (offline-capable):**
-- Rust → `api.anthropic.com` (Claude API only)
-- That's it. Everything else is local.
-
-**Connected (multi-device sync):**
-- Rust → `api.anthropic.com` (Claude API)
-- Rust → Supabase (data sync + realtime WebSocket)
-
-**Team (full collaboration):**
-- Rust → `api.anthropic.com` (Claude API)
-- Rust → Supabase (data sync + realtime + RLS)
-- Rust → Relay server (remote machine dispatch, if needed)
-
-## What's Still Needed
-
-### Relay Server (for remote dispatch)
-
-The relay **does not go away**. It serves remote dispatch — sending tasks to:
-- HPC clusters (SLURM)
-- Cloud GPU instances
-- Other developer machines
-- CI/CD environments
-
-What changes is that for **local tasks**, there's no relay hop. The embedded agent runner handles them directly.
-
-### Supabase (for teams and sync)
-
-Supabase remains needed for:
-- Multi-user authentication and RLS
-- Real-time collaboration
-- Multi-device sync
-- Team features
-
-### What's Eliminated
-
-| Component | Current Role | Tauri Replacement |
-|-----------|-------------|-------------------|
-| Hono backend (for local ops) | Prompt assembly, Claude SDK calls, SSE | Tauri commands, in-process |
-| Relay (for local machine) | Bridge frontend ↔ local agent runner | Unnecessary — same process |
-| IndexedDB caching | Cache file trees, skills in browser | Direct filesystem access |
-| Device auth flow | Register local machine with relay | Unnecessary — app IS the machine |
-
-## What This Solves
-
-### File Maps
-
-Currently requires relay round-trip for remote machines and caching for local:
-
-- **Web**: `git ls-files` on agent runner → relay → frontend cache (ephemeral, 5min TTL)
-- **Tauri**: Direct `git ls-files` call, instant, always fresh
-
----
 
 ## Plugin System Architecture
 
@@ -409,147 +471,71 @@ Currently requires relay round-trip for remote machines and caching for local:
 
 The Hono backend (`server/`) currently contains filesystem-dependent plugin/skill code:
 
-- `server/lib/skill-manager.ts` — uses `readdirSync`, `readFileSync`, `rmSync` to scan a `skills/` directory
-- `server/lib/plugin-loader.ts` — uses `readdirSync`, `existsSync` to scan `server/plugins/`
+- `server/lib/skill-manager.ts` -- uses `readdirSync`, `readFileSync`, `rmSync` to scan a `skills/` directory
+- `server/lib/plugin-loader.ts` -- uses `readdirSync`, `existsSync` to scan `server/plugins/`
 
-This is architecturally wrong. The Hono backend deploys to Fly.io — a cloud server with **no access to the user's filesystem**. The `skills/` directory it reads is whatever was deployed alongside the server binary, not the user's local skills. User-local skills (`~/.astro/skills/`, project `.astro/`, `~/.claude/commands/`) live on the user's machine and can only be accessed by something running there.
+This is architecturally wrong. The Hono backend deploys to Fly.io -- a cloud server with **no access to the user's filesystem**. The `skills/` directory it reads is whatever was deployed alongside the server binary, not the user's local skills. User-local skills (`~/.astro/skills/`, project `.astro/`, `~/.claude/commands/`) live on the user's machine and can only be accessed by something running there.
 
-The backend should be a **stateless API** that receives skill/plugin metadata as input — it should never touch the filesystem for plugin discovery or management.
+The backend should be a **stateless API** that receives skill/plugin metadata as input -- it should never touch the filesystem for plugin discovery or management.
 
 ### Where Each Concern Belongs
 
 | Concern | Location | Why |
 |---------|----------|-----|
 | SKILL.md parsing (pure logic) | `src/lib/skill-parser.ts` (shared) | No filesystem deps, reusable across all runtimes |
-| Plugin manifest validation | `src/lib/plugin-manifest.ts` (shared) | Same — pure data validation |
-| Skill/plugin **discovery from disk** | `src-tauri/src/commands/plugins.rs` | Requires native filesystem access |
-| Skill/plugin **install/uninstall** | `src-tauri/src/commands/plugins.rs` | Writes to `~/.astro/skills/`, project dirs |
+| Plugin manifest validation | `src/lib/plugin-manifest.ts` (shared) | Same -- pure data validation |
+| Skill/plugin **discovery from disk** | Rust native commands (Phase 1.5) | Requires native filesystem access, benefits from speed |
+| Skill/plugin **install/uninstall** | Rust native commands (Phase 1.5) | Writes to `~/.astro/skills/`, project dirs |
 | Skill prompt injection assembly | `server/lib/skill-injector.ts` | Stateless: receives `OpenClawSkill[]` as input, returns XML string |
-| Web-mode skill fetch (remote machines) | `server/routes/relay.ts` → agent runner | Relay proxies to the machine that has the filesystem |
-| Web-mode skill fetch (local dev) | `server/routes/skills.ts` → local `skills/` | Only works because dev server IS on the user's machine |
+| Web-mode skill fetch (remote machines) | `server/routes/relay.ts` -> agent runner | Relay proxies to the machine that has the filesystem |
+| Web-mode skill fetch (local dev) | `server/routes/skills.ts` -> local `skills/` | Only works because dev server IS on the user's machine |
 
 ### Three Discovery Paths
 
 Skill/plugin discovery happens differently depending on runtime:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ 1. Tauri Mode (desktop app)                                 │
-│                                                             │
-│    React frontend                                           │
-│      │  invoke('scan_skills', { workdir })                  │
-│      ▼                                                      │
-│    Rust backend (src-tauri/)                                 │
-│      │  Direct filesystem: ~/.astro/skills/                 │
-│      │                     .astro/skills/                    │
-│      │                     ~/.claude/commands/               │
-│      ▼                                                      │
-│    Returns Vec<Skill> instantly, always fresh                │
-└─────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------+
+| 1. Tauri Mode (desktop app) -- Target                       |
+|                                                              |
+|    React frontend                                            |
+|      |  invoke('scan_skills', { workdir })                   |
+|      v                                                       |
+|    Rust backend (via Tauri IPC)                              |
+|      |  Direct filesystem: ~/.astro/skills/                  |
+|      |                     .astro/skills/                     |
+|      |                     ~/.claude/commands/                |
+|      v                                                       |
+|    Returns Vec<Skill> instantly, always fresh                 |
++-------------------------------------------------------------+
 
-┌─────────────────────────────────────────────────────────────┐
-│ 2. Web Mode — Remote Machine                                │
-│                                                             │
-│    React frontend                                           │
-│      │  GET /api/relay/slash-commands?machineId=X           │
-│      ▼                                                      │
-│    Hono backend (server/)                                   │
-│      │  WebSocket: relay → agent runner                     │
-│      ▼                                                      │
-│    Agent runner (user's machine)                            │
-│      │  Filesystem scan: ~/.astro/skills/, project dir      │
-│      ▼                                                      │
-│    Returns skills via relay, cached in Zustand (5min TTL)   │
-└─────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------+
+| 2. Web Mode -- Remote Machine                               |
+|                                                              |
+|    React frontend                                            |
+|      |  GET /api/relay/slash-commands?machineId=X            |
+|      v                                                       |
+|    Hono backend (server/)                                    |
+|      |  WebSocket: relay -> agent runner                     |
+|      v                                                       |
+|    Agent runner (user's machine)                             |
+|      |  Filesystem scan: ~/.astro/skills/, project dir       |
+|      v                                                       |
+|    Returns skills via relay, cached in Zustand (5min TTL)    |
++-------------------------------------------------------------+
 
-┌─────────────────────────────────────────────────────────────┐
-│ 3. Web Mode — Local Dev (npm run dev)                       │
-│                                                             │
-│    React frontend                                           │
-│      │  GET /api/skills                                     │
-│      ▼                                                      │
-│    Hono backend (running locally on same machine)           │
-│      │  Reads skills/ dir relative to server                │
-│      ▼                                                      │
-│    Works only because dev server IS the user's machine      │
-│    (Breaks in production — Fly.io has no user skills)       │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Refactoring the Server
-
-The current `server/lib/skill-manager.ts` needs to be split:
-
-**Keep in `server/`** — stateless injection logic:
-
-```typescript
-// server/lib/skill-injector.ts
-// Pure function: skills in, XML out. No filesystem.
-export function buildSkillPromptInjection(skills: OpenClawSkill[]): string {
-  const eligible = skills.filter(s => s.enabled && !s.disableModelInvocation)
-  if (eligible.length === 0) return ''
-  const blocks = eligible.map(
-    s => `  <skill name="${s.name}" description="${s.description}">\n${s.instructions}\n  </skill>`
-  )
-  return `<skills>\n${blocks.join('\n')}\n</skills>`
-}
-```
-
-**Move to shared** — SKILL.md parsing:
-
-```typescript
-// src/lib/skill-parser.ts
-// Pure function: string in, OpenClawSkill out. No filesystem.
-export function parseSkillMd(content: string, source: OpenClawSkill['source']): OpenClawSkill | null
-```
-
-**Move to `src-tauri/`** — filesystem discovery:
-
-```rust
-// src-tauri/src/commands/skills.rs
-#[tauri::command]
-fn scan_skills(workdir: &str) -> Result<Vec<Skill>, String> {
-    let mut skills = Vec::new();
-    // Scan: ~/.astro/skills/
-    // Scan: {workdir}/.astro/skills/
-    // Scan: ~/.claude/commands/
-    // Parse each SKILL.md
-    Ok(skills)
-}
-
-#[tauri::command]
-fn install_skill(name: &str, content: &str) -> Result<Skill, String> {
-    // Write to ~/.astro/skills/{name}/SKILL.md
-}
-
-#[tauri::command]
-fn uninstall_skill(name: &str) -> Result<bool, String> {
-    // Remove ~/.astro/skills/{name}/
-}
-```
-
-**Move to agent runner** — relay-mode discovery:
-
-The agent runner already runs on the user's machine. It should expose skill discovery as a relay message type (`skills.list` / `skills.list.result`) so the web frontend can fetch user-local skills via the relay, without the Hono backend ever touching the filesystem.
-
-### `src-tauri/` Directory Structure
-
-```
-src-tauri/
-├── Cargo.toml
-├── tauri.conf.json
-├── build.rs
-├── icons/
-└── src/
-    ├── main.rs                    # Tauri app entry, command registration
-    ├── lib.rs
-    └── commands/
-        ├── mod.rs
-        ├── skills.rs              # scan_skills, install_skill, uninstall_skill
-        ├── plugins.rs             # scan_plugins, install_plugin, plugin lifecycle
-        ├── files.rs               # list_files (git ls-files), read_file, file_tree
-        ├── git.rs                 # git_status, git_diff, git_commit
-        └── agent.rs               # run_agent (embedded agent runner, local dispatch)
++-------------------------------------------------------------+
+| 3. Web Mode -- Local Dev (npm run dev)                      |
+|                                                              |
+|    React frontend                                            |
+|      |  GET /api/skills                                      |
+|      v                                                       |
+|    Hono backend (running locally on same machine)            |
+|      |  Reads skills/ dir relative to server                 |
+|      v                                                       |
+|    Works only because dev server IS the user's machine       |
+|    (Breaks in production -- Fly.io has no user skills)       |
++-------------------------------------------------------------+
 ```
 
 ### Plugin Locations
@@ -565,162 +551,147 @@ Skills and plugins are discovered from multiple directories, merged with priorit
 
 Name collisions: higher priority wins. Source field tracks origin for UI display.
 
-### Frontend Adaptation
-
-The frontend uses a provider pattern to abstract the discovery mechanism:
-
-```typescript
-// src/lib/skill-provider.ts
-export interface SkillProvider {
-  scanSkills(workdir: string): Promise<OpenClawSkill[]>
-  installSkill(name: string, content: string): Promise<OpenClawSkill>
-  uninstallSkill(name: string): Promise<boolean>
-}
-
-// Tauri: direct filesystem via IPC
-class TauriSkillProvider implements SkillProvider {
-  async scanSkills(workdir: string) {
-    return invoke<OpenClawSkill[]>('scan_skills', { workdir })
-  }
-  // ...
-}
-
-// Web: HTTP API (relay for remote, /api/skills for local dev)
-class WebSkillProvider implements SkillProvider {
-  async scanSkills(workdir: string) {
-    const [serverSkills, machineSkills] = await Promise.all([
-      fetch(apiUrl('/api/skills')).then(r => r.json()),
-      fetch(apiUrl('/api/relay/slash-commands?machineId=...')).then(r => r.json()).catch(() => []),
-    ])
-    return mergeSkills(serverSkills, machineSkills)
-  }
-  // ...
-}
-
-// Detection
-const isTauri = () => typeof window !== 'undefined' && '__TAURI__' in window
-
-export function createSkillProvider(): SkillProvider {
-  return isTauri() ? new TauriSkillProvider() : new WebSkillProvider()
-}
-```
-
-The `useProjectMetadata()` hook (from the ephemeral cache architecture) uses this provider internally:
-
-```typescript
-export function useProjectMetadata(projectId: string): void {
-  const provider = useMemo(() => createSkillProvider(), [])
-
-  useEffect(() => {
-    if (!workingDirectory) return
-    provider.scanSkills(workingDirectory).then(skills => {
-      updateProjectSkills(projectId, skills)
-    })
-  }, [projectId, workingDirectory, defaultMachineId])
-}
-```
-
-### What Changes in `server/`
-
-After the refactor, `server/` has **zero filesystem access for plugins/skills**:
-
-| Before | After |
-|--------|-------|
-| `server/lib/skill-manager.ts` — reads `skills/` from disk, builds XML | **Deleted.** Split into `src/lib/skill-parser.ts` (shared) + `server/lib/skill-injector.ts` (stateless XML builder) |
-| `server/lib/plugin-loader.ts` — reads `server/plugins/` from disk | **Deleted.** Server plugins become Hono middleware registered explicitly in `server/index.ts`, not discovered from filesystem |
-| `server/routes/skills.ts` — calls `skillManager.getAllSkills()` | **Changed.** In web mode, proxies to relay. In local dev, can optionally read local `skills/` for convenience, but this is dev-only |
-
-The dispatch flow changes too. When the dispatch engine needs to inject skills into an agent prompt:
-
-```
-Before:  dispatchEngine → skillManager.getSkillPromptInjection() → reads disk
-After:   dispatchEngine → buildSkillPromptInjection(task.skills) → pure function
-```
-
-The `skills` array is assembled by whoever owns the task context:
-- **Tauri**: frontend scanned them via Rust commands, sent them with the dispatch request
-- **Web**: relay fetched them from the agent runner machine during context assembly
-
 ## Tauri Command Surface
 
-The full Rust command surface exposed to the React frontend:
+### Current Commands (Implemented)
 
 ```rust
-// File operations (replaces relay file_list protocol)
 #[tauri::command]
-fn list_files(path: &str) -> Vec<String> { /* git ls-files */ }
-
-// Skill discovery (replaces relay slash_commands + server skill-manager)
-#[tauri::command]
-fn scan_skills(workdir: &str) -> Vec<Skill> {
-    // Merge: {workdir}/.astro/skills/ + ~/.astro/skills/ + ~/.claude/commands/
-}
+async fn sidecar_status(state: State<SidecarState>) -> Result<SidecarStatus, String>
 
 #[tauri::command]
-fn install_skill(name: &str, content: &str) -> Skill { /* write SKILL.md */ }
+async fn sidecar_restart(state: State<SidecarState>) -> Result<SidecarStatus, String>
 
 #[tauri::command]
-fn uninstall_skill(name: &str) -> bool { /* rm skill dir */ }
-
-// Plugin discovery and management
-#[tauri::command]
-fn scan_plugins(workdir: &str) -> Vec<Plugin> { /* scan plugin dirs */ }
+fn set_sidecar_status(app: AppHandle, connected: bool)
 
 #[tauri::command]
-fn install_plugin(source: &str) -> Plugin { /* copy to ~/.astro/plugins/ */ }
+fn navigate_to_project(app: AppHandle, project_id: String)
+```
 
-// Agent execution (replaces relay task dispatch for local tasks)
-#[tauri::command]
-async fn run_agent(task: Task) -> TaskResult { /* Claude SDK query() */ }
+### Planned Commands (Phase 1.5: Rust Native)
 
-// Git operations (replaces /api/repo/* endpoints)
+```rust
+// File tree -- fast listing via git ls-files or recursive walk
 #[tauri::command]
-fn git_status(workdir: &str) -> GitStatus { /* git status */ }
+fn list_files(workdir: &str, git_only: bool) -> Result<Vec<FileEntry>, String>
+
+// File read/write -- direct syscalls, zero network
+#[tauri::command]
+fn read_file(path: &str) -> Result<String, String>
 
 #[tauri::command]
-fn git_diff(workdir: &str) -> String { /* git diff */ }
+fn write_file(path: &str, content: &str) -> Result<(), String>
+
+// Search -- ripgrep integration for fast codebase search
+#[tauri::command]
+fn search_files(workdir: &str, query: &str, glob: Option<&str>) -> Result<Vec<SearchResult>, String>
+
+// Terminal PTY -- spawn and interact with terminal sessions
+#[tauri::command]
+fn terminal_spawn(workdir: &str, shell: Option<&str>) -> Result<TerminalId, String>
+
+#[tauri::command]
+fn terminal_write(id: TerminalId, data: &str) -> Result<(), String>
+
+#[tauri::command]
+fn terminal_resize(id: TerminalId, cols: u16, rows: u16) -> Result<(), String>
+
+#[tauri::command]
+fn terminal_kill(id: TerminalId) -> Result<(), String>
+
+// File watcher -- OS-native filesystem events
+#[tauri::command]
+fn watch_directory(workdir: &str) -> Result<WatcherId, String>
+
+#[tauri::command]
+fn unwatch_directory(id: WatcherId) -> Result<(), String>
+
+// Skill/plugin discovery -- direct filesystem scan
+#[tauri::command]
+fn scan_skills(workdir: &str) -> Result<Vec<Skill>, String>
+
+#[tauri::command]
+fn install_skill(name: &str, content: &str) -> Result<Skill, String>
+
+#[tauri::command]
+fn uninstall_skill(name: &str) -> Result<bool, String>
+
+// Git operations
+#[tauri::command]
+fn git_status(workdir: &str) -> Result<GitStatus, String>
+
+#[tauri::command]
+fn git_diff(workdir: &str, path: Option<&str>) -> Result<String, String>
 ```
 
 ## Migration Path
 
-### Phase 0: Server-Side Refactor (prerequisite, no Tauri yet)
+### Phase 1: Tauri Scaffold -- DONE
 
-Decouple filesystem access from the Hono backend so `server/` is clean before wrapping in Tauri:
+Implemented in `src-tauri/`:
 
-- Extract `parseSkillMd()` from `server/lib/skill-manager.ts` → `src/lib/skill-parser.ts` (shared, pure)
-- Create `server/lib/skill-injector.ts` — stateless `buildSkillPromptInjection(skills[])` function
-- Remove filesystem reads from `server/lib/skill-manager.ts` and `server/lib/plugin-loader.ts`
-- Add relay message types `skills.list` / `skills.list.result` so agent runner can report local skills
-- Create `SkillProvider` interface in `src/lib/skill-provider.ts` with `WebSkillProvider` implementation
-- Update dispatch engine to receive skills as input rather than reading from disk
+- [x] Tauri 2 app initialization with `tauri.conf.json`
+- [x] Node.js sidecar lifecycle (spawn, health poll, stop, port conflict detection)
+- [x] Native menu bar with accelerators (File, Edit, View, Help)
+- [x] System tray with sidecar status indicator
+- [x] Deep link handling (`astro://project/{id}`)
+- [x] Window-close-to-tray behavior
+- [x] Plugins: shell, log, deep-link, window-state
+- [x] Build script (`scripts/build-sidecar.ts`) -- bundles server into single JS file
+- [x] CSP configuration for local and remote endpoints
 
-This phase improves the web app too — skills from remote machines work properly instead of relying on server-local `skills/` dir.
+### Phase 1.5: Rust Native Commands -- NEXT
 
-### Phase 1: Proof of Concept
+Add Rust-native Tauri commands for performance-critical operations. These bypass the sidecar entirely, going straight from the frontend through IPC to Rust syscalls.
 
-- Initialize `src-tauri/` with Tauri CLI, wrap existing React app in webview
-- Implement `list_files` and `scan_skills` Rust commands
-- Create `TauriSkillProvider` implementing the same `SkillProvider` interface
-- Detect Tauri environment (`__TAURI__` in window), swap provider
-- Verify same UI works in both web and Tauri modes
+**Filesystem commands:**
+- `list_files` -- file tree via `git ls-files` (with fallback to recursive walk)
+- `read_file` / `write_file` -- direct file I/O
+- `search_files` -- ripgrep integration for fast codebase search
 
-### Phase 2: Embedded Agent Runner
+**Terminal PTY integration:**
+- `terminal_spawn` -- create PTY session with configurable shell
+- `terminal_write` / `terminal_resize` / `terminal_kill` -- PTY control
+- Terminal output streaming via Tauri events (not IPC return values)
 
-- Port Claude SDK `query()` call to Rust sidecar (or Node.js sidecar via Tauri)
-- Implement `run_agent` Tauri command for local task execution
-- Bypass relay for local tasks, keep relay for remote
+**File watcher:**
+- `watch_directory` / `unwatch_directory` -- OS-native file change events
+- Events emitted to frontend via Tauri event system
+
+**Skill/plugin discovery:**
+- `scan_skills` -- merge skills from project, user, and system directories
+- `install_skill` / `uninstall_skill` -- filesystem management
+
+**New Rust dependencies:**
+- `portable-pty` -- cross-platform PTY
+- `grep-regex` / `grep-searcher` (ripgrep crates) -- fast search
+- `notify` -- cross-platform file watching
+- `ignore` -- gitignore-aware directory walking
+
+### Phase 2: Desktop Frontend
+
+Build a new desktop-specific frontend in `src-tauri/frontend/`, separate from the web app. This is the Codex-like three-panel layout described in [DESKTOP_UI_SPEC.md](./DESKTOP_UI_SPEC.md).
+
+- New Vite+React app in `src-tauri/frontend/`
+- Three-panel layout: project sidebar | thread/chat | review/diff
+- Uses Tauri IPC for file ops and terminal, HTTP for sidecar API
+- Tailwind CSS with desktop-specific tokens (see COLOR_PALETTE.md)
+- Smooth animations: 200ms panel transitions, spring-based resize handles
+- Command palette, keyboard shortcuts, focus management
+
+The web app continues to work independently -- the desktop frontend is a separate entry point optimized for the native experience.
 
 ### Phase 3: PGlite Integration
 
-- Embed PGlite in Tauri app
+- Embed PGlite in Tauri app (via sidecar, already working)
 - Same Postgres schema as Supabase
 - Add sync layer for connected/team mode
 
 ### Phase 4: Full Feature Parity
 
-- Plugin management UI with filesystem access (install/uninstall via Tauri commands)
-- Git operations (status, diff, commit) via Tauri commands
-- System tray for background task monitoring
+- Plugin management UI with filesystem access
+- Git operations (status, diff, commit) via Rust native commands
 - Auto-updates via Tauri's built-in updater
 
 ### Phase 5: Distribution
@@ -739,7 +710,7 @@ The web app **does not go away**. It remains the primary interface for:
 - Server-mode-only deployments (enterprise, team)
 - Onboarding and first impressions
 
-The Tauri app is a **power user upgrade** — same React frontend, better local integration. The web app is the floor, the Tauri app is the ceiling.
+The Tauri app is a **power user upgrade** -- same data model and backend, but with a purpose-built desktop UI, native filesystem access, and zero-latency local operations. The web app is the floor, the Tauri app is the ceiling.
 
 ## Technical Choices
 
@@ -758,18 +729,20 @@ The Tauri app is a **power user upgrade** — same React frontend, better local 
 - Plugin ecosystem would be tied to VS Code's extension model
 - Limits users to VS Code (excludes JetBrains, Neovim, etc.)
 
-### Why Not a Browser Extension
+### Why Node.js Sidecar + Rust (not Pure Rust)
 
-- Same filesystem access limitations as the web app
-- Extension APIs are sandboxed and limited
-- Cross-browser maintenance burden
-- Can't run background tasks reliably
+- The entire Astro backend is TypeScript (Hono, Drizzle, Claude Agent SDK)
+- Rewriting in Rust would take months and duplicate the web backend
+- The sidecar IS the web backend -- same code runs in both modes
+- Rust handles the performance-sensitive layer (FS, terminal, search)
+- Sidecar handles the logic-heavy layer (API routes, AI streaming, data)
+- The split is clean: Rust for I/O-bound ops, Node.js for compute/network ops
 
 ---
 
-## Reflection: Potential Issues & Improvements
+## Reflection: Potential Issues
 
-1. **No implementation exists.** This is a pure proposal. The "What's Eliminated" table references "IndexedDB caching" which has already been replaced by PGlite/API persistence in the web app.
-2. **PGlite embedding in Rust** -- the doc assumes PGlite can be embedded via Rust FFI, but PGlite is a WASM library. The actual integration path (Node.js sidecar vs. native Postgres) needs investigation.
-3. **Scope creep risk** -- the document covers many scenarios (standalone, connected, team modes) which could make Phase 1 POC much larger than intended. Consider narrowing initial scope to standalone mode only.
-4. **Web app parity** -- the migration path assumes the web app refactors (Phase 0: server-side refactor) happen first, which creates a hard dependency between the Tauri app and web app improvements.
+1. **PGlite in sidecar**: PGlite runs in the Node.js sidecar as WASM, which works but adds overhead. A future optimization could use native Postgres or SQLite via Rust for the desktop app.
+2. **Two frontends**: Maintaining both a web frontend and a desktop frontend increases surface area. Shared component libraries and the same design system (COLOR_PALETTE.md) help, but divergence is a risk.
+3. **Sidecar startup latency**: The Node.js sidecar takes ~2-5 seconds to start. The health poll loop (200ms intervals, 10s timeout) handles this, but the user sees a loading state. Pre-warming or lazy sidecar start could help.
+4. **Desktop frontend scope**: The Codex-like three-panel layout is a significant frontend effort. Starting with a minimal version (sidebar + single chat panel) and iterating is safer than building all three panels at once.
