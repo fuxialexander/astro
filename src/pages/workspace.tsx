@@ -199,18 +199,21 @@ export function Workspace() {
     try {
       const headers = await authHeaders()
 
-      if (sync && githubProjects.length > 0) {
-        // Sync all github projects from the GitHub API in parallel
-        const results = await Promise.allSettled(
-          githubProjects.map((p) =>
-            fetch(apiUrl(`/api/github/projects/${p.id}/repo-cache/sync`), { method: "POST", headers }),
-          ),
-        )
-        const failed = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && !r.value.ok))
-        if (failed.length > 0) {
-          addToast({ title: `Synced ${githubProjects.length - failed.length}/${githubProjects.length} repos`, description: "Some repos failed to sync.", type: "warning" })
-        } else {
-          addToast({ title: `Synced ${githubProjects.length} repo${githubProjects.length !== 1 ? "s" : ""} from GitHub`, type: "success" })
+      if (sync) {
+        // Read projects fresh from store to avoid stale closure / infinite loop
+        const ghProjects = useProjectStore.getState().projects.filter((p) => p.projectType === "github")
+        if (ghProjects.length > 0) {
+          const results = await Promise.allSettled(
+            ghProjects.map((p) =>
+              fetch(apiUrl(`/api/github/projects/${p.id}/repo-cache/sync`), { method: "POST", headers }),
+            ),
+          )
+          const failed = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && !r.value.ok))
+          if (failed.length > 0) {
+            addToast({ title: `Synced ${ghProjects.length - failed.length}/${ghProjects.length} repos`, description: "Some repos failed to sync.", type: "warning" })
+          } else {
+            addToast({ title: `Synced ${ghProjects.length} repo${ghProjects.length !== 1 ? "s" : ""} from GitHub`, type: "success" })
+          }
         }
       }
 
@@ -225,7 +228,7 @@ export function Workspace() {
     } finally {
       setLoading(false)
     }
-  }, [githubProjects, addToast])
+  }, [addToast])
 
   useEffect(() => {
     void fetchInstallations()
