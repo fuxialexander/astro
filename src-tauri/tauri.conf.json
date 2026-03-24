@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/main/nicegui/static/tauri.conf.schema.json",
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
   "productName": "Astro",
   "version": "0.1.0",
   "identifier": "com.astroanywhere.app",
@@ -10,18 +10,26 @@
     "beforeBuildCommand": "npm run build"
   },
   "app": {
-    "title": "Astro",
     "windows": [
       {
         "title": "Astro",
-        "width": 1280,
-        "height": 800,
+        "label": "main",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 800,
+        "minHeight": 600,
+        "center": true,
+        "decorations": true,
         "resizable": true,
-        "fullscreen": false
+        "maximized": true
       }
     ],
     "security": {
       "csp": "default-src 'self'; connect-src 'self' http://localhost:3001 ws://localhost:3002 https://api.anthropic.com https://*.supabase.co; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:"
+    },
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
     }
   },
   "bundle": {
@@ -33,11 +41,36 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "frameworks": [],
+      "minimumSystemVersion": "10.15",
+      "exceptionDomain": "",
+      "signingIdentity": null,
+      "entitlements": null
+    },
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    },
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    }
   },
   "plugins": {
     "shell": {
       "open": true
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": ["astro"]
+      }
+    },
+    "log": {
+      "level": "info"
     }
   }
 }
