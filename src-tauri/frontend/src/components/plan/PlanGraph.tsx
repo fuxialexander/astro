@@ -147,6 +147,7 @@ export function PlanGraph({ projectId }: PlanGraphProps) {
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         nodeTypes={nodeTypes as any}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}

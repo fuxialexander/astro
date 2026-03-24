@@ -33,6 +33,9 @@ export function useSSE({ path, onEvent, onOpen, onError, enabled = true }: UseSS
   const sourceRef = useRef<EventSource | null>(null)
   const retriesRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Store connect fn in a ref so the onerror handler can call it without
+  // creating a circular useCallback dependency.
+  const connectRef = useRef<() => void>(() => {})
 
   const cleanup = useCallback(() => {
     if (reconnectTimerRef.current) {
@@ -96,9 +99,14 @@ export function useSSE({ path, onEvent, onOpen, onError, enabled = true }: UseSS
       )
       retriesRef.current++
 
-      reconnectTimerRef.current = setTimeout(connect, delay)
+      reconnectTimerRef.current = setTimeout(() => connectRef.current(), delay)
     }
   }, [path, enabled, onEvent, onOpen, onError, cleanup])
+
+  // Keep the ref in sync so reconnect always calls the latest version
+  useEffect(() => {
+    connectRef.current = connect
+  }, [connect])
 
   useEffect(() => {
     connect()
