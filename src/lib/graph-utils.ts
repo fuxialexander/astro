@@ -222,17 +222,56 @@ function layoutGraphMilestoneColumns(
 
   // ── 1. Build milestone-to-milestone DAG and compute topological ranks ──
 
-  // Collect edges where both endpoints are milestones
+  // Build a lookup: nodeId → milestoneId (for tasks that belong to a milestone)
+  const nodeToMilestone = new Map<string, string>()
+  for (const task of tasks) {
+    if (task.milestoneId && milestoneSet.has(task.milestoneId)) {
+      nodeToMilestone.set(task.id, task.milestoneId)
+    }
+  }
+  // Milestones map to themselves
+  for (const m of milestones) {
+    nodeToMilestone.set(m.id, m.id)
+  }
+
+  // Collect milestone ordering from ALL cross-milestone edges:
+  //   - direct milestone→milestone edges
+  //   - task(ms-A) → task(ms-B) where ms-A ≠ ms-B
+  //   - task(ms-A) → milestone-B
+  //   - milestone-A → task(ms-B)
   const msChildren = new Map<string, string[]>()
   const msInDegree = new Map<string, number>()
+  const msEdgeSeen = new Set<string>()
   for (const m of milestones) {
     msChildren.set(m.id, [])
     msInDegree.set(m.id, 0)
   }
   for (const e of edges) {
-    if (milestoneSet.has(e.source) && milestoneSet.has(e.target)) {
-      msChildren.get(e.source)!.push(e.target)
-      msInDegree.set(e.target, (msInDegree.get(e.target) ?? 0) + 1)
+    const srcMs = nodeToMilestone.get(e.source)
+    const tgtMs = nodeToMilestone.get(e.target)
+    if (srcMs && tgtMs && srcMs !== tgtMs) {
+      const key = `${srcMs}->${tgtMs}`
+      if (!msEdgeSeen.has(key)) {
+        msEdgeSeen.add(key)
+        msChildren.get(srcMs)!.push(tgtMs)
+        msInDegree.set(tgtMs, (msInDegree.get(tgtMs) ?? 0) + 1)
+      }
+    }
+  }
+  // Also infer from task.dependencies (may not have corresponding edge objects)
+  for (const task of tasks) {
+    const tgtMs = nodeToMilestone.get(task.id)
+    if (!tgtMs) continue
+    for (const depId of task.dependencies) {
+      const srcMs = nodeToMilestone.get(depId)
+      if (srcMs && srcMs !== tgtMs) {
+        const key = `${srcMs}->${tgtMs}`
+        if (!msEdgeSeen.has(key)) {
+          msEdgeSeen.add(key)
+          msChildren.get(srcMs)!.push(tgtMs)
+          msInDegree.set(tgtMs, (msInDegree.get(tgtMs) ?? 0) + 1)
+        }
+      }
     }
   }
 
