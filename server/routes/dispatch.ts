@@ -888,6 +888,7 @@ dispatchRoute.post('/task', async (c) => {
     followUpPreviousOutput,
     followUpPrUrl,
     followUpBranchName,
+    isParallelDispatch,
   })
 })
 
@@ -945,6 +946,7 @@ async function dispatchViaRelay(
     followUpPreviousOutput?: string
     followUpPrUrl?: string
     followUpBranchName?: string
+    isParallelDispatch?: boolean
   }
 ) {
   // Derive Astro base URL: env var > request Origin header
@@ -999,6 +1001,7 @@ async function dispatchViaRelay(
     followUpPreviousOutput,
     followUpPrUrl,
     followUpBranchName,
+    isParallelDispatch = false,
   } = params
   const deliveryMode = deliveryModeParam
   const useWorktree = useWorktreeParam
