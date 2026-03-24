@@ -4,7 +4,7 @@ import { useTeamStore } from '@/stores/team-store'
  * Global defaults — must match server/lib/feature-flags.ts GLOBAL_DEFAULTS.
  */
 const GLOBAL_DEFAULTS: Record<string, boolean> = {
-  'github-integration': false,
+  'github-integration': true,
   'webhook-automation': false,
   'loop-nodes': false,
   'team-machines': true,

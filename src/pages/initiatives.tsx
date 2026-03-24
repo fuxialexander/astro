@@ -226,7 +226,10 @@ function ProjectBatchPicker({
   const initiatives = useInitiativeStore((s) => s.initiatives)
   const [search, setSearch] = useState("")
 
-  const activeProjects = useMemo(() => projects.filter((p) => p.status === "active"), [projects])
+  const activeProjects = useMemo(
+    () => projects.filter((p) => p.status === "active" && p.projectType !== "playground" && p.projectType !== "plan"),
+    [projects],
+  )
 
   const filtered = useMemo(() => {
     if (!search) return activeProjects

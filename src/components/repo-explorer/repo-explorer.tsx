@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Link } from "react-router"
-import { AlertCircle, ChevronDown, ChevronRight, ExternalLink, Github, Loader2, RefreshCw, Search, Zap, Check, X, Clock, Minus } from "lucide-react"
+import { AlertCircle, ChevronDown, ChevronRight, ExternalLink, Github, Loader2, RefreshCw, Search, Check, X, Clock, Minus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -9,9 +9,7 @@ import { authHeaders } from "@/lib/auth-headers"
 import { formatRelativeTime } from "@/lib/date-utils"
 import { addIssueToPlan, launchPrAction, quickFixIssue } from "@/lib/github-repo-actions"
 import { cn, getShortId } from "@/lib/utils"
-import { useExecutionStore } from "@/stores/execution-store"
 import { useProjectStore } from "@/stores/project-store"
-import { usePlanStore, isLive } from "@/stores/plan-store"
 import { useToastStore } from "@/stores/toast-store"
 import { filterIssues, filterPullRequests, getUniqueFilterValues, type IssueStateFilter, type PrCiFilter, type PrReviewFilter, type PrStateFilter } from "./filter-utils"
 import { PrDiffViewer } from "./pr-diff-viewer"
@@ -101,9 +99,7 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
   const [expandedPr, setExpandedPr] = useState<number | null>(null)
   const [workspaceConfigOpen, setWorkspaceConfigOpen] = useState(false)
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
-  const rawNodes = usePlanStore((s) => s.nodes)
-  const nodes = useMemo(() => rawNodes.filter(isLive), [rawNodes])
-  const executions = useExecutionStore((s) => s.executions)
+  const [activeTab, setActiveTab] = useState<"issues" | "prs">("issues")
   const addToast = useToastStore((s) => s.add)
 
   const loadSnapshot = useCallback(async (sync = false) => {
@@ -129,13 +125,19 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
         throw new Error(body.error || "Failed to load repo explorer")
       }
 
-      setSnapshot(await response.json() as RepoCacheResponse)
+      const data = await response.json() as RepoCacheResponse
+      setSnapshot(data)
+      if (sync) {
+        addToast({ title: `Synced ${data.issues?.length ?? 0} issues and ${data.pullRequests?.length ?? 0} PRs from GitHub`, type: "success" })
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load repo explorer")
+      const msg = err instanceof Error ? err.message : "Failed to sync"
+      setError(msg)
+      if (sync) addToast({ title: "Sync failed", description: msg, type: "error" })
     } finally {
       setLoading(false)
     }
-  }, [project.id])
+  }, [project.id, addToast])
 
   useEffect(() => {
     void loadSnapshot()
@@ -193,13 +195,6 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
     || prCiFilter !== "all"
     || prLabelFilter !== ALL_FILTER_VALUE
     || prAuthorFilter !== ALL_FILTER_VALUE
-
-  const activeAgents = useMemo(() => {
-    return nodes
-      .filter((node) => node.projectId === project.id && (node.githubIssueNumber || node.prNumber))
-      .filter((node) => node.status === "in_progress" || node.status === "dispatched" || executions.get(node.id)?.status === "running")
-      .slice(0, 6)
-  }, [executions, nodes, project.id])
 
   const requireWorkspace = useCallback((action: () => void) => {
     const currentProject = useProjectStore.getState().projects.find((p) => p.id === project.id)
@@ -293,83 +288,109 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
         )}
       </div>
 
-      {/* ── Two-column layout ──────────────────────────────────────── */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[1.2fr,1fr]">
+      {/* ── Tab switcher ───────────────────────────────────────────── */}
+      <div className="flex items-center gap-1 rounded-lg border border-border/40 bg-muted/20 p-1 w-fit">
+        <button
+          className={cn(
+            "rounded-md px-3.5 py-1.5 text-[12px] font-medium transition-colors",
+            activeTab === "issues"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          onClick={() => setActiveTab("issues")}
+        >
+          Issues
+          <span className={cn("ml-1.5 tabular-nums text-[11px]", activeTab === "issues" ? "text-muted-foreground" : "text-muted-foreground/50")}>
+            {issues.length}
+          </span>
+        </button>
+        <button
+          className={cn(
+            "rounded-md px-3.5 py-1.5 text-[12px] font-medium transition-colors",
+            activeTab === "prs"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          onClick={() => setActiveTab("prs")}
+        >
+          Pull Requests
+          <span className={cn("ml-1.5 tabular-nums text-[11px]", activeTab === "prs" ? "text-muted-foreground" : "text-muted-foreground/50")}>
+            {pullRequests.length}
+          </span>
+        </button>
+      </div>
 
-        {/* ── Issues column ────────────────────────────────────────── */}
-        <div className="flex min-h-0 flex-col">
-          <section className={cn("flex min-h-0 flex-col", panelClass)}>
-            <div className="flex flex-col gap-3 border-b border-border/30 px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-[10px] font-bold uppercase tracking-[0.10em] text-muted-foreground">Issues</h3>
-                <span className="tabular-nums text-[11px] text-muted-foreground">{issues.length}</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Select value={issueStateFilter} onValueChange={(value) => setIssueStateFilter(value as IssueStateFilter)}>
-                  <SelectTrigger className="h-8 w-[120px] text-[11px]">
-                    <SelectValue placeholder="State" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="open">Open</SelectItem>
-                    <SelectItem value="closed">Closed</SelectItem>
-                    <SelectItem value="all">All states</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={issueLabelFilter} onValueChange={setIssueLabelFilter}>
-                  <SelectTrigger className="h-8 w-[150px] text-[11px]">
-                    <SelectValue placeholder="Label" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL_FILTER_VALUE}>All labels</SelectItem>
-                    {issueLabelOptions.map((label) => (
-                      <SelectItem key={label} value={label}>{label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={issueAuthorFilter} onValueChange={setIssueAuthorFilter}>
-                  <SelectTrigger className="h-8 w-[150px] text-[11px]">
-                    <SelectValue placeholder="Author" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL_FILTER_VALUE}>All authors</SelectItem>
-                    {issueAuthorOptions.map((author) => (
-                      <SelectItem key={author} value={author}>{author}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={issueAssigneeFilter} onValueChange={setIssueAssigneeFilter}>
-                  <SelectTrigger className="h-8 w-[150px] text-[11px]">
-                    <SelectValue placeholder="Assignee" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL_FILTER_VALUE}>All assignees</SelectItem>
-                    {issueAssigneeOptions.map((assignee) => (
-                      <SelectItem key={assignee} value={assignee}>{assignee}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {hasCustomIssueFilters && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 px-2 text-[11px]"
-                    onClick={() => {
-                      setIssueStateFilter("open")
-                      setIssueLabelFilter(ALL_FILTER_VALUE)
-                      setIssueAuthorFilter(ALL_FILTER_VALUE)
-                      setIssueAssigneeFilter(ALL_FILTER_VALUE)
-                    }}
-                  >
-                    Reset
-                  </Button>
-                )}
-              </div>
+      {/* ── Full-width content panel ────────────────────────────────── */}
+      <section className={cn("flex min-h-0 flex-1 flex-col", panelClass)}>
+
+        {/* Issues tab */}
+        {activeTab === "issues" && (
+          <>
+            <div className="flex flex-wrap items-center gap-2 border-b border-border/30 px-4 py-3">
+              <Select value={issueStateFilter} onValueChange={(value) => setIssueStateFilter(value as IssueStateFilter)}>
+                <SelectTrigger className="h-8 w-[120px] text-[11px]">
+                  <SelectValue placeholder="State" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="open">Open</SelectItem>
+                  <SelectItem value="closed">Closed</SelectItem>
+                  <SelectItem value="all">All states</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={issueLabelFilter} onValueChange={setIssueLabelFilter}>
+                <SelectTrigger className="h-8 w-[150px] text-[11px]">
+                  <SelectValue placeholder="Label" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER_VALUE}>All labels</SelectItem>
+                  {issueLabelOptions.map((label) => (
+                    <SelectItem key={label} value={label}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={issueAuthorFilter} onValueChange={setIssueAuthorFilter}>
+                <SelectTrigger className="h-8 w-[150px] text-[11px]">
+                  <SelectValue placeholder="Author" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER_VALUE}>All authors</SelectItem>
+                  {issueAuthorOptions.map((author) => (
+                    <SelectItem key={author} value={author}>{author}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={issueAssigneeFilter} onValueChange={setIssueAssigneeFilter}>
+                <SelectTrigger className="h-8 w-[150px] text-[11px]">
+                  <SelectValue placeholder="Assignee" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER_VALUE}>All assignees</SelectItem>
+                  {issueAssigneeOptions.map((assignee) => (
+                    <SelectItem key={assignee} value={assignee}>{assignee}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {hasCustomIssueFilters && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2 text-[11px]"
+                  onClick={() => {
+                    setIssueStateFilter("open")
+                    setIssueLabelFilter(ALL_FILTER_VALUE)
+                    setIssueAuthorFilter(ALL_FILTER_VALUE)
+                    setIssueAssigneeFilter(ALL_FILTER_VALUE)
+                  }}
+                >
+                  Reset
+                </Button>
+              )}
             </div>
-            <div className="min-h-0 overflow-y-auto">
+            <div className="overflow-y-auto">
               {issues.length === 0 ? (
-                <div className="px-4 py-8 text-center text-[12px] text-muted-foreground/60">No cached issues match the current filters.</div>
+                <div className="px-4 py-12 text-center text-[12px] text-muted-foreground/60">No cached issues match the current filters.</div>
               ) : (
-                <div className="flex flex-col gap-1.5 p-2">
+                <div className="flex flex-col gap-1.5 p-3">
                   {issues.map((issue) => {
                     const linkedNodeId = snapshot?.linkedNodeIds.issueNodeIds[issue.issueNumber]
                     const actionKey = `issue-${issue.issueNumber}`
@@ -399,17 +420,17 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
                               {issue.labels.slice(0, 3).map((label) => {
                                 const hex = /^[0-9a-fA-F]{6}$/.test(label.color ?? '') ? label.color : undefined
                                 return (
-                                <span
-                                  key={label.name}
-                                  className="rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                                  style={hex ? {
-                                    background: `#${hex}18`,
-                                    color: `#${hex}`,
-                                    border: `1px solid #${hex}30`,
-                                  } : undefined}
-                                >
-                                  {label.name}
-                                </span>
+                                  <span
+                                    key={label.name}
+                                    className="rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                                    style={hex ? {
+                                      background: `#${hex}18`,
+                                      color: `#${hex}`,
+                                      border: `1px solid #${hex}30`,
+                                    } : undefined}
+                                  >
+                                    {label.name}
+                                  </span>
                                 )
                               })}
                               {issue.updatedAt && (
@@ -451,99 +472,93 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
                 </div>
               )}
             </div>
-          </section>
-        </div>
+          </>
+        )}
 
-        {/* ── PRs + Agents column ──────────────────────────────────── */}
-        <div className="flex min-h-0 flex-col gap-4">
-          <section className={cn("flex min-h-0 flex-col", panelClass)}>
-            <div className="flex flex-col gap-3 border-b border-border/30 px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-[10px] font-bold uppercase tracking-[0.10em] text-muted-foreground">Pull Requests</h3>
-                <span className="tabular-nums text-[11px] text-muted-foreground">{pullRequests.length}</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Select value={prStateFilter} onValueChange={(value) => setPrStateFilter(value as PrStateFilter)}>
-                  <SelectTrigger className="h-8 w-[130px] text-[11px]">
-                    <SelectValue placeholder="State" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="open">Open</SelectItem>
-                    <SelectItem value="closed">Closed</SelectItem>
-                    <SelectItem value="merged">Merged</SelectItem>
-                    <SelectItem value="all">All states</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={prReviewFilter} onValueChange={(value) => setPrReviewFilter(value as PrReviewFilter)}>
-                  <SelectTrigger className="h-8 w-[150px] text-[11px]">
-                    <SelectValue placeholder="Review" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All reviews</SelectItem>
-                    <SelectItem value="approved">Approved</SelectItem>
-                    <SelectItem value="changes_requested">Changes requested</SelectItem>
-                    <SelectItem value="reviewed">Reviewed</SelectItem>
-                    <SelectItem value="pending">Needs review</SelectItem>
-                    <SelectItem value="none">No review state</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={prCiFilter} onValueChange={(value) => setPrCiFilter(value as PrCiFilter)}>
-                  <SelectTrigger className="h-8 w-[130px] text-[11px]">
-                    <SelectValue placeholder="CI" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All CI</SelectItem>
-                    <SelectItem value="success">Passing</SelectItem>
-                    <SelectItem value="failure">Failing</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="none">No checks</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={prLabelFilter} onValueChange={setPrLabelFilter}>
-                  <SelectTrigger className="h-8 w-[150px] text-[11px]">
-                    <SelectValue placeholder="Label" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL_FILTER_VALUE}>All labels</SelectItem>
-                    {prLabelOptions.map((label) => (
-                      <SelectItem key={label} value={label}>{label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={prAuthorFilter} onValueChange={setPrAuthorFilter}>
-                  <SelectTrigger className="h-8 w-[150px] text-[11px]">
-                    <SelectValue placeholder="Author" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL_FILTER_VALUE}>All authors</SelectItem>
-                    {prAuthorOptions.map((author) => (
-                      <SelectItem key={author} value={author}>{author}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {hasCustomPrFilters && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 px-2 text-[11px]"
-                    onClick={() => {
-                      setPrStateFilter("open")
-                      setPrReviewFilter("all")
-                      setPrCiFilter("all")
-                      setPrLabelFilter(ALL_FILTER_VALUE)
-                      setPrAuthorFilter(ALL_FILTER_VALUE)
-                    }}
-                  >
-                    Reset
-                  </Button>
-                )}
-              </div>
+        {/* Pull Requests tab */}
+        {activeTab === "prs" && (
+          <>
+            <div className="flex flex-wrap items-center gap-2 border-b border-border/30 px-4 py-3">
+              <Select value={prStateFilter} onValueChange={(value) => setPrStateFilter(value as PrStateFilter)}>
+                <SelectTrigger className="h-8 w-[130px] text-[11px]">
+                  <SelectValue placeholder="State" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="open">Open</SelectItem>
+                  <SelectItem value="closed">Closed</SelectItem>
+                  <SelectItem value="merged">Merged</SelectItem>
+                  <SelectItem value="all">All states</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={prReviewFilter} onValueChange={(value) => setPrReviewFilter(value as PrReviewFilter)}>
+                <SelectTrigger className="h-8 w-[150px] text-[11px]">
+                  <SelectValue placeholder="Review" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All reviews</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="changes_requested">Changes requested</SelectItem>
+                  <SelectItem value="reviewed">Reviewed</SelectItem>
+                  <SelectItem value="pending">Needs review</SelectItem>
+                  <SelectItem value="none">No review state</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={prCiFilter} onValueChange={(value) => setPrCiFilter(value as PrCiFilter)}>
+                <SelectTrigger className="h-8 w-[130px] text-[11px]">
+                  <SelectValue placeholder="CI" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All CI</SelectItem>
+                  <SelectItem value="success">Passing</SelectItem>
+                  <SelectItem value="failure">Failing</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="none">No checks</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={prLabelFilter} onValueChange={setPrLabelFilter}>
+                <SelectTrigger className="h-8 w-[150px] text-[11px]">
+                  <SelectValue placeholder="Label" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER_VALUE}>All labels</SelectItem>
+                  {prLabelOptions.map((label) => (
+                    <SelectItem key={label} value={label}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={prAuthorFilter} onValueChange={setPrAuthorFilter}>
+                <SelectTrigger className="h-8 w-[150px] text-[11px]">
+                  <SelectValue placeholder="Author" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER_VALUE}>All authors</SelectItem>
+                  {prAuthorOptions.map((author) => (
+                    <SelectItem key={author} value={author}>{author}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {hasCustomPrFilters && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2 text-[11px]"
+                  onClick={() => {
+                    setPrStateFilter("open")
+                    setPrReviewFilter("all")
+                    setPrCiFilter("all")
+                    setPrLabelFilter(ALL_FILTER_VALUE)
+                    setPrAuthorFilter(ALL_FILTER_VALUE)
+                  }}
+                >
+                  Reset
+                </Button>
+              )}
             </div>
-            <div className="min-h-0 overflow-y-auto">
+            <div className="overflow-y-auto">
               {pullRequests.length === 0 ? (
-                <div className="px-4 py-8 text-center text-[12px] text-muted-foreground/60">No cached pull requests match the current filters.</div>
+                <div className="px-4 py-12 text-center text-[12px] text-muted-foreground/60">No cached pull requests match the current filters.</div>
               ) : (
-                <div className="flex flex-col gap-1.5 p-2">
+                <div className="flex flex-col gap-1.5 p-3">
                   {pullRequests.map((pr) => {
                     const actionKey = `pr-${pr.prNumber}`
                     const isExpanded = expandedPr === pr.prNumber
@@ -575,8 +590,6 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
                                 </a>
                                 <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground/30" />
                               </div>
-
-                              {/* Status row */}
                               <div className="mt-1.5 ml-5 flex flex-wrap items-center gap-1.5">
                                 {pr.state !== "open" && (
                                   <span className="rounded-full bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -600,7 +613,6 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
                                 )}
                               </div>
                             </div>
-
                             <div className="flex shrink-0 items-center gap-1.5">
                               <Button
                                 variant="outline"
@@ -621,7 +633,6 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
                             </div>
                           </div>
                         </div>
-
                         {isExpanded && (
                           <div className="border-t border-border/20 bg-background/30 px-4 py-3">
                             <PrDiffViewer projectId={project.id} prNumber={pr.prNumber} />
@@ -633,54 +644,10 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
                 </div>
               )}
             </div>
-          </section>
+          </>
+        )}
 
-          {/* ── Active agents ───────────────────────────────────────── */}
-          <section className={panelClass}>
-            <div className="border-b border-border/30 px-4 py-3">
-              <h3 className="text-[10px] font-bold uppercase tracking-[0.10em] text-muted-foreground">Active Agents</h3>
-            </div>
-            <div>
-              {activeAgents.length === 0 ? (
-                <div className="px-4 py-6 text-center text-[12px] text-muted-foreground/60">No active GitHub-linked agents.</div>
-              ) : (
-                <div className="flex flex-col gap-1.5 p-2">
-                  {activeAgents.map((node) => {
-                    const execStatus = executions.get(node.id)?.status ?? node.status
-                    const isRunning = execStatus === "running" || node.status === "in_progress"
-                    return (
-                      <Link
-                        key={node.id}
-                        to={`/project/${project.id}/task/${node.id}`}
-                        className="gh-card flex items-center justify-between rounded-lg border border-border/30 px-3.5 py-3 text-[13px] no-underline"
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div
-                            className={cn(
-                              "h-2 w-2 shrink-0 rounded-full bg-info",
-                              isRunning && "animate-[agent-pulse_2s_ease-in-out_infinite]",
-                            )}
-                          />
-                          <div className="min-w-0">
-                            <div className="truncate font-medium text-foreground">{node.title}</div>
-                            <div className="mt-0.5 text-[11px] text-muted-foreground">
-                              {node.githubIssueNumber ? `Issue #${node.githubIssueNumber}` : `PR #${node.prNumber}`}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-[11px] text-info font-medium">
-                          <Zap className="h-3 w-3" />
-                          {execStatus}
-                        </div>
-                      </Link>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          </section>
-        </div>
-      </div>
+      </section>
 
       <WorkspaceConfigDialog
         open={workspaceConfigOpen}
