@@ -1806,12 +1806,15 @@ app.post('/sessions', async (c) => {
   const userId = c.get('user')!.id
   const body = await c.req.json()
 
+  // projectId is required (NOT NULL in DB)
+  if (!body.projectId) {
+    return c.json({ error: 'projectId is required' }, 400)
+  }
+
   // Validate project exists before inserting to avoid FK violation
-  if (body.projectId) {
-    const [project] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, body.projectId))
-    if (!project) {
-      return c.json({ error: 'Project not found', projectId: body.projectId }, 404)
-    }
+  const [project] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, body.projectId))
+  if (!project) {
+    return c.json({ error: 'Project not found', projectId: body.projectId }, 404)
   }
 
   // Coerce empty strings to null for UUID columns

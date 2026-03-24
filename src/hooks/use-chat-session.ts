@@ -58,9 +58,9 @@ export function useChatSession({ projectId, type, nodeId }: UseChatSessionOption
     return latest
   }, [allSessions, projectId, type, nodeId])
 
-  // Create session if none exists (idempotent)
+  // Create session if none exists (idempotent) — skip when projectId is missing
   useEffect(() => {
-    if (sessionsLoaded && !chatSession) {
+    if (sessionsLoaded && !chatSession && projectId) {
       getOrCreateSession({ type, projectId, nodeId })
     }
   }, [sessionsLoaded, chatSession, getOrCreateSession, type, projectId, nodeId])
