@@ -81,17 +81,29 @@ export function FileBrowser({ rootPath, onFileSelect }: FileBrowserProps) {
   const watcherIdRef = useRef<string | null>(null)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Load git status map
+  // Load git status map from Rust git_status command
+  // Rust returns { staged: string[], modified: string[], untracked: string[], branch: string }
   const loadGitStatus = useCallback(async () => {
     if (!rootPath) return
     try {
-      const statusMap = await invoke<Record<string, string>>('git_status', {
-        path: rootPath,
-      })
-      // Convert to our typed map
+      const result = await invoke<{
+        staged: string[]
+        modified: string[]
+        untracked: string[]
+        branch: string
+      }>('git_status', { repoPath: rootPath })
+
+      // Convert structured git status to a flat file → status map
       const typed: Record<string, GitFileStatus> = {}
-      for (const [file, status] of Object.entries(statusMap)) {
-        typed[file] = status as GitFileStatus
+      for (const file of result.staged) {
+        typed[file] = 'staged'
+      }
+      for (const file of result.modified) {
+        // Don't overwrite 'staged' if both staged and modified
+        if (!typed[file]) typed[file] = 'modified'
+      }
+      for (const file of result.untracked) {
+        typed[file] = 'untracked'
       }
       setGitStatusMap(typed)
       return typed
@@ -183,12 +195,14 @@ export function FileBrowser({ rootPath, onFileSelect }: FileBrowserProps) {
       searchTimerRef.current = setTimeout(async () => {
         if (!rootPath) return
         try {
-          const results = await invoke<string[]>('search_files', {
+          const results = await invoke<Array<{ path: string; line: number; text: string }>>('search_files', {
             path: rootPath,
-            query: query.trim(),
+            pattern: query.trim(),
           })
+          // Deduplicate by file path
+          const uniquePaths = [...new Set(results.map((r) => r.path))]
           setSearchResults(
-            results.map((p: string) => ({
+            uniquePaths.map((p: string) => ({
               path: p,
               name: p.split('/').pop() ?? p,
               isDir: false,
