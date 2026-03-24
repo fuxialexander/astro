@@ -16,6 +16,7 @@
     "build:frontend": "tsc -b && vite build",
     "build:server": "tsc -b",
     "typecheck:server": "tsc --noEmit -p server/tsconfig.json",
+    "build:sidecar": "tsx scripts/build-sidecar.ts",
     "build:all": "tsc -b && vite build && npm run --prefix packages/agent-runner build",
     "build:agent-runner": "npm run --prefix packages/agent-runner build",
     "lint": "eslint .",
