@@ -50,6 +50,11 @@
     "flags:status": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/sync-feature-flags.ts --status",
     "flags:dry-run": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/sync-feature-flags.ts --dry-run",
     "postinstall": "[ -d packages/agent-runner ] && cd packages/agent-runner && npm install --ignore-scripts || true",
+    "build:sidecar": "tsx scripts/build-sidecar.ts",
+    "tauri:dev": "cargo tauri dev",
+    "tauri:build": "cargo tauri build",
+    "tauri:build:mac": "cargo tauri build --target universal-apple-darwin",
+    "tauri:build:linux": "cargo tauri build --target x86_64-unknown-linux-gnu",
     "prepare": "husky"
   },
   "packageManager": "pnpm@9.15.4",
@@ -172,6 +177,8 @@
     "vite": "^7.3.1",
     "vitest": "^4.0.18",
     "wait-on": "^9.0.4",
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/cli": "^2.0.0",
     "wrangler": "^4.71.0"
   }
 }
