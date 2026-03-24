@@ -14,12 +14,23 @@ export function Workspace() {
 
   useEffect(() => {
     if (!id) return
-    setLoading(true)
-    api
-      .get<Project>(`/api/data/projects/${id}`)
-      .then((p) => setProject(p))
-      .catch(() => setProject(null))
-      .finally(() => setLoading(false))
+    let cancelled = false
+    const load = async () => {
+      try {
+        const p = await api.get<Project>(`/api/data/projects/${id}`)
+        if (!cancelled) {
+          setProject(p)
+          setLoading(false)
+        }
+      } catch {
+        if (!cancelled) {
+          setProject(null)
+          setLoading(false)
+        }
+      }
+    }
+    void load()
+    return () => { cancelled = true }
   }, [id])
 
   useEffect(() => {
