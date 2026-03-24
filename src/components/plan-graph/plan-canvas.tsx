@@ -524,6 +524,9 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
           const { sourceHandle, targetHandle } = computeEdgeHandles(
             nodePositionMap.get(e.source),
             nodePositionMap.get(e.target),
+            nodePositionMap,
+            e.source,
+            e.target,
           )
 
           return {

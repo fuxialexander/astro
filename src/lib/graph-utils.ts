@@ -621,32 +621,26 @@ function layoutGraphTopological(
 }
 
 /**
- * Compute optimal source/target handle IDs for an edge based on relative node positions.
+ * Compute optimal source/target handle IDs for an edge based on relative node positions
+ * and the positions of all other nodes (to avoid crossing through intermediate nodes).
  *
  * Returns { sourceHandle, targetHandle } where each is one of:
  *   "right"  / "left"   — horizontal (LR) flow
  *   "bottom" / "top"    — vertical (TB) flow
  *
- * Decision rule:
- *   If the target is primarily below/above the source (|dy| > 1.5·|dx| and |dy| > 30px),
- *   the edge uses vertical handles (bottom→top). Otherwise horizontal (right→left).
- *
- * Visual reference (each box is a node):
- *
- *   Horizontal flow (right→left):          Vertical flow (bottom→top):
- *
- *     ┌─────┐          ┌─────┐              ┌─────┐
- *     │  A  ●──────────●  B  │              │  A  │
- *     └─────┘ right  left └─────┘              └──●──┘  bottom
- *                                                 │
- *                                                 │
- *                                              ┌──●──┐  top
- *                                              │  B  │
- *                                              └─────┘
+ * Decision rules:
+ *   1. If the target is primarily below the source (|dy| > 1.5·|dx| and |dy| > 30px),
+ *      use vertical handles (bottom→top) — intra-column flow.
+ *   2. If the edge would cross through intermediate nodes horizontally, route above
+ *      (right→top on source, top→left on target) to avoid crossing.
+ *   3. Otherwise use horizontal handles (right→left) — normal LR flow.
  */
 export function computeEdgeHandles(
   srcPos: { x: number; y: number } | undefined,
   tgtPos: { x: number; y: number } | undefined,
+  allPositions?: Map<string, { x: number; y: number }>,
+  srcId?: string,
+  tgtId?: string,
 ): { sourceHandle: string; targetHandle: string } {
   if (!srcPos || !tgtPos) {
     return { sourceHandle: "right", targetHandle: "left" }
@@ -655,13 +649,41 @@ export function computeEdgeHandles(
   const dx = tgtPos.x - srcPos.x
   const dy = tgtPos.y - srcPos.y
 
-  // If target is primarily below the source, use vertical handles (bottom→top).
-  // For upward back-edges (dy < 0), fall through to horizontal handles (right→left)
-  // so bezier curves loop around visually rather than pointing against the flow.
+  // 1. Intra-column: target primarily below source → vertical handles
   if (dy > Math.abs(dx) * 1.5 && dy > 30) {
     return {
       sourceHandle: "bottom",
       targetHandle: "top",
+    }
+  }
+
+  // 2. Cross-column: check if intermediate nodes would be crossed
+  if (allPositions && dx > NODE_WIDTH + HORIZONTAL_GAP) {
+    const minX = Math.min(srcPos.x, tgtPos.x) + NODE_WIDTH
+    const maxX = Math.max(srcPos.x, tgtPos.x)
+    const minY = Math.min(srcPos.y, tgtPos.y) - NODE_HEIGHT / 2
+    const maxY = Math.max(srcPos.y, tgtPos.y) + NODE_HEIGHT * 1.5
+
+    let hasIntermediate = false
+    for (const [id, pos] of allPositions) {
+      if (id === srcId || id === tgtId) continue
+      // Node is horizontally between source and target
+      if (pos.x > minX && pos.x < maxX) {
+        // Node is in the vertical band the edge would cross
+        if (pos.y + NODE_HEIGHT > minY && pos.y < maxY) {
+          hasIntermediate = true
+          break
+        }
+      }
+    }
+
+    if (hasIntermediate) {
+      // Route above: source exits right, target enters from top
+      // SmoothStep will route: right → up → across → down → top
+      return {
+        sourceHandle: "right",
+        targetHandle: "top",
+      }
     }
   }
 

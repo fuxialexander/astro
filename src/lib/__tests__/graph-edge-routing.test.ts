@@ -247,4 +247,56 @@ describe('computeEdgeHandles', () => {
     expect(computeEdgeHandles(A, C)).toEqual({ sourceHandle: 'bottom', targetHandle: 'top' })
     expect(computeEdgeHandles(A, D)).toEqual({ sourceHandle: 'right', targetHandle: 'left' })
   })
+
+  // ── Intermediate node avoidance ──────────────────────────────
+
+  it('routes above when intermediate nodes would be crossed', () => {
+    // 3 columns: A at col0, B at col1, C at col2
+    // Edge A→C should avoid crossing through B's column
+    const colStride = 280
+    const positions = new Map([
+      ['A', { x: 40, y: 100 }],
+      ['B', { x: 40 + colStride, y: 100 }],
+      ['C', { x: 40 + colStride * 2, y: 100 }],
+    ])
+
+    // A→C with B in between — should route above
+    expect(computeEdgeHandles(positions.get('A'), positions.get('C'), positions, 'A', 'C')).toEqual({
+      sourceHandle: 'right',
+      targetHandle: 'top',
+    })
+
+    // A→B with no intermediate — normal right→left
+    expect(computeEdgeHandles(positions.get('A'), positions.get('B'), positions, 'A', 'B')).toEqual({
+      sourceHandle: 'right',
+      targetHandle: 'left',
+    })
+  })
+
+  it('does not route above when no intermediate nodes exist', () => {
+    // 2 columns, no nodes between them
+    const positions = new Map([
+      ['A', { x: 40, y: 100 }],
+      ['C', { x: 600, y: 100 }],
+    ])
+
+    expect(computeEdgeHandles(positions.get('A'), positions.get('C'), positions, 'A', 'C')).toEqual({
+      sourceHandle: 'right',
+      targetHandle: 'left',
+    })
+  })
+
+  it('does not route above when intermediate nodes are far from edge y-band', () => {
+    // B is horizontally between A and C but far below the edge band
+    const positions = new Map([
+      ['A', { x: 40, y: 40 }],
+      ['B', { x: 300, y: 500 }],  // way below
+      ['C', { x: 600, y: 40 }],
+    ])
+
+    expect(computeEdgeHandles(positions.get('A'), positions.get('C'), positions, 'A', 'C')).toEqual({
+      sourceHandle: 'right',
+      targetHandle: 'left',
+    })
+  })
 })
