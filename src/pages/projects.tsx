@@ -617,6 +617,9 @@ export function Projects() {
     if (!(timelineDisplaySettings.showArchived ?? true)) {
       filtered = filtered.filter((p) => p.status !== "archived")
     }
+    if (workspaceFilter !== "all") {
+      filtered = filtered.filter((p) => p.teamId === workspaceFilter)
+    }
     const sorted = [...filtered]
     const dir = timelineDisplaySettings.orderDirection === "asc" ? 1 : -1
     sorted.sort((a, b) => {
@@ -639,7 +642,7 @@ export function Projects() {
       }
     })
     return sorted
-  }, [projects, projectDateRanges, timelineDisplaySettings.orderBy, timelineDisplaySettings.orderDirection, timelineDisplaySettings.showCompleted, timelineDisplaySettings.showArchived, progressMap])
+  }, [projects, projectDateRanges, timelineDisplaySettings.orderBy, timelineDisplaySettings.orderDirection, timelineDisplaySettings.showCompleted, timelineDisplaySettings.showArchived, workspaceFilter, progressMap])
 
   // Timeline rows (with grouping support)
   const timelineRows = useMemo((): TimelineRow<Project>[] => {
@@ -906,7 +909,7 @@ export function Projects() {
         </div>
 
         {viewTab === "all" && (
-          projects.length === 0 ? (
+          sortedProjects.length === 0 ? (
             <div className="flex-1 overflow-auto flex flex-col">
               <div className="flex items-center gap-2.5 px-4 sm:px-6 py-3 sm:py-2.5 border-b border-border hover:bg-muted/30 transition-colors">
                 <Plus className="h-3.5 w-3.5 text-muted-foreground shrink-0" />

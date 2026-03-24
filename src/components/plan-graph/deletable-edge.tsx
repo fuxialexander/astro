@@ -53,8 +53,8 @@ export const DeletableEdge = memo(function DeletableEdge({
     targetY,
     sourcePosition,
     targetPosition,
-    borderRadius: 8,
-    offset: 20,
+    borderRadius: 12,
+    offset: 30,
   })
 
   return (
