@@ -233,19 +233,48 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
     }
 
     // Deduplicate by source→target pair (keep first occurrence).
-    // Filter out task→milestone membership edges (too noisy — tasks are already
-    // visually grouped under their milestone column). Keep milestone→milestone
-    // ordering edges and milestone→task prerequisite edges.
+    // Hide all raw edges involving milestone nodes — they cross through
+    // intermediate columns. Synthetic milestone connectors are added in rfEdges.
     const all = [...directEdges, ...bridgeEdges]
     const seen = new Set<string>()
     return all.filter((e) => {
-      if (milestoneIds.has(e.target) && !milestoneIds.has(e.source)) return false
+      if (milestoneIds.has(e.source) || milestoneIds.has(e.target)) return false
       const key = `${e.source}->${e.target}`
       if (seen.has(key)) return false
       seen.add(key)
       return true
     })
   }, [planEdges, planNodes, projectNodes, projectId])
+
+  // Synthetic milestone→milestone connector edges derived from cross-milestone task deps.
+  // These are visual-only (dashed, subtle) — not real dependency edges.
+  const milestoneConnectors = useMemo(() => {
+    const milestoneIds = new Set(projectNodes.filter((n) => n.type === 'milestone').map((n) => n.id))
+    const allProjectEdges = planEdges.filter((e) => {
+      const projNodeIds = new Set(projectNodes.map((n) => n.id))
+      return projNodeIds.has(e.source) || projNodeIds.has(e.target)
+    })
+    // nodeId → milestoneId lookup
+    const nodeToMs = new Map<string, string>()
+    for (const n of projectNodes) {
+      if (n.type === 'milestone') nodeToMs.set(n.id, n.id)
+      else if (n.milestoneId && milestoneIds.has(n.milestoneId)) nodeToMs.set(n.id, n.milestoneId)
+    }
+    const msEdgeSeen = new Set<string>()
+    const connectors: { id: string; source: string; target: string }[] = []
+    for (const e of allProjectEdges) {
+      const srcMs = nodeToMs.get(e.source)
+      const tgtMs = nodeToMs.get(e.target)
+      if (srcMs && tgtMs && srcMs !== tgtMs) {
+        const key = `${srcMs}->${tgtMs}`
+        if (!msEdgeSeen.has(key)) {
+          msEdgeSeen.add(key)
+          connectors.push({ id: `ms-connector-${srcMs}-${tgtMs}`, source: srcMs, target: tgtMs })
+        }
+      }
+    }
+    return connectors
+  }, [projectNodes, planEdges])
 
   const updateNode = usePlanStore((s) => s.updateNode)
 
@@ -512,45 +541,94 @@ function PlanCanvasInner({ projectId, onNodeSelect, onDecomposeNode, readOnly }:
   const redundantEdgeIds = useMemo(() => computeRedundantEdgeIds(projectEdges), [projectEdges])
 
   const rfEdges: Edge[] = useMemo(
-    () =>
-      projectEdges.filter((e) => !redundantEdgeIds.has(e.id)).map((e) => {
-          // Edge color: green for completed targets, neutral for everything else.
-          // #94A3B8 (slate-400) is visible in both light and dark themes.
-          const targetNode = projectNodes.find((n) => n.id === e.target)
-          const isCompleted = targetNode && (targetNode.status === "completed" || targetNode.status === "auto_verified")
-          const edgeColor = isCompleted ? "#22C55E" : "#94A3B8"
+    () => {
+      const visible = projectEdges.filter((e) => !redundantEdgeIds.has(e.id))
 
-          // Pick optimal handle pair based on relative node positions
-          const { sourceHandle, targetHandle } = computeEdgeHandles(
-            nodePositionMap.get(e.source),
-            nodePositionMap.get(e.target),
-            nodePositionMap,
-            e.source,
-            e.target,
-          )
+      // Pre-compute handles for all task edges so we can group by routing corridor
+      const edgesWithHandles = visible.map((e) => {
+        const srcPos = nodePositionMap.get(e.source)
+        const tgtPos = nodePositionMap.get(e.target)
+        const { sourceHandle, targetHandle } = computeEdgeHandles(
+          srcPos, tgtPos, nodePositionMap, e.source, e.target,
+        )
+        return { edge: e, sourceHandle, targetHandle, srcPos, tgtPos }
+      })
 
-          return {
-            id: e.id,
-            source: e.source,
-            target: e.target,
-            sourceHandle,
-            targetHandle,
-            type: "deletable",
-            data: { onDelete: readOnly ? undefined : handleEdgeDelete, readOnly },
-            style: {
-              stroke: edgeColor,
-              strokeWidth: 2.5,
-              strokeLinecap: "round" as const,
-            },
-            markerEnd: {
-              type: MarkerType.ArrowClosed,
-              color: edgeColor,
-              width: 12,
-              height: 12,
-            },
-          }
-        }),
-    [projectEdges, projectNodes, nodePositionMap, handleEdgeDelete, readOnly, redundantEdgeIds]
+      // Group edges by routing corridor (same handle pair + similar column range)
+      // and assign varied offsets to prevent overlap
+      const corridorCount = new Map<string, number>()
+      const edgeOffsets = new Map<string, number>()
+      const BASE_OFFSET = 20
+      const OFFSET_STEP = 15
+
+      for (const item of edgesWithHandles) {
+        const srcCol = item.srcPos ? Math.round(item.srcPos.x / 160) : 0
+        const tgtCol = item.tgtPos ? Math.round(item.tgtPos.x / 160) : 0
+        const corridorKey = `${srcCol}-${tgtCol}:${item.sourceHandle}-${item.targetHandle}`
+        const idx = corridorCount.get(corridorKey) ?? 0
+        corridorCount.set(corridorKey, idx + 1)
+        edgeOffsets.set(item.edge.id, BASE_OFFSET + idx * OFFSET_STEP)
+      }
+
+      // Task→task dependency edges (solid, interactive)
+      const taskEdgeNodes: Edge[] = edgesWithHandles.map(({ edge: e, sourceHandle, targetHandle }) => {
+        const targetNode = projectNodes.find((n) => n.id === e.target)
+        const isCompleted = targetNode && (targetNode.status === "completed" || targetNode.status === "auto_verified")
+        const edgeColor = isCompleted ? "#22C55E" : "#94A3B8"
+
+        return {
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          sourceHandle,
+          targetHandle,
+          type: "deletable",
+          data: {
+            onDelete: readOnly ? undefined : handleEdgeDelete,
+            readOnly,
+            edgeOffset: edgeOffsets.get(e.id) ?? 30,
+          },
+          style: {
+            stroke: edgeColor,
+            strokeWidth: 2.5,
+            strokeLinecap: "round" as const,
+          },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: edgeColor,
+            width: 12,
+            height: 12,
+          },
+        }
+      })
+
+      // Milestone→milestone connector edges (dashed, subtle, non-interactive)
+      const msConnectorEdges: Edge[] = milestoneConnectors.map((c) => ({
+        id: c.id,
+        source: c.source,
+        target: c.target,
+        sourceHandle: 'right',
+        targetHandle: 'left',
+        type: "deletable",
+        data: { readOnly: true },
+        style: {
+          stroke: '#64748b',
+          strokeWidth: 1.5,
+          strokeDasharray: '6 4',
+          strokeLinecap: "round" as const,
+          opacity: 0.5,
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: '#64748b',
+          width: 8,
+          height: 8,
+        },
+      }))
+
+      return [...taskEdgeNodes, ...msConnectorEdges]
+    },
+    [projectEdges, projectNodes, nodePositionMap, handleEdgeDelete, readOnly, redundantEdgeIds, milestoneConnectors]
   )
 
   // Connection handlers for mindmap-like drag interactions

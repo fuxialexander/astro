@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils"
 interface DeletableEdgeData {
   onDelete?: (source: string, target: string) => void
   readOnly?: boolean
+  edgeOffset?: number
   [key: string]: unknown
 }
 
@@ -54,7 +55,7 @@ export const DeletableEdge = memo(function DeletableEdge({
     sourcePosition,
     targetPosition,
     borderRadius: 12,
-    offset: 30,
+    offset: data?.edgeOffset ?? 30,
   })
 
   return (

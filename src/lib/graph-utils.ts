@@ -632,7 +632,7 @@ function layoutGraphTopological(
  *   1. If the target is primarily below the source (|dy| > 1.5·|dx| and |dy| > 30px),
  *      use vertical handles (bottom→top) — intra-column flow.
  *   2. If the edge would cross through intermediate nodes horizontally, route above
- *      (right→top on source, top→left on target) to avoid crossing.
+ *      or below depending on which side has more clearance.
  *   3. Otherwise use horizontal handles (right→left) — normal LR flow.
  */
 export function computeEdgeHandles(
@@ -664,25 +664,33 @@ export function computeEdgeHandles(
     const minY = Math.min(srcPos.y, tgtPos.y) - NODE_HEIGHT / 2
     const maxY = Math.max(srcPos.y, tgtPos.y) + NODE_HEIGHT * 1.5
 
-    let hasIntermediate = false
+    // Collect intermediate nodes in the crossing corridor
+    const intermediates: { x: number; y: number }[] = []
     for (const [id, pos] of allPositions) {
       if (id === srcId || id === tgtId) continue
-      // Node is horizontally between source and target
       if (pos.x > minX && pos.x < maxX) {
-        // Node is in the vertical band the edge would cross
         if (pos.y + NODE_HEIGHT > minY && pos.y < maxY) {
-          hasIntermediate = true
-          break
+          intermediates.push(pos)
         }
       }
     }
 
-    if (hasIntermediate) {
-      // Route above: source exits right, target enters from top
-      // SmoothStep will route: right → up → across → down → top
-      return {
-        sourceHandle: "right",
-        targetHandle: "top",
+    if (intermediates.length > 0) {
+      // Decide whether to route above or below the intermediate nodes.
+      // Compare edge endpoint center to intermediate node center:
+      // if edge is in upper half of intermediate band → route above,
+      // otherwise route below.
+      const edgeCenterY = (srcPos.y + tgtPos.y) / 2
+      const intermediateTopmost = Math.min(...intermediates.map((p) => p.y))
+      const intermediateBottommost = Math.max(...intermediates.map((p) => p.y + NODE_HEIGHT))
+      const intermediateCenterY = (intermediateTopmost + intermediateBottommost) / 2
+
+      if (edgeCenterY <= intermediateCenterY) {
+        // Route above: source exits right, target enters from top
+        return { sourceHandle: "right", targetHandle: "top" }
+      } else {
+        // Route below: source exits bottom, target enters from left
+        return { sourceHandle: "bottom", targetHandle: "left" }
       }
     }
   }
