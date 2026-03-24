@@ -125,13 +125,19 @@ export function RepoExplorer({ project }: RepoExplorerProps) {
         throw new Error(body.error || "Failed to load repo explorer")
       }
 
-      setSnapshot(await response.json() as RepoCacheResponse)
+      const data = await response.json() as RepoCacheResponse
+      setSnapshot(data)
+      if (sync) {
+        addToast({ title: `Synced ${data.issues?.length ?? 0} issues and ${data.pullRequests?.length ?? 0} PRs from GitHub`, type: "success" })
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load repo explorer")
+      const msg = err instanceof Error ? err.message : "Failed to sync"
+      setError(msg)
+      if (sync) addToast({ title: "Sync failed", description: msg, type: "error" })
     } finally {
       setLoading(false)
     }
-  }, [project.id])
+  }, [project.id, addToast])
 
   useEffect(() => {
     void loadSnapshot()

@@ -9,6 +9,7 @@ import { formatRelativeTime } from "@/lib/date-utils"
 import { cn } from "@/lib/utils"
 import { useGitHubAppStore } from "@/stores/github-app-store"
 import { useProjectStore } from "@/stores/project-store"
+import { useToastStore } from "@/stores/toast-store"
 import { GitHubRepoPickerDialog } from "@/components/github-repo-picker-dialog"
 import type { GitHubWorkspaceSummary, GitHubWorkspaceAttentionItem, GitHubWorkspaceProjectSummary } from "@/types"
 
@@ -190,12 +191,29 @@ export function Workspace() {
   const connected = installations.length > 0
   const projects = useProjectStore((s) => s.projects)
   const githubProjects = projects.filter((p) => p.projectType === "github")
+  const addToast = useToastStore((s) => s.add)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (sync = false) => {
     setLoading(true)
     setError(null)
     try {
       const headers = await authHeaders()
+
+      if (sync && githubProjects.length > 0) {
+        // Sync all github projects from the GitHub API in parallel
+        const results = await Promise.allSettled(
+          githubProjects.map((p) =>
+            fetch(apiUrl(`/api/github/projects/${p.id}/repo-cache/sync`), { method: "POST", headers }),
+          ),
+        )
+        const failed = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && !r.value.ok))
+        if (failed.length > 0) {
+          addToast({ title: `Synced ${githubProjects.length - failed.length}/${githubProjects.length} repos`, description: "Some repos failed to sync.", type: "warning" })
+        } else {
+          addToast({ title: `Synced ${githubProjects.length} repo${githubProjects.length !== 1 ? "s" : ""} from GitHub`, type: "success" })
+        }
+      }
+
       const response = await fetch(apiUrl("/api/github/workspace/summary"), { headers })
       if (!response.ok) {
         const body = await response.json().catch(() => ({ error: "Failed to load workspace" }))
@@ -207,7 +225,7 @@ export function Workspace() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [githubProjects, addToast])
 
   useEffect(() => {
     void fetchInstallations()
@@ -253,9 +271,9 @@ export function Workspace() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading || !connected}>
+            <Button variant="outline" size="sm" onClick={() => void load(true)} disabled={loading || !connected}>
               <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", loading && "animate-spin")} />
-              Refresh
+              Sync
             </Button>
             {connected && (
               <button
