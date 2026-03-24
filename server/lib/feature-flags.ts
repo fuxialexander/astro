@@ -26,7 +26,7 @@
  * - false = gated (only teams with explicit override see it)
  */
 export const GLOBAL_DEFAULTS: Record<string, boolean> = {
-  'github-integration': false,
+  'github-integration': true,
   'webhook-automation': false,
   'loop-nodes': false,
   'team-machines': true,
