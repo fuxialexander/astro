@@ -182,6 +182,10 @@ UI.pen
 docs/xi_fu_deployment.md
 docs/setup/xi-fu-deployment.md
 
+# Tauri build artifacts
+src-tauri/target/
+src-tauri/sidecar/
+
 # Swift build artifacts
 .build/
 

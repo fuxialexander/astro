@@ -2,12 +2,15 @@
 //!
 //! This module exposes the Tauri app builder and all command handlers.
 //! The sidecar lifecycle (start/stop/health) is managed in [`sidecar`].
+//! App configuration (server URL, API key) is managed in [`config`].
 //! Native desktop features (tray, menus, deep links) are in [`tray`] and [`menu`].
 
+pub mod config;
 pub mod sidecar;
 mod menu;
 mod tray;
 
+use config::{get_app_config, get_sidecar_env, set_app_config};
 use log::{error, info};
 use sidecar::{SidecarState, SidecarStatus};
 use tauri::{Manager, RunEvent, WindowEvent};
@@ -67,7 +70,7 @@ fn navigate_to_project(app: tauri::AppHandle, project_id: String) {
 ///
 /// This is called from `main.rs`. It:
 /// 1. Registers managed state (`SidecarState`)
-/// 2. Registers Tauri commands
+/// 2. Registers Tauri commands (sidecar, config, navigation)
 /// 3. Sets up plugins (shell, log, deep-link, window-state)
 /// 4. Creates system tray and native menu bar
 /// 5. Hooks into the app lifecycle to start/stop the sidecar
@@ -101,6 +104,9 @@ pub fn run() {
             sidecar_restart,
             set_sidecar_status,
             navigate_to_project,
+            get_app_config,
+            set_app_config,
+            get_sidecar_env
         ])
         .setup(|app| {
             let handle = app.handle().clone();

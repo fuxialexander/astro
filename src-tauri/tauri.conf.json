@@ -2,12 +2,12 @@
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
   "productName": "Astro",
   "version": "0.1.0",
-  "identifier": "com.astroanywhere.app",
+  "identifier": "com.astroanywhere.astro",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev:frontend",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": "npm run build && npm run build:sidecar"
   },
   "app": {
     "windows": [
@@ -42,6 +42,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": [
+      "sidecar/**/*"
+    ],
+    "category": "DeveloperTool",
     "macOS": {
       "frameworks": [],
       "minimumSystemVersion": "10.15",
@@ -62,7 +66,14 @@
   },
   "plugins": {
     "shell": {
-      "open": true
+      "open": true,
+      "scope": [
+        {
+          "name": "node-sidecar",
+          "cmd": "node",
+          "args": true
+        }
+      ]
     },
     "deep-link": {
       "desktop": {

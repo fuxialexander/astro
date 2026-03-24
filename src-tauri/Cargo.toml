@@ -2,7 +2,7 @@
 name = "astro-desktop"
 version = "0.1.0"
 description = "Astro Desktop - AI-assisted planning platform"
-authors = ["Astro Team"]
+authors = ["Astro Anywhere"]
 edition = "2021"
 
 [lib]
