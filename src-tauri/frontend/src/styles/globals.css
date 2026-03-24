@@ -1,0 +1,160 @@
+@import "tailwindcss";
+
+@theme {
+  --font-primary: "DM Sans", "Noto Sans SC", sans-serif;
+  --font-secondary: "Cormorant Garamond", "Noto Serif SC", serif;
+  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-error: var(--error);
+  --color-error-foreground: var(--error-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   LIGHT MODE — Clean precision, cool Morandi tones
+   ═══════════════════════════════════════════════════════════════════════ */
+:root {
+  --background: #FFFFFF;
+  --foreground: #1A1A1A;
+  --card: #FAFAFA;
+  --card-foreground: #1A1A1A;
+  --popover: #FFFFFF;
+  --popover-foreground: #1A1A1A;
+  --primary: #4A6D8A;
+  --primary-foreground: #FFFFFF;
+  --secondary: #71717A;
+  --secondary-foreground: #FFFFFF;
+  --muted: #F4F4F5;
+  --muted-foreground: #71717A;
+  --accent: #F0F0F2;
+  --accent-foreground: #2C4A6B;
+  --destructive: #B06060;
+  --destructive-foreground: #FFFFFF;
+  --border: #E4E4E7;
+  --input: #E4E4E7;
+  --ring: #4A6D8A;
+
+  --success: #5F8D6B;
+  --success-foreground: #FFFFFF;
+  --warning: #A07D4F;
+  --warning-foreground: #FFFFFF;
+  --error: #B06060;
+  --error-foreground: #FFFFFF;
+  --info: #5B7F9A;
+  --info-foreground: #FFFFFF;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   DARK MODE — Deep cinematic, cool Morandi tones
+   ═══════════════════════════════════════════════════════════════════════ */
+.dark {
+  --background: #0C0C0E;
+  --foreground: #ECECEA;
+  --card: #151517;
+  --card-foreground: #ECECEA;
+  --popover: #151517;
+  --popover-foreground: #ECECEA;
+  --primary: #7FA8C4;
+  --primary-foreground: #0C0C0E;
+  --secondary: #7A7A7E;
+  --secondary-foreground: #ECECEA;
+  --muted: #1C1C1F;
+  --muted-foreground: #808085;
+  --accent: rgba(127, 168, 196, 0.08);
+  --accent-foreground: #B8D0E0;
+  --destructive: #D08080;
+  --destructive-foreground: #0C0C0E;
+  --border: #262629;
+  --input: #262629;
+  --ring: #7FA8C4;
+
+  --success: #82B888;
+  --success-foreground: #0C0C0E;
+  --warning: #CDB47A;
+  --warning-foreground: #0C0C0E;
+  --error: #D08080;
+  --error-foreground: #0C0C0E;
+  --info: #8AAEC4;
+  --info-foreground: #0C0C0E;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   BASE STYLES
+   ═══════════════════════════════════════════════════════════════════════ */
+* {
+  border-color: var(--border);
+}
+
+body {
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Prevent text selection in desktop app chrome */
+  user-select: none;
+}
+
+/* Allow text selection in content areas */
+[data-selectable],
+input,
+textarea,
+pre,
+code {
+  user-select: text;
+}
+
+/* Custom scrollbar for desktop feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--muted-foreground);
+  border-radius: 3px;
+  opacity: 0.3;
+}
+::-webkit-scrollbar-thumb:hover {
+  opacity: 0.5;
+}
+
+/* Fade-in animation */
+.animate-reveal {
+  animation: fade-in 200ms ease-out;
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

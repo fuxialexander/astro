@@ -1,0 +1,39 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nickel-org/nickel.rs/master/src/tauri.conf.schema.json",
+  "productName": "Astro Desktop",
+  "version": "0.0.1",
+  "identifier": "com.astroanywhere.desktop",
+  "build": {
+    "frontendDist": "../frontend/dist",
+    "devUrl": "http://localhost:5174",
+    "beforeDevCommand": "cd frontend && npm run dev -- --port 5174",
+    "beforeBuildCommand": "cd frontend && npm run build"
+  },
+  "app": {
+    "title": "Astro Desktop",
+    "windows": [
+      {
+        "title": "Astro",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}
