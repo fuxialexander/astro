@@ -78,6 +78,7 @@ interface SettingsState {
   editorType: 'cursor' | 'vscode'
   yoloMode: boolean // auto-approve agent decisions
   playgroundYoloMode: boolean // separate YOLO for playground sessions
+  showTaskNumbers: boolean // show task/milestone numbers in plan list view
   connectionStatus: "connected" | "disconnected" | "checking"
   loaded: boolean
   loading: boolean
@@ -90,6 +91,7 @@ interface SettingsState {
   setEditorType: (type: 'cursor' | 'vscode') => void
   setYoloMode: (enabled: boolean) => void
   setPlaygroundYoloMode: (enabled: boolean) => void
+  setShowTaskNumbers: (enabled: boolean) => void
   setCustomModel: (tier: ModelTier, provider: string, model: string) => Promise<void>
   removeCustomModel: (tier: ModelTier, provider: string) => void
   /** Resolve current tier to a model ID for the given provider. Returns undefined if no mapping exists (adapter picks its own default). */
@@ -117,6 +119,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   editorType: "cursor",
   yoloMode: true, // Default ON for new users — fully autonomous execution
   playgroundYoloMode: false, // Default OFF for playground — users often want interactive chat
+  showTaskNumbers: false, // Default OFF — numbers are hidden unless user enables them
   connectionStatus: "disconnected",
   loaded: false,
   loading: false,
@@ -174,6 +177,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       } else if (settings.playgroundYoloMode === 'false') {
         updates.playgroundYoloMode = false
       }
+      if (settings.showTaskNumbers === 'true') {
+        updates.showTaskNumbers = true
+      } else if (settings.showTaskNumbers === 'false') {
+        updates.showTaskNumbers = false
+      }
       if (settings.modelTier) {
         const tier = settings.modelTier as ModelTier
         updates.modelTier = tier
@@ -230,6 +238,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setPlaygroundYoloMode: (enabled) => {
     set({ playgroundYoloMode: enabled })
     dataClient.updateSettings({ playgroundYoloMode: String(enabled) }).catch(() => {})
+  },
+
+  setShowTaskNumbers: (enabled) => {
+    set({ showTaskNumbers: enabled })
+    dataClient.updateSettings({ showTaskNumbers: String(enabled) }).catch(() => {})
   },
 
   setDefaultProvider: (defaultProvider) => {

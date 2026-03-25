@@ -616,6 +616,7 @@ function makePlanColumns(
   _executionOrderMap?: Map<string, number>,
   onManageLabels?: () => void,
   onExecute?: (node: PlanNode) => void,
+  showTaskNumbers?: boolean,
 ): ListColumn<PlanNode>[] {
   return [
     {
@@ -639,7 +640,7 @@ function makePlanColumns(
                 <Play className="h-3 w-3 fill-current" />
               </button>
             )}
-            {node.number != null && <span className="text-muted-foreground tabular-nums">{node.number}</span>}
+            {showTaskNumbers && node.number != null && <span className="text-muted-foreground tabular-nums">{node.number}</span>}
             <span className="truncate">{node.title}</span>
           </span>
         )
@@ -991,6 +992,7 @@ export function PlanListView({
   const executeAllProject = useExecutionStore((s) => s.executeAllProject)
   const stopBatchExecution = useExecutionStore((s) => s.stopBatchExecution)
   const batchExecution = useExecutionStore((s) => s.batchExecutions.get(projectId))
+  const showTaskNumbers = useSettingsStore((s) => s.showTaskNumbers)
   const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
   const [labelManagerOpen, setLabelManagerOpen] = useState(false)
 
@@ -1153,7 +1155,7 @@ export function PlanListView({
     return map
   }, [allProjectNodes])
 
-  const columns = useMemo(() => makePlanColumns(project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels, handleExecute), [project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels, handleExecute])
+  const columns = useMemo(() => makePlanColumns(project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels, handleExecute, showTaskNumbers), [project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels, handleExecute, showTaskNumbers])
 
   const tasks = useMemo(() => {
     // Exclude pruned from the active task list — they appear in a separate "Deprecated" group
@@ -1182,7 +1184,7 @@ export function PlanListView({
         const completion = grouped.length > 0 ? Math.round((completedCount / grouped.length) * 100) : 0
         result.push({
           key: `milestone-${m.id}`,
-          label: m.title,
+          label: showTaskNumbers && m.number != null ? `${m.number}  ${m.title}` : m.title,
           icon: <Diamond className="h-3 w-3 text-primary" />,
           items: grouped,
           meta: (
@@ -1282,7 +1284,7 @@ export function PlanListView({
     }
 
     return result
-  }, [tasks, prunedTasks, milestones, projects, displaySettings.groupBy, project?.labels])
+  }, [tasks, prunedTasks, milestones, projects, displaySettings.groupBy, project?.labels, showTaskNumbers])
 
   // Open creation row for the first group when Enter is pressed globally
   useEffect(() => {
