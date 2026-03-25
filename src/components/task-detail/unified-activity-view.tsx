@@ -482,7 +482,6 @@ export function UnifiedActivityView({
           </div>
         )}
 
-<<<<<<< HEAD
         <ActivityBlockRenderer
           blocks={displayBlocks}
           isStreaming={isRunning || isChatStreaming}
