@@ -37,6 +37,8 @@
     "customize": "自定义",
     "keyboardShortcuts": "启用键盘快捷键",
     "keyboardShortcutsDesc": "使用键盘快捷键执行常用操作",
+    "showTaskNumbers": "显示任务编号",
+    "showTaskNumbersDesc": "在计划列表视图中显示任务和里程碑的编号",
     "views": {
       "dashboard": "工作台",
       "projects": "项目",
