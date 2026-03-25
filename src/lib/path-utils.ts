@@ -175,7 +175,7 @@ export async function buildFileUrl(
       // No machine info available, fall back to file:// (cannot construct remote URL)
       return `${editorType}://file${encodedPath}${line}`
     }
-    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${encodedPath}${line}`
+    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${encodedPath.startsWith('/') ? '' : '/'}${encodedPath}${line}`
   }
 
   // Auto-detect mode (forceLocal === false)
@@ -192,7 +192,7 @@ export async function buildFileUrl(
     return `${editorType}://file${encodedPath}${line}`
   } else {
     // Different machine: use editor remote protocol (prefer user-set name as SSH alias)
-    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${encodedPath}${line}`
+    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${encodedPath.startsWith('/') ? '' : '/'}${encodedPath}${line}`
   }
 }
 
@@ -229,7 +229,7 @@ export function buildFileUrlSync(
       // No machine info available, fall back to file:// (cannot construct remote URL)
       return `${editorType}://file${encodedPath}${line}`
     }
-    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${encodedPath}${line}`
+    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${encodedPath.startsWith('/') ? '' : '/'}${encodedPath}${line}`
   }
 
   // Auto-detect mode (forceLocal === false)
@@ -247,7 +247,7 @@ export function buildFileUrlSync(
     return `${editorType}://file${encodedPath}${line}`
   } else {
     // Prefer user-set name as SSH alias
-    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${encodedPath}${line}`
+    return `${editorType}://vscode-remote/ssh-remote+${sshTarget}${encodedPath.startsWith('/') ? '' : '/'}${encodedPath}${line}`
   }
 }
 

@@ -186,7 +186,7 @@ function WorkdirBar({ project }: { project: Project }) {
     const path = project.workingDirectory
     const scheme = useVSCode ? 'vscode' : 'cursor'
     if (useLocalUrls) return `${scheme}://file${path}`
-    if (defaultMachine?.name) return `${scheme}://vscode-remote/ssh-remote+${defaultMachine.name}${path}`
+    if (defaultMachine?.name) return `${scheme}://vscode-remote/ssh-remote+${defaultMachine.name}${path.startsWith('/') ? '' : '/'}${path}`
     return `${scheme}://file${path}`
   })()
 
