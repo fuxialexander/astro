@@ -209,6 +209,9 @@ export function ActivityBlockRenderer({
           }
 
           case 'plan_result': {
+            // Only show the most recent plan graph — skip older ones to avoid cluttering the feed
+            const lastPlanResultIdx = blocks.map(b => b.type).lastIndexOf('plan_result')
+            if (i !== lastPlanResultIdx) return null
             const planEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'plan_result' }>
             return <PlanGraphBlock key={key} event={planEvent} />
           }
