@@ -190,8 +190,6 @@ function GeneralContent() {
   const [firstDay, setFirstDay] = useState("sunday")
   const [keyboardShortcuts, setKeyboardShortcuts] = useState(true)
   const setEditing = useSidebarStore((s) => s.setEditing)
-  const showTaskNumbers = useSettingsStore((s) => s.showTaskNumbers)
-  const setShowTaskNumbers = useSettingsStore((s) => s.setShowTaskNumbers)
 
   return (
     <div className="flex flex-col gap-8">
@@ -250,15 +248,9 @@ function GeneralContent() {
           <SettingsRow
             label={t("general.keyboardShortcuts")}
             description={t("general.keyboardShortcutsDesc")}
-          >
-            <Toggle checked={keyboardShortcuts} onChange={setKeyboardShortcuts} />
-          </SettingsRow>
-          <SettingsRow
-            label={t("general.showTaskNumbers")}
-            description={t("general.showTaskNumbersDesc")}
             last
           >
-            <Toggle checked={showTaskNumbers} onChange={setShowTaskNumbers} />
+            <Toggle checked={keyboardShortcuts} onChange={setKeyboardShortcuts} />
           </SettingsRow>
         </div>
       </section>

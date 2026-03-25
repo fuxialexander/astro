@@ -37,8 +37,6 @@
     "customize": "Customize",
     "keyboardShortcuts": "Enable keyboard shortcuts",
     "keyboardShortcutsDesc": "Use keyboard shortcuts for common actions",
-    "showTaskNumbers": "Show task numbers",
-    "showTaskNumbersDesc": "Display task and milestone numbers in the plan list view",
     "views": {
       "dashboard": "Dashboard",
       "projects": "Projects",
