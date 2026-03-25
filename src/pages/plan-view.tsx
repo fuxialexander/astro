@@ -710,6 +710,7 @@ function makePlanColumns(
   _executionOrderMap?: Map<string, number>,
   onManageLabels?: () => void,
   onExecute?: (node: PlanNode) => void,
+  showTaskNumbers?: boolean,
 ): ListColumn<PlanNode>[] {
   return [
     {
@@ -733,7 +734,7 @@ function makePlanColumns(
                 <Play className="h-3 w-3 fill-current" />
               </button>
             )}
-            {node.number != null && <span className="text-muted-foreground tabular-nums">{node.number}</span>}
+            {showTaskNumbers && node.number != null && <span className="text-muted-foreground tabular-nums">{node.number}</span>}
             <span className="truncate">{node.title}</span>
           </span>
         )
@@ -1083,6 +1084,7 @@ export function PlanListView({
   const updateDisplaySettings = useDisplaySettingsStore((s) => s.update)
   const fastEdit = useDisplaySettingsStore((s) => s.fastEdit)
   const flushPendingSaves = useContentSaveStore((s) => s.flushPendingSaves)
+  const showTaskNumbers = useSettingsStore((s) => s.showTaskNumbers)
   const [creatingInGroup, setCreatingInGroup] = useState<string | null>(null)
   const [labelManagerOpen, setLabelManagerOpen] = useState(false)
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
@@ -1255,7 +1257,7 @@ export function PlanListView({
     return map
   }, [allProjectNodes])
 
-  const columns = useMemo(() => makePlanColumns(project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels, handleExecute), [project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels, handleExecute])
+  const columns = useMemo(() => makePlanColumns(project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels, handleExecute, showTaskNumbers), [project, milestoneMap, handleNodeUpdate, projectNameMap, executionOrderMap, handleManageLabels, handleExecute, showTaskNumbers])
 
   const tasks = useMemo(() => {
     // Exclude pruned from the active task list — they appear in a separate "Deprecated" group
@@ -1284,7 +1286,7 @@ export function PlanListView({
         const completion = grouped.length > 0 ? Math.round((completedCount / grouped.length) * 100) : 0
         result.push({
           key: `milestone-${m.id}`,
-          label: m.title,
+          label: showTaskNumbers && m.number != null ? `${m.number}  ${m.title}` : m.title,
           icon: <Diamond className="h-3 w-3 text-primary" />,
           items: grouped,
           meta: (
@@ -1400,7 +1402,7 @@ export function PlanListView({
     }
 
     return result
-  }, [tasks, prunedTasks, milestones, projects, projectsById, displaySettings.groupBy, project?.labels, nodes, allProjectNodes])
+  }, [tasks, prunedTasks, milestones, projects, projectsById, displaySettings.groupBy, project?.labels, nodes, allProjectNodes, showTaskNumbers])
 
   // Open creation row for the first group when Enter is pressed globally
   useEffect(() => {
