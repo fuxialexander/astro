@@ -139,6 +139,18 @@ describe("buildFileUrl", () => {
       expect(url).toBe("cursor://file/home/user/file.ts")
     })
 
+    it("adds missing leading slash when path lacks one", async () => {
+      // Regression: file change paths (e.g. from task output) may be relative.
+      // The SSH remote URL must have a '/' between machine name and path.
+      const url = await buildFileUrl(
+        "report/combined_qc_stats.csv",
+        undefined,
+        { name: "spsshqc" },
+        "remote"
+      )
+      expect(url).toBe("cursor://vscode-remote/ssh-remote+spsshqc/report/combined_qc_stats.csv")
+    })
+
     it("uses vscode editor type", async () => {
       const url = await buildFileUrl(
         "/home/user/file.ts",
@@ -239,6 +251,18 @@ describe("buildFileUrlSync", () => {
     it("falls back to file:// when no machine info", () => {
       const url = buildFileUrlSync("/home/user/file.ts", undefined, undefined, "remote")
       expect(url).toBe("cursor://file/home/user/file.ts")
+    })
+
+    it("adds missing leading slash when path lacks one (regression)", () => {
+      // Regression: paths from task output may be relative.
+      // The SSH remote URL must have '/' between machine name and path.
+      const url = buildFileUrlSync(
+        "report/combined_qc_stats.csv",
+        undefined,
+        { name: "spsshqc" },
+        "remote"
+      )
+      expect(url).toBe("cursor://vscode-remote/ssh-remote+spsshqc/report/combined_qc_stats.csv")
     })
   })
 

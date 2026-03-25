@@ -57,19 +57,30 @@ const defaultItems: SidebarItem[] = [
 ]
 
 function mergeWithDefaults(stored: SidebarItem[]): SidebarItem[] {
-  return defaultItems.map((defaultItem) => {
-    const storedItem = stored.find((s) => s.id === defaultItem.id)
-    if (storedItem) {
-      // Always take icon/to/label/protected from defaults (code is source of truth)
+  // Preserve the user's custom order by iterating over stored items first.
+  // Items that no longer exist in defaults are dropped.
+  const merged: SidebarItem[] = stored
+    .flatMap((storedItem): SidebarItem[] => {
+      const defaultItem = defaultItems.find((d) => d.id === storedItem.id)
+      if (!defaultItem) return [] // Item removed from defaults — drop it
+      // Always take icon/to/label/protected/featureFlag from defaults (code is source of truth)
       // Keep user preferences: visible, autoRevealed, userDismissed, ordering
-      const merged = { ...storedItem, icon: defaultItem.icon, to: defaultItem.to, label: defaultItem.label, protected: defaultItem.protected, featureFlag: defaultItem.featureFlag }
+      const result: SidebarItem = { ...storedItem, icon: defaultItem.icon, to: defaultItem.to, label: defaultItem.label, protected: defaultItem.protected, featureFlag: defaultItem.featureFlag }
       if (defaultItem.protected) {
-        return { ...merged, visible: true }
+        return [{ ...result, visible: true }]
       }
-      return merged
+      return [result]
+    })
+
+  // Append any new default items that aren't in the stored list yet
+  const storedIds = new Set(stored.map((s) => s.id))
+  for (const defaultItem of defaultItems) {
+    if (!storedIds.has(defaultItem.id)) {
+      merged.push(defaultItem)
     }
-    return defaultItem
-  })
+  }
+
+  return merged
 }
 
 export const useSidebarStore = create<SidebarStore>((set, get) => ({
