@@ -1305,7 +1305,7 @@ export function SystemPromptBlock({ event }: { event: Extract<TaskActivityEvent,
  * Appears in the activity feed after plan generation or plan chat mutations.
  */
 export function PlanGraphBlock({ event }: { event: Extract<TaskActivityEvent, { type: 'plan_result' }> }) {
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const [svgHtml, setSvgHtml] = useState<string>('')
   const [renderError, setRenderError] = useState(false)

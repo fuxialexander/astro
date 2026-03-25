@@ -648,8 +648,12 @@ export function PlanGeneration({
         return <GitHubCommentBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'github_comment' }>} />
       case 'system_prompt':
         return <SystemPromptBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'system_prompt' }>} />
-      case 'plan_result':
+      case 'plan_result': {
+        // Only show the most recent plan graph — skip older ones to avoid cluttering the chat
+        const lastPlanResultIdx = displayBlocks.map(b => b.type).lastIndexOf('plan_result')
+        if (index !== lastPlanResultIdx) return null
         return <PlanGraphBlock key={index} event={block.events[0] as Extract<TaskActivityEvent, { type: 'plan_result' }>} />
+      }
       default:
         return null
     }

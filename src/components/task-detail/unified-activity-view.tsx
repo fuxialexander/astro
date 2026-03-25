@@ -42,6 +42,7 @@ import {
   BranchLinkedBlock,
   SystemPromptBlock,
   PlanGraphBlock,
+  type DisplayBlock,
 } from "@/components/activity-blocks"
 import { useGitHubCommentsStore } from "@/stores/github-comments-store"
 import { InlineApprovalCard } from "@/components/plan-generation/inline-approval-card"
@@ -847,8 +848,12 @@ export function UnifiedActivityView({
               return <BranchLinkedBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'branch_linked' }>} />
             case 'system_prompt':
               return <SystemPromptBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'system_prompt' }>} />
-            case 'plan_result':
+            case 'plan_result': {
+              // Only show the most recent plan graph — skip older ones to avoid cluttering the activity feed
+              const lastPlanResultIdx = displayBlocks.map((b: DisplayBlock) => b.type).lastIndexOf('plan_result')
+              if (i !== lastPlanResultIdx) return null
               return <PlanGraphBlock key={i} event={block.events[0] as Extract<TaskActivityEvent, { type: 'plan_result' }>} />
+            }
             default:
               return null
           }
