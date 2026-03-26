@@ -77,7 +77,7 @@ function TaskRow({ task, projectId }: { task: ActiveTaskEntry; projectId: string
   if (hasPendingApproval) {
     const approvalLink = task.nodeId.startsWith("plan-") || task.status === "generating"
       ? `/plan?projectId=${projectId}`
-      : task.nodeId.startsWith("playground-")
+      : task.nodeId.startsWith("playground-") || task.nodeId.startsWith("followup-playground-")
         ? `/playground?projectId=${projectId}`
         : `/project/${projectId}/task/${task.nodeId}`
 
