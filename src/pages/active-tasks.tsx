@@ -63,11 +63,16 @@ function TaskRow({ task, projectId }: { task: ActiveTaskEntry; projectId: string
 
   // For tasks with pending approvals, show a warning card
   if (hasPendingApproval) {
+    // Approval link uses the same routing logic as linkTo
     const approvalLink = task.nodeId.startsWith("plan-") || task.status === "generating"
       ? `/plan?projectId=${projectId}`
       : task.nodeId.startsWith("playground-") || task.nodeId.startsWith("followup-playground-")
         ? `/playground?projectId=${projectId}`
-        : `/project/${projectId}/task/${task.nodeId}`
+        : task.nodeId.startsWith("followup-")
+          ? `/project/${projectId}/task/${task.nodeId.replace('followup-', '')}`
+          : task.nodeId.startsWith("task-chat-")
+            ? `/project/${projectId}`
+            : `/project/${projectId}/task/${task.nodeId}`
 
     return (
       <Link
