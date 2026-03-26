@@ -59,6 +59,8 @@ interface ChatPanelProps {
 export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, headerActions }: ChatPanelProps) {
   const [input, setInput] = useState("")
   const [chatImages, setChatImages] = useState<ChatImageAttachment[]>([])
+  /** When set, the next send will truncate the conversation from this message before re-sending */
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const filePickerRef = useRef<(() => void) | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const initialMessageSent = useRef(false)
@@ -314,6 +316,15 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
     setChatImages([])
 
     const sid = session.id
+
+    // Edit & retry: if editing a previous message, truncate the conversation
+    // from that message forward before re-sending. This gives Claude a clean
+    // conversation without the old response to the edited message.
+    if (editingMessageId) {
+      store.truncateAfterMessage(sid, editingMessageId)
+      setEditingMessageId(null)
+    }
+
     addMessage(sid, { role: "user", content: text })
     addMessage(sid, { role: "assistant", content: "" })
 
@@ -337,7 +348,7 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
       messages: historyMessages,
       imageRefs: currentImages.length > 0 ? currentImages.map((img) => img.id) : undefined,
     })
-  }, [projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, addMessage, sendChatMessage, chatImages])
+  }, [projectId, visionDoc, effectiveModel, effectiveProviderId, planNodeContext, planEdgeContext, addMessage, sendChatMessage, chatImages, editingMessageId])
 
   function handleSend() {
     const text = input.trim()
@@ -650,7 +661,18 @@ export function ChatPanel({ projectId, visionDoc, initialMessage, onNodeSelect, 
               return true
             }
           }}
-          onEditMessage={!isStreaming ? (msg) => setInput(msg) : undefined}
+          onEditMessage={!isStreaming ? (msg) => {
+            // Find the matching session message (search from end for most recent match)
+            const session = useSessionStore.getState().sessions.get(currentSession?.id ?? '')
+            const msgs = session?.messages || []
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              if (msgs[i].role === 'user' && msgs[i].content === msg) {
+                setEditingMessageId(msgs[i].id)
+                break
+              }
+            }
+            setInput(msg)
+          } : undefined}
           preprocessContent={preprocessTextContent}
           answeredApprovals={answeredApprovals.answeredApprovals}
           approvalResponses={answeredApprovals.approvalResponses}

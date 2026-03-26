@@ -24,7 +24,6 @@ import {
   GitHubCommentBlock,
   BranchLinkedBlock,
   SystemMessageBlock,
-  SystemPromptBlock,
   PlanGraphBlock,
   type DisplayBlock,
 } from "@/components/activity-blocks"
@@ -204,8 +203,9 @@ export function ActivityBlockRenderer({
           }
 
           case 'system_prompt': {
-            const promptEvent = block.events[0] as Extract<TaskActivityEvent, { type: 'system_prompt' }>
-            return <div key={key} className="px-4"><SystemPromptBlock event={promptEvent} /></div>
+            // System prompts are internal agent context (17+ KB of tool catalogs, yaml-spec
+            // instructions, etc.) — not useful for end users. Hide them from the activity feed.
+            return null
           }
 
           case 'plan_result': {

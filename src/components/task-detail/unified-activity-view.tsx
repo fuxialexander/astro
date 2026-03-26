@@ -64,6 +64,8 @@ export function UnifiedActivityView({
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
   const [taskImages, setTaskImages] = useState<ChatImageAttachment[]>([])
+  /** When set, the next send will truncate the conversation from this message before re-sending */
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const taskFilePickerRef = useRef<(() => void) | null>(null)
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false)
   const [initialFilePath, setInitialFilePath] = useState<string | null>(null)
@@ -308,6 +310,13 @@ export function UnifiedActivityView({
     setTaskImages([])
 
     const sid = chatSession.id
+
+    // Edit & retry: truncate conversation from the edited message forward
+    if (editingMessageId) {
+      useSessionStore.getState().truncateAfterMessage(sid, editingMessageId)
+      setEditingMessageId(null)
+    }
+
     addMessage(sid, { role: "user", content: text || "(See attached images)" })
     addMessage(sid, { role: "assistant", content: "" })
 
@@ -488,7 +497,18 @@ export function UnifiedActivityView({
           isRunning={isRunning || isChatStreaming}
           onSendPrompt={handleSendPrompt}
           onFileSelect={machineId && fileBrowserDir ? handleFileSelect : undefined}
-          onEditMessage={!isRunning && !isChatStreaming ? (msg) => setInput(msg) : undefined}
+          onEditMessage={!isRunning && !isChatStreaming ? (msg) => {
+            // Find the matching session message (search from end for most recent match)
+            const session = useSessionStore.getState().sessions.get(chatSession?.id ?? '')
+            const msgs = session?.messages || []
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              if (msgs[i].role === 'user' && msgs[i].content === msg) {
+                setEditingMessageId(msgs[i].id)
+                break
+              }
+            }
+            setInput(msg)
+          } : undefined}
           onApprovalResponse={handleApprovalResponse}
           githubContext={githubContext}
           answeredApprovals={answeredRequestIds}

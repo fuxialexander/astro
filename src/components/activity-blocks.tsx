@@ -323,12 +323,22 @@ export function groupActivityEvents(events: TaskActivityEvent[]): DisplayBlock[]
         flushTools()
         blocks.push({ type: 'branch_linked', events: [event] })
         break
-      case 'system_message':
+      case 'system_message': {
         flushOperational()
         flushText()
         flushTools()
-        blocks.push({ type: 'system_message', events: [event] })
+        // Deduplicate consecutive system messages with identical text
+        // (SSE reconnections can re-emit session_init, producing duplicates)
+        const sysMsgEvent = event as Extract<TaskActivityEvent, { type: 'system_message' }>
+        const prevBlock = blocks[blocks.length - 1]
+        const prevSysMsg = prevBlock?.type === 'system_message'
+          ? (prevBlock.events[0] as Extract<TaskActivityEvent, { type: 'system_message' }>)
+          : undefined
+        if (!prevSysMsg || prevSysMsg.message !== sysMsgEvent.message) {
+          blocks.push({ type: 'system_message', events: [event] })
+        }
         break
+      }
       case 'system_prompt':
         flushOperational()
         flushText()
